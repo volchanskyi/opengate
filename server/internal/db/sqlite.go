@@ -1,0 +1,489 @@
+package db
+
+import (
+	"context"
+	"database/sql"
+	"embed"
+	"fmt"
+	"time"
+
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/sqlite"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/google/uuid"
+
+	_ "modernc.org/sqlite"
+)
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
+
+// SQLiteStore implements Store using SQLite.
+type SQLiteStore struct {
+	db *sql.DB
+}
+
+// NewSQLiteStore creates a new SQLite-backed store at the given path.
+func NewSQLiteStore(path string) (*SQLiteStore, error) {
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)")
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite: %w", err)
+	}
+	db.SetMaxOpenConns(1) // SQLite only supports one writer
+
+	if err := runMigrations(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrations: %w", err)
+	}
+
+	return &SQLiteStore{db: db}, nil
+}
+
+func runMigrations(db *sql.DB) error {
+	sourceDriver, err := iofs.New(migrationsFS, "migrations")
+	if err != nil {
+		return fmt.Errorf("migration source: %w", err)
+	}
+	dbDriver, err := sqlite.WithInstance(db, &sqlite.Config{})
+	if err != nil {
+		return fmt.Errorf("migration db driver: %w", err)
+	}
+	m, err := migrate.NewWithInstance("iofs", sourceDriver, "sqlite", dbDriver)
+	if err != nil {
+		return fmt.Errorf("migrate instance: %w", err)
+	}
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("migrate up: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) Ping(ctx context.Context) error {
+	return s.db.PingContext(ctx)
+}
+
+func (s *SQLiteStore) Close() error {
+	return s.db.Close()
+}
+
+// --- Devices ---
+
+func (s *SQLiteStore) UpsertDevice(ctx context.Context, d *Device) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO devices (id, group_id, hostname, os, status, last_seen, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   group_id = excluded.group_id,
+		   hostname = excluded.hostname,
+		   os = excluded.os,
+		   status = excluded.status,
+		   last_seen = excluded.last_seen,
+		   updated_at = excluded.updated_at`,
+		d.ID.String(), d.GroupID.String(), d.Hostname, d.OS, string(d.Status), now, now, now)
+	return err
+}
+
+func (s *SQLiteStore) GetDevice(ctx context.Context, id DeviceID) (*Device, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, group_id, hostname, os, status, last_seen, created_at, updated_at FROM devices WHERE id = ?`,
+		id.String())
+	return scanDevice(row)
+}
+
+func (s *SQLiteStore) ListDevices(ctx context.Context, groupID GroupID) ([]*Device, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, group_id, hostname, os, status, last_seen, created_at, updated_at FROM devices WHERE group_id = ?`,
+		groupID.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var devices []*Device
+	for rows.Next() {
+		d, err := scanDeviceRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		devices = append(devices, d)
+	}
+	return devices, rows.Err()
+}
+
+func (s *SQLiteStore) DeleteDevice(ctx context.Context, id DeviceID) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM devices WHERE id = ?`, id.String())
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLiteStore) SetDeviceStatus(ctx context.Context, id DeviceID, status DeviceStatus) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE devices SET status = ?, last_seen = ?, updated_at = ? WHERE id = ?`,
+		string(status), now, now, id.String())
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func scanDevice(row *sql.Row) (*Device, error) {
+	var d Device
+	var idStr, groupIDStr, status, lastSeen, createdAt, updatedAt string
+	err := row.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &status, &lastSeen, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	d.ID = uuid.MustParse(idStr)
+	d.GroupID = uuid.MustParse(groupIDStr)
+	d.Status = DeviceStatus(status)
+	d.LastSeen, _ = time.Parse(time.RFC3339, lastSeen)
+	d.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	d.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &d, nil
+}
+
+func scanDeviceRows(rows *sql.Rows) (*Device, error) {
+	var d Device
+	var idStr, groupIDStr, status, lastSeen, createdAt, updatedAt string
+	err := rows.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &status, &lastSeen, &createdAt, &updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	d.ID = uuid.MustParse(idStr)
+	d.GroupID = uuid.MustParse(groupIDStr)
+	d.Status = DeviceStatus(status)
+	d.LastSeen, _ = time.Parse(time.RFC3339, lastSeen)
+	d.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	d.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &d, nil
+}
+
+// --- Groups ---
+
+func (s *SQLiteStore) CreateGroup(ctx context.Context, g *Group) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO groups_ (id, name, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		g.ID.String(), g.Name, g.OwnerID.String(), now, now)
+	return err
+}
+
+func (s *SQLiteStore) GetGroup(ctx context.Context, id GroupID) (*Group, error) {
+	var g Group
+	var idStr, ownerIDStr, createdAt, updatedAt string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, name, owner_id, created_at, updated_at FROM groups_ WHERE id = ?`,
+		id.String()).Scan(&idStr, &g.Name, &ownerIDStr, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	g.ID = uuid.MustParse(idStr)
+	g.OwnerID = uuid.MustParse(ownerIDStr)
+	g.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	g.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &g, nil
+}
+
+func (s *SQLiteStore) ListGroups(ctx context.Context, ownerID UserID) ([]*Group, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, name, owner_id, created_at, updated_at FROM groups_ WHERE owner_id = ?`,
+		ownerID.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var groups []*Group
+	for rows.Next() {
+		var g Group
+		var idStr, ownerIDStr, createdAt, updatedAt string
+		if err := rows.Scan(&idStr, &g.Name, &ownerIDStr, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		g.ID = uuid.MustParse(idStr)
+		g.OwnerID = uuid.MustParse(ownerIDStr)
+		g.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		g.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		groups = append(groups, &g)
+	}
+	return groups, rows.Err()
+}
+
+func (s *SQLiteStore) DeleteGroup(ctx context.Context, id GroupID) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM groups_ WHERE id = ?`, id.String())
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// --- Users ---
+
+func (s *SQLiteStore) UpsertUser(ctx context.Context, u *User) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO users (id, email, password_hash, display_name, is_admin, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   email = excluded.email,
+		   password_hash = excluded.password_hash,
+		   display_name = excluded.display_name,
+		   is_admin = excluded.is_admin,
+		   updated_at = excluded.updated_at`,
+		u.ID.String(), u.Email, u.PasswordHash, u.DisplayName, u.IsAdmin, now, now)
+	return err
+}
+
+func (s *SQLiteStore) GetUser(ctx context.Context, id UserID) (*User, error) {
+	var u User
+	var idStr, createdAt, updatedAt string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users WHERE id = ?`,
+		id.String()).Scan(&idStr, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	u.ID = uuid.MustParse(idStr)
+	u.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	u.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &u, nil
+}
+
+func (s *SQLiteStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	var u User
+	var idStr, createdAt, updatedAt string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users WHERE email = ?`,
+		email).Scan(&idStr, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	u.ID = uuid.MustParse(idStr)
+	u.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	u.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &u, nil
+}
+
+func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*User, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []*User
+	for rows.Next() {
+		var u User
+		var idStr, createdAt, updatedAt string
+		if err := rows.Scan(&idStr, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+		u.ID = uuid.MustParse(idStr)
+		u.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		u.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+		users = append(users, &u)
+	}
+	return users, rows.Err()
+}
+
+func (s *SQLiteStore) DeleteUser(ctx context.Context, id UserID) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id.String())
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// --- Agent Sessions ---
+
+func (s *SQLiteStore) CreateAgentSession(ctx context.Context, as *AgentSession) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO agent_sessions (token, device_id, user_id, created_at) VALUES (?, ?, ?, ?)`,
+		as.Token, as.DeviceID.String(), as.UserID.String(), now)
+	return err
+}
+
+func (s *SQLiteStore) GetAgentSession(ctx context.Context, token string) (*AgentSession, error) {
+	var as AgentSession
+	var deviceIDStr, userIDStr, createdAt string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT token, device_id, user_id, created_at FROM agent_sessions WHERE token = ?`,
+		token).Scan(&as.Token, &deviceIDStr, &userIDStr, &createdAt)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	as.DeviceID = uuid.MustParse(deviceIDStr)
+	as.UserID = uuid.MustParse(userIDStr)
+	as.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	return &as, nil
+}
+
+func (s *SQLiteStore) DeleteAgentSession(ctx context.Context, token string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM agent_sessions WHERE token = ?`, token)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ListActiveSessionsForDevice(ctx context.Context, deviceID DeviceID) ([]*AgentSession, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT token, device_id, user_id, created_at FROM agent_sessions WHERE device_id = ?`,
+		deviceID.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []*AgentSession
+	for rows.Next() {
+		var as AgentSession
+		var deviceIDStr, userIDStr, createdAt string
+		if err := rows.Scan(&as.Token, &deviceIDStr, &userIDStr, &createdAt); err != nil {
+			return nil, err
+		}
+		as.DeviceID = uuid.MustParse(deviceIDStr)
+		as.UserID = uuid.MustParse(userIDStr)
+		as.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		sessions = append(sessions, &as)
+	}
+	return sessions, rows.Err()
+}
+
+// --- Web Push ---
+
+func (s *SQLiteStore) UpsertWebPushSubscription(ctx context.Context, sub *WebPushSubscription) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO web_push_subscriptions (endpoint, user_id, p256dh, auth)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(endpoint) DO UPDATE SET
+		   user_id = excluded.user_id,
+		   p256dh = excluded.p256dh,
+		   auth = excluded.auth`,
+		sub.Endpoint, sub.UserID.String(), sub.P256dh, sub.Auth)
+	return err
+}
+
+func (s *SQLiteStore) ListWebPushSubscriptions(ctx context.Context, userID UserID) ([]*WebPushSubscription, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions WHERE user_id = ?`,
+		userID.String())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []*WebPushSubscription
+	for rows.Next() {
+		var sub WebPushSubscription
+		var userIDStr string
+		if err := rows.Scan(&sub.Endpoint, &userIDStr, &sub.P256dh, &sub.Auth); err != nil {
+			return nil, err
+		}
+		sub.UserID = uuid.MustParse(userIDStr)
+		subs = append(subs, &sub)
+	}
+	return subs, rows.Err()
+}
+
+func (s *SQLiteStore) DeleteWebPushSubscription(ctx context.Context, endpoint string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM web_push_subscriptions WHERE endpoint = ?`, endpoint)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// --- Audit ---
+
+func (s *SQLiteStore) WriteAuditEvent(ctx context.Context, event *AuditEvent) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO audit_events (user_id, action, target, details, created_at) VALUES (?, ?, ?, ?, ?)`,
+		event.UserID.String(), event.Action, event.Target, event.Details, now)
+	return err
+}
+
+func (s *SQLiteStore) QueryAuditLog(ctx context.Context, q AuditQuery) ([]*AuditEvent, error) {
+	query := `SELECT id, user_id, action, target, details, created_at FROM audit_events WHERE 1=1`
+	var args []any
+	if q.UserID != nil {
+		query += ` AND user_id = ?`
+		args = append(args, q.UserID.String())
+	}
+	if q.Action != "" {
+		query += ` AND action = ?`
+		args = append(args, q.Action)
+	}
+	query += ` ORDER BY created_at DESC`
+	if q.Limit > 0 {
+		query += fmt.Sprintf(` LIMIT %d`, q.Limit)
+	}
+	if q.Offset > 0 {
+		query += fmt.Sprintf(` OFFSET %d`, q.Offset)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []*AuditEvent
+	for rows.Next() {
+		var e AuditEvent
+		var userIDStr, createdAt string
+		if err := rows.Scan(&e.ID, &userIDStr, &e.Action, &e.Target, &e.Details, &createdAt); err != nil {
+			return nil, err
+		}
+		e.UserID = uuid.MustParse(userIDStr)
+		e.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		events = append(events, &e)
+	}
+	return events, rows.Err()
+}

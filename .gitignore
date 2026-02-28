@@ -16,6 +16,11 @@
 *.db-wal
 *.db-shm
 
+# Certificates (generated at runtime)
+ca.crt
+ca.key
+*.pem
+
 # Environment
 .env
 .env.*
@@ -32,6 +37,9 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# MCP
+.mcp.json
 
 # Test artifacts
 /testdata/golden/*.generated
