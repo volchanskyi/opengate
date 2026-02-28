@@ -25,7 +25,7 @@ jobs:
       - run: cargo clippy --workspace -- -D warnings
       - run: cargo test --workspace
       - name: Generate golden files
-        run: GENERATE_GOLDEN=1 cargo test -p mesh-protocol --test golden
+        run: GENERATE_GOLDEN=1 cargo test -p mesh-protocol --test golden_test
       - uses: actions/upload-artifact@v4
         with:
           name: golden-files
@@ -45,9 +45,9 @@ jobs:
           cache-dependency-path: server/go.sum
       - run: go vet ./...
       - name: Unit tests with coverage
-        run: go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v /integration)
+        run: go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v /tests/integration)
       - name: Integration tests
-        run: go test -race -timeout 5m -v ./internal/integration/
+        run: go test -race -timeout 5m -v ./tests/integration/
       - name: Coverage summary
         run: go tool cover -func=coverage.out
 

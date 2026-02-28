@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +20,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/api"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
 // testEnv holds a running test server and its dependencies.
@@ -32,10 +32,7 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
-	dir := t.TempDir()
-	store, err := db.NewSQLiteStore(filepath.Join(dir, "integration.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { store.Close() })
+	store := testutil.NewTestStore(t)
 
 	jwtCfg := &auth.JWTConfig{
 		Secret:   "integration-test-secret-32-bytes!",
