@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
     branches: [main]
 
@@ -86,3 +86,25 @@ jobs:
       - run: npm ci
       - run: npx vitest run
       - run: npx vite build
+
+  merge-to-main:
+    name: Auto-merge dev → main
+    needs: [rust, go, golden, web]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Merge dev into main
+        run: |
+          git fetch origin dev
+          git merge --no-ff origin/dev -m "ci: auto-merge dev → main"
+          git push origin main
