@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS groups_ (
 
 CREATE TABLE IF NOT EXISTS devices (
     id TEXT PRIMARY KEY,
-    group_id TEXT NOT NULL REFERENCES groups_(id),
+    group_id TEXT NOT NULL REFERENCES groups_(id) ON DELETE CASCADE,
     hostname TEXT NOT NULL DEFAULT '',
     os TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'offline',

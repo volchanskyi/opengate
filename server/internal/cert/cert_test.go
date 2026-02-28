@@ -45,6 +45,84 @@ func TestNewManager(t *testing.T) {
 		_, err := NewManager("/nonexistent/path/certs")
 		assert.Error(t, err)
 	})
+
+	t.Run("fails on corrupt cert PEM", func(t *testing.T) {
+		dir := t.TempDir()
+		// Create valid CA first to get key file
+		_, err := NewManager(dir)
+		require.NoError(t, err)
+		// Corrupt the cert file
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), []byte("not-pem-data"), 0644))
+
+		_, err = NewManager(dir)
+		assert.Error(t, err)
+	})
+
+	t.Run("fails on corrupt key PEM", func(t *testing.T) {
+		dir := t.TempDir()
+		_, err := NewManager(dir)
+		require.NoError(t, err)
+		// Corrupt only the key file
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.key"), []byte("not-pem-data"), 0600))
+
+		_, err = NewManager(dir)
+		assert.Error(t, err)
+	})
+
+	t.Run("fails on invalid cert DER in valid PEM", func(t *testing.T) {
+		dir := t.TempDir()
+		_, err := NewManager(dir)
+		require.NoError(t, err)
+		// Write valid PEM wrapper but with garbage DER content
+		badPEM := "-----BEGIN CERTIFICATE-----\nYmFkZGF0YQ==\n-----END CERTIFICATE-----\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), []byte(badPEM), 0644))
+
+		_, err = NewManager(dir)
+		assert.Error(t, err)
+	})
+
+	t.Run("fails on invalid key DER in valid PEM", func(t *testing.T) {
+		dir := t.TempDir()
+		_, err := NewManager(dir)
+		require.NoError(t, err)
+		// Keep the valid cert, corrupt key with valid PEM but bad DER
+		badPEM := "-----BEGIN EC PRIVATE KEY-----\nYmFkZGF0YQ==\n-----END EC PRIVATE KEY-----\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.key"), []byte(badPEM), 0600))
+
+		_, err = NewManager(dir)
+		assert.Error(t, err)
+	})
+
+	t.Run("fails on unreadable cert file", func(t *testing.T) {
+		dir := t.TempDir()
+		_, err := NewManager(dir)
+		require.NoError(t, err)
+		require.NoError(t, os.Chmod(filepath.Join(dir, "ca.crt"), 0000))
+		t.Cleanup(func() { os.Chmod(filepath.Join(dir, "ca.crt"), 0644) })
+
+		_, err = NewManager(dir)
+		assert.Error(t, err)
+	})
+
+	t.Run("fails on unreadable key file", func(t *testing.T) {
+		dir := t.TempDir()
+		_, err := NewManager(dir)
+		require.NoError(t, err)
+		require.NoError(t, os.Chmod(filepath.Join(dir, "ca.key"), 0000))
+		t.Cleanup(func() { os.Chmod(filepath.Join(dir, "ca.key"), 0600) })
+
+		_, err = NewManager(dir)
+		assert.Error(t, err)
+	})
+
+	t.Run("fails to write to read-only dir", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.Chmod(dir, 0555))
+		t.Cleanup(func() { os.Chmod(dir, 0755) })
+
+		_, err := NewManager(dir)
+		assert.Error(t, err)
+	})
 }
 
 func TestCACert(t *testing.T) {

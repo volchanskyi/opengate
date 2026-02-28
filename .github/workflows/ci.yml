@@ -24,6 +24,12 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace -- -D warnings
       - run: cargo test --workspace
+      - name: Generate golden files
+        run: GENERATE_GOLDEN=1 cargo test -p mesh-protocol --test golden
+      - uses: actions/upload-artifact@v4
+        with:
+          name: golden-files
+          path: testdata/golden/
 
   go:
     name: Go
@@ -38,7 +44,31 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: server/go.sum
       - run: go vet ./...
-      - run: go test -race -timeout 5m ./...
+      - name: Unit tests with coverage
+        run: go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v /integration)
+      - name: Integration tests
+        run: go test -race -timeout 5m -v ./internal/integration/
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out
+
+  golden:
+    name: Golden File Verification
+    needs: [rust]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: server/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: golden-files
+          path: testdata/golden/
+      - run: go test ./internal/protocol/ -run TestGolden -v
 
   web:
     name: Web

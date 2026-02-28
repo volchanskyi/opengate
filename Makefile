@@ -1,4 +1,4 @@
-.PHONY: build test test-short lint fmt golden ci e2e clean
+.PHONY: build test test-short test-integration test-coverage lint fmt golden ci e2e clean
 
 build:
 	cd agent && cargo build --workspace
@@ -20,6 +20,12 @@ test-go:
 
 test-web:
 	cd web && npx vitest run
+
+test-integration:
+	cd server && go test -race -timeout 5m ./internal/integration/
+
+test-coverage:
+	cd server && go test -race -coverprofile=coverage.out -covermode=atomic ./... && go tool cover -func=coverage.out
 
 lint:
 	cd agent && cargo clippy --workspace -- -D warnings
