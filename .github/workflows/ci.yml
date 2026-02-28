@@ -45,7 +45,7 @@ jobs:
           cache-dependency-path: server/go.sum
       - run: go vet ./...
       - name: Unit tests with coverage
-        run: go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v /tests/integration)
+        run: go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
       - name: Integration tests
         run: go test -race -timeout 5m -v ./tests/integration/
       - name: Coverage summary
