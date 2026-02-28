@@ -1,0 +1,45 @@
+# Rust
+/agent/target/
+**/*.rs.bk
+
+# Go
+/server/bin/
+/server/vendor/
+
+# Web
+/web/node_modules/
+/web/dist/
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test artifacts
+/testdata/golden/*.generated
+coverage/
+*.coverprofile
+
+# Build
+*.exe
+*.dll
+*.so
+*.dylib
