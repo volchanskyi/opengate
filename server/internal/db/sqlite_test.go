@@ -15,8 +15,7 @@ import (
 // newTestStore creates a temporary SQLite store for testing.
 func newTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
-	dir := t.TempDir()
-	store, err := NewSQLiteStore(filepath.Join(dir, "test.db"))
+	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "test.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { store.Close() })
 	return store
@@ -30,7 +29,6 @@ func seedUser(t *testing.T, ctx context.Context, s *SQLiteStore) *User {
 		Email:        "test-" + uuid.New().String()[:8] + "@example.com",
 		PasswordHash: "hash",
 		DisplayName:  "Test User",
-		IsAdmin:      false,
 	}
 	require.NoError(t, s.UpsertUser(ctx, u))
 	return u
