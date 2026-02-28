@@ -133,9 +133,7 @@ fn test_frame_type_byte_prefix() {
     assert_eq!(encoded[0], 0x02);
 
     // Terminal frames must have type prefix 0x03
-    let terminal = Frame::Terminal(TerminalFrame {
-        data: vec![b'A'],
-    });
+    let terminal = Frame::Terminal(TerminalFrame { data: vec![b'A'] });
     let encoded = terminal.encode().unwrap();
     assert_eq!(encoded[0], 0x03);
 
@@ -208,8 +206,7 @@ fn test_handshake_binary_roundtrip() {
 
     for msg in messages {
         let encoded = msg.encode_binary();
-        let decoded = HandshakeMessage::decode_binary(&encoded)
-            .expect("decode should succeed");
+        let decoded = HandshakeMessage::decode_binary(&encoded).expect("decode should succeed");
         assert_eq!(msg, decoded);
     }
 }
@@ -245,24 +242,15 @@ fn test_device_id_stable_across_serialization() {
 fn test_frame_decode_incomplete() {
     // Empty data
     let result = Frame::decode(&[]);
-    assert!(matches!(
-        result,
-        Err(ProtocolError::IncompleteFrame { .. })
-    ));
+    assert!(matches!(result, Err(ProtocolError::IncompleteFrame { .. })));
 
     // Just a type byte, no length
     let result = Frame::decode(&[0x01]);
-    assert!(matches!(
-        result,
-        Err(ProtocolError::IncompleteFrame { .. })
-    ));
+    assert!(matches!(result, Err(ProtocolError::IncompleteFrame { .. })));
 
     // Type byte + partial length
     let result = Frame::decode(&[0x01, 0x00, 0x00]);
-    assert!(matches!(
-        result,
-        Err(ProtocolError::IncompleteFrame { .. })
-    ));
+    assert!(matches!(result, Err(ProtocolError::IncompleteFrame { .. })));
 }
 
 #[test]

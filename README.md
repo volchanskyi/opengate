@@ -1,5 +1,7 @@
 # OpenGate
 
+[![CI](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml/badge.svg)](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml)
+
 Remote device management platform.
 
 - **Agent** (Rust) — runs on managed devices (Windows/Linux)

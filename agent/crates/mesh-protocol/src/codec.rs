@@ -69,8 +69,7 @@ impl Frame {
                         needed: 5 - data.len(),
                     });
                 }
-                let length =
-                    u32::from_be_bytes([data[1], data[2], data[3], data[4]]) as usize;
+                let length = u32::from_be_bytes([data[1], data[2], data[3], data[4]]) as usize;
                 if length > MAX_FRAME_SIZE {
                     return Err(ProtocolError::FrameTooLarge {
                         size: length,
@@ -85,18 +84,10 @@ impl Frame {
                 }
                 let payload = &data[5..total];
                 let frame = match type_byte {
-                    FRAME_CONTROL => {
-                        Frame::Control(rmp_serde::from_slice(payload)?)
-                    }
-                    FRAME_DESKTOP => {
-                        Frame::Desktop(rmp_serde::from_slice(payload)?)
-                    }
-                    FRAME_TERMINAL => {
-                        Frame::Terminal(rmp_serde::from_slice(payload)?)
-                    }
-                    FRAME_FILE => {
-                        Frame::FileTransfer(rmp_serde::from_slice(payload)?)
-                    }
+                    FRAME_CONTROL => Frame::Control(rmp_serde::from_slice(payload)?),
+                    FRAME_DESKTOP => Frame::Desktop(rmp_serde::from_slice(payload)?),
+                    FRAME_TERMINAL => Frame::Terminal(rmp_serde::from_slice(payload)?),
+                    FRAME_FILE => Frame::FileTransfer(rmp_serde::from_slice(payload)?),
                     _ => unreachable!(),
                 };
                 Ok((frame, total))

@@ -32,7 +32,8 @@ fn golden_check(name: &str, data: &[u8]) {
             )
         });
         assert_eq!(
-            data, &expected[..],
+            data,
+            &expected[..],
             "Golden file mismatch: {}",
             path.display()
         );

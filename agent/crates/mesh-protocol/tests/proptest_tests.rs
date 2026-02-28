@@ -30,15 +30,22 @@ fn arb_capabilities() -> impl Strategy<Value = Vec<AgentCapability>> {
 }
 
 fn arb_permissions() -> impl Strategy<Value = Permissions> {
-    (any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()).prop_map(
-        |(desktop, terminal, file_read, file_write, input)| Permissions {
-            desktop,
-            terminal,
-            file_read,
-            file_write,
-            input,
-        },
+    (
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
+        any::<bool>(),
     )
+        .prop_map(
+            |(desktop, terminal, file_read, file_write, input)| Permissions {
+                desktop,
+                terminal,
+                file_read,
+                file_write,
+                input,
+            },
+        )
 }
 
 fn arb_control_message() -> impl Strategy<Value = ControlMessage> {
@@ -51,12 +58,10 @@ fn arb_control_message() -> impl Strategy<Value = ControlMessage> {
             }
         }),
         any::<i64>().prop_map(|timestamp| ControlMessage::AgentHeartbeat { timestamp }),
-        (arb_session_token(), ".*").prop_map(|(token, relay_url)| {
-            ControlMessage::SessionAccept { token, relay_url }
-        }),
-        (arb_session_token(), ".*").prop_map(|(token, reason)| {
-            ControlMessage::SessionReject { token, reason }
-        }),
+        (arb_session_token(), ".*")
+            .prop_map(|(token, relay_url)| { ControlMessage::SessionAccept { token, relay_url } }),
+        (arb_session_token(), ".*")
+            .prop_map(|(token, reason)| { ControlMessage::SessionReject { token, reason } }),
         (arb_session_token(), ".*", arb_permissions()).prop_map(
             |(token, relay_url, permissions)| {
                 ControlMessage::SessionRequest {
@@ -76,10 +81,7 @@ fn arb_control_message() -> impl Strategy<Value = ControlMessage> {
         Just(ControlMessage::RelayReady),
         ".*".prop_map(|sdp_offer| ControlMessage::SwitchToWebRTC { sdp_offer }),
         Just(ControlMessage::SwitchAck),
-        (".*", ".*").prop_map(|(candidate, mid)| ControlMessage::IceCandidate {
-            candidate,
-            mid,
-        }),
+        (".*", ".*").prop_map(|(candidate, mid)| ControlMessage::IceCandidate { candidate, mid }),
     ]
 }
 

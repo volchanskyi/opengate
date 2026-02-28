@@ -272,11 +272,11 @@ impl HandshakeMessage {
                     ));
                 }
                 let device_id = DeviceId(uuid::Uuid::from_bytes(
-                    payload[..16]
-                        .try_into()
-                        .map_err(|_| crate::ProtocolError::InvalidHandshake(
+                    payload[..16].try_into().map_err(|_| {
+                        crate::ProtocolError::InvalidHandshake(
                             "invalid device_id bytes".to_string(),
-                        ))?,
+                        )
+                    })?,
                 ));
                 let signature = payload[16..].to_vec();
                 Ok(Self::AgentProof {
