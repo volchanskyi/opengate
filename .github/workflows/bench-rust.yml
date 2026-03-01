@@ -1,0 +1,44 @@
+name: Rust Benchmarks
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [dev]
+
+permissions:
+  contents: write
+
+jobs:
+  bench-rust:
+    name: Rust Benchmarks
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+      - name: Run benchmarks
+        run: |
+          cargo bench --package mesh-protocol -- --output-format bencher 2>/dev/null | tee "$GITHUB_WORKSPACE/bench-rust.txt"
+          if [ ! -s "$GITHUB_WORKSPACE/bench-rust.txt" ]; then
+            echo "::error::Benchmark output is empty"
+            exit 1
+          fi
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: cargo
+          output-file-path: bench-rust.txt
+          benchmark-data-dir-path: dev/bench/rust
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: '110%'
+          fail-on-alert: true
+          comment-on-alert: true
+          alert-comment-cc-users: '@volchanskyi'
