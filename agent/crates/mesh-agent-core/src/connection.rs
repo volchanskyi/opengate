@@ -121,8 +121,9 @@ impl<S: ControlStream> AgentConnection<S> {
         self.stream.read_exact(&mut payload).await?;
 
         // Decode control message
-        let msg: ControlMessage = rmp_serde::from_slice(&payload)
-            .map_err(|e| ConnectionError::Protocol(mesh_protocol::ProtocolError::MsgpackDecode(e)))?;
+        let msg: ControlMessage = rmp_serde::from_slice(&payload).map_err(|e| {
+            ConnectionError::Protocol(mesh_protocol::ProtocolError::MsgpackDecode(e))
+        })?;
 
         Ok(msg)
     }
@@ -167,10 +168,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mesh_protocol::{
-        codec::FRAME_CONTROL,
-        ControlMessage, Frame, SessionToken,
-    };
+    use mesh_protocol::{codec::FRAME_CONTROL, ControlMessage, Frame, SessionToken};
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
 
@@ -237,7 +235,10 @@ mod tests {
         let decoded: ControlMessage = rmp_serde::from_slice(&payload).unwrap();
         match decoded {
             ControlMessage::AgentRegister {
-                hostname, os, capabilities, ..
+                hostname,
+                os,
+                capabilities,
+                ..
             } => {
                 assert_eq!(hostname, "test-host");
                 assert_eq!(os, "linux");

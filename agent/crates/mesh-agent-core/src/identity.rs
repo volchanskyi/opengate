@@ -126,7 +126,10 @@ mod tests {
 
         // Verify cert DER is non-empty and starts with a valid ASN.1 SEQUENCE tag
         assert!(!identity.cert_der.is_empty());
-        assert_eq!(identity.cert_der[0], 0x30, "DER should start with SEQUENCE tag");
+        assert_eq!(
+            identity.cert_der[0], 0x30,
+            "DER should start with SEQUENCE tag"
+        );
     }
 
     #[test]
