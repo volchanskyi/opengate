@@ -134,7 +134,7 @@ jobs:
         uses: schneegans/dynamic-badges-action@v1.7.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
-          gistID: <GIST_ID>
+          gistID: cf505c74b56eab52c9497af517b53222
           filename: opengate-coverage.json
           label: Go Server Coverage
           message: ${{ steps.coverage.outputs.percentage }}%
