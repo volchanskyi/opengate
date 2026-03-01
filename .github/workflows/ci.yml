@@ -2,9 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
+  workflow_dispatch:
   schedule:
     - cron: '0 6 * * *'
 
@@ -21,7 +22,7 @@ jobs:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -38,7 +39,7 @@ jobs:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -82,8 +83,8 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache-dependency-path: server/go.sum
@@ -98,15 +99,16 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache-dependency-path: server/go.sum
       - name: Unit tests with coverage
         run: |
           set +e
-          go test -json -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/... > unit-results.json 2>&1
+          go test -json -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/... > unit-results.json 2>unit-stderr.log
+          cat unit-stderr.log >&2
           EXIT_CODE=$?
           PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
           FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
@@ -145,15 +147,16 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache-dependency-path: server/go.sum
       - name: Integration tests
         run: |
           set +e
-          go test -json -race -timeout 5m ./tests/integration/ > integration-results.json 2>&1
+          go test -json -race -timeout 5m ./tests/integration/ > integration-results.json 2>integration-stderr.log
+          cat integration-stderr.log >&2
           EXIT_CODE=$?
           PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
           FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
@@ -178,8 +181,8 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache-dependency-path: server/go.sum
@@ -196,8 +199,8 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
@@ -230,17 +233,17 @@ jobs:
     name: CodeQL Go
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache-dependency-path: server/go.sum
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: go
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v3
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/autobuild@v4
+      - uses: github/codeql-action/analyze@v4
         with:
           category: go
 
@@ -248,12 +251,12 @@ jobs:
     name: CodeQL TypeScript
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@v6
+      - uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: javascript-typescript
 
@@ -261,14 +264,14 @@ jobs:
     name: CodeQL Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: rust
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v3
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/autobuild@v4
+      - uses: github/codeql-action/analyze@v4
         with:
           category: rust
 
@@ -276,13 +279,13 @@ jobs:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version: '1.24'
           cache-dependency-path: server/go.sum
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
@@ -312,12 +315,12 @@ jobs:
       - codeql-js
       - codeql-rust
       - security-audit
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           ref: main
