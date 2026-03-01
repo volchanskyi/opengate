@@ -24,17 +24,23 @@ jobs:
         with:
           workspaces: agent
       - name: Run benchmarks
+        run: cargo bench --package mesh-protocol --bench codec_bench
+      - name: Convert criterion JSON to benchmark format
         run: |
-          cargo bench --package mesh-protocol -- --output-format bencher 2>/dev/null | tee "$GITHUB_WORKSPACE/bench-rust.txt"
-          if [ ! -s "$GITHUB_WORKSPACE/bench-rust.txt" ]; then
-            echo "::error::Benchmark output is empty"
-            exit 1
-          fi
+          # Read criterion's estimates.json files and produce the JSON format
+          # expected by github-action-benchmark's customSmallerIsBetter tool
+          jq -n '[inputs | {
+            name: input_filename | split("/")[-3],
+            unit: "ns/iter",
+            value: .mean.point_estimate
+          }]' target/criterion/*/new/estimates.json \
+            > "$GITHUB_WORKSPACE/bench-rust.json"
+          cat "$GITHUB_WORKSPACE/bench-rust.json"
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          tool: cargo
-          output-file-path: bench-rust.txt
+          tool: customSmallerIsBetter
+          output-file-path: bench-rust.json
           benchmark-data-dir-path: dev/bench/rust
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
