@@ -99,7 +99,7 @@ Control messages use MessagePack encoding inside a framed transport:
 [1-byte frame type][4-byte BE payload length][payload]
 ```
 
-Ping (`0x08`) and Pong (`0x09`) are single-byte frames with no payload.
+Ping (`0x05`) and Pong (`0x06`) are single-byte frames with no payload.
 The handshake (ServerHello/AgentHello) uses raw binary encoding, not MessagePack.
 Golden file tests guarantee bit-identical encoding between the Rust and Go codecs.
 
@@ -138,39 +138,111 @@ make golden             # Regenerate golden fixtures and verify cross-language c
 
 ### CI pipeline flow
 
-Every push to `dev` and every pull request targeting `main` runs the full pipeline:
+Every push to `dev` or `main` and every pull request targeting `main` or `dev` runs the
+CI pipeline. A daily schedule (`0 6 * * *`) also triggers all jobs for CodeQL and security
+scanning. Benchmarks run in a separate workflow, triggered automatically when CI succeeds
+on `dev`.
 
 ```
-push → dev  /  pull_request → main
+                        CI Workflow
+push → dev|main  /  pull_request → main|dev  /  schedule
                 │
-     ┌──────────┼──────────┐
-     ▼          ▼          ▼
-   Rust        Go         Web        (parallel)
-   ├─ fmt       ├─ vet     ├─ vitest
-   ├─ clippy    ├─ unit    └─ build
-   ├─ test      └─ integration
+     ┌──────────┼──────────────────────────────┐
+     ▼          ▼          ▼          ▼         ▼
+   Rust        Go         Web      Security   CodeQL         (parallel)
+   ├─ lint      ├─ lint    ├─ test   ├─ govulncheck  ├─ Go
+   ├─ test      ├─ unit    └─ build  ├─ cargo audit  ├─ TypeScript
+   │            └─ integration       └─ npm audit    └─ Rust
    └─ generate golden files
          │
          ▼
    Golden verification   (needs Rust — consumes artifact)
-   Go verifies golden fixtures match
          │
-         ▼  (push events only, after all jobs pass)
-   Auto-merge dev → main
+         └──────── all 11 jobs must pass ────────┐
+                                                  ▼
+                                     Auto-merge dev → main
+                                     └─ Update coverage badge
+
+          Go Benchmarks Workflow    Rust Benchmarks Workflow
+          (CI success on dev)       (CI success on dev)
+                   │                         │
+                   ▼                         ▼
+             Go Benchmarks            Rust Benchmarks
+                   │                         │
+                   └──── stored in gh-pages ─┘
 ```
 
 ### CI pipeline jobs
 
+The CI workflow contains **12 jobs** grouped by concern:
+
+| Group | Jobs | Purpose |
+|-------|------|---------|
+| **Rust** | `rust-lint`, `rust-test` | fmt + clippy, nextest + golden file generation |
+| **Go** | `go-lint`, `go-unit`, `go-integration` | go vet, unit tests with coverage, QUIC integration tests |
+| **Web** | `web` | Vitest + Vite build |
+| **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
+| **Security** | `security-audit` | govulncheck (Go), cargo audit (Rust), npm audit (Web) |
+| **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
+| **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after all 11 gate jobs pass |
+
+Benchmarks run as **two independent workflows** (`Go Benchmarks`, `Rust Benchmarks`),
+each triggered by `workflow_run` when CI completes successfully on `dev`.
+
 The **golden verification** job is sequenced after Rust so the Go verifier always works against
 freshly generated fixtures — this prevents Rust ↔ Go wire-format drift from going undetected.
-Pull requests execute every job except the auto-merge step.
+Pull requests execute every job except auto-merge. Benchmarks only run on `dev` pushes.
 
-The Go job enforces a **70% minimum unit test coverage** threshold — the build fails if
+The Go unit test job enforces a **70% minimum coverage** threshold — the build fails if
 coverage of production code drops below this level. Test utilities (`testutil/`) are excluded
 from the coverage calculation.
 
 Each CI job posts a native Markdown summary (pass/fail counts, failed test names) to the
 GitHub Actions job summary tab for quick triage without digging into logs.
+
+### Performance benchmarks
+
+CI tracks performance of hot paths across commits to catch regressions. Benchmarks run on
+every push to `dev` and results are stored in the `gh-pages` branch via
+[github-action-benchmark](https://github.com/benchmark-action/github-action-benchmark).
+
+| Language | What's benchmarked | Tool |
+|----------|--------------------|------|
+| Go | Protocol codec, cert signing, DB operations, handshake | `testing.B` + `-benchmem` |
+| Rust | Frame encode/decode, handshake encode/decode | Criterion 0.5 |
+
+Regression threshold: **110%** — the bench job fails if any benchmark is more than 10% slower
+than the stored baseline. Historical charts are viewable on GitHub Pages.
+
+### Branch protection
+
+Both long-lived branches are protected:
+
+| Branch | Rules |
+|--------|-------|
+| `main` | No force pushes, no deletion |
+| `dev` | All 11 gate jobs must pass before PR merge; no force pushes, no deletion |
+
+Direct pushes to `dev` are allowed (for daily development), but PRs (including Dependabot)
+require all status checks to pass before merging.
+
+### Dependency management
+
+[Dependabot](.github/dependabot.yml) checks all four ecosystems (Go, Cargo, npm, GitHub
+Actions) daily and opens PRs targeting `dev`. A companion
+[auto-merge workflow](.github/workflows/dependabot-auto-merge.yml) approves and squash-merges
+Dependabot PRs automatically after CI passes, keeping dependencies current without manual
+review.
+
+### Security scanning
+
+Three layers of automated security analysis run on every CI trigger:
+
+- **CodeQL** — static analysis for Go, TypeScript, and Rust with `security-and-quality` queries;
+  also runs on a daily schedule to catch newly disclosed patterns
+- **Vulnerability scanners** — `govulncheck` (Go), `cargo audit` (Rust), `npm audit` (Web)
+  check dependencies against known vulnerability databases
+- **Dependabot** — daily dependency updates to minimize exposure window
 
 ### Key dependencies
 
@@ -179,7 +251,7 @@ GitHub Actions job summary tab for quick triage without digging into logs.
 | Go | `chi/v5` | HTTP router |
 | Go | `golang-jwt/v5` | JWT authentication |
 | Go | `golang-migrate/v4` | Database migrations |
-| Go | `quic-go` v0.48 | QUIC transport for agents |
+| Go | `quic-go` v0.49 | QUIC transport for agents |
 | Go | `modernc.org/sqlite` | Pure-Go SQLite driver |
 | Go | `vmihailenco/msgpack/v5` | MessagePack codec |
 | Rust | `quinn` 0.11 | QUIC transport |
@@ -187,6 +259,7 @@ GitHub Actions job summary tab for quick triage without digging into logs.
 | Rust | `rcgen` 0.13 | Certificate generation |
 | Rust | `rmp-serde` 1 | MessagePack codec |
 | Rust | `tokio` 1 | Async runtime |
+| Rust | `criterion` 0.5 | Benchmarking (dev) |
 | Web | React 19 | UI framework |
 | Web | Zustand | State management |
 | Web | Tailwind CSS 4 | Styling |
