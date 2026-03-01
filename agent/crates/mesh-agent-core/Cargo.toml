@@ -8,3 +8,14 @@ mesh-protocol = { path = "../mesh-protocol" }
 tokio.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
+uuid.workspace = true
+serde.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+rcgen.workspace = true
+rustls-pemfile.workspace = true
+rmp-serde.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util", "macros"] }

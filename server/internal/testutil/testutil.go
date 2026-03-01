@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
 // NewTestStore creates a temporary SQLite store backed by a t.TempDir() database
@@ -60,4 +61,16 @@ func SeedDevice(t testing.TB, ctx context.Context, s db.Store, groupID uuid.UUID
 	}
 	require.NoError(t, s.UpsertDevice(ctx, d))
 	return d
+}
+
+// SeedAgentSession inserts an agent session for the given device and user.
+func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, userID uuid.UUID) *db.AgentSession {
+	t.Helper()
+	sess := &db.AgentSession{
+		Token:    string(protocol.GenerateSessionToken()),
+		DeviceID: deviceID,
+		UserID:   userID,
+	}
+	require.NoError(t, s.CreateAgentSession(ctx, sess))
+	return sess
 }
