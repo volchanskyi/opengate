@@ -52,7 +52,7 @@ make test-coverage      # Go coverage report printed to stdout
 make golden             # Regenerate golden fixtures and verify cross-language compat
 ```
 
-### CI pipeline
+### CI pipeline flow
 
 Every push to `dev` and every pull request targeting `main` runs the full pipeline:
 
@@ -74,6 +74,8 @@ push → dev  /  pull_request → main
          ▼  (push events only, after all jobs pass)
    Auto-merge dev → main
 ```
+
+### CI pipeline jobs
 
 The **golden verification** job is sequenced after Rust so the Go verifier always works against
 freshly generated fixtures — this prevents Rust ↔ Go wire-format drift from going undetected.

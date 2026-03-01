@@ -21,11 +21,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: agent
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace -- -D warnings
-      - run: cargo test --workspace
+      - name: Tests
+        run: |
+          set +e
+          cargo nextest run --workspace --no-fail-fast > test-output.txt 2>&1
+          EXIT_CODE=$?
+          cat test-output.txt
+          SUMMARY=$(grep "Summary" test-output.txt | tail -1 || echo "no summary")
+          FAIL_TESTS=$(grep " FAIL " test-output.txt || echo "")
+          {
+            echo "## Rust Tests"
+            echo ""
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "✅ $SUMMARY"
+            else
+              echo "❌ $SUMMARY"
+              if [ -n "$FAIL_TESTS" ]; then
+                echo ""
+                echo "$FAIL_TESTS" | sed 's/.*FAIL \[.*\] /- ❌ /'
+              fi
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $EXIT_CODE
       - name: Generate golden files
-        run: GENERATE_GOLDEN=1 cargo test -p mesh-protocol --test golden_test
+        run: GENERATE_GOLDEN=1 cargo nextest run -p mesh-protocol -E 'binary(golden_test)'
       - uses: actions/upload-artifact@v4
         with:
           name: golden-files
@@ -45,9 +69,45 @@ jobs:
           cache-dependency-path: server/go.sum
       - run: go vet ./...
       - name: Unit tests with coverage
-        run: go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
+        run: |
+          set +e
+          go test -json -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/... > unit-results.json 2>&1
+          EXIT_CODE=$?
+          PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
+          FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
+          {
+            echo "## Go Unit Tests"
+            echo ""
+            if [ "$FAILED" -eq 0 ]; then
+              echo "✅ **${PASSED} passed**"
+            else
+              echo "❌ **${FAILED} failed**, ${PASSED} passed"
+              echo ""
+              echo "| Package | Test |"
+              echo "|---------|------|"
+              jq -r 'select(.Action=="fail" and .Test != null) | "| \(.Package | split("/") | last) | \(.Test) |"' unit-results.json
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $EXIT_CODE
       - name: Integration tests
-        run: go test -race -timeout 5m -v ./tests/integration/
+        run: |
+          set +e
+          go test -json -race -timeout 5m ./tests/integration/ > integration-results.json 2>&1
+          EXIT_CODE=$?
+          PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
+          FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
+          {
+            echo "## Go Integration Tests"
+            echo ""
+            if [ "$FAILED" -eq 0 ]; then
+              echo "✅ **${PASSED} passed**"
+            else
+              echo "❌ **${FAILED} failed**, ${PASSED} passed"
+              echo ""
+              jq -r 'select(.Action=="fail" and .Test != null) | "- ❌ \(.Test)"' integration-results.json
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $EXIT_CODE
       - name: Enforce coverage threshold
         run: |
           grep -v '/testutil/' coverage.out > coverage-prod.out
@@ -93,7 +153,27 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - run: npx vitest run
+      - name: Run tests
+        run: |
+          set +e
+          npx vitest run --reporter=verbose --reporter=json --outputFile=test-results.json
+          EXIT_CODE=$?
+          node -e "
+            const fs = require('fs');
+            const r = JSON.parse(fs.readFileSync('test-results.json', 'utf8'));
+            const p = r.numPassedTests, f = r.numFailedTests;
+            let md = '## Web Tests\n\n';
+            if (f === 0) {
+              md += '✅ **' + p + ' passed**\n';
+            } else {
+              md += '❌ **' + f + ' failed**, ' + p + ' passed\n\n';
+              r.testResults.forEach(s => s.assertionResults
+                .filter(t => t.status === 'failed')
+                .forEach(t => { md += '- ❌ ' + t.fullName + '\n'; }));
+            }
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+          "
+          exit $EXIT_CODE
       - run: npx vite build
 
   merge-to-main:
