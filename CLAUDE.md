@@ -29,6 +29,12 @@ Write failing tests FIRST. Then implement. Then refactor. No exceptions.
 - Frame format: [1-byte type][4-byte BE length][payload]
 - Golden file tests verify Rust ↔ Go compatibility
 
+## Pre-Commit Checklist
+Before every commit, run tests AND benchmarks locally to catch regressions:
+1. `make test` — all tests must pass
+2. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+3. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+
 ## Commands
 - `make build` — build all components
 - `make test` — run all tests
