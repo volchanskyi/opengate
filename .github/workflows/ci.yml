@@ -302,18 +302,7 @@ jobs:
 
   bench-go:
     name: Go Benchmarks
-    needs:
-      - rust-lint
-      - rust-test
-      - go-lint
-      - go-unit
-      - go-integration
-      - golden
-      - web
-      - codeql-go
-      - codeql-js
-      - codeql-rust
-      - security-audit
+    needs: [merge-to-main]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
@@ -344,18 +333,7 @@ jobs:
 
   bench-rust:
     name: Rust Benchmarks
-    needs:
-      - rust-lint
-      - rust-test
-      - go-lint
-      - go-unit
-      - go-integration
-      - golden
-      - web
-      - codeql-go
-      - codeql-js
-      - codeql-rust
-      - security-audit
+    needs: [bench-go]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
