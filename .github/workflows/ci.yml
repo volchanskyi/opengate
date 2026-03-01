@@ -29,7 +29,7 @@ jobs:
       - name: Tests
         run: |
           set +e
-          cargo nextest run --workspace --no-fail-fast > test-output.txt 2>&1
+          cargo nextest run --workspace --no-fail-fast --color never > test-output.txt 2>&1
           EXIT_CODE=$?
           cat test-output.txt
           SUMMARY=$(grep "Summary" test-output.txt | tail -1 || echo "no summary")
