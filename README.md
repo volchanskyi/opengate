@@ -138,11 +138,12 @@ make golden             # Regenerate golden fixtures and verify cross-language c
 
 ### CI pipeline flow
 
-Every push to `dev` and every pull request targeting `main` runs the full pipeline.
-A daily schedule (`0 6 * * *`) also triggers all jobs for CodeQL and security scanning.
+Every push to `dev` and every pull request targeting `main` or `dev` runs the full
+pipeline. A daily schedule (`0 6 * * *`) also triggers all jobs for CodeQL and security
+scanning.
 
 ```
-push → dev  /  pull_request → main  /  schedule (daily 06:00 UTC)
+push → dev  /  pull_request → main|dev  /  schedule (daily 06:00 UTC)
                 │
      ┌──────────┼──────────────────────────────┐
      ▼          ▼          ▼          ▼         ▼
@@ -160,13 +161,11 @@ push → dev  /  pull_request → main  /  schedule (daily 06:00 UTC)
    Auto-merge dev → main                   (push only)
    └─ Update coverage badge                     │
          │                                       │
-         ▼                                       │
-   Go Benchmarks  ◄──────────────────────────────┘
-         │
-         ▼
-   Rust Benchmarks
-         │
-         → stored in gh-pages
+         ├───────────────────────────────────────┤
+         ▼                                       ▼
+   Go Benchmarks                         Rust Benchmarks
+         │                                       │
+         └──────────── stored in gh-pages ───────┘
 ```
 
 ### CI pipeline jobs
@@ -181,12 +180,12 @@ The pipeline consists of **14 parallel jobs** grouped by concern:
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
 | **Security** | `security-audit` | govulncheck (Go), cargo audit (Rust), npm audit (Web) |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
-| **Benchmarks** | `bench-go`, `bench-rust` | Performance tracking (push to `dev` only, sequential after merge) |
+| **Benchmarks** | `bench-go`, `bench-rust` | Performance tracking (push to `dev` only, parallel after merge) |
 | **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after all 11 gate jobs pass |
 
 The **golden verification** job is sequenced after Rust so the Go verifier always works against
 freshly generated fixtures — this prevents Rust ↔ Go wire-format drift from going undetected.
-Benchmark jobs run sequentially after auto-merge completes: merge-to-main → bench-go → bench-rust.
+Benchmark jobs run in parallel after auto-merge completes.
 Pull requests execute every job except auto-merge and benchmarks.
 
 The Go unit test job enforces a **70% minimum coverage** threshold — the build fails if
@@ -209,6 +208,18 @@ every push to `dev` and results are stored in the `gh-pages` branch via
 
 Regression threshold: **110%** — the bench job fails if any benchmark is more than 10% slower
 than the stored baseline. Historical charts are viewable on GitHub Pages.
+
+### Branch protection
+
+Both long-lived branches are protected:
+
+| Branch | Rules |
+|--------|-------|
+| `main` | No force pushes, no deletion |
+| `dev` | All 11 gate jobs must pass before PR merge; no force pushes, no deletion |
+
+Direct pushes to `dev` are allowed (for daily development), but PRs (including Dependabot)
+require all status checks to pass before merging.
 
 ### Dependency management
 
