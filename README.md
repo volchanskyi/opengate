@@ -138,12 +138,14 @@ make golden             # Regenerate golden fixtures and verify cross-language c
 
 ### CI pipeline flow
 
-Every push to `dev` and every pull request targeting `main` or `dev` runs the full
-pipeline. A daily schedule (`0 6 * * *`) also triggers all jobs for CodeQL and security
-scanning.
+Every push to `dev` or `main` and every pull request targeting `main` or `dev` runs the
+CI pipeline. A daily schedule (`0 6 * * *`) also triggers all jobs for CodeQL and security
+scanning. Benchmarks run in a separate workflow, triggered automatically when CI succeeds
+on `dev`.
 
 ```
-push → dev  /  pull_request → main|dev  /  schedule (daily 06:00 UTC)
+                        CI Workflow
+push → dev|main  /  pull_request → main|dev  /  schedule
                 │
      ┌──────────┼──────────────────────────────┐
      ▼          ▼          ▼          ▼         ▼
@@ -156,21 +158,23 @@ push → dev  /  pull_request → main|dev  /  schedule (daily 06:00 UTC)
          ▼
    Golden verification   (needs Rust — consumes artifact)
          │
-         ├──────── all 11 jobs must pass ────────┤
-         ▼                                       │
-   Auto-merge dev → main                   (push only)
-   └─ Update coverage badge                     │
-         │                                       │
-         ├───────────────────────────────────────┤
-         ▼                                       ▼
-   Go Benchmarks                         Rust Benchmarks
-         │                                       │
-         └──────────── stored in gh-pages ───────┘
+         └──────── all 11 jobs must pass ────────┐
+                                                  ▼
+                                     Auto-merge dev → main
+                                     └─ Update coverage badge
+
+                     Benchmarks Workflow
+              (triggered by CI success on dev)
+         ┌────────────────────────────────────────┐
+         ▼                                        ▼
+   Go Benchmarks                          Rust Benchmarks
+         │                                        │
+         └──────────── stored in gh-pages ────────┘
 ```
 
 ### CI pipeline jobs
 
-The pipeline consists of **14 parallel jobs** grouped by concern:
+The CI workflow contains **12 jobs** grouped by concern:
 
 | Group | Jobs | Purpose |
 |-------|------|---------|
@@ -180,13 +184,14 @@ The pipeline consists of **14 parallel jobs** grouped by concern:
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
 | **Security** | `security-audit` | govulncheck (Go), cargo audit (Rust), npm audit (Web) |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
-| **Benchmarks** | `bench-go`, `bench-rust` | Performance tracking (push to `dev` only, parallel after merge) |
 | **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after all 11 gate jobs pass |
+
+The Benchmarks workflow contains **2 jobs** (`bench-go`, `bench-rust`) that run in parallel,
+triggered by `workflow_run` when CI completes successfully on `dev`.
 
 The **golden verification** job is sequenced after Rust so the Go verifier always works against
 freshly generated fixtures — this prevents Rust ↔ Go wire-format drift from going undetected.
-Benchmark jobs run in parallel after auto-merge completes.
-Pull requests execute every job except auto-merge and benchmarks.
+Pull requests execute every job except auto-merge. Benchmarks only run on `dev` pushes.
 
 The Go unit test job enforces a **70% minimum coverage** threshold — the build fails if
 coverage of production code drops below this level. Test utilities (`testutil/`) are excluded
