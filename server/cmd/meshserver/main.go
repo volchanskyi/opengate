@@ -11,14 +11,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/api"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/relay"
 )
 
 func main() {
 	listen := flag.String("listen", ":8080", "HTTP listen address")
+	quicListen := flag.String("quic-listen", ":9090", "QUIC listen address for agent connections")
 	dataDir := flag.String("data-dir", "./data", "directory for database and certificates")
 	jwtSecret := flag.String("jwt-secret", "", "JWT signing secret (or JWT_SECRET env)")
 	flag.Parse()
@@ -51,7 +54,6 @@ func main() {
 		logger.Error("init cert manager", "error", err)
 		os.Exit(1)
 	}
-	_ = certMgr // used in future phases for agent mTLS
 
 	jwtCfg := &auth.JWTConfig{
 		Secret:   secret,
@@ -61,6 +63,10 @@ func main() {
 
 	srv := api.NewServer(store, jwtCfg, logger)
 
+	// Create relay and agent server
+	agentRelay := relay.NewRelay()
+	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, logger)
+
 	httpSrv := &http.Server{
 		Addr:         *listen,
 		Handler:      srv,
@@ -69,25 +75,38 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	// Use a cancellable context for graceful shutdown of all servers
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		logger.Info("server starting", "addr", *listen)
+		logger.Info("HTTP server starting", "addr", *listen)
 		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "error", err)
+			logger.Error("HTTP server error", "error", err)
 			os.Exit(1)
+		}
+	}()
+
+	go func() {
+		logger.Info("agent QUIC server starting", "addr", *quicListen)
+		if err := agentSrv.ListenAndServe(ctx, *quicListen); err != nil {
+			logger.Error("agent server error", "error", err)
 		}
 	}()
 
 	<-done
 	logger.Info("shutting down")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	cancel() // Stop the agent QUIC server
 
-	if err := httpSrv.Shutdown(ctx); err != nil {
-		logger.Error("shutdown error", "error", err)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("HTTP shutdown error", "error", err)
 	}
 
 	logger.Info("server stopped")

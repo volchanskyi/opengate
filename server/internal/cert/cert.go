@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -86,16 +87,61 @@ func (m *Manager) SignAgent(deviceID, hostname string) (*tls.Certificate, error)
 	}, nil
 }
 
+// SignServer generates a TLS certificate for the server, signed by the CA.
+// The cert uses CN=OpenGate Server with localhost and 127.0.0.1 as SANs.
+func (m *Manager) SignServer() (*tls.Certificate, error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("generate server key: %w", err)
+	}
+
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "OpenGate Server"},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
+		NotBefore:    now.Add(-5 * time.Minute),
+		NotAfter:     now.Add(365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, m.caCert, &key.PublicKey, m.caKey)
+	if err != nil {
+		return nil, fmt.Errorf("sign server cert: %w", err)
+	}
+
+	return &tls.Certificate{
+		Certificate: [][]byte{certDER},
+		PrivateKey:  key,
+	}, nil
+}
+
 // ServerTLSConfig returns a tls.Config for the server that requires
-// and verifies agent client certificates.
+// and verifies agent client certificates. It generates a server cert
+// signed by the CA for TLS handshake.
 func (m *Manager) ServerTLSConfig() *tls.Config {
 	pool := x509.NewCertPool()
 	pool.AddCert(m.caCert)
 
+	serverCert, err := m.SignServer()
+	if err != nil {
+		// This should not fail with a valid CA
+		panic(fmt.Sprintf("sign server cert: %v", err))
+	}
+
 	return &tls.Config{
-		ClientAuth: tls.RequireAndVerifyClientCert,
-		ClientCAs:  pool,
-		MinVersion: tls.VersionTLS13,
+		Certificates: []tls.Certificate{*serverCert},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    pool,
+		MinVersion:   tls.VersionTLS13,
+		NextProtos:   []string{"opengate"},
 	}
 }
 
@@ -105,9 +151,11 @@ func (m *Manager) AgentTLSConfig(cert *tls.Certificate) *tls.Config {
 	pool.AddCert(m.caCert)
 
 	return &tls.Config{
+		ServerName:   "localhost",
 		RootCAs:      pool,
 		Certificates: []tls.Certificate{*cert},
 		MinVersion:   tls.VersionTLS13,
+		NextProtos:   []string{"opengate"},
 	}
 }
 
