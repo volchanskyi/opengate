@@ -155,12 +155,18 @@ push → dev  /  pull_request → main  /  schedule (daily 06:00 UTC)
          ▼
    Golden verification   (needs Rust — consumes artifact)
          │
-         ├──────── all 11 jobs must pass ────────┐
-         ▼                                       ▼
-   Auto-merge dev → main              Benchmarks (push only)
-   └─ Update coverage badge           ├─ Go benchmarks
-                                      └─ Rust benchmarks
-                                          → stored in gh-pages
+         ├──────── all 11 jobs must pass ────────┤
+         ▼                                       │
+   Auto-merge dev → main                   (push only)
+   └─ Update coverage badge                     │
+         │                                       │
+         ▼                                       │
+   Go Benchmarks  ◄──────────────────────────────┘
+         │
+         ▼
+   Rust Benchmarks
+         │
+         → stored in gh-pages
 ```
 
 ### CI pipeline jobs
@@ -175,11 +181,12 @@ The pipeline consists of **14 parallel jobs** grouped by concern:
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
 | **Security** | `security-audit` | govulncheck (Go), cargo audit (Rust), npm audit (Web) |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
-| **Benchmarks** | `bench-go`, `bench-rust` | Performance tracking (push to `dev` only) |
+| **Benchmarks** | `bench-go`, `bench-rust` | Performance tracking (push to `dev` only, sequential after merge) |
 | **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after all 11 gate jobs pass |
 
 The **golden verification** job is sequenced after Rust so the Go verifier always works against
 freshly generated fixtures — this prevents Rust ↔ Go wire-format drift from going undetected.
+Benchmark jobs run sequentially after auto-merge completes: merge-to-main → bench-go → bench-rust.
 Pull requests execute every job except auto-merge and benchmarks.
 
 The Go unit test job enforces a **70% minimum coverage** threshold — the build fails if
