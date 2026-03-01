@@ -4,7 +4,7 @@ on:
   push:
     branches: [dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   schedule:
     - cron: '0 6 * * *'
 
@@ -333,7 +333,7 @@ jobs:
 
   bench-rust:
     name: Rust Benchmarks
-    needs: [bench-go]
+    needs: [merge-to-main]
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
