@@ -165,11 +165,14 @@ push → dev|main  /  pull_request → main|dev  /  schedule
 
                      Benchmarks Workflow
               (triggered by CI success on dev)
-         ┌────────────────────────────────────────┐
-         ▼                                        ▼
-   Go Benchmarks                          Rust Benchmarks
-         │                                        │
-         └──────────── stored in gh-pages ────────┘
+                          │
+                          ▼
+                    Go Benchmarks
+                          │
+                          ▼
+                   Rust Benchmarks
+                          │
+                    stored in gh-pages
 ```
 
 ### CI pipeline jobs
@@ -186,7 +189,7 @@ The CI workflow contains **12 jobs** grouped by concern:
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
 | **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after all 11 gate jobs pass |
 
-The Benchmarks workflow contains **2 jobs** (`bench-go`, `bench-rust`) that run in parallel,
+The Benchmarks workflow contains **2 jobs** (`bench-go` → `bench-rust`) that run sequentially,
 triggered by `workflow_run` when CI completes successfully on `dev`.
 
 The **golden verification** job is sequenced after Rust so the Go verifier always works against
