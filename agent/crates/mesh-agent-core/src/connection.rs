@@ -90,8 +90,7 @@ impl<S: ControlStream> AgentConnection<S> {
         if frame_type == codec::FRAME_PING {
             // Respond with pong
             self.stream.write_all(&[codec::FRAME_PONG]).await?;
-            return Err(ConnectionError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(ConnectionError::Io(std::io::Error::other(
                 "ping received, pong sent",
             )));
         }
