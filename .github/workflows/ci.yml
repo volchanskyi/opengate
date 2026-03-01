@@ -48,8 +48,17 @@ jobs:
         run: go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
       - name: Integration tests
         run: go test -race -timeout 5m -v ./tests/integration/
-      - name: Coverage summary
-        run: go tool cover -func=coverage.out
+      - name: Enforce coverage threshold
+        run: |
+          grep -v '/testutil/' coverage.out > coverage-prod.out
+          TOTAL=$(go tool cover -func=coverage-prod.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Unit test coverage: $TOTAL%"
+          go tool cover -func=coverage-prod.out
+          THRESHOLD=70
+          if [ "$(echo "$TOTAL < $THRESHOLD" | bc)" -eq 1 ]; then
+            echo "::error::Coverage $TOTAL% is below minimum threshold of $THRESHOLD%"
+            exit 1
+          fi
 
   golden:
     name: Golden File Verification
@@ -108,3 +117,27 @@ jobs:
           git fetch origin dev
           git merge --no-ff origin/dev -m "ci: auto-merge dev → main"
           git push origin main
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: server/go.sum
+      - name: Extract unit test coverage
+        id: coverage
+        working-directory: server
+        run: |
+          go test -coverprofile=coverage.out -covermode=atomic ./internal/... > /dev/null 2>&1
+          grep -v '/testutil/' coverage.out > coverage-prod.out
+          COVERAGE=$(go tool cover -func=coverage-prod.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "percentage=$COVERAGE" >> "$GITHUB_OUTPUT"
+          echo "Go server unit test coverage: $COVERAGE%"
+      - name: Update coverage badge
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: <GIST_ID>
+          filename: opengate-coverage.json
+          label: Go Server Coverage
+          message: ${{ steps.coverage.outputs.percentage }}%
+          valColorRange: ${{ steps.coverage.outputs.percentage }}
+          minColorRange: 75
+          maxColorRange: 85

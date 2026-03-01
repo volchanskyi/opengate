@@ -1,6 +1,7 @@
 # OpenGate
 
 [![CI](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml/badge.svg)](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml)
+[![Go Server Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/volchanskyi/<GIST_ID>/raw/opengate-coverage.json)](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml)
 
 Remote device management platform.
 
@@ -14,6 +15,14 @@ Remote device management platform.
 make build   # Build all components
 make test    # Run all tests
 make lint    # Run all linters
+```
+
+## Project Structure
+
+```
+agent/     Rust workspace — protocol, agent core, platform-specific code
+server/    Go module — server, database, transport, API
+web/       React + TypeScript — browser client
 ```
 
 ## Testing
@@ -70,10 +79,6 @@ The **golden verification** job is sequenced after Rust so the Go verifier alway
 freshly generated fixtures — this prevents Rust ↔ Go wire-format drift from going undetected.
 Pull requests execute every job except the auto-merge step.
 
-## Project Structure
-
-```
-agent/     Rust workspace — protocol, agent core, platform-specific code
-server/    Go module — server, database, transport, API
-web/       React + TypeScript — browser client
-```
+The Go job enforces a **70% minimum unit test coverage** threshold — the build fails if
+coverage of production code drops below this level. Test utilities (`testutil/`) are excluded
+from the coverage calculation.
