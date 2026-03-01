@@ -106,7 +106,8 @@ jobs:
       - name: Unit tests with coverage
         run: |
           set +e
-          go test -json -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/... > unit-results.json 2>&1
+          go test -json -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/... > unit-results.json 2>unit-stderr.log
+          cat unit-stderr.log >&2
           EXIT_CODE=$?
           PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
           FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' unit-results.json | wc -l | tr -d ' ')
@@ -153,7 +154,8 @@ jobs:
       - name: Integration tests
         run: |
           set +e
-          go test -json -race -timeout 5m ./tests/integration/ > integration-results.json 2>&1
+          go test -json -race -timeout 5m ./tests/integration/ > integration-results.json 2>integration-stderr.log
+          cat integration-stderr.log >&2
           EXIT_CODE=$?
           PASSED=$(jq -r 'select(.Action=="pass" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
           FAILED=$(jq -r 'select(.Action=="fail" and .Test != null) | .Test' integration-results.json | wc -l | tr -d ' ')
@@ -235,12 +237,12 @@ jobs:
         with:
           go-version: '1.24'
           cache-dependency-path: server/go.sum
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: go
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v3
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/autobuild@v4
+      - uses: github/codeql-action/analyze@v4
         with:
           category: go
 
@@ -249,11 +251,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: javascript-typescript
 
@@ -263,12 +265,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: rust
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v3
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/autobuild@v4
+      - uses: github/codeql-action/analyze@v4
         with:
           category: rust
 
