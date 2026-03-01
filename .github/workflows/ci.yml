@@ -316,12 +316,12 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: server/go.sum
       - name: Run benchmarks
-        run: go test -bench=. -benchmem -count=1 -run=^$ ./internal/... | tee bench-output.txt
+        run: go test -bench=. -benchmem -count=1 -run='^$' ./internal/... | tee "$GITHUB_WORKSPACE/bench-go.txt"
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: go
-          output-file-path: server/bench-output.txt
+          output-file-path: bench-go.txt
           benchmark-data-dir-path: dev/bench/go
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
@@ -346,12 +346,17 @@ jobs:
         with:
           workspaces: agent
       - name: Run benchmarks
-        run: cargo bench --package mesh-protocol -- --output-format bencher | tee bench-output.txt
+        run: |
+          cargo bench --package mesh-protocol -- --output-format bencher 2>/dev/null | tee "$GITHUB_WORKSPACE/bench-rust.txt"
+          if [ ! -s "$GITHUB_WORKSPACE/bench-rust.txt" ]; then
+            echo "::error::Benchmark output is empty"
+            exit 1
+          fi
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: cargo
-          output-file-path: agent/bench-output.txt
+          output-file-path: bench-rust.txt
           benchmark-data-dir-path: dev/bench/rust
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: true
