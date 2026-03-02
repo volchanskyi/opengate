@@ -41,7 +41,11 @@ Write failing tests FIRST. Then implement. Then refactor. No exceptions.
 4. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
 5. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
-Do NOT commit if any test fails or any benchmark errors out.
+### Documentation (mandatory on every commit)
+6. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+7. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
+
+Do NOT commit if any test fails, any benchmark errors out, or documentation is stale.
 
 ## Commands
 - `make build` — build all components
