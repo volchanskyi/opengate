@@ -12,6 +12,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/crypto v0.48.0
 	modernc.org/sqlite v1.46.1
+	nhooyr.io/websocket v1.8.17
 )
 
 require (

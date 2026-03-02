@@ -61,11 +61,11 @@ func main() {
 		Duration: 24 * time.Hour,
 	}
 
-	srv := api.NewServer(store, jwtCfg, logger)
-
 	// Create relay and agent server
 	agentRelay := relay.NewRelay()
 	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, logger)
+
+	srv := api.NewServer(store, jwtCfg, agentSrv, agentRelay, logger)
 
 	httpSrv := &http.Server{
 		Addr:         *listen,
