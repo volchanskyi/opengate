@@ -75,6 +75,15 @@ jobs:
         with:
           name: golden-files
           path: testdata/golden/
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate Rust coverage
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+      - name: Upload Rust coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: agent/lcov.info
 
   go-lint:
     name: Go Lint
@@ -139,6 +148,11 @@ jobs:
             echo "::error::Coverage $TOTAL% is below minimum threshold of $THRESHOLD%"
             exit 1
           fi
+      - name: Upload Go coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: server/coverage.out
 
   go-integration:
     name: Go Integration Tests
@@ -225,7 +239,7 @@ jobs:
       - name: Run tests
         run: |
           set +e
-          npx vitest run --reporter=verbose --reporter=json --outputFile=test-results.json
+          npx vitest run --coverage --reporter=verbose --reporter=json --outputFile=test-results.json
           EXIT_CODE=$?
           node -e "
             const fs = require('fs');
@@ -243,6 +257,11 @@ jobs:
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
           "
           exit $EXIT_CODE
+      - name: Upload Web coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-coverage
+          path: web/coverage/lcov.info
       - run: npx vite build
 
   codeql-go:
@@ -317,6 +336,35 @@ jobs:
       - name: npm vulnerability check
         run: cd web && npm ci && npm audit --audit-level=high
 
+  sonarcloud:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    needs: [go-unit, rust-test, web]
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Download Go coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: go-coverage
+          path: server/
+      - name: Download Web coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: web-coverage
+          path: web/coverage/
+      - name: Download Rust coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-coverage
+          path: agent/
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
   merge-to-main:
     name: Auto-merge dev → main
     needs:
@@ -332,6 +380,7 @@ jobs:
       - codeql-js
       - codeql-rust
       - security-audit
+      - sonarcloud
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     permissions:
