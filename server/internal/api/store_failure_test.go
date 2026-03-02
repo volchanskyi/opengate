@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/relay"
 )
 
 // TestHandlerStoreFailures verifies that every handler returns 500 when the store is unavailable.
@@ -38,7 +39,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 	token, err := cfg.GenerateToken(userID, "err@example.com", true)
 	require.NoError(t, err)
 
-	srv := NewServer(store, cfg, logger)
+	srv := NewServer(store, cfg, &stubAgentLookup{}, relay.NewRelay(), logger)
 	store.Close() // force all subsequent store calls to fail
 
 	groupID := uuid.New()

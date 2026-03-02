@@ -26,6 +26,18 @@ type AgentConn struct {
 	logger *slog.Logger
 }
 
+// NewAgentConn creates an AgentConn for testing or programmatic use.
+func NewAgentConn(deviceID protocol.DeviceID, groupID uuid.UUID, stream io.ReadWriter, store db.Store, logger *slog.Logger) *AgentConn {
+	return &AgentConn{
+		DeviceID: deviceID,
+		GroupID:  groupID,
+		stream:   stream,
+		codec:    &protocol.Codec{},
+		store:    store,
+		logger:   logger,
+	}
+}
+
 // SendSessionRequest sends a SessionRequest control message to the agent.
 func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions) error {
 	msg := &protocol.ControlMessage{

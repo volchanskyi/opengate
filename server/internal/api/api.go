@@ -8,23 +8,35 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/relay"
 )
+
+// AgentLookup finds a connected agent by device ID.
+type AgentLookup interface {
+	GetAgent(deviceID protocol.DeviceID) *agentapi.AgentConn
+}
 
 // Server is the HTTP API server.
 type Server struct {
 	store  db.Store
 	jwt    *auth.JWTConfig
+	agents AgentLookup
+	relay  *relay.Relay
 	router chi.Router
 	logger *slog.Logger
 }
 
 // NewServer creates an API server with all routes registered.
-func NewServer(store db.Store, jwtCfg *auth.JWTConfig, logger *slog.Logger) *Server {
+func NewServer(store db.Store, jwtCfg *auth.JWTConfig, agents AgentLookup, relay *relay.Relay, logger *slog.Logger) *Server {
 	s := &Server{
 		store:  store,
 		jwt:    jwtCfg,
+		agents: agents,
+		relay:  relay,
 		router: chi.NewRouter(),
 		logger: logger,
 	}
@@ -66,6 +78,13 @@ func (s *Server) routes() {
 			r.Get("/users", s.handleListUsers)
 			r.Get("/users/me", s.handleGetMe)
 			r.Delete("/users/{id}", s.handleDeleteUser)
+
+			r.Post("/sessions", s.handleCreateSession)
+			r.Get("/sessions", s.handleListSessions)
+			r.Delete("/sessions/{token}", s.handleDeleteSession)
 		})
 	})
+
+	// WebSocket relay — token in URL acts as auth
+	r.Get("/ws/relay/{token}", s.handleRelayWebSocket)
 }
