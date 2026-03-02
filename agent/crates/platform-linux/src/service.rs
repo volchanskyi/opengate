@@ -72,8 +72,12 @@ mod tests {
         svc.notify_ready();
 
         let mut buf = [0u8; 64];
-        receiver.set_read_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
-        let n = receiver.recv(&mut buf).expect("should receive notification");
+        receiver
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let n = receiver
+            .recv(&mut buf)
+            .expect("should receive notification");
         assert_eq!(&buf[..n], b"READY=1");
 
         let _ = std::fs::remove_file(&dir);
@@ -92,8 +96,12 @@ mod tests {
         svc.notify_stopping();
 
         let mut buf = [0u8; 64];
-        receiver.set_read_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
-        let n = receiver.recv(&mut buf).expect("should receive notification");
+        receiver
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let n = receiver
+            .recv(&mut buf)
+            .expect("should receive notification");
         assert_eq!(&buf[..n], b"STOPPING=1");
 
         let _ = std::fs::remove_file(&dir);

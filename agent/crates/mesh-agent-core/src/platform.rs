@@ -158,9 +158,7 @@ mod tests {
             })
             .is_err());
         assert!(input.inject_mouse_move(100, 200).is_err());
-        assert!(input
-            .inject_mouse_button(MouseButton::Left, true)
-            .is_err());
+        assert!(input.inject_mouse_button(MouseButton::Left, true).is_err());
     }
 
     #[test]
