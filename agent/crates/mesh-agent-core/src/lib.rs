@@ -7,8 +7,13 @@ pub mod config;
 pub mod connection;
 pub mod error;
 pub mod identity;
+pub mod platform;
 
 pub use config::AgentConfig;
 pub use connection::{AgentConnection, AsyncControlStream, ControlStream};
 pub use error::{AgentError, ConnectionError};
 pub use identity::AgentIdentity;
+pub use platform::{
+    CaptureError, InputError, InputInjector, NullCapture, NullInput, NullServiceLifecycle,
+    RawFrame, ScreenCapture, ServiceLifecycle,
+};

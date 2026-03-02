@@ -72,9 +72,9 @@ authentication. Passwords are bcrypt-hashed.
 agent/                       Rust workspace
 ├── crates/
 │   ├── mesh-protocol/       Shared wire protocol (MessagePack codec, frame format)
-│   ├── mesh-agent-core/     Agent identity, QUIC connection, control loop
-│   ├── platform-linux/      Linux platform layer
-│   └── platform-windows/    Windows platform layer
+│   ├── mesh-agent-core/     Agent identity, QUIC connection, platform traits
+│   ├── platform-linux/      Linux: runtime detection, systemd, X11 capture (feature-gated)
+│   └── platform-windows/    Windows: DXGI capture, Win32 input (cfg-gated)
 server/                      Go module
 ├── cmd/meshserver/          Binary entry point
 ├── internal/
@@ -102,6 +102,24 @@ Control messages use MessagePack encoding inside a framed transport:
 Ping (`0x05`) and Pong (`0x06`) are single-byte frames with no payload.
 The handshake (ServerHello/AgentHello) uses raw binary encoding, not MessagePack.
 Golden file tests guarantee bit-identical encoding between the Rust and Go codecs.
+
+### Platform Abstraction
+
+The agent uses platform traits defined in `mesh-agent-core` to abstract OS-specific
+operations:
+
+| Trait | Purpose | Linux | Windows |
+|-------|---------|-------|---------|
+| `ScreenCapture` | Frame grabbing | X11 (feature-gated) | DXGI Desktop Duplication |
+| `InputInjector` | Keyboard/mouse injection | Planned (evdev) | Win32 SendInput |
+| `ServiceLifecycle` | Service manager notifications | systemd sd_notify | Windows SCM |
+
+Factory functions (`create_screen_capture()`, `create_input_injector()`,
+`create_service_lifecycle()`) detect the runtime environment and return the appropriate
+implementation, falling back to null implementations in headless/container environments.
+
+`platform-linux` also provides runtime detection (`detect_runtime()`) distinguishing
+between containers (Docker/Podman), systemd-managed bare metal, and other environments.
 
 ### Database
 
@@ -259,6 +277,7 @@ Three layers of automated security analysis run on every CI trigger:
 | Rust | `rcgen` 0.13 | Certificate generation |
 | Rust | `rmp-serde` 1 | MessagePack codec |
 | Rust | `tokio` 1 | Async runtime |
+| Rust | `async-trait` 0.1 | Object-safe async traits (ScreenCapture) |
 | Rust | `criterion` 0.5 | Benchmarking (dev) |
 | Web | React 19 | UI framework |
 | Web | Zustand | State management |

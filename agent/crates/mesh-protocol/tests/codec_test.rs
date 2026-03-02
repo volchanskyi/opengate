@@ -278,3 +278,70 @@ fn test_codec_never_panics_on_arbitrary_bytes() {
         // Just verify no panic
     }
 }
+
+#[test]
+fn test_key_event_msgpack_roundtrip() {
+    let events = vec![
+        KeyEvent {
+            key: KeyCode::KeyA,
+            pressed: true,
+        },
+        KeyEvent {
+            key: KeyCode::Enter,
+            pressed: false,
+        },
+        KeyEvent {
+            key: KeyCode::F12,
+            pressed: true,
+        },
+        KeyEvent {
+            key: KeyCode::NumpadEnter,
+            pressed: false,
+        },
+    ];
+
+    for event in events {
+        let encoded = rmp_serde::to_vec_named(&event).expect("encode KeyEvent");
+        let decoded: KeyEvent = rmp_serde::from_slice(&encoded).expect("decode KeyEvent");
+        assert_eq!(event, decoded);
+    }
+}
+
+#[test]
+fn test_mouse_button_msgpack_roundtrip() {
+    let buttons = vec![
+        MouseButton::Left,
+        MouseButton::Right,
+        MouseButton::Middle,
+        MouseButton::Back,
+        MouseButton::Forward,
+    ];
+
+    for button in buttons {
+        let encoded = rmp_serde::to_vec_named(&button).expect("encode MouseButton");
+        let decoded: MouseButton = rmp_serde::from_slice(&encoded).expect("decode MouseButton");
+        assert_eq!(button, decoded);
+    }
+}
+
+#[test]
+fn test_key_code_all_variants_serializable() {
+    let codes = vec![
+        KeyCode::KeyA, KeyCode::KeyZ, KeyCode::Digit0, KeyCode::Digit9,
+        KeyCode::ShiftLeft, KeyCode::ControlRight, KeyCode::AltLeft, KeyCode::MetaRight,
+        KeyCode::ArrowUp, KeyCode::Home, KeyCode::PageDown,
+        KeyCode::Backspace, KeyCode::Delete, KeyCode::Enter, KeyCode::Tab,
+        KeyCode::Escape, KeyCode::Space, KeyCode::CapsLock,
+        KeyCode::F1, KeyCode::F12,
+        KeyCode::Minus, KeyCode::Backslash, KeyCode::Backquote,
+        KeyCode::Numpad0, KeyCode::NumpadEnter, KeyCode::NumpadDivide,
+        KeyCode::PrintScreen, KeyCode::Pause,
+    ];
+
+    for code in codes {
+        let event = KeyEvent { key: code, pressed: true };
+        let encoded = rmp_serde::to_vec_named(&event).expect("encode");
+        let decoded: KeyEvent = rmp_serde::from_slice(&encoded).expect("decode");
+        assert_eq!(event, decoded);
+    }
+}
