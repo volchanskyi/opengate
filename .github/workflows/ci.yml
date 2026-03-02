@@ -206,6 +206,8 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - name: Lint
+        run: npm run lint
       - name: Run tests
         run: |
           set +e
