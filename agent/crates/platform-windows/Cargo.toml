@@ -5,5 +5,19 @@ edition.workspace = true
 
 [dependencies]
 mesh-agent-core = { path = "../mesh-agent-core" }
+mesh-protocol = { path = "../mesh-protocol" }
 tokio.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Direct3D11",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }
