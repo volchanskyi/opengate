@@ -64,6 +64,7 @@ jobs:
               echo "❌ $SUMMARY"
               if [ -n "$FAIL_TESTS" ]; then
                 echo ""
+                # shellcheck disable=SC2001
                 echo "$FAIL_TESTS" | sed 's/.*FAIL \[.*\] /- ❌ /'
               fi
             fi
@@ -264,6 +265,13 @@ jobs:
           path: web/coverage/lcov.info
       - run: npx vite build
 
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: raven-actions/actionlint@v2
+
   codeql-go:
     name: CodeQL Go
     runs-on: ubuntu-latest
@@ -376,6 +384,7 @@ jobs:
       - golden
       - web-lint
       - web
+      - yaml-lint
       - codeql-go
       - codeql-js
       - codeql-rust
