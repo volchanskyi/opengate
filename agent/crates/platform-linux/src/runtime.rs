@@ -44,10 +44,14 @@ pub fn get_filesystem_root() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Guards tests that mutate the `NOTIFY_SOCKET` env var so they don't race.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_detect_bare_metal_other_default() {
-        // Remove systemd indicator if present
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("NOTIFY_SOCKET");
         if !Path::new("/.dockerenv").exists() && !Path::new("/run/.containerenv").exists() {
             assert_eq!(detect_runtime(), LinuxRuntime::BareMetalOther);
@@ -56,9 +60,7 @@ mod tests {
 
     #[test]
     fn test_detect_bare_metal_systemd_via_notify_socket() {
-        // Safety: these tests manipulate env vars and may race with each other.
-        // In practice, cargo test runs them in separate threads but that's fine
-        // for this simple detection logic.
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("NOTIFY_SOCKET", "/run/systemd/notify");
         if !Path::new("/.dockerenv").exists() && !Path::new("/run/.containerenv").exists() {
             assert_eq!(detect_runtime(), LinuxRuntime::BareMetalSystemd);

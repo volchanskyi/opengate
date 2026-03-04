@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [dev, main]
+    branches: [dev, main, dependabot-dev]
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, dependabot-dev]
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * *'
@@ -410,3 +410,38 @@ jobs:
           valColorRange: ${{ needs.go-unit.outputs.coverage }}
           minColorRange: 75
           maxColorRange: 85
+
+  merge-to-dev:
+    name: Auto-merge dependabot-dev → dev
+    needs:
+      - rust-lint
+      - rust-test
+      - go-lint
+      - go-unit
+      - go-integration
+      - golden
+      - web-lint
+      - web
+      - codeql-go
+      - codeql-js
+      - codeql-rust
+      - security-audit
+      - sonarcloud
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dependabot-dev'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: dev
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Merge dependabot-dev into dev
+        run: |
+          git fetch origin dependabot-dev
+          git merge --no-ff origin/dependabot-dev -m "ci: auto-merge dependabot-dev → dev"
+          git push origin dev
