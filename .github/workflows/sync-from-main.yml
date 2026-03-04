@@ -1,0 +1,36 @@
+name: Sync branches from main
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Sync main → dev and dependabot-dev
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.SYNC_TOKEN }}
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Sync main to dev and dependabot-dev
+        run: |
+          MAIN_SHA=$(git rev-parse HEAD)
+          git fetch origin dev dependabot-dev
+          for BRANCH in dev dependabot-dev; do
+            if git merge-base --is-ancestor "$MAIN_SHA" origin/"$BRANCH"; then
+              echo "$BRANCH is already up to date with main"
+              continue
+            fi
+            git checkout -B "$BRANCH" origin/"$BRANCH"
+            git merge --no-ff "$MAIN_SHA" -m "ci: sync $BRANCH with main"
+            git push origin "$BRANCH"
+          done
