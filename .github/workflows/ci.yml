@@ -392,6 +392,8 @@ jobs:
       - sonarcloud
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/dependabot-dev')
     runs-on: ubuntu-latest
+    outputs:
+      merged: ${{ steps.merge.outputs.merged }}
     permissions:
       contents: write
     steps:
@@ -416,8 +418,36 @@ jobs:
           git merge --no-ff origin/"$SOURCE" -m "ci: auto-merge $SOURCE → main"
           git push origin main
           echo "merged=true" >> "$GITHUB_OUTPUT"
-      - name: Sync main back to other branches
-        if: steps.merge.outputs.merged == 'true'
+      - name: Update coverage badge
+        if: github.ref == 'refs/heads/dev'
+        uses: schneegans/dynamic-badges-action@v1.7.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: cf505c74b56eab52c9497af517b53222
+          filename: opengate-coverage.json
+          label: Go Server Coverage
+          message: ${{ needs.go-unit.outputs.coverage }}%
+          valColorRange: ${{ needs.go-unit.outputs.coverage }}
+          minColorRange: 75
+          maxColorRange: 85
+
+  sync-branches:
+    name: Sync branches
+    needs: [merge-to-main]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/dependabot-dev') && needs.merge-to-main.outputs.merged == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Sync main to other branches
         run: |
           SOURCE="${GITHUB_REF#refs/heads/}"
           MAIN_SHA=$(git rev-parse HEAD)
@@ -434,15 +464,3 @@ jobs:
             git merge --no-ff "$MAIN_SHA" -m "ci: sync $BRANCH with main"
             git push origin "$BRANCH"
           done
-      - name: Update coverage badge
-        if: github.ref == 'refs/heads/dev'
-        uses: schneegans/dynamic-badges-action@v1.7.0
-        with:
-          auth: ${{ secrets.GIST_SECRET }}
-          gistID: cf505c74b56eab52c9497af517b53222
-          filename: opengate-coverage.json
-          label: Go Server Coverage
-          message: ${{ needs.go-unit.outputs.coverage }}%
-          valColorRange: ${{ needs.go-unit.outputs.coverage }}
-          minColorRange: 75
-          maxColorRange: 85
