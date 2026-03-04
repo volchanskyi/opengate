@@ -12,16 +12,19 @@ import (
 // the relay.Conn interface.
 type WSConn struct {
 	ctx    context.Context
+	cancel context.CancelFunc
 	conn   *websocket.Conn
 	reader io.Reader
 	mu     sync.Mutex // protects reader
 }
 
 // NewWSConn wraps a websocket.Conn into a relay-compatible connection.
-func NewWSConn(ctx context.Context, conn *websocket.Conn) *WSConn {
+func NewWSConn(conn *websocket.Conn) *WSConn {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &WSConn{
-		ctx:  ctx,
-		conn: conn,
+		ctx:    ctx,
+		cancel: cancel,
+		conn:   conn,
 	}
 }
 
@@ -69,5 +72,6 @@ func (w *WSConn) Write(p []byte) (int, error) {
 
 // Close closes the WebSocket connection with a normal closure status.
 func (w *WSConn) Close() error {
+	w.cancel()
 	return w.conn.Close(websocket.StatusNormalClosure, "")
 }
