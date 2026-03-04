@@ -13,6 +13,7 @@ permissions:
   security-events: write
   contents: read
   actions: read
+  issues: write
 
 jobs:
   rust-lint:
@@ -488,3 +489,177 @@ jobs:
             git merge --no-ff "$MAIN_SHA" -m "ci: sync $BRANCH with main [skip ci]"
             git push origin "$BRANCH"
           done
+
+  notify-failure:
+    name: Create failure issue
+    needs:
+      - rust-lint
+      - rust-test
+      - go-lint
+      - go-unit
+      - go-integration
+      - golden
+      - web-lint
+      - web
+      - yaml-lint
+      - codeql-go
+      - codeql-js
+      - codeql-rust
+      - security-audit
+      - sonarcloud
+      - merge-to-main
+      - sync-branches
+    if: >-
+      failure()
+      && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      actions: read
+    steps:
+      - name: Ensure ci-failure label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "ci-failure" \
+            --description "Automated: CI pipeline failure" \
+            --color "B60205" \
+            --force \
+            --repo "${{ github.repository }}"
+      - name: Create or update failure issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          WORKFLOW: ${{ github.workflow }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 << 'PYEOF'
+          import json, os, re, subprocess, sys
+
+          repo    = os.environ["REPO"]
+          run_id  = os.environ["RUN_ID"]
+          branch  = os.environ["BRANCH"]
+          workflow = os.environ["WORKFLOW"]
+          sha     = os.environ["SHA"]
+          event   = os.environ["EVENT"]
+          run_url = os.environ["RUN_URL"]
+          server  = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+
+          def gh(*args):
+              result = subprocess.run(
+                  ["gh"] + list(args),
+                  capture_output=True, text=True
+              )
+              return result.stdout.strip(), result.returncode
+
+          # 1. Get all jobs for this run and find failures
+          jobs_json, _ = gh("api", f"repos/{repo}/actions/runs/{run_id}/jobs",
+                            "--paginate", "--jq",
+                            ".jobs[] | {name, conclusion, html_url, steps: [.steps[] | select(.conclusion == \"failure\") | .name]}")
+          failed_jobs = []
+          for line in jobs_json.splitlines():
+              line = line.strip()
+              if not line:
+                  continue
+              try:
+                  job = json.loads(line)
+              except json.JSONDecodeError:
+                  continue
+              if job.get("conclusion") == "failure":
+                  failed_jobs.append(job)
+
+          if not failed_jobs:
+              print("No failed jobs found — nothing to do.")
+              sys.exit(0)
+
+          # 2. Fetch failed log lines (tab-separated: Job\tStep\tTimestamp\tLogLine)
+          log_out, _ = gh("run", "view", run_id, "--log-failed", "--repo", repo)
+
+          # Strip ANSI escape codes
+          ansi_re = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
+          log_out = ansi_re.sub("", log_out)
+
+          # Parse log lines into per-job buckets
+          job_logs: dict = {}
+          for raw_line in log_out.splitlines():
+              parts = raw_line.split("\t", 3)
+              if len(parts) < 4:
+                  continue
+              job_name, _step, _ts, log_line = parts
+              job_logs.setdefault(job_name, []).append(log_line)
+
+          short_sha = sha[:7]
+          commit_url = f"{server}/{repo}/commit/{sha}"
+
+          # 3. For each failed job: dedup-check then create issue or comment
+          for job in failed_jobs:
+              job_name = job["name"]
+              job_url  = job["html_url"]
+              failed_steps = job.get("steps", [])
+              steps_str = ", ".join(failed_steps) if failed_steps else "unknown"
+
+              # Build log excerpt (last 80 lines for this job)
+              lines = job_logs.get(job_name, [])
+              excerpt_lines = lines[-80:] if len(lines) > 80 else lines
+              excerpt = "\n".join(excerpt_lines) if excerpt_lines else "No log output available."
+
+              # Build issue body
+              body = f"""## CI Failure: {job_name}
+
+          **Workflow**: {workflow}
+          **Branch**: `{branch}`
+          **Commit**: [`{short_sha}`]({commit_url})
+          **Trigger**: {event}
+          **Run**: [{run_url}]({run_url})
+          **Job**: [{job_name}]({job_url})
+          **Failed Step(s)**: {steps_str}
+
+          ### Error Log (last 80 lines)
+
+          <details>
+          <summary>Expand log</summary>
+
+          ```
+          {excerpt}
+          ```
+
+          </details>
+          """
+
+              # Truncate if needed (GitHub body limit ~65 536 chars)
+              if len(body) > 60000:
+                  body = body[:60000] + f"\n\n_Log truncated. [Full run]({run_url})_"
+
+              title = f"CI failure on {branch} in {job_name}"
+
+              # Dedup: look for open issue with same title
+              existing, _ = gh(
+                  "issue", "list",
+                  "--repo", repo,
+                  "--label", "ci-failure",
+                  "--state", "open",
+                  "--search", f"{title} in:title",
+                  "--limit", "1",
+                  "--json", "number",
+                  "--jq", ".[0].number // empty"
+              )
+
+              if existing.strip():
+                  issue_num = existing.strip()
+                  comment = f"New failure in run [{run_id}]({run_url}) — {short_sha}\n\n{body}"
+                  gh("issue", "comment", issue_num, "--repo", repo, "--body", comment)
+                  print(f"Commented on issue #{issue_num} for job '{job_name}'")
+              else:
+                  gh(
+                      "issue", "create",
+                      "--repo", repo,
+                      "--title", title,
+                      "--body", body,
+                      "--label", "ci-failure"
+                  )
+                  print(f"Created issue for job '{job_name}'")
+          PYEOF
