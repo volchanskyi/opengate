@@ -2,28 +2,40 @@ version: 2
 updates:
   - package-ecosystem: gomod
     directory: /server
-    target-branch: dev
+    target-branch: dependabot-dev
     schedule:
       interval: daily
     open-pull-requests-limit: 10
+    groups:
+      go-deps:
+        patterns: ["*"]
 
   - package-ecosystem: cargo
     directory: /agent
-    target-branch: dev
+    target-branch: dependabot-dev
     schedule:
       interval: daily
     open-pull-requests-limit: 10
+    groups:
+      cargo-deps:
+        patterns: ["*"]
 
   - package-ecosystem: npm
     directory: /web
-    target-branch: dev
+    target-branch: dependabot-dev
     schedule:
       interval: daily
     open-pull-requests-limit: 10
+    groups:
+      npm-deps:
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: /
-    target-branch: dev
+    target-branch: dependabot-dev
     schedule:
       interval: daily
     open-pull-requests-limit: 10
+    groups:
+      actions-deps:
+        patterns: ["*"]

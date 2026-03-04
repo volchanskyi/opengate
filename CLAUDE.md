@@ -1,5 +1,16 @@
 # OpenGate — Development Conventions
 
+## Branching Rules
+**MANDATORY** — All work happens on `dev`. No exceptions.
+- Always start from the `dev` branch: `git checkout dev && git pull origin dev`
+- Commit and push to `dev` only: `git push origin dev`
+- **Never commit or push directly to `main`** — `main` receives code exclusively via the automated `merge-to-main` CI job after all checks pass on `dev`
+
+## Git Identity
+**MANDATORY** — Every commit must be authored by Ivan Volchanskyi. No co-authors, no Co-Authored-By trailers.
+- `git config user.name "Ivan Volchanskyi"`
+- `git config user.email "ivan.volchanskyi@gmail.com"`
+
 ## TDD Mandate
 Write failing tests FIRST. Then implement. Then refactor. No exceptions.
 
