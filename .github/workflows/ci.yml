@@ -461,6 +461,6 @@ jobs:
               continue
             fi
             git checkout -B "$BRANCH" origin/"$BRANCH"
-            git merge --no-ff "$MAIN_SHA" -m "ci: sync $BRANCH with main"
+            git merge --no-ff "$MAIN_SHA" -m "ci: sync $BRANCH with main [skip ci]"
             git push origin "$BRANCH"
           done
