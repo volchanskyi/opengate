@@ -381,6 +381,7 @@ jobs:
           sonar-findings-export \
             -u https://sonarcloud.io \
             -t "$SONAR_TOKEN" \
+            -o volchanskyi \
             -k volchanskyi_opengate \
             --format sarif > sonar-results.sarif
       - name: Upload SonarCloud SARIF to GitHub
