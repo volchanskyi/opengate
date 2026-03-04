@@ -11,19 +11,25 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// rejectWebSocket accepts the WebSocket handshake and immediately closes the
+// connection with a policy-violation status code carrying the given reason.
+func rejectWebSocket(w http.ResponseWriter, r *http.Request, reason string) {
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		return
+	}
+	c.Close(websocket.StatusPolicyViolation, reason)
+}
+
 func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 
 	// Validate token exists in DB
 	if _, err := s.store.GetAgentSession(r.Context(), token); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
-			wsConn, acceptErr := websocket.Accept(w, r, &websocket.AcceptOptions{
-				InsecureSkipVerify: true,
-			})
-			if acceptErr != nil {
-				return
-			}
-			wsConn.Close(websocket.StatusPolicyViolation, "session not found")
+			rejectWebSocket(w, r, "session not found")
 			return
 		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -38,26 +44,14 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 		// Validate JWT for browser side
 		header := r.Header.Get("Authorization")
 		if header == "" {
-			wsConn, acceptErr := websocket.Accept(w, r, &websocket.AcceptOptions{
-				InsecureSkipVerify: true,
-			})
-			if acceptErr != nil {
-				return
-			}
-			wsConn.Close(websocket.StatusPolicyViolation, "browser side requires authorization")
+			rejectWebSocket(w, r, "browser side requires authorization")
 			return
 		}
 		side = relay.SideBrowser
 	case "agent":
 		side = relay.SideAgent
 	default:
-		wsConn, acceptErr := websocket.Accept(w, r, &websocket.AcceptOptions{
-			InsecureSkipVerify: true,
-		})
-		if acceptErr != nil {
-			return
-		}
-		wsConn.Close(websocket.StatusPolicyViolation, "invalid side")
+		rejectWebSocket(w, r, "invalid side")
 		return
 	}
 
@@ -72,7 +66,7 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Wrap into relay.Conn
 	ctx := r.Context()
-	conn := NewWSConn(ctx, wsConn)
+	conn := NewWSConn(wsConn)
 
 	// Register with relay
 	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {

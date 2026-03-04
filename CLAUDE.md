@@ -47,7 +47,7 @@ Write failing tests FIRST. Then implement. Then refactor. No exceptions.
 1. `cd agent && cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings` — Rust format + clippy
 2. `cd server && go vet ./...` — Go vet
 3. `cd web && npx eslint .` — Web ESLint
-4. `actionlint` — GitHub Actions workflow lint
+4. `~/go/bin/actionlint` — GitHub Actions workflow lint (ALWAYS run locally, no exceptions)
 
 ### Tests (all must pass)
 5. `cd server && go test -race -timeout 5m ./...` — Go tests (unit + integration, race detector)

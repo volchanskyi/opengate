@@ -184,10 +184,10 @@ func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
-func TestRelay_ContextCancellation(t *testing.T) {
+func TestRelay_ConnectionClose(t *testing.T) {
 	r := NewRelay()
 	token := protocol.GenerateSessionToken()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := context.Background()
 
 	_, agentRelay := newMockConnPair(t)
 	_, browserRelay := newMockConnPair(t)
@@ -197,7 +197,8 @@ func TestRelay_ContextCancellation(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	cancel()
+	// Closing one side triggers the pipe to tear down both sides and clean up.
+	agentRelay.Close()
 
 	require.Eventually(t, func() bool {
 		return r.ActiveSessionCount() == 0
