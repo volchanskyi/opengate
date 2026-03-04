@@ -40,11 +40,10 @@ func wsEchoServer(t *testing.T) *httptest.Server {
 
 func dialWSConn(t *testing.T, serverURL string) (*WSConn, *websocket.Conn) {
 	t.Helper()
-	ctx := context.Background()
 	wsURL := "ws" + strings.TrimPrefix(serverURL, "http")
-	rawConn, _, err := websocket.Dial(ctx, wsURL, nil)
+	rawConn, _, err := websocket.Dial(context.Background(), wsURL, nil)
 	require.NoError(t, err)
-	return NewWSConn(ctx, rawConn), rawConn
+	return NewWSConn(rawConn), rawConn
 }
 
 func TestWSConn_ReadWriteRoundtrip(t *testing.T) {

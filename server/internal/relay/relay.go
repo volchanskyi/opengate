@@ -40,7 +40,7 @@ type session struct {
 	agent   Conn
 	browser Conn
 	ready   chan struct{} // closed when both sides are registered
-	ctx     context.Context
+	done    <-chan struct{}
 	cancel  context.CancelFunc
 }
 
@@ -79,9 +79,11 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 		s.browser = conn
 	}
 
-	// If this is the first side, record the context and increment count.
-	if s.ctx == nil {
-		s.ctx, s.cancel = context.WithCancel(ctx)
+	// If this is the first side, create a lifecycle context and increment count.
+	if s.done == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		s.done = ctx.Done()
+		s.cancel = cancel
 		r.count.Add(1)
 	}
 
@@ -147,7 +149,7 @@ func (r *Relay) pipe(token protocol.SessionToken, s *session) {
 
 	select {
 	case <-done:
-	case <-s.ctx.Done():
+	case <-s.done:
 		s.agent.Close()
 		s.browser.Close()
 		<-done
