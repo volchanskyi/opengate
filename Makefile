@@ -31,6 +31,7 @@ lint:
 	cd agent && cargo clippy --workspace -- -D warnings
 	cd server && go vet ./...
 	cd web && npx eslint src/
+	actionlint
 
 fmt:
 	cd agent && cargo fmt --all

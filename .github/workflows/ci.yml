@@ -264,6 +264,13 @@ jobs:
           path: web/coverage/lcov.info
       - run: npx vite build
 
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: rhysd/action-actionlint@v1
+
   codeql-go:
     name: CodeQL Go
     runs-on: ubuntu-latest
@@ -376,6 +383,7 @@ jobs:
       - golden
       - web-lint
       - web
+      - yaml-lint
       - codeql-go
       - codeql-js
       - codeql-rust

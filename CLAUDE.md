@@ -47,24 +47,25 @@ Write failing tests FIRST. Then implement. Then refactor. No exceptions.
 1. `cd agent && cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings` — Rust format + clippy
 2. `cd server && go vet ./...` — Go vet
 3. `cd web && npx eslint .` — Web ESLint
+4. `actionlint` — GitHub Actions workflow lint
 
 ### Tests (all must pass)
-4. `cd server && go test -race -timeout 5m ./...` — Go tests (unit + integration, race detector)
-5. `cd agent && cargo test --workspace` — Rust tests (all crates)
-6. `cd web && npx vitest run` — Web tests
+5. `cd server && go test -race -timeout 5m ./...` — Go tests (unit + integration, race detector)
+6. `cd agent && cargo test --workspace` — Rust tests (all crates)
+7. `cd web && npx vitest run` — Web tests
 
 ### Benchmarks (all must run without errors)
-7. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-8. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+8. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+9. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ### Documentation (mandatory on every commit)
-9. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-10. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
+10. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+11. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
 
 Do NOT commit if any lint fails, any test fails, any benchmark errors out, or documentation is stale.
 
 ## Commands
 - `make build` — build all components
 - `make test` — run all tests
-- `make lint` — clippy + go vet + eslint
+- `make lint` — clippy + go vet + eslint + actionlint
 - `make golden` — cross-language compatibility check
