@@ -64,6 +64,7 @@ jobs:
               echo "❌ $SUMMARY"
               if [ -n "$FAIL_TESTS" ]; then
                 echo ""
+                # shellcheck disable=SC2001
                 echo "$FAIL_TESTS" | sed 's/.*FAIL \[.*\] /- ❌ /'
               fi
             fi
