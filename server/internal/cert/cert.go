@@ -126,14 +126,13 @@ func (m *Manager) SignServer() (*tls.Certificate, error) {
 // ServerTLSConfig returns a tls.Config for the server that requires
 // and verifies agent client certificates. It generates a server cert
 // signed by the CA for TLS handshake.
-func (m *Manager) ServerTLSConfig() *tls.Config {
+func (m *Manager) ServerTLSConfig() (*tls.Config, error) {
 	pool := x509.NewCertPool()
 	pool.AddCert(m.caCert)
 
 	serverCert, err := m.SignServer()
 	if err != nil {
-		// This should not fail with a valid CA
-		panic(fmt.Sprintf("sign server cert: %v", err))
+		return nil, fmt.Errorf("sign server cert: %w", err)
 	}
 
 	return &tls.Config{
@@ -142,7 +141,7 @@ func (m *Manager) ServerTLSConfig() *tls.Config {
 		ClientCAs:    pool,
 		MinVersion:   tls.VersionTLS13,
 		NextProtos:   []string{"opengate"},
-	}
+	}, nil
 }
 
 // AgentTLSConfig returns a tls.Config for an agent to connect to the server.

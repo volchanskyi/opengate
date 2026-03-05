@@ -121,9 +121,16 @@ func (r *Relay) ActiveSessionCount() int {
 // pipe copies data between agent and browser until one side disconnects
 // or the session context is cancelled.
 func (r *Relay) pipe(token protocol.SessionToken, s *session) {
+	var closeOnce sync.Once
+	closeBoth := func() {
+		closeOnce.Do(func() {
+			s.agent.Close()
+			s.browser.Close()
+		})
+	}
+
 	defer func() {
-		s.agent.Close()
-		s.browser.Close()
+		closeBoth()
 		s.cancel()
 		r.sessions.Delete(token)
 		r.count.Add(-1)
@@ -138,20 +145,18 @@ func (r *Relay) pipe(token protocol.SessionToken, s *session) {
 		io.CopyBuffer(s.browser, s.agent, buf)
 	}()
 
-	// browser → agent (inline)
+	// browser → agent
 	go func() {
 		buf := make([]byte, 32*1024)
 		io.CopyBuffer(s.agent, s.browser, buf)
 		// When this direction ends, close both to unblock the other.
-		s.agent.Close()
-		s.browser.Close()
+		closeBoth()
 	}()
 
 	select {
 	case <-done:
 	case <-s.done:
-		s.agent.Close()
-		s.browser.Close()
+		closeBoth()
 		<-done
 	}
 }

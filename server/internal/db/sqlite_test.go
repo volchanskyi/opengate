@@ -508,6 +508,46 @@ func TestAuditLog(t *testing.T) {
 	})
 }
 
+func TestCorruptUUID(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	owner := seedUser(t, ctx, s)
+	group := seedGroup(t, ctx, s, owner.ID)
+
+	// Insert a device row with a corrupt UUID directly via raw SQL.
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO devices (id, group_id, hostname, os, status, last_seen, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"not-a-uuid", group.ID.String(), "corrupt-host", "linux", "offline",
+		"2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z")
+	require.NoError(t, err)
+
+	// ListDevices must return an error rather than panic when it scans the corrupt row.
+	_, err = s.ListDevices(ctx, group.ID)
+	assert.Error(t, err)
+	assert.False(t, errors.Is(err, ErrNotFound))
+}
+
+func TestCorruptTimestamp(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	owner := seedUser(t, ctx, s)
+	group := seedGroup(t, ctx, s, owner.ID)
+
+	deviceID := uuid.New()
+	// Insert a device row with a corrupt timestamp directly via raw SQL.
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO devices (id, group_id, hostname, os, status, last_seen, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		deviceID.String(), group.ID.String(), "ts-host", "linux", "offline",
+		"not-a-time", "2024-01-01T00:00:00Z", "2024-01-01T00:00:00Z")
+	require.NoError(t, err)
+
+	_, err = s.GetDevice(ctx, deviceID)
+	assert.Error(t, err)
+	assert.False(t, errors.Is(err, ErrNotFound))
+}
+
 func TestWALMode(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "wal.db")

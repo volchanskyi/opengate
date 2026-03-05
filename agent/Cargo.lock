@@ -692,6 +692,7 @@ dependencies = [
  "bytes",
  "chrono",
  "criterion",
+ "getrandom 0.3.4",
  "proptest",
  "rmp-serde",
  "serde",

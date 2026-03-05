@@ -31,16 +31,19 @@ func (s *stubAgentLookup) GetAgent(deviceID protocol.DeviceID) *agentapi.AgentCo
 	return s.agents[deviceID]
 }
 
-// newTestServer creates a Server backed by a temporary SQLite store and a test JWTConfig.
-func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
-	t.Helper()
-	store := testutil.NewTestStore(t)
-
-	cfg := &auth.JWTConfig{
+func testJWTConfig() *auth.JWTConfig {
+	return &auth.JWTConfig{
 		Secret:   "test-secret-key-at-least-32-bytes!",
 		Issuer:   "opengate-test",
 		Duration: 15 * time.Minute,
 	}
+}
+
+// newTestServer creates a Server backed by a temporary SQLite store and a test JWTConfig.
+func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
+	t.Helper()
+	store := testutil.NewTestStore(t)
+	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(store, cfg, &stubAgentLookup{}, relay.NewRelay(), logger)
 	return srv, cfg
@@ -50,12 +53,7 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 func newTestServerWithAgents(t *testing.T, agents AgentLookup, r *relay.Relay) (*Server, *auth.JWTConfig) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
-
-	cfg := &auth.JWTConfig{
-		Secret:   "test-secret-key-at-least-32-bytes!",
-		Issuer:   "opengate-test",
-		Duration: 15 * time.Minute,
-	}
+	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(store, cfg, agents, r, logger)
 	return srv, cfg

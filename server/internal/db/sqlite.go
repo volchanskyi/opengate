@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"time"
 
@@ -66,7 +67,59 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+// scanner abstracts *sql.Row and *sql.Rows for shared scan functions.
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func parseUUID(s string) (uuid.UUID, error) {
+	id, err := uuid.Parse(s)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("parse UUID %q: %w", s, err)
+	}
+	return id, nil
+}
+
+func parseTime(s string) (time.Time, error) {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse timestamp %q: %w", s, err)
+	}
+	return t, nil
+}
+
 // --- Devices ---
+
+func scanDeviceFrom(sc scanner) (*Device, error) {
+	var d Device
+	var idStr, groupIDStr, status, lastSeen, createdAt, updatedAt string
+	if err := sc.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &status, &lastSeen, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	var err error
+	d.ID, err = parseUUID(idStr)
+	if err != nil {
+		return nil, err
+	}
+	d.GroupID, err = parseUUID(groupIDStr)
+	if err != nil {
+		return nil, err
+	}
+	d.Status = DeviceStatus(status)
+	d.LastSeen, err = parseTime(lastSeen)
+	if err != nil {
+		return nil, err
+	}
+	d.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return nil, err
+	}
+	d.UpdatedAt, err = parseTime(updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
 
 func (s *SQLiteStore) UpsertDevice(ctx context.Context, d *Device) error {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -88,7 +141,11 @@ func (s *SQLiteStore) GetDevice(ctx context.Context, id DeviceID) (*Device, erro
 	row := s.db.QueryRowContext(ctx,
 		`SELECT id, group_id, hostname, os, status, last_seen, created_at, updated_at FROM devices WHERE id = ?`,
 		id.String())
-	return scanDevice(row)
+	d, err := scanDeviceFrom(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return d, err
 }
 
 func (s *SQLiteStore) ListDevices(ctx context.Context, groupID GroupID) ([]*Device, error) {
@@ -102,7 +159,7 @@ func (s *SQLiteStore) ListDevices(ctx context.Context, groupID GroupID) ([]*Devi
 
 	var devices []*Device
 	for rows.Next() {
-		d, err := scanDeviceRows(rows)
+		d, err := scanDeviceFrom(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -116,7 +173,10 @@ func (s *SQLiteStore) DeleteDevice(ctx context.Context, id DeviceID) error {
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if n == 0 {
 		return ErrNotFound
 	}
@@ -131,49 +191,43 @@ func (s *SQLiteStore) SetDeviceStatus(ctx context.Context, id DeviceID, status D
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if n == 0 {
 		return ErrNotFound
 	}
 	return nil
 }
 
-func scanDevice(row *sql.Row) (*Device, error) {
-	var d Device
-	var idStr, groupIDStr, status, lastSeen, createdAt, updatedAt string
-	err := row.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &status, &lastSeen, &createdAt, &updatedAt)
-	if err == sql.ErrNoRows {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	d.ID = uuid.MustParse(idStr)
-	d.GroupID = uuid.MustParse(groupIDStr)
-	d.Status = DeviceStatus(status)
-	d.LastSeen, _ = time.Parse(time.RFC3339, lastSeen)
-	d.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	d.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &d, nil
-}
-
-func scanDeviceRows(rows *sql.Rows) (*Device, error) {
-	var d Device
-	var idStr, groupIDStr, status, lastSeen, createdAt, updatedAt string
-	err := rows.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &status, &lastSeen, &createdAt, &updatedAt)
-	if err != nil {
-		return nil, err
-	}
-	d.ID = uuid.MustParse(idStr)
-	d.GroupID = uuid.MustParse(groupIDStr)
-	d.Status = DeviceStatus(status)
-	d.LastSeen, _ = time.Parse(time.RFC3339, lastSeen)
-	d.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	d.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &d, nil
-}
-
 // --- Groups ---
+
+func scanGroupFrom(sc scanner) (*Group, error) {
+	var g Group
+	var idStr, ownerIDStr, createdAt, updatedAt string
+	if err := sc.Scan(&idStr, &g.Name, &ownerIDStr, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	var err error
+	g.ID, err = parseUUID(idStr)
+	if err != nil {
+		return nil, err
+	}
+	g.OwnerID, err = parseUUID(ownerIDStr)
+	if err != nil {
+		return nil, err
+	}
+	g.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return nil, err
+	}
+	g.UpdatedAt, err = parseTime(updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
 
 func (s *SQLiteStore) CreateGroup(ctx context.Context, g *Group) error {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -184,22 +238,14 @@ func (s *SQLiteStore) CreateGroup(ctx context.Context, g *Group) error {
 }
 
 func (s *SQLiteStore) GetGroup(ctx context.Context, id GroupID) (*Group, error) {
-	var g Group
-	var idStr, ownerIDStr, createdAt, updatedAt string
-	err := s.db.QueryRowContext(ctx,
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, name, owner_id, created_at, updated_at FROM groups_ WHERE id = ?`,
-		id.String()).Scan(&idStr, &g.Name, &ownerIDStr, &createdAt, &updatedAt)
-	if err == sql.ErrNoRows {
+		id.String())
+	g, err := scanGroupFrom(row)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-	g.ID = uuid.MustParse(idStr)
-	g.OwnerID = uuid.MustParse(ownerIDStr)
-	g.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	g.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &g, nil
+	return g, err
 }
 
 func (s *SQLiteStore) ListGroups(ctx context.Context, ownerID UserID) ([]*Group, error) {
@@ -213,16 +259,11 @@ func (s *SQLiteStore) ListGroups(ctx context.Context, ownerID UserID) ([]*Group,
 
 	var groups []*Group
 	for rows.Next() {
-		var g Group
-		var idStr, ownerIDStr, createdAt, updatedAt string
-		if err := rows.Scan(&idStr, &g.Name, &ownerIDStr, &createdAt, &updatedAt); err != nil {
+		g, err := scanGroupFrom(rows)
+		if err != nil {
 			return nil, err
 		}
-		g.ID = uuid.MustParse(idStr)
-		g.OwnerID = uuid.MustParse(ownerIDStr)
-		g.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		g.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-		groups = append(groups, &g)
+		groups = append(groups, g)
 	}
 	return groups, rows.Err()
 }
@@ -232,7 +273,10 @@ func (s *SQLiteStore) DeleteGroup(ctx context.Context, id GroupID) error {
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if n == 0 {
 		return ErrNotFound
 	}
@@ -240,6 +284,28 @@ func (s *SQLiteStore) DeleteGroup(ctx context.Context, id GroupID) error {
 }
 
 // --- Users ---
+
+func scanUserFrom(sc scanner) (*User, error) {
+	var u User
+	var idStr, createdAt, updatedAt string
+	if err := sc.Scan(&idStr, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	var err error
+	u.ID, err = parseUUID(idStr)
+	if err != nil {
+		return nil, err
+	}
+	u.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return nil, err
+	}
+	u.UpdatedAt, err = parseTime(updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
 
 func (s *SQLiteStore) UpsertUser(ctx context.Context, u *User) error {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -257,39 +323,25 @@ func (s *SQLiteStore) UpsertUser(ctx context.Context, u *User) error {
 }
 
 func (s *SQLiteStore) GetUser(ctx context.Context, id UserID) (*User, error) {
-	var u User
-	var idStr, createdAt, updatedAt string
-	err := s.db.QueryRowContext(ctx,
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users WHERE id = ?`,
-		id.String()).Scan(&idStr, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &createdAt, &updatedAt)
-	if err == sql.ErrNoRows {
+		id.String())
+	u, err := scanUserFrom(row)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-	u.ID = uuid.MustParse(idStr)
-	u.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	u.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &u, nil
+	return u, err
 }
 
 func (s *SQLiteStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
-	var u User
-	var idStr, createdAt, updatedAt string
-	err := s.db.QueryRowContext(ctx,
+	row := s.db.QueryRowContext(ctx,
 		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users WHERE email = ?`,
-		email).Scan(&idStr, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &createdAt, &updatedAt)
-	if err == sql.ErrNoRows {
+		email)
+	u, err := scanUserFrom(row)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-	u.ID = uuid.MustParse(idStr)
-	u.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	u.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &u, nil
+	return u, err
 }
 
 func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*User, error) {
@@ -302,15 +354,11 @@ func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*User, error) {
 
 	var users []*User
 	for rows.Next() {
-		var u User
-		var idStr, createdAt, updatedAt string
-		if err := rows.Scan(&idStr, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &createdAt, &updatedAt); err != nil {
+		u, err := scanUserFrom(rows)
+		if err != nil {
 			return nil, err
 		}
-		u.ID = uuid.MustParse(idStr)
-		u.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		u.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-		users = append(users, &u)
+		users = append(users, u)
 	}
 	return users, rows.Err()
 }
@@ -320,7 +368,10 @@ func (s *SQLiteStore) DeleteUser(ctx context.Context, id UserID) error {
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if n == 0 {
 		return ErrNotFound
 	}
@@ -328,6 +379,28 @@ func (s *SQLiteStore) DeleteUser(ctx context.Context, id UserID) error {
 }
 
 // --- Agent Sessions ---
+
+func scanAgentSessionFrom(sc scanner) (*AgentSession, error) {
+	var as AgentSession
+	var deviceIDStr, userIDStr, createdAt string
+	if err := sc.Scan(&as.Token, &deviceIDStr, &userIDStr, &createdAt); err != nil {
+		return nil, err
+	}
+	var err error
+	as.DeviceID, err = parseUUID(deviceIDStr)
+	if err != nil {
+		return nil, err
+	}
+	as.UserID, err = parseUUID(userIDStr)
+	if err != nil {
+		return nil, err
+	}
+	as.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return nil, err
+	}
+	return &as, nil
+}
 
 func (s *SQLiteStore) CreateAgentSession(ctx context.Context, as *AgentSession) error {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -338,21 +411,14 @@ func (s *SQLiteStore) CreateAgentSession(ctx context.Context, as *AgentSession) 
 }
 
 func (s *SQLiteStore) GetAgentSession(ctx context.Context, token string) (*AgentSession, error) {
-	var as AgentSession
-	var deviceIDStr, userIDStr, createdAt string
-	err := s.db.QueryRowContext(ctx,
+	row := s.db.QueryRowContext(ctx,
 		`SELECT token, device_id, user_id, created_at FROM agent_sessions WHERE token = ?`,
-		token).Scan(&as.Token, &deviceIDStr, &userIDStr, &createdAt)
-	if err == sql.ErrNoRows {
+		token)
+	as, err := scanAgentSessionFrom(row)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-	as.DeviceID = uuid.MustParse(deviceIDStr)
-	as.UserID = uuid.MustParse(userIDStr)
-	as.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	return &as, nil
+	return as, err
 }
 
 func (s *SQLiteStore) DeleteAgentSession(ctx context.Context, token string) error {
@@ -360,7 +426,10 @@ func (s *SQLiteStore) DeleteAgentSession(ctx context.Context, token string) erro
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if n == 0 {
 		return ErrNotFound
 	}
@@ -378,20 +447,30 @@ func (s *SQLiteStore) ListActiveSessionsForDevice(ctx context.Context, deviceID 
 
 	var sessions []*AgentSession
 	for rows.Next() {
-		var as AgentSession
-		var deviceIDStr, userIDStr, createdAt string
-		if err := rows.Scan(&as.Token, &deviceIDStr, &userIDStr, &createdAt); err != nil {
+		as, err := scanAgentSessionFrom(rows)
+		if err != nil {
 			return nil, err
 		}
-		as.DeviceID = uuid.MustParse(deviceIDStr)
-		as.UserID = uuid.MustParse(userIDStr)
-		as.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		sessions = append(sessions, &as)
+		sessions = append(sessions, as)
 	}
 	return sessions, rows.Err()
 }
 
 // --- Web Push ---
+
+func scanWebPushSubFrom(sc scanner) (*WebPushSubscription, error) {
+	var sub WebPushSubscription
+	var userIDStr string
+	if err := sc.Scan(&sub.Endpoint, &userIDStr, &sub.P256dh, &sub.Auth); err != nil {
+		return nil, err
+	}
+	var err error
+	sub.UserID, err = parseUUID(userIDStr)
+	if err != nil {
+		return nil, err
+	}
+	return &sub, nil
+}
 
 func (s *SQLiteStore) UpsertWebPushSubscription(ctx context.Context, sub *WebPushSubscription) error {
 	_, err := s.db.ExecContext(ctx,
@@ -416,13 +495,11 @@ func (s *SQLiteStore) ListWebPushSubscriptions(ctx context.Context, userID UserI
 
 	var subs []*WebPushSubscription
 	for rows.Next() {
-		var sub WebPushSubscription
-		var userIDStr string
-		if err := rows.Scan(&sub.Endpoint, &userIDStr, &sub.P256dh, &sub.Auth); err != nil {
+		sub, err := scanWebPushSubFrom(rows)
+		if err != nil {
 			return nil, err
 		}
-		sub.UserID = uuid.MustParse(userIDStr)
-		subs = append(subs, &sub)
+		subs = append(subs, sub)
 	}
 	return subs, rows.Err()
 }
@@ -432,7 +509,10 @@ func (s *SQLiteStore) DeleteWebPushSubscription(ctx context.Context, endpoint st
 	if err != nil {
 		return err
 	}
-	n, _ := res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if n == 0 {
 		return ErrNotFound
 	}
@@ -440,6 +520,24 @@ func (s *SQLiteStore) DeleteWebPushSubscription(ctx context.Context, endpoint st
 }
 
 // --- Audit ---
+
+func scanAuditEventFrom(sc scanner) (*AuditEvent, error) {
+	var e AuditEvent
+	var userIDStr, createdAt string
+	if err := sc.Scan(&e.ID, &userIDStr, &e.Action, &e.Target, &e.Details, &createdAt); err != nil {
+		return nil, err
+	}
+	var err error
+	e.UserID, err = parseUUID(userIDStr)
+	if err != nil {
+		return nil, err
+	}
+	e.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
 
 func (s *SQLiteStore) WriteAuditEvent(ctx context.Context, event *AuditEvent) error {
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -462,10 +560,12 @@ func (s *SQLiteStore) QueryAuditLog(ctx context.Context, q AuditQuery) ([]*Audit
 	}
 	query += ` ORDER BY created_at DESC`
 	if q.Limit > 0 {
-		query += fmt.Sprintf(` LIMIT %d`, q.Limit)
+		query += ` LIMIT ?`
+		args = append(args, q.Limit)
 	}
 	if q.Offset > 0 {
-		query += fmt.Sprintf(` OFFSET %d`, q.Offset)
+		query += ` OFFSET ?`
+		args = append(args, q.Offset)
 	}
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -476,14 +576,11 @@ func (s *SQLiteStore) QueryAuditLog(ctx context.Context, q AuditQuery) ([]*Audit
 
 	var events []*AuditEvent
 	for rows.Next() {
-		var e AuditEvent
-		var userIDStr, createdAt string
-		if err := rows.Scan(&e.ID, &userIDStr, &e.Action, &e.Target, &e.Details, &createdAt); err != nil {
+		e, err := scanAuditEventFrom(rows)
+		if err != nil {
 			return nil, err
 		}
-		e.UserID = uuid.MustParse(userIDStr)
-		e.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		events = append(events, &e)
+		events = append(events, e)
 	}
 	return events, rows.Err()
 }

@@ -226,6 +226,28 @@ fn test_session_token_uniqueness() {
 }
 
 #[test]
+fn test_session_token_entropy() {
+    use std::collections::HashSet;
+    // Generate 100 tokens; all must be unique.
+    let tokens: HashSet<String> = (0..100)
+        .map(|_| SessionToken::generate().as_str().to_string())
+        .collect();
+    assert_eq!(tokens.len(), 100, "all 100 tokens must be unique");
+
+    // Verify byte diversity: 32 random bytes should not all be the same value.
+    let token = SessionToken::generate();
+    let hex = token.as_str();
+    let bytes: Vec<u8> = (0..32)
+        .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap())
+        .collect();
+    let unique_bytes: HashSet<u8> = bytes.iter().copied().collect();
+    assert!(
+        unique_bytes.len() > 8,
+        "32 random bytes should have diverse values"
+    );
+}
+
+#[test]
 fn test_device_id_stable_across_serialization() {
     let id = DeviceId::new();
     let serialized = rmp_serde::to_vec_named(&id).unwrap();

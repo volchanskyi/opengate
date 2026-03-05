@@ -195,7 +195,8 @@ func TestServerTLSConfig(t *testing.T) {
 	m, err := NewManager(dir)
 	require.NoError(t, err)
 
-	cfg := m.ServerTLSConfig()
+	cfg, err := m.ServerTLSConfig()
+	require.NoError(t, err)
 	assert.NotNil(t, cfg)
 	assert.Equal(t, tls.RequireAndVerifyClientCert, cfg.ClientAuth)
 	assert.NotNil(t, cfg.ClientCAs)
