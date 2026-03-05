@@ -73,7 +73,7 @@ jobs:
           exit $EXIT_CODE
       - name: Generate golden files
         run: GENERATE_GOLDEN=1 cargo nextest run -p mesh-protocol -E 'binary(golden_test)'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: golden-files
           path: testdata/golden/
@@ -82,7 +82,7 @@ jobs:
       - name: Generate Rust coverage
         run: cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
       - name: Upload Rust coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rust-coverage
           path: agent/lcov.info
@@ -151,7 +151,7 @@ jobs:
             exit 1
           fi
       - name: Upload Go coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: go-coverage
           path: server/coverage.out
@@ -202,7 +202,7 @@ jobs:
         with:
           go-version: '1.24'
           cache-dependency-path: server/go.sum
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: golden-files
           path: testdata/golden/
@@ -260,7 +260,7 @@ jobs:
           "
           exit $EXIT_CODE
       - name: Upload Web coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: web-coverage
           path: web/coverage/lcov.info
@@ -355,17 +355,17 @@ jobs:
         with:
           fetch-depth: 0
       - name: Download Go coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: go-coverage
           path: server/
       - name: Download Web coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: web-coverage
           path: web/coverage/
       - name: Download Rust coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rust-coverage
           path: agent/
