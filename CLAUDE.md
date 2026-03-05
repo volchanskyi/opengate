@@ -13,6 +13,7 @@
 
 ## TDD Mandate
 Write failing tests FIRST. Then implement. Then refactor. No exceptions.
+Test Both Scenarios: positive cases (expected behavior) and negative cases (error handling)
 
 ## Rust Conventions
 - `thiserror` for library crate errors, `anyhow` for binary crates only
