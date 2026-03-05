@@ -58,19 +58,8 @@ impl SessionToken {
 
 fn rand_bytes() -> [u8; 32] {
     let mut buf = [0u8; 32];
-    getrandom(&mut buf);
+    getrandom::fill(&mut buf).expect("OS entropy source failed");
     buf
-}
-
-fn getrandom(buf: &mut [u8]) {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    for chunk in buf.chunks_mut(8) {
-        let s = RandomState::new();
-        let val = s.build_hasher().finish().to_le_bytes();
-        let len = chunk.len().min(8);
-        chunk[..len].copy_from_slice(&val[..len]);
-    }
 }
 
 /// Capabilities an agent can advertise.
@@ -325,7 +314,13 @@ impl HandshakeMessage {
 
     /// Encode to binary format (type byte + fixed fields).
     pub fn encode_binary(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
+        let cap = match self {
+            Self::ServerHello { .. } | Self::AgentHello { .. } => 81,
+            Self::SkipAuth { .. } | Self::ExpectHash { .. } => 49,
+            Self::ServerProof { signature } => 1 + signature.len(),
+            Self::AgentProof { signature, .. } => 17 + signature.len(),
+        };
+        let mut buf = Vec::with_capacity(cap);
         buf.push(self.type_byte());
         match self {
             Self::ServerHello { nonce, cert_hash } => {

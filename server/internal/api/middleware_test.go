@@ -12,14 +12,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 )
 
-func testJWTConfig() *auth.JWTConfig {
-	return &auth.JWTConfig{
-		Secret:   "test-secret-key-at-least-32-bytes!",
-		Issuer:   "opengate-test",
-		Duration: 15 * time.Minute,
-	}
-}
-
 func TestAuthMiddleware(t *testing.T) {
 	cfg := testJWTConfig()
 	userID := uuid.New()
