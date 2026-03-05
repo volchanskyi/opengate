@@ -64,7 +64,10 @@ func (s *AgentServer) Addr() string {
 
 // ListenAndServe starts the QUIC listener and blocks until ctx is cancelled.
 func (s *AgentServer) ListenAndServe(ctx context.Context, addr string) error {
-	tlsCfg := s.cert.ServerTLSConfig()
+	tlsCfg, err := s.cert.ServerTLSConfig()
+	if err != nil {
+		return fmt.Errorf("server TLS config: %w", err)
+	}
 
 	quicCfg := &quic.Config{
 		MaxIdleTimeout:  90 * time.Second,

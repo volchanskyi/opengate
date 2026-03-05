@@ -31,13 +31,28 @@ impl AgentIdentity {
     }
 
     fn load(id_path: &Path, cert_path: &Path, key_path: &Path) -> Result<Self, AgentError> {
-        let id_str = std::fs::read_to_string(id_path)?;
+        let id_str = std::fs::read_to_string(id_path).map_err(|e| {
+            AgentError::Io(std::io::Error::new(
+                e.kind(),
+                format!("{}: {e}", id_path.display()),
+            ))
+        })?;
         let device_id = DeviceId(
             uuid::Uuid::parse_str(id_str.trim())
                 .map_err(|e| AgentError::CertGen(format!("invalid device ID: {e}")))?,
         );
-        let cert_der = std::fs::read(cert_path)?;
-        let key_der = std::fs::read(key_path)?;
+        let cert_der = std::fs::read(cert_path).map_err(|e| {
+            AgentError::Io(std::io::Error::new(
+                e.kind(),
+                format!("{}: {e}", cert_path.display()),
+            ))
+        })?;
+        let key_der = std::fs::read(key_path).map_err(|e| {
+            AgentError::Io(std::io::Error::new(
+                e.kind(),
+                format!("{}: {e}", key_path.display()),
+            ))
+        })?;
 
         Ok(Self {
             device_id,
