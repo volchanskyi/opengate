@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -11,13 +12,14 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
-	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 )
 
+//go:generate oapi-codegen -config ../../oapi-codegen.yaml ../../api/openapi.yaml
+
 // AgentLookup finds a connected agent by device ID.
 type AgentLookup interface {
-	GetAgent(deviceID protocol.DeviceID) *agentapi.AgentConn
+	GetAgent(deviceID db.DeviceID) *agentapi.AgentConn
 }
 
 // Server is the HTTP API server.
@@ -56,35 +58,56 @@ func (s *Server) routes() {
 	r.Use(middleware.RequestID)
 	r.Use(RequestLogger(s.logger))
 
-	r.Route("/api/v1", func(r chi.Router) {
-		// Public
-		r.Get("/health", s.handleHealth)
-		r.Post("/auth/register", s.handleRegister)
-		r.Post("/auth/login", s.handleLogin)
+	strictHandler := NewStrictHandlerWithOptions(s, []StrictMiddlewareFunc{requestContextMiddleware}, StrictHTTPServerOptions{
+		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			writeError(w, http.StatusBadRequest, err.Error())
+		},
+		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			writeError(w, http.StatusInternalServerError, "internal error")
+		},
+	})
 
-		// Protected
-		r.Group(func(r chi.Router) {
-			r.Use(AuthMiddleware(s.jwt))
-
-			r.Get("/devices", s.handleListDevices)
-			r.Get("/devices/{id}", s.handleGetDevice)
-			r.Delete("/devices/{id}", s.handleDeleteDevice)
-
-			r.Post("/groups", s.handleCreateGroup)
-			r.Get("/groups", s.handleListGroups)
-			r.Get("/groups/{id}", s.handleGetGroup)
-			r.Delete("/groups/{id}", s.handleDeleteGroup)
-
-			r.Get("/users", s.handleListUsers)
-			r.Get("/users/me", s.handleGetMe)
-			r.Delete("/users/{id}", s.handleDeleteUser)
-
-			r.Post("/sessions", s.handleCreateSession)
-			r.Get("/sessions", s.handleListSessions)
-			r.Delete("/sessions/{token}", s.handleDeleteSession)
-		})
+	HandlerWithOptions(strictHandler, ChiServerOptions{
+		BaseRouter: r,
+		Middlewares: []MiddlewareFunc{
+			s.oapiAuthMiddleware(),
+		},
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			writeError(w, http.StatusBadRequest, err.Error())
+		},
 	})
 
 	// WebSocket relay — token in URL acts as auth
 	r.Get("/ws/relay/{token}", s.handleRelayWebSocket)
+}
+
+// oapiAuthMiddleware returns a middleware that applies JWT validation
+// only to endpoints that declare security in the OpenAPI spec.
+func (s *Server) oapiAuthMiddleware() MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Context().Value(BearerAuthScopes) == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			AuthMiddleware(s.jwt)(next).ServeHTTP(w, r)
+		})
+	}
+}
+
+type httpRequestKey struct{}
+
+// requestContextMiddleware injects the HTTP request into the strict handler context
+// so handlers can access host/scheme info.
+func requestContextMiddleware(f StrictHandlerFunc, _ string) StrictHandlerFunc {
+	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		ctx = context.WithValue(ctx, httpRequestKey{}, r)
+		return f(ctx, w, r, request)
+	}
+}
+
+// httpRequestFromContext retrieves the HTTP request from context.
+func httpRequestFromContext(ctx context.Context) *http.Request {
+	r, _ := ctx.Value(httpRequestKey{}).(*http.Request)
+	return r
 }

@@ -25,5 +25,5 @@
     "noUncheckedSideEffectImports": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src", "vitest.setup.ts"]
+  "include": ["src", "tests", "vitest.setup.ts"]
 }
