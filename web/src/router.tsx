@@ -5,6 +5,7 @@ import { AuthGuard } from './features/auth/AuthGuard';
 import { Layout } from './components/Layout';
 import { DeviceList } from './features/devices/DeviceList';
 import { DeviceDetail } from './features/devices/DeviceDetail';
+import { SessionView } from './features/session/SessionView';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -19,6 +20,7 @@ export const router = createBrowserRouter([
           { index: true, element: <Navigate to="/devices" replace /> },
           { path: 'devices', element: <DeviceList /> },
           { path: 'devices/:id', element: <DeviceDetail /> },
+          { path: 'sessions/:token', element: <SessionView /> },
         ],
       },
     ],
