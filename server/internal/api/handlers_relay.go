@@ -41,8 +41,16 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 	var side relay.Side
 	switch sideParam {
 	case "browser":
-		// Validate JWT for browser side
+		// Validate JWT for browser side.
+		// Check Authorization header first, then fall back to ?auth= query param
+		// (browser WebSocket API cannot set custom headers).
 		header := r.Header.Get("Authorization")
+		if header == "" {
+			if authParam := r.URL.Query().Get("auth"); authParam != "" {
+				header = "Bearer " + authParam
+				r.Header.Set("Authorization", header)
+			}
+		}
 		if header == "" {
 			rejectWebSocket(w, r, "browser side requires authorization")
 			return

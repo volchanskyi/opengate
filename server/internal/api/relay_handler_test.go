@@ -160,6 +160,38 @@ func TestRelayWebSocket(t *testing.T) {
 		assert.Error(t, err)
 	})
 
+	t.Run("browser_auth_via_query_param", func(t *testing.T) {
+		ts, srv, cfg := newRelayTestServer(t)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		user := testutil.SeedUser(t, ctx, srv.store)
+		group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
+		device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
+
+		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
+		require.NoError(t, err)
+
+		// Agent connects
+		agentConn := dialWS(t, ctx, ts.URL, "/ws/relay/"+sess.Token+"?side=agent", nil)
+		defer agentConn.Close(websocket.StatusNormalClosure, "")
+
+		// Browser connects with JWT via query param (no Authorization header)
+		browserConn := dialWS(t, ctx, ts.URL, "/ws/relay/"+sess.Token+"?side=browser&auth="+jwtToken, nil)
+		defer browserConn.Close(websocket.StatusNormalClosure, "")
+
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify data flows
+		err = agentConn.Write(ctx, websocket.MessageBinary, []byte("from-agent"))
+		require.NoError(t, err)
+
+		_, data, err := browserConn.Read(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("from-agent"), data)
+	})
+
 	t.Run("browser_connects_waits", func(t *testing.T) {
 		ts, srv, cfg := newRelayTestServer(t)
 
