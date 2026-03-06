@@ -10,6 +10,8 @@ Remote device management platform.
 - **Web** (React/TypeScript) — browser-based management UI
 
 > See the [Wiki](https://github.com/volchanskyi/opengate/wiki) for architecture, wire protocol, CI pipeline, and other detailed documentation.
+>
+> [API Reference](https://volchanskyi.github.io/opengate/docs/api/) — interactive OpenAPI documentation (Scalar)
 
 ## Quick Start
 
@@ -54,7 +56,7 @@ server/                      Go module
 ├── cmd/meshserver/          Binary entry point
 ├── internal/
 │   ├── agentapi/            QUIC server, handshake, agent connection lifecycle
-│   ├── api/                 HTTP REST handlers (chi v5 router)
+│   ├── api/                 HTTP REST handlers (oapi-codegen strict server, chi v5)
 │   ├── auth/                JWT + bcrypt authentication
 │   ├── cert/                CA management, mTLS certificate signing (ECDSA P-256)
 │   ├── db/                  SQLite store, migrations (golang-migrate)
@@ -62,6 +64,8 @@ server/                      Go module
 │   ├── relay/               Byte-transparent WebSocket relay for browser↔agent piping
 │   └── testutil/            Shared test helpers (excluded from coverage metrics)
 ├── tests/integration/       Integration test suite (real QUIC + SQLite)
+api/openapi.yaml             OpenAPI 3.0.3 spec (single source of truth)
+docs/api/                    Scalar API reference viewer
 web/                         React + TypeScript (Vite, Tailwind, Zustand)
 testdata/golden/             Cross-language wire format fixtures
 ```

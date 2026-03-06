@@ -1,87 +1,61 @@
 package api
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
-	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
-type createGroupRequest struct {
-	Name string `json:"name"`
-}
-
-func (s *Server) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
-	var req createGroupRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
+// CreateGroup implements StrictServerInterface.
+func (s *Server) CreateGroup(ctx context.Context, request CreateGroupRequestObject) (CreateGroupResponseObject, error) {
+	if request.Body.Name == "" {
+		return CreateGroup400JSONResponse{Error: "name is required"}, nil
 	}
 
 	group := &db.Group{
 		ID:      uuid.New(),
-		Name:    req.Name,
-		OwnerID: ContextUserID(r.Context()),
+		Name:    request.Body.Name,
+		OwnerID: ContextUserID(ctx),
 	}
 
-	if err := s.store.CreateGroup(r.Context(), group); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create group")
-		return
+	if err := s.store.CreateGroup(ctx, group); err != nil {
+		return nil, err
 	}
 
-	writeJSON(w, http.StatusCreated, group)
+	return CreateGroup201JSONResponse(groupToAPI(group)), nil
 }
 
-func (s *Server) handleListGroups(w http.ResponseWriter, r *http.Request) {
-	userID := ContextUserID(r.Context())
-	groups, err := s.store.ListGroups(r.Context(), userID)
+// ListGroups implements StrictServerInterface.
+func (s *Server) ListGroups(ctx context.Context, _ ListGroupsRequestObject) (ListGroupsResponseObject, error) {
+	userID := ContextUserID(ctx)
+	groups, err := s.store.ListGroups(ctx, userID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list groups")
-		return
+		return nil, err
 	}
 
-	writeJSON(w, http.StatusOK, groups)
+	return ListGroups200JSONResponse(groupsToAPI(groups)), nil
 }
 
-func (s *Server) handleGetGroup(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid group id")
-		return
-	}
-
-	group, err := s.store.GetGroup(r.Context(), id)
+// GetGroup implements StrictServerInterface.
+func (s *Server) GetGroup(ctx context.Context, request GetGroupRequestObject) (GetGroupResponseObject, error) {
+	group, err := s.store.GetGroup(ctx, request.Id)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "group not found")
-			return
+			return GetGroup404JSONResponse{Error: "group not found"}, nil
 		}
-		writeError(w, http.StatusInternalServerError, "failed to get group")
-		return
+		return nil, err
 	}
 
-	writeJSON(w, http.StatusOK, group)
+	return GetGroup200JSONResponse(groupToAPI(group)), nil
 }
 
-func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request) {
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid group id")
-		return
+// DeleteGroup implements StrictServerInterface.
+func (s *Server) DeleteGroup(ctx context.Context, request DeleteGroupRequestObject) (DeleteGroupResponseObject, error) {
+	if err := s.store.DeleteGroup(ctx, request.Id); err != nil {
+		return nil, err
 	}
 
-	if err := s.store.DeleteGroup(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete group")
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+	return DeleteGroup204Response{}, nil
 }
