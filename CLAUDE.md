@@ -42,7 +42,7 @@ Test Both Scenarios: positive cases (expected behavior) and negative cases (erro
 - Golden file tests verify Rust ↔ Go compatibility
 
 ## Pre-Commit Checklist
-**MANDATORY** — run ALL lints, ALL tests, and ALL benchmarks before EVERY commit. No exceptions.
+**MANDATORY** — run ALL lints, ALL tests, Test coverage, and ALL benchmarks before EVERY commit. No exceptions.
 
 ### Lints (all must pass)
 1. `cd agent && cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings` — Rust format + clippy
@@ -63,7 +63,7 @@ Test Both Scenarios: positive cases (expected behavior) and negative cases (erro
 10. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
 11. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
 
-Do NOT commit if any lint fails, any test fails, any benchmark errors out, or documentation is stale.
+Do NOT commit if any lint fails, any test fails, new code coverage is below 80% or overall coverage below 70%, any benchmark errors out, or documentation is stale.
 
 ## Commands
 - `make build` — build all components
