@@ -241,7 +241,7 @@ jobs:
       - name: Unit & component tests
         run: |
           set +e
-          npx vitest run --coverage --reporter=verbose --reporter=json --outputFile=test-results.json --include 'src/**/*.test.{ts,tsx}'
+          npx vitest run --coverage --reporter=verbose --reporter=json --outputFile=test-results.json src/
           EXIT_CODE=$?
           node -e "
             const fs = require('fs');
@@ -283,7 +283,7 @@ jobs:
       - name: Integration tests
         run: |
           set +e
-          npx vitest run --reporter=verbose --reporter=json --outputFile=test-results.json --include 'tests/integration/**/*.test.{ts,tsx}'
+          npx vitest run --reporter=verbose --reporter=json --outputFile=test-results.json tests/integration/
           EXIT_CODE=$?
           if [ -f test-results.json ]; then
             node -e "
