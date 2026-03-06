@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1772679635630,
+  "lastUpdate": 1772770355945,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -939,6 +939,53 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.857940694887215,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "volchanskyi",
+            "username": "volchanskyi",
+            "email": "ivan.volchanskyi@gmail.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "fa44822a9c955b4a8ee54fa2f91e2647ec32dcac",
+          "message": "Merge pull request #28 from volchanskyi/add-claude-github-actions-1772766704454\n\nAdd Claude Code GitHub Workflow",
+          "timestamp": "2026-03-06T03:16:56Z",
+          "url": "https://github.com/volchanskyi/opengate/commit/fa44822a9c955b4a8ee54fa2f91e2647ec32dcac"
+        },
+        "date": 1772770355219,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.213889990235305,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.353168879422572,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 578.8155553480763,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 273.3882833345599,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.942341946242124,
             "unit": "ns/iter"
           }
         ]
