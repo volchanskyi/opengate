@@ -75,10 +75,10 @@ def fetch_failed_logs(repo: str, run_id: str) -> dict[str, list[str]]:
 
     job_logs: dict[str, list[str]] = {}
     for raw_line in stdout.splitlines():
-        parts = raw_line.split("\t", 3)
-        if len(parts) < 4:
+        parts = raw_line.split("\t", 2)
+        if len(parts) < 3:
             continue
-        job_name, _step, _ts, log_line = parts
+        job_name, _step, log_line = parts
         job_logs.setdefault(job_name, []).append(log_line)
     return job_logs
 

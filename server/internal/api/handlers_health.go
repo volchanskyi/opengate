@@ -1,11 +1,11 @@
 package api
 
-import "net/http"
+import "context"
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.Ping(r.Context()); err != nil {
-		writeError(w, http.StatusServiceUnavailable, "database unreachable")
-		return
+// GetHealth implements StrictServerInterface.
+func (s *Server) GetHealth(ctx context.Context, _ GetHealthRequestObject) (GetHealthResponseObject, error) {
+	if err := s.store.Ping(ctx); err != nil {
+		return GetHealth503JSONResponse{Error: "database unreachable"}, nil
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	return GetHealth200JSONResponse{Status: "ok"}, nil
 }

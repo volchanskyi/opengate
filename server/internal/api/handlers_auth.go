@@ -1,101 +1,73 @@
 package api
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
-	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
-type registerRequest struct {
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-	DisplayName string `json:"display_name"`
-}
-
-type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
-type tokenResponse struct {
-	Token string `json:"token"`
-}
-
-func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
-	var req registerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
+// Register implements StrictServerInterface.
+func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (RegisterResponseObject, error) {
+	email := string(request.Body.Email)
+	if email == "" || request.Body.Password == "" {
+		return Register400JSONResponse{Error: "email and password are required"}, nil
 	}
 
-	if req.Email == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "email and password are required")
-		return
-	}
-
-	hash, err := auth.HashPassword(req.Password)
+	hash, err := auth.HashPassword(request.Body.Password)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+		return nil, err
+	}
+
+	displayName := ""
+	if request.Body.DisplayName != nil {
+		displayName = *request.Body.DisplayName
 	}
 
 	user := &db.User{
 		ID:           uuid.New(),
-		Email:        req.Email,
+		Email:        email,
 		PasswordHash: hash,
-		DisplayName:  req.DisplayName,
+		DisplayName:  displayName,
 	}
 
-	if err := s.store.UpsertUser(r.Context(), user); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create user")
-		return
+	if err := s.store.UpsertUser(ctx, user); err != nil {
+		return nil, err
 	}
 
 	token, err := s.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
-		return
+		return nil, err
 	}
 
-	writeJSON(w, http.StatusCreated, tokenResponse{Token: token})
+	return Register201JSONResponse{Token: token}, nil
 }
 
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var req loginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
+// Login implements StrictServerInterface.
+func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error) {
+	email := string(request.Body.Email)
+	if email == "" || request.Body.Password == "" {
+		return Login400JSONResponse{Error: "email and password are required"}, nil
 	}
 
-	if req.Email == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "email and password are required")
-		return
-	}
-
-	user, err := s.store.GetUserByEmail(r.Context(), req.Email)
+	user, err := s.store.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
-			writeError(w, http.StatusUnauthorized, "invalid credentials")
-			return
+			return Login401JSONResponse{Error: "invalid credentials"}, nil
 		}
-		writeError(w, http.StatusInternalServerError, "internal error")
-		return
+		return nil, err
 	}
 
-	if err := auth.CheckPassword(user.PasswordHash, req.Password); err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid credentials")
-		return
+	if err := auth.CheckPassword(user.PasswordHash, request.Body.Password); err != nil {
+		return Login401JSONResponse{Error: "invalid credentials"}, nil
 	}
 
 	token, err := s.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
-		return
+		return nil, err
 	}
 
-	writeJSON(w, http.StatusOK, tokenResponse{Token: token})
+	return Login200JSONResponse{Token: token}, nil
 }
