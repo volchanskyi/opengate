@@ -111,5 +111,13 @@ const (
 	MsgExpectHash  byte = 0x15
 )
 
+// FileEntry represents a file or directory in a listing.
+type FileEntry struct {
+	Name     string `msgpack:"name" json:"name"`
+	IsDir    bool   `msgpack:"is_dir" json:"is_dir"`
+	Size     uint64 `msgpack:"size" json:"size"`
+	Modified int64  `msgpack:"modified" json:"modified"`
+}
+
 // MaxFrameSize is the maximum payload size for a single frame (16 MiB).
 const MaxFrameSize = 16 * 1024 * 1024

@@ -1,4 +1,4 @@
-use crate::types::{AgentCapability, Permissions, SessionToken};
+use crate::types::{AgentCapability, FileEntry, KeyCode, MouseButton, Permissions, SessionToken};
 use serde::{Deserialize, Serialize};
 
 /// All control messages exchanged between agent and server.
@@ -47,5 +47,47 @@ pub enum ControlMessage {
     IceCandidate {
         candidate: String,
         mid: String,
+    },
+
+    // Input (browser → agent via relay)
+    MouseMove {
+        x: u16,
+        y: u16,
+    },
+    MouseClick {
+        button: MouseButton,
+        pressed: bool,
+        x: u16,
+        y: u16,
+    },
+    KeyPress {
+        key: KeyCode,
+        pressed: bool,
+    },
+    TerminalResize {
+        cols: u16,
+        rows: u16,
+    },
+
+    // File operations
+    FileListRequest {
+        path: String,
+    },
+    FileListResponse {
+        path: String,
+        entries: Vec<FileEntry>,
+    },
+    FileDownloadRequest {
+        path: String,
+    },
+    FileUploadRequest {
+        path: String,
+        total_size: u64,
+    },
+
+    // Chat
+    ChatMessage {
+        text: String,
+        sender: String,
     },
 }

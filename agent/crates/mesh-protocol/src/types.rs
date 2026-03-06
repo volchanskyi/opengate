@@ -270,6 +270,15 @@ pub enum MouseButton {
     Forward,
 }
 
+/// A file entry in a directory listing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub modified: i64,
+}
+
 /// Handshake messages for agent–server authentication.
 /// These use binary encoding (not msgpack), so no Serialize/Deserialize derive.
 #[derive(Debug, Clone, PartialEq, Eq)]

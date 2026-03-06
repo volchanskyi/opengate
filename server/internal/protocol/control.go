@@ -5,7 +5,7 @@ package protocol
 type ControlMessageType string
 
 const (
-	MsgAgentRegister ControlMessageType = "AgentRegister"
+	MsgAgentRegister  ControlMessageType = "AgentRegister"
 	MsgAgentHeartbeat ControlMessageType = "AgentHeartbeat"
 	MsgSessionAccept  ControlMessageType = "SessionAccept"
 	MsgSessionReject  ControlMessageType = "SessionReject"
@@ -15,6 +15,21 @@ const (
 	MsgSwitchToWebRTC ControlMessageType = "SwitchToWebRTC"
 	MsgSwitchAck      ControlMessageType = "SwitchAck"
 	MsgIceCandidate   ControlMessageType = "IceCandidate"
+
+	// Input (browser → agent via relay)
+	MsgMouseMove      ControlMessageType = "MouseMove"
+	MsgMouseClick     ControlMessageType = "MouseClick"
+	MsgKeyPress       ControlMessageType = "KeyPress"
+	MsgTerminalResize ControlMessageType = "TerminalResize"
+
+	// File operations
+	MsgFileListRequest    ControlMessageType = "FileListRequest"
+	MsgFileListResponse   ControlMessageType = "FileListResponse"
+	MsgFileDownloadRequest ControlMessageType = "FileDownloadRequest"
+	MsgFileUploadRequest  ControlMessageType = "FileUploadRequest"
+
+	// Chat
+	MsgChatMessage ControlMessageType = "ChatMessage"
 )
 
 // ControlMessage is the envelope for all control-plane messages.
@@ -52,4 +67,30 @@ type ControlMessage struct {
 	// IceCandidate
 	Candidate string `msgpack:"candidate,omitempty"`
 	Mid       string `msgpack:"mid,omitempty"`
+
+	// MouseMove / MouseClick
+	X      uint16 `msgpack:"x,omitempty"`
+	Y      uint16 `msgpack:"y,omitempty"`
+	Button string `msgpack:"button,omitempty"`
+
+	// MouseClick / KeyPress
+	Pressed *bool `msgpack:"pressed,omitempty"`
+
+	// KeyPress
+	Key string `msgpack:"key,omitempty"`
+
+	// TerminalResize
+	Cols uint16 `msgpack:"cols,omitempty"`
+	Rows uint16 `msgpack:"rows,omitempty"`
+
+	// FileListRequest / FileListResponse / FileDownloadRequest / FileUploadRequest
+	Path    string      `msgpack:"path,omitempty"`
+	Entries []FileEntry `msgpack:"entries,omitempty"`
+
+	// FileUploadRequest
+	TotalSize uint64 `msgpack:"total_size,omitempty"`
+
+	// ChatMessage
+	Text   string `msgpack:"text,omitempty"`
+	Sender string `msgpack:"sender,omitempty"`
 }

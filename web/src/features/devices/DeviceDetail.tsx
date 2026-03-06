@@ -45,7 +45,10 @@ export function DeviceDetail() {
   };
 
   const handleStartSession = async () => {
-    await createSession(device.id);
+    const result = await createSession(device.id);
+    if (result) {
+      navigate(`/sessions/${result.token}`, { state: { relayUrl: result.relay_url } });
+    }
   };
 
   return (
