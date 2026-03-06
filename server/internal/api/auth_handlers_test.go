@@ -20,7 +20,7 @@ func TestRegisterHandler(t *testing.T) {
 		w := doRequest(srv, http.MethodPost, "/api/v1/auth/register", "", body)
 		assert.Equal(t, http.StatusCreated, w.Code)
 
-		var resp tokenResponse
+		var resp TokenResponse
 		json.NewDecoder(w.Body).Decode(&resp)
 		assert.NotEmpty(t, resp.Token)
 	})
@@ -52,7 +52,7 @@ func TestLoginHandler(t *testing.T) {
 		w := doRequest(srv, http.MethodPost, "/api/v1/auth/login", "", body)
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var resp tokenResponse
+		var resp TokenResponse
 		json.NewDecoder(w.Body).Decode(&resp)
 		assert.NotEmpty(t, resp.Token)
 	})

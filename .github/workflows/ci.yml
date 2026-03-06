@@ -224,8 +224,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
-  web:
-    name: Web Build & Test
+  web-unit:
+    name: Web Unit Tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -238,16 +238,16 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - name: Run tests
+      - name: Unit & component tests
         run: |
           set +e
-          npx vitest run --coverage --reporter=verbose --reporter=json --outputFile=test-results.json
+          npx vitest run --coverage --reporter=verbose --reporter=json --outputFile=test-results.json --include 'src/**/*.test.{ts,tsx}'
           EXIT_CODE=$?
           node -e "
             const fs = require('fs');
             const r = JSON.parse(fs.readFileSync('test-results.json', 'utf8'));
             const p = r.numPassedTests, f = r.numFailedTests;
-            let md = '## Web Tests\n\n';
+            let md = '## Web Unit Tests\n\n';
             if (f === 0) {
               md += '✅ **' + p + ' passed**\n';
             } else {
@@ -265,6 +265,73 @@ jobs:
           name: web-coverage
           path: web/coverage/lcov.info
       - run: npx vite build
+
+  web-integration:
+    name: Web Integration Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Integration tests
+        run: |
+          set +e
+          npx vitest run --reporter=verbose --reporter=json --outputFile=test-results.json --include 'tests/integration/**/*.test.{ts,tsx}'
+          EXIT_CODE=$?
+          if [ -f test-results.json ]; then
+            node -e "
+              const fs = require('fs');
+              const r = JSON.parse(fs.readFileSync('test-results.json', 'utf8'));
+              const p = r.numPassedTests, f = r.numFailedTests;
+              let md = '## Web Integration Tests\n\n';
+              if (f === 0) {
+                md += '✅ **' + p + ' passed**\n';
+              } else {
+                md += '❌ **' + f + ' failed**, ' + p + ' passed\n\n';
+                r.testResults.forEach(s => s.assertionResults
+                  .filter(t => t.status === 'failed')
+                  .forEach(t => { md += '- ❌ ' + t.fullName + '\n'; }));
+              }
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+            "
+          fi
+          exit $EXIT_CODE
+
+  deploy-api-docs:
+    name: Deploy API Docs
+    needs: [web-unit]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          path: gh-pages
+      - name: Deploy API docs
+        run: |
+          mkdir -p gh-pages/docs/api
+          cp api/openapi.yaml gh-pages/docs/api/
+          cp docs/api/index.html gh-pages/docs/api/
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/api/
+          git diff --cached --quiet && exit 0
+          git commit -m "docs: update API reference"
+          git push
 
   yaml-lint:
     name: YAML Lint
@@ -348,7 +415,7 @@ jobs:
   sonarcloud:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
-    needs: [go-unit, rust-test, web]
+    needs: [go-unit, rust-test, web-unit]
     if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v6
@@ -408,7 +475,8 @@ jobs:
       - go-integration
       - golden
       - web-lint
-      - web
+      - web-unit
+      - web-integration
       - yaml-lint
       - codeql-go
       - codeql-js
@@ -500,13 +568,15 @@ jobs:
       - go-integration
       - golden
       - web-lint
-      - web
+      - web-unit
+      - web-integration
       - yaml-lint
       - codeql-go
       - codeql-js
       - codeql-rust
       - security-audit
       - sonarcloud
+      - deploy-api-docs
       - merge-to-main
       - sync-branches
     if: >-

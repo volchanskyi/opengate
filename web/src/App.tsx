@@ -1,9 +1,16 @@
+import { useEffect } from 'react';
+import { RouterProvider } from 'react-router-dom';
+import { router } from './router';
+import { useAuthStore } from './state/auth-store';
+
 function App() {
-  return (
-    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-      <h1 className="text-3xl font-bold">OpenGate</h1>
-    </div>
-  )
+  const hydrate = useAuthStore((s) => s.hydrate);
+
+  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  return <RouterProvider router={router} />;
 }
 
-export default App
+export default App;

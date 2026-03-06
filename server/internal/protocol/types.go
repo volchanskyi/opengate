@@ -50,11 +50,11 @@ const (
 
 // Permissions defines what a session is allowed to do.
 type Permissions struct {
-	Desktop   bool `msgpack:"desktop"`
-	Terminal  bool `msgpack:"terminal"`
-	FileRead  bool `msgpack:"file_read"`
-	FileWrite bool `msgpack:"file_write"`
-	Input     bool `msgpack:"input"`
+	Desktop   bool `msgpack:"desktop" json:"desktop"`
+	Terminal  bool `msgpack:"terminal" json:"terminal"`
+	FileRead  bool `msgpack:"file_read" json:"file_read"`
+	FileWrite bool `msgpack:"file_write" json:"file_write"`
+	Input     bool `msgpack:"input" json:"input"`
 }
 
 // FrameEncoding specifies the compression format for desktop frames.

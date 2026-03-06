@@ -1,63 +1,52 @@
 package api
 
 import (
+	"context"
 	"errors"
-	"net/http"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
-func (s *Server) handleGetMe(w http.ResponseWriter, r *http.Request) {
-	userID := ContextUserID(r.Context())
+// GetMe implements StrictServerInterface.
+func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponseObject, error) {
+	userID := ContextUserID(ctx)
 
-	user, err := s.store.GetUser(r.Context(), userID)
+	user, err := s.store.GetUser(ctx, userID)
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "user not found")
-			return
+			return GetMe404JSONResponse{Error: "user not found"}, nil
 		}
-		writeError(w, http.StatusInternalServerError, "failed to get user")
-		return
+		return nil, err
 	}
 
-	writeJSON(w, http.StatusOK, user)
+	return GetMe200JSONResponse(userToAPI(user)), nil
 }
 
-func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
-	claims := ContextClaims(r.Context())
+// ListUsers implements StrictServerInterface.
+func (s *Server) ListUsers(ctx context.Context, _ ListUsersRequestObject) (ListUsersResponseObject, error) {
+	claims := ContextClaims(ctx)
 	if claims == nil || !claims.IsAdmin {
-		writeError(w, http.StatusForbidden, "admin access required")
-		return
+		return ListUsers403JSONResponse{Error: "admin access required"}, nil
 	}
 
-	users, err := s.store.ListUsers(r.Context())
+	users, err := s.store.ListUsers(ctx)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to list users")
-		return
+		return nil, err
 	}
 
-	writeJSON(w, http.StatusOK, users)
+	return ListUsers200JSONResponse(usersToAPI(users)), nil
 }
 
-func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
-	claims := ContextClaims(r.Context())
+// DeleteUser implements StrictServerInterface.
+func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject) (DeleteUserResponseObject, error) {
+	claims := ContextClaims(ctx)
 	if claims == nil || !claims.IsAdmin {
-		writeError(w, http.StatusForbidden, "admin access required")
-		return
+		return DeleteUser403JSONResponse{Error: "admin access required"}, nil
 	}
 
-	id, err := uuid.Parse(chi.URLParam(r, "id"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid user id")
-		return
+	if err := s.store.DeleteUser(ctx, request.Id); err != nil {
+		return nil, err
 	}
 
-	if err := s.store.DeleteUser(r.Context(), id); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to delete user")
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+	return DeleteUser204Response{}, nil
 }
