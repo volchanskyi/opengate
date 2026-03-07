@@ -65,6 +65,25 @@ Test Both Scenarios: positive cases (expected behavior) and negative cases (erro
 
 Do NOT commit if any lint fails, any test fails, new code coverage is below 80% or overall coverage below 70%, any benchmark errors out, or documentation is stale.
 
+## Post-Commit Refactoring
+**MANDATORY** — After all pre-commit checks pass, ALWAYS refactor the newly added code. DO NOT CHANGE BUSINESS LOGIC.
+
+### Constraints
+- Do not introduce external libraries not already in the project
+- Do not change API signatures
+- Do not change business logic
+
+### Steps (follow in order)
+1. **Analyze** — Review the current code and explain potential bottlenecks within the repo
+2. **Strategize** — Describe the optimization strategy options you suggest
+3. **Divide and conquer** — Break the work into smaller, manageable subtasks. Address one logical unit at a time, review and test the changes, then move to the next step
+4. **Test** — Thoroughly test the changes. Add new tests and/or update existing ones as needed to maintain or increase test coverage. Re-evaluate existing tests for duplication. Remove unused tests
+
+### Focus areas
+- Readability and performance
+- Eliminate duplications, unused imports, and unused libraries
+- Apply industry best practices
+
 ## Commands
 - `make build` — build all components
 - `make test` — run all tests
