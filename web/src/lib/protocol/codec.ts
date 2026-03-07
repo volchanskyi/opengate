@@ -29,6 +29,8 @@ export function encodeFrame(frame: Frame): Uint8Array {
     case FRAME_FILE:
       payload = encode(frame.frame);
       break;
+    default:
+      throw new Error(`unexpected frame type: ${(frame as { type: number }).type}`);
   }
 
   if (payload.length > MAX_FRAME_SIZE) {
@@ -96,6 +98,8 @@ export function decodeFrame(data: Uint8Array): { frame: Frame; bytesConsumed: nu
     case FRAME_FILE:
       frame = { type: FRAME_FILE, frame: decoded as FileFrame };
       break;
+    default:
+      throw new Error(`unexpected frame type: 0x${(typeByte as number).toString(16).padStart(2, '0')}`);
   }
 
   return { frame, bytesConsumed: total };

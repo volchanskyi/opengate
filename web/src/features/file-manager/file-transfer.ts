@@ -27,7 +27,7 @@ export class DownloadAccumulator {
   }
 
   toBlob(): Blob {
-    return new Blob(this.chunks.map((c) => c.slice().buffer as ArrayBuffer));
+    return new Blob(this.chunks as BlobPart[]);
   }
 }
 

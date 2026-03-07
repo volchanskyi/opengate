@@ -4,24 +4,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { SessionToolbar } from './SessionToolbar';
 
 describe('SessionToolbar', () => {
-  it('shows "Connecting..." when state is connecting', () => {
-    render(<SessionToolbar connectionState="connecting" onDisconnect={vi.fn()} />);
-    expect(screen.getByText('Connecting...')).toBeInTheDocument();
-  });
-
-  it('shows "Connected" when state is connected', () => {
-    render(<SessionToolbar connectionState="connected" onDisconnect={vi.fn()} />);
-    expect(screen.getByText('Connected')).toBeInTheDocument();
-  });
-
-  it('shows "Disconnected" when state is disconnected', () => {
-    render(<SessionToolbar connectionState="disconnected" onDisconnect={vi.fn()} />);
-    expect(screen.getByText('Disconnected')).toBeInTheDocument();
-  });
-
-  it('shows "Error" when state is error', () => {
-    render(<SessionToolbar connectionState="error" onDisconnect={vi.fn()} />);
-    expect(screen.getByText('Error')).toBeInTheDocument();
+  it.each([
+    ['connecting', 'Connecting...'],
+    ['connected', 'Connected'],
+    ['disconnected', 'Disconnected'],
+    ['error', 'Error'],
+  ] as const)('shows "%s" label for %s state', (state, expected) => {
+    render(<SessionToolbar connectionState={state} onDisconnect={vi.fn()} />);
+    expect(screen.getByText(expected)).toBeInTheDocument();
   });
 
   it('calls onDisconnect when disconnect button is clicked', async () => {
