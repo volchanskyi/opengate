@@ -47,7 +47,7 @@ def gh(*args: str) -> tuple[str, int]:
 def fetch_failed_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
     """Return a list of job dicts whose conclusion is ``failure``."""
     jq_filter = (
-        ".jobs[] | {name, conclusion, html_url, "
+        ".jobs[] | {id, name, conclusion, html_url, "
         'steps: [.steps[] | select(.conclusion == "failure") | .name]}'
     )
     stdout, _ = gh(
@@ -68,19 +68,17 @@ def fetch_failed_jobs(repo: str, run_id: str) -> list[dict[str, Any]]:
     return failed
 
 
-def fetch_failed_logs(repo: str, run_id: str) -> dict[str, list[str]]:
-    """Parse ``gh run view --log-failed`` into per-job log line lists."""
-    stdout, _ = gh("run", "view", run_id, "--log-failed", "--repo", repo)
-    stdout = ANSI_RE.sub("", stdout)
+def fetch_job_log(repo: str, job_id: int) -> list[str]:
+    """Fetch log output for a single completed job via the per-job API.
 
-    job_logs: dict[str, list[str]] = {}
-    for raw_line in stdout.splitlines():
-        parts = raw_line.split("\t", 2)
-        if len(parts) < 3:
-            continue
-        job_name, _step, log_line = parts
-        job_logs.setdefault(job_name, []).append(log_line)
-    return job_logs
+    Uses the jobs/{id}/logs endpoint which is available for completed
+    jobs even while the overall workflow run is still in progress.
+    """
+    stdout, rc = gh("api", f"repos/{repo}/actions/jobs/{job_id}/logs")
+    if rc != 0 or not stdout:
+        return []
+    stdout = ANSI_RE.sub("", stdout)
+    return stdout.splitlines()
 
 
 # ---------------------------------------------------------------------------
@@ -223,15 +221,15 @@ def main(argv: list[str] | None = None) -> None:
         log.info("No failed jobs found \u2014 nothing to do.")
         sys.exit(0)
 
-    job_logs = fetch_failed_logs(args.repo, args.run_id)
-
     for job in failed_jobs:
         job_name: str = job["name"]
+        job_id: int = job["id"]
+        log_lines = fetch_job_log(args.repo, job_id)
         body = build_issue_body(
             job_name=job_name,
             job_url=job["html_url"],
             failed_steps=job.get("steps", []),
-            log_lines=job_logs.get(job_name, []),
+            log_lines=log_lines,
             workflow=args.workflow,
             branch=args.branch,
             sha=args.sha,
