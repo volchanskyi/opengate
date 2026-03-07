@@ -3,6 +3,9 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useConnectionStore } from '../../state/connection-store';
 
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
 /** Hook that wires xterm.js to the relay transport's terminal frames. */
 export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>) {
   const transport = useConnectionStore((s) => s.transport);
@@ -28,8 +31,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Terminal input → send to relay
     term.onData((data) => {
-      const encoder = new TextEncoder();
-      transport.sendTerminalData(encoder.encode(data));
+      transport.sendTerminalData(textEncoder.encode(data));
     });
 
     // Terminal resize → send control message
@@ -39,8 +41,7 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
 
     // Incoming terminal data → write to terminal
     setOnTerminalFrame((frame) => {
-      const decoder = new TextDecoder();
-      term.write(decoder.decode(frame.data));
+      term.write(textDecoder.decode(frame.data));
     });
 
     // Handle window resize

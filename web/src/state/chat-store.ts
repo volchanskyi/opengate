@@ -1,9 +1,7 @@
 import { create } from 'zustand';
+import type { ChatMessageFields } from '../lib/protocol/types';
 
-interface ChatMessage {
-  text: string;
-  sender: string;
-}
+type ChatMessage = ChatMessageFields;
 
 interface ChatState {
   messages: ChatMessage[];

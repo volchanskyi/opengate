@@ -44,6 +44,12 @@ export interface FileFrame {
   data: Uint8Array;
 }
 
+/** Payload fields shared between ChatMessage protocol variant and store. */
+export interface ChatMessageFields {
+  text: string;
+  sender: string;
+}
+
 /** Mouse button identifiers matching Rust MouseButton enum. */
 export type MouseButton = 'Left' | 'Right' | 'Middle' | 'Back' | 'Forward';
 
@@ -107,7 +113,7 @@ export type ControlMessage =
   | { type: 'FileDownloadRequest'; path: string }
   | { type: 'FileUploadRequest'; path: string; total_size: number }
   // Chat
-  | { type: 'ChatMessage'; text: string; sender: string };
+  | ({ type: 'ChatMessage' } & ChatMessageFields);
 
 /** A file entry in a directory listing. */
 export interface FileEntry {

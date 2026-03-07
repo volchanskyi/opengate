@@ -28,6 +28,8 @@ export class InputHandler {
   private canvas: HTMLCanvasElement;
   private onMessage: (msg: ControlMessage) => void;
   private boundHandlers: Array<[string, EventListener]> = [];
+  private boundWindowHandlers: Array<[string, EventListener]> = [];
+  private cachedRect: DOMRect | null = null;
 
   constructor(canvas: HTMLCanvasElement, onMessage: (msg: ControlMessage) => void) {
     this.canvas = canvas;
@@ -38,6 +40,11 @@ export class InputHandler {
     this.listen('mouseup', this.handleMouseButton);
     this.listen('keydown', this.handleKey);
     this.listen('keyup', this.handleKey);
+
+    const invalidateRect = () => { this.cachedRect = null; };
+    window.addEventListener('resize', invalidateRect);
+    window.addEventListener('scroll', invalidateRect, true);
+    this.boundWindowHandlers = [['resize', invalidateRect], ['scroll', invalidateRect]];
   }
 
   destroy(): void {
@@ -45,6 +52,10 @@ export class InputHandler {
       this.canvas.removeEventListener(event, handler);
     }
     this.boundHandlers = [];
+    for (const [event, handler] of this.boundWindowHandlers) {
+      window.removeEventListener(event, handler, true);
+    }
+    this.boundWindowHandlers = [];
   }
 
   private listen(event: string, handler: (e: Event) => void): void {
@@ -54,7 +65,10 @@ export class InputHandler {
   }
 
   private scaleCoords(clientX: number, clientY: number): { x: number; y: number } {
-    const rect = this.canvas.getBoundingClientRect();
+    if (!this.cachedRect) {
+      this.cachedRect = this.canvas.getBoundingClientRect();
+    }
+    const rect = this.cachedRect;
     const scaleX = this.canvas.width / rect.width;
     const scaleY = this.canvas.height / rect.height;
     const x = Math.round(Math.max(0, Math.min(this.canvas.width, (clientX - rect.left) * scaleX)));
