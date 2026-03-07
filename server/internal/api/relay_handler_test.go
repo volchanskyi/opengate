@@ -20,6 +20,12 @@ import (
 	"nhooyr.io/websocket"
 )
 
+const (
+	testPathWSRelay = "/ws/relay/"
+	testSideBrowser = "?side=browser"
+	testSideAgent   = "?side=agent"
+)
+
 func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfig) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -30,7 +36,7 @@ func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfi
 		Duration: 15 * time.Minute,
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := NewServer(store, cfg, &stubAgentLookup{}, r, logger)
+	srv := NewServer(store, cfg, &stubAgentGetter{}, r, logger)
 
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
@@ -53,7 +59,7 @@ func TestRelayWebSocket(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/relay/nonexistent?side=agent"
+		wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + testPathWSRelay + "nonexistent" + testSideAgent
 		conn, _, err := websocket.Dial(ctx, wsURL, nil)
 		if err != nil {
 			// Connection might fail during close frame
@@ -75,7 +81,7 @@ func TestRelayWebSocket(t *testing.T) {
 		device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
 		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 
-		wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/relay/" + sess.Token + "?side=invalid"
+		wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + testPathWSRelay + sess.Token + "?side=invalid"
 		conn, _, err := websocket.Dial(ctx, wsURL, nil)
 		if err != nil {
 			return
@@ -99,13 +105,13 @@ func TestRelayWebSocket(t *testing.T) {
 
 		// Agent connects
 		agentHeaders := http.Header{}
-		agentConn := dialWS(t, ctx, ts.URL, "/ws/relay/"+sess.Token+"?side=agent", agentHeaders)
+		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideAgent, agentHeaders)
 		defer agentConn.Close(websocket.StatusNormalClosure, "")
 
 		// Browser connects with JWT
 		browserHeaders := http.Header{}
 		browserHeaders.Set("Authorization", "Bearer "+jwtToken)
-		browserConn := dialWS(t, ctx, ts.URL, "/ws/relay/"+sess.Token+"?side=browser", browserHeaders)
+		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideBrowser, browserHeaders)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
 		// Wait for relay to start piping
@@ -141,11 +147,11 @@ func TestRelayWebSocket(t *testing.T) {
 		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
 		require.NoError(t, err)
 
-		agentConn := dialWS(t, ctx, ts.URL, "/ws/relay/"+sess.Token+"?side=agent", nil)
+		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideAgent, nil)
 
 		browserHeaders := http.Header{}
 		browserHeaders.Set("Authorization", "Bearer "+jwtToken)
-		browserConn := dialWS(t, ctx, ts.URL, "/ws/relay/"+sess.Token+"?side=browser", browserHeaders)
+		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideBrowser, browserHeaders)
 
 		// Wait for relay to connect
 		time.Sleep(100 * time.Millisecond)
@@ -174,11 +180,11 @@ func TestRelayWebSocket(t *testing.T) {
 		require.NoError(t, err)
 
 		// Agent connects
-		agentConn := dialWS(t, ctx, ts.URL, "/ws/relay/"+sess.Token+"?side=agent", nil)
+		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideAgent, nil)
 		defer agentConn.Close(websocket.StatusNormalClosure, "")
 
 		// Browser connects with JWT via query param (no Authorization header)
-		browserConn := dialWS(t, ctx, ts.URL, "/ws/relay/"+sess.Token+"?side=browser&auth="+jwtToken, nil)
+		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+"?side=browser&auth="+jwtToken, nil)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
 		time.Sleep(100 * time.Millisecond)
@@ -215,7 +221,7 @@ func TestRelayWebSocket(t *testing.T) {
 
 		browserHeaders := http.Header{}
 		browserHeaders.Set("Authorization", "Bearer "+jwtToken)
-		browserConn := dialWS(t, ctx, ts.URL, "/ws/relay/"+string(token)+"?side=browser", browserHeaders)
+		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+string(token)+testSideBrowser, browserHeaders)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
 		// Read should timeout since no agent is connecting

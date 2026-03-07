@@ -12,6 +12,10 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 )
 
+const (
+	testEmailUser = "user@example.com"
+)
+
 func TestAuthMiddleware(t *testing.T) {
 	cfg := testJWTConfig()
 	userID := uuid.New()
@@ -28,7 +32,7 @@ func TestAuthMiddleware(t *testing.T) {
 	middleware := AuthMiddleware(cfg)
 
 	t.Run("valid token passes through", func(t *testing.T) {
-		token, err := cfg.GenerateToken(userID, "user@example.com", false)
+		token, err := cfg.GenerateToken(userID, testEmailUser, false)
 		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -38,7 +42,7 @@ func TestAuthMiddleware(t *testing.T) {
 		middleware(okHandler).ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Equal(t, "user@example.com", w.Body.String())
+		assert.Equal(t, testEmailUser, w.Body.String())
 	})
 
 	t.Run("missing header returns 401", func(t *testing.T) {
@@ -66,7 +70,7 @@ func TestAuthMiddleware(t *testing.T) {
 			Issuer:   cfg.Issuer,
 			Duration: -1 * time.Hour,
 		}
-		token, err := expCfg.GenerateToken(userID, "user@example.com", false)
+		token, err := expCfg.GenerateToken(userID, testEmailUser, false)
 		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -79,7 +83,7 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("bearer case insensitive", func(t *testing.T) {
-		token, err := cfg.GenerateToken(userID, "user@example.com", false)
+		token, err := cfg.GenerateToken(userID, testEmailUser, false)
 		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, "/", nil)

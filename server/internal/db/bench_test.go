@@ -9,6 +9,11 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	benchEmail = "bench@test.com"
+	benchGroup = "bench-group"
+)
+
 func newBenchStore(b *testing.B) *SQLiteStore {
 	b.Helper()
 	store, err := NewSQLiteStore(filepath.Join(b.TempDir(), "bench.db"))
@@ -26,10 +31,10 @@ func BenchmarkStore_UpsertDevice(b *testing.B) {
 	// Seed required FK: user + group
 	userID := uuid.New()
 	_ = store.UpsertUser(ctx, &User{
-		ID: userID, Email: "bench@test.com", PasswordHash: "h", DisplayName: "Bench",
+		ID: userID, Email: benchEmail, PasswordHash: "h", DisplayName: "Bench",
 	})
 	groupID := uuid.New()
-	_ = store.CreateGroup(ctx, &Group{ID: groupID, Name: "bench-group", OwnerID: userID})
+	_ = store.CreateGroup(ctx, &Group{ID: groupID, Name: benchGroup, OwnerID: userID})
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -51,10 +56,10 @@ func BenchmarkStore_GetDevice(b *testing.B) {
 
 	userID := uuid.New()
 	_ = store.UpsertUser(ctx, &User{
-		ID: userID, Email: "bench@test.com", PasswordHash: "h", DisplayName: "Bench",
+		ID: userID, Email: benchEmail, PasswordHash: "h", DisplayName: "Bench",
 	})
 	groupID := uuid.New()
-	_ = store.CreateGroup(ctx, &Group{ID: groupID, Name: "bench-group", OwnerID: userID})
+	_ = store.CreateGroup(ctx, &Group{ID: groupID, Name: benchGroup, OwnerID: userID})
 
 	deviceID := uuid.New()
 	_ = store.UpsertDevice(ctx, &Device{
@@ -74,10 +79,10 @@ func BenchmarkStore_ListDevices(b *testing.B) {
 
 	userID := uuid.New()
 	_ = store.UpsertUser(ctx, &User{
-		ID: userID, Email: "bench@test.com", PasswordHash: "h", DisplayName: "Bench",
+		ID: userID, Email: benchEmail, PasswordHash: "h", DisplayName: "Bench",
 	})
 	groupID := uuid.New()
-	_ = store.CreateGroup(ctx, &Group{ID: groupID, Name: "bench-group", OwnerID: userID})
+	_ = store.CreateGroup(ctx, &Group{ID: groupID, Name: benchGroup, OwnerID: userID})
 
 	// Seed 50 devices
 	for i := 0; i < 50; i++ {
@@ -100,10 +105,10 @@ func BenchmarkStore_SetDeviceStatus(b *testing.B) {
 
 	userID := uuid.New()
 	_ = store.UpsertUser(ctx, &User{
-		ID: userID, Email: "bench@test.com", PasswordHash: "h", DisplayName: "Bench",
+		ID: userID, Email: benchEmail, PasswordHash: "h", DisplayName: "Bench",
 	})
 	groupID := uuid.New()
-	_ = store.CreateGroup(ctx, &Group{ID: groupID, Name: "bench-group", OwnerID: userID})
+	_ = store.CreateGroup(ctx, &Group{ID: groupID, Name: benchGroup, OwnerID: userID})
 
 	deviceID := uuid.New()
 	_ = store.UpsertDevice(ctx, &Device{

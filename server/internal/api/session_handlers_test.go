@@ -18,10 +18,17 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
+const (
+	testEmailSess     = "sess@example.com"
+	testPathSessions  = "/api/v1/sessions"
+	testPathSessionsS = "/api/v1/sessions/"
+	testQueryDeviceID = "/api/v1/sessions?device_id="
+)
+
 func TestCreateSession(t *testing.T) {
 	t.Run("unauthenticated", func(t *testing.T) {
 		srv, _ := newTestServer(t)
-		w := doRequest(srv, http.MethodPost, "/api/v1/sessions", "", map[string]string{
+		w := doRequest(srv, http.MethodPost, testPathSessions, "", map[string]string{
 			"device_id": uuid.New().String(),
 		})
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
@@ -29,17 +36,17 @@ func TestCreateSession(t *testing.T) {
 
 	t.Run("invalid_json_body", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		_, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
-		w := doRawRequest(srv, http.MethodPost, "/api/v1/sessions", token, "not-json")
+		w := doRawRequest(srv, http.MethodPost, testPathSessions, token, "not-json")
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("invalid_device_id", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		_, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
-		w := doRequest(srv, http.MethodPost, "/api/v1/sessions", token, map[string]string{
+		w := doRequest(srv, http.MethodPost, testPathSessions, token, map[string]string{
 			"device_id": "not-a-uuid",
 		})
 		assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -47,9 +54,9 @@ func TestCreateSession(t *testing.T) {
 
 	t.Run("device_not_in_db", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		_, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
-		w := doRequest(srv, http.MethodPost, "/api/v1/sessions", token, map[string]string{
+		w := doRequest(srv, http.MethodPost, testPathSessions, token, map[string]string{
 			"device_id": uuid.New().String(),
 		})
 		assert.Equal(t, http.StatusNotFound, w.Code)
@@ -57,12 +64,12 @@ func TestCreateSession(t *testing.T) {
 
 	t.Run("agent_not_connected", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		user, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
 		group := testutil.SeedGroup(t, t.Context(), srv.store, user.ID)
 		device := testutil.SeedDevice(t, t.Context(), srv.store, group.ID)
 
-		w := doRequest(srv, http.MethodPost, "/api/v1/sessions", token, map[string]string{
+		w := doRequest(srv, http.MethodPost, testPathSessions, token, map[string]string{
 			"device_id": device.ID.String(),
 		})
 		assert.Equal(t, http.StatusConflict, w.Code)
@@ -81,7 +88,7 @@ func TestCreateSession(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, logger)
 
-		lookup := &stubAgentLookup{
+		lookup := &stubAgentGetter{
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{
 				device.ID: ac,
 			},
@@ -94,7 +101,7 @@ func TestCreateSession(t *testing.T) {
 		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
 		require.NoError(t, err)
 
-		w := doRequest(srv, http.MethodPost, "/api/v1/sessions", jwtToken, map[string]string{
+		w := doRequest(srv, http.MethodPost, testPathSessions, jwtToken, map[string]string{
 			"device_id": device.ID.String(),
 		})
 		assert.Equal(t, http.StatusCreated, w.Code)
@@ -104,7 +111,7 @@ func TestCreateSession(t *testing.T) {
 
 		// Token should be 64 hex chars
 		assert.Len(t, resp["token"], 64)
-		assert.Contains(t, resp["relay_url"], "/ws/relay/"+resp["token"])
+		assert.Contains(t, resp["relay_url"], testPathWSRelay+resp["token"])
 
 		// Session should be retrievable from DB
 		sess, err := store.GetAgentSession(ctx, resp["token"])
@@ -122,7 +129,7 @@ func TestCreateSession(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, protocol.MsgSessionRequest, msg.Type)
 		assert.Equal(t, protocol.SessionToken(resp["token"]), msg.Token)
-		assert.Contains(t, msg.RelayURL, "/ws/relay/"+resp["token"])
+		assert.Contains(t, msg.RelayURL, testPathWSRelay+resp["token"])
 	})
 
 	t.Run("default_permissions", func(t *testing.T) {
@@ -137,7 +144,7 @@ func TestCreateSession(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, logger)
 
-		lookup := &stubAgentLookup{
+		lookup := &stubAgentGetter{
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 		}
 
@@ -148,7 +155,7 @@ func TestCreateSession(t *testing.T) {
 		require.NoError(t, err)
 
 		// No permissions field in body
-		w := doRequest(srv, http.MethodPost, "/api/v1/sessions", jwtToken, map[string]string{
+		w := doRequest(srv, http.MethodPost, testPathSessions, jwtToken, map[string]string{
 			"device_id": device.ID.String(),
 		})
 		assert.Equal(t, http.StatusCreated, w.Code)
@@ -176,7 +183,7 @@ func TestCreateSession(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, logger)
 
-		lookup := &stubAgentLookup{
+		lookup := &stubAgentGetter{
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 		}
 
@@ -193,7 +200,7 @@ func TestCreateSession(t *testing.T) {
 				"terminal": true,
 			},
 		}
-		w := doRequest(srv, http.MethodPost, "/api/v1/sessions", jwtToken, body)
+		w := doRequest(srv, http.MethodPost, testPathSessions, jwtToken, body)
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		codec := &protocol.Codec{}
@@ -210,31 +217,31 @@ func TestCreateSession(t *testing.T) {
 func TestListSessions(t *testing.T) {
 	t.Run("unauthenticated", func(t *testing.T) {
 		srv, _ := newTestServer(t)
-		w := doRequest(srv, http.MethodGet, "/api/v1/sessions?device_id="+uuid.New().String(), "", nil)
+		w := doRequest(srv, http.MethodGet, testQueryDeviceID+uuid.New().String(), "", nil)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
 	t.Run("missing_device_id", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		_, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
-		w := doRequest(srv, http.MethodGet, "/api/v1/sessions", token, nil)
+		w := doRequest(srv, http.MethodGet, testPathSessions, token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("invalid_device_id", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		_, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
-		w := doRequest(srv, http.MethodGet, "/api/v1/sessions?device_id=not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodGet, testQueryDeviceID + "not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("empty", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		_, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
-		w := doRequest(srv, http.MethodGet, "/api/v1/sessions?device_id="+uuid.New().String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testQueryDeviceID+uuid.New().String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var sessions []*db.AgentSession
@@ -244,7 +251,7 @@ func TestListSessions(t *testing.T) {
 
 	t.Run("returns_sessions", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		user, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 		ctx := t.Context()
 
 		group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
@@ -253,7 +260,7 @@ func TestListSessions(t *testing.T) {
 		testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 		testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 
-		w := doRequest(srv, http.MethodGet, "/api/v1/sessions?device_id="+device.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testQueryDeviceID+device.ID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var sessions []*db.AgentSession
@@ -263,7 +270,7 @@ func TestListSessions(t *testing.T) {
 
 	t.Run("only_returns_for_given_device", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		user, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 		ctx := t.Context()
 
 		group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
@@ -273,7 +280,7 @@ func TestListSessions(t *testing.T) {
 		testutil.SeedAgentSession(t, ctx, srv.store, device1.ID, user.ID)
 		testutil.SeedAgentSession(t, ctx, srv.store, device2.ID, user.ID)
 
-		w := doRequest(srv, http.MethodGet, "/api/v1/sessions?device_id="+device1.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testQueryDeviceID+device1.ID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var sessions []*db.AgentSession
@@ -286,21 +293,21 @@ func TestListSessions(t *testing.T) {
 func TestDeleteSession(t *testing.T) {
 	t.Run("unauthenticated", func(t *testing.T) {
 		srv, _ := newTestServer(t)
-		w := doRequest(srv, http.MethodDelete, "/api/v1/sessions/sometoken", "", nil)
+		w := doRequest(srv, http.MethodDelete, testPathSessionsS + "sometoken", "", nil)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
 	t.Run("not_found", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		_, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
-		w := doRequest(srv, http.MethodDelete, "/api/v1/sessions/nonexistent-token", token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathSessionsS + "nonexistent-token", token, nil)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
 	t.Run("success", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		user, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 		ctx := t.Context()
 
 		group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
@@ -308,7 +315,7 @@ func TestDeleteSession(t *testing.T) {
 
 		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 
-		w := doRequest(srv, http.MethodDelete, "/api/v1/sessions/"+sess.Token, token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathSessionsS+sess.Token, token, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)
 
 		// Verify gone from DB
@@ -318,7 +325,7 @@ func TestDeleteSession(t *testing.T) {
 
 	t.Run("idempotent", func(t *testing.T) {
 		srv, cfg := newTestServer(t)
-		user, token := seedTestUser(t, srv, cfg, "sess@example.com", false)
+		user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 		ctx := t.Context()
 
 		group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
@@ -326,11 +333,11 @@ func TestDeleteSession(t *testing.T) {
 
 		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 
-		w := doRequest(srv, http.MethodDelete, "/api/v1/sessions/"+sess.Token, token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathSessionsS+sess.Token, token, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)
 
 		// Second delete returns 404, not 500
-		w = doRequest(srv, http.MethodDelete, "/api/v1/sessions/"+sess.Token, token, nil)
+		w = doRequest(srv, http.MethodDelete, testPathSessionsS+sess.Token, token, nil)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 }

@@ -4,7 +4,7 @@ import "context"
 
 // GetHealth implements StrictServerInterface.
 func (s *Server) GetHealth(ctx context.Context, _ GetHealthRequestObject) (GetHealthResponseObject, error) {
-	if err := s.store.Ping(ctx); err != nil {
+	if s.store.Ping(ctx) != nil {
 		return GetHealth503JSONResponse{Error: "database unreachable"}, nil
 	}
 	return GetHealth200JSONResponse{Status: "ok"}, nil

@@ -17,8 +17,8 @@ import (
 
 //go:generate oapi-codegen -config ../../oapi-codegen.yaml ../../api/openapi.yaml
 
-// AgentLookup finds a connected agent by device ID.
-type AgentLookup interface {
+// AgentGetter finds a connected agent by device ID.
+type AgentGetter interface {
 	GetAgent(deviceID db.DeviceID) *agentapi.AgentConn
 }
 
@@ -26,14 +26,14 @@ type AgentLookup interface {
 type Server struct {
 	store  db.Store
 	jwt    *auth.JWTConfig
-	agents AgentLookup
+	agents AgentGetter
 	relay  *relay.Relay
 	router chi.Router
 	logger *slog.Logger
 }
 
 // NewServer creates an API server with all routes registered.
-func NewServer(store db.Store, jwtCfg *auth.JWTConfig, agents AgentLookup, relay *relay.Relay, logger *slog.Logger) *Server {
+func NewServer(store db.Store, jwtCfg *auth.JWTConfig, agents AgentGetter, relay *relay.Relay, logger *slog.Logger) *Server {
 	s := &Server{
 		store:  store,
 		jwt:    jwtCfg,

@@ -11,6 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	caCertFile = "ca.crt"
+	caKeyFile  = "ca.key"
+)
+
 func TestNewManager(t *testing.T) {
 	t.Run("creates CA on first init", func(t *testing.T) {
 		dir := t.TempDir()
@@ -18,9 +23,9 @@ func TestNewManager(t *testing.T) {
 		require.NoError(t, err)
 
 		// CA cert and key files should exist
-		_, err = os.Stat(filepath.Join(dir, "ca.crt"))
+		_, err = os.Stat(filepath.Join(dir, caCertFile))
 		assert.NoError(t, err)
-		_, err = os.Stat(filepath.Join(dir, "ca.key"))
+		_, err = os.Stat(filepath.Join(dir, caKeyFile))
 		assert.NoError(t, err)
 
 		// Manager should have a valid CA certificate
@@ -52,7 +57,7 @@ func TestNewManager(t *testing.T) {
 		_, err := NewManager(dir)
 		require.NoError(t, err)
 		// Corrupt the cert file
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), []byte("not-pem-data"), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, caCertFile), []byte("not-pem-data"), 0644))
 
 		_, err = NewManager(dir)
 		assert.Error(t, err)
@@ -63,7 +68,7 @@ func TestNewManager(t *testing.T) {
 		_, err := NewManager(dir)
 		require.NoError(t, err)
 		// Corrupt only the key file
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.key"), []byte("not-pem-data"), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, caKeyFile), []byte("not-pem-data"), 0600))
 
 		_, err = NewManager(dir)
 		assert.Error(t, err)
@@ -75,7 +80,7 @@ func TestNewManager(t *testing.T) {
 		require.NoError(t, err)
 		// Write valid PEM wrapper but with garbage DER content
 		badPEM := "-----BEGIN CERTIFICATE-----\nYmFkZGF0YQ==\n-----END CERTIFICATE-----\n"
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), []byte(badPEM), 0644))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, caCertFile), []byte(badPEM), 0644))
 
 		_, err = NewManager(dir)
 		assert.Error(t, err)
@@ -87,7 +92,7 @@ func TestNewManager(t *testing.T) {
 		require.NoError(t, err)
 		// Keep the valid cert, corrupt key with valid PEM but bad DER
 		badPEM := "-----BEGIN EC PRIVATE KEY-----\nYmFkZGF0YQ==\n-----END EC PRIVATE KEY-----\n"
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.key"), []byte(badPEM), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, caKeyFile), []byte(badPEM), 0600))
 
 		_, err = NewManager(dir)
 		assert.Error(t, err)
@@ -97,8 +102,8 @@ func TestNewManager(t *testing.T) {
 		dir := t.TempDir()
 		_, err := NewManager(dir)
 		require.NoError(t, err)
-		require.NoError(t, os.Chmod(filepath.Join(dir, "ca.crt"), 0000))
-		t.Cleanup(func() { os.Chmod(filepath.Join(dir, "ca.crt"), 0644) })
+		require.NoError(t, os.Chmod(filepath.Join(dir, caCertFile), 0000))
+		t.Cleanup(func() { os.Chmod(filepath.Join(dir, caCertFile), 0644) })
 
 		_, err = NewManager(dir)
 		assert.Error(t, err)
@@ -108,8 +113,8 @@ func TestNewManager(t *testing.T) {
 		dir := t.TempDir()
 		_, err := NewManager(dir)
 		require.NoError(t, err)
-		require.NoError(t, os.Chmod(filepath.Join(dir, "ca.key"), 0000))
-		t.Cleanup(func() { os.Chmod(filepath.Join(dir, "ca.key"), 0600) })
+		require.NoError(t, os.Chmod(filepath.Join(dir, caKeyFile), 0000))
+		t.Cleanup(func() { os.Chmod(filepath.Join(dir, caKeyFile), 0600) })
 
 		_, err = NewManager(dir)
 		assert.Error(t, err)

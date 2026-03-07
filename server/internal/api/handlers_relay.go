@@ -23,6 +23,38 @@ func rejectWebSocket(w http.ResponseWriter, r *http.Request, reason string) {
 	c.Close(websocket.StatusPolicyViolation, reason)
 }
 
+// ensureBrowserAuth ensures the browser side has an Authorization header,
+// falling back to the ?auth= query param (browser WebSocket API cannot set custom headers).
+func ensureBrowserAuth(r *http.Request) bool {
+	if r.Header.Get("Authorization") != "" {
+		return true
+	}
+	authParam := r.URL.Query().Get("auth")
+	if authParam == "" {
+		return false
+	}
+	r.Header.Set("Authorization", "Bearer "+authParam)
+	return true
+}
+
+// parseSide determines the relay side from the ?side= query param.
+// Returns the side and true on success, or rejects the WebSocket and returns false.
+func parseSide(w http.ResponseWriter, r *http.Request) (relay.Side, bool) {
+	switch r.URL.Query().Get("side") {
+	case "browser":
+		if !ensureBrowserAuth(r) {
+			rejectWebSocket(w, r, "browser side requires authorization")
+			return 0, false
+		}
+		return relay.SideBrowser, true
+	case "agent":
+		return relay.SideAgent, true
+	default:
+		rejectWebSocket(w, r, "invalid side")
+		return 0, false
+	}
+}
+
 func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 
@@ -36,30 +68,8 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine side from query param
-	sideParam := r.URL.Query().Get("side")
-	var side relay.Side
-	switch sideParam {
-	case "browser":
-		// Validate JWT for browser side.
-		// Check Authorization header first, then fall back to ?auth= query param
-		// (browser WebSocket API cannot set custom headers).
-		header := r.Header.Get("Authorization")
-		if header == "" {
-			if authParam := r.URL.Query().Get("auth"); authParam != "" {
-				header = "Bearer " + authParam
-				r.Header.Set("Authorization", header)
-			}
-		}
-		if header == "" {
-			rejectWebSocket(w, r, "browser side requires authorization")
-			return
-		}
-		side = relay.SideBrowser
-	case "agent":
-		side = relay.SideAgent
-	default:
-		rejectWebSocket(w, r, "invalid side")
+	side, ok := parseSide(w, r)
+	if !ok {
 		return
 	}
 

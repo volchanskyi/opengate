@@ -23,6 +23,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
+const testHost = "test-host"
+
 // generateAgentCert creates a test agent cert signed by the given CA.
 func generateAgentCert(t *testing.T, cm *cert.Manager, deviceID string) (certDER []byte, key *ecdsa.PrivateKey) {
 	t.Helper()
@@ -47,7 +49,7 @@ func generateAgentCert(t *testing.T, cm *cert.Manager, deviceID string) (certDER
 	// Use cert.Manager.SignAgent instead.
 	_ = der
 
-	tlsCert, err := cm.SignAgent(deviceID, "test-host")
+	tlsCert, err := cm.SignAgent(deviceID, testHost)
 	require.NoError(t, err)
 	return tlsCert.Certificate[0], nil
 }
@@ -57,7 +59,7 @@ func TestHandshaker_FullExchange(t *testing.T) {
 	require.NoError(t, err)
 
 	deviceID := uuid.New().String()
-	tlsCert, err := cm.SignAgent(deviceID, "test-host")
+	tlsCert, err := cm.SignAgent(deviceID, testHost)
 	require.NoError(t, err)
 	agentCertDER := tlsCert.Certificate[0]
 
@@ -110,7 +112,7 @@ func TestHandshaker_WrongCertHash(t *testing.T) {
 	require.NoError(t, err)
 
 	deviceID := uuid.New().String()
-	tlsCert, err := cm.SignAgent(deviceID, "test-host")
+	tlsCert, err := cm.SignAgent(deviceID, testHost)
 	require.NoError(t, err)
 	agentCertDER := tlsCert.Certificate[0]
 
