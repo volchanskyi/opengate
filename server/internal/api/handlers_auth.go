@@ -60,7 +60,7 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		return nil, err
 	}
 
-	if err := auth.CheckPassword(user.PasswordHash, request.Body.Password); err != nil {
+	if auth.CheckPassword(user.PasswordHash, request.Body.Password) != nil {
 		return Login401JSONResponse{Error: "invalid credentials"}, nil
 	}
 

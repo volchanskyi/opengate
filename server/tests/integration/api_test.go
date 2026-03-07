@@ -24,6 +24,11 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
+const (
+	pathUsersMe  = "/api/v1/users/me"
+	aliceEmail   = "alice@example.com"
+)
+
 // testEnv holds a running test server and its dependencies.
 type testEnv struct {
 	server *httptest.Server
@@ -107,21 +112,21 @@ func TestAuthFlow(t *testing.T) {
 
 	t.Run("register then login then access protected endpoint", func(t *testing.T) {
 		// 1. Register
-		regToken := env.register(t, "alice@example.com", "strongpass")
+		regToken := env.register(t, aliceEmail, "strongpass")
 		assert.NotEmpty(t, regToken)
 
 		// 2. Login with same credentials
-		loginToken := env.login(t, "alice@example.com", "strongpass")
+		loginToken := env.login(t, aliceEmail, "strongpass")
 		assert.NotEmpty(t, loginToken)
 
 		// 3. Use token to access protected endpoint
-		resp := env.doJSON(t, http.MethodGet, "/api/v1/users/me", loginToken, nil)
+		resp := env.doJSON(t, http.MethodGet, pathUsersMe, loginToken, nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
 		var user db.User
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&user))
-		assert.Equal(t, "alice@example.com", user.Email)
+		assert.Equal(t, aliceEmail, user.Email)
 		assert.Empty(t, user.PasswordHash) // json:"-" omits it
 	})
 
@@ -135,20 +140,20 @@ func TestAuthFlow(t *testing.T) {
 		expiredToken, err := expiredCfg.GenerateToken(uuid.New(), "expired@example.com", false)
 		require.NoError(t, err)
 
-		resp := env.doJSON(t, http.MethodGet, "/api/v1/users/me", expiredToken, nil)
+		resp := env.doJSON(t, http.MethodGet, pathUsersMe, expiredToken, nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
 	t.Run("no token is rejected", func(t *testing.T) {
-		resp := env.doJSON(t, http.MethodGet, "/api/v1/users/me", "", nil)
+		resp := env.doJSON(t, http.MethodGet, pathUsersMe, "", nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
 	t.Run("wrong password fails login", func(t *testing.T) {
 		resp := env.doJSON(t, http.MethodPost, "/api/v1/auth/login", "", map[string]string{
-			"email":    "alice@example.com",
+			"email":    aliceEmail,
 			"password": "wrongpass",
 		})
 		defer resp.Body.Close()
@@ -161,7 +166,7 @@ func TestDeviceLifecycle(t *testing.T) {
 	token := env.register(t, "devops@example.com", "pass123")
 
 	// Get current user to know the owner ID
-	resp := env.doJSON(t, http.MethodGet, "/api/v1/users/me", token, nil)
+	resp := env.doJSON(t, http.MethodGet, pathUsersMe, token, nil)
 	var user db.User
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&user))
 	resp.Body.Close()
@@ -294,7 +299,7 @@ func TestAdminAuthorization(t *testing.T) {
 
 	t.Run("admin can delete a user", func(t *testing.T) {
 		// Get regular user's ID
-		resp := env.doJSON(t, http.MethodGet, "/api/v1/users/me", regularToken, nil)
+		resp := env.doJSON(t, http.MethodGet, pathUsersMe, regularToken, nil)
 		var regUser db.User
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&regUser))
 		resp.Body.Close()
@@ -304,7 +309,7 @@ func TestAdminAuthorization(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
 		// Deleted user's token still validates (JWT is stateless) but /me returns 404
-		resp2 := env.doJSON(t, http.MethodGet, "/api/v1/users/me", regularToken, nil)
+		resp2 := env.doJSON(t, http.MethodGet, pathUsersMe, regularToken, nil)
 		defer resp2.Body.Close()
 		assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
 	})
@@ -342,7 +347,7 @@ func TestConcurrentRequests(t *testing.T) {
 			case 0:
 				resp = env.doJSON(t, http.MethodGet, "/api/v1/health", "", nil)
 			case 1:
-				resp = env.doJSON(t, http.MethodGet, "/api/v1/users/me", token, nil)
+				resp = env.doJSON(t, http.MethodGet, pathUsersMe, token, nil)
 			case 2:
 				resp = env.doJSON(t, http.MethodGet, "/api/v1/groups", token, nil)
 			case 3:

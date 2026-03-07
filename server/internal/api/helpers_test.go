@@ -19,12 +19,12 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// stubAgentLookup is a test double for AgentLookup.
-type stubAgentLookup struct {
+// stubAgentGetter is a test double for AgentGetter.
+type stubAgentGetter struct {
 	agents map[protocol.DeviceID]*agentapi.AgentConn
 }
 
-func (s *stubAgentLookup) GetAgent(deviceID protocol.DeviceID) *agentapi.AgentConn {
+func (s *stubAgentGetter) GetAgent(deviceID protocol.DeviceID) *agentapi.AgentConn {
 	if s == nil || s.agents == nil {
 		return nil
 	}
@@ -45,12 +45,12 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	store := testutil.NewTestStore(t)
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := NewServer(store, cfg, &stubAgentLookup{}, relay.NewRelay(), logger)
+	srv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), logger)
 	return srv, cfg
 }
 
-// newTestServerWithAgents creates a Server with a custom AgentLookup and relay.
-func newTestServerWithAgents(t *testing.T, agents AgentLookup, r *relay.Relay) (*Server, *auth.JWTConfig) {
+// newTestServerWithAgents creates a Server with a custom AgentGetter and relay.
+func newTestServerWithAgents(t *testing.T, agents AgentGetter, r *relay.Relay) (*Server, *auth.JWTConfig) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
 	cfg := testJWTConfig()

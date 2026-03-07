@@ -15,7 +15,7 @@ function timeAgo(dateStr: string): string {
   return `${String(days)}d ago`;
 }
 
-export function DeviceCard({ device }: { device: Device }) {
+export function DeviceCard({ device }: Readonly<{ device: Device }>) {
   const navigate = useNavigate();
 
   return (

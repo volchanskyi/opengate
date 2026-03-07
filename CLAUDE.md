@@ -42,47 +42,10 @@ Test Both Scenarios: positive cases (expected behavior) and negative cases (erro
 - Golden file tests verify Rust ↔ Go compatibility
 
 ## Pre-Commit Checklist
-**MANDATORY** — run ALL lints, ALL tests, Test coverage, and ALL benchmarks before EVERY commit. No exceptions.
-
-### Lints (all must pass)
-1. `cd agent && cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings` — Rust format + clippy
-2. `cd server && go vet ./...` — Go vet
-3. `cd web && npx eslint .` — Web ESLint
-4. `~/go/bin/actionlint` — GitHub Actions workflow lint (ALWAYS run locally, no exceptions)
-
-### Tests (all must pass)
-5. `cd server && go test -race -timeout 5m ./...` — Go tests (unit + integration, race detector)
-6. `cd agent && cargo test --workspace` — Rust tests (all crates)
-7. `cd web && npx vitest run` — Web tests
-
-### Benchmarks (all must run without errors)
-8. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-9. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
-
-### Documentation (mandatory on every commit)
-10. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-11. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
-
-Do NOT commit if any lint fails, any test fails, new code coverage is below 80% or overall coverage below 70%, any benchmark errors out, or documentation is stale.
+**MANDATORY** — Run `/precommit` before EVERY commit. No exceptions.
 
 ## Post-Commit Refactoring
-**MANDATORY** — After all pre-commit checks pass, ALWAYS refactor the newly added code. DO NOT CHANGE BUSINESS LOGIC.
-
-### Constraints
-- Do not introduce external libraries not already in the project
-- Do not change API signatures
-- Do not change business logic
-
-### Steps (follow in order)
-1. **Analyze** — Review the current code and explain potential bottlenecks within the repo
-2. **Strategize** — Describe the optimization strategy options you suggest
-3. **Divide and conquer** — Break the work into smaller, manageable subtasks. Address one logical unit at a time, review and test the changes, then move to the next step
-4. **Test** — Thoroughly test the changes. Add new tests and/or update existing ones as needed to maintain or increase test coverage. Re-evaluate existing tests for duplication. Remove unused tests
-
-### Focus areas
-- Readability and performance
-- Eliminate duplications, unused imports, and unused libraries
-- Apply industry best practices
+**MANDATORY** — After all pre-commit checks pass, run `/refactor`. No exceptions.
 
 ## Commands
 - `make build` — build all components
