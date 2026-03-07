@@ -106,8 +106,10 @@ func TestValidateToken(t *testing.T) {
 		token, err := cfg.GenerateToken(userID, "user@example.com", false)
 		require.NoError(t, err)
 
-		// flip a character in the token
-		tampered := token[:len(token)-1] + "X"
+		// flip a character in the middle of the signature to ensure corruption
+		mid := len(token) / 2
+		flipped := token[mid] ^ 0x01
+		tampered := token[:mid] + string(rune(flipped)) + token[mid+1:]
 		_, err = cfg.ValidateToken(tampered)
 		assert.Error(t, err)
 	})
