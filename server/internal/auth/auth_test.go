@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const testEmail = "user@example.com"
+
 func testJWTConfig() JWTConfig {
 	return JWTConfig{
 		Secret:   "test-secret-key-at-least-32-bytes!",
@@ -56,7 +58,7 @@ func TestGenerateToken(t *testing.T) {
 	userID := uuid.New()
 
 	t.Run("generates valid token", func(t *testing.T) {
-		token, err := cfg.GenerateToken(userID, "user@example.com", false)
+		token, err := cfg.GenerateToken(userID, testEmail, false)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 	})
@@ -79,13 +81,13 @@ func TestValidateToken(t *testing.T) {
 	userID := uuid.New()
 
 	t.Run("valid token", func(t *testing.T) {
-		token, err := cfg.GenerateToken(userID, "user@example.com", false)
+		token, err := cfg.GenerateToken(userID, testEmail, false)
 		require.NoError(t, err)
 
 		claims, err := cfg.ValidateToken(token)
 		require.NoError(t, err)
 		assert.Equal(t, userID, claims.UserID)
-		assert.Equal(t, "user@example.com", claims.Email)
+		assert.Equal(t, testEmail, claims.Email)
 		assert.False(t, claims.IsAdmin)
 	})
 
@@ -95,7 +97,7 @@ func TestValidateToken(t *testing.T) {
 			Issuer:   cfg.Issuer,
 			Duration: -1 * time.Hour, // already expired
 		}
-		token, err := expiredCfg.GenerateToken(userID, "user@example.com", false)
+		token, err := expiredCfg.GenerateToken(userID, testEmail, false)
 		require.NoError(t, err)
 
 		_, err = cfg.ValidateToken(token)
@@ -103,7 +105,7 @@ func TestValidateToken(t *testing.T) {
 	})
 
 	t.Run("tampered token", func(t *testing.T) {
-		token, err := cfg.GenerateToken(userID, "user@example.com", false)
+		token, err := cfg.GenerateToken(userID, testEmail, false)
 		require.NoError(t, err)
 
 		// flip a character in the middle of the signature to ensure corruption
@@ -115,7 +117,7 @@ func TestValidateToken(t *testing.T) {
 	})
 
 	t.Run("wrong secret", func(t *testing.T) {
-		token, err := cfg.GenerateToken(userID, "user@example.com", false)
+		token, err := cfg.GenerateToken(userID, testEmail, false)
 		require.NoError(t, err)
 
 		otherCfg := JWTConfig{

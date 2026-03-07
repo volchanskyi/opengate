@@ -26,6 +26,8 @@ import (
 	"nhooyr.io/websocket"
 )
 
+const pathSessions = "/api/v1/sessions"
+
 // sessionTestEnv bundles all dependencies for session integration tests.
 type sessionTestEnv struct {
 	store     db.Store
@@ -115,7 +117,7 @@ func (e *sessionTestEnv) createSession(t *testing.T, jwt string, deviceID uuid.U
 	var buf bytes.Buffer
 	require.NoError(t, json.NewEncoder(&buf).Encode(body))
 
-	req, err := http.NewRequest(http.MethodPost, e.httpSrv.URL+"/api/v1/sessions", &buf)
+	req, err := http.NewRequest(http.MethodPost, e.httpSrv.URL+pathSessions, &buf)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+jwt)
@@ -132,7 +134,7 @@ func (e *sessionTestEnv) createSession(t *testing.T, jwt string, deviceID uuid.U
 
 func (e *sessionTestEnv) listSessions(t *testing.T, jwt string, deviceID uuid.UUID) []*db.AgentSession {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, e.httpSrv.URL+"/api/v1/sessions?device_id="+deviceID.String(), nil)
+	req, err := http.NewRequest(http.MethodGet, e.httpSrv.URL+pathSessions+"?device_id="+deviceID.String(), nil)
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+jwt)
 
@@ -148,7 +150,7 @@ func (e *sessionTestEnv) listSessions(t *testing.T, jwt string, deviceID uuid.UU
 
 func (e *sessionTestEnv) deleteSession(t *testing.T, jwt, token string) int {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodDelete, e.httpSrv.URL+"/api/v1/sessions/"+token, nil)
+	req, err := http.NewRequest(http.MethodDelete, e.httpSrv.URL+pathSessions+"/"+token, nil)
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+jwt)
 

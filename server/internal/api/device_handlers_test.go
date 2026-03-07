@@ -11,6 +11,11 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
+const (
+	testPathDevices  = "/api/v1/devices"
+	testPathDevicesS = "/api/v1/devices/"
+)
+
 func TestDeviceHandlers(t *testing.T) {
 	srv, cfg := newTestServer(t)
 	user, token := seedTestUser(t, srv, cfg, "dev@example.com", false)
@@ -28,7 +33,7 @@ func TestDeviceHandlers(t *testing.T) {
 	require.NoError(t, srv.store.UpsertDevice(t.Context(), device))
 
 	t.Run("list devices", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/devices?group_id="+group.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevices + "?group_id="+group.ID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var devices []*db.Device
@@ -38,12 +43,12 @@ func TestDeviceHandlers(t *testing.T) {
 	})
 
 	t.Run("list devices missing group_id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/devices", token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevices, token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("get device", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/devices/"+device.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevicesS+device.ID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var d db.Device
@@ -52,32 +57,32 @@ func TestDeviceHandlers(t *testing.T) {
 	})
 
 	t.Run("get device not found", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/devices/"+uuid.New().String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevicesS+uuid.New().String(), token, nil)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
 	t.Run("delete device", func(t *testing.T) {
-		w := doRequest(srv, http.MethodDelete, "/api/v1/devices/"+device.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathDevicesS+device.ID.String(), token, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 
 	t.Run("list devices invalid group_id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/devices?group_id=not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevices + "?group_id=not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("get device invalid id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/devices/not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevicesS + "not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("delete device invalid id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodDelete, "/api/v1/devices/not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathDevicesS + "not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("requires auth", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/devices?group_id="+group.ID.String(), "", nil)
+		w := doRequest(srv, http.MethodGet, testPathDevices + "?group_id="+group.ID.String(), "", nil)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 }

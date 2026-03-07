@@ -40,8 +40,7 @@ type session struct {
 	agent   Conn
 	browser Conn
 	ready   chan struct{} // closed when both sides are registered
-	done    <-chan struct{}
-	cancel  context.CancelFunc
+	started bool
 }
 
 // Relay pipes WebSocket connections from browsers and agents together.
@@ -79,18 +78,17 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 		s.browser = conn
 	}
 
-	// If this is the first side, create a lifecycle context and increment count.
-	if s.done == nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		s.done = ctx.Done()
-		s.cancel = cancel
+	// If this is the first side, increment count.
+	if !s.started {
+		s.started = true
 		r.count.Add(1)
 	}
 
 	// If both sides are now present, start piping.
 	if s.agent != nil && s.browser != nil {
 		close(s.ready)
-		go r.pipe(token, s)
+		pipeCtx, cancel := context.WithCancel(context.Background())
+		go r.pipe(pipeCtx, cancel, token, s)
 	}
 
 	return nil
@@ -120,7 +118,7 @@ func (r *Relay) ActiveSessionCount() int {
 
 // pipe copies data between agent and browser until one side disconnects
 // or the session context is cancelled.
-func (r *Relay) pipe(token protocol.SessionToken, s *session) {
+func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token protocol.SessionToken, s *session) {
 	var closeOnce sync.Once
 	closeBoth := func() {
 		closeOnce.Do(func() {
@@ -131,7 +129,7 @@ func (r *Relay) pipe(token protocol.SessionToken, s *session) {
 
 	defer func() {
 		closeBoth()
-		s.cancel()
+		cancel()
 		r.sessions.Delete(token)
 		r.count.Add(-1)
 	}()
@@ -155,7 +153,7 @@ func (r *Relay) pipe(token protocol.SessionToken, s *session) {
 
 	select {
 	case <-done:
-	case <-s.done:
+	case <-ctx.Done():
 		closeBoth()
 		<-done
 	}

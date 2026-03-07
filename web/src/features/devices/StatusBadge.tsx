@@ -8,7 +8,7 @@ const config: Record<DeviceStatus, { color: string; label: string }> = {
   connecting: { color: 'bg-yellow-500', label: 'Connecting' },
 };
 
-export function StatusBadge({ status }: { status: DeviceStatus }) {
+export function StatusBadge({ status }: Readonly<{ status: DeviceStatus }>) {
   const { color, label } = config[status] ?? { color: 'bg-gray-500', label: status };
   return (
     <span className="inline-flex items-center gap-1.5 text-sm">

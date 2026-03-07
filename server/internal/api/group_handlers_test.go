@@ -10,6 +10,11 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
+const (
+	testPathGroups  = "/api/v1/groups"
+	testPathGroupsS = "/api/v1/groups/"
+)
+
 func TestGroupHandlers(t *testing.T) {
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, "grp@example.com", false)
@@ -18,7 +23,7 @@ func TestGroupHandlers(t *testing.T) {
 
 	t.Run("create group", func(t *testing.T) {
 		body := map[string]string{"name": "my-group"}
-		w := doRequest(srv, http.MethodPost, "/api/v1/groups", token, body)
+		w := doRequest(srv, http.MethodPost, testPathGroups, token, body)
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		var g db.Group
@@ -28,7 +33,7 @@ func TestGroupHandlers(t *testing.T) {
 	})
 
 	t.Run("list groups", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/groups", token, nil)
+		w := doRequest(srv, http.MethodGet, testPathGroups, token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var groups []*db.Group
@@ -37,38 +42,38 @@ func TestGroupHandlers(t *testing.T) {
 	})
 
 	t.Run("get group", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/groups/"+createdGroupID.String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testPathGroupsS+createdGroupID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
 	t.Run("get group not found", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/groups/"+uuid.New().String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testPathGroupsS+uuid.New().String(), token, nil)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
 	t.Run("create group missing name", func(t *testing.T) {
 		body := map[string]string{}
-		w := doRequest(srv, http.MethodPost, "/api/v1/groups", token, body)
+		w := doRequest(srv, http.MethodPost, testPathGroups, token, body)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("create group invalid json", func(t *testing.T) {
-		w := doRawRequest(srv, http.MethodPost, "/api/v1/groups", token, "bad json")
+		w := doRawRequest(srv, http.MethodPost, testPathGroups, token, "bad json")
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("get group invalid id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/groups/not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodGet, testPathGroupsS+"not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("delete group invalid id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodDelete, "/api/v1/groups/not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathGroupsS+"not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("delete group", func(t *testing.T) {
-		w := doRequest(srv, http.MethodDelete, "/api/v1/groups/"+createdGroupID.String(), token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathGroupsS+createdGroupID.String(), token, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 }
