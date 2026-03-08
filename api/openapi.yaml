@@ -195,6 +195,59 @@ components:
           type: string
           format: date-time
 
+    WebPushSubscribeRequest:
+      type: object
+      required: [endpoint, p256dh, auth]
+      properties:
+        endpoint:
+          type: string
+        p256dh:
+          type: string
+        auth:
+          type: string
+
+    WebPushUnsubscribeRequest:
+      type: object
+      required: [endpoint]
+      properties:
+        endpoint:
+          type: string
+
+    VapidKeyResponse:
+      type: object
+      required: [public_key]
+      properties:
+        public_key:
+          type: string
+
+    AuditEvent:
+      type: object
+      required: [id, user_id, action, target, details, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+        target:
+          type: string
+        details:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        is_admin:
+          type: boolean
+        display_name:
+          type: string
+
 paths:
   /api/v1/health:
     get:
@@ -342,6 +395,160 @@ paths:
       responses:
         "204":
           description: User deleted
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    patch:
+      operationId: updateUser
+      summary: Update user (admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/push/subscribe:
+    post:
+      operationId: subscribePush
+      summary: Save browser push subscription
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebPushSubscribeRequest"
+      responses:
+        "204":
+          description: Subscription saved
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: unsubscribePush
+      summary: Remove push subscription
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebPushUnsubscribeRequest"
+      responses:
+        "204":
+          description: Subscription removed
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/push/vapid-key:
+    get:
+      operationId: getVapidKey
+      summary: Get server VAPID public key
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: VAPID public key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VapidKeyResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/audit:
+    get:
+      operationId: listAuditEvents
+      summary: Query audit log (admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEvent"
         "401":
           description: Unauthorized
           content:

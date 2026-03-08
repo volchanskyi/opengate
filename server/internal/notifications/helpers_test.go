@@ -1,0 +1,119 @@
+package notifications
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"sync"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/db"
+)
+
+// testVAPIDKeys generates a valid VAPID key pair for use in tests.
+func testVAPIDKeys(t *testing.T) (priv, pub string) {
+	t.Helper()
+	dir := t.TempDir()
+	priv, pub, err := LoadOrGenerateVAPID(dir)
+	require.NoError(t, err)
+	return priv, pub
+}
+
+// mockSub is a test helper for creating push subscriptions.
+type mockSub struct {
+	Endpoint string
+	UserID   uuid.UUID
+	P256dh   string
+	Auth     string
+}
+
+// notifMockStore implements only the db.Store methods used by PushNotifier.
+type notifMockStore struct {
+	subs       []*db.WebPushSubscription
+	deletedEPs []string
+	mu         sync.Mutex
+}
+
+func newMockNotifStore(subs []*mockSub) *notifMockStore {
+	var dbSubs []*db.WebPushSubscription
+	for _, s := range subs {
+		dbSubs = append(dbSubs, &db.WebPushSubscription{
+			Endpoint: s.Endpoint,
+			UserID:   s.UserID,
+			P256dh:   s.P256dh,
+			Auth:     s.Auth,
+		})
+	}
+	return &notifMockStore{subs: dbSubs}
+}
+
+func (m *notifMockStore) ListAllWebPushSubscriptions(_ context.Context) ([]*db.WebPushSubscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.subs, nil
+}
+
+func (m *notifMockStore) DeleteWebPushSubscription(_ context.Context, endpoint string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deletedEPs = append(m.deletedEPs, endpoint)
+	return nil
+}
+
+// Unused Store methods — stubs to satisfy the interface.
+func (m *notifMockStore) UpsertDevice(_ context.Context, _ *db.Device) error { return nil }
+func (m *notifMockStore) GetDevice(_ context.Context, _ db.DeviceID) (*db.Device, error) {
+	return nil, nil
+}
+func (m *notifMockStore) ListDevices(_ context.Context, _ db.GroupID) ([]*db.Device, error) {
+	return nil, nil
+}
+func (m *notifMockStore) DeleteDevice(_ context.Context, _ db.DeviceID) error { return nil }
+func (m *notifMockStore) SetDeviceStatus(_ context.Context, _ db.DeviceID, _ db.DeviceStatus) error {
+	return nil
+}
+func (m *notifMockStore) CreateGroup(_ context.Context, _ *db.Group) error { return nil }
+func (m *notifMockStore) GetGroup(_ context.Context, _ db.GroupID) (*db.Group, error) {
+	return nil, nil
+}
+func (m *notifMockStore) ListGroups(_ context.Context, _ db.UserID) ([]*db.Group, error) {
+	return nil, nil
+}
+func (m *notifMockStore) DeleteGroup(_ context.Context, _ db.GroupID) error { return nil }
+func (m *notifMockStore) UpsertUser(_ context.Context, _ *db.User) error    { return nil }
+func (m *notifMockStore) GetUser(_ context.Context, _ db.UserID) (*db.User, error) {
+	return nil, nil
+}
+func (m *notifMockStore) GetUserByEmail(_ context.Context, _ string) (*db.User, error) {
+	return nil, nil
+}
+func (m *notifMockStore) ListUsers(_ context.Context) ([]*db.User, error) { return nil, nil }
+func (m *notifMockStore) DeleteUser(_ context.Context, _ db.UserID) error  { return nil }
+func (m *notifMockStore) CreateAgentSession(_ context.Context, _ *db.AgentSession) error {
+	return nil
+}
+func (m *notifMockStore) GetAgentSession(_ context.Context, _ string) (*db.AgentSession, error) {
+	return nil, nil
+}
+func (m *notifMockStore) DeleteAgentSession(_ context.Context, _ string) error { return nil }
+func (m *notifMockStore) ListActiveSessionsForDevice(_ context.Context, _ db.DeviceID) ([]*db.AgentSession, error) {
+	return nil, nil
+}
+func (m *notifMockStore) UpsertWebPushSubscription(_ context.Context, _ *db.WebPushSubscription) error {
+	return nil
+}
+func (m *notifMockStore) ListWebPushSubscriptions(_ context.Context, _ uuid.UUID) ([]*db.WebPushSubscription, error) {
+	return nil, nil
+}
+func (m *notifMockStore) WriteAuditEvent(_ context.Context, _ *db.AuditEvent) error { return nil }
+func (m *notifMockStore) QueryAuditLog(_ context.Context, _ db.AuditQuery) ([]*db.AuditEvent, error) {
+	return nil, nil
+}
+func (m *notifMockStore) Ping(_ context.Context) error { return nil }
+func (m *notifMockStore) Close() error                 { return nil }
+
+func newDiscardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}

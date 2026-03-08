@@ -61,6 +61,12 @@ func ContextUserID(ctx context.Context) uuid.UUID {
 	return uuid.Nil
 }
 
+// isAdmin returns true if the request context contains admin claims.
+func isAdmin(ctx context.Context) bool {
+	claims := ContextClaims(ctx)
+	return claims != nil && claims.IsAdmin
+}
+
 // RequestLogger returns middleware that logs each request with method, path, status, and duration.
 func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

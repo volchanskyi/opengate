@@ -16,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 )
@@ -25,6 +26,7 @@ func main() {
 	quicListen := flag.String("quic-listen", ":9090", "QUIC listen address for agent connections")
 	dataDir := flag.String("data-dir", "./data", "directory for database and certificates")
 	jwtSecret := flag.String("jwt-secret", "", "JWT signing secret (or JWT_SECRET env)")
+	vapidContact := flag.String("vapid-contact", "", "VAPID contact email for web push (optional)")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -62,12 +64,20 @@ func main() {
 		Duration: 24 * time.Hour,
 	}
 
+	// Initialize VAPID keys and push notifier
+	vapidPriv, vapidPub, err := notifications.LoadOrGenerateVAPID(*dataDir)
+	if err != nil {
+		logger.Error("init VAPID keys", "error", err)
+		os.Exit(1)
+	}
+	notifier := notifications.NewPushNotifier(store, vapidPriv, vapidPub, *vapidContact, logger)
+
 	// Create relay and agent server
 	agentRelay := relay.NewRelay()
-	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, logger)
+	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, notifier, logger)
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
-	srv := api.NewServer(store, jwtCfg, agentSrv, agentRelay, sigTracker, logger)
+	srv := api.NewServer(store, jwtCfg, agentSrv, agentRelay, sigTracker, notifier, logger)
 
 	httpSrv := &http.Server{
 		Addr:         *listen,

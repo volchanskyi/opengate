@@ -16,6 +16,7 @@ import (
 	"github.com/quic-go/quic-go"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 )
@@ -25,6 +26,7 @@ type AgentServer struct {
 	cert     *cert.Manager
 	store    db.Store
 	relay    *relay.Relay
+	notifier notifications.Notifier
 	conns    sync.Map // map[protocol.DeviceID]*AgentConn
 	count    atomic.Int64
 	logger   *slog.Logger
@@ -33,13 +35,14 @@ type AgentServer struct {
 }
 
 // NewAgentServer creates a new AgentServer.
-func NewAgentServer(cm *cert.Manager, store db.Store, r *relay.Relay, logger *slog.Logger) *AgentServer {
+func NewAgentServer(cm *cert.Manager, store db.Store, r *relay.Relay, notifier notifications.Notifier, logger *slog.Logger) *AgentServer {
 	return &AgentServer{
-		cert:   cm,
-		store:  store,
-		relay:  r,
-		logger: logger,
-		addrCh: make(chan string, 1),
+		cert:     cm,
+		store:    store,
+		relay:    r,
+		notifier: notifier,
+		logger:   logger,
+		addrCh:   make(chan string, 1),
 	}
 }
 
@@ -152,11 +155,14 @@ func (s *AgentServer) accept(ctx context.Context, conn quic.Connection) {
 	logger = logger.With("device_id", result.DeviceID)
 	logger.Info("handshake complete")
 
-	// Determine the group for this device.
-	// First check if the device already exists in the DB.
+	// Determine the group and hostname for this device.
 	groupID := uuid.Nil
+	hostname := result.DeviceID.String()[:8]
 	if existing, err := s.store.GetDevice(ctx, result.DeviceID); err == nil {
 		groupID = existing.GroupID
+		if existing.Hostname != "" {
+			hostname = existing.Hostname
+		}
 	}
 
 	// Create AgentConn.
@@ -173,6 +179,13 @@ func (s *AgentServer) accept(ctx context.Context, conn quic.Connection) {
 	s.conns.Store(result.DeviceID, ac)
 	s.count.Add(1)
 
+	_ = s.notifier.Notify(ctx, notifications.Event{
+		Type:           notifications.EventDeviceOnline,
+		DeviceID:       result.DeviceID,
+		DeviceHostname: hostname,
+		Timestamp:      time.Now(),
+	})
+
 	defer func() {
 		s.conns.Delete(result.DeviceID)
 		s.count.Add(-1)
@@ -183,6 +196,13 @@ func (s *AgentServer) accept(ctx context.Context, conn quic.Connection) {
 		if err := s.store.SetDeviceStatus(offlineCtx, result.DeviceID, db.StatusOffline); err != nil {
 			logger.Error("set device offline", "error", err)
 		}
+
+		_ = s.notifier.Notify(offlineCtx, notifications.Event{
+			Type:           notifications.EventDeviceOffline,
+			DeviceID:       result.DeviceID,
+			DeviceHostname: hostname,
+			Timestamp:      time.Now(),
+		})
 
 		stream.Close()
 		conn.CloseWithError(0, "bye")

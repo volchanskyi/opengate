@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 )
 
@@ -34,7 +35,7 @@ func TestHealthHandler(t *testing.T) {
 		require.NoError(t, err)
 		cfg := &auth.JWTConfig{Secret: "test-secret-key-at-least-32-bytes!", Issuer: "test", Duration: 15 * time.Minute}
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-		closedSrv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), nil, logger)
+		closedSrv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), nil, &notifications.NoopNotifier{}, logger)
 		store.Close()
 
 		w := doRequest(closedSrv, http.MethodGet, "/api/v1/health", "", nil)

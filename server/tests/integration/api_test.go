@@ -20,6 +20,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/api"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
@@ -46,7 +47,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Duration: 15 * time.Minute,
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := api.NewServer(store, jwtCfg, nil, relay.NewRelay(), nil, logger)
+	srv := api.NewServer(store, jwtCfg, nil, relay.NewRelay(), nil, &notifications.NoopNotifier{}, logger)
 
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)

@@ -101,6 +101,25 @@ func derefBool(b *bool) bool {
 	return *b
 }
 
+func auditEventToAPI(e *db.AuditEvent) AuditEvent {
+	return AuditEvent{
+		Id:        e.ID,
+		UserId:    e.UserID,
+		Action:    e.Action,
+		Target:    e.Target,
+		Details:   e.Details,
+		CreatedAt: e.CreatedAt,
+	}
+}
+
+func auditEventsToAPI(es []*db.AuditEvent) []AuditEvent {
+	out := make([]AuditEvent, len(es))
+	for i, e := range es {
+		out[i] = auditEventToAPI(e)
+	}
+	return out
+}
+
 func iceServersToAPI(servers []signaling.ICEServer) []ICEServer {
 	out := make([]ICEServer, len(servers))
 	for i, srv := range servers {
