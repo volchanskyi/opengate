@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"time"
+
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
@@ -69,6 +72,14 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 		iceServers = &servers
 	}
 
+	s.auditLog(userID, "session.create", deviceID.String(), "")
+	_ = s.notifier.Notify(ctx, notifications.Event{
+		Type:     notifications.EventSessionStarted,
+		DeviceID: deviceID,
+		UserID:   userID,
+		Timestamp: time.Now(),
+	})
+
 	return CreateSession201JSONResponse{
 		Token:      string(token),
 		RelayUrl:   relayURL,
@@ -98,6 +109,13 @@ func (s *Server) DeleteSession(ctx context.Context, request DeleteSessionRequest
 		}
 		return nil, err
 	}
+
+	s.auditLog(ContextUserID(ctx), "session.delete", request.Token, "")
+	_ = s.notifier.Notify(ctx, notifications.Event{
+		Type:      notifications.EventSessionEnded,
+		UserID:    ContextUserID(ctx),
+		Timestamp: time.Now(),
+	})
 
 	return DeleteSession204Response{}, nil
 }

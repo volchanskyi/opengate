@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/cert"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
@@ -18,7 +19,7 @@ func TestAgentServer_ConnectedAgentCount_ZeroAtStart(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	r := relay.NewRelay()
 
-	srv := NewAgentServer(cm, store, r, testLogger())
+	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, testLogger())
 	assert.Equal(t, 0, srv.ConnectedAgentCount())
 }
 
@@ -29,7 +30,7 @@ func TestAgentServer_StopsOnContextCancel(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	r := relay.NewRelay()
 
-	srv := NewAgentServer(cm, store, r, testLogger())
+	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, testLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 

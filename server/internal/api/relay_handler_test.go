@@ -15,6 +15,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"nhooyr.io/websocket"
@@ -36,7 +37,7 @@ func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfi
 		Duration: 15 * time.Minute,
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := NewServer(store, cfg, &stubAgentGetter{}, r, nil, logger)
+	srv := NewServer(store, cfg, &stubAgentGetter{}, r, nil, &notifications.NoopNotifier{}, logger)
 
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)

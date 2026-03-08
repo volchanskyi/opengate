@@ -40,8 +40,9 @@ JWT_SECRET=changeme ./meshserver \
 | `-quic-listen` | `:9090` | QUIC address (agent connections, mTLS) |
 | `-data-dir` | `./data` | Directory for SQLite database and CA certificates |
 | `-jwt-secret` | — | JWT signing secret (or `JWT_SECRET` env); **required** |
+| `-vapid-contact` | — | VAPID contact email for Web Push notifications (optional) |
 
-On first startup the server generates a self-signed ECDSA P-256 CA under `data-dir` (`ca.crt`, `ca.key`) and creates the SQLite database with WAL mode enabled.
+On first startup the server generates a self-signed ECDSA P-256 CA under `data-dir` (`ca.crt`, `ca.key`), VAPID keys (`vapid.json`), and creates the SQLite database with WAL mode enabled.
 
 ## Project Structure
 
@@ -62,6 +63,7 @@ server/                      Go module
 │   ├── cert/                CA management, mTLS certificate signing (ECDSA P-256)
 │   ├── db/                  SQLite store, migrations (golang-migrate)
 │   ├── protocol/            Go-side wire protocol codec + golden file verification
+│   ├── notifications/       Web Push notifications (VAPID, webpush-go), Notifier interface
 │   ├── relay/               Byte-transparent WebSocket relay for browser↔agent piping
 │   ├── signaling/           WebRTC signaling state machine, ICE config, session tracker
 │   └── testutil/            Shared test helpers (excluded from coverage metrics)

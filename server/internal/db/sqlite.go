@@ -504,6 +504,26 @@ func (s *SQLiteStore) ListWebPushSubscriptions(ctx context.Context, userID UserI
 	return subs, rows.Err()
 }
 
+// ListAllWebPushSubscriptions returns all push subscriptions across all users.
+func (s *SQLiteStore) ListAllWebPushSubscriptions(ctx context.Context) ([]*WebPushSubscription, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []*WebPushSubscription
+	for rows.Next() {
+		sub, err := scanWebPushSubFrom(rows)
+		if err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	return subs, rows.Err()
+}
+
 func (s *SQLiteStore) DeleteWebPushSubscription(ctx context.Context, endpoint string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM web_push_subscriptions WHERE endpoint = ?`, endpoint)
 	if err != nil {

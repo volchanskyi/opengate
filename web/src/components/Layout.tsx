@@ -1,5 +1,6 @@
-import { Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../state/auth-store';
+import { NotificationCenter } from '../features/admin/NotificationCenter';
 
 export function Layout() {
   const user = useAuthStore((s) => s.user);
@@ -8,8 +9,16 @@ export function Layout() {
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       <nav className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
-        <h1 className="text-lg font-bold">OpenGate</h1>
         <div className="flex items-center gap-4">
+          <h1 className="text-lg font-bold">OpenGate</h1>
+          {user?.is_admin && (
+            <Link to="/admin" className="text-sm text-gray-400 hover:text-white">
+              Admin
+            </Link>
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          <NotificationCenter />
           {user && <span className="text-sm text-gray-300">{user.display_name || user.email}</span>}
           <button
             onClick={logout}

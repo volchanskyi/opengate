@@ -41,6 +41,7 @@ type Store interface {
 	// Web Push
 	UpsertWebPushSubscription(ctx context.Context, sub *WebPushSubscription) error
 	ListWebPushSubscriptions(ctx context.Context, userID UserID) ([]*WebPushSubscription, error)
+	ListAllWebPushSubscriptions(ctx context.Context) ([]*WebPushSubscription, error)
 	DeleteWebPushSubscription(ctx context.Context, endpoint string) error
 
 	// Audit

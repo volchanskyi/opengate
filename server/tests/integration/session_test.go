@@ -20,6 +20,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
@@ -50,7 +51,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 
 	r := relay.NewRelay()
 	logger := testLogger()
-	agentSrv := agentapi.NewAgentServer(cm, store, r, logger)
+	agentSrv := agentapi.NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -66,7 +67,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	}
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
-	apiSrv := api.NewServer(store, jwtCfg, agentSrv, r, sigTracker, logger)
+	apiSrv := api.NewServer(store, jwtCfg, agentSrv, r, sigTracker, &notifications.NoopNotifier{}, logger)
 	ts := httptest.NewServer(apiSrv)
 
 	t.Cleanup(func() {
