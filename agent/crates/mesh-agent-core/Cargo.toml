@@ -16,6 +16,12 @@ rcgen.workspace = true
 rustls-pemfile.workspace = true
 rmp-serde.workspace = true
 async-trait.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+portable-pty.workspace = true
+url.workspace = true
+webrtc.workspace = true
+bytes.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

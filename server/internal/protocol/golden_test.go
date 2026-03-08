@@ -63,6 +63,9 @@ func TestGoldenFrameWireFormat(t *testing.T) {
 		{"Heartbeat", "control_heartbeat.bin", FrameControl},
 		{"RelayReady", "control_relay_ready.bin", FrameControl},
 		{"DesktopFrame", "desktop_frame.bin", FrameDesktop},
+		{"SwitchToWebRTC", "control_switch_to_webrtc.bin", FrameControl},
+		{"IceCandidate", "control_ice_candidate.bin", FrameControl},
+		{"SwitchAck", "control_switch_ack.bin", FrameControl},
 	}
 
 	codec := &Codec{}
@@ -108,6 +111,51 @@ func TestGoldenControlAgentRegister(t *testing.T) {
 	assert.Equal(t, "golden-test-host", msg.Hostname)
 	assert.Equal(t, "linux", msg.OS)
 	assert.Len(t, msg.Capabilities, 2)
+}
+
+func TestGoldenControlSwitchToWebRTC(t *testing.T) {
+	data := readGolden(t, "control_switch_to_webrtc.bin")
+	codec := &Codec{}
+
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgSwitchToWebRTC, msg.Type)
+	assert.Equal(t, "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n", msg.SDPOffer)
+}
+
+func TestGoldenControlIceCandidate(t *testing.T) {
+	data := readGolden(t, "control_ice_candidate.bin")
+	codec := &Codec{}
+
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgIceCandidate, msg.Type)
+	assert.Equal(t, "candidate:1 1 UDP 2130706431 192.168.1.1 50000 typ host", msg.Candidate)
+	assert.Equal(t, "0", msg.Mid)
+}
+
+func TestGoldenControlSwitchAck(t *testing.T) {
+	data := readGolden(t, "control_switch_ack.bin")
+	codec := &Codec{}
+
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgSwitchAck, msg.Type)
 }
 
 func TestGoldenDesktopFrame(t *testing.T) {

@@ -62,9 +62,17 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 		s.logger.Error("send session request to agent", "error", err, "device_id", deviceID)
 	}
 
+	// Build ICE server list from signaling config
+	var iceServers *[]ICEServer
+	if s.signaling != nil {
+		servers := iceServersToAPI(s.signaling.Config().ICEServers)
+		iceServers = &servers
+	}
+
 	return CreateSession201JSONResponse{
-		Token:    string(token),
-		RelayUrl: relayURL,
+		Token:      string(token),
+		RelayUrl:   relayURL,
+		IceServers: iceServers,
 	}, nil
 }
 
