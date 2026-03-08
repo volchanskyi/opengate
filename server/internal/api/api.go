@@ -13,6 +13,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/signaling"
 )
 
 //go:generate oapi-codegen -config ../../oapi-codegen.yaml ../../api/openapi.yaml
@@ -24,23 +25,25 @@ type AgentGetter interface {
 
 // Server is the HTTP API server.
 type Server struct {
-	store  db.Store
-	jwt    *auth.JWTConfig
-	agents AgentGetter
-	relay  *relay.Relay
-	router chi.Router
-	logger *slog.Logger
+	store     db.Store
+	jwt       *auth.JWTConfig
+	agents    AgentGetter
+	relay     *relay.Relay
+	signaling *signaling.Tracker
+	router    chi.Router
+	logger    *slog.Logger
 }
 
 // NewServer creates an API server with all routes registered.
-func NewServer(store db.Store, jwtCfg *auth.JWTConfig, agents AgentGetter, relay *relay.Relay, logger *slog.Logger) *Server {
+func NewServer(store db.Store, jwtCfg *auth.JWTConfig, agents AgentGetter, relay *relay.Relay, sigTracker *signaling.Tracker, logger *slog.Logger) *Server {
 	s := &Server{
-		store:  store,
-		jwt:    jwtCfg,
-		agents: agents,
-		relay:  relay,
-		router: chi.NewRouter(),
-		logger: logger,
+		store:     store,
+		jwt:       jwtCfg,
+		agents:    agents,
+		relay:     relay,
+		signaling: sigTracker,
+		router:    chi.NewRouter(),
+		logger:    logger,
 	}
 	s.routes()
 	return s

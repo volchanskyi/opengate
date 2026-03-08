@@ -9,6 +9,8 @@ use tracing::{debug, info, warn};
 
 use crate::config::AgentConfig;
 use crate::error::ConnectionError;
+use crate::platform::{InputInjector, ScreenCapture};
+use crate::session::SessionHandler;
 
 /// Trait abstracting the control stream for testability.
 pub trait ControlStream: Send {
@@ -125,6 +127,38 @@ impl<S: ControlStream> AgentConnection<S> {
         })?;
 
         Ok(msg)
+    }
+
+    /// Handle a SessionRequest by accepting and spawning a session task.
+    ///
+    /// Sends `SessionAccept` back on the control stream and spawns a
+    /// `SessionHandler` on a new tokio task that connects to the relay.
+    pub async fn handle_session_request(
+        &mut self,
+        token: mesh_protocol::SessionToken,
+        relay_url: String,
+        permissions: mesh_protocol::Permissions,
+        capture: Box<dyn ScreenCapture>,
+        injector: Box<dyn InputInjector>,
+    ) -> Result<tokio::task::JoinHandle<()>, ConnectionError> {
+        // Send acceptance back to server
+        self.send_control(ControlMessage::SessionAccept {
+            token: token.clone(),
+            relay_url: relay_url.clone(),
+        })
+        .await?;
+
+        info!(token = %token.as_str(), "accepted session, connecting to relay");
+
+        // Spawn the session handler on a separate task
+        let handler = SessionHandler::new(token, permissions);
+        let handle = tokio::spawn(async move {
+            if let Err(e) = handler.run(&relay_url, capture, injector).await {
+                warn!("session ended with error: {e}");
+            }
+        });
+
+        Ok(handle)
     }
 }
 

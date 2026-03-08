@@ -22,6 +22,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"nhooyr.io/websocket"
 )
@@ -64,7 +65,8 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 		Duration: 15 * time.Minute,
 	}
 
-	apiSrv := api.NewServer(store, jwtCfg, agentSrv, r, logger)
+	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
+	apiSrv := api.NewServer(store, jwtCfg, agentSrv, r, sigTracker, logger)
 	ts := httptest.NewServer(apiSrv)
 
 	t.Cleanup(func() {

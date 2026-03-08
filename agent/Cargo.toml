@@ -23,6 +23,12 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 rcgen = "0.14"
 rustls-pemfile = "2"
 
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+portable-pty = "0.8"
+url = "2"
+webrtc = "0.17"
+
 # Dev dependencies
 proptest = "1"
 tempfile = "3"

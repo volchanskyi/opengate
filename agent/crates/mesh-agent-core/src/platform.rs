@@ -58,7 +58,7 @@ pub trait ScreenCapture: Send + 'static {
 }
 
 /// Trait for injecting keyboard and mouse input.
-pub trait InputInjector: Send + 'static {
+pub trait InputInjector: Send + Sync + 'static {
     /// Inject a keyboard event.
     fn inject_key(&self, event: KeyEvent) -> Result<(), InputError>;
     /// Inject a mouse movement to absolute coordinates.

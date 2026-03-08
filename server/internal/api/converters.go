@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/signaling"
 )
 
 func deviceToAPI(d *db.Device) Device {
@@ -98,4 +99,18 @@ func derefBool(b *bool) bool {
 		return false
 	}
 	return *b
+}
+
+func iceServersToAPI(servers []signaling.ICEServer) []ICEServer {
+	out := make([]ICEServer, len(servers))
+	for i, srv := range servers {
+		out[i] = ICEServer{Urls: srv.URLs}
+		if srv.Username != "" {
+			out[i].Username = &srv.Username
+		}
+		if srv.Credential != "" {
+			out[i].Credential = &srv.Credential
+		}
+	}
+	return out
 }

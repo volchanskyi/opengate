@@ -17,6 +17,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/signaling"
 )
 
 func main() {
@@ -65,7 +66,8 @@ func main() {
 	agentRelay := relay.NewRelay()
 	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, logger)
 
-	srv := api.NewServer(store, jwtCfg, agentSrv, agentRelay, logger)
+	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
+	srv := api.NewServer(store, jwtCfg, agentSrv, agentRelay, sigTracker, logger)
 
 	httpSrv := &http.Server{
 		Addr:         *listen,
