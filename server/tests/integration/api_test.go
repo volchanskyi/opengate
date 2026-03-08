@@ -46,7 +46,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Duration: 15 * time.Minute,
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := api.NewServer(store, jwtCfg, nil, relay.NewRelay(), logger)
+	srv := api.NewServer(store, jwtCfg, nil, relay.NewRelay(), nil, logger)
 
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)

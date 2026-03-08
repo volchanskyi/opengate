@@ -1,5 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use mesh_protocol::{AgentCapability, ControlMessage, Frame, HandshakeMessage};
+use std::hint::black_box;
 
 fn bench_frame_encode_control(c: &mut Criterion) {
     let msg = ControlMessage::AgentRegister {

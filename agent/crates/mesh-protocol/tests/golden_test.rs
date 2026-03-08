@@ -13,7 +13,7 @@ fn golden_dir() -> PathBuf {
 }
 
 fn should_generate() -> bool {
-    std::env::var("GENERATE_GOLDEN").map_or(false, |v| v == "1")
+    std::env::var("GENERATE_GOLDEN").is_ok_and(|v| v == "1")
 }
 
 /// Write a golden file or verify it matches.
@@ -91,6 +91,35 @@ fn golden_ping_pong() {
     let pong = Frame::Pong.encode().unwrap();
     golden_check("ping.bin", &ping);
     golden_check("pong.bin", &pong);
+}
+
+#[test]
+fn golden_control_frame_switch_to_webrtc() {
+    let msg = ControlMessage::SwitchToWebRTC {
+        sdp_offer: "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n".to_string(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_switch_to_webrtc.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_ice_candidate() {
+    let msg = ControlMessage::IceCandidate {
+        candidate: "candidate:1 1 UDP 2130706431 192.168.1.1 50000 typ host".to_string(),
+        mid: "0".to_string(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_ice_candidate.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_switch_ack() {
+    let msg = ControlMessage::SwitchAck;
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_switch_ack.bin", &encoded);
 }
 
 #[test]

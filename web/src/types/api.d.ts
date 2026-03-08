@@ -289,6 +289,12 @@ export interface components {
         CreateSessionResponse: {
             token: string;
             relay_url: string;
+            ice_servers?: components["schemas"]["ICEServer"][];
+        };
+        ICEServer: {
+            urls: string[];
+            username?: string;
+            credential?: string;
         };
         AgentSession: {
             token: string;

@@ -39,7 +39,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 	token, err := cfg.GenerateToken(userID, "err@example.com", true)
 	require.NoError(t, err)
 
-	srv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), logger)
+	srv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), nil, logger)
 	store.Close() // force all subsequent store calls to fail
 
 	groupID := uuid.New()

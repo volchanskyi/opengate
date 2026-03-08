@@ -9,7 +9,7 @@ interface SessionState {
   isLoading: boolean;
   error: string | null;
   fetchSessions: (deviceId: string) => Promise<void>;
-  createSession: (deviceId: string) => Promise<{ token: string; relay_url: string } | null>;
+  createSession: (deviceId: string) => Promise<{ token: string; relay_url: string; ice_servers?: components['schemas']['ICEServer'][] } | null>;
   deleteSession: (token: string) => Promise<void>;
 }
 

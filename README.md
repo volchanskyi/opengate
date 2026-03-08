@@ -49,7 +49,8 @@ On first startup the server generates a self-signed ECDSA P-256 CA under `data-d
 agent/                       Rust workspace
 ├── crates/
 │   ├── mesh-protocol/       Shared wire protocol (MessagePack codec, frame format)
-│   ├── mesh-agent-core/     Agent identity, QUIC connection, platform traits
+│   ├── mesh-agent-core/     Agent identity, QUIC connection, platform traits,
+│   │                        session handler, WebRTC peer connection
 │   ├── platform-linux/      Linux: runtime detection, systemd, X11 capture (feature-gated)
 │   └── platform-windows/    Windows: DXGI capture, Win32 input (cfg-gated)
 server/                      Go module
@@ -62,6 +63,7 @@ server/                      Go module
 │   ├── db/                  SQLite store, migrations (golang-migrate)
 │   ├── protocol/            Go-side wire protocol codec + golden file verification
 │   ├── relay/               Byte-transparent WebSocket relay for browser↔agent piping
+│   ├── signaling/           WebRTC signaling state machine, ICE config, session tracker
 │   └── testutil/            Shared test helpers (excluded from coverage metrics)
 ├── tests/integration/       Integration test suite (real QUIC + SQLite)
 api/openapi.yaml             OpenAPI 3.0.3 spec (single source of truth)
