@@ -42,6 +42,8 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 		return nil, err
 	}
 
+	s.auditLog(user.ID, "user.register", user.Email, "")
+
 	return Register201JSONResponse{Token: token}, nil
 }
 
@@ -68,6 +70,8 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 	if err != nil {
 		return nil, err
 	}
+
+	s.auditLog(user.ID, "user.login", user.Email, "")
 
 	return Login200JSONResponse{Token: token}, nil
 }

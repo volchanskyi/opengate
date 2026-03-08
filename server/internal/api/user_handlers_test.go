@@ -61,4 +61,45 @@ func TestUserHandlers(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, "/api/v1/users/me", tempToken, nil)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
+
+	t.Run("update user toggle admin", func(t *testing.T) {
+		target, _ := seedTestUser(t, srv, cfg, "toggle@example.com", false)
+		isAdmin := true
+		body := map[string]interface{}{"is_admin": isAdmin}
+		w := doRequest(srv, http.MethodPatch, "/api/v1/users/"+target.ID.String(), adminToken, body)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var u User
+		json.NewDecoder(w.Body).Decode(&u)
+		assert.True(t, u.IsAdmin)
+	})
+
+	t.Run("update user display name", func(t *testing.T) {
+		target, _ := seedTestUser(t, srv, cfg, "rename@example.com", false)
+		body := map[string]interface{}{"display_name": "New Name"}
+		w := doRequest(srv, http.MethodPatch, "/api/v1/users/"+target.ID.String(), adminToken, body)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var u User
+		json.NewDecoder(w.Body).Decode(&u)
+		assert.Equal(t, "New Name", u.DisplayName)
+	})
+
+	t.Run("update user as regular user forbidden", func(t *testing.T) {
+		body := map[string]interface{}{"display_name": "Hacked"}
+		w := doRequest(srv, http.MethodPatch, "/api/v1/users/"+regularUser.ID.String(), regularToken, body)
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
+
+	t.Run("update user not found", func(t *testing.T) {
+		body := map[string]interface{}{"display_name": "Ghost"}
+		w := doRequest(srv, http.MethodPatch, "/api/v1/users/"+uuid.New().String(), adminToken, body)
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+
+	t.Run("update user without auth returns 401", func(t *testing.T) {
+		body := map[string]interface{}{"display_name": "Anon"}
+		w := doRequest(srv, http.MethodPatch, "/api/v1/users/"+regularUser.ID.String(), "", body)
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
 }

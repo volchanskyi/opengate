@@ -16,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
@@ -43,7 +44,7 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 
 	r := relay.NewRelay()
 	logger := testLogger()
-	srv := agentapi.NewAgentServer(cm, store, r, logger)
+	srv := agentapi.NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

@@ -14,6 +14,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
@@ -45,7 +46,7 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	store := testutil.NewTestStore(t)
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), nil, logger)
+	srv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), nil, &notifications.NoopNotifier{}, logger)
 	return srv, cfg
 }
 
@@ -55,7 +56,7 @@ func newTestServerWithAgents(t *testing.T, agents AgentGetter, r *relay.Relay) (
 	store := testutil.NewTestStore(t)
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := NewServer(store, cfg, agents, r, nil, logger)
+	srv := NewServer(store, cfg, agents, r, nil, &notifications.NoopNotifier{}, logger)
 	return srv, cfg
 }
 

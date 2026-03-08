@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 )
 
@@ -39,7 +40,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 	token, err := cfg.GenerateToken(userID, "err@example.com", true)
 	require.NoError(t, err)
 
-	srv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), nil, logger)
+	srv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), nil, &notifications.NoopNotifier{}, logger)
 	store.Close() // force all subsequent store calls to fail
 
 	groupID := uuid.New()

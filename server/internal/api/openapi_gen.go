@@ -61,6 +61,16 @@ type ApiError struct {
 	Error string `json:"error"`
 }
 
+// AuditEvent defines model for AuditEvent.
+type AuditEvent struct {
+	Action    string             `json:"action"`
+	CreatedAt time.Time          `json:"created_at"`
+	Details   string             `json:"details"`
+	Id        int64              `json:"id"`
+	Target    string             `json:"target"`
+	UserId    openapi_types.UUID `json:"user_id"`
+}
+
 // CreateGroupRequest defines model for CreateGroupRequest.
 type CreateGroupRequest struct {
 	Name string `json:"name"`
@@ -137,6 +147,12 @@ type TokenResponse struct {
 	Token string `json:"token"`
 }
 
+// UpdateUserRequest defines model for UpdateUserRequest.
+type UpdateUserRequest struct {
+	DisplayName *string `json:"display_name,omitempty"`
+	IsAdmin     *bool   `json:"is_admin,omitempty"`
+}
+
 // User defines model for User.
 type User struct {
 	CreatedAt   time.Time          `json:"created_at"`
@@ -145,6 +161,31 @@ type User struct {
 	Id          openapi_types.UUID `json:"id"`
 	IsAdmin     bool               `json:"is_admin"`
 	UpdatedAt   time.Time          `json:"updated_at"`
+}
+
+// VapidKeyResponse defines model for VapidKeyResponse.
+type VapidKeyResponse struct {
+	PublicKey string `json:"public_key"`
+}
+
+// WebPushSubscribeRequest defines model for WebPushSubscribeRequest.
+type WebPushSubscribeRequest struct {
+	Auth     string `json:"auth"`
+	Endpoint string `json:"endpoint"`
+	P256dh   string `json:"p256dh"`
+}
+
+// WebPushUnsubscribeRequest defines model for WebPushUnsubscribeRequest.
+type WebPushUnsubscribeRequest struct {
+	Endpoint string `json:"endpoint"`
+}
+
+// ListAuditEventsParams defines parameters for ListAuditEvents.
+type ListAuditEventsParams struct {
+	UserId *openapi_types.UUID `form:"user_id,omitempty" json:"user_id,omitempty"`
+	Action *string             `form:"action,omitempty" json:"action,omitempty"`
+	Limit  *int                `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *int                `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // ListDevicesParams defines parameters for ListDevices.
@@ -166,11 +207,23 @@ type RegisterJSONRequestBody = RegisterRequest
 // CreateGroupJSONRequestBody defines body for CreateGroup for application/json ContentType.
 type CreateGroupJSONRequestBody = CreateGroupRequest
 
+// UnsubscribePushJSONRequestBody defines body for UnsubscribePush for application/json ContentType.
+type UnsubscribePushJSONRequestBody = WebPushUnsubscribeRequest
+
+// SubscribePushJSONRequestBody defines body for SubscribePush for application/json ContentType.
+type SubscribePushJSONRequestBody = WebPushSubscribeRequest
+
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = CreateSessionRequest
 
+// UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
+type UpdateUserJSONRequestBody = UpdateUserRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Query audit log (admin only)
+	// (GET /api/v1/audit)
+	ListAuditEvents(w http.ResponseWriter, r *http.Request, params ListAuditEventsParams)
 	// Authenticate user
 	// (POST /api/v1/auth/login)
 	Login(w http.ResponseWriter, r *http.Request)
@@ -201,6 +254,15 @@ type ServerInterface interface {
 	// Health check
 	// (GET /api/v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// Remove push subscription
+	// (DELETE /api/v1/push/subscribe)
+	UnsubscribePush(w http.ResponseWriter, r *http.Request)
+	// Save browser push subscription
+	// (POST /api/v1/push/subscribe)
+	SubscribePush(w http.ResponseWriter, r *http.Request)
+	// Get server VAPID public key
+	// (GET /api/v1/push/vapid-key)
+	GetVapidKey(w http.ResponseWriter, r *http.Request)
 	// List active sessions for a device
 	// (GET /api/v1/sessions)
 	ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams)
@@ -219,11 +281,20 @@ type ServerInterface interface {
 	// Delete user (admin only)
 	// (DELETE /api/v1/users/{id})
 	DeleteUser(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Update user (admin only)
+	// (PATCH /api/v1/users/{id})
+	UpdateUser(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// Query audit log (admin only)
+// (GET /api/v1/audit)
+func (_ Unimplemented) ListAuditEvents(w http.ResponseWriter, r *http.Request, params ListAuditEventsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // Authenticate user
 // (POST /api/v1/auth/login)
@@ -285,6 +356,24 @@ func (_ Unimplemented) GetHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Remove push subscription
+// (DELETE /api/v1/push/subscribe)
+func (_ Unimplemented) UnsubscribePush(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Save browser push subscription
+// (POST /api/v1/push/subscribe)
+func (_ Unimplemented) SubscribePush(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get server VAPID public key
+// (GET /api/v1/push/vapid-key)
+func (_ Unimplemented) GetVapidKey(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List active sessions for a device
 // (GET /api/v1/sessions)
 func (_ Unimplemented) ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams) {
@@ -321,6 +410,12 @@ func (_ Unimplemented) DeleteUser(w http.ResponseWriter, r *http.Request, id ope
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Update user (admin only)
+// (PATCH /api/v1/users/{id})
+func (_ Unimplemented) UpdateUser(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler            ServerInterface
@@ -329,6 +424,63 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAuditEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAuditEventsParams
+
+	// ------------- Optional query parameter "user_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "user_id", r.URL.Query(), &params.UserId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "user_id", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "action" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "action", r.URL.Query(), &params.Action, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAuditEvents(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // Login operation middleware
 func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request) {
@@ -576,6 +728,66 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// UnsubscribePush operation middleware
+func (siw *ServerInterfaceWrapper) UnsubscribePush(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnsubscribePush(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SubscribePush operation middleware
+func (siw *ServerInterfaceWrapper) SubscribePush(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SubscribePush(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVapidKey operation middleware
+func (siw *ServerInterfaceWrapper) GetVapidKey(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVapidKey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSessions operation middleware
 func (siw *ServerInterfaceWrapper) ListSessions(w http.ResponseWriter, r *http.Request) {
 
@@ -738,6 +950,37 @@ func (siw *ServerInterfaceWrapper) DeleteUser(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// UpdateUser operation middleware
+func (siw *ServerInterfaceWrapper) UpdateUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateUser(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -852,6 +1095,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/audit", wrapper.ListAuditEvents)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/api/v1/auth/login", wrapper.Login)
 	})
 	r.Group(func(r chi.Router) {
@@ -882,6 +1128,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/health", wrapper.GetHealth)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/push/subscribe", wrapper.UnsubscribePush)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/push/subscribe", wrapper.SubscribePush)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/push/vapid-key", wrapper.GetVapidKey)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/sessions", wrapper.ListSessions)
 	})
 	r.Group(func(r chi.Router) {
@@ -899,8 +1154,46 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/api/v1/users/{id}", wrapper.DeleteUser)
 	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/api/v1/users/{id}", wrapper.UpdateUser)
+	})
 
 	return r
+}
+
+type ListAuditEventsRequestObject struct {
+	Params ListAuditEventsParams
+}
+
+type ListAuditEventsResponseObject interface {
+	VisitListAuditEventsResponse(w http.ResponseWriter) error
+}
+
+type ListAuditEvents200JSONResponse []AuditEvent
+
+func (response ListAuditEvents200JSONResponse) VisitListAuditEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListAuditEvents401JSONResponse ApiError
+
+func (response ListAuditEvents401JSONResponse) VisitListAuditEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListAuditEvents403JSONResponse ApiError
+
+func (response ListAuditEvents403JSONResponse) VisitListAuditEventsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type LoginRequestObject struct {
@@ -1206,6 +1499,81 @@ func (response GetHealth503JSONResponse) VisitGetHealthResponse(w http.ResponseW
 	return json.NewEncoder(w).Encode(response)
 }
 
+type UnsubscribePushRequestObject struct {
+	Body *UnsubscribePushJSONRequestBody
+}
+
+type UnsubscribePushResponseObject interface {
+	VisitUnsubscribePushResponse(w http.ResponseWriter) error
+}
+
+type UnsubscribePush204Response struct {
+}
+
+func (response UnsubscribePush204Response) VisitUnsubscribePushResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UnsubscribePush401JSONResponse ApiError
+
+func (response UnsubscribePush401JSONResponse) VisitUnsubscribePushResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type SubscribePushRequestObject struct {
+	Body *SubscribePushJSONRequestBody
+}
+
+type SubscribePushResponseObject interface {
+	VisitSubscribePushResponse(w http.ResponseWriter) error
+}
+
+type SubscribePush204Response struct {
+}
+
+func (response SubscribePush204Response) VisitSubscribePushResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SubscribePush401JSONResponse ApiError
+
+func (response SubscribePush401JSONResponse) VisitSubscribePushResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetVapidKeyRequestObject struct {
+}
+
+type GetVapidKeyResponseObject interface {
+	VisitGetVapidKeyResponse(w http.ResponseWriter) error
+}
+
+type GetVapidKey200JSONResponse VapidKeyResponse
+
+func (response GetVapidKey200JSONResponse) VisitGetVapidKeyResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetVapidKey401JSONResponse ApiError
+
+func (response GetVapidKey401JSONResponse) VisitGetVapidKeyResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListSessionsRequestObject struct {
 	Params ListSessionsParams
 }
@@ -1430,8 +1798,56 @@ func (response DeleteUser403JSONResponse) VisitDeleteUserResponse(w http.Respons
 	return json.NewEncoder(w).Encode(response)
 }
 
+type UpdateUserRequestObject struct {
+	Id   openapi_types.UUID `json:"id"`
+	Body *UpdateUserJSONRequestBody
+}
+
+type UpdateUserResponseObject interface {
+	VisitUpdateUserResponse(w http.ResponseWriter) error
+}
+
+type UpdateUser200JSONResponse User
+
+func (response UpdateUser200JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUser401JSONResponse ApiError
+
+func (response UpdateUser401JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUser403JSONResponse ApiError
+
+func (response UpdateUser403JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type UpdateUser404JSONResponse ApiError
+
+func (response UpdateUser404JSONResponse) VisitUpdateUserResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// Query audit log (admin only)
+	// (GET /api/v1/audit)
+	ListAuditEvents(ctx context.Context, request ListAuditEventsRequestObject) (ListAuditEventsResponseObject, error)
 	// Authenticate user
 	// (POST /api/v1/auth/login)
 	Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error)
@@ -1462,6 +1878,15 @@ type StrictServerInterface interface {
 	// Health check
 	// (GET /api/v1/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// Remove push subscription
+	// (DELETE /api/v1/push/subscribe)
+	UnsubscribePush(ctx context.Context, request UnsubscribePushRequestObject) (UnsubscribePushResponseObject, error)
+	// Save browser push subscription
+	// (POST /api/v1/push/subscribe)
+	SubscribePush(ctx context.Context, request SubscribePushRequestObject) (SubscribePushResponseObject, error)
+	// Get server VAPID public key
+	// (GET /api/v1/push/vapid-key)
+	GetVapidKey(ctx context.Context, request GetVapidKeyRequestObject) (GetVapidKeyResponseObject, error)
 	// List active sessions for a device
 	// (GET /api/v1/sessions)
 	ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error)
@@ -1480,6 +1905,9 @@ type StrictServerInterface interface {
 	// Delete user (admin only)
 	// (DELETE /api/v1/users/{id})
 	DeleteUser(ctx context.Context, request DeleteUserRequestObject) (DeleteUserResponseObject, error)
+	// Update user (admin only)
+	// (PATCH /api/v1/users/{id})
+	UpdateUser(ctx context.Context, request UpdateUserRequestObject) (UpdateUserResponseObject, error)
 }
 
 type StrictHandlerFunc = strictnethttp.StrictHTTPHandlerFunc
@@ -1509,6 +1937,32 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListAuditEvents operation middleware
+func (sh *strictHandler) ListAuditEvents(w http.ResponseWriter, r *http.Request, params ListAuditEventsParams) {
+	var request ListAuditEventsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAuditEvents(ctx, request.(ListAuditEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAuditEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAuditEventsResponseObject); ok {
+		if err := validResponse.VisitListAuditEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // Login operation middleware
@@ -1782,6 +2236,92 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// UnsubscribePush operation middleware
+func (sh *strictHandler) UnsubscribePush(w http.ResponseWriter, r *http.Request) {
+	var request UnsubscribePushRequestObject
+
+	var body UnsubscribePushJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnsubscribePush(ctx, request.(UnsubscribePushRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnsubscribePush")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnsubscribePushResponseObject); ok {
+		if err := validResponse.VisitUnsubscribePushResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SubscribePush operation middleware
+func (sh *strictHandler) SubscribePush(w http.ResponseWriter, r *http.Request) {
+	var request SubscribePushRequestObject
+
+	var body SubscribePushJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SubscribePush(ctx, request.(SubscribePushRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SubscribePush")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SubscribePushResponseObject); ok {
+		if err := validResponse.VisitSubscribePushResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetVapidKey operation middleware
+func (sh *strictHandler) GetVapidKey(w http.ResponseWriter, r *http.Request) {
+	var request GetVapidKeyRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetVapidKey(ctx, request.(GetVapidKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetVapidKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetVapidKeyResponseObject); ok {
+		if err := validResponse.VisitGetVapidKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListSessions operation middleware
 func (sh *strictHandler) ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams) {
 	var request ListSessionsRequestObject
@@ -1939,35 +2479,75 @@ func (sh *strictHandler) DeleteUser(w http.ResponseWriter, r *http.Request, id o
 	}
 }
 
+// UpdateUser operation middleware
+func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	var request UpdateUserRequestObject
+
+	request.Id = id
+
+	var body UpdateUserJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateUser(ctx, request.(UpdateUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateUserResponseObject); ok {
+		if err := validResponse.VisitUpdateUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

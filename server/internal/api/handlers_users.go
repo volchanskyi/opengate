@@ -24,8 +24,7 @@ func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponse
 
 // ListUsers implements StrictServerInterface.
 func (s *Server) ListUsers(ctx context.Context, _ ListUsersRequestObject) (ListUsersResponseObject, error) {
-	claims := ContextClaims(ctx)
-	if claims == nil || !claims.IsAdmin {
+	if !isAdmin(ctx) {
 		return ListUsers403JSONResponse{Error: "admin access required"}, nil
 	}
 
@@ -39,8 +38,7 @@ func (s *Server) ListUsers(ctx context.Context, _ ListUsersRequestObject) (ListU
 
 // DeleteUser implements StrictServerInterface.
 func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject) (DeleteUserResponseObject, error) {
-	claims := ContextClaims(ctx)
-	if claims == nil || !claims.IsAdmin {
+	if !isAdmin(ctx) {
 		return DeleteUser403JSONResponse{Error: "admin access required"}, nil
 	}
 
@@ -48,5 +46,37 @@ func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject
 		return nil, err
 	}
 
+	s.auditLog(ContextUserID(ctx), "user.delete", request.Id.String(), "")
+
 	return DeleteUser204Response{}, nil
+}
+
+// UpdateUser implements StrictServerInterface.
+func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject) (UpdateUserResponseObject, error) {
+	if !isAdmin(ctx) {
+		return UpdateUser403JSONResponse{Error: "admin access required"}, nil
+	}
+
+	user, err := s.store.GetUser(ctx, request.Id)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return UpdateUser404JSONResponse{Error: "user not found"}, nil
+		}
+		return nil, err
+	}
+
+	if request.Body.IsAdmin != nil {
+		user.IsAdmin = *request.Body.IsAdmin
+	}
+	if request.Body.DisplayName != nil {
+		user.DisplayName = *request.Body.DisplayName
+	}
+
+	if err := s.store.UpsertUser(ctx, user); err != nil {
+		return nil, err
+	}
+
+	s.auditLog(ContextUserID(ctx), "user.update", user.Email, "")
+
+	return UpdateUser200JSONResponse(userToAPI(user)), nil
 }
