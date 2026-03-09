@@ -13,6 +13,9 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/mps"
 )
 
+// amtWSManPort is the default WSMAN HTTP port on AMT devices.
+const amtWSManPort = 16992
+
 // Client sends WSMAN requests over an APF channel to an AMT device.
 type Client struct {
 	conn   *mps.Conn
@@ -37,7 +40,7 @@ func (c *Client) Do(ctx context.Context, soapAction string, body []byte) ([]byte
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	ch, err := c.conn.OpenChannel("127.0.0.1", 16992)
+	ch, err := c.conn.OpenChannel("127.0.0.1", amtWSManPort)
 	if err != nil {
 		return nil, fmt.Errorf("wsman: open channel: %w", err)
 	}
@@ -76,7 +79,7 @@ func (c *Client) doHTTP(cc *ChannelConn, soapAction string, body []byte, authHea
 	// Build HTTP request.
 	var sb strings.Builder
 	sb.WriteString("POST /wsman HTTP/1.1\r\n")
-	sb.WriteString("Host: 127.0.0.1:16992\r\n")
+	sb.WriteString(fmt.Sprintf("Host: 127.0.0.1:%d\r\n", amtWSManPort))
 	sb.WriteString("Content-Type: application/soap+xml;charset=UTF-8\r\n")
 	sb.WriteString(fmt.Sprintf("Content-Length: %d\r\n", len(body)))
 	if authHeader != "" {
