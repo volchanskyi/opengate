@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/google/uuid"
 )
 
 // APF message type constants per Intel AMT CIRA specification.
@@ -30,7 +32,11 @@ const (
 	APFChannelWindowAdj   uint8 = 93
 	APFChannelData        uint8 = 94
 	APFChannelClose       uint8 = 97
-	APFProtocolVersion    uint8 = 192
+	APFProtocolVersion          uint8 = 192
+	APFKeepaliveRequest         uint8 = 208
+	APFKeepaliveReply           uint8 = 209
+	APFKeepaliveOptionsRequest  uint8 = 210
+	APFKeepaliveOptionsReply    uint8 = 211
 )
 
 // APF disconnect reason codes.
@@ -48,8 +54,8 @@ const (
 
 // Default APF window and max packet sizes.
 const (
-	DefaultWindowSize    uint32 = 0x4000 // 16 KiB
-	DefaultMaxPacketSize uint32 = 0x4000
+	DefaultWindowSize    uint32 = 0x8000 // 32 KiB (matches MeshCentral)
+	DefaultMaxPacketSize uint32 = 0x8000
 )
 
 // ErrMessageTooShort is returned when a message is shorter than expected.
@@ -93,6 +99,10 @@ func readMessageBody(r io.Reader, msgType uint8) ([]byte, error) {
 		return readFixed(r, 8) // recipient channel + bytes to add
 	case APFProtocolVersion:
 		return readProtocolVersion(r)
+	case APFKeepaliveRequest, APFKeepaliveReply:
+		return readFixed(r, 4) // cookie
+	case APFKeepaliveOptionsRequest, APFKeepaliveOptionsReply:
+		return readFixed(r, 8) // interval + timeout
 	case APFDisconnect:
 		return readDisconnect(r)
 	case APFUserAuthSuccess, APFUserAuthFailure,
@@ -331,6 +341,94 @@ func WriteProtocolVersion(w io.Writer, major, minor, trigger uint32) error {
 	// UUID bytes 13..28 are zero
 	_, err := w.Write(buf)
 	return err
+}
+
+// --- Keepalive types ---
+
+// KeepaliveRequest represents an APF keepalive request or reply (same wire format).
+type KeepaliveRequest struct {
+	Cookie uint32
+}
+
+// ParseKeepaliveRequest parses a KeepaliveRequest from payload bytes.
+func ParseKeepaliveRequest(data []byte) (KeepaliveRequest, error) {
+	if len(data) < 4 {
+		return KeepaliveRequest{}, ErrMessageTooShort
+	}
+	return KeepaliveRequest{Cookie: binary.BigEndian.Uint32(data)}, nil
+}
+
+// KeepaliveOptions represents keepalive interval/timeout negotiation.
+type KeepaliveOptions struct {
+	Interval uint32
+	Timeout  uint32
+}
+
+// ParseKeepaliveOptions parses KeepaliveOptions from payload bytes.
+func ParseKeepaliveOptions(data []byte) (KeepaliveOptions, error) {
+	if len(data) < 8 {
+		return KeepaliveOptions{}, ErrMessageTooShort
+	}
+	return KeepaliveOptions{
+		Interval: binary.BigEndian.Uint32(data[0:4]),
+		Timeout:  binary.BigEndian.Uint32(data[4:8]),
+	}, nil
+}
+
+// WriteKeepaliveRequest writes an APF keepalive request with a cookie.
+func WriteKeepaliveRequest(w io.Writer, cookie uint32) error {
+	buf := [5]byte{APFKeepaliveRequest}
+	binary.BigEndian.PutUint32(buf[1:], cookie)
+	_, err := w.Write(buf[:])
+	return err
+}
+
+// WriteKeepaliveReply writes an APF keepalive reply echoing the cookie.
+func WriteKeepaliveReply(w io.Writer, cookie uint32) error {
+	buf := [5]byte{APFKeepaliveReply}
+	binary.BigEndian.PutUint32(buf[1:], cookie)
+	_, err := w.Write(buf[:])
+	return err
+}
+
+// WriteKeepaliveOptionsRequest writes a keepalive options request.
+func WriteKeepaliveOptionsRequest(w io.Writer, interval, timeout uint32) error {
+	buf := [9]byte{APFKeepaliveOptionsRequest}
+	binary.BigEndian.PutUint32(buf[1:], interval)
+	binary.BigEndian.PutUint32(buf[5:], timeout)
+	_, err := w.Write(buf[:])
+	return err
+}
+
+// --- GUID and forward data helpers ---
+
+// ReorderIntelGUID applies Intel's mixed-endian byte reordering to a raw
+// 16-byte GUID from the ProtocolVersion message and returns a standard UUID.
+// Intel format: first 3 groups little-endian, last 2 groups big-endian.
+func ReorderIntelGUID(raw [16]byte) uuid.UUID {
+	var u uuid.UUID
+	// Group 1 (4 bytes): LE → BE
+	u[0], u[1], u[2], u[3] = raw[3], raw[2], raw[1], raw[0]
+	// Group 2 (2 bytes): LE → BE
+	u[4], u[5] = raw[5], raw[4]
+	// Group 3 (2 bytes): LE → BE
+	u[6], u[7] = raw[7], raw[6]
+	// Groups 4-5 (8 bytes): already BE
+	copy(u[8:], raw[8:16])
+	return u
+}
+
+// ParseForwardData parses the address and port from a tcpip-forward GlobalRequest's Data field.
+func ParseForwardData(data []byte) (string, uint32, error) {
+	addr, off, err := readString(data, 0)
+	if err != nil {
+		return "", 0, fmt.Errorf("forward address: %w", err)
+	}
+	if off+4 > len(data) {
+		return "", 0, fmt.Errorf("forward port: %w", ErrMessageTooShort)
+	}
+	port := binary.BigEndian.Uint32(data[off:])
+	return addr, port, nil
 }
 
 // --- internal read helpers ---
