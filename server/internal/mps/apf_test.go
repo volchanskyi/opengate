@@ -102,9 +102,9 @@ func TestParseGlobalRequest(t *testing.T) {
 
 func TestParseChannelOpen(t *testing.T) {
 	data := encodeString("forwarded-tcpip")
-	data = append(data, encodeUint32(1)...)    // sender channel
-	data = append(data, encodeUint32(0x4000)...) // window
-	data = append(data, encodeUint32(0x4000)...) // max packet
+	data = append(data, encodeUint32(1)...)         // sender channel
+	data = append(data, encodeUint32(0x8000)...)     // window
+	data = append(data, encodeUint32(0x8000)...)     // max packet
 
 	co, err := ParseChannelOpen(data)
 	require.NoError(t, err)
@@ -222,6 +222,155 @@ func TestParseChannelDataTooShort(t *testing.T) {
 func TestParseProtocolVersionTooShort(t *testing.T) {
 	_, err := ParseProtocolVersion(make([]byte, 10))
 	assert.ErrorIs(t, err, ErrMessageTooShort)
+}
+
+// --- Stage 1: Keepalive tests ---
+
+func TestWriteReadKeepaliveRequestRoundtrip(t *testing.T) {
+	var buf bytes.Buffer
+	err := WriteKeepaliveRequest(&buf, 0xDEADBEEF)
+	require.NoError(t, err)
+
+	msgType, raw, err := ReadMessage(&buf)
+	require.NoError(t, err)
+	assert.Equal(t, APFKeepaliveRequest, msgType)
+
+	ka, err := ParseKeepaliveRequest(raw)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0xDEADBEEF), ka.Cookie)
+}
+
+func TestWriteReadKeepaliveReplyRoundtrip(t *testing.T) {
+	var buf bytes.Buffer
+	err := WriteKeepaliveReply(&buf, 0xCAFEBABE)
+	require.NoError(t, err)
+
+	msgType, raw, err := ReadMessage(&buf)
+	require.NoError(t, err)
+	assert.Equal(t, APFKeepaliveReply, msgType)
+
+	ka, err := ParseKeepaliveRequest(raw) // same wire format as request
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0xCAFEBABE), ka.Cookie)
+}
+
+func TestWriteReadKeepaliveOptionsRoundtrip(t *testing.T) {
+	var buf bytes.Buffer
+	err := WriteKeepaliveOptionsRequest(&buf, 30, 10)
+	require.NoError(t, err)
+
+	msgType, raw, err := ReadMessage(&buf)
+	require.NoError(t, err)
+	assert.Equal(t, APFKeepaliveOptionsRequest, msgType)
+
+	ko, err := ParseKeepaliveOptions(raw)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(30), ko.Interval)
+	assert.Equal(t, uint32(10), ko.Timeout)
+}
+
+func TestReadMessageKeepaliveTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		msgType uint8
+		payload []byte
+		wantLen int
+	}{
+		{"keepalive_request", APFKeepaliveRequest, encodeUint32(1), 4},
+		{"keepalive_reply", APFKeepaliveReply, encodeUint32(2), 4},
+		{"keepalive_options_request", APFKeepaliveOptionsRequest, append(encodeUint32(30), encodeUint32(10)...), 8},
+		{"keepalive_options_reply", APFKeepaliveOptionsReply, append(encodeUint32(60), encodeUint32(20)...), 8},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			buf.WriteByte(tt.msgType)
+			buf.Write(tt.payload)
+
+			msgType, raw, err := ReadMessage(&buf)
+			require.NoError(t, err)
+			assert.Equal(t, tt.msgType, msgType)
+			assert.Len(t, raw, tt.wantLen)
+		})
+	}
+}
+
+func TestParseKeepaliveRequestTooShort(t *testing.T) {
+	_, err := ParseKeepaliveRequest([]byte{0, 0})
+	assert.ErrorIs(t, err, ErrMessageTooShort)
+}
+
+func TestParseKeepaliveOptionsTooShort(t *testing.T) {
+	_, err := ParseKeepaliveOptions([]byte{0, 0, 0, 0})
+	assert.ErrorIs(t, err, ErrMessageTooShort)
+}
+
+// --- Stage 2: GUID reorder + ParseForwardData tests ---
+
+func TestReorderIntelGUID(t *testing.T) {
+	// Intel AMT GUID raw bytes from ProtocolVersion message.
+	// Raw LE-encoded GUID: 01020304-0506-0708-090A-0B0C0D0E0F10
+	// Intel byte order: first 3 groups are LE, last 2 are BE.
+	raw := [16]byte{
+		0x04, 0x03, 0x02, 0x01, // group 1 LE → 01020304
+		0x06, 0x05, // group 2 LE → 0506
+		0x08, 0x07, // group 3 LE → 0708
+		0x09, 0x0A, // group 4 BE → 090A
+		0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, // group 5 BE
+	}
+	result := ReorderIntelGUID(raw)
+	assert.Equal(t, "01020304-0506-0708-090a-0b0c0d0e0f10", result.String())
+}
+
+func TestReorderIntelGUIDAllZeros(t *testing.T) {
+	var raw [16]byte
+	result := ReorderIntelGUID(raw)
+	assert.Equal(t, "00000000-0000-0000-0000-000000000000", result.String())
+}
+
+func TestParseForwardData(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []byte
+		wantAddr string
+		wantPort uint32
+		wantErr  bool
+	}{
+		{
+			name:     "valid",
+			data:     append(encodeString("192.168.1.1"), encodeUint32(16992)...),
+			wantAddr: "192.168.1.1",
+			wantPort: 16992,
+		},
+		{
+			name:     "empty address",
+			data:     append(encodeString(""), encodeUint32(16993)...),
+			wantAddr: "",
+			wantPort: 16993,
+		},
+		{
+			name:    "too short for address length",
+			data:    []byte{0, 0},
+			wantErr: true,
+		},
+		{
+			name:    "too short for port",
+			data:    encodeString("addr"),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			addr, port, err := ParseForwardData(tt.data)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantAddr, addr)
+			assert.Equal(t, tt.wantPort, port)
+		})
+	}
 }
 
 // --- helpers ---

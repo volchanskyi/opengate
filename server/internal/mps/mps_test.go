@@ -3,6 +3,7 @@ package mps
 import (
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"io"
 	"log/slog"
 	"net"
@@ -65,7 +66,7 @@ func connectAMT(t *testing.T, addr string) net.Conn {
 func simulateCIRA(t *testing.T, conn net.Conn, amtUUID uuid.UUID) {
 	t.Helper()
 
-	// Step 1: Send ProtocolVersion with UUID.
+	// Step 1: Send ProtocolVersion with UUID in Intel mixed-endian format.
 	buf := make([]byte, 29)
 	buf[0] = APFProtocolVersion
 	buf[1] = 0 // major=1 in BE
@@ -73,7 +74,9 @@ func simulateCIRA(t *testing.T, conn net.Conn, amtUUID uuid.UUID) {
 	buf[3] = 0
 	buf[4] = 1
 	// minor=0, trigger=0 (bytes 5..12 are zero)
-	copy(buf[13:], amtUUID[:])
+	// Write UUID in Intel LE format (reverse of ReorderIntelGUID).
+	intelBytes := toIntelGUID(amtUUID)
+	copy(buf[13:], intelBytes[:])
 	_, err := conn.Write(buf)
 	require.NoError(t, err)
 
@@ -106,11 +109,11 @@ func simulateCIRA(t *testing.T, conn net.Conn, amtUUID uuid.UUID) {
 	require.NoError(t, err)
 	assert.Equal(t, APFServiceAccept, msgType)
 
-	// Step 5: Send GlobalRequest (tcpip-forward).
+	// Step 5: Send GlobalRequest (tcpip-forward) for port 16992.
 	grPayload := encodeAPFString("tcpip-forward")
 	grPayload = append(grPayload, 1) // want_reply
-	grPayload = append(grPayload, encodeAPFString("192.168.1.1")...)
-	grPayload = append(grPayload, encodeUint32(16993)...)
+	grPayload = append(grPayload, encodeAPFString("")...)
+	grPayload = append(grPayload, encodeUint32(16992)...)
 	grMsg := append([]byte{APFGlobalRequest}, grPayload...)
 	_, err = conn.Write(grMsg)
 	require.NoError(t, err)
@@ -118,6 +121,13 @@ func simulateCIRA(t *testing.T, conn net.Conn, amtUUID uuid.UUID) {
 	msgType, _, err = ReadMessage(conn)
 	require.NoError(t, err)
 	assert.Equal(t, APFRequestSuccess, msgType)
+
+	// Consume the KeepaliveOptionsRequest sent by the server after handshake.
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second)) //nolint:errcheck
+	msgType, _, err = ReadMessage(conn)
+	require.NoError(t, err)
+	assert.Equal(t, APFKeepaliveOptionsRequest, msgType)
+	conn.SetReadDeadline(time.Time{}) //nolint:errcheck
 }
 
 func TestMPSServerStartStop(t *testing.T) {
@@ -275,4 +285,199 @@ func TestMPSChannelOpenClose(t *testing.T) {
 	assert.Equal(t, 0, chanCount)
 }
 
-// encodeUint32 and encodeAPFString are defined in apf_test.go (same package).
+func TestHandshakeTracksFirstBoundPort(t *testing.T) {
+	srv, _ := newTestServer(t)
+	addr, cancel := startTestServer(t, srv)
+	defer cancel()
+
+	amtUUID := uuid.New()
+	conn := connectAMT(t, addr)
+	simulateCIRA(t, conn, amtUUID)
+
+	time.Sleep(50 * time.Millisecond)
+
+	mc := srv.GetConn(amtUUID)
+	require.NotNil(t, mc)
+	mc.mu.RLock()
+	ports := append([]BoundPort(nil), mc.BoundPorts...)
+	mc.mu.RUnlock()
+
+	require.Len(t, ports, 1)
+	assert.Equal(t, uint32(16992), ports[0].Port)
+}
+
+func TestMessageLoopTracksAdditionalPorts(t *testing.T) {
+	srv, _ := newTestServer(t)
+	addr, cancel := startTestServer(t, srv)
+	defer cancel()
+
+	amtUUID := uuid.New()
+	conn := connectAMT(t, addr)
+	simulateCIRA(t, conn, amtUUID)
+
+	// Send additional tcpip-forward requests (like real AMT does).
+	for _, port := range []uint32{16993, 5900} {
+		grPayload := encodeAPFString("tcpip-forward")
+		grPayload = append(grPayload, 1) // want_reply
+		grPayload = append(grPayload, encodeAPFString("")...)
+		grPayload = append(grPayload, encodeUint32(port)...)
+		_, err := conn.Write(append([]byte{APFGlobalRequest}, grPayload...))
+		require.NoError(t, err)
+
+		msgType, _, err := ReadMessage(conn)
+		require.NoError(t, err)
+		assert.Equal(t, APFRequestSuccess, msgType)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	mc := srv.GetConn(amtUUID)
+	require.NotNil(t, mc)
+	mc.mu.RLock()
+	ports := append([]BoundPort(nil), mc.BoundPorts...)
+	mc.mu.RUnlock()
+
+	require.Len(t, ports, 3)
+	assert.Equal(t, uint32(16992), ports[0].Port)
+	assert.Equal(t, uint32(16993), ports[1].Port)
+	assert.Equal(t, uint32(5900), ports[2].Port)
+}
+
+func TestChannelDataSendsWindowAdjust(t *testing.T) {
+	srv, _ := newTestServer(t)
+	addr, cancel := startTestServer(t, srv)
+	defer cancel()
+
+	amtUUID := uuid.New()
+	conn := connectAMT(t, addr)
+	simulateCIRA(t, conn, amtUUID)
+	time.Sleep(50 * time.Millisecond)
+
+	// Open a channel from AMT side.
+	chOpenPayload := encodeAPFString("forwarded-tcpip")
+	chOpenPayload = append(chOpenPayload, encodeUint32(7)...)         // sender channel
+	chOpenPayload = append(chOpenPayload, encodeUint32(0x8000)...)    // window 32K
+	chOpenPayload = append(chOpenPayload, encodeUint32(0x8000)...)    // max packet
+	chOpenPayload = append(chOpenPayload, encodeAPFString("1.2.3.4")...)
+	chOpenPayload = append(chOpenPayload, encodeUint32(16992)...)
+	chOpenPayload = append(chOpenPayload, encodeAPFString("0.0.0.0")...)
+	chOpenPayload = append(chOpenPayload, encodeUint32(0)...)
+	_, err := conn.Write(append([]byte{APFChannelOpen}, chOpenPayload...))
+	require.NoError(t, err)
+
+	// Read channel open confirmation.
+	msgType, _, err := ReadMessage(conn)
+	require.NoError(t, err)
+	assert.Equal(t, APFChannelOpenConfirm, msgType)
+
+	// Send enough channel data to trigger a WindowAdj from the server.
+	// Server should send WindowAdj when recvConsumed >= DefaultWindowSize/2 (16K).
+	bigData := make([]byte, DefaultWindowSize/2+1)
+	require.NoError(t, WriteChannelData(conn, 0, bigData)) // server's local ch = 0
+
+	// Read the WindowAdj the server should send back.
+	msgType, raw, err := ReadMessage(conn)
+	require.NoError(t, err)
+	assert.Equal(t, APFChannelWindowAdj, msgType)
+	require.Len(t, raw, 8)
+	adjustBytes := binary.BigEndian.Uint32(raw[4:8])
+	assert.True(t, adjustBytes > 0, "window adjust should be positive")
+}
+
+func TestChannelWindowAdjIncrementsSendWindow(t *testing.T) {
+	srv, _ := newTestServer(t)
+	addr, cancel := startTestServer(t, srv)
+	defer cancel()
+
+	amtUUID := uuid.New()
+	conn := connectAMT(t, addr)
+	simulateCIRA(t, conn, amtUUID)
+	time.Sleep(50 * time.Millisecond)
+
+	// Open a channel from AMT side with window=1024.
+	chOpenPayload := encodeAPFString("forwarded-tcpip")
+	chOpenPayload = append(chOpenPayload, encodeUint32(5)...)       // sender channel
+	chOpenPayload = append(chOpenPayload, encodeUint32(1024)...)    // small window
+	chOpenPayload = append(chOpenPayload, encodeUint32(0x8000)...)  // max packet
+	chOpenPayload = append(chOpenPayload, encodeAPFString("1.2.3.4")...)
+	chOpenPayload = append(chOpenPayload, encodeUint32(16992)...)
+	chOpenPayload = append(chOpenPayload, encodeAPFString("0.0.0.0")...)
+	chOpenPayload = append(chOpenPayload, encodeUint32(0)...)
+	_, err := conn.Write(append([]byte{APFChannelOpen}, chOpenPayload...))
+	require.NoError(t, err)
+
+	msgType, _, err := ReadMessage(conn)
+	require.NoError(t, err)
+	assert.Equal(t, APFChannelOpenConfirm, msgType)
+
+	mc := srv.GetConn(amtUUID)
+	require.NotNil(t, mc)
+
+	mc.mu.RLock()
+	ch := mc.channels[0]
+	mc.mu.RUnlock()
+	require.NotNil(t, ch)
+
+	ch.mu.Lock()
+	initialWindow := ch.sendWindow
+	ch.mu.Unlock()
+	assert.Equal(t, int64(1024), initialWindow)
+
+	// Send a WindowAdj from AMT side to increase the server's send window.
+	require.NoError(t, WriteChannelWindowAdj(conn, 0, 4096))
+	time.Sleep(50 * time.Millisecond)
+
+	ch.mu.Lock()
+	newWindow := ch.sendWindow
+	ch.mu.Unlock()
+	assert.Equal(t, int64(1024+4096), newWindow)
+}
+
+func TestKeepaliveRequestReplyEcho(t *testing.T) {
+	srv, _ := newTestServer(t)
+	addr, cancel := startTestServer(t, srv)
+	defer cancel()
+
+	amtUUID := uuid.New()
+	conn := connectAMT(t, addr)
+	simulateCIRA(t, conn, amtUUID) // consumes KeepaliveOptionsRequest
+
+	// Send a keepalive request from "AMT" side; server should echo the cookie back.
+	var reqBuf [5]byte
+	reqBuf[0] = APFKeepaliveRequest
+	binary.BigEndian.PutUint32(reqBuf[1:], 0x12345678)
+	_, err := conn.Write(reqBuf[:])
+	require.NoError(t, err)
+
+	msgType, raw, err := ReadMessage(conn)
+	require.NoError(t, err)
+	assert.Equal(t, APFKeepaliveReply, msgType)
+	require.Len(t, raw, 4)
+	assert.Equal(t, uint32(0x12345678), binary.BigEndian.Uint32(raw))
+}
+
+func TestKeepaliveOptionsNegotiation(t *testing.T) {
+	// simulateCIRA already verifies the server sends KeepaliveOptionsRequest.
+	// This test additionally verifies the handshake completes with keepalive active.
+	srv, _ := newTestServer(t)
+	addr, cancel := startTestServer(t, srv)
+	defer cancel()
+
+	amtUUID := uuid.New()
+	conn := connectAMT(t, addr)
+	simulateCIRA(t, conn, amtUUID)
+
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, 1, srv.ConnectedDeviceCount())
+}
+
+// toIntelGUID encodes a standard UUID into Intel mixed-endian wire format
+// (inverse of ReorderIntelGUID).
+func toIntelGUID(u uuid.UUID) [16]byte {
+	var raw [16]byte
+	raw[0], raw[1], raw[2], raw[3] = u[3], u[2], u[1], u[0]
+	raw[4], raw[5] = u[5], u[4]
+	raw[6], raw[7] = u[7], u[6]
+	copy(raw[8:], u[8:16])
+	return raw
+}

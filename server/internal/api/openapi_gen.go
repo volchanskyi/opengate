@@ -27,26 +27,89 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
-// Defines values for DeviceStatus.
+// Defines values for AMTDeviceStatus.
 const (
-	Connecting DeviceStatus = "connecting"
-	Offline    DeviceStatus = "offline"
-	Online     DeviceStatus = "online"
+	AMTDeviceStatusOffline AMTDeviceStatus = "offline"
+	AMTDeviceStatusOnline  AMTDeviceStatus = "online"
 )
 
-// Valid indicates whether the value is a known member of the DeviceStatus enum.
-func (e DeviceStatus) Valid() bool {
+// Valid indicates whether the value is a known member of the AMTDeviceStatus enum.
+func (e AMTDeviceStatus) Valid() bool {
 	switch e {
-	case Connecting:
+	case AMTDeviceStatusOffline:
 		return true
-	case Offline:
-		return true
-	case Online:
+	case AMTDeviceStatusOnline:
 		return true
 	default:
 		return false
 	}
 }
+
+// Defines values for AMTPowerRequestAction.
+const (
+	HardReset  AMTPowerRequestAction = "hard_reset"
+	PowerCycle AMTPowerRequestAction = "power_cycle"
+	PowerOn    AMTPowerRequestAction = "power_on"
+	SoftOff    AMTPowerRequestAction = "soft_off"
+)
+
+// Valid indicates whether the value is a known member of the AMTPowerRequestAction enum.
+func (e AMTPowerRequestAction) Valid() bool {
+	switch e {
+	case HardReset:
+		return true
+	case PowerCycle:
+		return true
+	case PowerOn:
+		return true
+	case SoftOff:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeviceStatus.
+const (
+	DeviceStatusConnecting DeviceStatus = "connecting"
+	DeviceStatusOffline    DeviceStatus = "offline"
+	DeviceStatusOnline     DeviceStatus = "online"
+)
+
+// Valid indicates whether the value is a known member of the DeviceStatus enum.
+func (e DeviceStatus) Valid() bool {
+	switch e {
+	case DeviceStatusConnecting:
+		return true
+	case DeviceStatusOffline:
+		return true
+	case DeviceStatusOnline:
+		return true
+	default:
+		return false
+	}
+}
+
+// AMTDevice defines model for AMTDevice.
+type AMTDevice struct {
+	Firmware string             `json:"firmware"`
+	Hostname string             `json:"hostname"`
+	LastSeen time.Time          `json:"last_seen"`
+	Model    string             `json:"model"`
+	Status   AMTDeviceStatus    `json:"status"`
+	Uuid     openapi_types.UUID `json:"uuid"`
+}
+
+// AMTDeviceStatus defines model for AMTDevice.Status.
+type AMTDeviceStatus string
+
+// AMTPowerRequest defines model for AMTPowerRequest.
+type AMTPowerRequest struct {
+	Action AMTPowerRequestAction `json:"action"`
+}
+
+// AMTPowerRequestAction defines model for AMTPowerRequest.Action.
+type AMTPowerRequestAction string
 
 // AgentSession defines model for AgentSession.
 type AgentSession struct {
@@ -198,6 +261,9 @@ type ListSessionsParams struct {
 	DeviceId openapi_types.UUID `form:"device_id" json:"device_id"`
 }
 
+// AmtPowerActionJSONRequestBody defines body for AmtPowerAction for application/json ContentType.
+type AmtPowerActionJSONRequestBody = AMTPowerRequest
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -221,6 +287,15 @@ type UpdateUserJSONRequestBody = UpdateUserRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// List AMT devices
+	// (GET /api/v1/amt/devices)
+	ListAMTDevices(w http.ResponseWriter, r *http.Request)
+	// Get AMT device details
+	// (GET /api/v1/amt/devices/{uuid})
+	GetAMTDevice(w http.ResponseWriter, r *http.Request, uuid openapi_types.UUID)
+	// Send power command to AMT device
+	// (POST /api/v1/amt/devices/{uuid}/power)
+	AmtPowerAction(w http.ResponseWriter, r *http.Request, uuid openapi_types.UUID)
 	// Query audit log (admin only)
 	// (GET /api/v1/audit)
 	ListAuditEvents(w http.ResponseWriter, r *http.Request, params ListAuditEventsParams)
@@ -289,6 +364,24 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// List AMT devices
+// (GET /api/v1/amt/devices)
+func (_ Unimplemented) ListAMTDevices(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get AMT device details
+// (GET /api/v1/amt/devices/{uuid})
+func (_ Unimplemented) GetAMTDevice(w http.ResponseWriter, r *http.Request, uuid openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Send power command to AMT device
+// (POST /api/v1/amt/devices/{uuid}/power)
+func (_ Unimplemented) AmtPowerAction(w http.ResponseWriter, r *http.Request, uuid openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // Query audit log (admin only)
 // (GET /api/v1/audit)
@@ -424,6 +517,88 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAMTDevices operation middleware
+func (siw *ServerInterfaceWrapper) ListAMTDevices(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAMTDevices(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAMTDevice operation middleware
+func (siw *ServerInterfaceWrapper) GetAMTDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "uuid" -------------
+	var uuid openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uuid", chi.URLParam(r, "uuid"), &uuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAMTDevice(w, r, uuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AmtPowerAction operation middleware
+func (siw *ServerInterfaceWrapper) AmtPowerAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "uuid" -------------
+	var uuid openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "uuid", chi.URLParam(r, "uuid"), &uuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AmtPowerAction(w, r, uuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListAuditEvents operation middleware
 func (siw *ServerInterfaceWrapper) ListAuditEvents(w http.ResponseWriter, r *http.Request) {
@@ -1095,6 +1270,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	}
 
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/amt/devices", wrapper.ListAMTDevices)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/amt/devices/{uuid}", wrapper.GetAMTDevice)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/amt/devices/{uuid}/power", wrapper.AmtPowerAction)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/audit", wrapper.ListAuditEvents)
 	})
 	r.Group(func(r chi.Router) {
@@ -1159,6 +1343,110 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 
 	return r
+}
+
+type ListAMTDevicesRequestObject struct {
+}
+
+type ListAMTDevicesResponseObject interface {
+	VisitListAMTDevicesResponse(w http.ResponseWriter) error
+}
+
+type ListAMTDevices200JSONResponse []AMTDevice
+
+func (response ListAMTDevices200JSONResponse) VisitListAMTDevicesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListAMTDevices401JSONResponse ApiError
+
+func (response ListAMTDevices401JSONResponse) VisitListAMTDevicesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAMTDeviceRequestObject struct {
+	Uuid openapi_types.UUID `json:"uuid"`
+}
+
+type GetAMTDeviceResponseObject interface {
+	VisitGetAMTDeviceResponse(w http.ResponseWriter) error
+}
+
+type GetAMTDevice200JSONResponse AMTDevice
+
+func (response GetAMTDevice200JSONResponse) VisitGetAMTDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAMTDevice401JSONResponse ApiError
+
+func (response GetAMTDevice401JSONResponse) VisitGetAMTDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetAMTDevice404JSONResponse ApiError
+
+func (response GetAMTDevice404JSONResponse) VisitGetAMTDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AmtPowerActionRequestObject struct {
+	Uuid openapi_types.UUID `json:"uuid"`
+	Body *AmtPowerActionJSONRequestBody
+}
+
+type AmtPowerActionResponseObject interface {
+	VisitAmtPowerActionResponse(w http.ResponseWriter) error
+}
+
+type AmtPowerAction200Response struct {
+}
+
+func (response AmtPowerAction200Response) VisitAmtPowerActionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(200)
+	return nil
+}
+
+type AmtPowerAction401JSONResponse ApiError
+
+func (response AmtPowerAction401JSONResponse) VisitAmtPowerActionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AmtPowerAction404JSONResponse ApiError
+
+func (response AmtPowerAction404JSONResponse) VisitAmtPowerActionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type AmtPowerAction409JSONResponse ApiError
+
+func (response AmtPowerAction409JSONResponse) VisitAmtPowerActionResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type ListAuditEventsRequestObject struct {
@@ -1845,6 +2133,15 @@ func (response UpdateUser404JSONResponse) VisitUpdateUserResponse(w http.Respons
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// List AMT devices
+	// (GET /api/v1/amt/devices)
+	ListAMTDevices(ctx context.Context, request ListAMTDevicesRequestObject) (ListAMTDevicesResponseObject, error)
+	// Get AMT device details
+	// (GET /api/v1/amt/devices/{uuid})
+	GetAMTDevice(ctx context.Context, request GetAMTDeviceRequestObject) (GetAMTDeviceResponseObject, error)
+	// Send power command to AMT device
+	// (POST /api/v1/amt/devices/{uuid}/power)
+	AmtPowerAction(ctx context.Context, request AmtPowerActionRequestObject) (AmtPowerActionResponseObject, error)
 	// Query audit log (admin only)
 	// (GET /api/v1/audit)
 	ListAuditEvents(ctx context.Context, request ListAuditEventsRequestObject) (ListAuditEventsResponseObject, error)
@@ -1937,6 +2234,89 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// ListAMTDevices operation middleware
+func (sh *strictHandler) ListAMTDevices(w http.ResponseWriter, r *http.Request) {
+	var request ListAMTDevicesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAMTDevices(ctx, request.(ListAMTDevicesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAMTDevices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAMTDevicesResponseObject); ok {
+		if err := validResponse.VisitListAMTDevicesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAMTDevice operation middleware
+func (sh *strictHandler) GetAMTDevice(w http.ResponseWriter, r *http.Request, uuid openapi_types.UUID) {
+	var request GetAMTDeviceRequestObject
+
+	request.Uuid = uuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAMTDevice(ctx, request.(GetAMTDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAMTDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAMTDeviceResponseObject); ok {
+		if err := validResponse.VisitGetAMTDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AmtPowerAction operation middleware
+func (sh *strictHandler) AmtPowerAction(w http.ResponseWriter, r *http.Request, uuid openapi_types.UUID) {
+	var request AmtPowerActionRequestObject
+
+	request.Uuid = uuid
+
+	var body AmtPowerActionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AmtPowerAction(ctx, request.(AmtPowerActionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AmtPowerAction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AmtPowerActionResponseObject); ok {
+		if err := validResponse.VisitAmtPowerActionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // ListAuditEvents operation middleware
@@ -2515,39 +2895,43 @@ func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id o
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
+	"ucfm83k8xJvbzR8BAAD//1HFHNy/RQAA",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

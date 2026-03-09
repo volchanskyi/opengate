@@ -127,10 +127,15 @@ func (s *Server) handleConn(ctx context.Context, netConn net.Conn) {
 	mc.logger = logger.With("amt_uuid", amtUUID)
 	mc.logger.Info("CIRA handshake complete")
 
-	s.registerConn(ctx, mc, amtUUID)
+	connCtx, connCancel := context.WithCancel(ctx)
+	defer connCancel()
+
+	s.registerConn(connCtx, mc, amtUUID)
 	defer s.unregisterConn(mc, amtUUID)
 
-	s.messageLoop(ctx, mc)
+	go s.startKeepalive(connCtx, mc)
+
+	s.messageLoop(connCtx, mc)
 }
 
 // registerConn stores the connection and marks the device online.
@@ -160,6 +165,31 @@ func (s *Server) unregisterConn(mc *Conn, amtUUID uuid.UUID) {
 		mc.logger.Error("set AMT device offline", "error", err)
 	}
 	mc.logger.Info("AMT device disconnected")
+}
+
+// startKeepalive sends periodic keepalive requests to the AMT device.
+func (s *Server) startKeepalive(ctx context.Context, mc *Conn) {
+	// Negotiate keepalive parameters: 30s interval, 10s timeout.
+	if err := WriteKeepaliveOptionsRequest(mc.netConn, 30, 10); err != nil {
+		mc.logger.Error("write keepalive options", "error", err)
+		return
+	}
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	var cookie uint32
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cookie++
+			if err := WriteKeepaliveRequest(mc.netConn, cookie); err != nil {
+				return
+			}
+		}
+	}
 }
 
 // messageLoop reads and dispatches APF messages until error or context cancel.
@@ -228,7 +258,7 @@ func (s *Server) hsExchangeVersion(mc *Conn) (uuid.UUID, error) {
 	if err := WriteProtocolVersion(mc.netConn, 1, 0, 0); err != nil {
 		return uuid.Nil, fmt.Errorf("write protocol version: %w", err)
 	}
-	return pv.UUID, nil
+	return ReorderIntelGUID(pv.UUID), nil
 }
 
 // hsAuthService handles the auth service request and user authentication.
@@ -270,6 +300,14 @@ func (s *Server) hsPfwdService(mc *Conn) error {
 		return err
 	}
 	mc.logger.Info("AMT forward request", "request", gr.RequestName)
+	if gr.RequestName == "tcpip-forward" && len(gr.Data) > 0 {
+		addr, port, err := ParseForwardData(gr.Data)
+		if err == nil {
+			mc.mu.Lock()
+			mc.BoundPorts = append(mc.BoundPorts, BoundPort{Address: addr, Port: port})
+			mc.mu.Unlock()
+		}
+	}
 	if gr.WantReply {
 		return WriteRequestSuccess(mc.netConn)
 	}
@@ -304,6 +342,15 @@ func (s *Server) handleMessage(mc *Conn, msgType uint8, payload []byte) error {
 			return err
 		}
 		mc.logger.Debug("global request", "request", gr.RequestName)
+		if gr.RequestName == "tcpip-forward" && len(gr.Data) > 0 {
+			addr, port, err := ParseForwardData(gr.Data)
+			if err == nil {
+				mc.mu.Lock()
+				mc.BoundPorts = append(mc.BoundPorts, BoundPort{Address: addr, Port: port})
+				mc.mu.Unlock()
+				mc.logger.Info("port bound", "addr", addr, "port", port)
+			}
+		}
 		if gr.WantReply {
 			return WriteRequestSuccess(mc.netConn)
 		}
@@ -323,8 +370,20 @@ func (s *Server) handleMessage(mc *Conn, msgType uint8, payload []byte) error {
 		return s.handleChannelClose(mc, ch)
 
 	case APFChannelWindowAdj:
-		// Acknowledge but don't enforce flow control for now.
-		return nil
+		return s.handleWindowAdj(mc, payload)
+
+	case APFKeepaliveRequest:
+		ka, err := ParseKeepaliveRequest(payload)
+		if err != nil {
+			return err
+		}
+		return WriteKeepaliveReply(mc.netConn, ka.Cookie)
+
+	case APFKeepaliveReply:
+		return nil // Keepalive acknowledged.
+
+	case APFKeepaliveOptionsReply:
+		return nil // Logged at debug; server controls the schedule.
 
 	case APFDisconnect:
 		return io.EOF // Clean disconnect.
@@ -333,6 +392,24 @@ func (s *Server) handleMessage(mc *Conn, msgType uint8, payload []byte) error {
 		mc.logger.Warn("unhandled APF message", "type", msgType)
 		return nil
 	}
+}
+
+// handleWindowAdj processes a window adjust message, increasing the channel's send credits.
+func (s *Server) handleWindowAdj(mc *Conn, payload []byte) error {
+	if len(payload) < 8 {
+		return ErrMessageTooShort
+	}
+	recipientCh := binary.BigEndian.Uint32(payload[0:4])
+	bytesToAdd := binary.BigEndian.Uint32(payload[4:8])
+	mc.mu.RLock()
+	ch, ok := mc.channels[recipientCh]
+	mc.mu.RUnlock()
+	if ok {
+		ch.mu.Lock()
+		ch.sendWindow += int64(bytesToAdd)
+		ch.mu.Unlock()
+	}
+	return nil
 }
 
 // handleChannelOpen processes an APF channel open request from the AMT device.
@@ -346,9 +423,10 @@ func (s *Server) handleChannelOpen(mc *Conn, payload []byte) error {
 	localCh := mc.nextChanID
 	mc.nextChanID++
 	ch := &Channel{
-		LocalID:  localCh,
-		RemoteID: co.SenderChannel,
-		Type:     co.ChannelType,
+		LocalID:    localCh,
+		RemoteID:   co.SenderChannel,
+		Type:       co.ChannelType,
+		sendWindow: int64(co.InitialWindowSz),
 	}
 	mc.channels[localCh] = ch
 	mc.mu.Unlock()
@@ -379,15 +457,30 @@ func (s *Server) handleChannelData(mc *Conn, payload []byte) error {
 		return nil
 	}
 
-	// Forward data to the channel's TCP connection if one exists.
+	// Forward data via callback or TCP connection.
 	ch.mu.Lock()
 	fwd := ch.fwd
+	onData := ch.OnData
+	ch.recvConsumed += int64(len(cd.Data))
+	consumed := ch.recvConsumed
 	ch.mu.Unlock()
 
-	if fwd != nil {
+	if onData != nil {
+		onData(cd.Data)
+	} else if fwd != nil {
 		if _, err := fwd.Write(cd.Data); err != nil {
 			mc.logger.Error("forward write error", "channel", cd.RecipientChannel, "error", err)
 			return s.handleChannelClose(mc, cd.RecipientChannel)
+		}
+	}
+
+	// Send WindowAdj when consumed exceeds half of our advertised window.
+	if consumed >= int64(DefaultWindowSize)/2 {
+		ch.mu.Lock()
+		ch.recvConsumed = 0
+		ch.mu.Unlock()
+		if err := WriteChannelWindowAdj(mc.netConn, ch.RemoteID, uint32(consumed)); err != nil {
+			return fmt.Errorf("write window adjust: %w", err)
 		}
 	}
 
@@ -417,14 +510,26 @@ func (s *Server) handleChannelClose(mc *Conn, localCh uint32) error {
 	return WriteChannelClose(mc.netConn, ch.RemoteID)
 }
 
+// BoundPort represents a port registered by the AMT device via tcpip-forward.
+type BoundPort struct {
+	Address string
+	Port    uint32
+}
+
 // Conn represents a CIRA connection from an Intel AMT device.
 type Conn struct {
 	AMTUUID    uuid.UUID
+	BoundPorts []BoundPort
 	netConn    net.Conn
 	channels   map[uint32]*Channel
 	nextChanID uint32
 	mu         sync.RWMutex
 	logger     *slog.Logger
+}
+
+// NetConn returns the underlying network connection.
+func (c *Conn) NetConn() net.Conn {
+	return c.netConn
 }
 
 // Close terminates the CIRA connection and all open channels.
@@ -478,15 +583,17 @@ func (c *Conn) OpenChannel(targetAddr string, targetPort uint16) (*Channel, erro
 		return nil, fmt.Errorf("unexpected response type %d", msgType)
 	}
 
-	if len(payload) < 8 {
+	if len(payload) < 12 {
 		return nil, ErrMessageTooShort
 	}
 	remoteCh := binary.BigEndian.Uint32(payload[4:8])
+	windowSz := binary.BigEndian.Uint32(payload[8:12])
 
 	ch := &Channel{
-		LocalID:  localCh,
-		RemoteID: remoteCh,
-		Type:     "direct-tcpip",
+		LocalID:    localCh,
+		RemoteID:   remoteCh,
+		Type:       "direct-tcpip",
+		sendWindow: int64(windowSz),
 	}
 
 	c.mu.Lock()
@@ -498,11 +605,21 @@ func (c *Conn) OpenChannel(targetAddr string, targetPort uint16) (*Channel, erro
 
 // Channel represents an APF channel within a CIRA connection.
 type Channel struct {
-	LocalID  uint32
-	RemoteID uint32
-	Type     string
-	fwd      net.Conn // optional TCP forwarding connection
-	mu       sync.Mutex
+	LocalID      uint32
+	RemoteID     uint32
+	Type         string
+	fwd          net.Conn       // optional TCP forwarding connection
+	OnData       func([]byte)   // optional callback for received data (used by WSMAN ChannelConn)
+	sendWindow   int64          // credits remaining for sending to remote
+	recvConsumed int64          // bytes consumed since last WindowAdj
+	mu           sync.Mutex
+}
+
+// SetOnData sets a callback for received channel data (used by WSMAN ChannelConn).
+func (ch *Channel) SetOnData(fn func([]byte)) {
+	ch.mu.Lock()
+	ch.OnData = fn
+	ch.mu.Unlock()
 }
 
 // writeChannelOpenDirect writes an APF channel open for "direct-tcpip".

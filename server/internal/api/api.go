@@ -10,9 +10,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
@@ -25,11 +27,31 @@ type AgentGetter interface {
 	GetAgent(deviceID db.DeviceID) *agentapi.AgentConn
 }
 
+// AMTOperator provides high-level AMT device operations.
+type AMTOperator interface {
+	PowerAction(ctx context.Context, amtUUID uuid.UUID, state int) error
+	QueryDeviceInfo(ctx context.Context, amtUUID uuid.UUID) (*wsman.DeviceInfo, error)
+	ConnectedDeviceCount() int
+}
+
+// ServerConfig holds all dependencies for the API server.
+type ServerConfig struct {
+	Store     db.Store
+	JWT       *auth.JWTConfig
+	Agents    AgentGetter
+	AMT       AMTOperator
+	Relay     *relay.Relay
+	Signaling *signaling.Tracker
+	Notifier  notifications.Notifier
+	Logger    *slog.Logger
+}
+
 // Server is the HTTP API server.
 type Server struct {
 	store     db.Store
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
+	amt       AMTOperator
 	relay     *relay.Relay
 	signaling *signaling.Tracker
 	notifier  notifications.Notifier
@@ -38,16 +60,17 @@ type Server struct {
 }
 
 // NewServer creates an API server with all routes registered.
-func NewServer(store db.Store, jwtCfg *auth.JWTConfig, agents AgentGetter, relay *relay.Relay, sigTracker *signaling.Tracker, notifier notifications.Notifier, logger *slog.Logger) *Server {
+func NewServer(cfg ServerConfig) *Server {
 	s := &Server{
-		store:     store,
-		jwt:       jwtCfg,
-		agents:    agents,
-		relay:     relay,
-		signaling: sigTracker,
-		notifier:  notifier,
+		store:     cfg.Store,
+		jwt:       cfg.JWT,
+		agents:    cfg.Agents,
+		amt:       cfg.AMT,
+		relay:     cfg.Relay,
+		signaling: cfg.Signaling,
+		notifier:  cfg.Notifier,
 		router:    chi.NewRouter(),
-		logger:    logger,
+		logger:    cfg.Logger,
 	}
 	s.routes()
 	return s
