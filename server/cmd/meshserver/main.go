@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/api"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
@@ -29,6 +30,8 @@ func main() {
 	dataDir := flag.String("data-dir", "./data", "directory for database and certificates")
 	jwtSecret := flag.String("jwt-secret", "", "JWT signing secret (or JWT_SECRET env)")
 	vapidContact := flag.String("vapid-contact", "", "VAPID contact email for web push (optional)")
+	amtUser := flag.String("amt-user", "admin", "AMT WSMAN username for device management")
+	amtPass := flag.String("amt-pass", "", "AMT WSMAN password for device management")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -79,9 +82,19 @@ func main() {
 	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, notifier, logger)
 
 	mpsSrv := mps.NewServer(certMgr, store, logger)
+	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
-	srv := api.NewServer(store, jwtCfg, agentSrv, agentRelay, sigTracker, notifier, logger)
+	srv := api.NewServer(api.ServerConfig{
+		Store:     store,
+		JWT:       jwtCfg,
+		Agents:    agentSrv,
+		AMT:       amtSvc,
+		Relay:     agentRelay,
+		Signaling: sigTracker,
+		Notifier:  notifier,
+		Logger:    logger,
+	})
 
 	httpSrv := &http.Server{
 		Addr:         *listen,

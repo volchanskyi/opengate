@@ -67,7 +67,15 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	}
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
-	apiSrv := api.NewServer(store, jwtCfg, agentSrv, r, sigTracker, &notifications.NoopNotifier{}, logger)
+	apiSrv := api.NewServer(api.ServerConfig{
+		Store:     store,
+		JWT:       jwtCfg,
+		Agents:    agentSrv,
+		Relay:     r,
+		Signaling: sigTracker,
+		Notifier:  &notifications.NoopNotifier{},
+		Logger:    logger,
+	})
 	ts := httptest.NewServer(apiSrv)
 
 	t.Cleanup(func() {

@@ -248,6 +248,34 @@ components:
         display_name:
           type: string
 
+    AMTDevice:
+      type: object
+      required: [uuid, hostname, model, firmware, status, last_seen]
+      properties:
+        uuid:
+          type: string
+          format: uuid
+        hostname:
+          type: string
+        model:
+          type: string
+        firmware:
+          type: string
+        status:
+          type: string
+          enum: [online, offline]
+        last_seen:
+          type: string
+          format: date-time
+
+    AMTPowerRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [power_on, power_cycle, soft_off, hard_reset]
+
 paths:
   /api/v1/health:
     get:
@@ -857,6 +885,102 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/amt/devices:
+    get:
+      operationId: listAMTDevices
+      summary: List AMT devices
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of AMT devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AMTDevice"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/amt/devices/{uuid}:
+    get:
+      operationId: getAMTDevice
+      summary: Get AMT device details
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: AMT device details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AMTDevice"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/amt/devices/{uuid}/power:
+    post:
+      operationId: amtPowerAction
+      summary: Send power command to AMT device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AMTPowerRequest"
+      responses:
+        "200":
+          description: Power command sent
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Device not connected
           content:
             application/json:
               schema:

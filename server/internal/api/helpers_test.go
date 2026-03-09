@@ -2,7 +2,9 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http/httptest"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -32,6 +35,21 @@ func (s *stubAgentGetter) GetAgent(deviceID protocol.DeviceID) *agentapi.AgentCo
 	return s.agents[deviceID]
 }
 
+// stubAMTOperator is a test double for AMTOperator.
+type stubAMTOperator struct{}
+
+func (s *stubAMTOperator) PowerAction(_ context.Context, _ uuid.UUID, _ int) error {
+	return fmt.Errorf("device not connected")
+}
+
+func (s *stubAMTOperator) QueryDeviceInfo(_ context.Context, _ uuid.UUID) (*wsman.DeviceInfo, error) {
+	return nil, fmt.Errorf("device not connected")
+}
+
+func (s *stubAMTOperator) ConnectedDeviceCount() int {
+	return 0
+}
+
 func testJWTConfig() *auth.JWTConfig {
 	return &auth.JWTConfig{
 		Secret:   "test-secret-key-at-least-32-bytes!",
@@ -46,7 +64,15 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	store := testutil.NewTestStore(t)
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), nil, &notifications.NoopNotifier{}, logger)
+	srv := NewServer(ServerConfig{
+		Store:    store,
+		JWT:      cfg,
+		Agents:   &stubAgentGetter{},
+		AMT:      &stubAMTOperator{},
+		Relay:    relay.NewRelay(),
+		Notifier: &notifications.NoopNotifier{},
+		Logger:   logger,
+	})
 	return srv, cfg
 }
 
@@ -56,7 +82,15 @@ func newTestServerWithAgents(t *testing.T, agents AgentGetter, r *relay.Relay) (
 	store := testutil.NewTestStore(t)
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := NewServer(store, cfg, agents, r, nil, &notifications.NoopNotifier{}, logger)
+	srv := NewServer(ServerConfig{
+		Store:    store,
+		JWT:      cfg,
+		Agents:   agents,
+		AMT:      &stubAMTOperator{},
+		Relay:    r,
+		Notifier: &notifications.NoopNotifier{},
+		Logger:   logger,
+	})
 	return srv, cfg
 }
 

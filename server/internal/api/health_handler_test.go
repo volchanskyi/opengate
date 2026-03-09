@@ -35,7 +35,15 @@ func TestHealthHandler(t *testing.T) {
 		require.NoError(t, err)
 		cfg := &auth.JWTConfig{Secret: "test-secret-key-at-least-32-bytes!", Issuer: "test", Duration: 15 * time.Minute}
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-		closedSrv := NewServer(store, cfg, &stubAgentGetter{}, relay.NewRelay(), nil, &notifications.NoopNotifier{}, logger)
+		closedSrv := NewServer(ServerConfig{
+			Store:    store,
+			JWT:      cfg,
+			Agents:   &stubAgentGetter{},
+			AMT:      &stubAMTOperator{},
+			Relay:    relay.NewRelay(),
+			Notifier: &notifications.NoopNotifier{},
+			Logger:   logger,
+		})
 		store.Close()
 
 		w := doRequest(closedSrv, http.MethodGet, "/api/v1/health", "", nil)
