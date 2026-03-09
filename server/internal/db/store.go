@@ -5,6 +5,8 @@ package db
 import (
 	"context"
 	"errors"
+
+	"github.com/google/uuid"
 )
 
 // ErrNotFound indicates the requested record does not exist.
@@ -43,6 +45,12 @@ type Store interface {
 	ListWebPushSubscriptions(ctx context.Context, userID UserID) ([]*WebPushSubscription, error)
 	ListAllWebPushSubscriptions(ctx context.Context) ([]*WebPushSubscription, error)
 	DeleteWebPushSubscription(ctx context.Context, endpoint string) error
+
+	// AMT Devices
+	UpsertAMTDevice(ctx context.Context, d *AMTDevice) error
+	GetAMTDevice(ctx context.Context, id uuid.UUID) (*AMTDevice, error)
+	ListAMTDevices(ctx context.Context) ([]*AMTDevice, error)
+	SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status DeviceStatus) error
 
 	// Audit
 	WriteAuditEvent(ctx context.Context, event *AuditEvent) error
