@@ -11,11 +11,17 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
+const (
+	testAMTEmail   = "admin@test.com"
+	testPathAMT    = "/api/v1/amt/devices"
+	testPathAMTOne = "/api/v1/amt/devices/"
+)
+
 func TestListAMTDevicesEmpty(t *testing.T) {
 	srv, cfg := newTestServer(t)
-	_, token := seedTestUser(t, srv, cfg, "admin@test.com", true)
+	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
-	w := doRequest(srv, http.MethodGet, "/api/v1/amt/devices", token, nil)
+	w := doRequest(srv, http.MethodGet, testPathAMT, token, nil)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var devices []AMTDevice
@@ -25,7 +31,7 @@ func TestListAMTDevicesEmpty(t *testing.T) {
 
 func TestListAMTDevicesWithDevices(t *testing.T) {
 	srv, cfg := newTestServer(t)
-	_, token := seedTestUser(t, srv, cfg, "admin@test.com", true)
+	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
 	id := uuid.New()
 	err := srv.store.UpsertAMTDevice(t.Context(), &db.AMTDevice{
@@ -37,7 +43,7 @@ func TestListAMTDevicesWithDevices(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	w := doRequest(srv, http.MethodGet, "/api/v1/amt/devices", token, nil)
+	w := doRequest(srv, http.MethodGet, testPathAMT, token, nil)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var devices []AMTDevice
@@ -50,13 +56,13 @@ func TestListAMTDevicesWithDevices(t *testing.T) {
 
 func TestListAMTDevicesUnauthorized(t *testing.T) {
 	srv, _ := newTestServer(t)
-	w := doRequest(srv, http.MethodGet, "/api/v1/amt/devices", "", nil)
+	w := doRequest(srv, http.MethodGet, testPathAMT, "", nil)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestGetAMTDeviceFound(t *testing.T) {
 	srv, cfg := newTestServer(t)
-	_, token := seedTestUser(t, srv, cfg, "admin@test.com", true)
+	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
 	id := uuid.New()
 	err := srv.store.UpsertAMTDevice(t.Context(), &db.AMTDevice{
@@ -68,7 +74,7 @@ func TestGetAMTDeviceFound(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	w := doRequest(srv, http.MethodGet, "/api/v1/amt/devices/"+id.String(), token, nil)
+	w := doRequest(srv, http.MethodGet, testPathAMTOne+id.String(), token, nil)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var device AMTDevice
@@ -79,28 +85,28 @@ func TestGetAMTDeviceFound(t *testing.T) {
 
 func TestGetAMTDeviceNotFound(t *testing.T) {
 	srv, cfg := newTestServer(t)
-	_, token := seedTestUser(t, srv, cfg, "admin@test.com", true)
+	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
-	w := doRequest(srv, http.MethodGet, "/api/v1/amt/devices/"+uuid.New().String(), token, nil)
+	w := doRequest(srv, http.MethodGet, testPathAMTOne+uuid.New().String(), token, nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestAmtPowerActionNotConnected(t *testing.T) {
 	srv, cfg := newTestServer(t)
-	_, token := seedTestUser(t, srv, cfg, "admin@test.com", true)
+	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
 	body := AMTPowerRequest{Action: HardReset}
-	w := doRequest(srv, http.MethodPost, "/api/v1/amt/devices/"+uuid.New().String()+"/power", token, body)
+	w := doRequest(srv, http.MethodPost, testPathAMTOne+uuid.New().String()+"/power", token, body)
 	assert.Equal(t, http.StatusConflict, w.Code)
 
 	var apiErr ApiError
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
-	assert.Contains(t, apiErr.Error, "not connected")
+	assert.Equal(t, "device not connected", apiErr.Error)
 }
 
 func TestAmtPowerActionUnauthorized(t *testing.T) {
 	srv, _ := newTestServer(t)
 	body := AMTPowerRequest{Action: PowerOn}
-	w := doRequest(srv, http.MethodPost, "/api/v1/amt/devices/"+uuid.New().String()+"/power", "", body)
+	w := doRequest(srv, http.MethodPost, testPathAMTOne+uuid.New().String()+"/power", "", body)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

@@ -1,6 +1,7 @@
 package wsman
 
 import (
+	"fmt"
 	"io"
 	"testing"
 
@@ -29,6 +30,23 @@ func TestChannelConnReadWrite(t *testing.T) {
 	assert.Equal(t, "hello world", string(buf))
 
 	require.NoError(t, cc.Close())
+}
+
+func TestChannelConnWriteErrorPropagation(t *testing.T) {
+	pr, pw := io.Pipe()
+	defer pr.Close()
+	defer pw.Close()
+
+	wantErr := fmt.Errorf("simulated write error")
+	cc := &ChannelConn{
+		pr:      pr,
+		pw:      pw,
+		writeFn: func([]byte) error { return wantErr },
+	}
+
+	n, err := cc.Write([]byte("data"))
+	assert.Equal(t, 0, n)
+	assert.ErrorIs(t, err, wantErr)
 }
 
 func TestChannelConnWriteCallsWriteFn(t *testing.T) {

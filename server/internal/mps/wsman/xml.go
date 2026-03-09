@@ -14,10 +14,6 @@ func Envelope(resourceURI, action, selectorSet, body string) []byte {
 	if selectorSet != "" {
 		selectors = fmt.Sprintf(`<w:SelectorSet>%s</w:SelectorSet>`, selectorSet)
 	}
-	var bodyContent string
-	if body != "" {
-		bodyContent = body
-	}
 	return []byte(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <s:Envelope xmlns:s="%s"
   xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing"
@@ -32,7 +28,7 @@ func Envelope(resourceURI, action, selectorSet, body string) []byte {
   %s
 </s:Header>
 <s:Body>%s</s:Body>
-</s:Envelope>`, soapNS, resourceURI, action, resourceURI, selectors, bodyContent))
+</s:Envelope>`, soapNS, resourceURI, action, resourceURI, selectors, body))
 }
 
 // PowerStateChangeBody builds the SOAP body for CIM_PowerManagementService.RequestPowerStateChange.

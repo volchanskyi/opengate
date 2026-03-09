@@ -299,19 +299,26 @@ func (s *Server) hsPfwdService(mc *Conn) error {
 	if err != nil {
 		return err
 	}
-	mc.logger.Info("AMT forward request", "request", gr.RequestName)
-	if gr.RequestName == "tcpip-forward" && len(gr.Data) > 0 {
-		addr, port, err := ParseForwardData(gr.Data)
-		if err == nil {
-			mc.mu.Lock()
-			mc.BoundPorts = append(mc.BoundPorts, BoundPort{Address: addr, Port: port})
-			mc.mu.Unlock()
-		}
-	}
+	mc.logger.Debug("handshake forward request", "request", gr.RequestName)
+	recordBoundPort(mc, &gr)
 	if gr.WantReply {
 		return WriteRequestSuccess(mc.netConn)
 	}
 	return nil
+}
+
+// recordBoundPort parses a tcpip-forward global request and records the bound port.
+func recordBoundPort(mc *Conn, gr *GlobalRequest) {
+	if gr.RequestName != "tcpip-forward" || len(gr.Data) == 0 {
+		return
+	}
+	addr, port, err := ParseForwardData(gr.Data)
+	if err != nil {
+		return
+	}
+	mc.mu.Lock()
+	mc.BoundPorts = append(mc.BoundPorts, BoundPort{Address: addr, Port: port})
+	mc.mu.Unlock()
 }
 
 // expectServiceRequest reads and validates an APF service request, then accepts it.
@@ -342,15 +349,7 @@ func (s *Server) handleMessage(mc *Conn, msgType uint8, payload []byte) error {
 			return err
 		}
 		mc.logger.Debug("global request", "request", gr.RequestName)
-		if gr.RequestName == "tcpip-forward" && len(gr.Data) > 0 {
-			addr, port, err := ParseForwardData(gr.Data)
-			if err == nil {
-				mc.mu.Lock()
-				mc.BoundPorts = append(mc.BoundPorts, BoundPort{Address: addr, Port: port})
-				mc.mu.Unlock()
-				mc.logger.Info("port bound", "addr", addr, "port", port)
-			}
-		}
+		recordBoundPort(mc, &gr)
 		if gr.WantReply {
 			return WriteRequestSuccess(mc.netConn)
 		}

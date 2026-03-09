@@ -39,6 +39,29 @@ func TestPowerActionEnvelope(t *testing.T) {
 	assert.Contains(t, s, "CIM_PowerManagementService")
 }
 
+func TestExtractXMLFieldWithNamespacePrefix(t *testing.T) {
+	tests := []struct {
+		name string
+		xml  string
+		tag  string
+		want string
+	}{
+		{"plain tag", "<Name>TestHost</Name>", "Name", "TestHost"},
+		{"p: prefix", "<p:Name>TestHost</p:Name>", "Name", "TestHost"},
+		{"g: prefix", "<g:Model>Desktop</g:Model>", "Model", "Desktop"},
+		{"h: prefix", "<h:Version>1.0</h:Version>", "Version", "1.0"},
+		{"unknown prefix", "<x:Name>TestHost</x:Name>", "Name", ""},
+		{"missing tag", "<Other>value</Other>", "Name", ""},
+		{"missing close tag", "<Name>value", "Name", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractXMLField([]byte(tt.xml), tt.tag)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestDeviceInfoEnvelope(t *testing.T) {
 	env := Envelope(ComputerSystemResourceURI,
 		"http://schemas.xmlsoap.org/ws/2004/09/transfer/Get",

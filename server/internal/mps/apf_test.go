@@ -24,7 +24,7 @@ func TestReadWriteServiceAccept(t *testing.T) {
 }
 
 func TestParseServiceRequest(t *testing.T) {
-	data := encodeString(ServicePFwd)
+	data := encodeAPFString(ServicePFwd)
 	sr, err := ParseServiceRequest(data)
 	require.NoError(t, err)
 	assert.Equal(t, ServicePFwd, sr.ServiceName)
@@ -38,7 +38,7 @@ func TestParseServiceRequest(t *testing.T) {
 func TestReadServiceRequest(t *testing.T) {
 	var buf bytes.Buffer
 	buf.WriteByte(APFServiceRequest)
-	buf.Write(encodeString(ServiceAuth))
+	buf.Write(encodeAPFString(ServiceAuth))
 
 	msgType, payload, err := ReadMessage(&buf)
 	require.NoError(t, err)
@@ -50,8 +50,8 @@ func TestReadServiceRequest(t *testing.T) {
 }
 
 func TestParseUserAuthRequest(t *testing.T) {
-	data := append(encodeString("admin"), encodeString(ServiceAuth)...)
-	data = append(data, encodeString("digest")...)
+	data := append(encodeAPFString("admin"), encodeAPFString(ServiceAuth)...)
+	data = append(data, encodeAPFString("digest")...)
 
 	ua, err := ParseUserAuthRequest(data)
 	require.NoError(t, err)
@@ -63,9 +63,9 @@ func TestParseUserAuthRequest(t *testing.T) {
 func TestReadUserAuthRequest(t *testing.T) {
 	var buf bytes.Buffer
 	buf.WriteByte(APFUserAuthRequest)
-	buf.Write(encodeString("admin"))
-	buf.Write(encodeString(ServiceAuth))
-	buf.Write(encodeString("digest"))
+	buf.Write(encodeAPFString("admin"))
+	buf.Write(encodeAPFString(ServiceAuth))
+	buf.Write(encodeAPFString("digest"))
 
 	msgType, payload, err := ReadMessage(&buf)
 	require.NoError(t, err)
@@ -88,9 +88,9 @@ func TestWriteReadUserAuthSuccess(t *testing.T) {
 }
 
 func TestParseGlobalRequest(t *testing.T) {
-	data := encodeString("tcpip-forward")
+	data := encodeAPFString("tcpip-forward")
 	data = append(data, 1) // want_reply = true
-	data = append(data, encodeString("192.168.1.1")...)
+	data = append(data, encodeAPFString("192.168.1.1")...)
 	data = append(data, encodeUint32(16993)...)
 
 	gr, err := ParseGlobalRequest(data)
@@ -101,7 +101,7 @@ func TestParseGlobalRequest(t *testing.T) {
 }
 
 func TestParseChannelOpen(t *testing.T) {
-	data := encodeString("forwarded-tcpip")
+	data := encodeAPFString("forwarded-tcpip")
 	data = append(data, encodeUint32(1)...)         // sender channel
 	data = append(data, encodeUint32(0x8000)...)     // window
 	data = append(data, encodeUint32(0x8000)...)     // max packet
@@ -338,13 +338,13 @@ func TestParseForwardData(t *testing.T) {
 	}{
 		{
 			name:     "valid",
-			data:     append(encodeString("192.168.1.1"), encodeUint32(16992)...),
+			data:     append(encodeAPFString("192.168.1.1"), encodeUint32(16992)...),
 			wantAddr: "192.168.1.1",
 			wantPort: 16992,
 		},
 		{
 			name:     "empty address",
-			data:     append(encodeString(""), encodeUint32(16993)...),
+			data:     append(encodeAPFString(""), encodeUint32(16993)...),
 			wantAddr: "",
 			wantPort: 16993,
 		},
@@ -355,7 +355,7 @@ func TestParseForwardData(t *testing.T) {
 		},
 		{
 			name:    "too short for port",
-			data:    encodeString("addr"),
+			data:    encodeAPFString("addr"),
 			wantErr: true,
 		},
 	}
@@ -373,14 +373,43 @@ func TestParseForwardData(t *testing.T) {
 	}
 }
 
-// --- helpers ---
+// --- error path tests ---
 
-func encodeString(s string) []byte {
-	buf := make([]byte, 4+len(s))
-	binary.BigEndian.PutUint32(buf, uint32(len(s)))
-	copy(buf[4:], s)
-	return buf
+func TestReadStringMsgOversized(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteByte(APFServiceRequest)
+	// Write a string length exceeding maxAPFStringLen.
+	binary.Write(&buf, binary.BigEndian, uint32(maxAPFStringLen+1)) //nolint:errcheck
+	buf.Write(make([]byte, maxAPFStringLen+1))
+
+	_, _, err := ReadMessage(&buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too long")
 }
+
+func TestReadUserAuthRequestOversized(t *testing.T) {
+	var buf bytes.Buffer
+	buf.WriteByte(APFUserAuthRequest)
+	// First string is valid, second is oversized.
+	buf.Write(encodeAPFString("admin"))
+	binary.Write(&buf, binary.BigEndian, uint32(maxAPFStringLen+1)) //nolint:errcheck
+	buf.Write(make([]byte, maxAPFStringLen+1))
+	buf.Write(encodeAPFString("digest"))
+
+	_, _, err := ReadMessage(&buf)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too long")
+}
+
+func TestParseChannelDataBadDataString(t *testing.T) {
+	// Valid channel ID (4 bytes) but truncated data string length.
+	data := encodeUint32(1)
+	data = append(data, 0, 0) // only 2 bytes, need 4 for string length
+	_, err := ParseChannelData(data)
+	assert.ErrorIs(t, err, ErrMessageTooShort)
+}
+
+// --- helpers ---
 
 func encodeUint32(v uint32) []byte {
 	buf := make([]byte, 4)
