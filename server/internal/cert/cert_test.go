@@ -208,6 +208,58 @@ func TestServerTLSConfig(t *testing.T) {
 	assert.Equal(t, uint16(tls.VersionTLS13), cfg.MinVersion)
 }
 
+func TestSignMPS(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir)
+	require.NoError(t, err)
+
+	t.Run("generates RSA 2048 certificate", func(t *testing.T) {
+		tlsCert, err := m.SignMPS()
+		require.NoError(t, err)
+		assert.NotNil(t, tlsCert)
+
+		leaf, err := x509.ParseCertificate(tlsCert.Certificate[0])
+		require.NoError(t, err)
+		assert.Equal(t, "OpenGate MPS", leaf.Subject.CommonName)
+		assert.Contains(t, leaf.DNSNames, "localhost")
+		assert.False(t, leaf.IsCA)
+		assert.Equal(t, x509.RSA, leaf.PublicKeyAlgorithm)
+
+		// Verify signed by CA
+		pool := x509.NewCertPool()
+		pool.AddCert(m.CACert())
+		_, err = leaf.Verify(x509.VerifyOptions{
+			Roots:     pool,
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("each call generates unique certificate", func(t *testing.T) {
+		cert1, err := m.SignMPS()
+		require.NoError(t, err)
+		cert2, err := m.SignMPS()
+		require.NoError(t, err)
+
+		leaf1, _ := x509.ParseCertificate(cert1.Certificate[0])
+		leaf2, _ := x509.ParseCertificate(cert2.Certificate[0])
+		assert.NotEqual(t, leaf1.SerialNumber, leaf2.SerialNumber)
+	})
+}
+
+func TestMPSTLSConfig(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir)
+	require.NoError(t, err)
+
+	cfg, err := m.MPSTLSConfig()
+	require.NoError(t, err)
+	assert.NotNil(t, cfg)
+	assert.Equal(t, tls.NoClientCert, cfg.ClientAuth)
+	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
+	assert.Len(t, cfg.Certificates, 1)
+}
+
 func TestAgentTLSConfig(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewManager(dir)

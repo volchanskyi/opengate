@@ -31,6 +31,7 @@ go build -o meshserver ./cmd/meshserver
 JWT_SECRET=changeme ./meshserver \
   -listen :8080 \
   -quic-listen :9090 \
+  -mps-listen :4433 \
   -data-dir ./data
 ```
 
@@ -38,6 +39,7 @@ JWT_SECRET=changeme ./meshserver \
 |------|---------|-------------|
 | `-listen` | `:8080` | HTTP address (REST API) |
 | `-quic-listen` | `:9090` | QUIC address (agent connections, mTLS) |
+| `-mps-listen` | `:4433` | MPS TLS address (Intel AMT CIRA connections) |
 | `-data-dir` | `./data` | Directory for SQLite database and CA certificates |
 | `-jwt-secret` | — | JWT signing secret (or `JWT_SECRET` env); **required** |
 | `-vapid-contact` | — | VAPID contact email for Web Push notifications (optional) |
@@ -60,8 +62,9 @@ server/                      Go module
 │   ├── agentapi/            QUIC server, handshake, agent connection lifecycle
 │   ├── api/                 HTTP REST handlers (oapi-codegen strict server, chi v5)
 │   ├── auth/                JWT + bcrypt authentication
-│   ├── cert/                CA management, mTLS certificate signing (ECDSA P-256)
+│   ├── cert/                CA management, mTLS certificate signing (ECDSA P-256, RSA 2048 for MPS)
 │   ├── db/                  SQLite store, migrations (golang-migrate)
+│   ├── mps/                 Intel AMT Management Presence Server (CIRA/APF over TLS)
 │   ├── protocol/            Go-side wire protocol codec + golden file verification
 │   ├── notifications/       Web Push notifications (VAPID, webpush-go), Notifier interface
 │   ├── relay/               Byte-transparent WebSocket relay for browser↔agent piping

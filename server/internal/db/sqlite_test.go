@@ -548,6 +548,78 @@ func TestCorruptTimestamp(t *testing.T) {
 	assert.False(t, errors.Is(err, ErrNotFound))
 }
 
+func TestAMTDeviceCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	t.Run("upsert and get", func(t *testing.T) {
+		d := &AMTDevice{
+			UUID:     uuid.New(),
+			Hostname: "amt-host-1",
+			Model:    "vPro i7",
+			Firmware: "16.1.0",
+			Status:   StatusOnline,
+		}
+		require.NoError(t, s.UpsertAMTDevice(ctx, d))
+
+		got, err := s.GetAMTDevice(ctx, d.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, d.UUID, got.UUID)
+		assert.Equal(t, "amt-host-1", got.Hostname)
+		assert.Equal(t, "vPro i7", got.Model)
+		assert.Equal(t, "16.1.0", got.Firmware)
+		assert.Equal(t, StatusOnline, got.Status)
+		assert.False(t, got.LastSeen.IsZero())
+	})
+
+	t.Run("upsert preserves non-empty fields", func(t *testing.T) {
+		id := uuid.New()
+		d := &AMTDevice{UUID: id, Hostname: "host-a", Model: "Model-X", Firmware: "1.0", Status: StatusOnline}
+		require.NoError(t, s.UpsertAMTDevice(ctx, d))
+
+		// Second upsert with empty strings should preserve existing values
+		d2 := &AMTDevice{UUID: id, Status: StatusOffline}
+		require.NoError(t, s.UpsertAMTDevice(ctx, d2))
+
+		got, err := s.GetAMTDevice(ctx, id)
+		require.NoError(t, err)
+		assert.Equal(t, "host-a", got.Hostname)
+		assert.Equal(t, "Model-X", got.Model)
+		assert.Equal(t, StatusOffline, got.Status)
+	})
+
+	t.Run("get not found", func(t *testing.T) {
+		_, err := s.GetAMTDevice(ctx, uuid.New())
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run("list", func(t *testing.T) {
+		id1 := uuid.New()
+		id2 := uuid.New()
+		require.NoError(t, s.UpsertAMTDevice(ctx, &AMTDevice{UUID: id1, Hostname: "list-1", Status: StatusOnline}))
+		require.NoError(t, s.UpsertAMTDevice(ctx, &AMTDevice{UUID: id2, Hostname: "list-2", Status: StatusOffline}))
+
+		devices, err := s.ListAMTDevices(ctx)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(devices), 2)
+	})
+
+	t.Run("set status", func(t *testing.T) {
+		d := &AMTDevice{UUID: uuid.New(), Status: StatusOnline}
+		require.NoError(t, s.UpsertAMTDevice(ctx, d))
+
+		require.NoError(t, s.SetAMTDeviceStatus(ctx, d.UUID, StatusOffline))
+		got, err := s.GetAMTDevice(ctx, d.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusOffline, got.Status)
+	})
+
+	t.Run("set status not found", func(t *testing.T) {
+		err := s.SetAMTDeviceStatus(ctx, uuid.New(), StatusOnline)
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+}
+
 func TestWALMode(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "wal.db")

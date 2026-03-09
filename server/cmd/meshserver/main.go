@@ -16,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/mps"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
@@ -24,6 +25,7 @@ import (
 func main() {
 	listen := flag.String("listen", ":8080", "HTTP listen address")
 	quicListen := flag.String("quic-listen", ":9090", "QUIC listen address for agent connections")
+	mpsListen := flag.String("mps-listen", ":4433", "MPS TLS listen address for Intel AMT CIRA connections")
 	dataDir := flag.String("data-dir", "./data", "directory for database and certificates")
 	jwtSecret := flag.String("jwt-secret", "", "JWT signing secret (or JWT_SECRET env)")
 	vapidContact := flag.String("vapid-contact", "", "VAPID contact email for web push (optional)")
@@ -76,6 +78,8 @@ func main() {
 	agentRelay := relay.NewRelay()
 	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, notifier, logger)
 
+	mpsSrv := mps.NewServer(certMgr, store, logger)
+
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
 	srv := api.NewServer(store, jwtCfg, agentSrv, agentRelay, sigTracker, notifier, logger)
 
@@ -106,6 +110,13 @@ func main() {
 		logger.Info("agent QUIC server starting", "addr", *quicListen)
 		if err := agentSrv.ListenAndServe(ctx, *quicListen); err != nil {
 			logger.Error("agent server error", "error", err)
+		}
+	}()
+
+	go func() {
+		logger.Info("MPS server starting", "addr", *mpsListen)
+		if err := mpsSrv.ListenAndServe(ctx, *mpsListen); err != nil {
+			logger.Error("MPS server error", "error", err)
 		}
 	}()
 
