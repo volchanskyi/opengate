@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -156,6 +157,58 @@ func (m *Manager) AgentTLSConfig(cert *tls.Certificate) *tls.Config {
 		MinVersion:   tls.VersionTLS13,
 		NextProtos:   []string{"opengate"},
 	}
+}
+
+// SignMPS generates an RSA 2048 TLS certificate for the MPS server, signed
+// by the CA. Intel AMT firmware requires RSA keys (not ECDSA).
+func (m *Manager) SignMPS() (*tls.Certificate, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("generate MPS key: %w", err)
+	}
+
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "OpenGate MPS"},
+		DNSNames:     []string{"localhost"},
+		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
+		NotBefore:    now.Add(-5 * time.Minute),
+		NotAfter:     now.Add(365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, m.caCert, &key.PublicKey, m.caKey)
+	if err != nil {
+		return nil, fmt.Errorf("sign MPS cert: %w", err)
+	}
+
+	return &tls.Certificate{
+		Certificate: [][]byte{certDER},
+		PrivateKey:  key,
+	}, nil
+}
+
+// MPSTLSConfig returns a tls.Config for the Intel AMT MPS server.
+// It uses TLS 1.2 minimum for AMT firmware compatibility (AMT 11.0+, 2015)
+// and an RSA 2048 server certificate.
+func (m *Manager) MPSTLSConfig() (*tls.Config, error) {
+	mpsCert, err := m.SignMPS()
+	if err != nil {
+		return nil, fmt.Errorf("sign MPS cert: %w", err)
+	}
+
+	return &tls.Config{
+		Certificates: []tls.Certificate{*mpsCert},
+		ClientAuth:   tls.NoClientCert,
+		MinVersion:   tls.VersionTLS12,
+	}, nil
 }
 
 // --- internal helpers ---

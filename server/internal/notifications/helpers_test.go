@@ -111,6 +111,16 @@ func (m *notifMockStore) WriteAuditEvent(_ context.Context, _ *db.AuditEvent) er
 func (m *notifMockStore) QueryAuditLog(_ context.Context, _ db.AuditQuery) ([]*db.AuditEvent, error) {
 	return nil, nil
 }
+func (m *notifMockStore) UpsertAMTDevice(_ context.Context, _ *db.AMTDevice) error { return nil }
+func (m *notifMockStore) GetAMTDevice(_ context.Context, _ uuid.UUID) (*db.AMTDevice, error) {
+	return nil, nil
+}
+func (m *notifMockStore) ListAMTDevices(_ context.Context) ([]*db.AMTDevice, error) {
+	return nil, nil
+}
+func (m *notifMockStore) SetAMTDeviceStatus(_ context.Context, _ uuid.UUID, _ db.DeviceStatus) error {
+	return nil
+}
 func (m *notifMockStore) Ping(_ context.Context) error { return nil }
 func (m *notifMockStore) Close() error                 { return nil }
 

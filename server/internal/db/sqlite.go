@@ -604,3 +604,87 @@ func (s *SQLiteStore) QueryAuditLog(ctx context.Context, q AuditQuery) ([]*Audit
 	}
 	return events, rows.Err()
 }
+
+// --- AMT Devices ---
+
+func scanAMTDeviceFrom(sc scanner) (*AMTDevice, error) {
+	var d AMTDevice
+	var uuidStr, status, lastSeen string
+	if err := sc.Scan(&uuidStr, &d.Hostname, &d.Model, &d.Firmware, &status, &lastSeen); err != nil {
+		return nil, err
+	}
+	var err error
+	d.UUID, err = parseUUID(uuidStr)
+	if err != nil {
+		return nil, err
+	}
+	d.Status = DeviceStatus(status)
+	d.LastSeen, err = parseTime(lastSeen)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func (s *SQLiteStore) UpsertAMTDevice(ctx context.Context, d *AMTDevice) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO amt_devices (uuid, hostname, model, firmware, status, last_seen)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(uuid) DO UPDATE SET
+		   hostname = CASE WHEN excluded.hostname = '' THEN amt_devices.hostname ELSE excluded.hostname END,
+		   model = CASE WHEN excluded.model = '' THEN amt_devices.model ELSE excluded.model END,
+		   firmware = CASE WHEN excluded.firmware = '' THEN amt_devices.firmware ELSE excluded.firmware END,
+		   status = excluded.status,
+		   last_seen = excluded.last_seen`,
+		d.UUID.String(), d.Hostname, d.Model, d.Firmware, string(d.Status), now)
+	return err
+}
+
+func (s *SQLiteStore) GetAMTDevice(ctx context.Context, id uuid.UUID) (*AMTDevice, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices WHERE uuid = ?`,
+		id.String())
+	d, err := scanAMTDeviceFrom(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return d, err
+}
+
+func (s *SQLiteStore) ListAMTDevices(ctx context.Context) ([]*AMTDevice, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var devices []*AMTDevice
+	for rows.Next() {
+		d, err := scanAMTDeviceFrom(rows)
+		if err != nil {
+			return nil, err
+		}
+		devices = append(devices, d)
+	}
+	return devices, rows.Err()
+}
+
+func (s *SQLiteStore) SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status DeviceStatus) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE amt_devices SET status = ?, last_seen = ? WHERE uuid = ?`,
+		string(status), now, id.String())
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

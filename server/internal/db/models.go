@@ -72,6 +72,16 @@ type WebPushSubscription struct {
 	Auth     string `json:"auth"`
 }
 
+// AMTDevice represents an Intel AMT device connected via CIRA.
+type AMTDevice struct {
+	UUID     uuid.UUID    `json:"uuid"`
+	Hostname string       `json:"hostname"`
+	Model    string       `json:"model"`
+	Firmware string       `json:"firmware"`
+	Status   DeviceStatus `json:"status"`
+	LastSeen time.Time    `json:"last_seen"`
+}
+
 // AuditEvent records a security-relevant action.
 type AuditEvent struct {
 	ID        int64     `json:"id"`
