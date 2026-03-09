@@ -4,13 +4,17 @@ package amt
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/mps"
 	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 )
+
+// ErrDeviceNotConnected is returned when an operation targets a device
+// that has no active CIRA connection.
+var ErrDeviceNotConnected = errors.New("device not connected")
 
 // Service provides high-level AMT device operations.
 type Service struct {
@@ -34,7 +38,7 @@ func NewService(mpsSrv *mps.Server, username, password string, logger *slog.Logg
 func (s *Service) PowerAction(ctx context.Context, amtUUID uuid.UUID, state int) error {
 	conn := s.mps.GetConn(amtUUID)
 	if conn == nil {
-		return fmt.Errorf("device %s not connected", amtUUID)
+		return ErrDeviceNotConnected
 	}
 	client := wsman.NewClient(conn, s.username, s.password, s.logger)
 	return client.RequestPowerStateChange(ctx, wsman.PowerState(state))
@@ -44,7 +48,7 @@ func (s *Service) PowerAction(ctx context.Context, amtUUID uuid.UUID, state int)
 func (s *Service) QueryDeviceInfo(ctx context.Context, amtUUID uuid.UUID) (*wsman.DeviceInfo, error) {
 	conn := s.mps.GetConn(amtUUID)
 	if conn == nil {
-		return nil, fmt.Errorf("device %s not connected", amtUUID)
+		return nil, ErrDeviceNotConnected
 	}
 	client := wsman.NewClient(conn, s.username, s.password, s.logger)
 	return client.GetDeviceInfo(ctx)

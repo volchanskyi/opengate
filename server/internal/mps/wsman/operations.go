@@ -3,6 +3,7 @@ package wsman
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // WSMAN resource URIs for AMT operations.
@@ -112,13 +113,13 @@ func extractXMLField(data []byte, tag string) string {
 	s := string(data)
 	open := "<" + tag + ">"
 	close := "</" + tag + ">"
-	start := indexOf(s, open)
+	start := strings.Index(s, open)
 	if start < 0 {
 		// Try with namespace prefix (e.g., <p:Name>).
 		for _, prefix := range []string{"p:", "g:", "h:"} {
 			open = "<" + prefix + tag + ">"
 			close = "</" + prefix + tag + ">"
-			start = indexOf(s, open)
+			start = strings.Index(s, open)
 			if start >= 0 {
 				break
 			}
@@ -128,18 +129,9 @@ func extractXMLField(data []byte, tag string) string {
 		return ""
 	}
 	start += len(open)
-	end := indexOf(s[start:], close)
+	end := strings.Index(s[start:], close)
 	if end < 0 {
 		return ""
 	}
 	return s[start : start+end]
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

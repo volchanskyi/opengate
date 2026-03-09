@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http/httptest"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
@@ -39,11 +39,11 @@ func (s *stubAgentGetter) GetAgent(deviceID protocol.DeviceID) *agentapi.AgentCo
 type stubAMTOperator struct{}
 
 func (s *stubAMTOperator) PowerAction(_ context.Context, _ uuid.UUID, _ int) error {
-	return fmt.Errorf("device not connected")
+	return amt.ErrDeviceNotConnected
 }
 
 func (s *stubAMTOperator) QueryDeviceInfo(_ context.Context, _ uuid.UUID) (*wsman.DeviceInfo, error) {
-	return nil, fmt.Errorf("device not connected")
+	return nil, amt.ErrDeviceNotConnected
 }
 
 func (s *stubAMTOperator) ConnectedDeviceCount() int {

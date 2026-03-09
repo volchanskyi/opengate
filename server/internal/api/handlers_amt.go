@@ -2,8 +2,9 @@ package api
 
 import (
 	"context"
-	"strings"
+	"errors"
 
+	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 )
@@ -48,7 +49,7 @@ func (s *Server) AmtPowerAction(ctx context.Context, request AmtPowerActionReque
 
 	err := s.amt.PowerAction(ctx, request.Uuid, state)
 	if err != nil {
-		if strings.Contains(err.Error(), "not connected") {
+		if errors.Is(err, amt.ErrDeviceNotConnected) {
 			return AmtPowerAction409JSONResponse{Error: err.Error()}, nil
 		}
 		return nil, err

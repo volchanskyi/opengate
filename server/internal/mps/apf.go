@@ -58,6 +58,9 @@ const (
 	DefaultMaxPacketSize uint32 = 0x8000
 )
 
+// maxAPFStringLen is the maximum allowed length for APF length-prefixed strings.
+const maxAPFStringLen = 256
+
 // ErrMessageTooShort is returned when a message is shorter than expected.
 var ErrMessageTooShort = errors.New("apf: message too short")
 
@@ -459,7 +462,7 @@ func readStringMsg(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	strLen := binary.BigEndian.Uint32(lenBuf[:])
-	if strLen > 256 {
+	if strLen > maxAPFStringLen {
 		return nil, fmt.Errorf("apf: service name too long: %d", strLen)
 	}
 	buf := make([]byte, 4+strLen)
@@ -472,14 +475,14 @@ func readStringMsg(r io.Reader) ([]byte, error) {
 
 func readUserAuthRequest(r io.Reader) ([]byte, error) {
 	// Read three length-prefixed strings: username, service, method
-	var result []byte
+	result := make([]byte, 0, 3*(4+64))
 	for i := 0; i < 3; i++ {
 		var lenBuf [4]byte
 		if _, err := io.ReadFull(r, lenBuf[:]); err != nil {
 			return nil, err
 		}
 		strLen := binary.BigEndian.Uint32(lenBuf[:])
-		if strLen > 256 {
+		if strLen > maxAPFStringLen {
 			return nil, fmt.Errorf("apf: auth string too long: %d", strLen)
 		}
 		strBuf := make([]byte, strLen)
@@ -499,7 +502,7 @@ func readGlobalRequest(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	strLen := binary.BigEndian.Uint32(lenBuf[:])
-	if strLen > 256 {
+	if strLen > maxAPFStringLen {
 		return nil, fmt.Errorf("apf: request name too long: %d", strLen)
 	}
 	// Read name + want_reply byte
@@ -530,7 +533,7 @@ func readForwardData(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	strLen := binary.BigEndian.Uint32(lenBuf[:])
-	if strLen > 256 {
+	if strLen > maxAPFStringLen {
 		return nil, fmt.Errorf("apf: forward address too long: %d", strLen)
 	}
 	buf := make([]byte, 4+strLen+4) // len + string + port
@@ -548,7 +551,7 @@ func readChannelOpen(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	strLen := binary.BigEndian.Uint32(lenBuf[:])
-	if strLen > 256 {
+	if strLen > maxAPFStringLen {
 		return nil, fmt.Errorf("apf: channel type too long: %d", strLen)
 	}
 	// name + 3 uint32s (sender, window, max_pkt) = 12 bytes
@@ -581,7 +584,7 @@ func readChannelOpenExtra(r io.Reader) ([]byte, error) {
 			return nil, err
 		}
 		strLen := binary.BigEndian.Uint32(lenBuf[:])
-		if strLen > 256 {
+		if strLen > maxAPFStringLen {
 			return nil, fmt.Errorf("apf: address too long: %d", strLen)
 		}
 		// string + uint32 port
