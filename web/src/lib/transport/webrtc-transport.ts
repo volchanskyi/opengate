@@ -207,6 +207,6 @@ export class WebRTCTransport {
     if (!channel || channel.readyState !== 'open') {
       throw new Error(`DataChannel ${channel?.label ?? 'unknown'} not open`);
     }
-    channel.send(data);
+    channel.send(data as Uint8Array<ArrayBuffer>);
   }
 }
