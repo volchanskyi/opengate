@@ -369,7 +369,7 @@ jobs:
       - name: Terraform validate
         run: terraform -chdir=deploy/terraform validate
 
-      # Terraform best-practice linting
+      # Terraform linting
       - uses: terraform-linters/setup-tflint@v5
       - run: tflint --init --chdir=deploy/terraform
       - run: tflint --chdir=deploy/terraform --format=compact
