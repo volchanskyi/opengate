@@ -1,5 +1,5 @@
 # ---- Stage 1: Build web assets ----
-FROM node:22-alpine AS web-build
+FROM node:24-alpine AS web-build
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --ignore-scripts
