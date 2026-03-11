@@ -2,7 +2,7 @@
 FROM node:24-alpine AS web-build
 WORKDIR /build/web
 COPY web/package.json web/package-lock.json ./
-RUN npm ci --ignore-scripts
+RUN npm ci --ignore-scripts --legacy-peer-deps
 COPY web/ ./
 RUN npm run build
 
