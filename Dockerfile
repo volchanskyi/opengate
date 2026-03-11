@@ -8,7 +8,6 @@ RUN npm run build
 
 # ---- Stage 2: Build Go server ----
 FROM golang:1.26-alpine AS server-build
-RUN apk add --no-cache git
 WORKDIR /build/server
 COPY server/go.mod server/go.sum ./
 RUN go mod download
@@ -22,6 +21,6 @@ RUN apk add --no-cache ca-certificates tzdata \
 COPY --from=server-build /meshserver /usr/local/bin/meshserver
 COPY --from=web-build /build/web/dist /srv/web
 USER opengate
-EXPOSE 8080 9090/udp
+EXPOSE 8080 4433 9090/udp
 ENTRYPOINT ["meshserver"]
-CMD ["-listen", ":8080", "-quic-listen", ":9090", "-data-dir", "/data"]
+CMD ["-listen", ":8080", "-quic-listen", ":9090", "-mps-listen", ":4433", "-data-dir", "/data"]
