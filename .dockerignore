@@ -1,0 +1,35 @@
+# Git
+.git
+.github
+
+# Build artifacts
+server/meshserver
+agent/target
+web/node_modules
+web/dist
+
+# IDE / editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / CI artifacts
+**/coverage*
+**/*.lcov
+testdata/golden
+
+# Documentation
+*.md
+!server/internal/db/migrations/*.sql
+docs/
+
+# Terraform / deploy
+deploy/
+
+# Misc
+sonar-project.properties

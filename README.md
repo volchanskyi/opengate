@@ -35,6 +35,14 @@ JWT_SECRET=changeme ./meshserver \
   -data-dir ./data
 ```
 
+Or run via Docker (multi-arch images published to GHCR on every push to `main`):
+
+```bash
+docker pull ghcr.io/volchanskyi/opengate-server:latest
+docker run -e JWT_SECRET=changeme -p 8080:8080 -p 9090:9090/udp \
+  -v opengate-data:/data ghcr.io/volchanskyi/opengate-server:latest
+```
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-listen` | `:8080` | HTTP address (REST API) |
