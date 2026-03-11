@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ dev, main, dependabot-dev ]
+    branches: [dev, main, dependabot-dev]
   pull_request:
-    branches: [ main, dev, dependabot-dev ]
+    branches: [main, dev, dependabot-dev]
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * *'
@@ -195,7 +195,7 @@ jobs:
 
   golden:
     name: Golden File Verification
-    needs: [ rust-test ]
+    needs: [rust-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -318,7 +318,7 @@ jobs:
 
   deploy-api-docs:
     name: Deploy API Docs
-    needs: [ web-unit ]
+    needs: [web-unit]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     concurrency:
@@ -357,11 +357,8 @@ jobs:
       - uses: raven-actions/actionlint@v2
 
       # YAML lint (deploy configs, cloud-init)
-      - name: Yamllint
-        uses: nosborn/github-action-yamllint@v1
-        with:
-          config_file: '.yamllint.yml'
-          file_or_dir: 'deploy/'
+      - run: pip install --user yamllint
+      - run: yamllint -c .yamllint.yml deploy/
 
       # Terraform format + validate
       - uses: hashicorp/setup-terraform@v4
@@ -515,7 +512,7 @@ jobs:
     permissions:
       contents: read
       security-events: write
-    needs: [ go-unit, rust-test, web-unit ]
+    needs: [go-unit, rust-test, web-unit]
     if: github.event_name != 'schedule' && github.actor != 'dependabot[bot]'
     steps:
       - uses: actions/checkout@v6
@@ -626,7 +623,7 @@ jobs:
 
   sync-branches:
     name: Sync branches
-    needs: [ merge-to-main ]
+    needs: [merge-to-main]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/dependabot-dev') && needs.merge-to-main.outputs.merged == 'true'
     runs-on: ubuntu-latest
     permissions:
