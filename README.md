@@ -47,7 +47,7 @@ For production deployment with Caddy reverse proxy and auto-TLS:
 
 ```bash
 cd deploy
-cp .env.example .env          # edit JWT_SECRET and DOMAIN
+cp .env.example .env          # fill in secrets (JWT_SECRET, AMT_PASS, DOMAIN)
 docker compose up -d
 ```
 

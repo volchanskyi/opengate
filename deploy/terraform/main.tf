@@ -93,6 +93,17 @@ resource "oci_core_security_list" "opengate" {
     stateless = false
   }
 
+  # MPS (Intel AMT CIRA)
+  ingress_security_rules {
+    source   = "0.0.0.0/0"
+    protocol = "6" # TCP
+    tcp_options {
+      min = 4433
+      max = 4433
+    }
+    stateless = false
+  }
+
   # QUIC (agent connections)
   ingress_security_rules {
     source   = "0.0.0.0/0"

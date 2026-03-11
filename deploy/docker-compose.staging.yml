@@ -5,7 +5,7 @@ services:
   server:
     container_name: opengate-server-staging
     environment:
-      - JWT_SECRET=staging-secret-not-for-production
+      - JWT_SECRET=${STAGING_JWT_SECRET:-staging-ephemeral-secret}
     ports:
       - "19090:9090/udp"
       - "14433:4433"

@@ -10,7 +10,6 @@ compartment_ocid = ""  # leave empty to use tenancy root
 
 # Networking
 ssh_allowed_cidr = "YOUR_IP/32"  # restrict SSH to your IP
-domain           = "opengate.example.com"
 
 # Instance sizing (Always Free eligible: up to 4 OCPU, 24 GB RAM total)
 instance_shape     = "VM.Standard.A1.Flex"

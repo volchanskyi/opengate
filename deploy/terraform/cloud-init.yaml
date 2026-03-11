@@ -35,6 +35,7 @@ runcmd:
   - ufw allow 22/tcp
   - ufw allow 80/tcp
   - ufw allow 443/tcp
+  - ufw allow 4433/tcp
   - ufw allow 9090/udp
   - ufw --force enable
 

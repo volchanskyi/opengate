@@ -1,21 +1,25 @@
 variable "tenancy_ocid" {
   description = "OCI tenancy OCID"
   type        = string
+  sensitive   = true
 }
 
 variable "user_ocid" {
   description = "OCI user OCID"
   type        = string
+  sensitive   = true
 }
 
 variable "fingerprint" {
   description = "OCI API key fingerprint"
   type        = string
+  sensitive   = true
 }
 
 variable "private_key_path" {
   description = "Path to OCI API private key PEM file"
   type        = string
+  sensitive   = true
 }
 
 variable "region" {
@@ -28,6 +32,7 @@ variable "compartment_ocid" {
   description = "OCI compartment OCID (defaults to tenancy root)"
   type        = string
   default     = ""
+  sensitive   = true
 }
 
 variable "ssh_public_key_path" {
@@ -37,8 +42,9 @@ variable "ssh_public_key_path" {
 }
 
 variable "ssh_allowed_cidr" {
-  description = "CIDR block allowed for SSH access"
+  description = "CIDR block allowed for SSH access (operator IP)"
   type        = string
+  sensitive   = true
 }
 
 variable "instance_shape" {
@@ -63,9 +69,4 @@ variable "boot_volume_gb" {
   description = "Boot volume size in GB"
   type        = number
   default     = 50
-}
-
-variable "domain" {
-  description = "Primary domain for the server (used in Caddy TLS)"
-  type        = string
 }

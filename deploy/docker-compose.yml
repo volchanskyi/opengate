@@ -5,6 +5,21 @@ services:
     restart: unless-stopped
     environment:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+    command:
+      - "-listen"
+      - ":8080"
+      - "-quic-listen"
+      - ":9090"
+      - "-mps-listen"
+      - ":4433"
+      - "-data-dir"
+      - "/data"
+      - "-amt-user"
+      - "${AMT_USER:-admin}"
+      - "-amt-pass"
+      - "${AMT_PASS:-}"
+      - "-vapid-contact"
+      - "${VAPID_CONTACT:-}"
     volumes:
       - server-data:/data
     expose:
