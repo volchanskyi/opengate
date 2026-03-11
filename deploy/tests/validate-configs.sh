@@ -16,6 +16,24 @@ pass() {
   echo "  ok: $1"
 }
 
+# check_ports PROTO COMPOSE_PORTS UFW_PORTS OCI_PORTS
+# Verifies every compose port appears in both UFW and OCI security list.
+check_ports() {
+  local proto="$1" compose_ports="$2" ufw_ports="$3" oci_ports="$4"
+  for PORT in $compose_ports; do
+    if ! echo "$ufw_ports" | grep -qx "$PORT"; then
+      fail "$proto port $PORT in docker-compose.yml but missing from cloud-init.yaml UFW rules"
+    else
+      pass "$proto port $PORT in UFW"
+    fi
+    if ! echo "$oci_ports" | grep -qx "$PORT"; then
+      fail "$proto port $PORT in docker-compose.yml but missing from OCI security list (main.tf)"
+    else
+      pass "$proto port $PORT in OCI security list"
+    fi
+  done
+}
+
 echo "=== Port consistency: docker-compose ↔ OCI security list ↔ UFW ==="
 
 # Extract host ports from docker-compose.yml port mappings (format: "HOST:CONTAINER" or "HOST:CONTAINER/proto")
@@ -26,36 +44,12 @@ COMPOSE_UDP_PORTS=$(grep -oP '^\s*- "(\d+):\d+/udp"' "$SCRIPT_DIR/docker-compose
 UFW_TCP_PORTS=$(grep -oP 'ufw allow (\d+)/tcp' "$SCRIPT_DIR/terraform/cloud-init.yaml" | grep -oP '\d+' | sort -u)
 UFW_UDP_PORTS=$(grep -oP 'ufw allow (\d+)/udp' "$SCRIPT_DIR/terraform/cloud-init.yaml" | grep -oP '\d+' | sort -u)
 
-# Extract TCP ports from OCI security list ingress rules (protocol "6" = TCP)
-# Looks for: protocol = "6" followed by tcp_options { min = PORT }
+# Extract ports from OCI security list ingress rules (protocol "6" = TCP, "17" = UDP)
 OCI_TCP_PORTS=$(grep -A3 'protocol.*=.*"6"' "$SCRIPT_DIR/terraform/main.tf" | grep -oP 'min\s*=\s*\K\d+' | sort -u)
 OCI_UDP_PORTS=$(grep -A3 'protocol.*=.*"17"' "$SCRIPT_DIR/terraform/main.tf" | grep -oP 'min\s*=\s*\K\d+' | sort -u)
 
-for PORT in $COMPOSE_TCP_PORTS; do
-  if ! echo "$UFW_TCP_PORTS" | grep -qx "$PORT"; then
-    fail "TCP port $PORT in docker-compose.yml but missing from cloud-init.yaml UFW rules"
-  else
-    pass "TCP port $PORT in UFW"
-  fi
-  if ! echo "$OCI_TCP_PORTS" | grep -qx "$PORT"; then
-    fail "TCP port $PORT in docker-compose.yml but missing from OCI security list (main.tf)"
-  else
-    pass "TCP port $PORT in OCI security list"
-  fi
-done
-
-for PORT in $COMPOSE_UDP_PORTS; do
-  if ! echo "$UFW_UDP_PORTS" | grep -qx "$PORT"; then
-    fail "UDP port $PORT in docker-compose.yml but missing from cloud-init.yaml UFW rules"
-  else
-    pass "UDP port $PORT in UFW"
-  fi
-  if ! echo "$OCI_UDP_PORTS" | grep -qx "$PORT"; then
-    fail "UDP port $PORT in docker-compose.yml but missing from OCI security list (main.tf)"
-  else
-    pass "UDP port $PORT in OCI security list"
-  fi
-done
+check_ports "TCP" "$COMPOSE_TCP_PORTS" "$UFW_TCP_PORTS" "$OCI_TCP_PORTS"
+check_ports "UDP" "$COMPOSE_UDP_PORTS" "$UFW_UDP_PORTS" "$OCI_UDP_PORTS"
 
 echo ""
 echo "=== Env var coverage: docker-compose ↔ .env.example ==="
@@ -81,7 +75,7 @@ echo "=== Tfvars completeness: required variables ↔ terraform.tfvars.example =
 # Pattern: variable "name" { ... } blocks WITHOUT a "default" line
 REQUIRED_VARS=$(awk '
   /^variable "/ { name=$2; gsub(/"/, "", name); has_default=0 }
-  /default\s*=/ { has_default=1 }
+  /default[[:space:]]*=/ { has_default=1 }
   /^}/ { if (!has_default && name != "") print name; name="" }
 ' "$SCRIPT_DIR/terraform/variables.tf" | sort)
 
