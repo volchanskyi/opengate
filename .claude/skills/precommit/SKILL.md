@@ -1,0 +1,43 @@
+---
+name: precommit
+description: |
+  Run all mandatory pre-commit checks: lints, tests, benchmarks, coverage, and documentation.
+  Use before every commit. Blocks commit if any check fails.
+---
+
+# Pre-Commit Checklist
+
+Run ALL lints, ALL tests, test coverage, and ALL benchmarks. No exceptions. All tests MUST pass regardless of having pre-existing issues or being flaky.
+
+## Lints (all must pass)
+
+1. `cd agent && cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings` — Rust format + clippy
+2. `cd server && go vet ./...` — Go vet
+3. `cd web && npx eslint .` — Web ESLint
+4. `~/go/bin/actionlint` — GitHub Actions workflow lint (ALWAYS run locally, no exceptions)
+5. `make lint-deploy` — Deploy config validation (yamllint, terraform, tflint, compose, caddy, trivy, integration tests)
+
+## Tests (all must pass)
+
+5. `cd server && go test -race -timeout 5m ./...` — Go tests (unit + integration, race detector)
+6. `cd agent && cargo test --workspace` — Rust tests (all crates)
+7. `cd web && npx vitest run` — Web tests
+
+## Benchmarks (all must run without errors)
+
+8. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+9. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+
+## Documentation (mandatory on every commit)
+
+10. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+11. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
+
+## Gate Criteria
+
+Do NOT commit if:
+- Any lint fails
+- Any test fails
+- New code coverage is below 80% or overall coverage below 70%
+- Any benchmark errors out
+- Documentation is stale
