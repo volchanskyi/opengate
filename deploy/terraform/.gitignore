@@ -1,0 +1,14 @@
+# Terraform state — contains resource attributes including sensitive data
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Variable files — contain credentials, OCIDs, operator IPs
+terraform.tfvars
+*.auto.tfvars
+override.tf
+override.tf.json
+
+# Crash logs may contain sensitive provider output
+crash.log
+crash.*.log

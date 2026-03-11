@@ -1,0 +1,2 @@
+# Trivy IaC scan suppressions.
+# Format: one check ID per line, with a comment justifying the suppression.

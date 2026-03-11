@@ -1,0 +1,11 @@
+:80 {
+	reverse_proxy server:8080 {
+		health_uri /api/v1/health
+		health_interval 10s
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

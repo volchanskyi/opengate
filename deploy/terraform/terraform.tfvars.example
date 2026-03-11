@@ -1,0 +1,21 @@
+# OCI authentication
+tenancy_ocid     = "ocid1.tenancy.oc1..example"
+user_ocid        = "ocid1.user.oc1..example"
+fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+private_key_path = "~/.oci/oci_api_key.pem"
+
+# Region and compartment
+region           = "eu-frankfurt-1"
+compartment_ocid = ""  # leave empty to use tenancy root
+
+# Networking
+ssh_allowed_cidr = "YOUR_IP/32"  # restrict SSH to your IP
+
+# Instance sizing (Always Free eligible: up to 4 OCPU, 24 GB RAM total)
+instance_shape     = "VM.Standard.A1.Flex"
+instance_ocpus     = 2
+instance_memory_gb = 12
+boot_volume_gb     = 50
+
+# SSH
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
