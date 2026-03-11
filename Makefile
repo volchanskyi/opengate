@@ -33,14 +33,15 @@ lint: lint-deploy
 	cd web && npx eslint src/
 	actionlint
 
+DEPLOY_DUMMY_ENV := JWT_SECRET=dummy AMT_USER=admin AMT_PASS=dummy \
+	VAPID_CONTACT=dummy IMAGE_TAG=latest DOMAIN=example.com
+
 lint-deploy:
 	@command -v yamllint >/dev/null && yamllint -c .yamllint.yml deploy/ || echo "SKIP: yamllint not installed"
 	terraform -chdir=deploy/terraform fmt -check -recursive
 	@command -v tflint >/dev/null && (tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact) || echo "SKIP: tflint not installed"
-	cd deploy && JWT_SECRET=dummy AMT_USER=admin AMT_PASS=dummy VAPID_CONTACT=dummy IMAGE_TAG=latest DOMAIN=example.com \
-	  docker compose config --quiet
-	cd deploy && JWT_SECRET=dummy AMT_USER=admin AMT_PASS=dummy VAPID_CONTACT=dummy IMAGE_TAG=latest DOMAIN=example.com \
-	  STAGING_JWT_SECRET=dummy \
+	cd deploy && $(DEPLOY_DUMMY_ENV) docker compose config --quiet
+	cd deploy && $(DEPLOY_DUMMY_ENV) STAGING_JWT_SECRET=dummy \
 	  docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet
 	@command -v caddy >/dev/null && (caddy fmt --diff deploy/caddy/Caddyfile && caddy fmt --diff deploy/caddy/Caddyfile.staging \
 	  && caddy validate --config deploy/caddy/Caddyfile --adapter caddyfile \

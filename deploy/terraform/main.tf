@@ -140,6 +140,10 @@ resource "oci_core_subnet" "opengate_public" {
 
 # ---------- Compute ----------
 
+data "oci_identity_availability_domains" "ads" {
+  compartment_id = var.tenancy_ocid
+}
+
 data "oci_core_images" "ubuntu" {
   compartment_id           = local.compartment_id
   operating_system         = "Canonical Ubuntu"
@@ -176,8 +180,4 @@ resource "oci_core_instance" "opengate" {
     ssh_authorized_keys = file(pathexpand(var.ssh_public_key_path))
     user_data           = base64encode(file("${path.module}/cloud-init.yaml"))
   }
-}
-
-data "oci_identity_availability_domains" "ads" {
-  compartment_id = var.tenancy_ocid
 }
