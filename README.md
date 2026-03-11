@@ -108,4 +108,5 @@ make test-rust          # Rust workspace
 make test-web           # React / TypeScript
 make test-coverage      # Go coverage report printed to stdout
 make golden             # Regenerate golden fixtures and verify cross-language compat
+make lint-deploy        # Validate deploy configs (Terraform, Compose, Caddy, YAML)
 ```

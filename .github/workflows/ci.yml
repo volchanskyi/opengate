@@ -345,14 +345,83 @@ jobs:
           git commit -m "docs: update API reference"
           git push
 
-  yaml-lint:
-    name: YAML Lint
+  config-lint:
+    name: Config Lint
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v6
+
+      # GitHub Actions workflow lint
       - uses: raven-actions/actionlint@v2
+
+      # YAML lint (deploy configs, cloud-init)
+      - run: pip install yamllint
+      - run: yamllint -c .yamllint.yml deploy/
+
+      # Terraform format + validate
+      - uses: hashicorp/setup-terraform@v4
+      - name: Terraform fmt
+        run: terraform -chdir=deploy/terraform fmt -check -recursive
+      - name: Terraform init
+        run: terraform -chdir=deploy/terraform init -backend=false
+      - name: Terraform validate
+        run: terraform -chdir=deploy/terraform validate
+
+      # Terraform best-practice linting
+      - uses: terraform-linters/setup-tflint@v5
+      - run: tflint --init --chdir=deploy/terraform
+      - run: tflint --chdir=deploy/terraform --format=compact
+
+      # Docker Compose validation
+      - name: Validate Docker Compose
+        working-directory: deploy
+        env:
+          JWT_SECRET: ci-dummy
+          AMT_USER: admin
+          AMT_PASS: ci-dummy
+          VAPID_CONTACT: ci@example.com
+          IMAGE_TAG: latest
+          DOMAIN: example.com
+          STAGING_JWT_SECRET: ci-dummy
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet
+
+      # Caddyfile validation
+      - name: Install Caddy
+        run: |
+          curl -sL "https://caddyserver.com/api/download?os=linux&arch=amd64" -o /usr/local/bin/caddy
+          chmod +x /usr/local/bin/caddy
+      - name: Validate Caddyfiles
+        run: |
+          caddy fmt --diff deploy/caddy/Caddyfile
+          caddy fmt --diff deploy/caddy/Caddyfile.staging
+          caddy validate --config deploy/caddy/Caddyfile --adapter caddyfile
+          caddy validate --config deploy/caddy/Caddyfile.staging --adapter caddyfile
+
+      # IaC security scan
+      - name: Trivy config scan
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: config
+          scan-ref: deploy/
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          trivyignores: .trivyignore
+      - name: Trivy Dockerfile scan
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          scan-type: config
+          scan-ref: Dockerfile
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          trivyignores: .trivyignore
+
+      # Cross-config consistency tests
+      - name: Deploy config integration tests
+        run: bash deploy/tests/validate-configs.sh
 
   codeql-go:
     name: CodeQL Go
@@ -505,7 +574,7 @@ jobs:
       - web-lint
       - web-unit
       - web-integration
-      - yaml-lint
+      - config-lint
       - codeql-go
       - codeql-js
       - codeql-rust
@@ -598,7 +667,7 @@ jobs:
       - web-lint
       - web-unit
       - web-integration
-      - yaml-lint
+      - config-lint
       - codeql-go
       - codeql-js
       - codeql-rust

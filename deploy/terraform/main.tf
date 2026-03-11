@@ -93,6 +93,17 @@ resource "oci_core_security_list" "opengate" {
     stateless = false
   }
 
+  # HTTP/3 (Caddy)
+  ingress_security_rules {
+    source   = "0.0.0.0/0"
+    protocol = "17" # UDP
+    udp_options {
+      min = 443
+      max = 443
+    }
+    stateless = false
+  }
+
   # MPS (Intel AMT CIRA)
   ingress_security_rules {
     source   = "0.0.0.0/0"

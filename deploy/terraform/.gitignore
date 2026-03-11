@@ -2,7 +2,6 @@
 *.tfstate
 *.tfstate.backup
 .terraform/
-.terraform.lock.hcl
 
 # Variable files — contain credentials, OCIDs, operator IPs
 terraform.tfvars
