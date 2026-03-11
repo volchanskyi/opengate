@@ -43,6 +43,14 @@ docker run -e JWT_SECRET=changeme -p 8080:8080 -p 9090:9090/udp \
   -v opengate-data:/data ghcr.io/volchanskyi/opengate-server:latest
 ```
 
+For production deployment with Caddy reverse proxy and auto-TLS:
+
+```bash
+cd deploy
+cp .env.example .env          # edit JWT_SECRET and DOMAIN
+docker compose up -d
+```
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-listen` | `:8080` | HTTP address (REST API) |
@@ -82,6 +90,11 @@ server/                      Go module
 api/openapi.yaml             OpenAPI 3.0.3 spec (single source of truth)
 docs/api/                    Scalar API reference viewer
 web/                         React + TypeScript (Vite, Tailwind, Zustand)
+deploy/                      Production deployment
+├── terraform/               OCI infrastructure (VCN, subnet, compute)
+├── caddy/                   Caddyfile (reverse proxy, auto-TLS)
+├── docker-compose.yml       Production stack (server + Caddy)
+└── docker-compose.staging.yml  Ephemeral staging overrides
 testdata/golden/             Cross-language wire format fixtures
 ```
 

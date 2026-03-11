@@ -1,0 +1,20 @@
+# Ephemeral staging overrides — used by CD pipeline for smoke testing.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+
+services:
+  server:
+    container_name: opengate-server-staging
+    environment:
+      - JWT_SECRET=staging-secret-not-for-production
+    ports:
+      - "19090:9090/udp"
+      - "14433:4433"
+
+  caddy:
+    container_name: opengate-caddy-staging
+    ports:
+      - "18080:80"
+      - "18443:443"
+      - "18443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile.staging:/etc/caddy/Caddyfile:ro
