@@ -357,7 +357,10 @@ jobs:
       - uses: raven-actions/actionlint@v2
 
       # YAML lint (deploy configs, cloud-init)
-      - run: pip install yamllint
+      - name: yamllint
+      - uses: nosborn/github-action-yamllint@v1
+        with:
+          file_or_dir: ''
       - run: yamllint -c .yamllint.yml deploy/
 
       # Terraform format + validate
@@ -403,7 +406,7 @@ jobs:
 
       # IaC security scan
       - name: Trivy config scan
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: config
           scan-ref: deploy/
@@ -411,7 +414,7 @@ jobs:
           exit-code: 1
           trivyignores: .trivyignore
       - name: Trivy Dockerfile scan
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           scan-type: config
           scan-ref: Dockerfile
