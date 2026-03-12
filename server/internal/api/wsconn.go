@@ -9,10 +9,10 @@ import (
 )
 
 // WSConn adapts a *websocket.Conn into an io.ReadWriteCloser for use with
-// the relay.Conn interface.
+// the relay.Conn interface. Context is not stored in the struct; each operation
+// uses context.Background() because Close() terminates all pending I/O by
+// closing the underlying WebSocket connection.
 type WSConn struct {
-	ctx    context.Context
-	cancel context.CancelFunc
 	conn   *websocket.Conn
 	reader io.Reader
 	mu     sync.Mutex // protects reader
@@ -20,12 +20,7 @@ type WSConn struct {
 
 // NewWSConn wraps a websocket.Conn into a relay-compatible connection.
 func NewWSConn(conn *websocket.Conn) *WSConn {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &WSConn{
-		ctx:    ctx,
-		cancel: cancel,
-		conn:   conn,
-	}
+	return &WSConn{conn: conn}
 }
 
 // Read reads from the WebSocket connection. It reads complete binary messages,
@@ -35,7 +30,7 @@ func (w *WSConn) Read(p []byte) (int, error) {
 	defer w.mu.Unlock()
 
 	if w.reader == nil {
-		_, reader, err := w.conn.Reader(w.ctx)
+		_, reader, err := w.conn.Reader(context.Background())
 		if err != nil {
 			return 0, err
 		}
@@ -50,7 +45,7 @@ func (w *WSConn) Read(p []byte) (int, error) {
 			return n, nil
 		}
 		// Try to read the next message
-		_, reader, err := w.conn.Reader(w.ctx)
+		_, reader, err := w.conn.Reader(context.Background())
 		if err != nil {
 			return 0, err
 		}
@@ -63,7 +58,7 @@ func (w *WSConn) Read(p []byte) (int, error) {
 
 // Write sends a binary message over the WebSocket connection.
 func (w *WSConn) Write(p []byte) (int, error) {
-	err := w.conn.Write(w.ctx, websocket.MessageBinary, p)
+	err := w.conn.Write(context.Background(), websocket.MessageBinary, p)
 	if err != nil {
 		return 0, err
 	}
@@ -71,7 +66,7 @@ func (w *WSConn) Write(p []byte) (int, error) {
 }
 
 // Close closes the WebSocket connection with a normal closure status.
+// Closing the connection causes any pending Read or Write to return an error.
 func (w *WSConn) Close() error {
-	w.cancel()
 	return w.conn.Close(websocket.StatusNormalClosure, "")
 }

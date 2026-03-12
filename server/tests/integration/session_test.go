@@ -28,7 +28,10 @@ import (
 	"nhooyr.io/websocket"
 )
 
-const pathSessions = "/api/v1/sessions"
+const (
+	pathSessions = "/api/v1/sessions"
+	bearerPrefix = "Bearer "
+)
 
 // sessionTestEnv bundles all dependencies for session integration tests.
 type sessionTestEnv struct {
@@ -131,7 +134,7 @@ func (e *sessionTestEnv) createSession(t *testing.T, jwt string, deviceID uuid.U
 	req, err := http.NewRequest(http.MethodPost, e.httpSrv.URL+pathSessions, &buf)
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Authorization", bearerPrefix+jwt)
 
 	resp, err := e.httpSrv.Client().Do(req)
 	require.NoError(t, err)
@@ -147,7 +150,7 @@ func (e *sessionTestEnv) listSessions(t *testing.T, jwt string, deviceID uuid.UU
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, e.httpSrv.URL+pathSessions+"?device_id="+deviceID.String(), nil)
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Authorization", bearerPrefix+jwt)
 
 	resp, err := e.httpSrv.Client().Do(req)
 	require.NoError(t, err)
@@ -163,7 +166,7 @@ func (e *sessionTestEnv) deleteSession(t *testing.T, jwt, token string) int {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodDelete, e.httpSrv.URL+pathSessions+"/"+token, nil)
 	require.NoError(t, err)
-	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Authorization", bearerPrefix+jwt)
 
 	resp, err := e.httpSrv.Client().Do(req)
 	require.NoError(t, err)
@@ -176,7 +179,7 @@ func (e *sessionTestEnv) dialRelayWS(t *testing.T, ctx context.Context, token, s
 	wsURL := "ws" + strings.TrimPrefix(e.httpSrv.URL, "http") + "/ws/relay/" + token + "?side=" + side
 	headers := http.Header{}
 	if jwt != "" {
-		headers.Set("Authorization", "Bearer "+jwt)
+		headers.Set("Authorization", bearerPrefix+jwt)
 	}
 	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: headers})
 	require.NoError(t, err)

@@ -26,8 +26,10 @@ import (
 )
 
 const (
-	pathUsersMe  = "/api/v1/users/me"
-	aliceEmail   = "alice@example.com"
+	pathUsersMe   = "/api/v1/users/me"
+	pathGroups    = "/api/v1/groups"
+	aliceEmail    = "alice@example.com"
+	webServer01   = "web-server-01"
 )
 
 // testEnv holds a running test server and its dependencies.
@@ -179,7 +181,7 @@ func TestDeviceLifecycle(t *testing.T) {
 	resp.Body.Close()
 
 	// Create a group via API
-	resp = env.doJSON(t, http.MethodPost, "/api/v1/groups", token, map[string]string{"name": "prod-servers"})
+	resp = env.doJSON(t, http.MethodPost, pathGroups, token, map[string]string{"name": "prod-servers"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var group db.Group
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&group))
@@ -190,7 +192,7 @@ func TestDeviceLifecycle(t *testing.T) {
 	device := &db.Device{
 		ID:       uuid.New(),
 		GroupID:  group.ID,
-		Hostname: "web-server-01",
+		Hostname: webServer01,
 		OS:       "linux",
 		Status:   db.StatusOnline,
 	}
@@ -204,7 +206,7 @@ func TestDeviceLifecycle(t *testing.T) {
 		var devices []*db.Device
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&devices))
 		require.Len(t, devices, 1)
-		assert.Equal(t, "web-server-01", devices[0].Hostname)
+		assert.Equal(t, webServer01, devices[0].Hostname)
 	})
 
 	t.Run("get single device", func(t *testing.T) {
@@ -214,7 +216,7 @@ func TestDeviceLifecycle(t *testing.T) {
 
 		var d db.Device
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&d))
-		assert.Equal(t, "web-server-01", d.Hostname)
+		assert.Equal(t, webServer01, d.Hostname)
 		assert.Equal(t, "linux", d.OS)
 	})
 
@@ -238,18 +240,18 @@ func TestGroupLifecycle(t *testing.T) {
 
 	// User 1 creates two groups
 	for _, name := range []string{"group-a", "group-b"} {
-		resp := env.doJSON(t, http.MethodPost, "/api/v1/groups", token1, map[string]string{"name": name})
+		resp := env.doJSON(t, http.MethodPost, pathGroups, token1, map[string]string{"name": name})
 		require.Equal(t, http.StatusCreated, resp.StatusCode)
 		resp.Body.Close()
 	}
 
 	// User 2 creates one group
-	resp := env.doJSON(t, http.MethodPost, "/api/v1/groups", token2, map[string]string{"name": "group-c"})
+	resp := env.doJSON(t, http.MethodPost, pathGroups, token2, map[string]string{"name": "group-c"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
 	t.Run("user1 sees only their own groups", func(t *testing.T) {
-		resp := env.doJSON(t, http.MethodGet, "/api/v1/groups", token1, nil)
+		resp := env.doJSON(t, http.MethodGet, pathGroups, token1, nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -259,7 +261,7 @@ func TestGroupLifecycle(t *testing.T) {
 	})
 
 	t.Run("user2 sees only their own group", func(t *testing.T) {
-		resp := env.doJSON(t, http.MethodGet, "/api/v1/groups", token2, nil)
+		resp := env.doJSON(t, http.MethodGet, pathGroups, token2, nil)
 		defer resp.Body.Close()
 
 		var groups []*db.Group
@@ -335,7 +337,7 @@ func TestConcurrentRequests(t *testing.T) {
 	token := env.register(t, "concurrent@example.com", "pass123")
 
 	// Create a group for device listing
-	resp := env.doJSON(t, http.MethodPost, "/api/v1/groups", token, map[string]string{"name": "concurrent-group"})
+	resp := env.doJSON(t, http.MethodPost, pathGroups, token, map[string]string{"name": "concurrent-group"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	var group db.Group
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&group))
@@ -356,7 +358,7 @@ func TestConcurrentRequests(t *testing.T) {
 			case 1:
 				resp = env.doJSON(t, http.MethodGet, pathUsersMe, token, nil)
 			case 2:
-				resp = env.doJSON(t, http.MethodGet, "/api/v1/groups", token, nil)
+				resp = env.doJSON(t, http.MethodGet, pathGroups, token, nil)
 			case 3:
 				resp = env.doJSON(t, http.MethodGet, "/api/v1/devices?group_id="+group.ID.String(), token, nil)
 			}

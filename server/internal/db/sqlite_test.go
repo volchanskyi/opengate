@@ -12,6 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testNameUpsertUpdates = "upsert updates existing"
+	testNameGetNotFound   = "get not found"
+	testNameDeleteNF      = "delete not found"
+)
+
 // newTestStore creates a temporary SQLite store for testing.
 func newTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
@@ -121,7 +127,7 @@ func TestUserCRUD(t *testing.T) {
 		assert.False(t, got.UpdatedAt.IsZero())
 	})
 
-	t.Run("upsert updates existing", func(t *testing.T) {
+	t.Run(testNameUpsertUpdates, func(t *testing.T) {
 		u := &User{ID: uuid.New(), Email: "update-me@example.com", DisplayName: "Before"}
 		require.NoError(t, s.UpsertUser(ctx, u))
 
@@ -147,7 +153,7 @@ func TestUserCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("get not found", func(t *testing.T) {
+	t.Run(testNameGetNotFound, func(t *testing.T) {
 		_, err := s.GetUser(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -166,7 +172,7 @@ func TestUserCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(testNameDeleteNF, func(t *testing.T) {
 		err := s.DeleteUser(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -188,7 +194,7 @@ func TestGroupCRUD(t *testing.T) {
 		assert.False(t, got.CreatedAt.IsZero())
 	})
 
-	t.Run("get not found", func(t *testing.T) {
+	t.Run(testNameGetNotFound, func(t *testing.T) {
 		_, err := s.GetGroup(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -220,7 +226,7 @@ func TestGroupCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(testNameDeleteNF, func(t *testing.T) {
 		err := s.DeleteGroup(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -251,7 +257,7 @@ func TestDeviceCRUD(t *testing.T) {
 		assert.False(t, got.CreatedAt.IsZero())
 	})
 
-	t.Run("upsert updates existing", func(t *testing.T) {
+	t.Run(testNameUpsertUpdates, func(t *testing.T) {
 		d := &Device{ID: uuid.New(), GroupID: group.ID, Hostname: "old", OS: "linux", Status: StatusOffline}
 		require.NoError(t, s.UpsertDevice(ctx, d))
 		d.Hostname = "new"
@@ -262,7 +268,7 @@ func TestDeviceCRUD(t *testing.T) {
 		assert.Equal(t, "new", got.Hostname)
 	})
 
-	t.Run("get not found", func(t *testing.T) {
+	t.Run(testNameGetNotFound, func(t *testing.T) {
 		_, err := s.GetDevice(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -301,7 +307,7 @@ func TestDeviceCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(testNameDeleteNF, func(t *testing.T) {
 		err := s.DeleteDevice(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -330,7 +336,7 @@ func TestAgentSessionCRUD(t *testing.T) {
 		assert.False(t, got.CreatedAt.IsZero())
 	})
 
-	t.Run("get not found", func(t *testing.T) {
+	t.Run(testNameGetNotFound, func(t *testing.T) {
 		_, err := s.GetAgentSession(ctx, "nonexistent")
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -355,7 +361,7 @@ func TestAgentSessionCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(testNameDeleteNF, func(t *testing.T) {
 		err := s.DeleteAgentSession(ctx, "nope")
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -400,7 +406,7 @@ func TestWebPushSubscriptionCRUD(t *testing.T) {
 		assert.True(t, found)
 	})
 
-	t.Run("upsert updates existing", func(t *testing.T) {
+	t.Run(testNameUpsertUpdates, func(t *testing.T) {
 		endpoint := "https://push.example.com/update-" + uuid.New().String()[:8]
 		sub := &WebPushSubscription{Endpoint: endpoint, UserID: owner.ID, P256dh: "old", Auth: "old"}
 		require.NoError(t, s.UpsertWebPushSubscription(ctx, sub))
@@ -431,7 +437,7 @@ func TestWebPushSubscriptionCRUD(t *testing.T) {
 		}
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(testNameDeleteNF, func(t *testing.T) {
 		err := s.DeleteWebPushSubscription(ctx, "https://push.example.com/nope")
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -588,7 +594,7 @@ func TestAMTDeviceCRUD(t *testing.T) {
 		assert.Equal(t, StatusOffline, got.Status)
 	})
 
-	t.Run("get not found", func(t *testing.T) {
+	t.Run(testNameGetNotFound, func(t *testing.T) {
 		_, err := s.GetAMTDevice(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})

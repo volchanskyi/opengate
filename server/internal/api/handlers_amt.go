@@ -47,8 +47,7 @@ func (s *Server) AmtPowerAction(ctx context.Context, request AmtPowerActionReque
 		return AmtPowerAction409JSONResponse{Error: "unknown power action"}, nil
 	}
 
-	err := s.amt.PowerAction(ctx, request.Uuid, state)
-	if err != nil {
+	if err := s.amt.PowerAction(ctx, request.Uuid, state); err != nil {
 		if errors.Is(err, amt.ErrDeviceNotConnected) {
 			return AmtPowerAction409JSONResponse{Error: err.Error()}, nil
 		}
