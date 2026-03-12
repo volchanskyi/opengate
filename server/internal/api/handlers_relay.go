@@ -55,16 +55,49 @@ func parseSide(w http.ResponseWriter, r *http.Request) (relay.Side, bool) {
 	}
 }
 
+// upgradeRelayWebSocket upgrades the HTTP connection to WebSocket.
+// On failure it writes an HTTP error response and returns nil.
+func (s *Server) upgradeRelayWebSocket(w http.ResponseWriter, r *http.Request) *websocket.Conn {
+	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		s.logger.Error("websocket accept", "error", err)
+		return nil
+	}
+	return wsConn
+}
+
+// registerAndWait registers conn with the relay and blocks until the peer connects
+// or the request context is cancelled. It closes wsConn on registration failure.
+func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn *WSConn, token string, side relay.Side) {
+	ctx := r.Context()
+	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {
+		s.logger.Error("relay register", "error", err, "token", token)
+		wsConn.Close(websocket.StatusInternalError, "relay error")
+		return
+	}
+
+	if err := s.relay.WaitForPeer(ctx, protocol.SessionToken(token)); err != nil {
+		if !errors.Is(err, ctx.Err()) {
+			s.logger.Error("relay wait for peer", "error", err, "token", token)
+		}
+		return
+	}
+
+	// Block until the request context is done (relay handles piping).
+	<-ctx.Done()
+}
+
 func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 	token := chi.URLParam(r, "token")
 
-	// Validate token exists in DB
-	if _, err := s.store.GetAgentSession(r.Context(), token); err != nil {
+	if err := s.validateRelayToken(r, token); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			rejectWebSocket(w, r, "session not found")
-			return
+		} else {
+			http.Error(w, "internal error", http.StatusInternalServerError)
 		}
-		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -73,34 +106,16 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Upgrade to WebSocket
-	wsConn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true,
-	})
-	if err != nil {
-		s.logger.Error("websocket accept", "error", err)
+	wsConn := s.upgradeRelayWebSocket(w, r)
+	if wsConn == nil {
 		return
 	}
 
-	// Wrap into relay.Conn
-	ctx := r.Context()
-	conn := NewWSConn(wsConn)
+	s.registerAndWait(r, wsConn, NewWSConn(wsConn), token, side)
+}
 
-	// Register with relay
-	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {
-		s.logger.Error("relay register", "error", err, "token", token)
-		wsConn.Close(websocket.StatusInternalError, "relay error")
-		return
-	}
-
-	// Wait for peer or context cancellation
-	if err := s.relay.WaitForPeer(ctx, protocol.SessionToken(token)); err != nil {
-		if !errors.Is(err, r.Context().Err()) {
-			s.logger.Error("relay wait for peer", "error", err, "token", token)
-		}
-		return
-	}
-
-	// Block until context is done (relay handles piping)
-	<-ctx.Done()
+// validateRelayToken checks that the given token exists in the agent session store.
+func (s *Server) validateRelayToken(r *http.Request, token string) error {
+	_, err := s.store.GetAgentSession(r.Context(), token)
+	return err
 }

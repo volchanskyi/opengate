@@ -20,7 +20,7 @@ from typing import Any
 
 MAX_LOG_LINES = 80
 MAX_BODY_LENGTH = 60_000
-LABEL = "ci-failure"
+LABEL = os.environ.get("FAILURE_LABEL", "ci-failure")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 log = logging.getLogger(__name__)
@@ -147,9 +147,10 @@ def create_or_comment_issue(
     run_id: str,
     run_url: str,
     sha: str,
+    workflow: str,
 ) -> None:
     """Create a new issue or comment on an existing open one."""
-    title = f"CI failure on {branch} in {job_name}"
+    title = f"{workflow} failure on {branch} in {job_name}"
     short_sha = sha[:7]
 
     existing, _ = gh(
@@ -246,6 +247,7 @@ def main(argv: list[str] | None = None) -> None:
             run_id=args.run_id,
             run_url=args.run_url,
             sha=args.sha,
+            workflow=args.workflow,
         )
 
 

@@ -29,8 +29,7 @@ func (s *Server) CreateGroup(ctx context.Context, request CreateGroupRequestObje
 
 // ListGroups implements StrictServerInterface.
 func (s *Server) ListGroups(ctx context.Context, _ ListGroupsRequestObject) (ListGroupsResponseObject, error) {
-	userID := ContextUserID(ctx)
-	groups, err := s.store.ListGroups(ctx, userID)
+	groups, err := s.store.ListGroups(ctx, ContextUserID(ctx))
 	if err != nil {
 		return nil, err
 	}
