@@ -17,6 +17,8 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/relay"
 )
 
+const testEmailErr = "err@example.com"
+
 // TestHandlerStoreFailures verifies that every handler returns 500 when the store is unavailable.
 func TestHandlerStoreFailures(t *testing.T) {
 	dir := t.TempDir()
@@ -35,9 +37,9 @@ func TestHandlerStoreFailures(t *testing.T) {
 	require.NoError(t, err)
 	userID := uuid.New()
 	require.NoError(t, store.UpsertUser(t.Context(), &db.User{
-		ID: userID, Email: "err@example.com", PasswordHash: hash,
+		ID: userID, Email: testEmailErr, PasswordHash: hash,
 	}))
-	token, err := cfg.GenerateToken(userID, "err@example.com", true)
+	token, err := cfg.GenerateToken(userID, testEmailErr, true)
 	require.NoError(t, err)
 
 	srv := NewServer(ServerConfig{
@@ -62,7 +64,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 		status int
 	}{
 		{"register store error", http.MethodPost, testPathRegister, map[string]string{"email": "x@x.com", "password": "pass"}, http.StatusInternalServerError},
-		{"login store error", http.MethodPost, testPathLogin, map[string]string{"email": "err@example.com", "password": "password123"}, http.StatusInternalServerError},
+		{"login store error", http.MethodPost, testPathLogin, map[string]string{"email": testEmailErr, "password": "password123"}, http.StatusInternalServerError},
 		{"list devices store error", http.MethodGet, testPathDevices + "?group_id=" + groupID.String(), nil, http.StatusInternalServerError},
 		{"get device store error", http.MethodGet, testPathDevicesS + deviceID.String(), nil, http.StatusInternalServerError},
 		{"delete device store error", http.MethodDelete, testPathDevicesS + deviceID.String(), nil, http.StatusInternalServerError},

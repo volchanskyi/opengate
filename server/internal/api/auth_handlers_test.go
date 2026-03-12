@@ -11,6 +11,7 @@ import (
 const (
 	testPathRegister = "/api/v1/auth/register"
 	testPathLogin    = "/api/v1/auth/login"
+	testLoginEmail   = "login@example.com"
 )
 
 func TestRegisterHandler(t *testing.T) {
@@ -50,10 +51,10 @@ func TestRegisterHandler(t *testing.T) {
 
 func TestLoginHandler(t *testing.T) {
 	srv, cfg := newTestServer(t)
-	seedTestUser(t, srv, cfg, "login@example.com", false)
+	seedTestUser(t, srv, cfg, testLoginEmail, false)
 
 	t.Run("successful login", func(t *testing.T) {
-		body := map[string]string{"email": "login@example.com", "password": "password123"}
+		body := map[string]string{"email": testLoginEmail, "password": "password123"}
 		w := doRequest(srv, http.MethodPost, testPathLogin, "", body)
 		assert.Equal(t, http.StatusOK, w.Code)
 
@@ -63,7 +64,7 @@ func TestLoginHandler(t *testing.T) {
 	})
 
 	t.Run("wrong password", func(t *testing.T) {
-		body := map[string]string{"email": "login@example.com", "password": "wrong"}
+		body := map[string]string{"email": testLoginEmail, "password": "wrong"}
 		w := doRequest(srv, http.MethodPost, testPathLogin, "", body)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
@@ -80,7 +81,7 @@ func TestLoginHandler(t *testing.T) {
 	})
 
 	t.Run("missing fields", func(t *testing.T) {
-		body := map[string]string{"email": "login@example.com"}
+		body := map[string]string{"email": testLoginEmail}
 		w := doRequest(srv, http.MethodPost, testPathLogin, "", body)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})

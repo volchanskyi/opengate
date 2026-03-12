@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	testPathWSRelay = "/ws/relay/"
-	testSideBrowser = "?side=browser"
-	testSideAgent   = "?side=agent"
+	testPathWSRelay  = "/ws/relay/"
+	testSideBrowser  = "?side=browser"
+	testSideAgent    = "?side=agent"
+	testBearerPrefix = "Bearer "
 )
 
 func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfig) {
@@ -119,7 +120,7 @@ func TestRelayWebSocket(t *testing.T) {
 
 		// Browser connects with JWT
 		browserHeaders := http.Header{}
-		browserHeaders.Set("Authorization", "Bearer "+jwtToken)
+		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
 		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideBrowser, browserHeaders)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
@@ -159,7 +160,7 @@ func TestRelayWebSocket(t *testing.T) {
 		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideAgent, nil)
 
 		browserHeaders := http.Header{}
-		browserHeaders.Set("Authorization", "Bearer "+jwtToken)
+		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
 		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideBrowser, browserHeaders)
 
 		// Wait for relay to connect
@@ -229,7 +230,7 @@ func TestRelayWebSocket(t *testing.T) {
 		defer cancel()
 
 		browserHeaders := http.Header{}
-		browserHeaders.Set("Authorization", "Bearer "+jwtToken)
+		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
 		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+string(token)+testSideBrowser, browserHeaders)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
