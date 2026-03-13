@@ -51,6 +51,18 @@ cp .env.example .env          # fill in secrets (JWT_SECRET, AMT_PASS, DOMAIN)
 docker compose up -d
 ```
 
+#### Continuous Deployment
+
+Merges to `main` trigger the CD pipeline automatically: build image → manual approval → deploy to persistent staging → smoke tests → manual approval → deploy to production.
+
+```bash
+# Manual deploy with a specific image tag
+gh workflow run cd.yml -f image_tag=sha-abc1234
+
+# Emergency rollback (SSH to VPS)
+ssh ubuntu@<VPS> "bash /opt/opengate/scripts/rollback.sh --mode production"
+```
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-listen` | `:8080` | HTTP address (REST API) |
@@ -93,8 +105,9 @@ web/                         React + TypeScript (Vite, Tailwind, Zustand)
 deploy/                      Production deployment
 ├── terraform/               OCI infrastructure (VCN, subnet, compute)
 ├── caddy/                   Caddyfile (reverse proxy, auto-TLS)
+├── scripts/                 CD deploy, smoke-test, and rollback scripts
 ├── docker-compose.yml       Production stack (server + Caddy)
-└── docker-compose.staging.yml  Ephemeral staging overrides
+└── docker-compose.staging.yml  Persistent staging overrides
 testdata/golden/             Cross-language wire format fixtures
 ```
 

@@ -1,0 +1,264 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: ["Build & Push Container Image"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (e.g. sha-abc1234)"
+        required: true
+      skip_staging:
+        description: "Skip staging and deploy directly to production"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: volchanskyi/opengate-server
+  DEPLOY_DIR: /opt/opengate
+
+permissions:
+  contents: read
+  packages: read
+  issues: write
+  actions: read
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Job 1: Determine the image tag and verify it exists in GHCR
+  # --------------------------------------------------------------------------
+  resolve-tag:
+    name: Resolve image tag
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.image_tag }}"
+          else
+            SHA="${{ github.event.workflow_run.head_sha }}"
+            TAG="sha-${SHA:0:7}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved image tag: $TAG"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify image exists in GHCR
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          echo "Checking ghcr.io/${{ env.IMAGE_NAME }}:${TAG}..."
+          docker manifest inspect "ghcr.io/${{ env.IMAGE_NAME }}:${TAG}" \
+            || { echo "::error::Image tag '${TAG}' not found in GHCR"; exit 1; }
+
+  # --------------------------------------------------------------------------
+  # Job 2: Deploy to persistent staging, run smoke tests
+  # --------------------------------------------------------------------------
+  deploy-staging:
+    name: Deploy staging
+    needs: resolve-tag
+    if: >-
+      !(github.event_name == 'workflow_dispatch' && inputs.skip_staging)
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          cat >> ~/.ssh/config <<EOF
+          Host deploy-target
+            HostName $DEPLOY_HOST
+            User ubuntu
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Copy deploy files to VPS
+        run: |
+          # Copy scripts
+          ssh deploy-target "mkdir -p ${{ env.DEPLOY_DIR }}/scripts ${{ env.DEPLOY_DIR }}/caddy"
+          scp deploy/scripts/*.sh deploy-target:${{ env.DEPLOY_DIR }}/scripts/
+          ssh deploy-target "chmod +x ${{ env.DEPLOY_DIR }}/scripts/*.sh"
+
+          # Copy compose files
+          scp deploy/docker-compose.yml deploy-target:${{ env.DEPLOY_DIR }}/
+          scp deploy/docker-compose.staging.yml deploy-target:${{ env.DEPLOY_DIR }}/
+
+          # Copy Caddy configs
+          scp deploy/caddy/Caddyfile deploy-target:${{ env.DEPLOY_DIR }}/caddy/
+          scp deploy/caddy/Caddyfile.staging deploy-target:${{ env.DEPLOY_DIR }}/caddy/
+
+      - name: Deploy staging
+        env:
+          JWT_SECRET: ${{ secrets.DEPLOY_STAGING_JWT_SECRET }}
+          AMT_PASS: ${{ secrets.DEPLOY_STAGING_AMT_PASS }}
+          DOMAIN: ${{ secrets.DEPLOY_STAGING_DOMAIN }}
+          VAPID_CONTACT: ${{ secrets.DEPLOY_STAGING_VAPID_CONTACT }}
+        run: |
+          printf '%s\n' \
+            "IMAGE_TAG=${{ env.IMAGE_TAG }}" \
+            "JWT_SECRET=${JWT_SECRET}" \
+            "STAGING_JWT_SECRET=${JWT_SECRET}" \
+            "AMT_USER=admin" \
+            "AMT_PASS=${AMT_PASS}" \
+            "VAPID_CONTACT=${VAPID_CONTACT}" \
+            "DOMAIN=${DOMAIN}" \
+            | ssh deploy-target "cat > ${{ env.DEPLOY_DIR }}/.env.staging"
+
+          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh --mode staging --tag ${{ env.IMAGE_TAG }}"
+
+      - name: Run smoke tests
+        run: |
+          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/smoke-test.sh \
+            --host 127.0.0.1 --port 18080 --mode staging --scheme http"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "::warning::Staging deploy failed — rolling back to previous tag"
+          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/rollback.sh --mode staging" || true
+
+      - name: Cleanup SSH
+        if: always()
+        run: rm -rf ~/.ssh/deploy_key
+
+  # --------------------------------------------------------------------------
+  # Job 3: Deploy to production (manual approval required)
+  # --------------------------------------------------------------------------
+  deploy-production:
+    name: Deploy production
+    needs: [resolve-tag, deploy-staging]
+    if: >-
+      always() &&
+      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          cat >> ~/.ssh/config <<EOF
+          Host deploy-target
+            HostName $DEPLOY_HOST
+            User ubuntu
+            IdentityFile ~/.ssh/deploy_key
+            StrictHostKeyChecking yes
+          EOF
+
+      - name: Copy deploy files to VPS
+        run: |
+          ssh deploy-target "mkdir -p ${{ env.DEPLOY_DIR }}/scripts ${{ env.DEPLOY_DIR }}/caddy"
+          scp deploy/scripts/*.sh deploy-target:${{ env.DEPLOY_DIR }}/scripts/
+          ssh deploy-target "chmod +x ${{ env.DEPLOY_DIR }}/scripts/*.sh"
+
+          scp deploy/docker-compose.yml deploy-target:${{ env.DEPLOY_DIR }}/
+          scp deploy/caddy/Caddyfile deploy-target:${{ env.DEPLOY_DIR }}/caddy/
+
+      - name: Deploy production
+        env:
+          JWT_SECRET: ${{ secrets.DEPLOY_JWT_SECRET }}
+          AMT_PASS: ${{ secrets.DEPLOY_AMT_PASS }}
+          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+          VAPID_CONTACT: ${{ secrets.DEPLOY_VAPID_CONTACT }}
+        run: |
+          # Write production .env with secrets (masked by GHA)
+          printf '%s\n' \
+            "IMAGE_TAG=${{ env.IMAGE_TAG }}" \
+            "JWT_SECRET=${JWT_SECRET}" \
+            "AMT_USER=admin" \
+            "AMT_PASS=${AMT_PASS}" \
+            "VAPID_CONTACT=${VAPID_CONTACT}" \
+            "DOMAIN=${DOMAIN}" \
+            | ssh deploy-target "cat > ${{ env.DEPLOY_DIR }}/.env"
+
+          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh --mode production --tag ${{ env.IMAGE_TAG }}"
+
+      - name: Run production health check
+        run: |
+          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/smoke-test.sh \
+            --host 127.0.0.1 --port 80 --mode production --scheme http"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "::warning::Production deploy failed — rolling back to previous tag"
+          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/rollback.sh --mode production" || true
+
+      - name: Cleanup SSH
+        if: always()
+        run: rm -rf ~/.ssh/deploy_key
+
+  # --------------------------------------------------------------------------
+  # Job 4: Notify on failure via GitHub Issues
+  # --------------------------------------------------------------------------
+  notify-failure:
+    name: Create failure issue
+    needs: [resolve-tag, deploy-staging, deploy-production]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Ensure cd-failure label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "cd-failure" \
+            --description "Automated: CD pipeline failure" \
+            --color "D93F0B" \
+            --force \
+            --repo "${{ github.repository }}"
+
+      - name: Create or update failure issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAILURE_LABEL: cd-failure
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          BRANCH: ${{ github.ref_name }}
+          WORKFLOW: ${{ github.workflow }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 .github/scripts/notify_failure.py

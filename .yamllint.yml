@@ -1,5 +1,8 @@
 extends: default
 
+ignore:
+  - deploy/terraform/cloud-init.yaml  # #cloud-config magic header must be line 1
+
 rules:
   line-length:
     max: 120
