@@ -84,15 +84,75 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install OCI CLI
+        run: pip install oci-cli --quiet
+
+      - name: Configure OCI credentials
+        env:
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+        run: |
+          mkdir -p ~/.oci
+          echo "$OCI_KEY" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          tenancy=$OCI_TENANCY
+          user=$OCI_USER
+          fingerprint=$OCI_FINGERPRINT
+          key_file=~/.oci/key.pem
+          region=$OCI_REGION
+          EOF
+
+      - name: Open SSH firewall for runner
+        id: firewall
+        env:
+          NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+        run: |
+          RUNNER_IP=$(curl -sf https://ifconfig.me)
+          echo "Adding SSH rule for runner IP: $RUNNER_IP"
+
+          RULE_ID=$(oci network nsg rules add \
+            --nsg-id "$NSG_ID" \
+            --security-rules "[{
+              \"direction\": \"INGRESS\",
+              \"protocol\": \"6\",
+              \"source\": \"${RUNNER_IP}/32\",
+              \"sourceType\": \"CIDR_BLOCK\",
+              \"isStateless\": false,
+              \"tcpOptions\": {
+                \"destinationPortRange\": {\"min\": 22, \"max\": 22}
+              },
+              \"description\": \"CD: GHA runner ${RUNNER_IP} run ${{ github.run_id }}\"
+            }]" \
+            --query 'data."security-rules"[0].id' \
+            --raw-output)
+          echo "rule_id=$RULE_ID" >> "$GITHUB_OUTPUT"
+          echo "NSG rule added: $RULE_ID"
+
+          sleep 5
+
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
+          if [[ -z "$DEPLOY_HOST" ]]; then
+            echo "::error::DEPLOY_HOST secret is empty"
+            exit 1
+          fi
+          if [[ -z "$SSH_KEY" ]]; then
+            echo "::error::SSH_KEY secret is empty"
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
           cat >> ~/.ssh/config <<EOF
           Host deploy-target
             HostName $DEPLOY_HOST
@@ -100,6 +160,18 @@ jobs:
             IdentityFile ~/.ssh/deploy_key
             StrictHostKeyChecking yes
           EOF
+
+          for attempt in 1 2 3; do
+            if ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              echo "ssh-keyscan succeeded (attempt $attempt)"
+              break
+            fi
+            echo "::warning::ssh-keyscan attempt $attempt failed"
+            if [[ $attempt -lt 3 ]]; then sleep 2; else
+              echo "::error::ssh-keyscan failed after 3 attempts"
+              exit 1
+            fi
+          done
 
       - name: Copy deploy files to VPS
         run: |
@@ -146,9 +218,19 @@ jobs:
           echo "::warning::Staging deploy failed — rolling back to previous tag"
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/rollback.sh --mode staging" || true
 
+      - name: Close SSH firewall
+        if: always() && steps.firewall.outputs.rule_id
+        env:
+          NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+        run: |
+          oci network nsg rules remove \
+            --nsg-id "$NSG_ID" \
+            --security-rule-ids '["${{ steps.firewall.outputs.rule_id }}"]' \
+            --force || true
+
       - name: Cleanup SSH
         if: always()
-        run: rm -rf ~/.ssh/deploy_key
+        run: rm -rf ~/.ssh/deploy_key ~/.oci/key.pem
 
   # --------------------------------------------------------------------------
   # Job 3: Deploy to production (manual approval required)
@@ -166,15 +248,75 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install OCI CLI
+        run: pip install oci-cli --quiet
+
+      - name: Configure OCI credentials
+        env:
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY_OCID }}
+          OCI_USER: ${{ secrets.OCI_USER_OCID }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+        run: |
+          mkdir -p ~/.oci
+          echo "$OCI_KEY" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          tenancy=$OCI_TENANCY
+          user=$OCI_USER
+          fingerprint=$OCI_FINGERPRINT
+          key_file=~/.oci/key.pem
+          region=$OCI_REGION
+          EOF
+
+      - name: Open SSH firewall for runner
+        id: firewall
+        env:
+          NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+        run: |
+          RUNNER_IP=$(curl -sf https://ifconfig.me)
+          echo "Adding SSH rule for runner IP: $RUNNER_IP"
+
+          RULE_ID=$(oci network nsg rules add \
+            --nsg-id "$NSG_ID" \
+            --security-rules "[{
+              \"direction\": \"INGRESS\",
+              \"protocol\": \"6\",
+              \"source\": \"${RUNNER_IP}/32\",
+              \"sourceType\": \"CIDR_BLOCK\",
+              \"isStateless\": false,
+              \"tcpOptions\": {
+                \"destinationPortRange\": {\"min\": 22, \"max\": 22}
+              },
+              \"description\": \"CD: GHA runner ${RUNNER_IP} run ${{ github.run_id }}\"
+            }]" \
+            --query 'data."security-rules"[0].id' \
+            --raw-output)
+          echo "rule_id=$RULE_ID" >> "$GITHUB_OUTPUT"
+          echo "NSG rule added: $RULE_ID"
+
+          sleep 5
+
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
+          if [[ -z "$DEPLOY_HOST" ]]; then
+            echo "::error::DEPLOY_HOST secret is empty"
+            exit 1
+          fi
+          if [[ -z "$SSH_KEY" ]]; then
+            echo "::error::SSH_KEY secret is empty"
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
           cat >> ~/.ssh/config <<EOF
           Host deploy-target
             HostName $DEPLOY_HOST
@@ -182,6 +324,18 @@ jobs:
             IdentityFile ~/.ssh/deploy_key
             StrictHostKeyChecking yes
           EOF
+
+          for attempt in 1 2 3; do
+            if ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              echo "ssh-keyscan succeeded (attempt $attempt)"
+              break
+            fi
+            echo "::warning::ssh-keyscan attempt $attempt failed"
+            if [[ $attempt -lt 3 ]]; then sleep 2; else
+              echo "::error::ssh-keyscan failed after 3 attempts"
+              exit 1
+            fi
+          done
 
       - name: Copy deploy files to VPS
         run: |
@@ -199,7 +353,6 @@ jobs:
           DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
           VAPID_CONTACT: ${{ secrets.DEPLOY_VAPID_CONTACT }}
         run: |
-          # Write production .env with secrets (masked by GHA)
           printf '%s\n' \
             "IMAGE_TAG=${{ env.IMAGE_TAG }}" \
             "JWT_SECRET=${JWT_SECRET}" \
@@ -222,9 +375,19 @@ jobs:
           echo "::warning::Production deploy failed — rolling back to previous tag"
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/rollback.sh --mode production" || true
 
+      - name: Close SSH firewall
+        if: always() && steps.firewall.outputs.rule_id
+        env:
+          NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+        run: |
+          oci network nsg rules remove \
+            --nsg-id "$NSG_ID" \
+            --security-rule-ids '["${{ steps.firewall.outputs.rule_id }}"]' \
+            --force || true
+
       - name: Cleanup SSH
         if: always()
-        run: rm -rf ~/.ssh/deploy_key
+        run: rm -rf ~/.ssh/deploy_key ~/.oci/key.pem
 
   # --------------------------------------------------------------------------
   # Job 4: Notify on failure via GitHub Issues

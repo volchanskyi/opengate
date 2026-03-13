@@ -48,6 +48,12 @@ resource "oci_core_route_table" "opengate" {
   }
 }
 
+resource "oci_core_network_security_group" "cd_deploy" {
+  compartment_id = local.compartment_id
+  vcn_id         = oci_core_vcn.opengate.id
+  display_name   = "opengate-cd-deploy"
+}
+
 resource "oci_core_security_list" "opengate" {
   compartment_id = local.compartment_id
   vcn_id         = oci_core_vcn.opengate.id
@@ -174,10 +180,15 @@ resource "oci_core_instance" "opengate" {
     subnet_id        = oci_core_subnet.opengate_public.id
     assign_public_ip = true
     display_name     = "opengate-vnic"
+    nsg_ids          = [oci_core_network_security_group.cd_deploy.id]
   }
 
   metadata = {
     ssh_authorized_keys = file(pathexpand(var.ssh_public_key_path))
     user_data           = base64encode(file("${path.module}/cloud-init.yaml"))
+  }
+
+  lifecycle {
+    ignore_changes = [metadata, source_details[0].source_id]
   }
 }
