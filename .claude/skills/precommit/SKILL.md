@@ -23,15 +23,19 @@ Run ALL lints, ALL tests, test coverage, and ALL benchmarks. No exceptions. All 
 6. `cd agent && cargo test --workspace` — Rust tests (all crates)
 7. `cd web && npx vitest run` — Web tests
 
+## Security audit (must pass)
+
+8. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
+
 ## Benchmarks (all must run without errors)
 
-8. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-9. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+9. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+10. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ## Documentation (mandatory on every commit)
 
-10. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-11. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
+11. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+12. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
 
 ## Gate Criteria
 
@@ -40,4 +44,5 @@ Do NOT commit if:
 - Any test fails
 - New code coverage is below 80% or overall coverage below 70%
 - Any benchmark errors out
+- Any security audit fails (high+ severity vulnerabilities)
 - Documentation is stale
