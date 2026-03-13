@@ -96,21 +96,24 @@ jobs:
           OCI_REGION: ${{ secrets.OCI_REGION }}
         run: |
           mkdir -p ~/.oci
-          echo "$OCI_KEY" > ~/.oci/key.pem
+          printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
+          echo "OCI_API_KEY" >> ~/.oci/key.pem
           chmod 600 ~/.oci/key.pem
           cat > ~/.oci/config <<EOF
           [DEFAULT]
           tenancy=$OCI_TENANCY
           user=$OCI_USER
           fingerprint=$OCI_FINGERPRINT
-          key_file=~/.oci/key.pem
+          key_file=$HOME/.oci/key.pem
           region=$OCI_REGION
           EOF
+          chmod 600 ~/.oci/config
 
       - name: Open SSH firewall for runner
         id: firewall
         env:
           NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
         run: |
           RUNNER_IP=$(curl -sf https://ifconfig.me)
           echo "Adding SSH rule for runner IP: $RUNNER_IP"
@@ -222,6 +225,7 @@ jobs:
         if: always() && steps.firewall.outputs.rule_id
         env:
           NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
         run: |
           oci network nsg rules remove \
             --nsg-id "$NSG_ID" \
@@ -230,7 +234,7 @@ jobs:
 
       - name: Cleanup SSH
         if: always()
-        run: rm -rf ~/.ssh/deploy_key ~/.oci/key.pem
+        run: rm -rf ~/.ssh/deploy_key ~/.oci
 
   # --------------------------------------------------------------------------
   # Job 3: Deploy to production (manual approval required)
@@ -260,21 +264,24 @@ jobs:
           OCI_REGION: ${{ secrets.OCI_REGION }}
         run: |
           mkdir -p ~/.oci
-          echo "$OCI_KEY" > ~/.oci/key.pem
+          printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
+          echo "OCI_API_KEY" >> ~/.oci/key.pem
           chmod 600 ~/.oci/key.pem
           cat > ~/.oci/config <<EOF
           [DEFAULT]
           tenancy=$OCI_TENANCY
           user=$OCI_USER
           fingerprint=$OCI_FINGERPRINT
-          key_file=~/.oci/key.pem
+          key_file=$HOME/.oci/key.pem
           region=$OCI_REGION
           EOF
+          chmod 600 ~/.oci/config
 
       - name: Open SSH firewall for runner
         id: firewall
         env:
           NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
         run: |
           RUNNER_IP=$(curl -sf https://ifconfig.me)
           echo "Adding SSH rule for runner IP: $RUNNER_IP"
@@ -379,6 +386,7 @@ jobs:
         if: always() && steps.firewall.outputs.rule_id
         env:
           NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
         run: |
           oci network nsg rules remove \
             --nsg-id "$NSG_ID" \
@@ -387,7 +395,7 @@ jobs:
 
       - name: Cleanup SSH
         if: always()
-        run: rm -rf ~/.ssh/deploy_key ~/.oci/key.pem
+        run: rm -rf ~/.ssh/deploy_key ~/.oci
 
   # --------------------------------------------------------------------------
   # Job 4: Notify on failure via GitHub Issues
