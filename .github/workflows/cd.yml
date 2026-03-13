@@ -372,9 +372,11 @@ jobs:
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh --mode production --tag ${{ env.IMAGE_TAG }}"
 
       - name: Run production health check
+        env:
+          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
         run: |
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/smoke-test.sh \
-            --host 127.0.0.1 --port 80 --mode production --scheme http"
+            --mode production --domain $DOMAIN"
 
       - name: Rollback on failure
         if: failure()

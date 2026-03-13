@@ -2,7 +2,8 @@
 # Post-deploy smoke tests for OpenGate.
 # Runs on the VPS via SSH from the CD workflow.
 #
-# Usage: smoke-test.sh --host <host> --port <port> --mode <staging|production> [--scheme <http|https>]
+# Usage: smoke-test.sh --mode <staging|production> --domain <domain>
+#    or: smoke-test.sh --mode <staging|production> --host <host> --port <port> [--scheme <http|https>]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -11,6 +12,7 @@ source "${SCRIPT_DIR}/common.sh"
 
 # --- Parse arguments ----------------------------------------------------------
 
+DOMAIN=""
 HOST=""
 PORT=""
 MODE=""
@@ -18,6 +20,7 @@ SCHEME="http"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --domain) DOMAIN="$2"; shift 2 ;;
     --host)   HOST="$2";   shift 2 ;;
     --port)   PORT="$2";   shift 2 ;;
     --mode)   MODE="$2";   shift 2 ;;
@@ -26,12 +29,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -z "$HOST" ]] && fail "Missing required argument: --host"
-[[ -z "$PORT" ]] && fail "Missing required argument: --port"
 [[ -z "$MODE" ]] && fail "Missing required argument: --mode"
 [[ "$MODE" != "staging" && "$MODE" != "production" ]] && fail "Invalid mode: $MODE"
 
-BASE_URL="${SCHEME}://${HOST}:${PORT}"
+if [[ -n "$DOMAIN" ]]; then
+  BASE_URL="https://${DOMAIN}"
+else
+  [[ -z "$HOST" ]] && fail "Missing required argument: --host (or use --domain)"
+  [[ -z "$PORT" ]] && fail "Missing required argument: --port (or use --domain)"
+  BASE_URL="${SCHEME}://${HOST}:${PORT}"
+fi
 TESTS_PASSED=0
 TESTS_FAILED=0
 
@@ -50,14 +57,14 @@ check() {
 }
 
 http_status() {
-  curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$@"
+  curl -s -o /dev/null -w '%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "$@"
 }
 
 # --- Health check (both modes) ------------------------------------------------
 
 test_health() {
   local response status body
-  response=$(curl -s -w '\n%{http_code}' --max-time 10 "${BASE_URL}/api/v1/health")
+  response=$(curl -s -w '\n%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "${BASE_URL}/api/v1/health")
   status=$(echo "$response" | tail -1)
   body=$(echo "$response" | sed '$d')
 
