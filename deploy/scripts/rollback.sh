@@ -42,6 +42,9 @@ set_env_var IMAGE_TAG "$PREV_TAG" "$LOCAL_ENV_FILE"
 
 # --- Pull and redeploy -------------------------------------------------------
 
+log "Stopping existing containers..."
+compose_cmd "$MODE" down --remove-orphans || true
+
 log "Pulling previous image..."
 compose_cmd "$MODE" pull server
 

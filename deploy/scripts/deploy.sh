@@ -49,6 +49,9 @@ log "Set IMAGE_TAG=$TAG in $LOCAL_ENV_FILE"
 CONTAINER_NAME="opengate-server"
 [[ "$MODE" == "staging" ]] && CONTAINER_NAME="opengate-server-staging"
 
+log "Stopping existing containers..."
+compose_cmd "$MODE" down --remove-orphans || true
+
 log "Pulling image..."
 compose_cmd "$MODE" pull server
 
