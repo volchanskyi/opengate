@@ -376,7 +376,7 @@ jobs:
           DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
         run: |
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/smoke-test.sh \
-            --mode production --domain $DOMAIN"
+            --mode production --domain ${DOMAIN:?DEPLOY_DOMAIN secret is required}"
 
       - name: Rollback on failure
         if: failure()
