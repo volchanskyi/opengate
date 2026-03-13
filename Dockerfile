@@ -17,7 +17,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /meshserver ./cmd/meshs
 # ---- Stage 3: Final image ----
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata \
-    && addgroup -S opengate && adduser -S opengate -G opengate
+    && addgroup -S opengate && adduser -S opengate -G opengate \
+    && mkdir -p /data && chown opengate:opengate /data
 COPY --from=server-build /meshserver /usr/local/bin/meshserver
 COPY --from=web-build /build/web/dist /srv/web
 USER opengate
