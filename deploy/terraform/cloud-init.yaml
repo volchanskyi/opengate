@@ -1,4 +1,3 @@
-# yamllint disable-line rule:comments
 #cloud-config
 
 package_update: true
@@ -48,4 +47,4 @@ runcmd:
 
   # Prepare data directory
   - mkdir -p /opt/opengate/data /opt/opengate/caddy_data /opt/opengate/caddy_config
-  - chown -R 1000:1000 /opt/opengate
+  - chown -R ubuntu:ubuntu /opt/opengate

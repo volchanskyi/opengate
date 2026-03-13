@@ -1,11 +1,11 @@
-# Ephemeral staging overrides — used by CD pipeline for smoke testing.
+# Persistent staging overrides — coexists with production on the same VPS.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
 
 services:
   server:
     container_name: opengate-server-staging
     environment:
-      - JWT_SECRET=${STAGING_JWT_SECRET:-staging-ephemeral-secret}
+      - JWT_SECRET=${STAGING_JWT_SECRET:?STAGING_JWT_SECRET is required}
     ports:
       - "19090:9090/udp"
       - "14433:4433"
