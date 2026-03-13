@@ -69,6 +69,19 @@ for VAR in $COMPOSE_VARS; do
 done
 
 echo ""
+echo "=== Env var coverage: docker-compose.staging ↔ .env.example ==="
+
+STAGING_COMPOSE_VARS=$(grep -oP '\$\{(\w+)' "$SCRIPT_DIR/docker-compose.staging.yml" | sed 's/\${//' | sort -u)
+
+for VAR in $STAGING_COMPOSE_VARS; do
+  if ! echo "$ENV_VARS" | grep -qx "$VAR"; then
+    fail "Variable \${$VAR} in docker-compose.staging.yml but missing from .env.example"
+  else
+    pass "\${$VAR} documented in .env.example"
+  fi
+done
+
+echo ""
 echo "=== Tfvars completeness: required variables ↔ terraform.tfvars.example ==="
 
 # Extract variable names that have no default (required variables)
@@ -87,6 +100,20 @@ for VAR in $REQUIRED_VARS; do
     fail "Required Terraform variable \"$VAR\" (no default) missing from terraform.tfvars.example"
   else
     pass "Terraform variable \"$VAR\" in tfvars.example"
+  fi
+done
+
+echo ""
+echo "=== Deploy scripts ==="
+
+for SCRIPT in common.sh deploy.sh smoke-test.sh rollback.sh; do
+  SCRIPT_PATH="${SCRIPT_DIR}/scripts/${SCRIPT}"
+  if [[ ! -f "$SCRIPT_PATH" ]]; then
+    fail "Deploy script missing: scripts/$SCRIPT"
+  elif [[ ! -x "$SCRIPT_PATH" ]]; then
+    fail "Deploy script not executable: scripts/$SCRIPT"
+  else
+    pass "scripts/$SCRIPT exists and is executable"
   fi
 done
 
