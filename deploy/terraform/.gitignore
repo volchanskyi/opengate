@@ -9,6 +9,10 @@ terraform.tfvars
 override.tf
 override.tf.json
 
+# Plan files may contain interpolated secret values
+tfplan
+*.tfplan
+
 # Crash logs may contain sensitive provider output
 crash.log
 crash.*.log

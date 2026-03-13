@@ -21,4 +21,5 @@ output "subnet_id" {
 output "cd_nsg_id" {
   description = "OCID of the CD deploy NSG (for GitHub secrets)"
   value       = oci_core_network_security_group.cd_deploy.id
+  sensitive   = true
 }
