@@ -2,7 +2,8 @@
 
 ## Branching Rules
 **MANDATORY** — All work happens on `dev`. No exceptions.
-- Always start from the `dev` branch: `git checkout dev && git pull origin dev`
+- **Before starting any work**, pull latest: `git checkout dev && git pull origin dev`
+- **Before every push**, pull again: `git pull --rebase origin dev` then push
 - Commit and push to `dev` only: `git push origin dev`
 - **Never commit or push directly to `main`** — `main` receives code exclusively via the automated `merge-to-main` CI job after all checks pass on `dev`
 
