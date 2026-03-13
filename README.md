@@ -51,29 +51,6 @@ cp .env.example .env          # fill in secrets (JWT_SECRET, AMT_PASS, DOMAIN)
 docker compose up -d
 ```
 
-#### Continuous Deployment
-
-Merges to `main` trigger the CD pipeline automatically: build image → manual approval → deploy to persistent staging → smoke tests → manual approval → deploy to production.
-
-```bash
-# Manual deploy with a specific image tag
-gh workflow run cd.yml -f image_tag=sha-abc1234
-
-# Emergency rollback (SSH to VPS)
-ssh ubuntu@<VPS> "bash /opt/opengate/scripts/rollback.sh --mode production"
-```
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-listen` | `:8080` | HTTP address (REST API) |
-| `-quic-listen` | `:9090` | QUIC address (agent connections, mTLS) |
-| `-mps-listen` | `:4433` | MPS TLS address (Intel AMT CIRA connections) |
-| `-data-dir` | `./data` | Directory for SQLite database and CA certificates |
-| `-jwt-secret` | — | JWT signing secret (or `JWT_SECRET` env); **required** |
-| `-vapid-contact` | — | VAPID contact email for Web Push notifications (optional) |
-
-On first startup the server generates a self-signed ECDSA P-256 CA under `data-dir` (`ca.crt`, `ca.key`), VAPID keys (`vapid.json`), and creates the SQLite database with WAL mode enabled.
-
 ## Project Structure
 
 ```
