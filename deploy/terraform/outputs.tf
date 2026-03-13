@@ -17,3 +17,8 @@ output "subnet_id" {
   description = "OCID of the public subnet"
   value       = oci_core_subnet.opengate_public.id
 }
+
+output "cd_nsg_id" {
+  description = "OCID of the CD deploy NSG (for GitHub secrets)"
+  value       = oci_core_network_security_group.cd_deploy.id
+}
