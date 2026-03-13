@@ -230,7 +230,7 @@ jobs:
           oci network nsg rules remove \
             --nsg-id "$NSG_ID" \
             --security-rule-ids '["${{ steps.firewall.outputs.rule_id }}"]' \
-            --force || true
+            || true
 
       - name: Cleanup SSH
         if: always()
@@ -391,7 +391,7 @@ jobs:
           oci network nsg rules remove \
             --nsg-id "$NSG_ID" \
             --security-rule-ids '["${{ steps.firewall.outputs.rule_id }}"]' \
-            --force || true
+            || true
 
       - name: Cleanup SSH
         if: always()

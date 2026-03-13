@@ -111,11 +111,13 @@ if [[ "$MODE" == "staging" ]]; then
   test_relay_route() {
     local status
     status=$(http_status "${BASE_URL}/ws/relay/test-token?side=browser")
-    # 400 or 401 means the route exists (bad request or unauthorized)
-    [[ "$status" == "400" || "$status" == "401" ]]
+    # Any non-404 proves the route is registered. Plain curl (non-WebSocket)
+    # may get 200 (handler returns without writing) or 400 depending on the
+    # WebSocket library version — both confirm the route exists.
+    [[ "$status" != "404" ]]
   }
 
-  check "GET /ws/relay route exists (400 or 401)" test_relay_route
+  check "GET /ws/relay route exists (non-404)" test_relay_route
 
 fi
 
