@@ -1,18 +1,22 @@
 # Persistent staging overrides — coexists with production on the same VPS.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+#
+# NOTE: ports use !override to REPLACE base ports, not merge with them.
+# Without this, staging would also bind production ports (4433, 9090, 80, 443)
+# and block the production deployment.
 
 services:
   server:
     container_name: opengate-server-staging
     environment:
       - JWT_SECRET=${STAGING_JWT_SECRET:?STAGING_JWT_SECRET is required}
-    ports:
+    ports: !override
       - "19090:9090/udp"
       - "14433:4433"
 
   caddy:
     container_name: opengate-caddy-staging
-    ports:
+    ports: !override
       - "18080:80"
       - "18443:443"
       - "18443:443/udp"
