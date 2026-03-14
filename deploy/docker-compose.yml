@@ -37,6 +37,7 @@ services:
   web-init:
     image: ghcr.io/volchanskyi/opengate-server:${IMAGE_TAG:-latest}
     container_name: opengate-web-init
+    user: "0"
     entrypoint: ["sh", "-c", "rm -rf /web-assets/* && cp -a /srv/web/. /web-assets/"]
     restart: "no"
     volumes:
