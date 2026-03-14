@@ -7,8 +7,6 @@ set -euo pipefail
 # --- Constants ----------------------------------------------------------------
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/opengate}"
-ENV_FILE="${DEPLOY_DIR}/.env"
-PREV_TAG_FILE="${DEPLOY_DIR}/.previous-tag"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
 
 # env_file MODE — returns mode-specific .env path.
@@ -80,12 +78,45 @@ wait_healthy() {
   fail "Container '$container' did not become healthy within ${timeout}s"
 }
 
-# set_env_var KEY VALUE [FILE]
-# Sets or updates a KEY=VALUE pair in the given .env file (defaults to $ENV_FILE).
+# container_name MODE — returns the server container name for the given mode.
+container_name() {
+  local mode="$1"
+  if [[ "$mode" == "staging" ]]; then
+    echo "opengate-server-staging"
+  else
+    echo "opengate-server"
+  fi
+}
+
+# validate_mode MODE — exits with error if mode is invalid.
+validate_mode() {
+  local mode="$1"
+  [[ "$mode" == "staging" || "$mode" == "production" ]] || fail "Invalid mode: $mode (expected 'staging' or 'production')"
+}
+
+# redeploy MODE — stops, pulls, and starts containers.
+redeploy() {
+  local mode="$1"
+  log "Stopping existing containers..."
+  compose_cmd "$mode" down --remove-orphans || true
+
+  log "Pulling image..."
+  compose_cmd "$mode" pull server
+
+  log "Starting containers..."
+  compose_cmd "$mode" up -d
+}
+
+# set_env_var KEY VALUE FILE
+# Sets or updates a KEY=VALUE pair in the given .env file.
+# Uses grep+mv instead of sed to avoid regex injection via VALUE.
 set_env_var() {
-  local key="$1" value="$2" file="${3:-$ENV_FILE}"
+  local key="$1" value="$2" file="$3"
   if grep -q "^${key}=" "$file" 2>/dev/null; then
-    sed -i "s/^${key}=.*/${key}=${value}/" "$file"
+    local tmpfile="${file}.tmp.$$"
+    grep -v "^${key}=" "$file" > "$tmpfile"
+    echo "${key}=${value}" >> "$tmpfile"
+    mv "$tmpfile" "$file"
   else
     echo "${key}=${value}" >> "$file"
   fi

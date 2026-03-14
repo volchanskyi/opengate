@@ -63,6 +63,25 @@ func dialWS(t *testing.T, ctx context.Context, serverURL, path string, headers h
 	return conn
 }
 
+func TestRedactToken(t *testing.T) {
+	tests := []struct {
+		name  string
+		token string
+		want  string
+	}{
+		{"long token", "abcdef1234567890abcdef", "abcdef12..."},
+		{"short token", "abc", "***"},
+		{"exactly 8 chars", "12345678", "***"},
+		{"9 chars", "123456789", "12345678..."},
+		{"empty", "", "***"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, redactToken(tt.token))
+		})
+	}
+}
+
 func TestRelayWebSocket(t *testing.T) {
 	t.Run("token_not_in_db", func(t *testing.T) {
 		ts, _, _ := newRelayTestServer(t)

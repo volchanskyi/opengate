@@ -20,14 +20,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$MODE" != "staging" && "$MODE" != "production" ]] && fail "Invalid mode: $MODE"
+validate_mode "$MODE"
 
 # --- Read previous tag --------------------------------------------------------
 
 LOCAL_PREV_TAG_FILE=$(prev_tag_file "$MODE")
 LOCAL_ENV_FILE=$(env_file "$MODE")
-CONTAINER_NAME="opengate-server"
-[[ "$MODE" == "staging" ]] && CONTAINER_NAME="opengate-server-staging"
 
 [[ ! -f "$LOCAL_PREV_TAG_FILE" ]] && fail "No previous tag file found at $LOCAL_PREV_TAG_FILE — nothing to roll back to"
 
@@ -42,18 +40,11 @@ set_env_var IMAGE_TAG "$PREV_TAG" "$LOCAL_ENV_FILE"
 
 # --- Pull and redeploy -------------------------------------------------------
 
-log "Stopping existing containers..."
-compose_cmd "$MODE" down --remove-orphans || true
-
-log "Pulling previous image..."
-compose_cmd "$MODE" pull server
-
-log "Restarting containers..."
-compose_cmd "$MODE" up -d
+redeploy "$MODE"
 
 # --- Wait for health ----------------------------------------------------------
 
-wait_healthy "$CONTAINER_NAME"
+wait_healthy "$(container_name "$MODE")"
 
 # --- Clear previous tag (prevent double-rollback) -----------------------------
 

@@ -97,7 +97,6 @@ jobs:
         run: |
           mkdir -p ~/.oci
           printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
-          echo "OCI_API_KEY" >> ~/.oci/key.pem
           chmod 600 ~/.oci/key.pem
           cat > ~/.oci/config <<EOF
           [DEFAULT]
@@ -265,7 +264,6 @@ jobs:
         run: |
           mkdir -p ~/.oci
           printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
-          echo "OCI_API_KEY" >> ~/.oci/key.pem
           chmod 600 ~/.oci/key.pem
           cat > ~/.oci/config <<EOF
           [DEFAULT]
