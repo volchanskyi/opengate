@@ -60,16 +60,25 @@ http_status() {
   curl -s -o /dev/null -w '%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "$@"
 }
 
+# http_get URL [CURL_ARGS...]
+# Sets RESPONSE_STATUS and RESPONSE_BODY from a GET request.
+RESPONSE_STATUS=""
+RESPONSE_BODY=""
+http_get() {
+  local url="$1"
+  shift
+  local response
+  response=$(curl -s -w '\n%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "$@" "$url")
+  RESPONSE_STATUS=$(echo "$response" | tail -1)
+  RESPONSE_BODY=$(echo "$response" | sed '$d')
+}
+
 # --- Health check (both modes) ------------------------------------------------
 
 test_health() {
-  local response status body
-  response=$(curl -s -w '\n%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "${BASE_URL}/api/v1/health")
-  status=$(echo "$response" | tail -1)
-  body=$(echo "$response" | sed '$d')
-
-  [[ "$status" == "200" ]] || return 1
-  echo "$body" | grep -q '"status"' || return 1
+  http_get "${BASE_URL}/api/v1/health"
+  [[ "$RESPONSE_STATUS" == "200" ]] || return 1
+  echo "$RESPONSE_BODY" | grep -q '"status"' || return 1
 }
 
 check "GET /api/v1/health returns 200" test_health
@@ -77,13 +86,9 @@ check "GET /api/v1/health returns 200" test_health
 # --- Web UI tests (both modes) ------------------------------------------------
 
 test_web_index() {
-  local response status body
-  response=$(curl -s -w '\n%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "${BASE_URL}/")
-  status=$(echo "$response" | tail -1)
-  body=$(echo "$response" | sed '$d')
-
-  [[ "$status" == "200" ]] || return 1
-  echo "$body" | grep -q '<div id="root">' || return 1
+  http_get "${BASE_URL}/"
+  [[ "$RESPONSE_STATUS" == "200" ]] || return 1
+  echo "$RESPONSE_BODY" | grep -q '<div id="root">' || return 1
 }
 
 check "GET / returns 200 with index.html" test_web_index
@@ -114,20 +119,14 @@ if [[ "$MODE" == "staging" ]]; then
   TEST_PASS="SmokeTestPass123!"
 
   test_register() {
-    local response status
-    response=$(curl -s -w '\n%{http_code}' --max-time 10 \
-      -X POST "${BASE_URL}/api/v1/auth/register" \
-      -H 'Content-Type: application/json' \
-      -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASS}\"}")
+    http_get "${BASE_URL}/api/v1/auth/register" \
+      -X POST -H 'Content-Type: application/json' \
+      -d "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASS}\"}"
 
-    status=$(echo "$response" | tail -1)
-    local body
-    body=$(echo "$response" | sed '$d')
-
-    [[ "$status" == "201" ]] || return 1
+    [[ "$RESPONSE_STATUS" == "201" ]] || return 1
 
     # Extract JWT token for subsequent tests
-    JWT=$(echo "$body" | grep -oP '"token"\s*:\s*"\K[^"]+' || echo "")
+    JWT=$(echo "$RESPONSE_BODY" | grep -oP '"token"\s*:\s*"\K[^"]+' || echo "")
     [[ -n "$JWT" ]] || return 1
     export JWT
   }
