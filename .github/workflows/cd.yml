@@ -10,10 +10,6 @@ on:
       image_tag:
         description: "Image tag to deploy (e.g. sha-abc1234)"
         required: true
-      skip_staging:
-        description: "Skip staging and deploy directly to production"
-        type: boolean
-        default: false
 
 concurrency:
   group: deploy
@@ -75,8 +71,6 @@ jobs:
   deploy-staging:
     name: Deploy staging
     needs: resolve-tag
-    if: >-
-      !(github.event_name == 'workflow_dispatch' && inputs.skip_staging)
     runs-on: ubuntu-latest
     environment: staging
     env:
@@ -241,9 +235,6 @@ jobs:
   deploy-production:
     name: Deploy production
     needs: [resolve-tag, deploy-staging]
-    if: >-
-      always() &&
-      (needs.deploy-staging.result == 'success' || needs.deploy-staging.result == 'skipped')
     runs-on: ubuntu-latest
     environment: production
     env:
