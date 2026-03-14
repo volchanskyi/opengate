@@ -514,6 +514,8 @@ jobs:
       security-events: write
     needs: [go-unit, rust-test, web-unit]
     if: github.event_name != 'schedule'
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -534,12 +536,10 @@ jobs:
           name: rust-coverage
           path: agent/
       - name: SonarCloud Scan
+        if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarqube-scan-action@v7
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       - name: Export SonarCloud findings as SARIF
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        if: env.SONAR_TOKEN != ''
         run: |
           pip install --quiet sonar-tools
           sonar-findings-export \
@@ -555,6 +555,7 @@ jobs:
               else . end
           ' sonar-results-raw.sarif > sonar-results.sarif
       - name: Upload SonarCloud SARIF to GitHub
+        if: env.SONAR_TOKEN != ''
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: sonar-results.sarif
