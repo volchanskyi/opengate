@@ -81,9 +81,9 @@ docs/api/                    Scalar API reference viewer
 web/                         React + TypeScript (Vite, Tailwind, Zustand)
 deploy/                      Production deployment
 ├── terraform/               OCI infrastructure (VCN, subnet, compute)
-├── caddy/                   Caddyfile (reverse proxy, auto-TLS)
+├── caddy/                   Caddyfile (reverse proxy, SPA file serving, auto-TLS)
 ├── scripts/                 CD deploy, smoke-test, and rollback scripts
-├── docker-compose.yml       Production stack (server + Caddy)
+├── docker-compose.yml       Production stack (server + web-init + Caddy)
 └── docker-compose.staging.yml  Persistent staging overrides
 testdata/golden/             Cross-language wire format fixtures
 ```

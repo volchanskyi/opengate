@@ -1,8 +1,31 @@
 {$DOMAIN:localhost} {
-	# Reverse proxy to OpenGate server
-	reverse_proxy server:8080 {
-		health_uri /api/v1/health
-		health_interval 10s
+	# API routes → Go server
+	handle /api/* {
+		reverse_proxy server:8080 {
+			health_uri /api/v1/health
+			health_interval 10s
+		}
+	}
+
+	# WebSocket routes → Go server
+	handle /ws/* {
+		reverse_proxy server:8080
+	}
+
+	# Web UI — SPA with try_files fallback
+	handle {
+		root * /srv/web
+
+		# Vite hashed assets — cache forever
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+		# Everything else (index.html) — never cache
+		@html not path /assets/*
+		header @html Cache-Control "no-cache, no-store, must-revalidate"
+
+		try_files {path} /index.html
+		file_server
 	}
 
 	# Security headers

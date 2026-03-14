@@ -74,6 +74,36 @@ test_health() {
 
 check "GET /api/v1/health returns 200" test_health
 
+# --- Web UI tests (both modes) ------------------------------------------------
+
+test_web_index() {
+  local response status body
+  response=$(curl -s -w '\n%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "${BASE_URL}/")
+  status=$(echo "$response" | tail -1)
+  body=$(echo "$response" | sed '$d')
+
+  [[ "$status" == "200" ]] || return 1
+  echo "$body" | grep -q '<div id="root">' || return 1
+}
+
+check "GET / returns 200 with index.html" test_web_index
+
+test_web_spa_fallback() {
+  local status
+  status=$(http_status "${BASE_URL}/devices")
+  [[ "$status" == "200" ]]
+}
+
+check "GET /devices returns 200 (SPA fallback)" test_web_spa_fallback
+
+test_web_static_asset() {
+  local status
+  status=$(http_status "${BASE_URL}/vite.svg")
+  [[ "$status" == "200" ]]
+}
+
+check "GET /vite.svg returns 200 (static file)" test_web_static_asset
+
 # --- Staging-only tests -------------------------------------------------------
 
 if [[ "$MODE" == "staging" ]]; then
