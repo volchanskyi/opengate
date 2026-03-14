@@ -1,8 +1,25 @@
 :80 {
-	reverse_proxy server:8080 {
-		health_uri /api/v1/health
-		health_interval 10s
+	# API routes → Go server
+	handle /api/* {
+		reverse_proxy server:8080 {
+			health_uri /api/v1/health
+			health_interval 10s
+		}
 	}
+
+	# WebSocket routes → Go server
+	handle /ws/* {
+		reverse_proxy server:8080
+	}
+
+	# Web UI — SPA with try_files fallback
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+
+	encode gzip
 
 	log {
 		output stdout

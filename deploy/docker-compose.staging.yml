@@ -14,6 +14,9 @@ services:
       - "19090:9090/udp"
       - "14433:4433"
 
+  web-init:
+    container_name: opengate-web-init-staging
+
   caddy:
     container_name: opengate-caddy-staging
     ports: !override

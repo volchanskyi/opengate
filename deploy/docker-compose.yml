@@ -34,6 +34,14 @@ services:
       retries: 3
       start_period: 5s
 
+  web-init:
+    image: ghcr.io/volchanskyi/opengate-server:${IMAGE_TAG:-latest}
+    container_name: opengate-web-init
+    entrypoint: ["sh", "-c", "rm -rf /web-assets/* && cp -a /srv/web/. /web-assets/"]
+    restart: "no"
+    volumes:
+      - web-assets:/web-assets
+
   caddy:
     image: caddy:2-alpine
     container_name: opengate-caddy
@@ -48,9 +56,12 @@ services:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+      - web-assets:/srv/web:ro
     depends_on:
       server:
         condition: service_healthy
+      web-init:
+        condition: service_completed_successfully
 
 volumes:
   server-data:
@@ -58,4 +69,6 @@ volumes:
   caddy-data:
     driver: local
   caddy-config:
+    driver: local
+  web-assets:
     driver: local
