@@ -24,7 +24,7 @@ done
 
 [[ -z "$MODE" ]] && fail "Missing required argument: --mode <staging|production>"
 [[ -z "$TAG" ]]  && fail "Missing required argument: --tag <image_tag>"
-[[ "$MODE" != "staging" && "$MODE" != "production" ]] && fail "Invalid mode: $MODE"
+validate_mode "$MODE"
 
 log "Deploying OpenGate ($MODE) with image tag: $TAG"
 
@@ -46,21 +46,11 @@ log "Set IMAGE_TAG=$TAG in $LOCAL_ENV_FILE"
 
 # --- Pull and deploy ----------------------------------------------------------
 
-CONTAINER_NAME="opengate-server"
-[[ "$MODE" == "staging" ]] && CONTAINER_NAME="opengate-server-staging"
-
-log "Stopping existing containers..."
-compose_cmd "$MODE" down --remove-orphans || true
-
-log "Pulling image..."
-compose_cmd "$MODE" pull server
-
-log "Starting containers..."
-compose_cmd "$MODE" up -d
+redeploy "$MODE"
 
 # --- Wait for health ----------------------------------------------------------
 
-wait_healthy "$CONTAINER_NAME"
+wait_healthy "$(container_name "$MODE")"
 
 # --- Prune old images ---------------------------------------------------------
 

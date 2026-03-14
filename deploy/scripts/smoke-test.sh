@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -z "$MODE" ]] && fail "Missing required argument: --mode"
-[[ "$MODE" != "staging" && "$MODE" != "production" ]] && fail "Invalid mode: $MODE"
+validate_mode "$MODE"
 
 if [[ -n "$DOMAIN" ]]; then
   BASE_URL="https://${DOMAIN}"
