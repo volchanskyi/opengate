@@ -19,23 +19,23 @@ Run ALL lints, ALL tests, test coverage, and ALL benchmarks. No exceptions. All 
 
 ## Tests (all must pass)
 
-5. `cd server && go test -race -timeout 5m ./...` — Go tests (unit + integration, race detector)
-6. `cd agent && cargo test --workspace` — Rust tests (all crates)
-7. `cd web && npx vitest run` — Web tests
+6. `cd server && go test -race -timeout 5m ./...` — Go tests (unit + integration, race detector)
+7. `cd agent && cargo test --workspace` — Rust tests (all crates)
+8. `cd web && npx vitest run` — Web tests
 
 ## Security audit (must pass)
 
-8. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
+9. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
 
 ## Benchmarks (all must run without errors)
 
-9. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-10. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+10. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+11. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ## Documentation (mandatory on every commit)
 
-11. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-12. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
+12. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+13. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
 
 ## Gate Criteria
 
