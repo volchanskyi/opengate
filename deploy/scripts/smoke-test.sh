@@ -64,9 +64,16 @@ http_status() {
 
 test_health() {
   local response status body
-  response=$(curl -s -w '\n%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "${BASE_URL}/api/v1/health")
-  status=$(echo "$response" | tail -1)
-  body=$(echo "$response" | sed '$d')
+  local url="${BASE_URL}/api/v1/health"
+  log "Requesting: $url"
+  response=$(curl -sv -w '\n%{http_code}' --max-time 10 --retry 3 --retry-delay 2 "${url}" 2>&1)
+  log "Full curl output:"
+  echo "$response" | while IFS= read -r line; do log "  $line"; done
+  status=$(echo "$response" | grep -v '^\*\|^[<>{} ]' | tail -1)
+  body=$(echo "$response" | grep -v '^\*\|^[<>{} ]' | sed '$d')
+
+  log "HTTP status: $status"
+  log "Response body: $body"
 
   [[ "$status" == "200" ]] || return 1
   echo "$body" | grep -q '"status"' || return 1
