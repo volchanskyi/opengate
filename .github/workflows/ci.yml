@@ -216,7 +216,7 @@ jobs:
           path: testdata/golden/
       - run: go test ./internal/protocol/ -run TestGolden -v
       - name: Verify golden files unchanged
-        run: git diff --exit-code testdata/golden/
+        run: git diff --exit-code -- testdata/golden/
 
   web-lint:
     name: Web Lint
