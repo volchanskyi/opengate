@@ -25,7 +25,7 @@ variable "private_key_path" {
 variable "region" {
   description = "OCI region"
   type        = string
-  default     = "eu-frankfurt-1"
+  default     = "us-sanjose-1"
 }
 
 variable "compartment_ocid" {

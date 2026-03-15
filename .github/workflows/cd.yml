@@ -102,6 +102,26 @@ jobs:
           EOF
           chmod 600 ~/.oci/config
 
+      - name: Cleanup stale firewall rules
+        env:
+          NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+        run: |
+          # shellcheck disable=SC2016
+          STALE_RULES=$(oci network nsg rules list \
+            --nsg-id "$NSG_ID" \
+            --query 'data[?"description" != null] | [?starts_with(description, `CD:`)].id' \
+            --output json 2>/dev/null || echo '[]')
+
+          if [[ "$STALE_RULES" != "[]" && -n "$STALE_RULES" ]]; then
+            echo "::warning::Found stale NSG rules from previous runs — cleaning up: $STALE_RULES"
+            oci network nsg rules remove \
+              --nsg-id "$NSG_ID" \
+              --security-rule-ids "$STALE_RULES" || true
+          else
+            echo "No stale NSG rules found"
+          fi
+
       - name: Open SSH firewall for runner
         id: firewall
         env:
@@ -265,6 +285,26 @@ jobs:
           region=$OCI_REGION
           EOF
           chmod 600 ~/.oci/config
+
+      - name: Cleanup stale firewall rules
+        env:
+          NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
+          OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+        run: |
+          # shellcheck disable=SC2016
+          STALE_RULES=$(oci network nsg rules list \
+            --nsg-id "$NSG_ID" \
+            --query 'data[?"description" != null] | [?starts_with(description, `CD:`)].id' \
+            --output json 2>/dev/null || echo '[]')
+
+          if [[ "$STALE_RULES" != "[]" && -n "$STALE_RULES" ]]; then
+            echo "::warning::Found stale NSG rules from previous runs — cleaning up: $STALE_RULES"
+            oci network nsg rules remove \
+              --nsg-id "$NSG_ID" \
+              --security-rule-ids "$STALE_RULES" || true
+          else
+            echo "No stale NSG rules found"
+          fi
 
       - name: Open SSH firewall for runner
         id: firewall

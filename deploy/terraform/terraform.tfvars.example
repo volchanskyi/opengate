@@ -5,7 +5,7 @@ fingerprint      = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
 private_key_path = "~/.oci/oci_api_key.pem"
 
 # Region and compartment
-region           = "eu-frankfurt-1"
+region           = "us-sanjose-1"
 compartment_ocid = ""  # leave empty to use tenancy root
 
 # Networking
