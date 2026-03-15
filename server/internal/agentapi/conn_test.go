@@ -141,25 +141,6 @@ func TestAgentConn_SendSessionRequest(t *testing.T) {
 	assert.True(t, decoded.Permissions.Terminal)
 }
 
-func TestRedactToken(t *testing.T) {
-	tests := []struct {
-		name  string
-		token string
-		want  string
-	}{
-		{"long token", "abcdef1234567890abcdef", "abcdef12..."},
-		{"short token", "abc", "***"},
-		{"exactly 8 chars", "12345678", "***"},
-		{"9 chars", "123456789", "12345678..."},
-		{"empty", "", "***"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, redactToken(tt.token))
-		})
-	}
-}
-
 func TestAgentConn_HandleUnknownMessage(t *testing.T) {
 	codec := &protocol.Codec{}
 

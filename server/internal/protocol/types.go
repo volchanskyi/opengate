@@ -121,3 +121,11 @@ type FileEntry struct {
 
 // MaxFrameSize is the maximum payload size for a single frame (16 MiB).
 const MaxFrameSize = 16 * 1024 * 1024
+
+// RedactToken returns the first 8 characters of a token for safe logging.
+func RedactToken(token string) string {
+	if len(token) <= 8 {
+		return "***"
+	}
+	return token[:8] + "..."
+}

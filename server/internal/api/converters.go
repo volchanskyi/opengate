@@ -6,6 +6,15 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 )
 
+// mapSlice converts a slice of one type to another using the given function.
+func mapSlice[S, D any](items []S, fn func(S) D) []D {
+	out := make([]D, len(items))
+	for i, item := range items {
+		out[i] = fn(item)
+	}
+	return out
+}
+
 func deviceToAPI(d *db.Device) Device {
 	return Device{
 		Id:        d.ID,
@@ -20,11 +29,7 @@ func deviceToAPI(d *db.Device) Device {
 }
 
 func devicesToAPI(ds []*db.Device) []Device {
-	out := make([]Device, len(ds))
-	for i, d := range ds {
-		out[i] = deviceToAPI(d)
-	}
-	return out
+	return mapSlice(ds, deviceToAPI)
 }
 
 func groupToAPI(g *db.Group) Group {
@@ -38,11 +43,7 @@ func groupToAPI(g *db.Group) Group {
 }
 
 func groupsToAPI(gs []*db.Group) []Group {
-	out := make([]Group, len(gs))
-	for i, g := range gs {
-		out[i] = groupToAPI(g)
-	}
-	return out
+	return mapSlice(gs, groupToAPI)
 }
 
 func userToAPI(u *db.User) User {
@@ -57,11 +58,7 @@ func userToAPI(u *db.User) User {
 }
 
 func usersToAPI(us []*db.User) []User {
-	out := make([]User, len(us))
-	for i, u := range us {
-		out[i] = userToAPI(u)
-	}
-	return out
+	return mapSlice(us, userToAPI)
 }
 
 func sessionToAPI(s *db.AgentSession) AgentSession {
@@ -74,11 +71,7 @@ func sessionToAPI(s *db.AgentSession) AgentSession {
 }
 
 func sessionsToAPI(ss []*db.AgentSession) []AgentSession {
-	out := make([]AgentSession, len(ss))
-	for i, s := range ss {
-		out[i] = sessionToAPI(s)
-	}
-	return out
+	return mapSlice(ss, sessionToAPI)
 }
 
 func permissionsToProtocol(p *Permissions) protocol.Permissions {
@@ -113,11 +106,7 @@ func auditEventToAPI(e *db.AuditEvent) AuditEvent {
 }
 
 func auditEventsToAPI(es []*db.AuditEvent) []AuditEvent {
-	out := make([]AuditEvent, len(es))
-	for i, e := range es {
-		out[i] = auditEventToAPI(e)
-	}
-	return out
+	return mapSlice(es, auditEventToAPI)
 }
 
 func iceServersToAPI(servers []signaling.ICEServer) []ICEServer {

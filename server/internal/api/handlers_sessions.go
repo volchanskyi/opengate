@@ -110,7 +110,7 @@ func (s *Server) DeleteSession(ctx context.Context, request DeleteSessionRequest
 		return nil, err
 	}
 
-	s.auditLog(ContextUserID(ctx), "session.delete", redactToken(request.Token), "")
+	s.auditLog(ContextUserID(ctx), "session.delete", protocol.RedactToken(request.Token), "")
 	_ = s.notifier.Notify(ctx, notifications.Event{
 		Type:      notifications.EventSessionEnded,
 		UserID:    ContextUserID(ctx),

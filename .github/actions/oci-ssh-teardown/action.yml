@@ -1,0 +1,28 @@
+name: OCI + SSH Teardown
+description: Close NSG firewall rule and remove SSH credentials.
+
+inputs:
+  nsg-id:
+    required: true
+  rule-id:
+    description: NSG rule ID returned by oci-ssh-setup
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Close SSH firewall
+      if: inputs.rule-id != ''
+      shell: bash
+      env:
+        NSG_ID: ${{ inputs.nsg-id }}
+        OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+      run: |
+        oci network nsg rules remove \
+          --nsg-id "$NSG_ID" \
+          --security-rule-ids '["${{ inputs.rule-id }}"]' \
+          || true
+
+    - name: Cleanup SSH
+      shell: bash
+      run: rm -rf ~/.ssh/deploy_key ~/.oci

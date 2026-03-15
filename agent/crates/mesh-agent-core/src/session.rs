@@ -377,7 +377,7 @@ impl TerminalHandle {
         // Convert key code to terminal bytes
         let bytes = key_to_bytes(key);
         if !bytes.is_empty() {
-            let _ = self.stdin_tx.try_send(bytes);
+            let _ = self.stdin_tx.try_send(bytes.to_vec());
         }
     }
 
@@ -464,84 +464,39 @@ async fn send_frame(tx: &mpsc::Sender<Vec<u8>>, frame: &Frame) -> Result<(), Ses
 }
 
 /// Convert a KeyCode to terminal-compatible bytes.
-fn key_to_bytes(key: mesh_protocol::KeyCode) -> Vec<u8> {
+fn key_to_bytes(key: mesh_protocol::KeyCode) -> &'static [u8] {
     use mesh_protocol::KeyCode::*;
     match key {
-        KeyA => b"a".to_vec(),
-        KeyB => b"b".to_vec(),
-        KeyC => b"c".to_vec(),
-        KeyD => b"d".to_vec(),
-        KeyE => b"e".to_vec(),
-        KeyF => b"f".to_vec(),
-        KeyG => b"g".to_vec(),
-        KeyH => b"h".to_vec(),
-        KeyI => b"i".to_vec(),
-        KeyJ => b"j".to_vec(),
-        KeyK => b"k".to_vec(),
-        KeyL => b"l".to_vec(),
-        KeyM => b"m".to_vec(),
-        KeyN => b"n".to_vec(),
-        KeyO => b"o".to_vec(),
-        KeyP => b"p".to_vec(),
-        KeyQ => b"q".to_vec(),
-        KeyR => b"r".to_vec(),
-        KeyS => b"s".to_vec(),
-        KeyT => b"t".to_vec(),
-        KeyU => b"u".to_vec(),
-        KeyV => b"v".to_vec(),
-        KeyW => b"w".to_vec(),
-        KeyX => b"x".to_vec(),
-        KeyY => b"y".to_vec(),
-        KeyZ => b"z".to_vec(),
-        Digit0 => b"0".to_vec(),
-        Digit1 => b"1".to_vec(),
-        Digit2 => b"2".to_vec(),
-        Digit3 => b"3".to_vec(),
-        Digit4 => b"4".to_vec(),
-        Digit5 => b"5".to_vec(),
-        Digit6 => b"6".to_vec(),
-        Digit7 => b"7".to_vec(),
-        Digit8 => b"8".to_vec(),
-        Digit9 => b"9".to_vec(),
-        Enter => b"\r".to_vec(),
-        Tab => b"\t".to_vec(),
-        Escape => b"\x1b".to_vec(),
-        Backspace => b"\x7f".to_vec(),
-        Space => b" ".to_vec(),
-        ArrowUp => b"\x1b[A".to_vec(),
-        ArrowDown => b"\x1b[B".to_vec(),
-        ArrowRight => b"\x1b[C".to_vec(),
-        ArrowLeft => b"\x1b[D".to_vec(),
-        Home => b"\x1b[H".to_vec(),
-        End => b"\x1b[F".to_vec(),
-        PageUp => b"\x1b[5~".to_vec(),
-        PageDown => b"\x1b[6~".to_vec(),
-        Delete => b"\x1b[3~".to_vec(),
-        Insert => b"\x1b[2~".to_vec(),
-        F1 => b"\x1bOP".to_vec(),
-        F2 => b"\x1bOQ".to_vec(),
-        F3 => b"\x1bOR".to_vec(),
-        F4 => b"\x1bOS".to_vec(),
-        F5 => b"\x1b[15~".to_vec(),
-        F6 => b"\x1b[17~".to_vec(),
-        F7 => b"\x1b[18~".to_vec(),
-        F8 => b"\x1b[19~".to_vec(),
-        F9 => b"\x1b[20~".to_vec(),
-        F10 => b"\x1b[21~".to_vec(),
-        F11 => b"\x1b[23~".to_vec(),
-        F12 => b"\x1b[24~".to_vec(),
-        Minus => b"-".to_vec(),
-        Equal => b"=".to_vec(),
-        BracketLeft => b"[".to_vec(),
-        BracketRight => b"]".to_vec(),
-        Backslash => b"\\".to_vec(),
-        Semicolon => b";".to_vec(),
-        Quote => b"'".to_vec(),
-        Comma => b",".to_vec(),
-        Period => b".".to_vec(),
-        Slash => b"/".to_vec(),
-        Backquote => b"`".to_vec(),
-        _ => Vec::new(), // Modifiers and special keys don't produce bytes
+        // Letters (a-z)
+        KeyA => b"a", KeyB => b"b", KeyC => b"c", KeyD => b"d", KeyE => b"e",
+        KeyF => b"f", KeyG => b"g", KeyH => b"h", KeyI => b"i", KeyJ => b"j",
+        KeyK => b"k", KeyL => b"l", KeyM => b"m", KeyN => b"n", KeyO => b"o",
+        KeyP => b"p", KeyQ => b"q", KeyR => b"r", KeyS => b"s", KeyT => b"t",
+        KeyU => b"u", KeyV => b"v", KeyW => b"w", KeyX => b"x", KeyY => b"y",
+        KeyZ => b"z",
+        // Digits (0-9)
+        Digit0 => b"0", Digit1 => b"1", Digit2 => b"2", Digit3 => b"3",
+        Digit4 => b"4", Digit5 => b"5", Digit6 => b"6", Digit7 => b"7",
+        Digit8 => b"8", Digit9 => b"9",
+        // Whitespace / control
+        Enter => b"\r", Tab => b"\t", Escape => b"\x1b",
+        Backspace => b"\x7f", Space => b" ",
+        // Arrows & navigation
+        ArrowUp => b"\x1b[A", ArrowDown => b"\x1b[B",
+        ArrowRight => b"\x1b[C", ArrowLeft => b"\x1b[D",
+        Home => b"\x1b[H", End => b"\x1b[F",
+        PageUp => b"\x1b[5~", PageDown => b"\x1b[6~",
+        Delete => b"\x1b[3~", Insert => b"\x1b[2~",
+        // Function keys
+        F1 => b"\x1bOP", F2 => b"\x1bOQ", F3 => b"\x1bOR", F4 => b"\x1bOS",
+        F5 => b"\x1b[15~", F6 => b"\x1b[17~", F7 => b"\x1b[18~", F8 => b"\x1b[19~",
+        F9 => b"\x1b[20~", F10 => b"\x1b[21~", F11 => b"\x1b[23~", F12 => b"\x1b[24~",
+        // Punctuation
+        Minus => b"-", Equal => b"=", BracketLeft => b"[", BracketRight => b"]",
+        Backslash => b"\\", Semicolon => b";", Quote => b"'", Comma => b",",
+        Period => b".", Slash => b"/", Backquote => b"`",
+        // Modifiers and special keys don't produce bytes
+        _ => b"",
     }
 }
 

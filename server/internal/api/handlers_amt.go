@@ -26,7 +26,7 @@ func (s *Server) ListAMTDevices(ctx context.Context, _ ListAMTDevicesRequestObje
 
 	result := make(ListAMTDevices200JSONResponse, 0, len(devices))
 	for _, d := range devices {
-		result = append(result, toAMTDeviceResponse(d))
+		result = append(result, amtDeviceToAPI(d))
 	}
 	return result, nil
 }
@@ -37,7 +37,7 @@ func (s *Server) GetAMTDevice(ctx context.Context, request GetAMTDeviceRequestOb
 	if err != nil {
 		return GetAMTDevice404JSONResponse{Error: "device not found"}, nil
 	}
-	return GetAMTDevice200JSONResponse(toAMTDeviceResponse(d)), nil
+	return GetAMTDevice200JSONResponse(amtDeviceToAPI(d)), nil
 }
 
 // AmtPowerAction sends a power command to a connected AMT device.
@@ -56,7 +56,7 @@ func (s *Server) AmtPowerAction(ctx context.Context, request AmtPowerActionReque
 	return AmtPowerAction200Response{}, nil
 }
 
-func toAMTDeviceResponse(d *db.AMTDevice) AMTDevice {
+func amtDeviceToAPI(d *db.AMTDevice) AMTDevice {
 	status := AMTDeviceStatusOffline
 	if d.Status == db.StatusOnline {
 		status = AMTDeviceStatusOnline
