@@ -5,6 +5,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -17,13 +18,28 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/api"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
+
+// stubAMT is a test double for api.AMTOperator that always returns "not connected".
+type stubAMT struct{}
+
+func (s *stubAMT) PowerAction(_ context.Context, _ uuid.UUID, _ int) error {
+	return amt.ErrDeviceNotConnected
+}
+
+func (s *stubAMT) QueryDeviceInfo(_ context.Context, _ uuid.UUID) (*wsman.DeviceInfo, error) {
+	return nil, amt.ErrDeviceNotConnected
+}
+
+func (s *stubAMT) ConnectedDeviceCount() int { return 0 }
 
 const (
 	pathUsersMe   = "/api/v1/users/me"
@@ -52,6 +68,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	srv := api.NewServer(api.ServerConfig{
 		Store:    store,
 		JWT:      jwtCfg,
+		AMT:      &stubAMT{},
 		Relay:    relay.NewRelay(),
 		Notifier: &notifications.NoopNotifier{},
 		Logger:   logger,

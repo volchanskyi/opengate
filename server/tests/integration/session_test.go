@@ -347,18 +347,19 @@ func TestSessionLifecycle_ConcurrentSessions(t *testing.T) {
 	ctx := context.Background()
 
 	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
 
 	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	require.NoError(t, err)
 
-	// Connect 3 agents
+	// Connect 3 agents — each with its own group to eliminate shared-row
+	// SQLite contention that caused the flaky FOREIGN KEY failures.
 	type agentInfo struct {
 		stream   io.ReadWriter
 		deviceID uuid.UUID
 	}
 	agents := make([]agentInfo, 3)
 	for i := range agents {
+		group := testutil.SeedGroup(t, ctx, env.store, user.ID)
 		stream, deviceID := env.connectAgent(t, group.ID)
 		agents[i] = agentInfo{stream: stream, deviceID: deviceID}
 	}
@@ -482,4 +483,76 @@ func TestSessionLifecycle_AgentDisconnectDuringSession(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return env.relay.ActiveSessionCount() == 0
 	}, 5*time.Second, 100*time.Millisecond)
+}
+
+func TestSessionLifecycleSessionForOfflineDevice(t *testing.T) {
+	env := newSessionTestEnv(t)
+	ctx := context.Background()
+
+	user := testutil.SeedUser(t, ctx, env.store)
+	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	device := testutil.SeedDevice(t, ctx, env.store, group.ID) // offline, no agent
+
+	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	require.NoError(t, err)
+
+	// Try to create session for an offline device — agent not connected → 409
+	body := map[string]interface{}{
+		"device_id": device.ID.String(),
+	}
+	var buf bytes.Buffer
+	require.NoError(t, json.NewEncoder(&buf).Encode(body))
+
+	req, err := http.NewRequest(http.MethodPost, env.httpSrv.URL+pathSessions, &buf)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", bearerPrefix+jwtToken)
+
+	resp, err := env.httpSrv.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+}
+
+func TestSessionLifecycleSessionForNonexistentDevice(t *testing.T) {
+	env := newSessionTestEnv(t)
+	ctx := context.Background()
+
+	user := testutil.SeedUser(t, ctx, env.store)
+
+	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	require.NoError(t, err)
+
+	// Try to create session for a device that doesn't exist → 404
+	body := map[string]interface{}{
+		"device_id": uuid.New().String(),
+	}
+	var buf bytes.Buffer
+	require.NoError(t, json.NewEncoder(&buf).Encode(body))
+
+	req, err := http.NewRequest(http.MethodPost, env.httpSrv.URL+pathSessions, &buf)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", bearerPrefix+jwtToken)
+
+	resp, err := env.httpSrv.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestSessionLifecycleDeleteNonexistentSession(t *testing.T) {
+	env := newSessionTestEnv(t)
+	ctx := context.Background()
+
+	user := testutil.SeedUser(t, ctx, env.store)
+
+	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	require.NoError(t, err)
+
+	// Try to delete a session that doesn't exist → 404
+	status := env.deleteSession(t, jwtToken, "nonexistent-token-that-does-not-exist-at-all-1234567890abcdef")
+	assert.Equal(t, http.StatusNotFound, status)
+
+	_ = ctx // used for seeding
 }

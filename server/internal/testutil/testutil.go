@@ -6,9 +6,11 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
@@ -73,4 +75,44 @@ func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, u
 	}
 	require.NoError(t, s.CreateAgentSession(ctx, sess))
 	return sess
+}
+
+// SeedAdminUser inserts an admin user with a real bcrypt password hash.
+func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*db.User, string) {
+	t.Helper()
+	password := "admin-pass-" + uuid.New().String()[:8]
+	hash, err := auth.HashPassword(password)
+	require.NoError(t, err)
+	u := &db.User{
+		ID:           uuid.New(),
+		Email:        "admin-" + uuid.New().String()[:8] + "@example.com",
+		PasswordHash: hash,
+		DisplayName:  "Admin User",
+		IsAdmin:      true,
+	}
+	require.NoError(t, s.UpsertUser(ctx, u))
+	return u, password
+}
+
+// SeedAMTDevice inserts an AMT device record into the store.
+func SeedAMTDevice(t testing.TB, ctx context.Context, s db.Store) *db.AMTDevice {
+	t.Helper()
+	d := &db.AMTDevice{
+		UUID:     uuid.New(),
+		Hostname: "amt-" + uuid.New().String()[:8],
+		Model:    "Intel NUC",
+		Firmware: "16.1.0",
+		Status:   db.StatusOffline,
+		LastSeen: time.Now(),
+	}
+	require.NoError(t, s.UpsertAMTDevice(ctx, d))
+	return d
+}
+
+// GenerateJWT creates a JWT token for the given user using the provided config.
+func GenerateJWT(t testing.TB, cfg *auth.JWTConfig, user *db.User) string {
+	t.Helper()
+	token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	require.NoError(t, err)
+	return token
 }
