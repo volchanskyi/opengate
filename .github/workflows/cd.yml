@@ -107,7 +107,7 @@ jobs:
           NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
           OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
         run: |
-          # shellcheck disable=SC2016 -- backticks are JMESPath string literals, not shell
+          # shellcheck disable=SC2016
           STALE_RULES=$(oci network nsg rules list \
             --nsg-id "$NSG_ID" \
             --query 'data[?"description" != null] | [?starts_with(description, `CD:`)].id' \
@@ -291,7 +291,7 @@ jobs:
           NSG_ID: ${{ secrets.OCI_CD_NSG_ID }}
           OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
         run: |
-          # shellcheck disable=SC2016 -- backticks are JMESPath string literals, not shell
+          # shellcheck disable=SC2016
           STALE_RULES=$(oci network nsg rules list \
             --nsg-id "$NSG_ID" \
             --query 'data[?"description" != null] | [?starts_with(description, `CD:`)].id' \
