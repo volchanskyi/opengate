@@ -24,4 +24,4 @@ COPY --from=web-build /build/web/dist /srv/web
 USER opengate
 EXPOSE 8080 4433 9090/udp
 ENTRYPOINT ["meshserver"]
-CMD ["-listen", ":8080", "-quic-listen", ":9090", "-mps-listen", ":4433", "-data-dir", "/data"]
+CMD ["-listen", ":8080", "-quic-listen", ":9090", "-mps-listen", ":4433", "-data-dir", "/data", "-web-dir", "/srv/web"]

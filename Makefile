@@ -1,4 +1,4 @@
-.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt golden ci clean
+.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt golden ci clean e2e load-test load-test-quic
 
 build:
 	cd agent && cargo build --workspace
@@ -43,6 +43,7 @@ lint-deploy:
 	cd deploy && $(DEPLOY_DUMMY_ENV) docker compose config --quiet
 	cd deploy && $(DEPLOY_DUMMY_ENV) STAGING_JWT_SECRET=dummy \
 	  docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet
+	cd deploy && docker compose -f docker-compose.test.yml config --quiet
 	@command -v caddy >/dev/null && (caddy fmt --diff deploy/caddy/Caddyfile && caddy fmt --diff deploy/caddy/Caddyfile.staging \
 	  && caddy validate --config deploy/caddy/Caddyfile --adapter caddyfile \
 	  && caddy validate --config deploy/caddy/Caddyfile.staging --adapter caddyfile) || echo "SKIP: caddy not installed"
@@ -60,6 +61,18 @@ golden:
 	cd server && go test ./internal/protocol/ -run TestGolden
 
 ci: lint test build
+
+e2e:
+	cd deploy && docker compose -f docker-compose.test.yml up -d --build --wait
+	cd web && npx playwright test
+	cd deploy && docker compose -f docker-compose.test.yml down -v
+
+load-test:
+	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/api-baseline.js
+	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/relay-throughput.js
+
+load-test-quic:
+	cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
 
 clean:
 	cd agent && cargo clean

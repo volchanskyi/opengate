@@ -6,6 +6,8 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -44,6 +46,7 @@ type ServerConfig struct {
 	Signaling *signaling.Tracker
 	Notifier  notifications.Notifier
 	Logger    *slog.Logger
+	WebDir    string // directory containing SPA static assets (optional)
 }
 
 // Server is the HTTP API server.
@@ -57,6 +60,7 @@ type Server struct {
 	notifier  notifications.Notifier
 	router    chi.Router
 	logger    *slog.Logger
+	webDir    string
 }
 
 // NewServer creates an API server with all routes registered.
@@ -71,6 +75,7 @@ func NewServer(cfg ServerConfig) *Server {
 		notifier:  cfg.Notifier,
 		router:    chi.NewRouter(),
 		logger:    cfg.Logger,
+		webDir:    cfg.WebDir,
 	}
 	s.routes()
 	return s
@@ -109,6 +114,28 @@ func (s *Server) routes() {
 
 	// WebSocket relay — token in URL acts as auth
 	r.Get("/ws/relay/{token}", s.handleRelayWebSocket)
+
+	// SPA static file serving with index.html fallback
+	if s.webDir != "" {
+		webFS := http.Dir(s.webDir)
+		fileServer := http.FileServer(webFS)
+		r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+			// Try to serve the exact file first (JS, CSS, images, etc.)
+			path := r.URL.Path
+			if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/ws/") {
+				if f, err := os.Open(s.webDir + path); err == nil {
+					f.Close()
+					fileServer.ServeHTTP(w, r)
+					return
+				}
+				// Fall back to index.html for SPA client-side routing
+				r.URL.Path = "/"
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+			http.NotFound(w, r)
+		})
+	}
 }
 
 // oapiAuthMiddleware returns a middleware that applies JWT validation

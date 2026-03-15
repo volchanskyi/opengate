@@ -84,7 +84,9 @@ deploy/                      Production deployment
 ├── caddy/                   Caddyfile (reverse proxy, SPA file serving, auto-TLS)
 ├── scripts/                 CD deploy, smoke-test, and rollback scripts
 ├── docker-compose.yml       Production stack (server + web-init + Caddy)
-└── docker-compose.staging.yml  Persistent staging overrides
+├── docker-compose.staging.yml  Persistent staging overrides
+└── docker-compose.test.yml  E2E test environment (tmpfs, single server)
+load/k6/scenarios/           k6 load test scripts (API baseline, relay, concurrent agents)
 testdata/golden/             Cross-language wire format fixtures
 ```
 
@@ -99,4 +101,7 @@ make test-web           # React / TypeScript
 make test-coverage      # Go coverage report printed to stdout
 make golden             # Regenerate golden fixtures and verify cross-language compat
 make lint-deploy        # Validate deploy configs (Terraform, Compose, Caddy, YAML)
+make e2e                # End-to-end Playwright tests via docker-compose.test.yml
+make load-test          # k6 HTTP/WS load tests against localhost:8080
+make load-test-quic     # Go QUIC load harness (100 concurrent agents)
 ```

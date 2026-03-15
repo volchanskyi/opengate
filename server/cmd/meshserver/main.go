@@ -30,6 +30,7 @@ func main() {
 	dataDir := flag.String("data-dir", "./data", "directory for database and certificates")
 	jwtSecret := flag.String("jwt-secret", "", "JWT signing secret (or JWT_SECRET env)")
 	vapidContact := flag.String("vapid-contact", "", "VAPID contact email for web push (optional)")
+	webDir := flag.String("web-dir", "", "directory containing SPA static assets (optional)")
 	amtUser := flag.String("amt-user", "admin", "AMT WSMAN username for device management")
 	amtPass := flag.String("amt-pass", "", "AMT WSMAN password for device management")
 	flag.Parse()
@@ -94,6 +95,7 @@ func main() {
 		Signaling: sigTracker,
 		Notifier:  notifier,
 		Logger:    logger,
+		WebDir:    *webDir,
 	})
 
 	httpSrv := &http.Server{
