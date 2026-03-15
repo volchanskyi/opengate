@@ -7,7 +7,7 @@ services:
     environment:
       - JWT_SECRET=e2e-test-secret-minimum-32-bytes!
       - OPENGATE_TEST_MODE=true
-    command: ["-listen", ":8080", "-data-dir", "/data"]
+    command: ["-listen", ":8080", "-data-dir", "/data", "-web-dir", "/srv/web"]
     ports:
       - "8080:8080"
     healthcheck:

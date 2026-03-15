@@ -26,9 +26,6 @@ export async function createTestUser(
 /** Inject the JWT into localStorage so the SPA treats the session as logged in. */
 export async function injectAuth(page: Page, token: string): Promise<void> {
   await page.evaluate((t) => {
-    localStorage.setItem("auth-storage", JSON.stringify({
-      state: { token: t },
-      version: 0,
-    }));
+    localStorage.setItem("token", t);
   }, token);
 }

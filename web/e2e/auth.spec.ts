@@ -62,10 +62,7 @@ test.describe("Auth flows", () => {
     // Inject a garbage token to simulate expired session
     await page.goto("/");
     await page.evaluate(() => {
-      localStorage.setItem(
-        "auth-storage",
-        JSON.stringify({ state: { token: "expired.token.here" }, version: 0 })
-      );
+      localStorage.setItem("token", "expired.token.here");
     });
 
     await page.goto("/devices");
