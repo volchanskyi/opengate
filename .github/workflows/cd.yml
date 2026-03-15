@@ -78,6 +78,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Playwright dependencies
+        working-directory: web
+        run: npm ci && npx playwright install --with-deps chromium
+
       - name: Install OCI CLI
         run: pip install oci-cli --quiet
 
@@ -227,6 +237,22 @@ jobs:
         run: |
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/smoke-test.sh \
             --host 127.0.0.1 --port 18080 --mode staging --scheme http"
+
+      - name: Open SSH tunnel for Playwright
+        run: |
+          ssh -fN -L 18080:127.0.0.1:18080 deploy-target
+          echo "SSH tunnel established on localhost:18080"
+
+      - name: Run Playwright E2E against staging
+        working-directory: web
+        run: npx playwright test --config=playwright.staging.config.ts
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: staging-playwright-report
+          path: web/playwright-report/
 
       - name: Rollback on failure
         if: failure()
