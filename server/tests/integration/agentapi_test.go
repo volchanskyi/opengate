@@ -69,6 +69,53 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	}
 }
 
+// connectAgentWithID establishes a QUIC connection as a test agent with a specific device ID.
+// The device must already exist in the DB.
+func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) quic.Stream {
+	t.Helper()
+	ctx := context.Background()
+
+	tlsCert, err := e.certMgr.SignAgent(deviceID.String(), "test-agent")
+	require.NoError(t, err)
+
+	agentTLSCfg := e.certMgr.AgentTLSConfig(tlsCert)
+
+	conn, err := quic.DialAddr(ctx, e.addr, agentTLSCfg, &quic.Config{
+		MaxIdleTimeout: 30 * time.Second,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.CloseWithError(0, "test done") })
+
+	stream, err := conn.AcceptStream(ctx)
+	require.NoError(t, err)
+
+	serverHello := make([]byte, 81)
+	_, err = io.ReadFull(stream, serverHello)
+	require.NoError(t, err)
+	require.Equal(t, byte(protocol.MsgServerHello), serverHello[0])
+
+	agentCertDER := tlsCert.Certificate[0]
+	agentCertHash := sha512.Sum384(agentCertDER)
+	var nonce [32]byte
+	copy(nonce[:], serverHello[1:33])
+	agentHello := protocol.EncodeAgentHello(nonce, agentCertHash)
+	_, err = stream.Write(agentHello)
+	require.NoError(t, err)
+
+	codec := &protocol.Codec{}
+	regMsg := &protocol.ControlMessage{
+		Type:         protocol.MsgAgentRegister,
+		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
+		Hostname:     "integration-test-host",
+		OS:           "linux",
+	}
+	payload, err := codec.EncodeControl(regMsg)
+	require.NoError(t, err)
+	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, payload))
+
+	return stream
+}
+
 // connectAgent establishes a QUIC connection as a test agent and performs the handshake.
 // Returns the stream, device ID, and agent cert DER.
 func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (quic.Stream, uuid.UUID) {
@@ -76,6 +123,18 @@ func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (quic.Strea
 	ctx := context.Background()
 
 	deviceID := uuid.New()
+
+	// Pre-seed the device in the DB BEFORE connecting so the server can
+	// find its group during accept(). Previously this happened after the
+	// handshake, causing races with concurrent connections on SQLite.
+	seedDevice := &db.Device{
+		ID:       deviceID,
+		GroupID:  groupID,
+		Hostname: "pre-seed",
+		OS:       "linux",
+		Status:   db.StatusOffline,
+	}
+	require.NoError(t, e.store.UpsertDevice(ctx, seedDevice))
 
 	// Sign an agent cert using the CA
 	tlsCert, err := e.certMgr.SignAgent(deviceID.String(), "test-agent")
@@ -108,16 +167,6 @@ func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (quic.Strea
 	agentHello := protocol.EncodeAgentHello(nonce, agentCertHash)
 	_, err = stream.Write(agentHello)
 	require.NoError(t, err)
-
-	// Pre-seed the device in the DB so the server can find its group
-	seedDevice := &db.Device{
-		ID:       deviceID,
-		GroupID:  groupID,
-		Hostname: "pre-seed",
-		OS:       "linux",
-		Status:   db.StatusOffline,
-	}
-	require.NoError(t, e.store.UpsertDevice(ctx, seedDevice))
 
 	// Send AgentRegister
 	codec := &protocol.Codec{}

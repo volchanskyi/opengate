@@ -215,6 +215,8 @@ jobs:
           name: golden-files
           path: testdata/golden/
       - run: go test ./internal/protocol/ -run TestGolden -v
+      - name: Verify golden files unchanged
+        run: git diff --exit-code -- testdata/golden/
 
   web-lint:
     name: Web Lint
@@ -318,6 +320,82 @@ jobs:
           fi
           exit $EXIT_CODE
 
+  e2e:
+    name: E2E Tests
+    needs:
+      - rust-lint
+      - rust-test
+      - go-lint
+      - go-unit
+      - go-integration
+      - golden
+      - web-lint
+      - web-unit
+      - web-integration
+      - config-lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+      - name: Install Playwright Chromium
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      - name: Start test server
+        run: |
+          cd deploy && docker compose -f docker-compose.test.yml up -d --build --wait
+      - name: Wait for server
+        run: bash deploy/scripts/wait-for-server.sh http://localhost:8080 60
+      - name: Run Playwright tests
+        working-directory: web
+        run: npx playwright test
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+      - name: Teardown
+        if: always()
+        run: cd deploy && docker compose -f docker-compose.test.yml down -v
+
+  load-test:
+    name: Load Tests
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+      - name: Install k6
+        run: |
+          curl -sL https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz | tar xz
+          sudo mv k6-v0.54.0-linux-amd64/k6 /usr/local/bin/
+      - name: Start test server
+        run: |
+          cd deploy && docker compose -f docker-compose.test.yml up -d --build --wait
+      - name: Wait for server
+        run: bash deploy/scripts/wait-for-server.sh http://localhost:8080 60
+      - name: Run k6 API baseline
+        run: k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/api-baseline.js
+      - name: Run k6 concurrent agents
+        run: k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/concurrent-agents.js
+      - name: Teardown
+        if: always()
+        run: cd deploy && docker compose -f docker-compose.test.yml down -v
+
   deploy-api-docs:
     name: Deploy API Docs
     needs: [web-unit]
@@ -390,6 +468,7 @@ jobs:
         run: |
           docker compose config --quiet
           docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet
+          docker compose -f docker-compose.test.yml config --quiet
 
       # Caddyfile validation
       - name: Install Caddy
@@ -581,6 +660,7 @@ jobs:
       - codeql-rust
       - security-audit
       - sonarcloud
+      - e2e
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/dependabot-dev')
     runs-on: ubuntu-latest
     outputs:
@@ -674,6 +754,7 @@ jobs:
       - codeql-rust
       - security-audit
       - sonarcloud
+      - e2e
       - deploy-api-docs
       - merge-to-main
       - sync-branches
