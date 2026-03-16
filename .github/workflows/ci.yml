@@ -641,7 +641,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.SYNC_TOKEN }}
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -800,6 +800,7 @@ jobs:
           fi
 
       - name: Commit changelog and tag
+        id: push
         if: steps.bump.outputs.skip != 'true'
         run: |
           TAG="${{ steps.bump.outputs.tag }}"
@@ -807,6 +808,7 @@ jobs:
           # Check if tag already exists (idempotency)
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists — skipping"
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -814,7 +816,15 @@ jobs:
           git commit -m "docs: update CHANGELOG for $TAG [skip ci]"
           git tag "$TAG"
           git push origin main "$TAG"
-          echo "Pushed CHANGELOG commit + $TAG → release-agent.yml will trigger"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger release workflow
+        if: steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          gh workflow run release-agent.yml -f tag="${{ steps.bump.outputs.tag }}"
+          echo "Dispatched release-agent.yml for ${{ steps.bump.outputs.tag }}"
 
   sync-branches:
     name: Sync branches
