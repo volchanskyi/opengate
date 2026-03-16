@@ -89,6 +89,44 @@ func TestVerifyHash_WrongSignature(t *testing.T) {
 	assert.False(t, valid)
 }
 
+func TestLoadOrGenerateSigningKeys_CorruptedFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "update-signing.json")
+	require.NoError(t, os.WriteFile(path, []byte("not json"), 0600))
+
+	_, err := LoadOrGenerateSigningKeys(dir)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "parse update-signing.json")
+}
+
+func TestLoadOrGenerateSigningKeys_EmptyKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "update-signing.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"private_key":"","public_key":""}`), 0600))
+
+	_, err := LoadOrGenerateSigningKeys(dir)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "empty keys")
+}
+
+func TestSignHash_InvalidHex(t *testing.T) {
+	dir := t.TempDir()
+	keys, err := LoadOrGenerateSigningKeys(dir)
+	require.NoError(t, err)
+
+	_, err = keys.SignHash("not-valid-hex!")
+	assert.Error(t, err)
+}
+
+func TestVerifyHash_InvalidHex(t *testing.T) {
+	dir := t.TempDir()
+	keys, err := LoadOrGenerateSigningKeys(dir)
+	require.NoError(t, err)
+
+	_, err = keys.VerifyHash("not-hex", "also-not-hex")
+	assert.Error(t, err)
+}
+
 func TestPublicKeyHex(t *testing.T) {
 	dir := t.TempDir()
 	keys, err := LoadOrGenerateSigningKeys(dir)
