@@ -38,23 +38,25 @@ describe('DeviceList', () => {
     });
   });
 
-  it('shows select group message when no group selected', () => {
+  it('shows welcome message with CTA when no group selected', () => {
     renderDeviceList();
-    expect(screen.getByText('Select a group to view devices')).toBeInTheDocument();
+    expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
+    expect(screen.getByText('Add Device')).toBeInTheDocument();
   });
 
-  it('shows no devices message when group selected but empty', () => {
+  it('shows empty group message with CTA when group selected but empty', () => {
     useDeviceStore.setState({ selectedGroupId: 'g1' });
     renderDeviceList();
-    expect(screen.getByText('No devices in this group')).toBeInTheDocument();
+    expect(screen.getByText(/No devices in this group/)).toBeInTheDocument();
+    expect(screen.getByText('Download Agent')).toBeInTheDocument();
   });
 
   it('renders devices for selected group', () => {
     useDeviceStore.setState({
       selectedGroupId: 'g1',
       devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'host-1', os: 'linux', status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
-        { id: 'd2', group_id: 'g1', hostname: 'host-2', os: 'windows', status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd2', group_id: 'g1', hostname: 'host-2', os: 'windows', agent_version: '', status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
       ],
     });
     renderDeviceList();

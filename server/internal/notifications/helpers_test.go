@@ -121,6 +121,19 @@ func (m *notifMockStore) ListAMTDevices(_ context.Context) ([]*db.AMTDevice, err
 func (m *notifMockStore) SetAMTDeviceStatus(_ context.Context, _ uuid.UUID, _ db.DeviceStatus) error {
 	return nil
 }
+func (m *notifMockStore) CreateEnrollmentToken(_ context.Context, _ *db.EnrollmentToken) error {
+	return nil
+}
+func (m *notifMockStore) GetEnrollmentTokenByToken(_ context.Context, _ string) (*db.EnrollmentToken, error) {
+	return nil, nil
+}
+func (m *notifMockStore) ListEnrollmentTokens(_ context.Context, _ db.UserID) ([]*db.EnrollmentToken, error) {
+	return nil, nil
+}
+func (m *notifMockStore) DeleteEnrollmentToken(_ context.Context, _ uuid.UUID) error { return nil }
+func (m *notifMockStore) IncrementEnrollmentTokenUseCount(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
 func (m *notifMockStore) Ping(_ context.Context) error { return nil }
 func (m *notifMockStore) Close() error                 { return nil }
 

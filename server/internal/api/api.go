@@ -38,12 +38,18 @@ type AMTOperator interface {
 	ConnectedDeviceCount() int
 }
 
+// CertProvider gives access to the server CA certificate.
+type CertProvider interface {
+	CACertPEM() []byte
+}
+
 // ServerConfig holds all dependencies for the API server.
 type ServerConfig struct {
 	Store     db.Store
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
 	AMT       AMTOperator
+	Cert      CertProvider
 	Relay     *relay.Relay
 	Signaling *signaling.Tracker
 	Notifier  notifications.Notifier
@@ -59,6 +65,7 @@ type Server struct {
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
 	amt       AMTOperator
+	cert      CertProvider
 	relay     *relay.Relay
 	signaling *signaling.Tracker
 	notifier  notifications.Notifier
@@ -76,6 +83,7 @@ func NewServer(cfg ServerConfig) *Server {
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
 		amt:       cfg.AMT,
+		cert:      cfg.Cert,
 		relay:     cfg.Relay,
 		signaling: cfg.Signaling,
 		notifier:  cfg.Notifier,

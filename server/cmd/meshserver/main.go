@@ -100,6 +100,7 @@ func main() {
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		AMT:       amtSvc,
+		Cert:      certMgr,
 		Relay:     agentRelay,
 		Signaling: sigTracker,
 		Notifier:  notifier,

@@ -549,3 +549,68 @@ func (s *SQLiteStore) SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, stat
 		`UPDATE amt_devices SET status = ?, last_seen = ? WHERE uuid = ?`,
 		string(status), now, id.String())
 }
+
+// --- Enrollment Tokens ---
+
+func scanEnrollmentTokenFrom(sc scanner) (*EnrollmentToken, error) {
+	var t EnrollmentToken
+	var idStr, createdByStr, expiresAt, createdAt string
+	if err := sc.Scan(&idStr, &t.Token, &t.Label, &createdByStr, &t.MaxUses, &t.UseCount, &expiresAt, &createdAt); err != nil {
+		return nil, err
+	}
+	var err error
+	t.ID, err = parseUUID(idStr)
+	if err != nil {
+		return nil, err
+	}
+	t.CreatedBy, err = parseUUID(createdByStr)
+	if err != nil {
+		return nil, err
+	}
+	t.ExpiresAt, err = parseTime(expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	t.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *SQLiteStore) CreateEnrollmentToken(ctx context.Context, t *EnrollmentToken) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO enrollment_tokens (id, token, label, created_by, max_uses, use_count, expires_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID.String(), t.Token, t.Label, t.CreatedBy.String(), t.MaxUses, t.UseCount,
+		t.ExpiresAt.UTC().Format(time.RFC3339), now)
+	return err
+}
+
+func (s *SQLiteStore) GetEnrollmentTokenByToken(ctx context.Context, token string) (*EnrollmentToken, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, token, label, created_by, max_uses, use_count, expires_at, created_at
+		 FROM enrollment_tokens WHERE token = ?`, token)
+	t, err := scanEnrollmentTokenFrom(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return t, err
+}
+
+func (s *SQLiteStore) ListEnrollmentTokens(ctx context.Context, createdBy UserID) ([]*EnrollmentToken, error) {
+	return queryList(ctx, s.db, scanEnrollmentTokenFrom,
+		`SELECT id, token, label, created_by, max_uses, use_count, expires_at, created_at
+		 FROM enrollment_tokens WHERE created_by = ? ORDER BY created_at DESC`,
+		createdBy.String())
+}
+
+func (s *SQLiteStore) DeleteEnrollmentToken(ctx context.Context, id uuid.UUID) error {
+	return s.execAndCheckAffected(ctx, `DELETE FROM enrollment_tokens WHERE id = ?`, id.String())
+}
+
+func (s *SQLiteStore) IncrementEnrollmentTokenUseCount(ctx context.Context, id uuid.UUID) error {
+	return s.execAndCheckAffected(ctx,
+		`UPDATE enrollment_tokens SET use_count = use_count + 1 WHERE id = ?`, id.String())
+}

@@ -30,6 +30,7 @@ const mockDevice = {
   group_id: 'g1',
   hostname: 'test-host',
   os: 'linux',
+  agent_version: '1.0.0',
   status: 'online' as const,
   last_seen: '2026-01-01T00:00:00Z',
   created_at: '2025-12-01T00:00:00Z',

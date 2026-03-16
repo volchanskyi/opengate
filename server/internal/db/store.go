@@ -52,6 +52,13 @@ type Store interface {
 	ListAMTDevices(ctx context.Context) ([]*AMTDevice, error)
 	SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status DeviceStatus) error
 
+	// Enrollment Tokens
+	CreateEnrollmentToken(ctx context.Context, t *EnrollmentToken) error
+	GetEnrollmentTokenByToken(ctx context.Context, token string) (*EnrollmentToken, error)
+	ListEnrollmentTokens(ctx context.Context, createdBy UserID) ([]*EnrollmentToken, error)
+	DeleteEnrollmentToken(ctx context.Context, id uuid.UUID) error
+	IncrementEnrollmentTokenUseCount(ctx context.Context, id uuid.UUID) error
+
 	// Audit
 	WriteAuditEvent(ctx context.Context, event *AuditEvent) error
 	QueryAuditLog(ctx context.Context, q AuditQuery) ([]*AuditEvent, error)

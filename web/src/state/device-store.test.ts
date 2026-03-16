@@ -110,7 +110,7 @@ describe('device store', () => {
 
   it('fetchDevice populates selectedDevice', async () => {
     mockGet.mockResolvedValueOnce({
-      data: { id: 'd1', hostname: 'host1', os: 'linux', status: 'online' },
+      data: { id: 'd1', hostname: 'host1', os: 'linux', agent_version: '', status: 'online' },
       error: undefined,
     });
 
@@ -122,8 +122,8 @@ describe('device store', () => {
   it('deleteDevice removes from list', async () => {
     useDeviceStore.setState({
       devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'h1', os: 'linux', status: 'online', last_seen: '', created_at: '', updated_at: '' },
-        { id: 'd2', group_id: 'g1', hostname: 'h2', os: 'linux', status: 'offline', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'd1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '', status: 'online', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'd2', group_id: 'g1', hostname: 'h2', os: 'linux', agent_version: '', status: 'offline', last_seen: '', created_at: '', updated_at: '' },
       ],
     });
     mockDelete.mockResolvedValueOnce({ error: undefined });
