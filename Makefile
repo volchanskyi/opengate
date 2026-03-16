@@ -39,6 +39,8 @@ DEPLOY_DUMMY_ENV := JWT_SECRET=dummy AMT_USER=admin AMT_PASS=dummy \
 lint-deploy:
 	@command -v yamllint >/dev/null && yamllint -c .yamllint.yml deploy/ || echo "SKIP: yamllint not installed"
 	terraform -chdir=deploy/terraform fmt -check -recursive
+	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null 2>&1
+	terraform -chdir=deploy/terraform validate
 	@command -v tflint >/dev/null && (tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact) || echo "SKIP: tflint not installed"
 	cd deploy && $(DEPLOY_DUMMY_ENV) docker compose config --quiet
 	cd deploy && $(DEPLOY_DUMMY_ENV) STAGING_JWT_SECRET=dummy \

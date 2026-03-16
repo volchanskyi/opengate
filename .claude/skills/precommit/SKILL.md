@@ -11,11 +11,21 @@ Run ALL lints, ALL tests, test coverage, and ALL benchmarks. No exceptions. All 
 
 ## Lints (all must pass)
 
+These lints mirror the CI config-lint job exactly. Every check that runs in CI MUST also run locally.
+
 1. `cd agent && cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings` — Rust format + clippy
 2. `cd server && go vet ./...` — Go vet
 3. `cd web && npx eslint .` — Web ESLint
-4. `~/go/bin/actionlint` — GitHub Actions workflow lint (ALWAYS run locally, no exceptions)
-5. `make lint-deploy` — Deploy config validation (yamllint, terraform, tflint, compose, caddy, trivy, integration tests)
+4. `~/go/bin/actionlint` — GitHub Actions workflow lint (ALWAYS run locally, no exceptions). Runs with `shellcheck` and `pyflakes` for full parity with CI (both are installed locally).
+5. `make lint-deploy` — Deploy config validation (yamllint, terraform, tflint, compose, caddy, trivy, integration tests). This runs all of the following (skips gracefully if a tool is not installed, but all SHOULD be installed for full CI parity):
+   - `yamllint -c .yamllint.yml deploy/` — YAML lint on deploy configs
+   - `terraform -chdir=deploy/terraform fmt -check -recursive` — Terraform format check
+   - `terraform -chdir=deploy/terraform init -backend=false && terraform -chdir=deploy/terraform validate` — Terraform validation
+   - `tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact` — Terraform linting
+   - `docker compose config --quiet` (production, staging, test) — Docker Compose validation
+   - `caddy fmt --diff` + `caddy validate` on both Caddyfiles — Caddyfile validation
+   - `trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/` + Dockerfile — IaC security scan
+   - `bash deploy/tests/validate-configs.sh` — Cross-config consistency tests (ports, env vars, tfvars)
 
 ## Tests (all must pass)
 
