@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -80,28 +81,18 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 		return PushUpdate404JSONResponse{Error: fmt.Sprintf("manifest version %s does not match requested %s", m.Version, request.Body.Version)}, nil
 	}
 
-	agents := s.agents.ListConnectedAgents()
-	pushed := 0
-	for _, agent := range agents {
-		if agent.OS != request.Body.Os || agent.Arch != request.Body.Arch {
-			continue
+	// Build a set for O(1) device ID lookups when filtering is requested.
+	var targetSet map[string]struct{}
+	if request.Body.DeviceIds != nil {
+		targetSet = make(map[string]struct{}, len(*request.Body.DeviceIds))
+		for _, id := range *request.Body.DeviceIds {
+			targetSet[id.String()] = struct{}{}
 		}
-		if agent.AgentVersion == m.Version {
-			continue // already up to date
-		}
-		if request.Body.DeviceIds != nil {
-			found := false
-			for _, id := range *request.Body.DeviceIds {
-				if id == agent.DeviceID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
-		}
+	}
 
+	eligible := s.eligibleAgents(request.Body.Os, request.Body.Arch, m.Version, targetSet)
+	pushed := 0
+	for _, agent := range eligible {
 		if err := agent.SendAgentUpdate(ctx, m.Version, m.URL, m.Signature); err != nil {
 			s.logger.Warn("push update to agent failed",
 				"device_id", agent.DeviceID,
@@ -116,6 +107,27 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 		fmt.Sprintf("version=%s pushed=%d", m.Version, pushed))
 
 	return PushUpdate200JSONResponse{PushedCount: pushed}, nil
+}
+
+// eligibleAgents returns connected agents that match os/arch, are not already
+// on the target version, and (optionally) belong to the target device ID set.
+func (s *Server) eligibleAgents(osName, arch, version string, targetSet map[string]struct{}) []*agentapi.AgentConn {
+	var eligible []*agentapi.AgentConn
+	for _, agent := range s.agents.ListConnectedAgents() {
+		if agent.OS != osName || agent.Arch != arch {
+			continue
+		}
+		if agent.AgentVersion == version {
+			continue
+		}
+		if targetSet != nil {
+			if _, ok := targetSet[agent.DeviceID.String()]; !ok {
+				continue
+			}
+		}
+		eligible = append(eligible, agent)
+	}
+	return eligible
 }
 
 // GetUpdateSigningKey implements StrictServerInterface.
