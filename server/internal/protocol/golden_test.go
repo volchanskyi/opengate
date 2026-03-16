@@ -66,6 +66,7 @@ func TestGoldenFrameWireFormat(t *testing.T) {
 		{"SwitchToWebRTC", "control_switch_to_webrtc.bin", FrameControl},
 		{"IceCandidate", "control_ice_candidate.bin", FrameControl},
 		{"SwitchAck", "control_switch_ack.bin", FrameControl},
+		{"AgentUpdateAck", "control_agent_update_ack.bin", FrameControl},
 	}
 
 	codec := &Codec{}
@@ -110,6 +111,8 @@ func TestGoldenControlAgentRegister(t *testing.T) {
 	assert.Equal(t, MsgAgentRegister, msg.Type)
 	assert.Equal(t, "golden-test-host", msg.Hostname)
 	assert.Equal(t, "linux", msg.OS)
+	assert.Equal(t, "amd64", msg.Arch)
+	assert.Equal(t, "0.1.0", msg.Version)
 	assert.Len(t, msg.Capabilities, 2)
 }
 
@@ -156,6 +159,24 @@ func TestGoldenControlSwitchAck(t *testing.T) {
 	msg, err := codec.DecodeControl(payload)
 	require.NoError(t, err)
 	assert.Equal(t, MsgSwitchAck, msg.Type)
+}
+
+func TestGoldenControlAgentUpdateAck(t *testing.T) {
+	data := readGolden(t, "control_agent_update_ack.bin")
+	codec := &Codec{}
+
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgAgentUpdateAck, msg.Type)
+	assert.Equal(t, "1.2.3", msg.Version)
+	require.NotNil(t, msg.Success)
+	assert.True(t, *msg.Success)
+	assert.Empty(t, msg.AckError)
 }
 
 func TestGoldenDesktopFrame(t *testing.T) {

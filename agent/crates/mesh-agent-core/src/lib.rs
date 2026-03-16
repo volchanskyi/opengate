@@ -12,6 +12,7 @@ pub mod platform;
 pub mod session;
 pub mod session_error;
 pub mod terminal;
+pub mod update;
 pub mod webrtc;
 
 pub use config::AgentConfig;
@@ -24,3 +25,4 @@ pub use platform::{
 };
 pub use session::SessionHandler;
 pub use session_error::SessionError;
+pub use update::{UpdateConfig, UpdateError};

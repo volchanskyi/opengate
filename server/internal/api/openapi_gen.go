@@ -111,6 +111,17 @@ type AMTPowerRequest struct {
 // AMTPowerRequestAction defines model for AMTPowerRequest.Action.
 type AMTPowerRequestAction string
 
+// AgentManifest defines model for AgentManifest.
+type AgentManifest struct {
+	Arch      string    `json:"arch"`
+	CreatedAt time.Time `json:"created_at"`
+	Os        string    `json:"os"`
+	Sha256    string    `json:"sha256"`
+	Signature string    `json:"signature"`
+	Url       string    `json:"url"`
+	Version   string    `json:"version"`
+}
+
 // AgentSession defines model for AgentSession.
 type AgentSession struct {
 	CreatedAt time.Time          `json:"created_at"`
@@ -154,14 +165,15 @@ type CreateSessionResponse struct {
 
 // Device defines model for Device.
 type Device struct {
-	CreatedAt time.Time          `json:"created_at"`
-	GroupId   openapi_types.UUID `json:"group_id"`
-	Hostname  string             `json:"hostname"`
-	Id        openapi_types.UUID `json:"id"`
-	LastSeen  time.Time          `json:"last_seen"`
-	Os        string             `json:"os"`
-	Status    DeviceStatus       `json:"status"`
-	UpdatedAt time.Time          `json:"updated_at"`
+	AgentVersion string             `json:"agent_version"`
+	CreatedAt    time.Time          `json:"created_at"`
+	GroupId      openapi_types.UUID `json:"group_id"`
+	Hostname     string             `json:"hostname"`
+	Id           openapi_types.UUID `json:"id"`
+	LastSeen     time.Time          `json:"last_seen"`
+	Os           string             `json:"os"`
+	Status       DeviceStatus       `json:"status"`
+	UpdatedAt    time.Time          `json:"updated_at"`
 }
 
 // DeviceStatus defines model for Device.Status.
@@ -196,6 +208,28 @@ type Permissions struct {
 	FileWrite *bool `json:"file_write,omitempty"`
 	Input     *bool `json:"input,omitempty"`
 	Terminal  *bool `json:"terminal,omitempty"`
+}
+
+// PublishUpdateRequest defines model for PublishUpdateRequest.
+type PublishUpdateRequest struct {
+	Arch    string `json:"arch"`
+	Os      string `json:"os"`
+	Sha256  string `json:"sha256"`
+	Url     string `json:"url"`
+	Version string `json:"version"`
+}
+
+// PushUpdateRequest defines model for PushUpdateRequest.
+type PushUpdateRequest struct {
+	Arch      string                `json:"arch"`
+	DeviceIds *[]openapi_types.UUID `json:"device_ids,omitempty"`
+	Os        string                `json:"os"`
+	Version   string                `json:"version"`
+}
+
+// PushUpdateResponse defines model for PushUpdateResponse.
+type PushUpdateResponse struct {
+	PushedCount int `json:"pushed_count"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -282,6 +316,12 @@ type SubscribePushJSONRequestBody = WebPushSubscribeRequest
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
 type CreateSessionJSONRequestBody = CreateSessionRequest
 
+// PublishUpdateJSONRequestBody defines body for PublishUpdate for application/json ContentType.
+type PublishUpdateJSONRequestBody = PublishUpdateRequest
+
+// PushUpdateJSONRequestBody defines body for PushUpdate for application/json ContentType.
+type PushUpdateJSONRequestBody = PushUpdateRequest
+
 // UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
 type UpdateUserJSONRequestBody = UpdateUserRequest
 
@@ -347,6 +387,18 @@ type ServerInterface interface {
 	// Delete a relay session
 	// (DELETE /api/v1/sessions/{token})
 	DeleteSession(w http.ResponseWriter, r *http.Request, token string)
+	// List all agent update manifests
+	// (GET /api/v1/updates/manifests)
+	ListUpdateManifests(w http.ResponseWriter, r *http.Request)
+	// Publish a new agent binary version (admin only)
+	// (POST /api/v1/updates/manifests)
+	PublishUpdate(w http.ResponseWriter, r *http.Request)
+	// Push update to connected agents (admin only)
+	// (POST /api/v1/updates/push)
+	PushUpdate(w http.ResponseWriter, r *http.Request)
+	// Get the Ed25519 public signing key
+	// (GET /api/v1/updates/signing-key)
+	GetUpdateSigningKey(w http.ResponseWriter, r *http.Request)
 	// List all users (admin only)
 	// (GET /api/v1/users)
 	ListUsers(w http.ResponseWriter, r *http.Request)
@@ -482,6 +534,30 @@ func (_ Unimplemented) CreateSession(w http.ResponseWriter, r *http.Request) {
 // Delete a relay session
 // (DELETE /api/v1/sessions/{token})
 func (_ Unimplemented) DeleteSession(w http.ResponseWriter, r *http.Request, token string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List all agent update manifests
+// (GET /api/v1/updates/manifests)
+func (_ Unimplemented) ListUpdateManifests(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Publish a new agent binary version (admin only)
+// (POST /api/v1/updates/manifests)
+func (_ Unimplemented) PublishUpdate(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Push update to connected agents (admin only)
+// (POST /api/v1/updates/push)
+func (_ Unimplemented) PushUpdate(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get the Ed25519 public signing key
+// (GET /api/v1/updates/signing-key)
+func (_ Unimplemented) GetUpdateSigningKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1054,6 +1130,86 @@ func (siw *ServerInterfaceWrapper) DeleteSession(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListUpdateManifests operation middleware
+func (siw *ServerInterfaceWrapper) ListUpdateManifests(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUpdateManifests(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishUpdate operation middleware
+func (siw *ServerInterfaceWrapper) PublishUpdate(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishUpdate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PushUpdate operation middleware
+func (siw *ServerInterfaceWrapper) PushUpdate(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PushUpdate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUpdateSigningKey operation middleware
+func (siw *ServerInterfaceWrapper) GetUpdateSigningKey(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUpdateSigningKey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListUsers operation middleware
 func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
 
@@ -1328,6 +1484,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/api/v1/sessions/{token}", wrapper.DeleteSession)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/updates/manifests", wrapper.ListUpdateManifests)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/updates/manifests", wrapper.PublishUpdate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/updates/push", wrapper.PushUpdate)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/updates/signing-key", wrapper.GetUpdateSigningKey)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/users", wrapper.ListUsers)
@@ -1984,6 +2152,142 @@ func (response DeleteSession404JSONResponse) VisitDeleteSessionResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
+type ListUpdateManifestsRequestObject struct {
+}
+
+type ListUpdateManifestsResponseObject interface {
+	VisitListUpdateManifestsResponse(w http.ResponseWriter) error
+}
+
+type ListUpdateManifests200JSONResponse []AgentManifest
+
+func (response ListUpdateManifests200JSONResponse) VisitListUpdateManifestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListUpdateManifests401Response struct {
+}
+
+func (response ListUpdateManifests401Response) VisitListUpdateManifestsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type PublishUpdateRequestObject struct {
+	Body *PublishUpdateJSONRequestBody
+}
+
+type PublishUpdateResponseObject interface {
+	VisitPublishUpdateResponse(w http.ResponseWriter) error
+}
+
+type PublishUpdate200JSONResponse AgentManifest
+
+func (response PublishUpdate200JSONResponse) VisitPublishUpdateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PublishUpdate401Response struct {
+}
+
+func (response PublishUpdate401Response) VisitPublishUpdateResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type PublishUpdate403JSONResponse ApiError
+
+func (response PublishUpdate403JSONResponse) VisitPublishUpdateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PushUpdateRequestObject struct {
+	Body *PushUpdateJSONRequestBody
+}
+
+type PushUpdateResponseObject interface {
+	VisitPushUpdateResponse(w http.ResponseWriter) error
+}
+
+type PushUpdate200JSONResponse PushUpdateResponse
+
+func (response PushUpdate200JSONResponse) VisitPushUpdateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PushUpdate401Response struct {
+}
+
+func (response PushUpdate401Response) VisitPushUpdateResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type PushUpdate403JSONResponse ApiError
+
+func (response PushUpdate403JSONResponse) VisitPushUpdateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type PushUpdate404JSONResponse ApiError
+
+func (response PushUpdate404JSONResponse) VisitPushUpdateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUpdateSigningKeyRequestObject struct {
+}
+
+type GetUpdateSigningKeyResponseObject interface {
+	VisitGetUpdateSigningKeyResponse(w http.ResponseWriter) error
+}
+
+type GetUpdateSigningKey200JSONResponse struct {
+	PublicKey string `json:"public_key"`
+}
+
+func (response GetUpdateSigningKey200JSONResponse) VisitGetUpdateSigningKeyResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUpdateSigningKey401Response struct {
+}
+
+func (response GetUpdateSigningKey401Response) VisitGetUpdateSigningKeyResponse(w http.ResponseWriter) error {
+	w.WriteHeader(401)
+	return nil
+}
+
+type GetUpdateSigningKey403JSONResponse ApiError
+
+func (response GetUpdateSigningKey403JSONResponse) VisitGetUpdateSigningKeyResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListUsersRequestObject struct {
 }
 
@@ -2193,6 +2497,18 @@ type StrictServerInterface interface {
 	// Delete a relay session
 	// (DELETE /api/v1/sessions/{token})
 	DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error)
+	// List all agent update manifests
+	// (GET /api/v1/updates/manifests)
+	ListUpdateManifests(ctx context.Context, request ListUpdateManifestsRequestObject) (ListUpdateManifestsResponseObject, error)
+	// Publish a new agent binary version (admin only)
+	// (POST /api/v1/updates/manifests)
+	PublishUpdate(ctx context.Context, request PublishUpdateRequestObject) (PublishUpdateResponseObject, error)
+	// Push update to connected agents (admin only)
+	// (POST /api/v1/updates/push)
+	PushUpdate(ctx context.Context, request PushUpdateRequestObject) (PushUpdateResponseObject, error)
+	// Get the Ed25519 public signing key
+	// (GET /api/v1/updates/signing-key)
+	GetUpdateSigningKey(ctx context.Context, request GetUpdateSigningKeyRequestObject) (GetUpdateSigningKeyResponseObject, error)
 	// List all users (admin only)
 	// (GET /api/v1/users)
 	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
@@ -2785,6 +3101,116 @@ func (sh *strictHandler) DeleteSession(w http.ResponseWriter, r *http.Request, t
 	}
 }
 
+// ListUpdateManifests operation middleware
+func (sh *strictHandler) ListUpdateManifests(w http.ResponseWriter, r *http.Request) {
+	var request ListUpdateManifestsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUpdateManifests(ctx, request.(ListUpdateManifestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUpdateManifests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUpdateManifestsResponseObject); ok {
+		if err := validResponse.VisitListUpdateManifestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PublishUpdate operation middleware
+func (sh *strictHandler) PublishUpdate(w http.ResponseWriter, r *http.Request) {
+	var request PublishUpdateRequestObject
+
+	var body PublishUpdateJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishUpdate(ctx, request.(PublishUpdateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishUpdate")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PublishUpdateResponseObject); ok {
+		if err := validResponse.VisitPublishUpdateResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PushUpdate operation middleware
+func (sh *strictHandler) PushUpdate(w http.ResponseWriter, r *http.Request) {
+	var request PushUpdateRequestObject
+
+	var body PushUpdateJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PushUpdate(ctx, request.(PushUpdateRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PushUpdate")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PushUpdateResponseObject); ok {
+		if err := validResponse.VisitPushUpdateResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUpdateSigningKey operation middleware
+func (sh *strictHandler) GetUpdateSigningKey(w http.ResponseWriter, r *http.Request) {
+	var request GetUpdateSigningKeyRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUpdateSigningKey(ctx, request.(GetUpdateSigningKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUpdateSigningKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUpdateSigningKeyResponseObject); ok {
+		if err := validResponse.VisitGetUpdateSigningKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListUsers operation middleware
 func (sh *strictHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	var request ListUsersRequestObject
@@ -2895,43 +3321,48 @@ func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id o
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"ucfm83k8xJvbzR8BAAD//1HFHNy/RQAA",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

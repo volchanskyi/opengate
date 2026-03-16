@@ -11,6 +11,8 @@ fn bench_frame_encode_control(c: &mut Criterion) {
         ],
         hostname: "bench-host".to_string(),
         os: "linux".to_string(),
+        arch: "amd64".to_string(),
+        version: "0.1.0".to_string(),
     };
     let frame = Frame::Control(msg);
 
@@ -28,6 +30,8 @@ fn bench_frame_decode_control(c: &mut Criterion) {
         ],
         hostname: "bench-host".to_string(),
         os: "linux".to_string(),
+        arch: "amd64".to_string(),
+        version: "0.1.0".to_string(),
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();

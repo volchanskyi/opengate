@@ -1,0 +1,19 @@
+[package]
+name = "mesh-agent"
+version = "0.1.0"
+edition.workspace = true
+
+[[bin]]
+name = "mesh-agent"
+path = "src/main.rs"
+
+[dependencies]
+mesh-agent-core = { path = "../mesh-agent-core" }
+mesh-protocol = { path = "../mesh-protocol" }
+platform-linux = { path = "../platform-linux" }
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+hex.workspace = true

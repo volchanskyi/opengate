@@ -50,13 +50,17 @@ fn arb_permissions() -> impl Strategy<Value = Permissions> {
 
 fn arb_control_message() -> impl Strategy<Value = ControlMessage> {
     prop_oneof![
-        (arb_capabilities(), ".*", ".*").prop_map(|(capabilities, hostname, os)| {
-            ControlMessage::AgentRegister {
-                capabilities,
-                hostname,
-                os,
-            }
-        }),
+        (arb_capabilities(), ".*", ".*", ".*", ".*").prop_map(
+            |(capabilities, hostname, os, arch, version)| {
+                ControlMessage::AgentRegister {
+                    capabilities,
+                    hostname,
+                    os,
+                    arch,
+                    version,
+                }
+            },
+        ),
         any::<i64>().prop_map(|timestamp| ControlMessage::AgentHeartbeat { timestamp }),
         (arb_session_token(), ".*")
             .prop_map(|(token, relay_url)| { ControlMessage::SessionAccept { token, relay_url } }),

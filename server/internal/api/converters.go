@@ -4,6 +4,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 // mapSlice converts a slice of one type to another using the given function.
@@ -17,14 +18,15 @@ func mapSlice[S, D any](items []S, fn func(S) D) []D {
 
 func deviceToAPI(d *db.Device) Device {
 	return Device{
-		Id:        d.ID,
-		GroupId:   d.GroupID,
-		Hostname:  d.Hostname,
-		Os:        d.OS,
-		Status:    DeviceStatus(d.Status),
-		LastSeen:  d.LastSeen,
-		CreatedAt: d.CreatedAt,
-		UpdatedAt: d.UpdatedAt,
+		Id:           d.ID,
+		GroupId:      d.GroupID,
+		Hostname:     d.Hostname,
+		Os:           d.OS,
+		AgentVersion: d.AgentVersion,
+		Status:       DeviceStatus(d.Status),
+		LastSeen:     d.LastSeen,
+		CreatedAt:    d.CreatedAt,
+		UpdatedAt:    d.UpdatedAt,
 	}
 }
 
@@ -107,6 +109,22 @@ func auditEventToAPI(e *db.AuditEvent) AuditEvent {
 
 func auditEventsToAPI(es []*db.AuditEvent) []AuditEvent {
 	return mapSlice(es, auditEventToAPI)
+}
+
+func manifestToAPI(m *updater.Manifest) AgentManifest {
+	return AgentManifest{
+		Version:   m.Version,
+		Os:        m.OS,
+		Arch:      m.Arch,
+		Url:       m.URL,
+		Sha256:    m.SHA256,
+		Signature: m.Signature,
+		CreatedAt: m.CreatedAt,
+	}
+}
+
+func manifestsToAPI(ms []*updater.Manifest) []AgentManifest {
+	return mapSlice(ms, manifestToAPI)
 }
 
 func iceServersToAPI(servers []signaling.ICEServer) []ICEServer {

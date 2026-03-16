@@ -46,6 +46,8 @@ func BenchmarkCodec_EncodeControl(b *testing.B) {
 		Capabilities: []AgentCapability{CapRemoteDesktop, CapTerminal, CapFileManager},
 		Hostname:     "test-host",
 		OS:           "linux",
+		Arch:         "amd64",
+		Version:      "0.1.0",
 	}
 
 	b.ReportAllocs()
@@ -62,6 +64,8 @@ func BenchmarkCodec_DecodeControl(b *testing.B) {
 		Capabilities: []AgentCapability{CapRemoteDesktop, CapTerminal, CapFileManager},
 		Hostname:     "test-host",
 		OS:           "linux",
+		Arch:         "amd64",
+		Version:      "0.1.0",
 	}
 	data, _ := c.EncodeControl(msg)
 
