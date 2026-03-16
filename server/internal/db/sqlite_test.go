@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -623,6 +624,114 @@ func TestAMTDeviceCRUD(t *testing.T) {
 	t.Run("set status not found", func(t *testing.T) {
 		err := s.SetAMTDeviceStatus(ctx, uuid.New(), StatusOnline)
 		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+}
+
+func TestEnrollmentTokenCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	owner := seedUser(t, ctx, s)
+
+	t.Run("create and get by token", func(t *testing.T) {
+		tok := &EnrollmentToken{
+			ID:        uuid.New(),
+			Token:     "tok-" + uuid.New().String()[:8],
+			Label:     "test-token",
+			CreatedBy: owner.ID,
+			MaxUses:   5,
+			UseCount:  0,
+			ExpiresAt: time.Now().Add(24 * time.Hour).UTC(),
+		}
+		require.NoError(t, s.CreateEnrollmentToken(ctx, tok))
+
+		got, err := s.GetEnrollmentTokenByToken(ctx, tok.Token)
+		require.NoError(t, err)
+		assert.Equal(t, tok.ID, got.ID)
+		assert.Equal(t, tok.Token, got.Token)
+		assert.Equal(t, "test-token", got.Label)
+		assert.Equal(t, owner.ID, got.CreatedBy)
+		assert.Equal(t, 5, got.MaxUses)
+		assert.Equal(t, 0, got.UseCount)
+		assert.False(t, got.ExpiresAt.IsZero())
+		assert.False(t, got.CreatedAt.IsZero())
+	})
+
+	t.Run(testNameGetNotFound, func(t *testing.T) {
+		_, err := s.GetEnrollmentTokenByToken(ctx, "nonexistent-token")
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run("list by creator", func(t *testing.T) {
+		creator := seedUser(t, ctx, s)
+		t1 := &EnrollmentToken{
+			ID: uuid.New(), Token: "list-1-" + uuid.New().String()[:8],
+			CreatedBy: creator.ID, ExpiresAt: time.Now().Add(time.Hour).UTC(),
+		}
+		t2 := &EnrollmentToken{
+			ID: uuid.New(), Token: "list-2-" + uuid.New().String()[:8],
+			CreatedBy: creator.ID, ExpiresAt: time.Now().Add(time.Hour).UTC(),
+		}
+		require.NoError(t, s.CreateEnrollmentToken(ctx, t1))
+		require.NoError(t, s.CreateEnrollmentToken(ctx, t2))
+
+		tokens, err := s.ListEnrollmentTokens(ctx, creator.ID)
+		require.NoError(t, err)
+		assert.Len(t, tokens, 2)
+	})
+
+	t.Run("list excludes other creators", func(t *testing.T) {
+		other := seedUser(t, ctx, s)
+		tokens, err := s.ListEnrollmentTokens(ctx, other.ID)
+		require.NoError(t, err)
+		assert.Empty(t, tokens)
+	})
+
+	t.Run("increment use count", func(t *testing.T) {
+		tok := &EnrollmentToken{
+			ID: uuid.New(), Token: "inc-" + uuid.New().String()[:8],
+			CreatedBy: owner.ID, MaxUses: 3, ExpiresAt: time.Now().Add(time.Hour).UTC(),
+		}
+		require.NoError(t, s.CreateEnrollmentToken(ctx, tok))
+
+		require.NoError(t, s.IncrementEnrollmentTokenUseCount(ctx, tok.ID))
+		require.NoError(t, s.IncrementEnrollmentTokenUseCount(ctx, tok.ID))
+
+		got, err := s.GetEnrollmentTokenByToken(ctx, tok.Token)
+		require.NoError(t, err)
+		assert.Equal(t, 2, got.UseCount)
+	})
+
+	t.Run("increment not found", func(t *testing.T) {
+		err := s.IncrementEnrollmentTokenUseCount(ctx, uuid.New())
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run("delete", func(t *testing.T) {
+		tok := &EnrollmentToken{
+			ID: uuid.New(), Token: "del-" + uuid.New().String()[:8],
+			CreatedBy: owner.ID, ExpiresAt: time.Now().Add(time.Hour).UTC(),
+		}
+		require.NoError(t, s.CreateEnrollmentToken(ctx, tok))
+		require.NoError(t, s.DeleteEnrollmentToken(ctx, tok.ID))
+		_, err := s.GetEnrollmentTokenByToken(ctx, tok.Token)
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run(testNameDeleteNF, func(t *testing.T) {
+		err := s.DeleteEnrollmentToken(ctx, uuid.New())
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run("create with unlimited uses", func(t *testing.T) {
+		tok := &EnrollmentToken{
+			ID: uuid.New(), Token: "unlim-" + uuid.New().String()[:8],
+			CreatedBy: owner.ID, MaxUses: 0, ExpiresAt: time.Now().Add(time.Hour).UTC(),
+		}
+		require.NoError(t, s.CreateEnrollmentToken(ctx, tok))
+
+		got, err := s.GetEnrollmentTokenByToken(ctx, tok.Token)
+		require.NoError(t, err)
+		assert.Equal(t, 0, got.MaxUses)
 	})
 }
 

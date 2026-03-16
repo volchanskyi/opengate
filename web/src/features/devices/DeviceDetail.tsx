@@ -84,6 +84,12 @@ export function DeviceDetail() {
             <dt className="text-gray-400">Created</dt>
             <dd>{new Date(device.created_at).toLocaleString()}</dd>
           </div>
+          {device.agent_version && (
+            <div>
+              <dt className="text-gray-400">Agent Version</dt>
+              <dd>{device.agent_version}</dd>
+            </div>
+          )}
         </dl>
 
         {sessions.length > 0 && (

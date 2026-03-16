@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useDeviceStore } from '../../state/device-store';
 import { GroupSidebar } from './GroupSidebar';
 import { DeviceCard } from './DeviceCard';
@@ -18,7 +19,13 @@ export function DeviceList() {
       <GroupSidebar />
       <div className="flex-1 p-6">
         {!selectedGroupId && (
-          <p className="text-gray-500">Select a group to view devices</p>
+          <div className="text-center py-12">
+            <h3 className="text-lg font-semibold mb-2">Welcome to OpenGate</h3>
+            <p className="text-gray-500 mb-4">Select a group to view devices, or add a new device to get started.</p>
+            <Link to="/setup" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm">
+              Add Device
+            </Link>
+          </div>
         )}
 
         {selectedGroupId && isLoading && (
@@ -34,7 +41,12 @@ export function DeviceList() {
         )}
 
         {selectedGroupId && !isLoading && devices.length === 0 && (
-          <p className="text-gray-500">No devices in this group</p>
+          <div className="text-center py-12">
+            <p className="text-gray-500 mb-4">No devices in this group. Download and install the agent to add devices.</p>
+            <Link to="/setup" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm">
+              Download Agent
+            </Link>
+          </div>
         )}
 
         {selectedGroupId && !isLoading && devices.length > 0 && (

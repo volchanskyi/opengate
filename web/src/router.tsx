@@ -6,10 +6,12 @@ import { AdminGuard } from './features/admin/AdminGuard';
 import { AdminLayout } from './features/admin/AdminLayout';
 import { UserManagement } from './features/admin/UserManagement';
 import { AuditLog } from './features/admin/AuditLog';
+import { AgentUpdates } from './features/admin/AgentUpdates';
 import { Layout } from './components/Layout';
 import { DeviceList } from './features/devices/DeviceList';
 import { DeviceDetail } from './features/devices/DeviceDetail';
 import { SessionView } from './features/session/SessionView';
+import { AgentSetupPage } from './features/agent-setup/AgentSetupPage';
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -25,6 +27,7 @@ export const router = createBrowserRouter([
           { path: 'devices', element: <DeviceList /> },
           { path: 'devices/:id', element: <DeviceDetail /> },
           { path: 'sessions/:token', element: <SessionView /> },
+          { path: 'setup', element: <AgentSetupPage /> },
           {
             path: 'admin',
             element: <AdminGuard />,
@@ -35,6 +38,7 @@ export const router = createBrowserRouter([
                   { index: true, element: <Navigate to="/admin/users" replace /> },
                   { path: 'users', element: <UserManagement /> },
                   { path: 'audit', element: <AuditLog /> },
+                  { path: 'updates', element: <AgentUpdates /> },
                 ],
               },
             ],

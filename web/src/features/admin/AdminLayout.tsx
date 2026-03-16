@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 const navItems = [
   { to: '/admin/users', label: 'Users' },
   { to: '/admin/audit', label: 'Audit Log' },
+  { to: '/admin/updates', label: 'Agent Updates' },
 ];
 
 export function AdminLayout() {

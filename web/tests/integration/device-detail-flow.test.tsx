@@ -32,6 +32,7 @@ const mockDevice = {
   group_id: 'g1',
   hostname: 'prod-server',
   os: 'linux',
+  agent_version: '1.0.0',
   status: 'online' as const,
   last_seen: '2026-01-01T00:00:00Z',
   created_at: '2025-12-01T00:00:00Z',
@@ -106,7 +107,7 @@ describe('Device Detail Flow (integration)', () => {
     renderDeviceDetailFlow();
 
     await user.click(screen.getByText(/Back to devices/));
-    expect(screen.getByText('Select a group to view devices')).toBeInTheDocument();
+    expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
   });
 
   it('delete requires confirmation click', async () => {
