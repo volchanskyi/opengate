@@ -21,6 +21,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 func main() {
@@ -82,6 +83,14 @@ func main() {
 	agentRelay := relay.NewRelay()
 	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, notifier, logger)
 
+	// Initialize update signing keys and manifest store
+	signingKeys, err := updater.LoadOrGenerateSigningKeys(*dataDir)
+	if err != nil {
+		logger.Error("init update signing keys", "error", err)
+		os.Exit(1)
+	}
+	manifestStore := updater.NewManifestStore(*dataDir)
+
 	mpsSrv := mps.NewServer(certMgr, store, logger)
 	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
 
@@ -94,6 +103,8 @@ func main() {
 		Relay:     agentRelay,
 		Signaling: sigTracker,
 		Notifier:  notifier,
+		Signing:   signingKeys,
+		Manifests: manifestStore,
 		Logger:    logger,
 		WebDir:    *webDir,
 	})

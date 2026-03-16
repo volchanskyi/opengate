@@ -7,6 +7,8 @@ fn test_control_message_roundtrip_msgpack() {
             capabilities: vec![AgentCapability::RemoteDesktop, AgentCapability::Terminal],
             hostname: "test-machine".to_string(),
             os: "linux".to_string(),
+            arch: "amd64".to_string(),
+            version: "0.1.0".to_string(),
         },
         ControlMessage::AgentHeartbeat {
             timestamp: 1700000000,

@@ -37,6 +37,8 @@ func TestAgentConn_HandleRegister(t *testing.T) {
 		Capabilities: []protocol.AgentCapability{protocol.CapTerminal, protocol.CapFileManager},
 		Hostname:     "test-host",
 		OS:           "linux",
+		Arch:         "amd64",
+		Version:      "0.1.0",
 	}
 	payload, err := codec.EncodeControl(msg)
 	require.NoError(t, err)

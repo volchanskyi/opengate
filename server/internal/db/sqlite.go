@@ -128,7 +128,7 @@ func parseTime(s string) (time.Time, error) {
 func scanDeviceFrom(sc scanner) (*Device, error) {
 	var d Device
 	var idStr, groupIDStr, status, lastSeen, createdAt, updatedAt string
-	if err := sc.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &status, &lastSeen, &createdAt, &updatedAt); err != nil {
+	if err := sc.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &d.AgentVersion, &status, &lastSeen, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	var err error
@@ -159,22 +159,23 @@ func scanDeviceFrom(sc scanner) (*Device, error) {
 func (s *SQLiteStore) UpsertDevice(ctx context.Context, d *Device) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO devices (id, group_id, hostname, os, status, last_seen, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO devices (id, group_id, hostname, os, agent_version, status, last_seen, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   group_id = excluded.group_id,
 		   hostname = excluded.hostname,
 		   os = excluded.os,
+		   agent_version = excluded.agent_version,
 		   status = excluded.status,
 		   last_seen = excluded.last_seen,
 		   updated_at = excluded.updated_at`,
-		d.ID.String(), d.GroupID.String(), d.Hostname, d.OS, string(d.Status), now, now, now)
+		d.ID.String(), d.GroupID.String(), d.Hostname, d.OS, d.AgentVersion, string(d.Status), now, now, now)
 	return err
 }
 
 func (s *SQLiteStore) GetDevice(ctx context.Context, id DeviceID) (*Device, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, group_id, hostname, os, status, last_seen, created_at, updated_at FROM devices WHERE id = ?`,
+		`SELECT id, group_id, hostname, os, agent_version, status, last_seen, created_at, updated_at FROM devices WHERE id = ?`,
 		id.String())
 	d, err := scanDeviceFrom(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -185,7 +186,7 @@ func (s *SQLiteStore) GetDevice(ctx context.Context, id DeviceID) (*Device, erro
 
 func (s *SQLiteStore) ListDevices(ctx context.Context, groupID GroupID) ([]*Device, error) {
 	return queryList(ctx, s.db, scanDeviceFrom,
-		`SELECT id, group_id, hostname, os, status, last_seen, created_at, updated_at FROM devices WHERE group_id = ?`,
+		`SELECT id, group_id, hostname, os, agent_version, status, last_seen, created_at, updated_at FROM devices WHERE group_id = ?`,
 		groupID.String())
 }
 

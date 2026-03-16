@@ -60,6 +60,16 @@ func (s *AgentServer) GetAgent(deviceID protocol.DeviceID) *AgentConn {
 	return val.(*AgentConn)
 }
 
+// ListConnectedAgents returns all currently connected agents.
+func (s *AgentServer) ListConnectedAgents() []*AgentConn {
+	var agents []*AgentConn
+	s.conns.Range(func(_, value any) bool {
+		agents = append(agents, value.(*AgentConn))
+		return true
+	})
+	return agents
+}
+
 // Addr blocks until the server is listening and returns the actual address.
 func (s *AgentServer) Addr() string {
 	return <-s.addrCh

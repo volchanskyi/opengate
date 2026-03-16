@@ -238,6 +238,8 @@ mod tests {
             capabilities: vec![mesh_protocol::AgentCapability::Terminal],
             hostname: "test-host".to_string(),
             os: "linux".to_string(),
+            arch: "amd64".to_string(),
+            version: "0.1.0".to_string(),
         };
 
         // Send in background

@@ -13,6 +13,8 @@ pub enum ControlMessage {
         capabilities: Vec<AgentCapability>,
         hostname: String,
         os: String,
+        arch: String,
+        version: String,
     },
     AgentHeartbeat {
         timestamp: i64,
@@ -36,6 +38,12 @@ pub enum ControlMessage {
         version: String,
         url: String,
         signature: String,
+    },
+    /// Agent acknowledges an update attempt (success or failure).
+    AgentUpdateAck {
+        version: String,
+        success: bool,
+        error: String,
     },
 
     // Bidirectional

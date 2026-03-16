@@ -26,14 +26,15 @@ const (
 
 // Device represents a managed device/agent.
 type Device struct {
-	ID        DeviceID     `json:"id"`
-	GroupID   GroupID      `json:"group_id"`
-	Hostname  string       `json:"hostname"`
-	OS        string       `json:"os"`
-	Status    DeviceStatus `json:"status"`
-	LastSeen  time.Time    `json:"last_seen"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	ID           DeviceID     `json:"id"`
+	GroupID      GroupID      `json:"group_id"`
+	Hostname     string       `json:"hostname"`
+	OS           string       `json:"os"`
+	AgentVersion string       `json:"agent_version"`
+	Status       DeviceStatus `json:"status"`
+	LastSeen     time.Time    `json:"last_seen"`
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
 }
 
 // Group organizes devices for access control.

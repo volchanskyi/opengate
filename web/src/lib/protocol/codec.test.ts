@@ -141,17 +141,21 @@ describe('round-trip encode/decode', () => {
         capabilities: ['RemoteDesktop', 'Terminal'],
         hostname: 'test-host',
         os: 'Linux',
+        arch: 'amd64',
+        version: '0.1.0',
       },
     };
     const encoded = encodeFrame(original);
     const { frame } = decodeFrame(encoded);
     expect(frame.type).toBe(FRAME_CONTROL);
     if (frame.type === FRAME_CONTROL) {
-      const msg = frame.message as { type: string; capabilities: string[]; hostname: string; os: string };
+      const msg = frame.message as { type: string; capabilities: string[]; hostname: string; os: string; arch: string; version: string };
       expect(msg.type).toBe('AgentRegister');
       expect(msg.capabilities).toEqual(['RemoteDesktop', 'Terminal']);
       expect(msg.hostname).toBe('test-host');
       expect(msg.os).toBe('Linux');
+      expect(msg.arch).toBe('amd64');
+      expect(msg.version).toBe('0.1.0');
     }
   });
 

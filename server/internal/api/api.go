@@ -20,13 +20,15 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 //go:generate oapi-codegen -config ../../oapi-codegen.yaml ../../api/openapi.yaml
 
-// AgentGetter finds a connected agent by device ID.
+// AgentGetter finds connected agents by device ID or lists all.
 type AgentGetter interface {
 	GetAgent(deviceID db.DeviceID) *agentapi.AgentConn
+	ListConnectedAgents() []*agentapi.AgentConn
 }
 
 // AMTOperator provides high-level AMT device operations.
@@ -45,6 +47,8 @@ type ServerConfig struct {
 	Relay     *relay.Relay
 	Signaling *signaling.Tracker
 	Notifier  notifications.Notifier
+	Signing   *updater.SigningKeys
+	Manifests *updater.ManifestStore
 	Logger    *slog.Logger
 	WebDir    string // directory containing SPA static assets (optional)
 }
@@ -58,6 +62,8 @@ type Server struct {
 	relay     *relay.Relay
 	signaling *signaling.Tracker
 	notifier  notifications.Notifier
+	signing   *updater.SigningKeys
+	manifests *updater.ManifestStore
 	router    chi.Router
 	logger    *slog.Logger
 	webDir    string
@@ -73,6 +79,8 @@ func NewServer(cfg ServerConfig) *Server {
 		relay:     cfg.Relay,
 		signaling: cfg.Signaling,
 		notifier:  cfg.Notifier,
+		signing:   cfg.Signing,
+		manifests: cfg.Manifests,
 		router:    chi.NewRouter(),
 		logger:    cfg.Logger,
 		webDir:    cfg.WebDir,
