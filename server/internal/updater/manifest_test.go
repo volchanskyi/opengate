@@ -2,6 +2,8 @@ package updater
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -77,6 +79,33 @@ func TestManifestStore_PutOverwrites(t *testing.T) {
 	require.NotNil(t, got)
 	assert.Equal(t, "2.0.0", got.Version)
 	assert.Equal(t, "u2", got.URL)
+}
+
+func TestManifestStore_GetCorruptedFile(t *testing.T) {
+	dir := t.TempDir()
+	store := NewManifestStore(dir)
+
+	// Write a corrupt manifest file directly
+	manifestDir := filepath.Join(dir, "manifests")
+	require.NoError(t, os.MkdirAll(manifestDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(manifestDir, "linux-amd64.json"), []byte("not json"), 0644))
+
+	_, err := store.Get(context.Background(), "linux", "amd64")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "parse manifest")
+}
+
+func TestManifestStore_ListCorruptedFile(t *testing.T) {
+	dir := t.TempDir()
+	store := NewManifestStore(dir)
+
+	manifestDir := filepath.Join(dir, "manifests")
+	require.NoError(t, os.MkdirAll(manifestDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(manifestDir, "linux-amd64.json"), []byte("{bad"), 0644))
+
+	_, err := store.List(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "parse")
 }
 
 func TestManifestStore_ListEmpty(t *testing.T) {

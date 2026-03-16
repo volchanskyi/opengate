@@ -1,6 +1,6 @@
 //! Agent binary auto-update: download, verify Ed25519 signature, atomic replace.
 
-use ed25519_dalek::{Signature, VerifyingKey};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -59,7 +59,7 @@ pub struct UpdateConfig {
 /// 5. Atomically replace the current binary via `rename(2)`
 pub async fn apply_update(
     config: &UpdateConfig,
-    _version: &str,
+    version: &str,
     url: &str,
     sha256_hex: &str,
     signature_hex: &str,
@@ -68,7 +68,7 @@ pub async fn apply_update(
     let prev_path = config.current_binary_path.with_extension("prev");
 
     // 1. Download binary
-    info!(url, "downloading update binary");
+    info!(version, url, "downloading update binary");
     download_to_file(url, &new_path).await?;
 
     // 2. Compute and verify SHA-256
@@ -153,7 +153,6 @@ fn verify_signature(
 
     let signature = Signature::from_slice(&sig_bytes).map_err(|_| UpdateError::SignatureInvalid)?;
 
-    use ed25519_dalek::Verifier;
     verifying_key
         .verify(&hash_bytes, &signature)
         .map_err(|_| UpdateError::SignatureInvalid)?;
@@ -167,19 +166,21 @@ mod tests {
     use ed25519_dalek::{Signer, SigningKey};
     use sha2::{Digest, Sha256};
 
-    fn test_keypair() -> (SigningKey, VerifyingKey) {
-        // Use a deterministic key for tests (32 bytes of 0x01..0x20)
-        let secret: [u8; 32] = core::array::from_fn(|i| (i + 1) as u8);
+    /// Generate a deterministic Ed25519 keypair seeded from `offset`.
+    fn test_keypair_with_offset(offset: u8) -> (SigningKey, VerifyingKey) {
+        let secret: [u8; 32] =
+            core::array::from_fn(|i| (i as u8).wrapping_add(offset).wrapping_add(1));
         let signing_key = SigningKey::from_bytes(&secret);
         let verifying_key = signing_key.verifying_key();
         (signing_key, verifying_key)
     }
 
+    fn test_keypair() -> (SigningKey, VerifyingKey) {
+        test_keypair_with_offset(0)
+    }
+
     fn test_keypair_alt() -> (SigningKey, VerifyingKey) {
-        let secret: [u8; 32] = core::array::from_fn(|i| (i + 33) as u8);
-        let signing_key = SigningKey::from_bytes(&secret);
-        let verifying_key = signing_key.verifying_key();
-        (signing_key, verifying_key)
+        test_keypair_with_offset(32)
     }
 
     #[test]
