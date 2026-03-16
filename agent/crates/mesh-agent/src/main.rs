@@ -4,10 +4,13 @@
 //! handles session requests, and applies binary updates.
 //! Exit code 42 signals the service manager to restart after an update.
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use sha2::{Digest, Sha384};
 use tracing::{error, info, warn};
 
 /// OpenGate mesh agent.
@@ -34,6 +37,81 @@ struct Args {
 /// Exit code that tells systemd (RestartForceExitStatus=42) to restart the agent
 /// after a successful binary update.
 const EXIT_CODE_RESTART: i32 = 42;
+
+/// Build the quinn QUIC client config with mTLS.
+fn build_quic_config(
+    ca_pem: &str,
+    identity: &mesh_agent_core::AgentIdentity,
+) -> Result<quinn::ClientConfig> {
+    let server_certs = rustls_pemfile::certs(&mut ca_pem.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .context("parse CA PEM")?;
+
+    let mut root_store = rustls::RootCertStore::empty();
+    for cert in server_certs {
+        root_store.add(cert).context("add CA cert")?;
+    }
+
+    let client_cert = rustls::pki_types::CertificateDer::from(identity.cert_der.clone());
+    let client_key = rustls::pki_types::PrivateKeyDer::Pkcs8(
+        rustls::pki_types::PrivatePkcs8KeyDer::from(identity.key_der.clone()),
+    );
+
+    let mut tls_config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_client_auth_cert(vec![client_cert], client_key)
+        .context("build TLS config")?;
+
+    tls_config.alpn_protocols = vec![b"opengate".to_vec()];
+
+    let quinn_config = quinn::ClientConfig::new(Arc::new(
+        quinn::crypto::rustls::QuicClientConfig::try_from(tls_config)?,
+    ));
+
+    Ok(quinn_config)
+}
+
+/// Perform the binary handshake: read ServerHello, send AgentHello.
+async fn perform_handshake(
+    send: &mut quinn::SendStream,
+    recv: &mut quinn::RecvStream,
+    cert_der: &[u8],
+) -> Result<()> {
+    // Read ServerHello (81 bytes: 1 type + 32 nonce + 48 cert_hash)
+    let mut hello_buf = [0u8; 81];
+    recv.read_exact(&mut hello_buf)
+        .await
+        .context("read ServerHello")?;
+
+    let server_hello =
+        mesh_protocol::HandshakeMessage::decode_binary(&hello_buf).context("decode ServerHello")?;
+
+    match &server_hello {
+        mesh_protocol::HandshakeMessage::ServerHello { .. } => {
+            info!("received ServerHello");
+        }
+        other => anyhow::bail!("expected ServerHello, got {:?}", other),
+    }
+
+    // Compute agent cert SHA-384 hash
+    let agent_cert_hash: [u8; 48] = Sha384::digest(cert_der).into();
+
+    // Generate random nonce
+    let mut nonce = [0u8; 32];
+    getrandom::fill(&mut nonce).context("generate nonce")?;
+
+    // Build and send AgentHello
+    let agent_hello = mesh_protocol::HandshakeMessage::AgentHello {
+        nonce,
+        agent_cert_hash,
+    };
+    send.write_all(&agent_hello.encode_binary())
+        .await
+        .context("write AgentHello")?;
+
+    info!("handshake complete");
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -78,17 +156,20 @@ async fn main() -> Result<()> {
         }
     };
 
-    let config = mesh_agent_core::AgentConfig {
-        server_addr: args.server_addr,
-        server_ca_pem: ca_pem,
-        data_dir: args.data_dir.clone(),
-    };
-
     // Load or create agent identity
     let identity = mesh_agent_core::AgentIdentity::load_or_create(&args.data_dir)
         .context("load agent identity")?;
 
     info!(device_id = %identity.device_id.0, "agent identity loaded");
+
+    // Build QUIC client config (needs ca_pem reference before it moves into AgentConfig)
+    let quinn_config = build_quic_config(&ca_pem, &identity)?;
+
+    let config = mesh_agent_core::AgentConfig {
+        server_addr: args.server_addr,
+        server_ca_pem: ca_pem,
+        data_dir: args.data_dir.clone(),
+    };
 
     // Build update config
     let update_config = update_public_key.map(|key| mesh_agent_core::UpdateConfig {
@@ -98,28 +179,254 @@ async fn main() -> Result<()> {
         data_dir: args.data_dir.clone(),
     });
 
-    // TODO: Connect via QUIC, run control loop with session dispatch and update handling.
-    // For now, log the config and exit. Full QUIC connect will be wired in a follow-up.
-    info!(
-        device_id = %identity.device_id.0,
-        server = %config.server_addr,
-        updates_enabled = update_config.is_some(),
-        "agent configured, QUIC control loop not yet wired"
-    );
+    // Platform lifecycle
+    let lifecycle = platform_linux::create_service_lifecycle();
 
-    // Placeholder: the control loop would dispatch AgentUpdate messages here.
-    // On successful update, exit with code 42 for systemd restart.
-    let _restart_exit_code = EXIT_CODE_RESTART;
+    // QUIC endpoint
+    let endpoint = quinn::Endpoint::client("0.0.0.0:0".parse::<SocketAddr>()?)?;
 
-    if let Some(_update_cfg) = &update_config {
-        info!("update system ready");
+    // Notify systemd we're ready
+    lifecycle.notify_ready();
+    info!("agent ready, connecting to server");
+
+    // Shutdown signal handler
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+
+    // Main reconnect loop
+    'outer: loop {
+        // Connect with exponential backoff
+        let connect_result = mesh_agent_core::reconnect_with_backoff(
+            || {
+                let addr_str = config.server_addr.clone();
+                let qc = quinn_config.clone();
+                let ep = endpoint.clone();
+                async move {
+                    let addr: SocketAddr = addr_str
+                        .parse()
+                        .map_err(|e| format!("parse server addr: {e}"))?;
+                    let conn = ep
+                        .connect_with(qc, addr, "server")
+                        .map_err(|e| format!("QUIC connect: {e}"))?
+                        .await
+                        .map_err(|e| format!("QUIC establish: {e}"))?;
+                    // Server opens the bidirectional stream (stream ownership workaround)
+                    let (send, recv) = conn
+                        .accept_bi()
+                        .await
+                        .map_err(|e| format!("accept bi stream: {e}"))?;
+                    Ok::<_, String>((send, recv))
+                }
+            },
+            10,
+        )
+        .await;
+
+        let (mut send, mut recv) = match connect_result {
+            Ok(streams) => streams,
+            Err(e) => {
+                error!(error = %e, "all reconnect attempts failed, exiting");
+                lifecycle.notify_stopping();
+                return Err(e.into());
+            }
+        };
+
+        // Perform binary handshake (ServerHello / AgentHello)
+        if let Err(e) = perform_handshake(&mut send, &mut recv, &identity.cert_der).await {
+            warn!(error = %e, "handshake failed, will reconnect");
+            continue;
+        }
+
+        // Wrap QUIC streams into AsyncControlStream
+        let stream = mesh_agent_core::AsyncControlStream::new(tokio::io::join(recv, send));
+        let mut conn = mesh_agent_core::AgentConnection::new(stream, config.clone());
+
+        // Register with server
+        if let Err(e) = conn
+            .send_control(mesh_protocol::ControlMessage::AgentRegister {
+                capabilities: vec![
+                    mesh_protocol::AgentCapability::RemoteDesktop,
+                    mesh_protocol::AgentCapability::Terminal,
+                    mesh_protocol::AgentCapability::FileManager,
+                ],
+                hostname: gethostname::gethostname().to_string_lossy().to_string(),
+                os: std::env::consts::OS.to_string(),
+                arch: std::env::consts::ARCH.to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            })
+            .await
+        {
+            warn!(error = %e, "failed to send AgentRegister, will reconnect");
+            continue;
+        }
+
+        info!("registered with server, entering control loop");
+
+        // Control loop — dispatch messages until disconnect
+        loop {
+            tokio::select! {
+                biased;
+                _ = tokio::signal::ctrl_c() => {
+                    info!("received SIGINT, shutting down");
+                    break 'outer;
+                }
+                _ = sigterm.recv() => {
+                    info!("received SIGTERM, shutting down");
+                    break 'outer;
+                }
+                msg = conn.receive_control() => {
+                    match msg {
+                        Ok(mesh_protocol::ControlMessage::SessionRequest {
+                            token, relay_url, permissions,
+                        }) => {
+                            let capture = platform_linux::create_screen_capture();
+                            let injector = platform_linux::create_input_injector();
+                            match conn.handle_session_request(
+                                token, relay_url, permissions, capture, injector,
+                            ).await {
+                                Ok(_handle) => {} // session runs independently
+                                Err(e) => warn!(error = %e, "failed to accept session"),
+                            }
+                        }
+                        Ok(mesh_protocol::ControlMessage::AgentUpdate {
+                            version, url, signature,
+                        }) => {
+                            if let Some(ref uc) = update_config {
+                                match mesh_agent_core::update::apply_update(
+                                    uc, &version, &url, "", &signature,
+                                ).await {
+                                    Ok(true) => {
+                                        info!(version, "update applied, restarting");
+                                        lifecycle.notify_stopping();
+                                        std::process::exit(EXIT_CODE_RESTART);
+                                    }
+                                    Ok(false) => info!("update skipped (same version)"),
+                                    Err(e) => error!(error = %e, "update failed"),
+                                }
+                            }
+                        }
+                        Ok(_other) => { /* ignore unknown messages */ }
+                        Err(e) if e.to_string().contains("ping received") => {
+                            // Ping was handled (pong sent), continue listening
+                            continue;
+                        }
+                        Err(mesh_agent_core::ConnectionError::Io(_)) => {
+                            warn!("connection lost, will reconnect");
+                            break; // break inner loop, outer loop reconnects
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "control error, will reconnect");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    // The actual QUIC connect + control loop will be implemented when
-    // the agent binary is integrated with the full connection flow.
-    // For now, this binary validates that all dependencies compile
-    // and the CLI interface is correct.
+    lifecycle.notify_stopping();
+    info!("mesh-agent stopped");
+    Ok(())
+}
 
-    error!("QUIC control loop not yet implemented — exiting");
-    std::process::exit(1);
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn test_exit_code_restart_is_42() {
+        assert_eq!(EXIT_CODE_RESTART, 42);
+    }
+
+    #[test]
+    fn test_cli_args_valid_parse() {
+        let args = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+        ])
+        .unwrap();
+        assert_eq!(args.server_addr, "127.0.0.1:9090");
+        assert_eq!(args.server_ca, PathBuf::from("/tmp/ca.pem"));
+        assert_eq!(args.data_dir, PathBuf::from("/var/lib/mesh-agent"));
+        assert!(args.update_public_key.is_none());
+    }
+
+    #[test]
+    fn test_cli_args_custom_data_dir() {
+        let args = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "10.0.0.1:9090",
+            "--server-ca",
+            "/etc/agent/ca.pem",
+            "--data-dir",
+            "/opt/agent/data",
+        ])
+        .unwrap();
+        assert_eq!(args.data_dir, PathBuf::from("/opt/agent/data"));
+    }
+
+    #[test]
+    fn test_cli_args_with_update_key() {
+        let key_hex = "a".repeat(64);
+        let args = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+            "--update-public-key",
+            &key_hex,
+        ])
+        .unwrap();
+        assert_eq!(args.update_public_key, Some(key_hex));
+    }
+
+    #[test]
+    fn test_cli_args_missing_server_addr() {
+        let result = Args::try_parse_from(["mesh-agent", "--server-ca", "/tmp/ca.pem"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cli_args_missing_server_ca() {
+        let result = Args::try_parse_from(["mesh-agent", "--server-addr", "127.0.0.1:9090"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_build_quic_config_valid_certs() {
+        let ca_key = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
+        let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        ca_params.distinguished_name.push(
+            rcgen::DnType::CommonName,
+            rcgen::DnValue::Utf8String("Test CA".to_string()),
+        );
+        let ca_cert = ca_params.self_signed(&ca_key).unwrap();
+        let ca_pem = ca_cert.pem();
+
+        let dir = tempfile::tempdir().unwrap();
+        let identity = mesh_agent_core::AgentIdentity::load_or_create(dir.path()).unwrap();
+
+        let result = build_quic_config(&ca_pem, &identity);
+        assert!(
+            result.is_ok(),
+            "expected valid config, got: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_build_quic_config_empty_ca_pem() {
+        let dir = tempfile::tempdir().unwrap();
+        let identity = mesh_agent_core::AgentIdentity::load_or_create(dir.path()).unwrap();
+
+        // Empty PEM yields empty root store — config still builds but would fail at handshake
+        let result = build_quic_config("", &identity);
+        assert!(result.is_ok());
+    }
 }
