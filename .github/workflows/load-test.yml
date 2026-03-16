@@ -7,8 +7,6 @@ on:
         description: "Number of QUIC agents to simulate"
         required: false
         default: "100"
-  schedule:
-    - cron: '0 6 * * *'
 
 concurrency:
   group: load-test
@@ -49,9 +47,21 @@ jobs:
 
       # --- Phase 1: k6 HTTP/WebSocket load tests --------------------------------
 
+      - name: Detect VPS architecture
+        id: arch
+        run: |
+          VPS_ARCH=$(ssh deploy-target "uname -m")
+          case "$VPS_ARCH" in
+            aarch64) K6_ARCH=arm64; GO_ARCH=arm64 ;;
+            *)       K6_ARCH=amd64; GO_ARCH=amd64 ;;
+          esac
+          echo "k6=$K6_ARCH" >> "$GITHUB_OUTPUT"
+          echo "go=$GO_ARCH" >> "$GITHUB_OUTPUT"
+
       - name: Install k6 on VPS
         run: |
-          ssh deploy-target "curl -sL https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-amd64.tar.gz | tar xz && mv k6-v0.54.0-linux-amd64/k6 /tmp/k6 && rm -rf k6-v0.54.0-linux-amd64"
+          ARCH=${{ steps.arch.outputs.k6 }}
+          ssh deploy-target "curl -sL https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-${ARCH}.tar.gz | tar xz && mv k6-v0.54.0-linux-${ARCH}/k6 /tmp/k6 && rm -rf k6-v0.54.0-linux-${ARCH}"
 
       - name: Copy k6 scenarios to VPS
         run: scp load/k6/scenarios/*.js deploy-target:/tmp/
@@ -72,7 +82,7 @@ jobs:
       # --- Phase 2: Go QUIC agent load test --------------------------------------
 
       - name: Build QUIC load test harness
-        run: cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /tmp/loadtest ./tests/loadtest/
+        run: cd server && CGO_ENABLED=0 GOOS=linux GOARCH=${{ steps.arch.outputs.go }} go build -trimpath -o /tmp/loadtest ./tests/loadtest/
 
       - name: Copy harness to VPS
         run: scp /tmp/loadtest deploy-target:/tmp/loadtest
