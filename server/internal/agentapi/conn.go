@@ -93,10 +93,10 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 	case protocol.MsgAgentHeartbeat:
 		return a.handleHeartbeat(ctx, msg)
 	case protocol.MsgSessionAccept:
-		a.logger.Info("session accepted", "device_id", a.DeviceID, "token_prefix", redactToken(string(msg.Token)))
+		a.logger.Info("session accepted", "device_id", a.DeviceID, "token_prefix", protocol.RedactToken(string(msg.Token)))
 		return nil
 	case protocol.MsgSessionReject:
-		a.logger.Info("session rejected", "device_id", a.DeviceID, "token_prefix", redactToken(string(msg.Token)), "reason", msg.Reason)
+		a.logger.Info("session rejected", "device_id", a.DeviceID, "token_prefix", protocol.RedactToken(string(msg.Token)), "reason", msg.Reason)
 		return nil
 	default:
 		return fmt.Errorf("%w: %s", ErrUnexpectedMessage, msg.Type)
@@ -145,10 +145,3 @@ func (a *AgentConn) handleHeartbeat(ctx context.Context, msg *protocol.ControlMe
 	return nil
 }
 
-// redactToken returns the first 8 characters of a token for safe logging.
-func redactToken(token string) string {
-	if len(token) <= 8 {
-		return "***"
-	}
-	return token[:8] + "..."
-}
