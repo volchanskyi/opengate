@@ -110,10 +110,3 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	}
 }
 
-func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Debug("failed to write JSON response", "error", err)
-	}
-}

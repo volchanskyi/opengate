@@ -63,6 +63,22 @@ func (s *SQLiteStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
+// execAndCheckAffected runs a mutation query and returns ErrNotFound when zero rows were affected.
+func (s *SQLiteStore) execAndCheckAffected(ctx context.Context, query string, args ...any) error {
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
@@ -70,6 +86,25 @@ func (s *SQLiteStore) Close() error {
 // scanner abstracts *sql.Row and *sql.Rows for shared scan functions.
 type scanner interface {
 	Scan(dest ...any) error
+}
+
+// queryList runs a SELECT and scans all rows using the provided scan function.
+func queryList[T any](ctx context.Context, db *sql.DB, scan func(scanner) (*T, error), query string, args ...any) ([]*T, error) {
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []*T
+	for rows.Next() {
+		item, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func parseUUID(s string) (uuid.UUID, error) {
@@ -149,56 +184,20 @@ func (s *SQLiteStore) GetDevice(ctx context.Context, id DeviceID) (*Device, erro
 }
 
 func (s *SQLiteStore) ListDevices(ctx context.Context, groupID GroupID) ([]*Device, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s.db, scanDeviceFrom,
 		`SELECT id, group_id, hostname, os, status, last_seen, created_at, updated_at FROM devices WHERE group_id = ?`,
 		groupID.String())
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var devices []*Device
-	for rows.Next() {
-		d, err := scanDeviceFrom(rows)
-		if err != nil {
-			return nil, err
-		}
-		devices = append(devices, d)
-	}
-	return devices, rows.Err()
 }
 
 func (s *SQLiteStore) DeleteDevice(ctx context.Context, id DeviceID) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM devices WHERE id = ?`, id.String())
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.execAndCheckAffected(ctx, `DELETE FROM devices WHERE id = ?`, id.String())
 }
 
 func (s *SQLiteStore) SetDeviceStatus(ctx context.Context, id DeviceID, status DeviceStatus) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.ExecContext(ctx,
+	return s.execAndCheckAffected(ctx,
 		`UPDATE devices SET status = ?, last_seen = ?, updated_at = ? WHERE id = ?`,
 		string(status), now, now, id.String())
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
 // --- Groups ---
@@ -249,38 +248,13 @@ func (s *SQLiteStore) GetGroup(ctx context.Context, id GroupID) (*Group, error) 
 }
 
 func (s *SQLiteStore) ListGroups(ctx context.Context, ownerID UserID) ([]*Group, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s.db, scanGroupFrom,
 		`SELECT id, name, owner_id, created_at, updated_at FROM groups_ WHERE owner_id = ?`,
 		ownerID.String())
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var groups []*Group
-	for rows.Next() {
-		g, err := scanGroupFrom(rows)
-		if err != nil {
-			return nil, err
-		}
-		groups = append(groups, g)
-	}
-	return groups, rows.Err()
 }
 
 func (s *SQLiteStore) DeleteGroup(ctx context.Context, id GroupID) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM groups_ WHERE id = ?`, id.String())
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.execAndCheckAffected(ctx, `DELETE FROM groups_ WHERE id = ?`, id.String())
 }
 
 // --- Users ---
@@ -345,37 +319,12 @@ func (s *SQLiteStore) GetUserByEmail(ctx context.Context, email string) (*User, 
 }
 
 func (s *SQLiteStore) ListUsers(ctx context.Context) ([]*User, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s.db, scanUserFrom,
 		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var users []*User
-	for rows.Next() {
-		u, err := scanUserFrom(rows)
-		if err != nil {
-			return nil, err
-		}
-		users = append(users, u)
-	}
-	return users, rows.Err()
 }
 
 func (s *SQLiteStore) DeleteUser(ctx context.Context, id UserID) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id.String())
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.execAndCheckAffected(ctx, `DELETE FROM users WHERE id = ?`, id.String())
 }
 
 // --- Agent Sessions ---
@@ -422,38 +371,13 @@ func (s *SQLiteStore) GetAgentSession(ctx context.Context, token string) (*Agent
 }
 
 func (s *SQLiteStore) DeleteAgentSession(ctx context.Context, token string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM agent_sessions WHERE token = ?`, token)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.execAndCheckAffected(ctx, `DELETE FROM agent_sessions WHERE token = ?`, token)
 }
 
 func (s *SQLiteStore) ListActiveSessionsForDevice(ctx context.Context, deviceID DeviceID) ([]*AgentSession, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s.db, scanAgentSessionFrom,
 		`SELECT token, device_id, user_id, created_at FROM agent_sessions WHERE device_id = ?`,
 		deviceID.String())
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var sessions []*AgentSession
-	for rows.Next() {
-		as, err := scanAgentSessionFrom(rows)
-		if err != nil {
-			return nil, err
-		}
-		sessions = append(sessions, as)
-	}
-	return sessions, rows.Err()
 }
 
 // --- Web Push ---
@@ -485,58 +409,19 @@ func (s *SQLiteStore) UpsertWebPushSubscription(ctx context.Context, sub *WebPus
 }
 
 func (s *SQLiteStore) ListWebPushSubscriptions(ctx context.Context, userID UserID) ([]*WebPushSubscription, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s.db, scanWebPushSubFrom,
 		`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions WHERE user_id = ?`,
 		userID.String())
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var subs []*WebPushSubscription
-	for rows.Next() {
-		sub, err := scanWebPushSubFrom(rows)
-		if err != nil {
-			return nil, err
-		}
-		subs = append(subs, sub)
-	}
-	return subs, rows.Err()
 }
 
 // ListAllWebPushSubscriptions returns all push subscriptions across all users.
 func (s *SQLiteStore) ListAllWebPushSubscriptions(ctx context.Context) ([]*WebPushSubscription, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s.db, scanWebPushSubFrom,
 		`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var subs []*WebPushSubscription
-	for rows.Next() {
-		sub, err := scanWebPushSubFrom(rows)
-		if err != nil {
-			return nil, err
-		}
-		subs = append(subs, sub)
-	}
-	return subs, rows.Err()
 }
 
 func (s *SQLiteStore) DeleteWebPushSubscription(ctx context.Context, endpoint string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM web_push_subscriptions WHERE endpoint = ?`, endpoint)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.execAndCheckAffected(ctx, `DELETE FROM web_push_subscriptions WHERE endpoint = ?`, endpoint)
 }
 
 // --- Audit ---
@@ -653,38 +538,13 @@ func (s *SQLiteStore) GetAMTDevice(ctx context.Context, id uuid.UUID) (*AMTDevic
 }
 
 func (s *SQLiteStore) ListAMTDevices(ctx context.Context) ([]*AMTDevice, error) {
-	rows, err := s.db.QueryContext(ctx,
+	return queryList(ctx, s.db, scanAMTDeviceFrom,
 		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var devices []*AMTDevice
-	for rows.Next() {
-		d, err := scanAMTDeviceFrom(rows)
-		if err != nil {
-			return nil, err
-		}
-		devices = append(devices, d)
-	}
-	return devices, rows.Err()
 }
 
 func (s *SQLiteStore) SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status DeviceStatus) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.ExecContext(ctx,
+	return s.execAndCheckAffected(ctx,
 		`UPDATE amt_devices SET status = ?, last_seen = ? WHERE uuid = ?`,
 		string(status), now, id.String())
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
 }

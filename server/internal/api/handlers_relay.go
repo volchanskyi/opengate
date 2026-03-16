@@ -73,14 +73,14 @@ func (s *Server) upgradeRelayWebSocket(w http.ResponseWriter, r *http.Request) *
 func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn *WSConn, token string, side relay.Side) {
 	ctx := r.Context()
 	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {
-		s.logger.Error("relay register", "error", err, "token_prefix", redactToken(token))
+		s.logger.Error("relay register", "error", err, "token_prefix", protocol.RedactToken(token))
 		wsConn.Close(websocket.StatusInternalError, "relay error")
 		return
 	}
 
 	if err := s.relay.WaitForPeer(ctx, protocol.SessionToken(token)); err != nil {
 		if !errors.Is(err, ctx.Err()) {
-			s.logger.Error("relay wait for peer", "error", err, "token_prefix", redactToken(token))
+			s.logger.Error("relay wait for peer", "error", err, "token_prefix", protocol.RedactToken(token))
 		}
 		return
 	}
@@ -120,10 +120,3 @@ func (s *Server) validateRelayToken(r *http.Request, token string) error {
 	return err
 }
 
-// redactToken returns the first 8 characters of a token for safe logging.
-func redactToken(token string) string {
-	if len(token) <= 8 {
-		return "***"
-	}
-	return token[:8] + "..."
-}
