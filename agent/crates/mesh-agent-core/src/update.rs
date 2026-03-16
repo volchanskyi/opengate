@@ -168,7 +168,8 @@ mod tests {
 
     /// Generate a deterministic Ed25519 keypair seeded from `offset`.
     fn test_keypair_with_offset(offset: u8) -> (SigningKey, VerifyingKey) {
-        let secret: [u8; 32] = core::array::from_fn(|i| (i as u8).wrapping_add(offset).wrapping_add(1));
+        let secret: [u8; 32] =
+            core::array::from_fn(|i| (i as u8).wrapping_add(offset).wrapping_add(1));
         let signing_key = SigningKey::from_bytes(&secret);
         let verifying_key = signing_key.verifying_key();
         (signing_key, verifying_key)
