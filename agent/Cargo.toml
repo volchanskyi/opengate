@@ -29,6 +29,7 @@ portable-pty = "0.8"
 url = "2"
 webrtc = "0.17"
 
+gethostname = "0.5"
 ed25519-dalek = { version = "2", features = ["std"] }
 sha2 = "0.10"
 hex = "0.4"

@@ -56,6 +56,7 @@ docker compose up -d
 ```
 agent/                       Rust workspace
 ├── crates/
+│   ├── mesh-agent/          Binary entry point (QUIC mTLS, handshake, control loop)
 │   ├── mesh-protocol/       Shared wire protocol (MessagePack codec, frame format)
 │   ├── mesh-agent-core/     Agent identity, QUIC connection, platform traits,
 │   │                        session handler, WebRTC peer connection
