@@ -61,7 +61,8 @@ mod tests {
 
     /// Create a temp Unix datagram socket and a `SystemdLifecycle` pointed at it.
     fn setup_notify_test(suffix: &str) -> (UnixDatagram, SystemdLifecycle, PathBuf) {
-        let path = std::env::temp_dir().join(format!("sd_notify_{}_{}", suffix, std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("sd_notify_{}_{}", suffix, std::process::id()));
         let _ = std::fs::remove_file(&path);
         let receiver = UnixDatagram::bind(&path).expect("bind test socket");
         receiver
@@ -75,7 +76,9 @@ mod tests {
 
     fn recv_msg(receiver: &UnixDatagram) -> Vec<u8> {
         let mut buf = [0u8; 64];
-        let n = receiver.recv(&mut buf).expect("should receive notification");
+        let n = receiver
+            .recv(&mut buf)
+            .expect("should receive notification");
         buf[..n].to_vec()
     }
 
