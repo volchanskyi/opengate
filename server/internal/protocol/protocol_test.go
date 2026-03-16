@@ -56,6 +56,8 @@ func TestControlMessageRoundtrip(t *testing.T) {
 				Capabilities: []AgentCapability{CapRemoteDesktop, CapTerminal},
 				Hostname:     "test-machine",
 				OS:           "linux",
+				Arch:         "amd64",
+				Version:      "0.1.0",
 			},
 		},
 		{

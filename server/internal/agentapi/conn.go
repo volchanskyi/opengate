@@ -17,6 +17,12 @@ type AgentConn struct {
 	DeviceID protocol.DeviceID
 	// GroupID is the group this agent belongs to (set during registration).
 	GroupID uuid.UUID
+	// OS reported by the agent during registration.
+	OS string
+	// Arch reported by the agent during registration.
+	Arch string
+	// AgentVersion reported by the agent during registration.
+	AgentVersion string
 	// Capabilities reported by the agent during registration.
 	Capabilities []protocol.AgentCapability
 
@@ -54,6 +60,27 @@ func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.Sessi
 
 	if err := a.codec.WriteFrame(a.stream, protocol.FrameControl, payload); err != nil {
 		return fmt.Errorf("write session request frame: %w", err)
+	}
+
+	return nil
+}
+
+// SendAgentUpdate sends an AgentUpdate control message to the agent.
+func (a *AgentConn) SendAgentUpdate(ctx context.Context, version, url, signature string) error {
+	msg := &protocol.ControlMessage{
+		Type:      protocol.MsgAgentUpdate,
+		Version:   version,
+		URL:       url,
+		Signature: signature,
+	}
+
+	payload, err := a.codec.EncodeControl(msg)
+	if err != nil {
+		return fmt.Errorf("encode agent update: %w", err)
+	}
+
+	if err := a.codec.WriteFrame(a.stream, protocol.FrameControl, payload); err != nil {
+		return fmt.Errorf("write agent update frame: %w", err)
 	}
 
 	return nil
@@ -98,6 +125,14 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 	case protocol.MsgSessionReject:
 		a.logger.Info("session rejected", "device_id", a.DeviceID, "token_prefix", protocol.RedactToken(string(msg.Token)), "reason", msg.Reason)
 		return nil
+	case protocol.MsgAgentUpdateAck:
+		success := msg.Success != nil && *msg.Success
+		if success {
+			a.logger.Info("agent update applied", "device_id", a.DeviceID, "version", msg.Version)
+		} else {
+			a.logger.Warn("agent update failed", "device_id", a.DeviceID, "version", msg.Version, "error", msg.AckError)
+		}
+		return nil
 	default:
 		return fmt.Errorf("%w: %s", ErrUnexpectedMessage, msg.Type)
 	}
@@ -105,13 +140,17 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 
 func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMessage) error {
 	a.Capabilities = msg.Capabilities
+	a.OS = msg.OS
+	a.Arch = msg.Arch
+	a.AgentVersion = msg.Version
 
 	device := &db.Device{
-		ID:       a.DeviceID,
-		GroupID:  a.GroupID,
-		Hostname: msg.Hostname,
-		OS:       msg.OS,
-		Status:   db.StatusOnline,
+		ID:           a.DeviceID,
+		GroupID:      a.GroupID,
+		Hostname:     msg.Hostname,
+		OS:           msg.OS,
+		AgentVersion: msg.Version,
+		Status:       db.StatusOnline,
 	}
 
 	if err := a.store.UpsertDevice(ctx, device); err != nil {

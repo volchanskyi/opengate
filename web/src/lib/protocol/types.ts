@@ -92,12 +92,13 @@ export type KeyCode =
  * matching Rust's `#[serde(tag = "type")]`.
  */
 export type ControlMessage =
-  | { type: 'AgentRegister'; capabilities: string[]; hostname: string; os: string }
+  | { type: 'AgentRegister'; capabilities: string[]; hostname: string; os: string; arch: string; version: string }
   | { type: 'AgentHeartbeat'; timestamp: number }
   | { type: 'SessionAccept'; token: string; relay_url: string }
   | { type: 'SessionReject'; token: string; reason: string }
   | { type: 'SessionRequest'; token: string; relay_url: string; permissions: Permissions }
   | { type: 'AgentUpdate'; version: string; url: string; signature: string }
+  | { type: 'AgentUpdateAck'; version: string; success: boolean; error: string }
   | { type: 'RelayReady' }
   | { type: 'SwitchToWebRTC'; sdp_offer: string }
   | { type: 'SwitchAck' }

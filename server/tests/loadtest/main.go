@@ -170,6 +170,8 @@ func runAgent(cm *cert.Manager, addr string) agentResult {
 		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
 		Hostname:     "loadtest-" + deviceID.String()[:8],
 		OS:           "linux",
+		Arch:         "amd64",
+		Version:      "0.1.0",
 	}
 	payload, err := codec.EncodeControl(regMsg)
 	if err != nil {

@@ -35,6 +35,17 @@ func (s *stubAgentGetter) GetAgent(deviceID protocol.DeviceID) *agentapi.AgentCo
 	return s.agents[deviceID]
 }
 
+func (s *stubAgentGetter) ListConnectedAgents() []*agentapi.AgentConn {
+	if s == nil || s.agents == nil {
+		return nil
+	}
+	agents := make([]*agentapi.AgentConn, 0, len(s.agents))
+	for _, a := range s.agents {
+		agents = append(agents, a)
+	}
+	return agents
+}
+
 // stubAMTOperator is a test double for AMTOperator.
 type stubAMTOperator struct{}
 

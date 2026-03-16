@@ -108,6 +108,8 @@ func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) quic
 		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
 		Hostname:     "integration-test-host",
 		OS:           "linux",
+		Arch:         "amd64",
+		Version:      "0.1.0",
 	}
 	payload, err := codec.EncodeControl(regMsg)
 	require.NoError(t, err)
@@ -175,6 +177,8 @@ func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (quic.Strea
 		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
 		Hostname:     "integration-test-host",
 		OS:           "linux",
+		Arch:         "amd64",
+		Version:      "0.1.0",
 	}
 	payload, err := codec.EncodeControl(regMsg)
 	require.NoError(t, err)

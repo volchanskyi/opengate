@@ -46,6 +46,8 @@ fn golden_control_frame_agent_register() {
         capabilities: vec![AgentCapability::RemoteDesktop, AgentCapability::Terminal],
         hostname: "golden-test-host".to_string(),
         os: "linux".to_string(),
+        arch: "amd64".to_string(),
+        version: "0.1.0".to_string(),
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
@@ -120,6 +122,18 @@ fn golden_control_frame_switch_ack() {
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
     golden_check("control_switch_ack.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_agent_update_ack() {
+    let msg = ControlMessage::AgentUpdateAck {
+        version: "1.2.3".to_string(),
+        success: true,
+        error: "".to_string(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_agent_update_ack.bin", &encoded);
 }
 
 #[test]

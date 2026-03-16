@@ -11,6 +11,7 @@ const (
 	MsgSessionReject  ControlMessageType = "SessionReject"
 	MsgSessionRequest ControlMessageType = "SessionRequest"
 	MsgAgentUpdate    ControlMessageType = "AgentUpdate"
+	MsgAgentUpdateAck ControlMessageType = "AgentUpdateAck"
 	MsgRelayReady     ControlMessageType = "RelayReady"
 	MsgSwitchToWebRTC ControlMessageType = "SwitchToWebRTC"
 	MsgSwitchAck      ControlMessageType = "SwitchAck"
@@ -44,6 +45,7 @@ type ControlMessage struct {
 	Capabilities []AgentCapability `msgpack:"capabilities,omitempty"`
 	Hostname     string            `msgpack:"hostname,omitempty"`
 	OS           string            `msgpack:"os,omitempty"`
+	Arch         string            `msgpack:"arch,omitempty"`
 
 	// AgentHeartbeat
 	Timestamp int64 `msgpack:"timestamp,omitempty"`
@@ -56,10 +58,16 @@ type ControlMessage struct {
 	// SessionRequest
 	Permissions *Permissions `msgpack:"permissions,omitempty"`
 
+	// AgentRegister (version also used by AgentUpdate / AgentUpdateAck)
+	Version string `msgpack:"version,omitempty"`
+
 	// AgentUpdate
-	Version   string `msgpack:"version,omitempty"`
 	URL       string `msgpack:"url,omitempty"`
 	Signature string `msgpack:"signature,omitempty"`
+
+	// AgentUpdateAck
+	Success  *bool  `msgpack:"success,omitempty"`
+	AckError string `msgpack:"error,omitempty"`
 
 	// SwitchToWebRTC
 	SDPOffer string `msgpack:"sdp_offer,omitempty"`

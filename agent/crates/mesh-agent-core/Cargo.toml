@@ -22,6 +22,10 @@ portable-pty.workspace = true
 url.workspace = true
 webrtc.workspace = true
 bytes.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+hex.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
