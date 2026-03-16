@@ -11,6 +11,9 @@ export function Layout() {
       <nav className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-bold">OpenGate</h1>
+          <Link to="/setup" className="text-sm text-gray-400 hover:text-white">
+            Add Device
+          </Link>
           {user?.is_admin && (
             <Link to="/admin" className="text-sm text-gray-400 hover:text-white">
               Admin

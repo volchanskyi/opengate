@@ -83,6 +83,18 @@ type AMTDevice struct {
 	LastSeen time.Time    `json:"last_seen"`
 }
 
+// EnrollmentToken authorises agent enrollment and CA certificate retrieval.
+type EnrollmentToken struct {
+	ID        uuid.UUID `json:"id"`
+	Token     string    `json:"token"`
+	Label     string    `json:"label"`
+	CreatedBy UserID    `json:"created_by"`
+	MaxUses   int       `json:"max_uses"`
+	UseCount  int       `json:"use_count"`
+	ExpiresAt time.Time `json:"expires_at"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // AuditEvent records a security-relevant action.
 type AuditEvent struct {
 	ID        int64     `json:"id"`

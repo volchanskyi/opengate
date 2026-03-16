@@ -71,7 +71,7 @@ describe('Device List Flow (integration)', () => {
     renderDeviceListFlow();
     expect(screen.getByText('Production')).toBeInTheDocument();
     expect(screen.getByText('Staging')).toBeInTheDocument();
-    expect(screen.getByText('Select a group to view devices')).toBeInTheDocument();
+    expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
   });
 
   it('selects group and shows no devices message', async () => {
@@ -95,8 +95,8 @@ describe('Device List Flow (integration)', () => {
     useDeviceStore.setState({
       selectedGroupId: 'g1',
       devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'server-01', os: 'linux', status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
-        { id: 'd2', group_id: 'g1', hostname: 'server-02', os: 'windows', status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd1', group_id: 'g1', hostname: 'server-01', os: 'linux', agent_version: '1.0.0', status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd2', group_id: 'g1', hostname: 'server-02', os: 'windows', agent_version: '', status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
       ],
     });
 

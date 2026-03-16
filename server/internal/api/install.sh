@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# OpenGate Agent Installer
+# Usage: curl -sL https://<server>/api/v1/server/install.sh | sudo bash -s -- <ENROLLMENT_TOKEN>
+set -euo pipefail
+
+readonly INSTALL_DIR="/usr/local/bin"
+readonly CONFIG_DIR="/etc/opengate-agent"
+readonly DATA_DIR="/var/lib/opengate-agent"
+readonly SERVICE_NAME="mesh-agent"
+readonly BINARY_NAME="mesh-agent"
+
+# --- Helpers ----------------------------------------------------------------
+
+log()  { printf '[opengate] %s\n' "$*"; }
+fail() { printf '[opengate] ERROR: %s\n' "$*" >&2; exit 1; }
+
+# --- Pre-flight checks ------------------------------------------------------
+
+[[ $EUID -eq 0 ]] || fail "This script must be run as root (use sudo)"
+command -v curl >/dev/null 2>&1 || fail "curl is required but not installed"
+command -v systemctl >/dev/null 2>&1 || fail "systemd is required but not found"
+
+# --- Parse arguments --------------------------------------------------------
+
+ENROLLMENT_TOKEN="${1:-}"
+[[ -n "$ENROLLMENT_TOKEN" ]] || fail "Usage: $0 <ENROLLMENT_TOKEN>"
+
+# Derive the server URL from OPENGATE_SERVER env or from the download source.
+if [[ -n "${OPENGATE_SERVER:-}" ]]; then
+    SERVER_URL="${OPENGATE_SERVER}"
+else
+    # When piped via curl, try to extract the server from /proc.
+    # Fallback: user must set OPENGATE_SERVER.
+    CMDLINE=$(tr '\0' ' ' < /proc/$PPID/cmdline 2>/dev/null || true)
+    if [[ "$CMDLINE" =~ https?://([^/]+) ]]; then
+        SERVER_URL="${BASH_REMATCH[0]%%/api/*}"
+    else
+        fail "Cannot determine server URL. Set OPENGATE_SERVER=https://your-server"
+    fi
+fi
+
+log "Server: ${SERVER_URL}"
+
+# --- Detect platform -------------------------------------------------------
+
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+case "$ARCH" in
+    x86_64|amd64)  ARCH="amd64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+    *) fail "Unsupported architecture: $ARCH" ;;
+esac
+
+[[ "$OS" == "linux" ]] || fail "Unsupported OS: $OS (only linux is supported)"
+
+log "Platform: ${OS}/${ARCH}"
+
+# --- Enroll — fetch CA cert + server info -----------------------------------
+
+log "Enrolling with token..."
+ENROLL_RESPONSE=$(curl -sf --max-time 30 \
+    -X POST "${SERVER_URL}/api/v1/enroll/${ENROLLMENT_TOKEN}" \
+    -H "Content-Type: application/json") \
+    || fail "Enrollment failed. Check token validity and server URL."
+
+CA_PEM=$(echo "$ENROLL_RESPONSE" | grep -oP '"ca_pem"\s*:\s*"\K[^"]*' | sed 's/\\n/\n/g')
+SERVER_ADDR=$(echo "$ENROLL_RESPONSE" | grep -oP '"server_addr"\s*:\s*"\K[^"]*')
+
+[[ -n "$CA_PEM" ]]     || fail "No CA certificate in enrollment response"
+[[ -n "$SERVER_ADDR" ]] || fail "No server address in enrollment response"
+
+log "Server QUIC address: ${SERVER_ADDR}"
+
+# --- Fetch latest manifest for this platform --------------------------------
+
+log "Fetching agent manifest for ${OS}/${ARCH}..."
+MANIFESTS=$(curl -sf --max-time 30 \
+    "${SERVER_URL}/api/v1/updates/manifests") \
+    || fail "Failed to fetch update manifests"
+
+# Extract URL and SHA256 for our OS/arch (simple grep — works for single match).
+DOWNLOAD_URL=$(echo "$MANIFESTS" | python3 -c "
+import json, sys
+manifests = json.load(sys.stdin)
+for m in manifests:
+    if m.get('os') == '${OS}' and m.get('arch') == '${ARCH}':
+        print(m['url'])
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null) || fail "No agent binary published for ${OS}/${ARCH}. Ask your admin to publish one."
+
+EXPECTED_SHA256=$(echo "$MANIFESTS" | python3 -c "
+import json, sys
+manifests = json.load(sys.stdin)
+for m in manifests:
+    if m.get('os') == '${OS}' and m.get('arch') == '${ARCH}':
+        print(m['sha256'])
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null) || EXPECTED_SHA256=""
+
+log "Downloading agent from: ${DOWNLOAD_URL}"
+
+# --- Download binary --------------------------------------------------------
+
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
+curl -fL --max-time 300 -o "${TMPDIR}/${BINARY_NAME}" "$DOWNLOAD_URL" \
+    || fail "Failed to download agent binary"
+
+# Verify SHA256 if available.
+if [[ -n "$EXPECTED_SHA256" ]]; then
+    ACTUAL_SHA256=$(sha256sum "${TMPDIR}/${BINARY_NAME}" | awk '{print $1}')
+    if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
+        fail "SHA256 mismatch: expected ${EXPECTED_SHA256}, got ${ACTUAL_SHA256}"
+    fi
+    log "SHA256 verified"
+fi
+
+# --- Install ----------------------------------------------------------------
+
+log "Installing agent..."
+
+# Binary
+install -m 0755 "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+
+# Config directory + CA cert
+mkdir -p "$CONFIG_DIR"
+printf '%s\n' "$CA_PEM" > "${CONFIG_DIR}/ca.pem"
+chmod 644 "${CONFIG_DIR}/ca.pem"
+
+# Data directory
+mkdir -p "$DATA_DIR"
+
+# --- Systemd service --------------------------------------------------------
+
+cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
+[Unit]
+Description=OpenGate Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=${INSTALL_DIR}/${BINARY_NAME} \\
+  --server-addr ${SERVER_ADDR} \\
+  --server-ca ${CONFIG_DIR}/ca.pem \\
+  --data-dir ${DATA_DIR}
+Restart=on-failure
+RestartForceExitStatus=42
+User=root
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now "${SERVICE_NAME}"
+
+log "Agent installed and started successfully!"
+log "  Binary:  ${INSTALL_DIR}/${BINARY_NAME}"
+log "  Config:  ${CONFIG_DIR}/"
+log "  Data:    ${DATA_DIR}/"
+log "  Service: ${SERVICE_NAME}.service"
+log ""
+log "Check status: systemctl status ${SERVICE_NAME}"

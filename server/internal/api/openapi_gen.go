@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -145,6 +146,18 @@ type AuditEvent struct {
 	UserId    openapi_types.UUID `json:"user_id"`
 }
 
+// CACertResponse defines model for CACertResponse.
+type CACertResponse struct {
+	Pem string `json:"pem"`
+}
+
+// CreateEnrollmentTokenRequest defines model for CreateEnrollmentTokenRequest.
+type CreateEnrollmentTokenRequest struct {
+	ExpiresInHours *int    `json:"expires_in_hours,omitempty"`
+	Label          *string `json:"label,omitempty"`
+	MaxUses        *int    `json:"max_uses,omitempty"`
+}
+
 // CreateGroupRequest defines model for CreateGroupRequest.
 type CreateGroupRequest struct {
 	Name string `json:"name"`
@@ -178,6 +191,25 @@ type Device struct {
 
 // DeviceStatus defines model for Device.Status.
 type DeviceStatus string
+
+// EnrollResponse defines model for EnrollResponse.
+type EnrollResponse struct {
+	CaPem        string `json:"ca_pem"`
+	ServerAddr   string `json:"server_addr"`
+	ServerDomain string `json:"server_domain"`
+}
+
+// EnrollmentToken defines model for EnrollmentToken.
+type EnrollmentToken struct {
+	CreatedAt time.Time          `json:"created_at"`
+	CreatedBy openapi_types.UUID `json:"created_by"`
+	ExpiresAt time.Time          `json:"expires_at"`
+	Id        openapi_types.UUID `json:"id"`
+	Label     string             `json:"label"`
+	MaxUses   int                `json:"max_uses"`
+	Token     string             `json:"token"`
+	UseCount  int                `json:"use_count"`
+}
 
 // Group defines model for Group.
 type Group struct {
@@ -304,6 +336,9 @@ type LoginJSONRequestBody = LoginRequest
 // RegisterJSONRequestBody defines body for Register for application/json ContentType.
 type RegisterJSONRequestBody = RegisterRequest
 
+// CreateEnrollmentTokenJSONRequestBody defines body for CreateEnrollmentToken for application/json ContentType.
+type CreateEnrollmentTokenJSONRequestBody = CreateEnrollmentTokenRequest
+
 // CreateGroupJSONRequestBody defines body for CreateGroup for application/json ContentType.
 type CreateGroupJSONRequestBody = CreateGroupRequest
 
@@ -354,6 +389,18 @@ type ServerInterface interface {
 	// Get device details
 	// (GET /api/v1/devices/{id})
 	GetDevice(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Enroll agent using token (public)
+	// (POST /api/v1/enroll/{token})
+	Enroll(w http.ResponseWriter, r *http.Request, token string)
+	// List enrollment tokens (admin only)
+	// (GET /api/v1/enrollment-tokens)
+	ListEnrollmentTokens(w http.ResponseWriter, r *http.Request)
+	// Create enrollment token (admin only)
+	// (POST /api/v1/enrollment-tokens)
+	CreateEnrollmentToken(w http.ResponseWriter, r *http.Request)
+	// Delete enrollment token (admin only)
+	// (DELETE /api/v1/enrollment-tokens/{id})
+	DeleteEnrollmentToken(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// List user's groups
 	// (GET /api/v1/groups)
 	ListGroups(w http.ResponseWriter, r *http.Request)
@@ -378,6 +425,12 @@ type ServerInterface interface {
 	// Get server VAPID public key
 	// (GET /api/v1/push/vapid-key)
 	GetVapidKey(w http.ResponseWriter, r *http.Request)
+	// Get server CA certificate PEM
+	// (GET /api/v1/server/ca)
+	GetServerCA(w http.ResponseWriter, r *http.Request)
+	// Get agent install script
+	// (GET /api/v1/server/install.sh)
+	GetInstallScript(w http.ResponseWriter, r *http.Request)
 	// List active sessions for a device
 	// (GET /api/v1/sessions)
 	ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams)
@@ -471,6 +524,30 @@ func (_ Unimplemented) GetDevice(w http.ResponseWriter, r *http.Request, id open
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Enroll agent using token (public)
+// (POST /api/v1/enroll/{token})
+func (_ Unimplemented) Enroll(w http.ResponseWriter, r *http.Request, token string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List enrollment tokens (admin only)
+// (GET /api/v1/enrollment-tokens)
+func (_ Unimplemented) ListEnrollmentTokens(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create enrollment token (admin only)
+// (POST /api/v1/enrollment-tokens)
+func (_ Unimplemented) CreateEnrollmentToken(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete enrollment token (admin only)
+// (DELETE /api/v1/enrollment-tokens/{id})
+func (_ Unimplemented) DeleteEnrollmentToken(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List user's groups
 // (GET /api/v1/groups)
 func (_ Unimplemented) ListGroups(w http.ResponseWriter, r *http.Request) {
@@ -516,6 +593,18 @@ func (_ Unimplemented) SubscribePush(w http.ResponseWriter, r *http.Request) {
 // Get server VAPID public key
 // (GET /api/v1/push/vapid-key)
 func (_ Unimplemented) GetVapidKey(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get server CA certificate PEM
+// (GET /api/v1/server/ca)
+func (_ Unimplemented) GetServerCA(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get agent install script
+// (GET /api/v1/server/install.sh)
+func (_ Unimplemented) GetInstallScript(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -863,6 +952,102 @@ func (siw *ServerInterfaceWrapper) GetDevice(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// Enroll operation middleware
+func (siw *ServerInterfaceWrapper) Enroll(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Enroll(w, r, token)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEnrollmentTokens operation middleware
+func (siw *ServerInterfaceWrapper) ListEnrollmentTokens(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEnrollmentTokens(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEnrollmentToken operation middleware
+func (siw *ServerInterfaceWrapper) CreateEnrollmentToken(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEnrollmentToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteEnrollmentToken operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEnrollmentToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteEnrollmentToken(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListGroups operation middleware
 func (siw *ServerInterfaceWrapper) ListGroups(w http.ResponseWriter, r *http.Request) {
 
@@ -1030,6 +1215,40 @@ func (siw *ServerInterfaceWrapper) GetVapidKey(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetVapidKey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetServerCA operation middleware
+func (siw *ServerInterfaceWrapper) GetServerCA(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetServerCA(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetInstallScript operation middleware
+func (siw *ServerInterfaceWrapper) GetInstallScript(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetInstallScript(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1453,6 +1672,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/devices/{id}", wrapper.GetDevice)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/enroll/{token}", wrapper.Enroll)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/enrollment-tokens", wrapper.ListEnrollmentTokens)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/enrollment-tokens", wrapper.CreateEnrollmentToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/api/v1/enrollment-tokens/{id}", wrapper.DeleteEnrollmentToken)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/groups", wrapper.ListGroups)
 	})
 	r.Group(func(r chi.Router) {
@@ -1475,6 +1706,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/push/vapid-key", wrapper.GetVapidKey)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/server/ca", wrapper.GetServerCA)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/server/install.sh", wrapper.GetInstallScript)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/sessions", wrapper.ListSessions)
@@ -1808,6 +2045,153 @@ func (response GetDevice404JSONResponse) VisitGetDeviceResponse(w http.ResponseW
 	return json.NewEncoder(w).Encode(response)
 }
 
+type EnrollRequestObject struct {
+	Token string `json:"token"`
+}
+
+type EnrollResponseObject interface {
+	VisitEnrollResponse(w http.ResponseWriter) error
+}
+
+type Enroll200JSONResponse EnrollResponse
+
+func (response Enroll200JSONResponse) VisitEnrollResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type Enroll404JSONResponse ApiError
+
+func (response Enroll404JSONResponse) VisitEnrollResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type Enroll410JSONResponse ApiError
+
+func (response Enroll410JSONResponse) VisitEnrollResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(410)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEnrollmentTokensRequestObject struct {
+}
+
+type ListEnrollmentTokensResponseObject interface {
+	VisitListEnrollmentTokensResponse(w http.ResponseWriter) error
+}
+
+type ListEnrollmentTokens200JSONResponse []EnrollmentToken
+
+func (response ListEnrollmentTokens200JSONResponse) VisitListEnrollmentTokensResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEnrollmentTokens401JSONResponse ApiError
+
+func (response ListEnrollmentTokens401JSONResponse) VisitListEnrollmentTokensResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type ListEnrollmentTokens403JSONResponse ApiError
+
+func (response ListEnrollmentTokens403JSONResponse) VisitListEnrollmentTokensResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateEnrollmentTokenRequestObject struct {
+	Body *CreateEnrollmentTokenJSONRequestBody
+}
+
+type CreateEnrollmentTokenResponseObject interface {
+	VisitCreateEnrollmentTokenResponse(w http.ResponseWriter) error
+}
+
+type CreateEnrollmentToken201JSONResponse EnrollmentToken
+
+func (response CreateEnrollmentToken201JSONResponse) VisitCreateEnrollmentTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateEnrollmentToken401JSONResponse ApiError
+
+func (response CreateEnrollmentToken401JSONResponse) VisitCreateEnrollmentTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CreateEnrollmentToken403JSONResponse ApiError
+
+func (response CreateEnrollmentToken403JSONResponse) VisitCreateEnrollmentTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteEnrollmentTokenRequestObject struct {
+	Id openapi_types.UUID `json:"id"`
+}
+
+type DeleteEnrollmentTokenResponseObject interface {
+	VisitDeleteEnrollmentTokenResponse(w http.ResponseWriter) error
+}
+
+type DeleteEnrollmentToken204Response struct {
+}
+
+func (response DeleteEnrollmentToken204Response) VisitDeleteEnrollmentTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteEnrollmentToken401JSONResponse ApiError
+
+func (response DeleteEnrollmentToken401JSONResponse) VisitDeleteEnrollmentTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteEnrollmentToken403JSONResponse ApiError
+
+func (response DeleteEnrollmentToken403JSONResponse) VisitDeleteEnrollmentTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type DeleteEnrollmentToken404JSONResponse ApiError
+
+func (response DeleteEnrollmentToken404JSONResponse) VisitDeleteEnrollmentTokenResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListGroupsRequestObject struct {
 }
 
@@ -2030,6 +2414,57 @@ func (response GetVapidKey401JSONResponse) VisitGetVapidKeyResponse(w http.Respo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type GetServerCARequestObject struct {
+}
+
+type GetServerCAResponseObject interface {
+	VisitGetServerCAResponse(w http.ResponseWriter) error
+}
+
+type GetServerCA200JSONResponse CACertResponse
+
+func (response GetServerCA200JSONResponse) VisitGetServerCAResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetServerCA401JSONResponse ApiError
+
+func (response GetServerCA401JSONResponse) VisitGetServerCAResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetInstallScriptRequestObject struct {
+}
+
+type GetInstallScriptResponseObject interface {
+	VisitGetInstallScriptResponse(w http.ResponseWriter) error
+}
+
+type GetInstallScript200TextxShellscriptResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetInstallScript200TextxShellscriptResponse) VisitGetInstallScriptResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "text/x-shellscript")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
 type ListSessionsRequestObject struct {
 	Params ListSessionsParams
 }
@@ -2168,12 +2603,13 @@ func (response ListUpdateManifests200JSONResponse) VisitListUpdateManifestsRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type ListUpdateManifests401Response struct {
-}
+type ListUpdateManifests401JSONResponse ApiError
 
-func (response ListUpdateManifests401Response) VisitListUpdateManifestsResponse(w http.ResponseWriter) error {
+func (response ListUpdateManifests401JSONResponse) VisitListUpdateManifestsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type PublishUpdateRequestObject struct {
@@ -2193,12 +2629,13 @@ func (response PublishUpdate200JSONResponse) VisitPublishUpdateResponse(w http.R
 	return json.NewEncoder(w).Encode(response)
 }
 
-type PublishUpdate401Response struct {
-}
+type PublishUpdate401JSONResponse ApiError
 
-func (response PublishUpdate401Response) VisitPublishUpdateResponse(w http.ResponseWriter) error {
+func (response PublishUpdate401JSONResponse) VisitPublishUpdateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type PublishUpdate403JSONResponse ApiError
@@ -2227,12 +2664,13 @@ func (response PushUpdate200JSONResponse) VisitPushUpdateResponse(w http.Respons
 	return json.NewEncoder(w).Encode(response)
 }
 
-type PushUpdate401Response struct {
-}
+type PushUpdate401JSONResponse ApiError
 
-func (response PushUpdate401Response) VisitPushUpdateResponse(w http.ResponseWriter) error {
+func (response PushUpdate401JSONResponse) VisitPushUpdateResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type PushUpdate403JSONResponse ApiError
@@ -2271,12 +2709,13 @@ func (response GetUpdateSigningKey200JSONResponse) VisitGetUpdateSigningKeyRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
-type GetUpdateSigningKey401Response struct {
-}
+type GetUpdateSigningKey401JSONResponse ApiError
 
-func (response GetUpdateSigningKey401Response) VisitGetUpdateSigningKeyResponse(w http.ResponseWriter) error {
+func (response GetUpdateSigningKey401JSONResponse) VisitGetUpdateSigningKeyResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
-	return nil
+
+	return json.NewEncoder(w).Encode(response)
 }
 
 type GetUpdateSigningKey403JSONResponse ApiError
@@ -2464,6 +2903,18 @@ type StrictServerInterface interface {
 	// Get device details
 	// (GET /api/v1/devices/{id})
 	GetDevice(ctx context.Context, request GetDeviceRequestObject) (GetDeviceResponseObject, error)
+	// Enroll agent using token (public)
+	// (POST /api/v1/enroll/{token})
+	Enroll(ctx context.Context, request EnrollRequestObject) (EnrollResponseObject, error)
+	// List enrollment tokens (admin only)
+	// (GET /api/v1/enrollment-tokens)
+	ListEnrollmentTokens(ctx context.Context, request ListEnrollmentTokensRequestObject) (ListEnrollmentTokensResponseObject, error)
+	// Create enrollment token (admin only)
+	// (POST /api/v1/enrollment-tokens)
+	CreateEnrollmentToken(ctx context.Context, request CreateEnrollmentTokenRequestObject) (CreateEnrollmentTokenResponseObject, error)
+	// Delete enrollment token (admin only)
+	// (DELETE /api/v1/enrollment-tokens/{id})
+	DeleteEnrollmentToken(ctx context.Context, request DeleteEnrollmentTokenRequestObject) (DeleteEnrollmentTokenResponseObject, error)
 	// List user's groups
 	// (GET /api/v1/groups)
 	ListGroups(ctx context.Context, request ListGroupsRequestObject) (ListGroupsResponseObject, error)
@@ -2488,6 +2939,12 @@ type StrictServerInterface interface {
 	// Get server VAPID public key
 	// (GET /api/v1/push/vapid-key)
 	GetVapidKey(ctx context.Context, request GetVapidKeyRequestObject) (GetVapidKeyResponseObject, error)
+	// Get server CA certificate PEM
+	// (GET /api/v1/server/ca)
+	GetServerCA(ctx context.Context, request GetServerCARequestObject) (GetServerCAResponseObject, error)
+	// Get agent install script
+	// (GET /api/v1/server/install.sh)
+	GetInstallScript(ctx context.Context, request GetInstallScriptRequestObject) (GetInstallScriptResponseObject, error)
 	// List active sessions for a device
 	// (GET /api/v1/sessions)
 	ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error)
@@ -2801,6 +3258,113 @@ func (sh *strictHandler) GetDevice(w http.ResponseWriter, r *http.Request, id op
 	}
 }
 
+// Enroll operation middleware
+func (sh *strictHandler) Enroll(w http.ResponseWriter, r *http.Request, token string) {
+	var request EnrollRequestObject
+
+	request.Token = token
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Enroll(ctx, request.(EnrollRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Enroll")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EnrollResponseObject); ok {
+		if err := validResponse.VisitEnrollResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListEnrollmentTokens operation middleware
+func (sh *strictHandler) ListEnrollmentTokens(w http.ResponseWriter, r *http.Request) {
+	var request ListEnrollmentTokensRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListEnrollmentTokens(ctx, request.(ListEnrollmentTokensRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListEnrollmentTokens")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListEnrollmentTokensResponseObject); ok {
+		if err := validResponse.VisitListEnrollmentTokensResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateEnrollmentToken operation middleware
+func (sh *strictHandler) CreateEnrollmentToken(w http.ResponseWriter, r *http.Request) {
+	var request CreateEnrollmentTokenRequestObject
+
+	var body CreateEnrollmentTokenJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateEnrollmentToken(ctx, request.(CreateEnrollmentTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateEnrollmentToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateEnrollmentTokenResponseObject); ok {
+		if err := validResponse.VisitCreateEnrollmentTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteEnrollmentToken operation middleware
+func (sh *strictHandler) DeleteEnrollmentToken(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	var request DeleteEnrollmentTokenRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteEnrollmentToken(ctx, request.(DeleteEnrollmentTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteEnrollmentToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteEnrollmentTokenResponseObject); ok {
+		if err := validResponse.VisitDeleteEnrollmentTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListGroups operation middleware
 func (sh *strictHandler) ListGroups(w http.ResponseWriter, r *http.Request) {
 	var request ListGroupsRequestObject
@@ -3011,6 +3575,54 @@ func (sh *strictHandler) GetVapidKey(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetVapidKeyResponseObject); ok {
 		if err := validResponse.VisitGetVapidKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetServerCA operation middleware
+func (sh *strictHandler) GetServerCA(w http.ResponseWriter, r *http.Request) {
+	var request GetServerCARequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetServerCA(ctx, request.(GetServerCARequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetServerCA")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetServerCAResponseObject); ok {
+		if err := validResponse.VisitGetServerCAResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetInstallScript operation middleware
+func (sh *strictHandler) GetInstallScript(w http.ResponseWriter, r *http.Request) {
+	var request GetInstallScriptRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetInstallScript(ctx, request.(GetInstallScriptRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetInstallScript")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetInstallScriptResponseObject); ok {
+		if err := validResponse.VisitGetInstallScriptResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3321,48 +3933,55 @@ func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id o
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

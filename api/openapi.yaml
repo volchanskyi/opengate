@@ -336,6 +336,62 @@ components:
         pushed_count:
           type: integer
 
+    EnrollmentToken:
+      type: object
+      required: [id, token, label, created_by, max_uses, use_count, expires_at, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        token:
+          type: string
+        label:
+          type: string
+        created_by:
+          type: string
+          format: uuid
+        max_uses:
+          type: integer
+        use_count:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    CreateEnrollmentTokenRequest:
+      type: object
+      properties:
+        label:
+          type: string
+          default: ""
+        max_uses:
+          type: integer
+          default: 0
+        expires_in_hours:
+          type: integer
+          default: 24
+
+    EnrollResponse:
+      type: object
+      required: [ca_pem, server_addr, server_domain]
+      properties:
+        ca_pem:
+          type: string
+        server_addr:
+          type: string
+        server_domain:
+          type: string
+
+    CACertResponse:
+      type: object
+      required: [pem]
+      properties:
+        pem:
+          type: string
+
 paths:
   /api/v1/health:
     get:
@@ -1063,6 +1119,10 @@ paths:
                   $ref: "#/components/schemas/AgentManifest"
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 
     post:
       operationId: publishUpdate
@@ -1084,6 +1144,10 @@ paths:
                 $ref: "#/components/schemas/AgentManifest"
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "403":
           description: Admin access required
           content:
@@ -1112,6 +1176,10 @@ paths:
                 $ref: "#/components/schemas/PushUpdateResponse"
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "403":
           description: Admin access required
           content:
@@ -1144,9 +1212,168 @@ paths:
                     type: string
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "403":
           description: Admin access required
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+
+  /api/v1/enrollment-tokens:
+    get:
+      operationId: listEnrollmentTokens
+      summary: List enrollment tokens (admin only)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of enrollment tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EnrollmentToken"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: createEnrollmentToken
+      summary: Create enrollment token (admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEnrollmentTokenRequest"
+      responses:
+        "201":
+          description: Token created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollmentToken"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/enrollment-tokens/{id}:
+    delete:
+      operationId: deleteEnrollmentToken
+      summary: Delete enrollment token (admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Token deleted
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Token not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/enroll/{token}:
+    post:
+      operationId: enroll
+      summary: Enroll agent using token (public)
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Enrollment successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnrollResponse"
+        "404":
+          description: Invalid token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "410":
+          description: Token expired or exhausted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/server/ca:
+    get:
+      operationId: getServerCA
+      summary: Get server CA certificate PEM
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: CA certificate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CACertResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/server/install.sh:
+    get:
+      operationId: getInstallScript
+      summary: Get agent install script
+      responses:
+        "200":
+          description: Install script
+          content:
+            text/x-shellscript:
+              schema:
+                type: string

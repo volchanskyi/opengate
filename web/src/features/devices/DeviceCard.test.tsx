@@ -9,6 +9,7 @@ const mockDevice = {
   group_id: 'g1',
   hostname: 'test-host',
   os: 'linux',
+  agent_version: '1.0.0',
   status: 'online' as const,
   last_seen: new Date().toISOString(),
   created_at: '',
