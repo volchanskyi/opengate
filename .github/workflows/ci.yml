@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [dev, main, dependabot-dev]
+    branches: [dev, dependabot-dev]
   pull_request:
     branches: [main, dev, dependabot-dev]
   workflow_dispatch:
