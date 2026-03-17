@@ -1,37 +1,33 @@
 // OpenGate Service Worker — push notifications + offline caching
 
-const CACHE_NAME = 'opengate-v1';
-const PRECACHE_URLS = ['/', '/index.html'];
-
-// Install: precache shell
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
-  );
-  self.skipWaiting();
+// Install: skip waiting to activate immediately
+globalThis.addEventListener('install', () => {
+  globalThis.skipWaiting();
 });
 
-// Activate: clean old caches
-self.addEventListener('activate', (event) => {
+// Activate: purge all caches so the latest index.html is always fetched from network
+globalThis.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.map((k) => caches.delete(k)))
     )
   );
-  self.clients.claim();
+  globalThis.clients.claim();
 });
 
-// Fetch: network-first with cache fallback for navigation
-self.addEventListener('fetch', (event) => {
+// Fetch: network-only for navigation (no offline cache)
+globalThis.addEventListener('fetch', (event) => {
+  // Only intercept navigation requests for push notification support
+  // Let the network handle everything — Vite hashed assets have long-lived HTTP cache
   if (event.request.mode === 'navigate') {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match('/index.html'))
+      fetch(event.request)
     );
   }
 });
 
 // Push: display notification from server payload
-self.addEventListener('push', (event) => {
+globalThis.addEventListener('push', (event) => {
   let data = { title: 'OpenGate', body: 'New notification' };
 
   if (event.data) {
@@ -43,7 +39,7 @@ self.addEventListener('push', (event) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(data.title, {
+    globalThis.registration.showNotification(data.title, {
       body: data.body,
       icon: '/vite.svg',
       badge: '/vite.svg',
@@ -53,7 +49,7 @@ self.addEventListener('push', (event) => {
 });
 
 // Notification click: focus or open the app
-self.addEventListener('notificationclick', (event) => {
+globalThis.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
   const url = event.notification.data?.device_id
@@ -61,14 +57,14 @@ self.addEventListener('notificationclick', (event) => {
     : '/';
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window' }).then((clients) => {
+    globalThis.clients.matchAll({ type: 'window' }).then((clients) => {
       for (const client of clients) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
+        if (client.url.includes(globalThis.location.origin) && 'focus' in client) {
           client.navigate(url);
           return client.focus();
         }
       }
-      return self.clients.openWindow(url);
+      return globalThis.clients.openWindow(url);
     })
   );
 });
