@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773779931297,
+  "lastUpdate": 1773784119431,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -4041,6 +4041,53 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.82643447650348,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi",
+            "email": "ivan.volchanskyi@gmail.com"
+          },
+          "committer": {
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi",
+            "email": "ivan.volchanskyi@gmail.com"
+          },
+          "id": "e11116dfed769d55f3cb7ba5e2ae092d1155ee72",
+          "message": "docs: update CHANGELOG for v0.6.0 [skip ci]",
+          "timestamp": "2026-03-17T21:46:29Z",
+          "url": "https://github.com/volchanskyi/opengate/commit/e11116dfed769d55f3cb7ba5e2ae092d1155ee72"
+        },
+        "date": 1773784119388,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 22.5564502561098,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 29.30465388491318,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 764.0326670290954,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 296.86482075713207,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.90441240875293,
             "unit": "ns/iter"
           }
         ]
