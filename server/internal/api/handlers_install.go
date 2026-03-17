@@ -33,9 +33,17 @@ func (s *Server) GetInstallScript(ctx context.Context, _ GetInstallScriptRequest
 		}
 	}
 
+	var prefix []byte
 	if serverURL != "" {
-		prefix := []byte(fmt.Sprintf("# Injected by server\nexport OPENGATE_SERVER=%q\n\n", serverURL))
-		script = append(prefix, installScript...)
+		prefix = append(prefix, []byte(fmt.Sprintf("export OPENGATE_SERVER=%q\n", serverURL))...)
+	}
+	if s.githubRepo != "" {
+		prefix = append(prefix, []byte(fmt.Sprintf("export OPENGATE_GITHUB_REPO=%q\n", s.githubRepo))...)
+	}
+	if len(prefix) > 0 {
+		header := append([]byte("# Injected by server\n"), prefix...)
+		header = append(header, '\n')
+		script = append(header, installScript...)
 	}
 
 	return GetInstallScript200TextxShellscriptResponse{
