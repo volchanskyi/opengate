@@ -1,5 +1,5 @@
 import type { Page, APIRequestContext } from "@playwright/test";
-import { register, getMe } from "./api-helper";
+import { register, login, getMe } from "./api-helper";
 
 function uniqueEmail(): string {
   const ts = Date.now();
@@ -28,7 +28,7 @@ export async function createTestUser(
 /**
  * Create a user with admin privileges.
  * If this is the first user in a fresh DB, they auto-become admin.
- * Otherwise, an existing admin promotes them.
+ * Otherwise, the bootstrap admin (from global-setup) promotes them.
  */
 export async function createAdminUser(
   request: APIRequestContext
@@ -43,11 +43,36 @@ export async function createAdminUser(
     return { id: me.id, email, password, token };
   }
 
-  // Not first user — need an existing admin to promote.
-  // This path shouldn't happen in test isolation (tmpfs DB), but handle gracefully.
-  throw new Error(
-    "createAdminUser: user is not admin. Ensure this is the first user in a fresh DB."
-  );
+  // Use bootstrap admin to promote this user via PATCH /api/v1/users/{id}
+  const bootstrapToken = await getBootstrapAdminToken(request);
+  const patchResp = await request.patch(`/api/v1/users/${me.id}`, {
+    data: { is_admin: true },
+    headers: { Authorization: `Bearer ${bootstrapToken}` },
+  });
+  if (!patchResp.ok()) {
+    throw new Error(
+      `Failed to promote user to admin: ${patchResp.status()} ${await patchResp.text()}`
+    );
+  }
+
+  // Re-login to get a fresh JWT with admin claim
+  const freshToken = await login(request, email, password);
+  return { id: me.id, email, password, token: freshToken };
+}
+
+/** Get a valid token for the bootstrap admin created in global-setup. */
+async function getBootstrapAdminToken(
+  request: APIRequestContext
+): Promise<string> {
+  // Try env var first (same process as global setup)
+  if (process.env.BOOTSTRAP_ADMIN_TOKEN) {
+    return process.env.BOOTSTRAP_ADMIN_TOKEN;
+  }
+
+  // Fallback: login with bootstrap credentials
+  const email = process.env.BOOTSTRAP_ADMIN_EMAIL ?? "bootstrap-admin@test.local";
+  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD ?? "BootstrapPass123!";
+  return login(request, email, password);
 }
 
 /** Inject the JWT into localStorage so the SPA treats the session as logged in. */
