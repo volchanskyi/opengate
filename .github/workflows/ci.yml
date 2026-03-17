@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [dev, main, dependabot-dev]
+    branches: [dev, dependabot-dev]
   pull_request:
     branches: [main, dev, dependabot-dev]
   workflow_dispatch:
@@ -641,7 +641,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.SYNC_TOKEN }}
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
