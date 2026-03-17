@@ -142,6 +142,19 @@ jobs:
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/smoke-test.sh \
             --host 127.0.0.1 --port 18080 --mode staging --scheme http"
 
+      - name: Reset staging DB for E2E (fresh user state)
+        run: |
+          ssh deploy-target "docker exec opengate-server-staging rm -f /data/opengate.db"
+          ssh deploy-target "docker restart opengate-server-staging"
+          # Wait for server to become healthy after restart
+          for _ in $(seq 1 30); do
+            if ssh deploy-target "curl -sf http://127.0.0.1:18080/api/v1/health" >/dev/null 2>&1; then
+              echo "Server healthy after restart"
+              break
+            fi
+            sleep 2
+          done
+
       - name: Open SSH tunnel for Playwright
         run: |
           ssh -fN -L 18080:127.0.0.1:18080 deploy-target
