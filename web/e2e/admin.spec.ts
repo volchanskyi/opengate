@@ -43,7 +43,7 @@ test.describe("Admin panel", () => {
   }) => {
     await adminPage.goto("/admin");
 
-    await expect(adminPage.getByText("Management")).toBeVisible();
+    await expect(adminPage.getByText("Management", { exact: true })).toBeVisible();
     await expect(
       adminPage.getByRole("link", { name: "Users" })
     ).toBeVisible();
