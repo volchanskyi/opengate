@@ -681,6 +681,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -821,7 +822,7 @@ jobs:
       - name: Trigger release workflow
         if: steps.push.outputs.pushed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh workflow run release-agent.yml -f tag="${{ steps.bump.outputs.tag }}"
           echo "Dispatched release-agent.yml for ${{ steps.bump.outputs.tag }}"
