@@ -67,6 +67,22 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 
 	if request.Body.IsAdmin != nil {
 		user.IsAdmin = *request.Body.IsAdmin
+		// Sync Administrators group membership with is_admin flag.
+		if *request.Body.IsAdmin {
+			if err := s.store.AddSecurityGroupMember(ctx, db.AdminGroupID, user.ID); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := s.store.RemoveSecurityGroupMember(ctx, db.AdminGroupID, user.ID); err != nil {
+				if errors.Is(err, db.ErrLastAdmin) {
+					return UpdateUser403JSONResponse{Error: "cannot remove last administrator"}, nil
+				}
+				// ErrNotFound is fine — user may not have been in the group.
+				if !errors.Is(err, db.ErrNotFound) {
+					return nil, err
+				}
+			}
+		}
 	}
 	if request.Body.DisplayName != nil {
 		user.DisplayName = *request.Body.DisplayName

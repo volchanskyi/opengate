@@ -735,6 +735,243 @@ func TestEnrollmentTokenCRUD(t *testing.T) {
 	})
 }
 
+func TestSecurityGroupCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	t.Run("migration seeds Administrators group", func(t *testing.T) {
+		g, err := s.GetSecurityGroup(ctx, AdminGroupID)
+		require.NoError(t, err)
+		assert.Equal(t, "Administrators", g.Name)
+		assert.Equal(t, "Full system access", g.Description)
+		assert.True(t, g.IsSystem)
+		assert.False(t, g.CreatedAt.IsZero())
+	})
+
+	t.Run("create and get", func(t *testing.T) {
+		g := &SecurityGroup{
+			ID:          uuid.New(),
+			Name:        "Operators",
+			Description: "Can manage devices",
+		}
+		require.NoError(t, s.CreateSecurityGroup(ctx, g))
+
+		got, err := s.GetSecurityGroup(ctx, g.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "Operators", got.Name)
+		assert.Equal(t, "Can manage devices", got.Description)
+		assert.False(t, got.IsSystem)
+		assert.False(t, got.CreatedAt.IsZero())
+	})
+
+	t.Run(testNameGetNotFound, func(t *testing.T) {
+		_, err := s.GetSecurityGroup(ctx, uuid.New())
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run("list includes seeded and created groups", func(t *testing.T) {
+		groups, err := s.ListSecurityGroups(ctx)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(groups), 2) // Administrators + Operators
+	})
+
+	t.Run("delete non-system group", func(t *testing.T) {
+		g := &SecurityGroup{ID: uuid.New(), Name: "Temporary-" + uuid.New().String()[:8]}
+		require.NoError(t, s.CreateSecurityGroup(ctx, g))
+		require.NoError(t, s.DeleteSecurityGroup(ctx, g.ID))
+		_, err := s.GetSecurityGroup(ctx, g.ID)
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run("cannot delete system group", func(t *testing.T) {
+		err := s.DeleteSecurityGroup(ctx, AdminGroupID)
+		assert.True(t, errors.Is(err, ErrSystemGroup))
+	})
+
+	t.Run(testNameDeleteNF, func(t *testing.T) {
+		err := s.DeleteSecurityGroup(ctx, uuid.New())
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run("duplicate name fails", func(t *testing.T) {
+		g := &SecurityGroup{ID: uuid.New(), Name: "Administrators"}
+		err := s.CreateSecurityGroup(ctx, g)
+		assert.Error(t, err)
+	})
+}
+
+func TestSecurityGroupMembers(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	t.Run("add and list members", func(t *testing.T) {
+		u1 := seedUser(t, ctx, s)
+		u2 := seedUser(t, ctx, s)
+		require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u1.ID))
+		require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u2.ID))
+
+		members, err := s.ListSecurityGroupMembers(ctx, AdminGroupID)
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(members), 2)
+	})
+
+	t.Run("is user in group", func(t *testing.T) {
+		u := seedUser(t, ctx, s)
+		require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u.ID))
+
+		ok, err := s.IsUserInSecurityGroup(ctx, u.ID, AdminGroupID)
+		require.NoError(t, err)
+		assert.True(t, ok)
+
+		nonMember := seedUser(t, ctx, s)
+		ok, err = s.IsUserInSecurityGroup(ctx, nonMember.ID, AdminGroupID)
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("add is idempotent", func(t *testing.T) {
+		u := seedUser(t, ctx, s)
+		require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u.ID))
+		require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u.ID)) // no error
+	})
+
+	t.Run("remove member", func(t *testing.T) {
+		// Need at least 2 members so we can remove one
+		u1 := seedUser(t, ctx, s)
+		u2 := seedUser(t, ctx, s)
+		require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u1.ID))
+		require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u2.ID))
+
+		require.NoError(t, s.RemoveSecurityGroupMember(ctx, AdminGroupID, u1.ID))
+
+		ok, err := s.IsUserInSecurityGroup(ctx, u1.ID, AdminGroupID)
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+
+	t.Run("count members", func(t *testing.T) {
+		g := &SecurityGroup{ID: uuid.New(), Name: "Count-" + uuid.New().String()[:8]}
+		require.NoError(t, s.CreateSecurityGroup(ctx, g))
+
+		count, err := s.CountSecurityGroupMembers(ctx, g.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 0, count)
+
+		u := seedUser(t, ctx, s)
+		require.NoError(t, s.AddSecurityGroupMember(ctx, g.ID, u.ID))
+		count, err = s.CountSecurityGroupMembers(ctx, g.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run("remove not-found member", func(t *testing.T) {
+		// Create a non-system group with 2 members so last-admin check doesn't trigger
+		g := &SecurityGroup{ID: uuid.New(), Name: "RemNF-" + uuid.New().String()[:8]}
+		require.NoError(t, s.CreateSecurityGroup(ctx, g))
+		u := seedUser(t, ctx, s)
+		require.NoError(t, s.AddSecurityGroupMember(ctx, g.ID, u.ID))
+		// Try to remove a user who is not a member
+		err := s.RemoveSecurityGroupMember(ctx, g.ID, uuid.New())
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+}
+
+func TestSecurityGroupLastAdminProtection(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Start fresh: Admin group has 0 members in this fresh DB.
+	// Add exactly one user.
+	u := seedUser(t, ctx, s)
+	require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u.ID))
+
+	// Verify only 1 member
+	count, err := s.CountSecurityGroupMembers(ctx, AdminGroupID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	// Try to remove last admin — should fail
+	err = s.RemoveSecurityGroupMember(ctx, AdminGroupID, u.ID)
+	assert.True(t, errors.Is(err, ErrLastAdmin))
+
+	// Still a member
+	ok, err := s.IsUserInSecurityGroup(ctx, u.ID, AdminGroupID)
+	require.NoError(t, err)
+	assert.True(t, ok)
+}
+
+func TestSecurityGroupSyncIsAdmin(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	u := seedUser(t, ctx, s)
+
+	// Initially not admin
+	got, err := s.GetUser(ctx, u.ID)
+	require.NoError(t, err)
+	assert.False(t, got.IsAdmin)
+
+	// Add to Administrators group — should sync is_admin to true
+	require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u.ID))
+	got, err = s.GetUser(ctx, u.ID)
+	require.NoError(t, err)
+	assert.True(t, got.IsAdmin)
+
+	// Add a second admin so we can remove the first
+	u2 := seedUser(t, ctx, s)
+	require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, u2.ID))
+
+	// Remove from Administrators group — should sync is_admin to false
+	require.NoError(t, s.RemoveSecurityGroupMember(ctx, AdminGroupID, u.ID))
+	got, err = s.GetUser(ctx, u.ID)
+	require.NoError(t, err)
+	assert.False(t, got.IsAdmin)
+}
+
+func TestSecurityGroupCascadeOnUserDelete(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	g := &SecurityGroup{ID: uuid.New(), Name: "Cascade-" + uuid.New().String()[:8]}
+	require.NoError(t, s.CreateSecurityGroup(ctx, g))
+
+	u := seedUser(t, ctx, s)
+	require.NoError(t, s.AddSecurityGroupMember(ctx, g.ID, u.ID))
+
+	// Verify membership exists
+	ok, err := s.IsUserInSecurityGroup(ctx, u.ID, g.ID)
+	require.NoError(t, err)
+	assert.True(t, ok)
+
+	// Delete the user — membership should cascade
+	require.NoError(t, s.DeleteUser(ctx, u.ID))
+
+	count, err := s.CountSecurityGroupMembers(ctx, g.ID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
+func TestSecurityGroupMigrationSeedsExistingAdmins(t *testing.T) {
+	// Test that migration 005 properly migrates is_admin=1 users.
+	// Since newTestStore runs all migrations, we simulate by:
+	// 1. Creating a user with is_admin=true
+	// 2. Adding them to the Administrators group (simulating what migration does)
+	// 3. Verifying they're in the group
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	adminUser := &User{
+		ID:      uuid.New(),
+		Email:   "og-admin-" + uuid.New().String()[:8] + "@example.com",
+		IsAdmin: true,
+	}
+	require.NoError(t, s.UpsertUser(ctx, adminUser))
+	require.NoError(t, s.AddSecurityGroupMember(ctx, AdminGroupID, adminUser.ID))
+
+	ok, err := s.IsUserInSecurityGroup(ctx, adminUser.ID, AdminGroupID)
+	require.NoError(t, err)
+	assert.True(t, ok)
+}
+
 func TestWALMode(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "wal.db")

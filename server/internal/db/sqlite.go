@@ -63,6 +63,11 @@ func (s *SQLiteStore) Ping(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
+// nowRFC3339 returns the current UTC time formatted as RFC3339.
+func nowRFC3339() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}
+
 // execAndCheckAffected runs a mutation query and returns ErrNotFound when zero rows were affected.
 func (s *SQLiteStore) execAndCheckAffected(ctx context.Context, query string, args ...any) error {
 	res, err := s.db.ExecContext(ctx, query, args...)
@@ -157,7 +162,7 @@ func scanDeviceFrom(sc scanner) (*Device, error) {
 }
 
 func (s *SQLiteStore) UpsertDevice(ctx context.Context, d *Device) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := nowRFC3339()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO devices (id, group_id, hostname, os, agent_version, status, last_seen, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -195,7 +200,7 @@ func (s *SQLiteStore) DeleteDevice(ctx context.Context, id DeviceID) error {
 }
 
 func (s *SQLiteStore) SetDeviceStatus(ctx context.Context, id DeviceID, status DeviceStatus) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := nowRFC3339()
 	return s.execAndCheckAffected(ctx,
 		`UPDATE devices SET status = ?, last_seen = ?, updated_at = ? WHERE id = ?`,
 		string(status), now, now, id.String())
@@ -230,7 +235,7 @@ func scanGroupFrom(sc scanner) (*Group, error) {
 }
 
 func (s *SQLiteStore) CreateGroup(ctx context.Context, g *Group) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := nowRFC3339()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO groups_ (id, name, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
 		g.ID.String(), g.Name, g.OwnerID.String(), now, now)
@@ -283,7 +288,7 @@ func scanUserFrom(sc scanner) (*User, error) {
 }
 
 func (s *SQLiteStore) UpsertUser(ctx context.Context, u *User) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := nowRFC3339()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO users (id, email, password_hash, display_name, is_admin, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -353,7 +358,7 @@ func scanAgentSessionFrom(sc scanner) (*AgentSession, error) {
 }
 
 func (s *SQLiteStore) CreateAgentSession(ctx context.Context, as *AgentSession) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := nowRFC3339()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO agent_sessions (token, device_id, user_id, created_at) VALUES (?, ?, ?, ?)`,
 		as.Token, as.DeviceID.String(), as.UserID.String(), now)
@@ -446,7 +451,7 @@ func scanAuditEventFrom(sc scanner) (*AuditEvent, error) {
 }
 
 func (s *SQLiteStore) WriteAuditEvent(ctx context.Context, event *AuditEvent) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := nowRFC3339()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO audit_events (user_id, action, target, details, created_at) VALUES (?, ?, ?, ?, ?)`,
 		event.UserID.String(), event.Action, event.Target, event.Details, now)
@@ -513,7 +518,7 @@ func scanAMTDeviceFrom(sc scanner) (*AMTDevice, error) {
 }
 
 func (s *SQLiteStore) UpsertAMTDevice(ctx context.Context, d *AMTDevice) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := nowRFC3339()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO amt_devices (uuid, hostname, model, firmware, status, last_seen)
 		 VALUES (?, ?, ?, ?, ?, ?)
@@ -544,7 +549,7 @@ func (s *SQLiteStore) ListAMTDevices(ctx context.Context) ([]*AMTDevice, error) 
 }
 
 func (s *SQLiteStore) SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status DeviceStatus) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := nowRFC3339()
 	return s.execAndCheckAffected(ctx,
 		`UPDATE amt_devices SET status = ?, last_seen = ? WHERE uuid = ?`,
 		string(status), now, id.String())
@@ -579,7 +584,7 @@ func scanEnrollmentTokenFrom(sc scanner) (*EnrollmentToken, error) {
 }
 
 func (s *SQLiteStore) CreateEnrollmentToken(ctx context.Context, t *EnrollmentToken) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := nowRFC3339()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO enrollment_tokens (id, token, label, created_by, max_uses, use_count, expires_at, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -613,4 +618,140 @@ func (s *SQLiteStore) DeleteEnrollmentToken(ctx context.Context, id uuid.UUID) e
 func (s *SQLiteStore) IncrementEnrollmentTokenUseCount(ctx context.Context, id uuid.UUID) error {
 	return s.execAndCheckAffected(ctx,
 		`UPDATE enrollment_tokens SET use_count = use_count + 1 WHERE id = ?`, id.String())
+}
+
+// --- Security Groups ---
+
+func scanSecurityGroupFrom(sc scanner) (*SecurityGroup, error) {
+	var g SecurityGroup
+	var idStr, createdAt, updatedAt string
+	if err := sc.Scan(&idStr, &g.Name, &g.Description, &g.IsSystem, &createdAt, &updatedAt); err != nil {
+		return nil, err
+	}
+	var err error
+	g.ID, err = parseUUID(idStr)
+	if err != nil {
+		return nil, err
+	}
+	g.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return nil, err
+	}
+	g.UpdatedAt, err = parseTime(updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &g, nil
+}
+
+func (s *SQLiteStore) CreateSecurityGroup(ctx context.Context, g *SecurityGroup) error {
+	now := nowRFC3339()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO security_groups (id, name, description, is_system, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		g.ID.String(), g.Name, g.Description, g.IsSystem, now, now)
+	return err
+}
+
+func (s *SQLiteStore) GetSecurityGroup(ctx context.Context, id SecurityGroupID) (*SecurityGroup, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, name, description, is_system, created_at, updated_at FROM security_groups WHERE id = ?`,
+		id.String())
+	g, err := scanSecurityGroupFrom(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return g, err
+}
+
+func (s *SQLiteStore) ListSecurityGroups(ctx context.Context) ([]*SecurityGroup, error) {
+	return queryList(ctx, s.db, scanSecurityGroupFrom,
+		`SELECT id, name, description, is_system, created_at, updated_at FROM security_groups ORDER BY name`)
+}
+
+func (s *SQLiteStore) DeleteSecurityGroup(ctx context.Context, id SecurityGroupID) error {
+	// Prevent deletion of system groups.
+	g, err := s.GetSecurityGroup(ctx, id)
+	if err != nil {
+		return err
+	}
+	if g.IsSystem {
+		return ErrSystemGroup
+	}
+	return s.execAndCheckAffected(ctx, `DELETE FROM security_groups WHERE id = ?`, id.String())
+}
+
+func (s *SQLiteStore) AddSecurityGroupMember(ctx context.Context, groupID SecurityGroupID, userID UserID) error {
+	now := nowRFC3339()
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO security_group_members (group_id, user_id, added_at) VALUES (?, ?, ?)`,
+		groupID.String(), userID.String(), now)
+	if err != nil {
+		return err
+	}
+	if groupID == AdminGroupID {
+		return s.syncIsAdmin(ctx, userID)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) RemoveSecurityGroupMember(ctx context.Context, groupID SecurityGroupID, userID UserID) error {
+	// Prevent removing the last administrator.
+	if groupID == AdminGroupID {
+		count, err := s.CountSecurityGroupMembers(ctx, groupID)
+		if err != nil {
+			return err
+		}
+		if count <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	err := s.execAndCheckAffected(ctx,
+		`DELETE FROM security_group_members WHERE group_id = ? AND user_id = ?`,
+		groupID.String(), userID.String())
+	if err != nil {
+		return err
+	}
+	if groupID == AdminGroupID {
+		return s.syncIsAdmin(ctx, userID)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ListSecurityGroupMembers(ctx context.Context, groupID SecurityGroupID) ([]*User, error) {
+	return queryList(ctx, s.db, scanUserFrom,
+		`SELECT u.id, u.email, u.password_hash, u.display_name, u.is_admin, u.created_at, u.updated_at
+		 FROM users u
+		 INNER JOIN security_group_members sgm ON sgm.user_id = u.id
+		 WHERE sgm.group_id = ?
+		 ORDER BY u.email`,
+		groupID.String())
+}
+
+func (s *SQLiteStore) IsUserInSecurityGroup(ctx context.Context, userID UserID, groupID SecurityGroupID) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM security_group_members WHERE group_id = ? AND user_id = ?)`,
+		groupID.String(), userID.String()).Scan(&exists)
+	return exists, err
+}
+
+func (s *SQLiteStore) CountSecurityGroupMembers(ctx context.Context, groupID SecurityGroupID) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM security_group_members WHERE group_id = ?`,
+		groupID.String()).Scan(&count)
+	return count, err
+}
+
+// syncIsAdmin keeps the users.is_admin boolean in sync with Administrators group membership.
+func (s *SQLiteStore) syncIsAdmin(ctx context.Context, userID UserID) error {
+	now := nowRFC3339()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET is_admin = (
+			SELECT COUNT(*) > 0 FROM security_group_members
+			WHERE user_id = ? AND group_id = ?
+		), updated_at = ? WHERE id = ?`,
+		userID.String(), AdminGroupID.String(), now, userID.String())
+	return err
 }

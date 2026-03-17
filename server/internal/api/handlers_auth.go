@@ -37,7 +37,14 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 		return nil, err
 	}
 
-	token, err := s.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	// Auto-promote the first registered user to administrator.
+	users, err := s.store.ListUsers(ctx)
+	if err == nil && len(users) == 1 {
+		_ = s.store.AddSecurityGroupMember(ctx, db.AdminGroupID, user.ID)
+	}
+
+	isAdmin, _ := s.store.IsUserInSecurityGroup(ctx, user.ID, db.AdminGroupID)
+	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +73,8 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		return Login401JSONResponse{Error: "invalid credentials"}, nil
 	}
 
-	token, err := s.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	isAdmin, _ := s.store.IsUserInSecurityGroup(ctx, user.ID, db.AdminGroupID)
+	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin)
 	if err != nil {
 		return nil, err
 	}

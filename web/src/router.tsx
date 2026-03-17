@@ -7,6 +7,7 @@ import { AdminLayout } from './features/admin/AdminLayout';
 import { UserManagement } from './features/admin/UserManagement';
 import { AuditLog } from './features/admin/AuditLog';
 import { AgentUpdates } from './features/admin/AgentUpdates';
+import { Permissions } from './features/admin/Permissions';
 import { Layout } from './components/Layout';
 import { DeviceList } from './features/devices/DeviceList';
 import { DeviceDetail } from './features/devices/DeviceDetail';
@@ -39,6 +40,7 @@ export const router = createBrowserRouter([
                   { path: 'users', element: <UserManagement /> },
                   { path: 'audit', element: <AuditLog /> },
                   { path: 'updates', element: <AgentUpdates /> },
+                  { path: 'security/permissions', element: <Permissions /> },
                 ],
               },
             ],

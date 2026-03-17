@@ -19,6 +19,7 @@ describe('auth store', () => {
       token: null,
       user: null,
       isLoading: false,
+      hydrated: false,
       error: null,
     });
   });
@@ -94,6 +95,7 @@ describe('auth store', () => {
 
     expect(useAuthStore.getState().token).toBe('stored-token');
     expect(useAuthStore.getState().user?.email).toBe('a@b.com');
+    expect(useAuthStore.getState().hydrated).toBe(true);
   });
 
   it('hydrate does nothing when no token', async () => {
@@ -101,6 +103,7 @@ describe('auth store', () => {
 
     expect(useAuthStore.getState().token).toBeNull();
     expect(mockGet).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().hydrated).toBe(true);
   });
 
   it('hydrate auto-logouts on 401', async () => {
