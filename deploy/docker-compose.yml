@@ -6,6 +6,7 @@ services:
     environment:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - OPENGATE_GITHUB_REPO=${OPENGATE_GITHUB_REPO:-}
+      - OPENGATE_QUIC_HOST=${OPENGATE_QUIC_HOST:-}
     command:
       - "-listen"
       - ":8080"

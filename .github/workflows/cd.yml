@@ -133,6 +133,7 @@ jobs:
             "VAPID_CONTACT=${VAPID_CONTACT}" \
             "DOMAIN=${DOMAIN}" \
             "OPENGATE_GITHUB_REPO=${{ github.repository }}" \
+            "OPENGATE_QUIC_HOST=${{ secrets.DEPLOY_QUIC_HOST }}" \
             | ssh deploy-target "cat > ${{ env.DEPLOY_DIR }}/.env.staging"
 
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh --mode staging --tag ${{ env.IMAGE_TAG }}"
@@ -235,6 +236,7 @@ jobs:
             "VAPID_CONTACT=${VAPID_CONTACT}" \
             "DOMAIN=${DOMAIN}" \
             "OPENGATE_GITHUB_REPO=${{ github.repository }}" \
+            "OPENGATE_QUIC_HOST=${{ secrets.DEPLOY_QUIC_HOST }}" \
             | ssh deploy-target "cat > ${{ env.DEPLOY_DIR }}/.env"
 
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh --mode production --tag ${{ env.IMAGE_TAG }}"
