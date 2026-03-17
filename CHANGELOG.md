@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.4.0] - 2026-03-17
+
+### Added
+- add security groups and permissions management
+
+### Fixed
+- use exact match for Management sidebar text in e2e test
+- correct e2e selectors for admin heading and System badge
+- block SPA rendering until auth hydration completes
+- e2e admin page tests race condition and last-admin test
+- e2e admin tests fail when not first user in shared DB
+
 ## [v0.3.0] - 2026-03-17
 
 ### Added
