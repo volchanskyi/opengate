@@ -33,25 +33,29 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 7. `cd agent && cargo test --workspace` — Rust tests (all crates)
 8. `cd web && npx vitest run` — Web tests
 
+## E2E tests (all must pass)
+
+9. `cd web && npx playwright test` — Playwright E2E tests (spins up docker-compose.test.yml, runs all specs against local stack). Requires Docker running.
+
 ## Security audit (must pass)
 
-9. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
+10. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
 
 ## Benchmarks (all must run without errors)
 
-10. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-11. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+11. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+12. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ## Documentation (mandatory on every commit)
 
-12. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-13. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
+13. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+14. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
 
 ## Gate Criteria
 
 Do NOT commit if:
 - Any lint fails
-- Any test fails
+- Any test fails (unit, integration, or E2E)
 - New code coverage is below 80% or overall coverage below 70%
 - Any benchmark errors out
 - Any security audit fails (high+ severity vulnerabilities)
