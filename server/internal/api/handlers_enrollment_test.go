@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -321,5 +322,45 @@ func TestGetInstallScript(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "#!/usr/bin/env bash")
 		assert.Contains(t, w.Body.String(), "OpenGate Agent Installer")
+	})
+
+	t.Run("injects server URL from Host header", func(t *testing.T) {
+		srv, _ := newTestServerWithCert(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/server/install.sh", nil)
+		req.Host = "opengate.example.com"
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER="https://opengate.example.com"`)
+	})
+
+	t.Run("uses BaseURL config when set", func(t *testing.T) {
+		srv, _ := newTestServerWithCert(t)
+		srv.baseURL = "https://staging.example.com"
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/server/install.sh", nil)
+		req.Host = "127.0.0.1:18080"
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER="https://staging.example.com"`)
+		assert.NotContains(t, w.Body.String(), "127.0.0.1")
+	})
+
+	t.Run("uses X-Forwarded headers when present", func(t *testing.T) {
+		srv, _ := newTestServerWithCert(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/server/install.sh", nil)
+		req.Host = "internal:8080"
+		req.Header.Set("X-Forwarded-Proto", "https")
+		req.Header.Set("X-Forwarded-Host", "opengate.cloudisland.net")
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER="https://opengate.cloudisland.net"`)
 	})
 }
