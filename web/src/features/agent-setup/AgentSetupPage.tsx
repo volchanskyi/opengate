@@ -136,6 +136,23 @@ export function AgentSetupPage() {
         )}
       </section>
 
+      {/* Install Script Download */}
+      <section className="mb-8">
+        <h3 className="text-lg font-semibold mb-3">Install Script</h3>
+        <div className="flex items-center gap-3">
+          <a
+            href="/api/v1/server/install.sh"
+            download="install.sh"
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm"
+          >
+            Download install.sh
+          </a>
+          <span className="text-sm text-gray-500">
+            Linux installer with auto-detection, enrollment, and systemd setup
+          </span>
+        </div>
+      </section>
+
       {/* Manual Install */}
       <section className="mb-8">
         <button
