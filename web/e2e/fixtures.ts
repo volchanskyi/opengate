@@ -22,14 +22,21 @@ export const test = base.extend<Fixtures>({
   authedPage: async ({ page, testUser }, use) => {
     await page.goto("/");
     await injectAuth(page, testUser.token);
-    await page.reload();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/api/v1/users/me") && r.status() === 200),
+      page.reload(),
+    ]);
     await use(page);
   },
 
   adminPage: async ({ page, adminUser }, use) => {
     await page.goto("/");
     await injectAuth(page, adminUser.token);
-    await page.reload();
+    // Wait for hydration: reload and wait for /users/me to confirm admin status
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/api/v1/users/me") && r.status() === 200),
+      page.reload(),
+    ]);
     await use(page);
   },
 });

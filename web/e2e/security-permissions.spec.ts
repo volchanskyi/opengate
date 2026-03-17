@@ -107,7 +107,15 @@ test.describe("Security Permissions", () => {
   });
 
   test("cannot remove last admin via API", async ({ request, adminUser }) => {
-    // Try to remove the only admin — should get 409
+    // List current admin group members and remove all except adminUser
+    const group = await getSecurityGroup(request, adminUser.token, ADMIN_GROUP_ID);
+    for (const member of group.members) {
+      if (member.id !== adminUser.id) {
+        await removeGroupMember(request, adminUser.token, ADMIN_GROUP_ID, member.id);
+      }
+    }
+
+    // Now adminUser is the only admin — removing should fail
     const resp = await request.delete(
       `/api/v1/security-groups/${ADMIN_GROUP_ID}/members/${adminUser.id}`,
       { headers: { Authorization: `Bearer ${adminUser.token}` } }
