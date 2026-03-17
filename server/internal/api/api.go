@@ -56,6 +56,7 @@ type ServerConfig struct {
 	Signing   *updater.SigningKeys
 	Manifests  *updater.ManifestStore
 	GitHubRepo string // GitHub repo for manifest auto-sync (e.g. "owner/repo")
+	BaseURL    string // public base URL for install script (e.g. "https://opengate.example.com")
 	Logger     *slog.Logger
 	WebDir     string // directory containing SPA static assets (optional)
 }
@@ -73,6 +74,7 @@ type Server struct {
 	signing   *updater.SigningKeys
 	manifests  *updater.ManifestStore
 	githubRepo string
+	baseURL    string
 	router     chi.Router
 	logger     *slog.Logger
 	webDir     string
@@ -92,6 +94,7 @@ func NewServer(cfg ServerConfig) *Server {
 		signing:   cfg.Signing,
 		manifests:  cfg.Manifests,
 		githubRepo: cfg.GitHubRepo,
+		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
 		router:     chi.NewRouter(),
 		logger:     cfg.Logger,
 		webDir:     cfg.WebDir,
