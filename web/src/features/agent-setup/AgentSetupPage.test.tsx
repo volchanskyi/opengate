@@ -91,8 +91,13 @@ describe('AgentSetupPage', () => {
   it('shows one-liner with enrollment token', () => {
     render(<AgentSetupPage />);
     expect(screen.getByText(/curl -sL/)).toBeInTheDocument();
-    expect(screen.getByText(/install\.sh/)).toBeInTheDocument();
+    expect(screen.getByText(/sudo bash -s --/)).toBeInTheDocument();
     expect(screen.getByText('Copy')).toBeInTheDocument();
+  });
+
+  it('shows install script download link', () => {
+    render(<AgentSetupPage />);
+    expect(screen.getByText('Download install.sh')).toBeInTheDocument();
   });
 
   it('shows download link when manifest exists', () => {

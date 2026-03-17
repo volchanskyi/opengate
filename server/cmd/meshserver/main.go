@@ -90,6 +90,7 @@ func main() {
 		os.Exit(1)
 	}
 	manifestStore := updater.NewManifestStore(*dataDir)
+	githubRepo := os.Getenv("OPENGATE_GITHUB_REPO")
 
 	mpsSrv := mps.NewServer(certMgr, store, logger)
 	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
@@ -104,10 +105,11 @@ func main() {
 		Relay:     agentRelay,
 		Signaling: sigTracker,
 		Notifier:  notifier,
-		Signing:   signingKeys,
-		Manifests: manifestStore,
-		Logger:    logger,
-		WebDir:    *webDir,
+		Signing:    signingKeys,
+		Manifests:  manifestStore,
+		GitHubRepo: githubRepo,
+		Logger:     logger,
+		WebDir:     *webDir,
 	})
 
 	httpSrv := &http.Server{
@@ -121,6 +123,20 @@ func main() {
 	// Use a cancellable context for graceful shutdown of all servers
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Auto-sync agent manifests from GitHub releases on startup.
+	if githubRepo != "" {
+		go func() {
+			syncCtx, syncCancel := context.WithTimeout(ctx, 30*time.Second)
+			defer syncCancel()
+			synced, err := updater.SyncFromGitHub(syncCtx, githubRepo, "", signingKeys, manifestStore)
+			if err != nil {
+				logger.Warn("github manifest sync failed", "repo", githubRepo, "error", err)
+			} else {
+				logger.Info("synced manifests from github", "repo", githubRepo, "count", len(synced))
+			}
+		}()
+	}
 
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
