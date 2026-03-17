@@ -139,9 +139,14 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 		}
 	}
 
+	quicHost := host
+	if s.quicHost != "" {
+		quicHost = s.quicHost
+	}
+
 	return Enroll200JSONResponse{
 		CaPem:        string(s.cert.CACertPEM()),
-		ServerAddr:   host + ":9090",
+		ServerAddr:   quicHost + ":9090",
 		ServerDomain: host,
 	}, nil
 }
