@@ -8,6 +8,7 @@ interface AuthState {
   token: string | null;
   user: User | null;
   isLoading: boolean;
+  hydrated: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
@@ -20,6 +21,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   user: null,
   isLoading: false,
+  hydrated: false,
   error: null,
 
   login: async (email, password) => {
@@ -68,8 +70,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   hydrate: async () => {
     const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!token) {
+      set({ hydrated: true });
+      return;
+    }
     set({ token });
     await get().fetchMe();
+    set({ hydrated: true });
   },
 }));
