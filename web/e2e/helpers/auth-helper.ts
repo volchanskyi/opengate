@@ -1,5 +1,5 @@
 import type { Page, APIRequestContext } from "@playwright/test";
-import { register } from "./api-helper";
+import { register, getMe } from "./api-helper";
 
 function uniqueEmail(): string {
   const ts = Date.now();
@@ -8,6 +8,7 @@ function uniqueEmail(): string {
 }
 
 export interface TestUser {
+  id: string;
   email: string;
   password: string;
   token: string;
@@ -20,7 +21,33 @@ export async function createTestUser(
   const email = uniqueEmail();
   const password = "TestPass123!";
   const token = await register(request, email, password);
-  return { email, password, token };
+  const me = await getMe(request, token);
+  return { id: me.id, email, password, token };
+}
+
+/**
+ * Create a user with admin privileges.
+ * If this is the first user in a fresh DB, they auto-become admin.
+ * Otherwise, an existing admin promotes them.
+ */
+export async function createAdminUser(
+  request: APIRequestContext
+): Promise<TestUser> {
+  const email = uniqueEmail();
+  const password = "TestPass123!";
+  const token = await register(request, email, password);
+  const me = await getMe(request, token);
+
+  if (me.is_admin) {
+    // First user — already admin via bootstrap
+    return { id: me.id, email, password, token };
+  }
+
+  // Not first user — need an existing admin to promote.
+  // This path shouldn't happen in test isolation (tmpfs DB), but handle gracefully.
+  throw new Error(
+    "createAdminUser: user is not admin. Ensure this is the first user in a fresh DB."
+  );
 }
 
 /** Inject the JWT into localStorage so the SPA treats the session as logged in. */

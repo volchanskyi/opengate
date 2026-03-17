@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -111,4 +112,33 @@ type AuditQuery struct {
 	Action string
 	Limit  int
 	Offset int
+}
+
+// SecurityGroupID uniquely identifies a security group.
+type SecurityGroupID = uuid.UUID
+
+// AdminGroupID is the well-known UUID for the built-in Administrators group.
+var AdminGroupID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
+
+// ErrSystemGroup is returned when attempting to delete a system group.
+var ErrSystemGroup = errors.New("cannot delete system group")
+
+// ErrLastAdmin is returned when attempting to remove the last member of the Administrators group.
+var ErrLastAdmin = errors.New("cannot remove last administrator")
+
+// SecurityGroup represents a named permission group.
+type SecurityGroup struct {
+	ID          SecurityGroupID `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	IsSystem    bool            `json:"is_system"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+// SecurityGroupMember represents a user's membership in a security group.
+type SecurityGroupMember struct {
+	GroupID SecurityGroupID `json:"group_id"`
+	UserID  UserID          `json:"user_id"`
+	AddedAt time.Time       `json:"added_at"`
 }
