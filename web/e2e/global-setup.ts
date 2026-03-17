@@ -1,6 +1,5 @@
-import { request } from "@playwright/test";
+import { request, type FullConfig } from "@playwright/test";
 
-const BASE_URL = "http://localhost:8080";
 const BOOTSTRAP_EMAIL = "bootstrap-admin@test.local";
 const BOOTSTRAP_PASSWORD = "BootstrapPass123!";
 
@@ -8,8 +7,9 @@ const BOOTSTRAP_PASSWORD = "BootstrapPass123!";
  * Registers the first user in the DB so it auto-promotes to admin.
  * Stores credentials in environment variables for test fixtures.
  */
-export default async function globalSetup() {
-  const ctx = await request.newContext({ baseURL: BASE_URL });
+export default async function globalSetup(config: FullConfig) {
+  const baseURL = config.projects[0]?.use?.baseURL ?? "http://localhost:8080";
+  const ctx = await request.newContext({ baseURL });
 
   try {
     const resp = await ctx.post("/api/v1/auth/register", {
