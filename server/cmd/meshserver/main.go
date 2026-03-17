@@ -92,6 +92,7 @@ func main() {
 	manifestStore := updater.NewManifestStore(*dataDir)
 	githubRepo := os.Getenv("OPENGATE_GITHUB_REPO")
 	baseURL := os.Getenv("OPENGATE_BASE_URL")
+	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
 
 	mpsSrv := mps.NewServer(certMgr, store, logger)
 	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
@@ -110,6 +111,7 @@ func main() {
 		Manifests:  manifestStore,
 		GitHubRepo: githubRepo,
 		BaseURL:    baseURL,
+		QuicHost:   quicHost,
 		Logger:     logger,
 		WebDir:     *webDir,
 	})

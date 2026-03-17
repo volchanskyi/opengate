@@ -57,6 +57,7 @@ type ServerConfig struct {
 	Manifests  *updater.ManifestStore
 	GitHubRepo string // GitHub repo for manifest auto-sync (e.g. "owner/repo")
 	BaseURL    string // public base URL for install script (e.g. "https://opengate.example.com")
+	QuicHost   string // override hostname for QUIC address in enrollment (bypasses CDN proxy)
 	Logger     *slog.Logger
 	WebDir     string // directory containing SPA static assets (optional)
 }
@@ -75,6 +76,7 @@ type Server struct {
 	manifests  *updater.ManifestStore
 	githubRepo string
 	baseURL    string
+	quicHost   string
 	router     chi.Router
 	logger     *slog.Logger
 	webDir     string
@@ -95,6 +97,7 @@ func NewServer(cfg ServerConfig) *Server {
 		manifests:  cfg.Manifests,
 		githubRepo: cfg.GitHubRepo,
 		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
+		quicHost:   cfg.QuicHost,
 		router:     chi.NewRouter(),
 		logger:     cfg.Logger,
 		webDir:     cfg.WebDir,

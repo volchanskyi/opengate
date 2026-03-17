@@ -222,6 +222,26 @@ func TestEnroll(t *testing.T) {
 		assert.Equal(t, http.StatusGone, w.Code)
 	})
 
+	t.Run("uses quicHost override for server_addr", func(t *testing.T) {
+		srv, cfg := newTestServerWithCert(t)
+		srv.quicHost = "quic.opengate.example.com"
+		_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
+
+		body := CreateEnrollmentTokenRequest{}
+		w := doRequest(srv, http.MethodPost, "/api/v1/enrollment-tokens", adminToken, body)
+		require.Equal(t, http.StatusCreated, w.Code)
+
+		var tok EnrollmentToken
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&tok))
+
+		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", nil)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var resp EnrollResponse
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+		assert.Equal(t, "quic.opengate.example.com:9090", resp.ServerAddr)
+	})
+
 	t.Run("invalid token", func(t *testing.T) {
 		srv, _ := newTestServerWithCert(t)
 
@@ -362,5 +382,31 @@ func TestGetInstallScript(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER="https://opengate.cloudisland.net"`)
+	})
+
+	t.Run("injects OPENGATE_GITHUB_REPO when configured", func(t *testing.T) {
+		srv, _ := newTestServerWithCert(t)
+		srv.githubRepo = "volchanskyi/opengate"
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/server/install.sh", nil)
+		req.Host = "opengate.example.com"
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), `export OPENGATE_GITHUB_REPO="volchanskyi/opengate"`)
+		assert.Contains(t, w.Body.String(), "# Injected by server")
+	})
+
+	t.Run("omits OPENGATE_GITHUB_REPO when not configured", func(t *testing.T) {
+		srv, _ := newTestServerWithCert(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/server/install.sh", nil)
+		req.Host = "opengate.example.com"
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.NotContains(t, w.Body.String(), `export OPENGATE_GITHUB_REPO=`)
 	})
 }
