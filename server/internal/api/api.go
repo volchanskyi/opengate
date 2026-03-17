@@ -54,9 +54,10 @@ type ServerConfig struct {
 	Signaling *signaling.Tracker
 	Notifier  notifications.Notifier
 	Signing   *updater.SigningKeys
-	Manifests *updater.ManifestStore
-	Logger    *slog.Logger
-	WebDir    string // directory containing SPA static assets (optional)
+	Manifests  *updater.ManifestStore
+	GitHubRepo string // GitHub repo for manifest auto-sync (e.g. "owner/repo")
+	Logger     *slog.Logger
+	WebDir     string // directory containing SPA static assets (optional)
 }
 
 // Server is the HTTP API server.
@@ -70,10 +71,11 @@ type Server struct {
 	signaling *signaling.Tracker
 	notifier  notifications.Notifier
 	signing   *updater.SigningKeys
-	manifests *updater.ManifestStore
-	router    chi.Router
-	logger    *slog.Logger
-	webDir    string
+	manifests  *updater.ManifestStore
+	githubRepo string
+	router     chi.Router
+	logger     *slog.Logger
+	webDir     string
 }
 
 // NewServer creates an API server with all routes registered.
@@ -88,10 +90,11 @@ func NewServer(cfg ServerConfig) *Server {
 		signaling: cfg.Signaling,
 		notifier:  cfg.Notifier,
 		signing:   cfg.Signing,
-		manifests: cfg.Manifests,
-		router:    chi.NewRouter(),
-		logger:    cfg.Logger,
-		webDir:    cfg.WebDir,
+		manifests:  cfg.Manifests,
+		githubRepo: cfg.GitHubRepo,
+		router:     chi.NewRouter(),
+		logger:     cfg.Logger,
+		webDir:     cfg.WebDir,
 	}
 	s.routes()
 	return s

@@ -72,15 +72,60 @@ SERVER_ADDR=$(echo "$ENROLL_RESPONSE" | grep -oP '"server_addr"\s*:\s*"\K[^"]*')
 
 log "Server QUIC address: ${SERVER_ADDR}"
 
-# --- Fetch latest manifest for this platform --------------------------------
+# --- Resolve binary download URL and SHA256 ---------------------------------
 
-log "Fetching agent manifest for ${OS}/${ARCH}..."
-MANIFESTS=$(curl -sf --max-time 30 \
-    "${SERVER_URL}/api/v1/updates/manifests") \
-    || fail "Failed to fetch update manifests"
+DOWNLOAD_URL=""
+EXPECTED_SHA256=""
 
-# Extract URL and SHA256 for our OS/arch (simple grep — works for single match).
-DOWNLOAD_URL=$(echo "$MANIFESTS" | python3 -c "
+# Strategy 1: Try GitHub Releases if OPENGATE_GITHUB_REPO is set.
+GITHUB_REPO="${OPENGATE_GITHUB_REPO:-}"
+if [[ -n "$GITHUB_REPO" ]]; then
+    log "Fetching latest release from GitHub (${GITHUB_REPO})..."
+    ASSET_NAME="mesh-agent-${OS}-${ARCH}"
+    GH_RELEASE=$(curl -sf --max-time 30 \
+        "https://api.github.com/repos/${GITHUB_REPO}/releases/latest") || true
+
+    if [[ -n "$GH_RELEASE" ]]; then
+        DOWNLOAD_URL=$(echo "$GH_RELEASE" | python3 -c "
+import json, sys
+release = json.load(sys.stdin)
+for a in release.get('assets', []):
+    if a['name'] == '${ASSET_NAME}':
+        print(a['browser_download_url'])
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null) || true
+
+        SHA256_URL=$(echo "$GH_RELEASE" | python3 -c "
+import json, sys
+release = json.load(sys.stdin)
+for a in release.get('assets', []):
+    if a['name'] == '${ASSET_NAME}.sha256':
+        print(a['browser_download_url'])
+        sys.exit(0)
+sys.exit(1)
+" 2>/dev/null) || true
+
+        if [[ -n "$SHA256_URL" ]]; then
+            EXPECTED_SHA256=$(curl -sfL --max-time 15 "$SHA256_URL" | awk '{print $1}') || true
+        fi
+    fi
+
+    if [[ -n "$DOWNLOAD_URL" ]]; then
+        log "Resolved binary from GitHub Releases"
+    else
+        log "GitHub Releases lookup failed, falling back to server manifests"
+    fi
+fi
+
+# Strategy 2: Fall back to server manifests.
+if [[ -z "$DOWNLOAD_URL" ]]; then
+    log "Fetching agent manifest for ${OS}/${ARCH} from server..."
+    MANIFESTS=$(curl -sf --max-time 30 \
+        "${SERVER_URL}/api/v1/updates/manifests") || true
+
+    if [[ -n "$MANIFESTS" ]]; then
+        DOWNLOAD_URL=$(echo "$MANIFESTS" | python3 -c "
 import json, sys
 manifests = json.load(sys.stdin)
 for m in manifests:
@@ -88,9 +133,10 @@ for m in manifests:
         print(m['url'])
         sys.exit(0)
 sys.exit(1)
-" 2>/dev/null) || fail "No agent binary published for ${OS}/${ARCH}. Ask your admin to publish one."
+" 2>/dev/null) || true
 
-EXPECTED_SHA256=$(echo "$MANIFESTS" | python3 -c "
+        if [[ -z "$EXPECTED_SHA256" ]]; then
+            EXPECTED_SHA256=$(echo "$MANIFESTS" | python3 -c "
 import json, sys
 manifests = json.load(sys.stdin)
 for m in manifests:
@@ -98,7 +144,12 @@ for m in manifests:
         print(m['sha256'])
         sys.exit(0)
 sys.exit(1)
-" 2>/dev/null) || EXPECTED_SHA256=""
+" 2>/dev/null) || true
+        fi
+    fi
+fi
+
+[[ -n "$DOWNLOAD_URL" ]] || fail "No agent binary found for ${OS}/${ARCH}. Set OPENGATE_GITHUB_REPO or ask your admin to publish a manifest."
 
 log "Downloading agent from: ${DOWNLOAD_URL}"
 

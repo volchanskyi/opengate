@@ -5,6 +5,7 @@ services:
     restart: unless-stopped
     environment:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - OPENGATE_GITHUB_REPO=${OPENGATE_GITHUB_REPO:-}
     command:
       - "-listen"
       - ":8080"

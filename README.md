@@ -28,7 +28,8 @@ cd server
 go build -o meshserver ./cmd/meshserver
 
 # JWT_SECRET is required — pass via flag or env var
-JWT_SECRET=changeme ./meshserver \
+# OPENGATE_GITHUB_REPO enables auto-sync of agent manifests from GitHub Releases
+JWT_SECRET=changeme OPENGATE_GITHUB_REPO=volchanskyi/opengate ./meshserver \
   -listen :8080 \
   -quic-listen :9090 \
   -mps-listen :4433 \
