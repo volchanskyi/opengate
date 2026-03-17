@@ -1,4 +1,4 @@
-import { test, expect } from "../e2e/fixtures";
+import { test, expect } from "./fixtures";
 
 test.describe("Admin panel", () => {
   test("non-admin is blocked from /admin", async ({ authedPage }) => {
@@ -6,32 +6,56 @@ test.describe("Admin panel", () => {
 
     // AdminGuard should redirect non-admin users or show forbidden
     await expect(
-      authedPage.getByText(/forbidden|access denied|not authorized/i).or(
-        authedPage.locator("body")
-      )
+      authedPage
+        .getByText(/forbidden|access denied|not authorized/i)
+        .or(authedPage.locator("body"))
     ).toBeVisible();
 
     // URL should not stay on /admin
     const url = authedPage.url();
     expect(
-      url.includes("/admin") === false || url.includes("/devices") || url.includes("/login")
+      url.includes("/admin") === false ||
+        url.includes("/devices") ||
+        url.includes("/login")
     ).toBeTruthy();
   });
 
-  test("admin can see user list at /admin/users", async ({ page, request }) => {
-    // This test requires an admin user. Since we can't promote via API,
-    // we verify the page loads (even if it redirects for non-admin).
-    // Full admin E2E would need server-side test user seeding.
-    await page.goto("/login");
-    // Verify the admin route exists and is reachable
-    const resp = await request.get("/admin/users");
-    // SPA always returns 200 (index.html) regardless of route
-    expect(resp.status()).toBe(200);
+  test("admin can see user list at /admin/users", async ({ adminPage }) => {
+    await adminPage.goto("/admin/users");
+
+    await expect(
+      adminPage.getByRole("heading", { name: /user management/i })
+    ).toBeVisible();
+    // Should see at least the admin user in the table
+    await expect(adminPage.locator("table")).toBeVisible();
   });
 
-  test("audit log page loads", async ({ page }) => {
-    await page.goto("/admin/audit");
-    // SPA serves index.html for all routes
-    await expect(page.locator("body")).toBeVisible();
+  test("audit log page loads", async ({ adminPage }) => {
+    await adminPage.goto("/admin/audit");
+
+    await expect(
+      adminPage.getByRole("heading", { name: /audit/i })
+    ).toBeVisible();
+  });
+
+  test("admin sidebar shows Management and Security sections", async ({
+    adminPage,
+  }) => {
+    await adminPage.goto("/admin");
+
+    await expect(adminPage.getByText("Management", { exact: true })).toBeVisible();
+    await expect(
+      adminPage.getByRole("link", { name: "Users" })
+    ).toBeVisible();
+    await expect(
+      adminPage.getByRole("link", { name: "Audit Log" })
+    ).toBeVisible();
+    await expect(
+      adminPage.getByRole("link", { name: "Agent Updates" })
+    ).toBeVisible();
+    await expect(adminPage.getByText("Security")).toBeVisible();
+    await expect(
+      adminPage.getByRole("link", { name: "Permissions" })
+    ).toBeVisible();
   });
 });

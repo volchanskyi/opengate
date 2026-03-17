@@ -18,6 +18,7 @@ describe('App', () => {
       token: null,
       user: null,
       isLoading: false,
+      hydrated: false,
       error: null,
     });
   });

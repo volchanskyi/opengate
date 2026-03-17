@@ -134,6 +134,33 @@ func (m *notifMockStore) DeleteEnrollmentToken(_ context.Context, _ uuid.UUID) e
 func (m *notifMockStore) IncrementEnrollmentTokenUseCount(_ context.Context, _ uuid.UUID) error {
 	return nil
 }
+func (m *notifMockStore) CreateSecurityGroup(_ context.Context, _ *db.SecurityGroup) error {
+	return nil
+}
+func (m *notifMockStore) GetSecurityGroup(_ context.Context, _ db.SecurityGroupID) (*db.SecurityGroup, error) {
+	return nil, db.ErrNotFound
+}
+func (m *notifMockStore) ListSecurityGroups(_ context.Context) ([]*db.SecurityGroup, error) {
+	return nil, nil
+}
+func (m *notifMockStore) DeleteSecurityGroup(_ context.Context, _ db.SecurityGroupID) error {
+	return nil
+}
+func (m *notifMockStore) AddSecurityGroupMember(_ context.Context, _ db.SecurityGroupID, _ db.UserID) error {
+	return nil
+}
+func (m *notifMockStore) RemoveSecurityGroupMember(_ context.Context, _ db.SecurityGroupID, _ db.UserID) error {
+	return nil
+}
+func (m *notifMockStore) ListSecurityGroupMembers(_ context.Context, _ db.SecurityGroupID) ([]*db.User, error) {
+	return nil, nil
+}
+func (m *notifMockStore) IsUserInSecurityGroup(_ context.Context, _ db.UserID, _ db.SecurityGroupID) (bool, error) {
+	return false, nil
+}
+func (m *notifMockStore) CountSecurityGroupMembers(_ context.Context, _ db.SecurityGroupID) (int, error) {
+	return 0, nil
+}
 func (m *notifMockStore) Ping(_ context.Context) error { return nil }
 func (m *notifMockStore) Close() error                 { return nil }
 

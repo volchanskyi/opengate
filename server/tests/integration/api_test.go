@@ -291,21 +291,12 @@ func TestGroupLifecycle(t *testing.T) {
 func TestAdminAuthorization(t *testing.T) {
 	env := newTestEnv(t)
 
-	// Create regular user via API
-	regularToken := env.register(t, "regular@example.com", "pass123")
+	// Create admin user first (so the DB is not empty when the regular user registers).
+	adminUser, adminPass := testutil.SeedAdminUser(t, t.Context(), env.store)
+	adminToken := env.login(t, adminUser.Email, adminPass)
 
-	// Create admin user directly in store (no API for promoting to admin)
-	adminHash, err := auth.HashPassword("adminpass")
-	require.NoError(t, err)
-	adminUser := &db.User{
-		ID:           uuid.New(),
-		Email:        "admin@example.com",
-		PasswordHash: adminHash,
-		DisplayName:  "Admin",
-		IsAdmin:      true,
-	}
-	require.NoError(t, env.store.UpsertUser(t.Context(), adminUser))
-	adminToken := env.login(t, "admin@example.com", "adminpass")
+	// Create regular user via API (not the first user, so no bootstrap).
+	regularToken := env.register(t, "regular@example.com", "pass123")
 
 	t.Run("admin can list all users", func(t *testing.T) {
 		resp := env.doJSON(t, http.MethodGet, "/api/v1/users", adminToken, nil)

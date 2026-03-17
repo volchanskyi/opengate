@@ -77,7 +77,8 @@ func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, u
 	return sess
 }
 
-// SeedAdminUser inserts an admin user with a real bcrypt password hash.
+// SeedAdminUser inserts an admin user with a real bcrypt password hash
+// and adds them to the Administrators security group.
 func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*db.User, string) {
 	t.Helper()
 	password := "admin-pass-" + uuid.New().String()[:8]
@@ -91,6 +92,7 @@ func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*db.User, str
 		IsAdmin:      true,
 	}
 	require.NoError(t, s.UpsertUser(ctx, u))
+	require.NoError(t, s.AddSecurityGroupMember(ctx, db.AdminGroupID, u.ID))
 	return u, password
 }
 
