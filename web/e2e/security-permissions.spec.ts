@@ -33,7 +33,7 @@ test.describe("Security Permissions", () => {
     await expect(
       adminPage.getByRole("button", { name: /Administrators/i })
     ).toBeVisible();
-    await expect(adminPage.getByText("System")).toBeVisible();
+    await expect(adminPage.getByText("System", { exact: true })).toBeVisible();
   });
 
   test("admin sees themselves in Administrators group", async ({

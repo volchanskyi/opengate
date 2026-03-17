@@ -24,7 +24,7 @@ test.describe("Admin panel", () => {
     await adminPage.goto("/admin/users");
 
     await expect(
-      adminPage.getByRole("heading", { name: /users/i })
+      adminPage.getByRole("heading", { name: /user management/i })
     ).toBeVisible();
     // Should see at least the admin user in the table
     await expect(adminPage.locator("table")).toBeVisible();
