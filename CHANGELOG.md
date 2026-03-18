@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.7.5] - 2026-03-18
+
+### Fixed
+- use actual hostname as QUIC TLS SNI, fix E2E strict mode violation
+
+### Changed
+- DRY helpers, module splits, and polish across all layers
+
 ## [v0.7.4] - 2026-03-18
 
 ### Fixed
