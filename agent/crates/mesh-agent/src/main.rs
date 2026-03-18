@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha384};
+use tokio::io::AsyncWriteExt;
 use tracing::{error, info, warn};
 
 /// OpenGate mesh agent.
@@ -207,6 +208,7 @@ async fn perform_handshake(
     send.write_all(&agent_hello.encode_binary())
         .await
         .context("write AgentHello")?;
+    send.flush().await.context("flush AgentHello")?;
 
     info!("handshake complete");
     Ok(())
