@@ -45,9 +45,22 @@ desktop.ini
 /testdata/golden/*.generated
 coverage/
 *.coverprofile
+test-results/
+web/test-results/
+web/playwright-report/
+
+# Coverage
+*.lcov
+lcov.info
+server/coverage*.out
 
 # Build
 *.exe
 *.dll
 *.so
 *.dylib
+/server/meshserver
+/server/loadtest
+
+# Python
+__pycache__/
