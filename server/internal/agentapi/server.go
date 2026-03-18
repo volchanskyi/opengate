@@ -27,6 +27,7 @@ type AgentServer struct {
 	store    db.Store
 	relay    *relay.Relay
 	notifier notifications.Notifier
+	quicHost string // extra DNS SAN for the server certificate
 	conns    sync.Map // map[protocol.DeviceID]*AgentConn
 	count    atomic.Int64
 	logger   *slog.Logger
@@ -35,12 +36,13 @@ type AgentServer struct {
 }
 
 // NewAgentServer creates a new AgentServer.
-func NewAgentServer(cm *cert.Manager, store db.Store, r *relay.Relay, notifier notifications.Notifier, logger *slog.Logger) *AgentServer {
+func NewAgentServer(cm *cert.Manager, store db.Store, r *relay.Relay, notifier notifications.Notifier, quicHost string, logger *slog.Logger) *AgentServer {
 	return &AgentServer{
 		cert:     cm,
 		store:    store,
 		relay:    r,
 		notifier: notifier,
+		quicHost: quicHost,
 		logger:   logger,
 		addrCh:   make(chan string, 1),
 	}
@@ -77,7 +79,11 @@ func (s *AgentServer) Addr() string {
 
 // ListenAndServe starts the QUIC listener and blocks until ctx is cancelled.
 func (s *AgentServer) ListenAndServe(ctx context.Context, addr string) error {
-	tlsCfg, err := s.cert.ServerTLSConfig()
+	var extraDNS []string
+	if s.quicHost != "" {
+		extraDNS = append(extraDNS, s.quicHost)
+	}
+	tlsCfg, err := s.cert.ServerTLSConfig(extraDNS...)
 	if err != nil {
 		return fmt.Errorf("server TLS config: %w", err)
 	}

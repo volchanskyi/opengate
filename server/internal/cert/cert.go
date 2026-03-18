@@ -90,7 +90,8 @@ func (m *Manager) SignAgent(deviceID, hostname string) (*tls.Certificate, error)
 
 // SignServer generates a TLS certificate for the server, signed by the CA.
 // The cert uses CN=OpenGate Server with localhost and 127.0.0.1 as SANs.
-func (m *Manager) SignServer() (*tls.Certificate, error) {
+// Additional DNS names (e.g. the QUIC hostname) can be passed via extraDNS.
+func (m *Manager) SignServer(extraDNS ...string) (*tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generate server key: %w", err)
@@ -105,7 +106,7 @@ func (m *Manager) SignServer() (*tls.Certificate, error) {
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: "OpenGate Server"},
-		DNSNames:     []string{"localhost"},
+		DNSNames:     append([]string{"localhost"}, extraDNS...),
 		IPAddresses:  []net.IP{net.IPv4(127, 0, 0, 1)},
 		NotBefore:    now.Add(-5 * time.Minute),
 		NotAfter:     now.Add(365 * 24 * time.Hour),
@@ -127,11 +128,11 @@ func (m *Manager) SignServer() (*tls.Certificate, error) {
 // ServerTLSConfig returns a tls.Config for the server that requires
 // and verifies agent client certificates. It generates a server cert
 // signed by the CA for TLS handshake.
-func (m *Manager) ServerTLSConfig() (*tls.Config, error) {
+func (m *Manager) ServerTLSConfig(extraDNS ...string) (*tls.Config, error) {
 	pool := x509.NewCertPool()
 	pool.AddCert(m.caCert)
 
-	serverCert, err := m.SignServer()
+	serverCert, err := m.SignServer(extraDNS...)
 	if err != nil {
 		return nil, fmt.Errorf("sign server cert: %w", err)
 	}
