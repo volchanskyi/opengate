@@ -47,7 +47,8 @@ impl<S> AsyncControlStream<S> {
 
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> ControlStream for AsyncControlStream<S> {
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), std::io::Error> {
-        self.stream.write_all(buf).await
+        self.stream.write_all(buf).await?;
+        self.stream.flush().await
     }
 
     async fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), std::io::Error> {
