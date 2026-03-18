@@ -16,6 +16,13 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 		return Register400JSONResponse{Error: "email and password are required"}, nil
 	}
 
+	if len(request.Body.Password) < 8 {
+		return Register400JSONResponse{Error: "password must be at least 8 characters"}, nil
+	}
+	if len(request.Body.Password) > 72 {
+		return Register400JSONResponse{Error: "password must be at most 72 characters"}, nil
+	}
+
 	hash, err := auth.HashPassword(request.Body.Password)
 	if err != nil {
 		return nil, err
@@ -31,6 +38,11 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 		Email:        email,
 		PasswordHash: hash,
 		DisplayName:  displayName,
+	}
+
+	// Check for duplicate email to prevent account enumeration.
+	if existing, _ := s.store.GetUserByEmail(ctx, email); existing != nil {
+		return Register400JSONResponse{Error: "registration failed"}, nil
 	}
 
 	if err := s.store.UpsertUser(ctx, user); err != nil {

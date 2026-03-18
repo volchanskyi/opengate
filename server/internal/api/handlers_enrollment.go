@@ -148,7 +148,8 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 	if request.Body != nil && request.Body.CsrPem != "" {
 		certPEM, err := s.signCSR(request.Body.CsrPem)
 		if err != nil {
-			return Enroll400JSONResponse{Error: err.Error()}, nil
+			s.logger.Warn("CSR signing failed", "error", err)
+			return Enroll400JSONResponse{Error: "invalid enrollment request"}, nil
 		}
 		resp.CertPem = &certPEM
 	}

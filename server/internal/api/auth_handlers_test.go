@@ -43,6 +43,22 @@ func TestRegisterHandler(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
+	t.Run("duplicate email returns generic error", func(t *testing.T) {
+		email := "dup@example.com"
+		body := map[string]string{"email": email, "password": "password123"}
+		w := doRequest(srv, http.MethodPost, testPathRegister, "", body)
+		assert.Equal(t, http.StatusCreated, w.Code)
+
+		// Second registration with same email.
+		w = doRequest(srv, http.MethodPost, testPathRegister, "", body)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+
+		// Error message must not reveal the email exists.
+		var errResp map[string]string
+		json.NewDecoder(w.Body).Decode(&errResp)
+		assert.Equal(t, "registration failed", errResp["error"])
+	})
+
 	t.Run("invalid json body", func(t *testing.T) {
 		w := doRawRequest(srv, http.MethodPost, testPathRegister, "", "not-json{{{")
 		assert.Equal(t, http.StatusBadRequest, w.Code)

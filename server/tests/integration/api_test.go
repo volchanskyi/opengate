@@ -189,7 +189,7 @@ func TestAuthFlow(t *testing.T) {
 
 func TestDeviceLifecycle(t *testing.T) {
 	env := newTestEnv(t)
-	token := env.register(t, "devops@example.com", "pass123")
+	token := env.register(t, "devops@example.com", "pass1234")
 
 	// Get current user to know the owner ID
 	resp := env.doJSON(t, http.MethodGet, pathUsersMe, token, nil)
@@ -252,8 +252,8 @@ func TestDeviceLifecycle(t *testing.T) {
 
 func TestGroupLifecycle(t *testing.T) {
 	env := newTestEnv(t)
-	token1 := env.register(t, "user1@example.com", "pass123")
-	token2 := env.register(t, "user2@example.com", "pass456")
+	token1 := env.register(t, "user1@example.com", "pass1234")
+	token2 := env.register(t, "user2@example.com", "pass4567")
 
 	// User 1 creates two groups
 	for _, name := range []string{"group-a", "group-b"} {
@@ -296,7 +296,7 @@ func TestAdminAuthorization(t *testing.T) {
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
 	// Create regular user via API (not the first user, so no bootstrap).
-	regularToken := env.register(t, "regular@example.com", "pass123")
+	regularToken := env.register(t, "regular@example.com", "pass1234")
 
 	t.Run("admin can list all users", func(t *testing.T) {
 		resp := env.doJSON(t, http.MethodGet, "/api/v1/users", adminToken, nil)
@@ -333,7 +333,7 @@ func TestAdminAuthorization(t *testing.T) {
 
 	t.Run("regular user cannot delete users", func(t *testing.T) {
 		// Re-register a user since we deleted the previous one
-		newToken := env.register(t, "new@example.com", "pass")
+		newToken := env.register(t, "new@example.com", "pass1234")
 		resp := env.doJSON(t, http.MethodDelete, "/api/v1/users/"+adminUser.ID.String(), newToken, nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
@@ -342,7 +342,7 @@ func TestAdminAuthorization(t *testing.T) {
 
 func TestConcurrentRequests(t *testing.T) {
 	env := newTestEnv(t)
-	token := env.register(t, "concurrent@example.com", "pass123")
+	token := env.register(t, "concurrent@example.com", "pass1234")
 
 	// Create a group for device listing
 	resp := env.doJSON(t, http.MethodPost, pathGroups, token, map[string]string{"name": "concurrent-group"})

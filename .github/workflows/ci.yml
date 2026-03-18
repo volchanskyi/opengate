@@ -547,11 +547,11 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Go vulnerability check
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           cd server && govulncheck ./...
       - name: Rust vulnerability check
         run: |
-          cargo install cargo-audit
+          cargo install cargo-audit@0.22.1
           cd agent && cargo audit
       - name: npm vulnerability check
         run: cd web && npm ci && npm audit --audit-level=high
