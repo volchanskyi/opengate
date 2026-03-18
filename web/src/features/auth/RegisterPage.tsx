@@ -17,7 +17,7 @@ export function RegisterPage() {
     return <Navigate to="/devices" replace />;
   }
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     await register(email, password, displayName);
     if (useAuthStore.getState().token) {

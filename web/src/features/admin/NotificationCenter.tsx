@@ -57,6 +57,7 @@ export function NotificationCenter() {
       onClick={handleToggle}
       className="text-sm text-gray-400 hover:text-white"
       title={isSubscribed ? 'Disable notifications' : 'Enable notifications'}
+      aria-label={isSubscribed ? 'Disable notifications' : 'Enable notifications'}
     >
       {isSubscribed ? '\u{1F514}' : '\u{1F515}'}
     </button>

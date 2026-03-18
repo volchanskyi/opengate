@@ -41,7 +41,8 @@ function handleSignalingMessage(msg: ControlMessage, get: () => ConnectionStore,
     case 'SwitchToWebRTC': {
       // Agent's SDP answer
       if (webrtcTransport && get().signalingState === 'upgrading') {
-        webrtcTransport.handleAnswer(msg.sdp_offer).catch(() => {
+        webrtcTransport.handleAnswer(msg.sdp_offer).catch((err) => {
+          console.warn('[webrtc] handleAnswer failed:', err);
           set({ signalingState: 'fallback' });
         });
       }
@@ -49,7 +50,9 @@ function handleSignalingMessage(msg: ControlMessage, get: () => ConnectionStore,
     }
     case 'IceCandidate': {
       if (webrtcTransport) {
-        webrtcTransport.addIceCandidate(msg.candidate, msg.mid).catch(() => {});
+        webrtcTransport.addIceCandidate(msg.candidate, msg.mid).catch((err) => {
+          console.warn('[webrtc] addIceCandidate failed:', err);
+        });
       }
       return true;
     }
@@ -151,7 +154,8 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     const config: RTCConfig = { iceServers };
     webrtc.createOffer(config).then((sdpOffer) => {
       transport.sendControl({ type: 'SwitchToWebRTC', sdp_offer: sdpOffer });
-    }).catch(() => {
+    }).catch((err) => {
+      console.warn('[webrtc] createOffer failed:', err);
       set({ signalingState: 'fallback' });
     });
   },

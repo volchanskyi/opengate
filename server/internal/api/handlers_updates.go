@@ -28,8 +28,8 @@ func (s *Server) ListUpdateManifests(ctx context.Context, _ ListUpdateManifestsR
 
 // PublishUpdate implements StrictServerInterface.
 func (s *Server) PublishUpdate(ctx context.Context, request PublishUpdateRequestObject) (PublishUpdateResponseObject, error) {
-	if !isAdmin(ctx) {
-		return PublishUpdate403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, PublishUpdate403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 	if s.signing == nil || s.manifests == nil {
 		return PublishUpdate403JSONResponse{Error: "update system not configured"}, nil
@@ -63,8 +63,8 @@ func (s *Server) PublishUpdate(ctx context.Context, request PublishUpdateRequest
 
 // PushUpdate implements StrictServerInterface.
 func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject) (PushUpdateResponseObject, error) {
-	if !isAdmin(ctx) {
-		return PushUpdate403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, PushUpdate403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 	if s.signing == nil || s.manifests == nil {
 		return PushUpdate403JSONResponse{Error: "update system not configured"}, nil
@@ -132,8 +132,8 @@ func (s *Server) eligibleAgents(osName, arch, version string, targetSet map[stri
 
 // GetUpdateSigningKey implements StrictServerInterface.
 func (s *Server) GetUpdateSigningKey(ctx context.Context, _ GetUpdateSigningKeyRequestObject) (GetUpdateSigningKeyResponseObject, error) {
-	if !isAdmin(ctx) {
-		return GetUpdateSigningKey403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, GetUpdateSigningKey403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 	if s.signing == nil {
 		return GetUpdateSigningKey403JSONResponse{Error: "update system not configured"}, nil

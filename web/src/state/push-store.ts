@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import { apiAction } from './api-action';
 
 interface PushState {
   vapidKey: string | null;
@@ -24,35 +25,21 @@ export const usePushStore = create<PushState>((set) => ({
   },
 
   fetchVapidKey: async () => {
-    const { data, error } = await api.GET('/api/v1/push/vapid-key');
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    set({ vapidKey: data.public_key });
+    const res = await apiAction(set, () => api.GET('/api/v1/push/vapid-key'), false);
+    if (res.ok) set({ vapidKey: res.data.public_key });
   },
 
   subscribe: async (endpoint, p256dh, auth) => {
-    set({ error: null });
-    const { error } = await api.POST('/api/v1/push/subscribe', {
-      body: { endpoint, p256dh, auth },
-    });
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    set({ isSubscribed: true });
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/push/subscribe', { body: { endpoint, p256dh, auth } }), false,
+    );
+    if (res.ok) set({ isSubscribed: true });
   },
 
   unsubscribe: async (endpoint) => {
-    set({ error: null });
-    const { error } = await api.DELETE('/api/v1/push/subscribe', {
-      body: { endpoint },
-    });
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    set({ isSubscribed: false });
+    const res = await apiAction(set, () =>
+      api.DELETE('/api/v1/push/subscribe', { body: { endpoint } }), false,
+    );
+    if (res.ok) set({ isSubscribed: false });
   },
 }));
