@@ -10,8 +10,8 @@ import (
 
 // ListSecurityGroups implements StrictServerInterface.
 func (s *Server) ListSecurityGroups(ctx context.Context, _ ListSecurityGroupsRequestObject) (ListSecurityGroupsResponseObject, error) {
-	if !isAdmin(ctx) {
-		return ListSecurityGroups403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, ListSecurityGroups403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 	groups, err := s.store.ListSecurityGroups(ctx)
 	if err != nil {
@@ -26,8 +26,8 @@ func (s *Server) ListSecurityGroups(ctx context.Context, _ ListSecurityGroupsReq
 
 // CreateSecurityGroup implements StrictServerInterface.
 func (s *Server) CreateSecurityGroup(ctx context.Context, request CreateSecurityGroupRequestObject) (CreateSecurityGroupResponseObject, error) {
-	if !isAdmin(ctx) {
-		return CreateSecurityGroup403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, CreateSecurityGroup403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 	if request.Body.Name == "" {
 		return CreateSecurityGroup400JSONResponse{Error: "name is required"}, nil
@@ -54,8 +54,8 @@ func (s *Server) CreateSecurityGroup(ctx context.Context, request CreateSecurity
 
 // GetSecurityGroup implements StrictServerInterface.
 func (s *Server) GetSecurityGroup(ctx context.Context, request GetSecurityGroupRequestObject) (GetSecurityGroupResponseObject, error) {
-	if !isAdmin(ctx) {
-		return GetSecurityGroup403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, GetSecurityGroup403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 	g, err := s.store.GetSecurityGroup(ctx, request.Id)
 	if err != nil {
@@ -85,8 +85,8 @@ func (s *Server) GetSecurityGroup(ctx context.Context, request GetSecurityGroupR
 
 // DeleteSecurityGroup implements StrictServerInterface.
 func (s *Server) DeleteSecurityGroup(ctx context.Context, request DeleteSecurityGroupRequestObject) (DeleteSecurityGroupResponseObject, error) {
-	if !isAdmin(ctx) {
-		return DeleteSecurityGroup403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, DeleteSecurityGroup403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 	err := s.store.DeleteSecurityGroup(ctx, request.Id)
 	if err != nil {
@@ -104,8 +104,8 @@ func (s *Server) DeleteSecurityGroup(ctx context.Context, request DeleteSecurity
 
 // AddSecurityGroupMember implements StrictServerInterface.
 func (s *Server) AddSecurityGroupMember(ctx context.Context, request AddSecurityGroupMemberRequestObject) (AddSecurityGroupMemberResponseObject, error) {
-	if !isAdmin(ctx) {
-		return AddSecurityGroupMember403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, AddSecurityGroupMember403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 	// Verify group exists.
 	if _, err := s.store.GetSecurityGroup(ctx, request.Id); err != nil {
@@ -130,8 +130,8 @@ func (s *Server) AddSecurityGroupMember(ctx context.Context, request AddSecurity
 
 // RemoveSecurityGroupMember implements StrictServerInterface.
 func (s *Server) RemoveSecurityGroupMember(ctx context.Context, request RemoveSecurityGroupMemberRequestObject) (RemoveSecurityGroupMemberResponseObject, error) {
-	if !isAdmin(ctx) {
-		return RemoveSecurityGroupMember403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, RemoveSecurityGroupMember403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 	err := s.store.RemoveSecurityGroupMember(ctx, request.Id, request.UserId)
 	if err != nil {

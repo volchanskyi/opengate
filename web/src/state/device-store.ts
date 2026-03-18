@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import { apiAction } from './api-action';
 import type { components } from '../types/api';
 
 type Device = components['schemas']['Device'];
@@ -30,37 +31,22 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   error: null,
 
   fetchGroups: async () => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.GET('/api/v1/groups');
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
-    }
-    set({ groups: data, isLoading: false });
+    const res = await apiAction(set, () => api.GET('/api/v1/groups'));
+    if (res.ok) set({ groups: res.data });
   },
 
   fetchDevices: async (groupId) => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.GET('/api/v1/devices', {
-      params: { query: { group_id: groupId } },
-    });
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
-    }
-    set({ devices: data, isLoading: false });
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/devices', { params: { query: { group_id: groupId } } }),
+    );
+    if (res.ok) set({ devices: res.data });
   },
 
   fetchDevice: async (id) => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.GET('/api/v1/devices/{id}', {
-      params: { path: { id } },
-    });
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
-    }
-    set({ selectedDevice: data, isLoading: false });
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/devices/{id}', { params: { path: { id } } }),
+    );
+    if (res.ok) set({ selectedDevice: res.data });
   },
 
   selectGroup: (id) => {
@@ -71,43 +57,32 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   createGroup: async (name) => {
-    set({ error: null });
-    const { data, error } = await api.POST('/api/v1/groups', {
-      body: { name },
-    });
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    set((state) => ({ groups: [...state.groups, data] }));
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/groups', { body: { name } }), false,
+    );
+    if (res.ok) set((state) => ({ groups: [...state.groups, res.data] }));
   },
 
   deleteGroup: async (id) => {
-    set({ error: null });
-    const { error } = await api.DELETE('/api/v1/groups/{id}', {
-      params: { path: { id } },
-    });
-    if (error) {
-      set({ error: error.error });
-      return;
+    const res = await apiAction(set, () =>
+      api.DELETE('/api/v1/groups/{id}', { params: { path: { id } } }), false,
+    );
+    if (res.ok) {
+      set((state) => ({
+        groups: state.groups.filter((g) => g.id !== id),
+        selectedGroupId: state.selectedGroupId === id ? null : state.selectedGroupId,
+      }));
     }
-    set((state) => ({
-      groups: state.groups.filter((g) => g.id !== id),
-      selectedGroupId: state.selectedGroupId === id ? null : state.selectedGroupId,
-    }));
   },
 
   deleteDevice: async (id) => {
-    set({ error: null });
-    const { error } = await api.DELETE('/api/v1/devices/{id}', {
-      params: { path: { id } },
-    });
-    if (error) {
-      set({ error: error.error });
-      return;
+    const res = await apiAction(set, () =>
+      api.DELETE('/api/v1/devices/{id}', { params: { path: { id } } }), false,
+    );
+    if (res.ok) {
+      set((state) => ({
+        devices: state.devices.filter((d) => d.id !== id),
+      }));
     }
-    set((state) => ({
-      devices: state.devices.filter((d) => d.id !== id),
-    }));
   },
 }));

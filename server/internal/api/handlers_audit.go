@@ -8,8 +8,8 @@ import (
 
 // ListAuditEvents implements StrictServerInterface.
 func (s *Server) ListAuditEvents(ctx context.Context, request ListAuditEventsRequestObject) (ListAuditEventsResponseObject, error) {
-	if !isAdmin(ctx) {
-		return ListAuditEvents403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, ListAuditEvents403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 
 	q := db.AuditQuery{

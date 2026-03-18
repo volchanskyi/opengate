@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,8 +15,8 @@ import (
 
 // CreateEnrollmentToken implements StrictServerInterface.
 func (s *Server) CreateEnrollmentToken(ctx context.Context, request CreateEnrollmentTokenRequestObject) (CreateEnrollmentTokenResponseObject, error) {
-	if !isAdmin(ctx) {
-		return CreateEnrollmentToken403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, CreateEnrollmentToken403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 
 	// Generate crypto-random token (32 bytes = 64 hex chars).
@@ -60,8 +61,8 @@ func (s *Server) CreateEnrollmentToken(ctx context.Context, request CreateEnroll
 
 // ListEnrollmentTokens implements StrictServerInterface.
 func (s *Server) ListEnrollmentTokens(ctx context.Context, _ ListEnrollmentTokensRequestObject) (ListEnrollmentTokensResponseObject, error) {
-	if !isAdmin(ctx) {
-		return ListEnrollmentTokens403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, ListEnrollmentTokens403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 
 	tokens, err := s.store.ListEnrollmentTokens(ctx, ContextUserID(ctx))
@@ -78,8 +79,8 @@ func (s *Server) ListEnrollmentTokens(ctx context.Context, _ ListEnrollmentToken
 
 // DeleteEnrollmentToken implements StrictServerInterface.
 func (s *Server) DeleteEnrollmentToken(ctx context.Context, request DeleteEnrollmentTokenRequestObject) (DeleteEnrollmentTokenResponseObject, error) {
-	if !isAdmin(ctx) {
-		return DeleteEnrollmentToken403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, DeleteEnrollmentToken403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 
 	if err := s.store.DeleteEnrollmentToken(ctx, request.Id); err != nil {
@@ -127,16 +128,8 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 	httpReq := httpRequestFromContext(ctx)
 	host := httpReq.Host
 	// Strip port if present to get just the hostname.
-	if idx := len(host) - 1; idx >= 0 {
-		for i := idx; i >= 0; i-- {
-			if host[i] == ':' {
-				host = host[:i]
-				break
-			}
-			if host[i] == ']' {
-				break // IPv6 bracket, no port
-			}
-		}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
 	}
 
 	quicHost := host

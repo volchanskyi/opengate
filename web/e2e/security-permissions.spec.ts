@@ -43,7 +43,7 @@ test.describe("Security Permissions", () => {
     await adminPage.goto("/admin/security/permissions");
 
     // The admin's email should appear in the members table
-    await expect(adminPage.getByText(adminUser.email)).toBeVisible();
+    await expect(adminPage.getByRole('cell', { name: adminUser.email })).toBeVisible();
   });
 
   test("admin can add a user to Administrators via API", async ({
