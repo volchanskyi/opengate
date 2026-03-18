@@ -56,18 +56,17 @@ esac
 
 log "Platform: ${OS}/${ARCH}"
 
-# --- Enroll — fetch CA cert + server info -----------------------------------
+# --- Validate enrollment token before downloading ----------------------------
 
-log "Enrolling with token..."
+log "Validating enrollment token..."
 ENROLL_RESPONSE=$(curl -sf --max-time 30 \
     -X POST "${SERVER_URL}/api/v1/enroll/${ENROLLMENT_TOKEN}" \
-    -H "Content-Type: application/json") \
+    -H "Content-Type: application/json" \
+    -d '{"csr_pem":""}') \
     || fail "Enrollment failed. Check token validity and server URL."
 
-CA_PEM=$(echo "$ENROLL_RESPONSE" | grep -oP '"ca_pem"\s*:\s*"\K[^"]*' | sed 's/\\n/\n/g')
 SERVER_ADDR=$(echo "$ENROLL_RESPONSE" | grep -oP '"server_addr"\s*:\s*"\K[^"]*')
 
-[[ -n "$CA_PEM" ]]     || fail "No CA certificate in enrollment response"
 [[ -n "$SERVER_ADDR" ]] || fail "No server address in enrollment response"
 
 log "Server QUIC address: ${SERVER_ADDR}"
@@ -177,15 +176,14 @@ log "Installing agent..."
 # Binary
 install -m 0755 "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 
-# Config directory + CA cert
+# Config + data directories
 mkdir -p "$CONFIG_DIR"
-printf '%s\n' "$CA_PEM" > "${CONFIG_DIR}/ca.pem"
-chmod 644 "${CONFIG_DIR}/ca.pem"
-
-# Data directory
 mkdir -p "$DATA_DIR"
 
 # --- Systemd service --------------------------------------------------------
+# On first boot the agent uses --enroll-url and --enroll-token to obtain a
+# CA-signed certificate via CSR enrollment. On subsequent restarts, the agent
+# loads the saved identity from DATA_DIR and ignores the enrollment flags.
 
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
 [Unit]
@@ -197,7 +195,9 @@ Wants=network-online.target
 ExecStart=${INSTALL_DIR}/${BINARY_NAME} \\
   --server-addr ${SERVER_ADDR} \\
   --server-ca ${CONFIG_DIR}/ca.pem \\
-  --data-dir ${DATA_DIR}
+  --data-dir ${DATA_DIR} \\
+  --enroll-url ${SERVER_URL} \\
+  --enroll-token ${ENROLLMENT_TOKEN}
 Restart=on-failure
 RestartForceExitStatus=42
 User=root

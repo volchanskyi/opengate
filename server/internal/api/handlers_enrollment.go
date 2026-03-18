@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
@@ -137,11 +138,41 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 		quicHost = s.quicHost
 	}
 
-	return Enroll200JSONResponse{
+	resp := Enroll200JSONResponse{
 		CaPem:        string(s.cert.CACertPEM()),
 		ServerAddr:   quicHost + ":9090",
 		ServerDomain: host,
-	}, nil
+	}
+
+	// Sign agent CSR if provided.
+	if request.Body != nil && request.Body.CsrPem != "" {
+		certPEM, err := s.signCSR(request.Body.CsrPem)
+		if err != nil {
+			return Enroll400JSONResponse{Error: err.Error()}, nil
+		}
+		resp.CertPem = &certPEM
+	}
+
+	return resp, nil
+}
+
+// signCSR decodes a PEM-encoded CSR, signs it with the server CA,
+// and returns the signed certificate as PEM.
+func (s *Server) signCSR(csrPEM string) (string, error) {
+	block, _ := pem.Decode([]byte(csrPEM))
+	if block == nil || block.Type != "CERTIFICATE REQUEST" {
+		return "", fmt.Errorf("invalid CSR PEM")
+	}
+
+	certDER, err := s.cert.SignAgentCSR(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("sign agent CSR: %w", err)
+	}
+
+	return string(pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: certDER,
+	})), nil
 }
 
 // GetServerCA implements StrictServerInterface.
