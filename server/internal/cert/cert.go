@@ -212,6 +212,41 @@ func (m *Manager) MPSTLSConfig() (*tls.Config, error) {
 	}, nil
 }
 
+// SignAgentCSR signs a PKCS#10 certificate signing request with the CA,
+// producing a client certificate for the agent. The CSR's public key and
+// subject CommonName (device UUID) are preserved.
+func (m *Manager) SignAgentCSR(csrDER []byte) ([]byte, error) {
+	csr, err := x509.ParseCertificateRequest(csrDER)
+	if err != nil {
+		return nil, fmt.Errorf("parse CSR: %w", err)
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return nil, fmt.Errorf("invalid CSR signature: %w", err)
+	}
+
+	serial, err := randomSerial()
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	template := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      csr.Subject,
+		NotBefore:    now.Add(-5 * time.Minute),
+		NotAfter:     now.Add(365 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, m.caCert, csr.PublicKey, m.caKey)
+	if err != nil {
+		return nil, fmt.Errorf("sign agent CSR: %w", err)
+	}
+
+	return certDER, nil
+}
+
 // --- internal helpers ---
 
 func generateManager(dataDir string) (*Manager, error) {

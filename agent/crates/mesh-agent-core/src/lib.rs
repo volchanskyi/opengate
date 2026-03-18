@@ -18,7 +18,7 @@ pub mod webrtc;
 pub use config::AgentConfig;
 pub use connection::{reconnect_with_backoff, AgentConnection, AsyncControlStream, ControlStream};
 pub use error::{AgentError, ConnectionError};
-pub use identity::AgentIdentity;
+pub use identity::{AgentIdentity, PendingIdentity, CERT_FILE, DEVICE_ID_FILE, KEY_FILE};
 pub use platform::{
     CaptureError, InputError, InputInjector, NullCapture, NullInput, NullServiceLifecycle,
     RawFrame, ScreenCapture, ServiceLifecycle,

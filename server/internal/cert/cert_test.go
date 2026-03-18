@@ -1,8 +1,12 @@
 package cert
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"os"
 	"path/filepath"
 	"testing"
@@ -305,6 +309,63 @@ func TestMPSTLSConfig(t *testing.T) {
 	assert.Equal(t, tls.NoClientCert, cfg.ClientAuth)
 	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
 	assert.Len(t, cfg.Certificates, 1)
+}
+
+func TestSignAgentCSR(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir)
+	require.NoError(t, err)
+
+	// Helper to generate an ECDSA CSR.
+	makeCSR := func(cn string) []byte {
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		require.NoError(t, err)
+		tmpl := &x509.CertificateRequest{
+			Subject: pkix.Name{CommonName: cn},
+		}
+		csrDER, err := x509.CreateCertificateRequest(rand.Reader, tmpl, key)
+		require.NoError(t, err)
+		return csrDER
+	}
+
+	t.Run("signs valid CSR", func(t *testing.T) {
+		csrDER := makeCSR("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+		certDER, err := m.SignAgentCSR(csrDER)
+		require.NoError(t, err)
+
+		leaf, err := x509.ParseCertificate(certDER)
+		require.NoError(t, err)
+		assert.Equal(t, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", leaf.Subject.CommonName)
+		assert.False(t, leaf.IsCA)
+
+		// Verify signed by the CA.
+		pool := x509.NewCertPool()
+		pool.AddCert(m.CACert())
+		_, err = leaf.Verify(x509.VerifyOptions{
+			Roots:     pool,
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("rejects invalid CSR DER", func(t *testing.T) {
+		_, err := m.SignAgentCSR([]byte("bad-data"))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "parse CSR")
+	})
+
+	t.Run("each CSR gets unique serial", func(t *testing.T) {
+		csr1 := makeCSR("dev-1")
+		csr2 := makeCSR("dev-2")
+		cert1DER, err := m.SignAgentCSR(csr1)
+		require.NoError(t, err)
+		cert2DER, err := m.SignAgentCSR(csr2)
+		require.NoError(t, err)
+
+		leaf1, _ := x509.ParseCertificate(cert1DER)
+		leaf2, _ := x509.ParseCertificate(cert2DER)
+		assert.NotEqual(t, leaf1.SerialNumber, leaf2.SerialNumber)
+	})
 }
 
 func TestAgentTLSConfig(t *testing.T) {
