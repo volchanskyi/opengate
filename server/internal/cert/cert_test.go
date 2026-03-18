@@ -195,6 +195,53 @@ func TestSignAgent(t *testing.T) {
 	})
 }
 
+func TestSignServer(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewManager(dir)
+	require.NoError(t, err)
+
+	t.Run("default SANs include localhost", func(t *testing.T) {
+		tlsCert, err := m.SignServer()
+		require.NoError(t, err)
+
+		leaf, err := x509.ParseCertificate(tlsCert.Certificate[0])
+		require.NoError(t, err)
+		assert.Equal(t, "OpenGate Server", leaf.Subject.CommonName)
+		assert.Contains(t, leaf.DNSNames, "localhost")
+		assert.False(t, leaf.IsCA)
+
+		pool := x509.NewCertPool()
+		pool.AddCert(m.CACert())
+		_, err = leaf.Verify(x509.VerifyOptions{
+			Roots:     pool,
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("extra DNS names added to SANs", func(t *testing.T) {
+		tlsCert, err := m.SignServer("quic.example.com", "backup.example.com")
+		require.NoError(t, err)
+
+		leaf, err := x509.ParseCertificate(tlsCert.Certificate[0])
+		require.NoError(t, err)
+		assert.Contains(t, leaf.DNSNames, "localhost")
+		assert.Contains(t, leaf.DNSNames, "quic.example.com")
+		assert.Contains(t, leaf.DNSNames, "backup.example.com")
+		assert.Len(t, leaf.DNSNames, 3)
+
+		// Verify the cert validates for the extra hostname
+		pool := x509.NewCertPool()
+		pool.AddCert(m.CACert())
+		_, err = leaf.Verify(x509.VerifyOptions{
+			DNSName:   "quic.example.com",
+			Roots:     pool,
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		})
+		assert.NoError(t, err)
+	})
+}
+
 func TestServerTLSConfig(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewManager(dir)
