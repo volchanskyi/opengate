@@ -374,12 +374,23 @@ components:
           type: integer
           default: 24
 
+    EnrollRequest:
+      type: object
+      required: [csr_pem]
+      properties:
+        csr_pem:
+          type: string
+          description: PEM-encoded PKCS#10 certificate signing request
+
     EnrollResponse:
       type: object
       required: [ca_pem, server_addr, server_domain]
       properties:
         ca_pem:
           type: string
+        cert_pem:
+          type: string
+          description: PEM-encoded agent certificate signed by the server CA
         server_addr:
           type: string
         server_domain:
@@ -1382,6 +1393,12 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrollRequest"
       responses:
         "200":
           description: Enrollment successful
@@ -1389,6 +1406,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EnrollResponse"
+        "400":
+          description: Bad request (invalid CSR)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "404":
           description: Invalid token
           content:
