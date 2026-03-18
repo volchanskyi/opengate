@@ -35,7 +35,7 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 
 ## E2E tests (all must pass)
 
-9. `cd web && npx playwright test` — Playwright E2E tests (spins up docker-compose.test.yml, runs all specs against local stack). Requires Docker running.
+9. `make e2e` — Playwright E2E tests (spins up docker-compose.test.yml, runs all specs, tears down). Requires Docker running.
 
 ## Security audit (must pass)
 

@@ -35,6 +35,22 @@ export default async function globalSetup(config: FullConfig) {
 
     process.env.BOOTSTRAP_ADMIN_EMAIL = BOOTSTRAP_EMAIL;
     process.env.BOOTSTRAP_ADMIN_PASSWORD = BOOTSTRAP_PASSWORD;
+
+    // Verify the bootstrap user actually has admin privileges.
+    // If the DB is stale from a previous run, the first-user auto-promotion
+    // may have gone to a different account.
+    const meResp = await ctx.get("/api/v1/users/me", {
+      headers: { Authorization: `Bearer ${process.env.BOOTSTRAP_ADMIN_TOKEN}` },
+    });
+    if (meResp.ok()) {
+      const me = await meResp.json();
+      if (!me.is_admin) {
+        throw new Error(
+          "Bootstrap admin is not admin — DB may be stale. " +
+            "Run: cd deploy && docker compose -f docker-compose.test.yml down -v"
+        );
+      }
+    }
   } finally {
     await ctx.dispose();
   }
