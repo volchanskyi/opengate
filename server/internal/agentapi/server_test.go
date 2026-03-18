@@ -19,7 +19,7 @@ func TestAgentServer_ConnectedAgentCount_ZeroAtStart(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	r := relay.NewRelay()
 
-	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, testLogger())
+	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", testLogger())
 	assert.Equal(t, 0, srv.ConnectedAgentCount())
 }
 
@@ -30,7 +30,7 @@ func TestAgentServer_StopsOnContextCancel(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	r := relay.NewRelay()
 
-	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, testLogger())
+	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", testLogger())
 
 	ctx, cancel := context.WithCancel(context.Background())
 

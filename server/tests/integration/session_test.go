@@ -54,7 +54,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 
 	r := relay.NewRelay()
 	logger := testLogger()
-	agentSrv := agentapi.NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, logger)
+	agentSrv := agentapi.NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 

@@ -79,9 +79,14 @@ func main() {
 	}
 	notifier := notifications.NewPushNotifier(store, vapidPriv, vapidPub, *vapidContact, logger)
 
+	// Environment overrides
+	githubRepo := os.Getenv("OPENGATE_GITHUB_REPO")
+	baseURL := os.Getenv("OPENGATE_BASE_URL")
+	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
+
 	// Create relay and agent server
 	agentRelay := relay.NewRelay()
-	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, notifier, logger)
+	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, notifier, quicHost, logger)
 
 	// Initialize update signing keys and manifest store
 	signingKeys, err := updater.LoadOrGenerateSigningKeys(*dataDir)
@@ -90,9 +95,6 @@ func main() {
 		os.Exit(1)
 	}
 	manifestStore := updater.NewManifestStore(*dataDir)
-	githubRepo := os.Getenv("OPENGATE_GITHUB_REPO")
-	baseURL := os.Getenv("OPENGATE_BASE_URL")
-	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
 
 	mpsSrv := mps.NewServer(certMgr, store, logger)
 	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
