@@ -133,7 +133,8 @@ func parseTime(s string) (time.Time, error) {
 
 func scanDeviceFrom(sc scanner) (*Device, error) {
 	var d Device
-	var idStr, groupIDStr, status, lastSeen, createdAt, updatedAt string
+	var idStr, status, lastSeen, createdAt, updatedAt string
+	var groupIDStr sql.NullString
 	if err := sc.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &d.AgentVersion, &status, &lastSeen, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
@@ -142,9 +143,11 @@ func scanDeviceFrom(sc scanner) (*Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	d.GroupID, err = parseUUID(groupIDStr)
-	if err != nil {
-		return nil, err
+	if groupIDStr.Valid {
+		d.GroupID, err = parseUUID(groupIDStr.String)
+		if err != nil {
+			return nil, err
+		}
 	}
 	d.Status = DeviceStatus(status)
 	d.LastSeen, err = parseTime(lastSeen)
@@ -164,18 +167,23 @@ func scanDeviceFrom(sc scanner) (*Device, error) {
 
 func (s *SQLiteStore) UpsertDevice(ctx context.Context, d *Device) error {
 	now := nowRFC3339()
+	// Store NULL for group_id when it's uuid.Nil (device not yet assigned to a group).
+	var groupID any
+	if d.GroupID != uuid.Nil {
+		groupID = d.GroupID.String()
+	}
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO devices (id, group_id, hostname, os, agent_version, status, last_seen, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
-		   group_id = excluded.group_id,
+		   group_id = COALESCE(excluded.group_id, devices.group_id),
 		   hostname = excluded.hostname,
 		   os = excluded.os,
 		   agent_version = excluded.agent_version,
 		   status = excluded.status,
 		   last_seen = excluded.last_seen,
 		   updated_at = excluded.updated_at`,
-		d.ID.String(), d.GroupID.String(), d.Hostname, d.OS, d.AgentVersion, string(d.Status), now, now, now)
+		d.ID.String(), groupID, d.Hostname, d.OS, d.AgentVersion, string(d.Status), now, now, now)
 	return err
 }
 

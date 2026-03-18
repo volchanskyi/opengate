@@ -237,16 +237,16 @@ func TestDeviceLifecycle(t *testing.T) {
 		assert.Equal(t, "linux", d.OS)
 	})
 
-	t.Run("cascade delete group removes devices", func(t *testing.T) {
+	t.Run("delete group ungroups devices", func(t *testing.T) {
 		// Delete the group
 		resp := env.doJSON(t, http.MethodDelete, "/api/v1/groups/"+group.ID.String(), token, nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
-		// Device should no longer be findable
+		// Device should still exist but with null group_id
 		resp2 := env.doJSON(t, http.MethodGet, "/api/v1/devices/"+device.ID.String(), token, nil)
 		defer resp2.Body.Close()
-		assert.Equal(t, http.StatusNotFound, resp2.StatusCode)
+		assert.Equal(t, http.StatusOK, resp2.StatusCode)
 	})
 }
 
