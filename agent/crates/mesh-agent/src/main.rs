@@ -201,6 +201,12 @@ async fn main() -> Result<()> {
                 let qc = quinn_config.clone();
                 let ep = endpoint.clone();
                 async move {
+                    // Extract hostname for TLS SNI verification.
+                    let sni_host = addr_str
+                        .rsplit_once(':')
+                        .map(|(h, _)| h)
+                        .unwrap_or(&addr_str);
+
                     let addr: SocketAddr = match addr_str.parse() {
                         Ok(a) => a,
                         Err(_) => tokio::net::lookup_host(&addr_str)
@@ -210,7 +216,7 @@ async fn main() -> Result<()> {
                             .ok_or_else(|| format!("no addresses found for {addr_str}"))?,
                     };
                     let conn = ep
-                        .connect_with(qc, addr, "server")
+                        .connect_with(qc, addr, sni_host)
                         .map_err(|e| format!("QUIC connect: {e}"))?
                         .await
                         .map_err(|e| format!("QUIC establish: {e}"))?;
