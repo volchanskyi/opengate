@@ -96,6 +96,37 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 }
 
+func TestSecurityHeaders(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	w := doRequest(srv, http.MethodGet, "/api/v1/health", "", nil)
+	assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, "DENY", w.Header().Get("X-Frame-Options"))
+	assert.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
+}
+
+func TestMaxBodySize(t *testing.T) {
+	srv, cfg := newTestServer(t)
+	_, token := seedTestUser(t, srv, cfg, "bodysize@example.com", false)
+
+	t.Run("small body accepted", func(t *testing.T) {
+		body := map[string]string{"name": "test-group"}
+		w := doRequest(srv, http.MethodPost, "/api/v1/groups", token, body)
+		assert.Equal(t, http.StatusCreated, w.Code)
+	})
+
+	t.Run("oversized body rejected", func(t *testing.T) {
+		// Create a body larger than 1 MB.
+		huge := make([]byte, maxRequestBodySize+1)
+		for i := range huge {
+			huge[i] = 'a'
+		}
+		w := doRawRequest(srv, http.MethodPost, "/api/v1/groups", token, string(huge))
+		assert.True(t, w.Code == http.StatusBadRequest || w.Code == http.StatusRequestEntityTooLarge,
+			"expected 400 or 413, got %d", w.Code)
+	})
+}
+
 func TestContextHelpers(t *testing.T) {
 	t.Run("ContextClaims returns nil for empty context", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)

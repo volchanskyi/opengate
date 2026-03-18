@@ -63,7 +63,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 		body   interface{}
 		status int
 	}{
-		{"register store error", http.MethodPost, testPathRegister, map[string]string{"email": "x@x.com", "password": "pass"}, http.StatusInternalServerError},
+		{"register store error", http.MethodPost, testPathRegister, map[string]string{"email": "x@x.com", "password": "password1"}, http.StatusInternalServerError},
 		{"login store error", http.MethodPost, testPathLogin, map[string]string{"email": testEmailErr, "password": "password123"}, http.StatusInternalServerError},
 		{"list devices store error", http.MethodGet, testPathDevices + "?group_id=" + groupID.String(), nil, http.StatusInternalServerError},
 		{"get device store error", http.MethodGet, testPathDevicesS + deviceID.String(), nil, http.StatusInternalServerError},

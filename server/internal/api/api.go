@@ -117,13 +117,17 @@ func (s *Server) routes() {
 
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
+	r.Use(SecurityHeaders)
+	r.Use(MaxBodySize(maxRequestBodySize))
 	r.Use(RequestLogger(s.logger))
 
 	strictHandler := NewStrictHandlerWithOptions(s, []StrictMiddlewareFunc{requestContextMiddleware}, StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.logger.Warn("request validation error", "error", err, "path", r.URL.Path)
+			writeError(w, http.StatusBadRequest, "invalid request")
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			s.logger.Error("response error", "error", err, "path", r.URL.Path)
 			writeError(w, http.StatusInternalServerError, "internal error")
 		},
 	})
@@ -134,7 +138,8 @@ func (s *Server) routes() {
 			s.oapiAuthMiddleware(),
 		},
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.logger.Warn("request error", "error", err, "path", r.URL.Path)
+			writeError(w, http.StatusBadRequest, "invalid request")
 		},
 	})
 

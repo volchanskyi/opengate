@@ -17,7 +17,7 @@ func TestAuthExpiredJWTAllEndpoints(t *testing.T) {
 	env := newTestEnv(t)
 
 	// Register a real user so endpoints would succeed with a valid token
-	env.register(t, "auth-edge@example.com", "pass123")
+	env.register(t, "auth-edge@example.com", "pass1234")
 
 	// Generate an already-expired token
 	expiredCfg := &auth.JWTConfig{
@@ -54,7 +54,7 @@ func TestAuthDeletedUser(t *testing.T) {
 	ctx := context.Background()
 
 	// Register user and get token
-	token := env.register(t, "tobedeleted@example.com", "pass123")
+	token := env.register(t, "tobedeleted@example.com", "pass1234")
 
 	// Get user ID
 	resp := env.doJSON(t, http.MethodGet, pathUsersMe, token, nil)
@@ -116,12 +116,12 @@ func TestAuthDuplicateRegistration(t *testing.T) {
 	env := newTestEnv(t)
 
 	// Register first time — should succeed
-	token1 := env.register(t, "unique@example.com", "pass123")
+	token1 := env.register(t, "unique@example.com", "pass1234")
 	assert.NotEmpty(t, token1)
 
 	// Register same email again — UpsertUser is an upsert so it succeeds,
 	// but login with the old password should still work (upsert keeps the
 	// first password hash since it's an INSERT OR IGNORE on the ID column).
-	token2 := env.login(t, "unique@example.com", "pass123")
+	token2 := env.login(t, "unique@example.com", "pass1234")
 	assert.NotEmpty(t, token2)
 }

@@ -814,6 +814,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 
   /api/v1/devices/{id}:
     get:
@@ -841,6 +847,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found
           content:
@@ -864,6 +876,18 @@ paths:
           description: Device deleted
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
           content:
             application/json:
               schema:
@@ -947,6 +971,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "404":
           description: Group not found
           content:
@@ -970,6 +1000,18 @@ paths:
           description: Group deleted
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Group not found
           content:
             application/json:
               schema:
@@ -1008,6 +1050,12 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1051,6 +1099,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 
   /api/v1/sessions/{token}:
     delete:
@@ -1069,6 +1123,12 @@ paths:
           description: Session deleted
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1101,6 +1161,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 
   /api/v1/amt/devices/{uuid}:
     get:
@@ -1124,6 +1190,12 @@ paths:
                 $ref: "#/components/schemas/AMTDevice"
         "401":
           description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:
@@ -1165,6 +1237,12 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
           content:
             application/json:
               schema:

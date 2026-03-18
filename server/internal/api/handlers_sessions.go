@@ -16,12 +16,17 @@ import (
 func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error) {
 	deviceID := request.Body.DeviceId
 
-	// Verify device exists in DB
-	if _, err := s.store.GetDevice(ctx, deviceID); err != nil {
+	// Verify device exists and user owns it.
+	device, err := s.store.GetDevice(ctx, deviceID)
+	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			return CreateSession404JSONResponse{Error: "device not found"}, nil
 		}
 		return nil, err
+	}
+
+	if !s.isGroupOwner(ctx, device.GroupID) {
+		return CreateSession403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	// Check agent is connected
@@ -93,6 +98,19 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 
 // ListSessions implements StrictServerInterface.
 func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error) {
+	// Verify user owns the device's group.
+	device, err := s.store.GetDevice(ctx, request.Params.DeviceId)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return ListSessions200JSONResponse([]AgentSession{}), nil
+		}
+		return nil, err
+	}
+
+	if !s.isGroupOwner(ctx, device.GroupID) {
+		return ListSessions403JSONResponse{Error: msgForbidden}, nil
+	}
+
 	sessions, err := s.store.ListActiveSessionsForDevice(ctx, request.Params.DeviceId)
 	if err != nil {
 		return nil, err
@@ -107,10 +125,20 @@ func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestOb
 
 // DeleteSession implements StrictServerInterface.
 func (s *Server) DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error) {
-	if err := s.store.DeleteAgentSession(ctx, request.Token); err != nil {
+	sess, err := s.store.GetAgentSession(ctx, request.Token)
+	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			return DeleteSession404JSONResponse{Error: "session not found"}, nil
 		}
+		return nil, err
+	}
+
+	// Only the session creator or an admin can delete a session.
+	if sess.UserID != ContextUserID(ctx) && !isAdmin(ctx) {
+		return DeleteSession403JSONResponse{Error: msgForbidden}, nil
+	}
+
+	if err := s.store.DeleteAgentSession(ctx, request.Token); err != nil {
 		return nil, err
 	}
 

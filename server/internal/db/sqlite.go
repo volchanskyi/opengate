@@ -209,6 +209,12 @@ func (s *SQLiteStore) ListAllDevices(ctx context.Context) ([]*Device, error) {
 		`SELECT id, group_id, hostname, os, agent_version, status, last_seen, created_at, updated_at FROM devices ORDER BY hostname`)
 }
 
+func (s *SQLiteStore) ListDevicesForOwner(ctx context.Context, ownerID UserID) ([]*Device, error) {
+	return queryList(ctx, s.db, scanDeviceFrom,
+		`SELECT d.id, d.group_id, d.hostname, d.os, d.agent_version, d.status, d.last_seen, d.created_at, d.updated_at
+		 FROM devices d JOIN groups_ g ON d.group_id = g.id WHERE g.owner_id = ? ORDER BY d.hostname`, ownerID.String())
+}
+
 func (s *SQLiteStore) DeleteDevice(ctx context.Context, id DeviceID) error {
 	return s.execAndCheckAffected(ctx, `DELETE FROM devices WHERE id = ?`, id.String())
 }

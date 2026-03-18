@@ -48,7 +48,7 @@ func TestSecurityGroup_AdminCanAddMember(t *testing.T) {
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
 	// Register a regular user.
-	regularToken := env.register(t, "regular-sg@example.com", "pass123")
+	regularToken := env.register(t, "regular-sg@example.com", "pass1234")
 	resp := env.doJSON(t, http.MethodGet, pathUsersMe, regularToken, nil)
 	var regUser db.User
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&regUser))
@@ -62,7 +62,7 @@ func TestSecurityGroup_AdminCanAddMember(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
 	// Re-login to get updated JWT.
-	newToken := env.login(t, "regular-sg@example.com", "pass123")
+	newToken := env.login(t, "regular-sg@example.com", "pass1234")
 
 	// Now they can access admin endpoints.
 	resp2 := env.doJSON(t, http.MethodGet, "/api/v1/users", newToken, nil)
@@ -101,7 +101,7 @@ func TestSecurityGroup_NonAdminBlocked(t *testing.T) {
 
 	// Seed an admin first so the registered user is NOT the first user.
 	testutil.SeedAdminUser(t, t.Context(), env.store)
-	regularToken := env.register(t, "nonadmin-sg@example.com", "pass123")
+	regularToken := env.register(t, "nonadmin-sg@example.com", "pass1234")
 
 	endpoints := []struct {
 		method string
@@ -172,7 +172,7 @@ func TestSecurityGroup_AuditLogging(t *testing.T) {
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
 	// Add a user to trigger audit event.
-	regularToken := env.register(t, "audit-sg@example.com", "pass123")
+	regularToken := env.register(t, "audit-sg@example.com", "pass1234")
 	resp := env.doJSON(t, http.MethodGet, pathUsersMe, regularToken, nil)
 	var regUser db.User
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&regUser))
@@ -198,7 +198,7 @@ func TestAdminFirstUserBootstrap(t *testing.T) {
 	env := newTestEnv(t)
 
 	// First user registered becomes admin.
-	firstToken := env.register(t, "first@example.com", "pass123")
+	firstToken := env.register(t, "first@example.com", "pass1234")
 
 	resp := env.doJSON(t, http.MethodGet, "/api/v1/users", firstToken, nil)
 	defer resp.Body.Close()
@@ -209,10 +209,10 @@ func TestAdminSecondUserNotAdmin(t *testing.T) {
 	env := newTestEnv(t)
 
 	// First user becomes admin.
-	_ = env.register(t, "bootstrap-first@example.com", "pass123")
+	_ = env.register(t, "bootstrap-first@example.com", "pass1234")
 
 	// Second user should NOT be admin.
-	secondToken := env.register(t, "bootstrap-second@example.com", "pass123")
+	secondToken := env.register(t, "bootstrap-second@example.com", "pass1234")
 
 	resp := env.doJSON(t, http.MethodGet, "/api/v1/users", secondToken, nil)
 	defer resp.Body.Close()

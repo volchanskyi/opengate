@@ -47,11 +47,27 @@ func (s *Server) GetGroup(ctx context.Context, request GetGroupRequestObject) (G
 		return nil, err
 	}
 
+	if !s.isGroupOwner(ctx, group.ID) {
+		return GetGroup403JSONResponse{Error: msgForbidden}, nil
+	}
+
 	return GetGroup200JSONResponse(groupToAPI(group)), nil
 }
 
 // DeleteGroup implements StrictServerInterface.
 func (s *Server) DeleteGroup(ctx context.Context, request DeleteGroupRequestObject) (DeleteGroupResponseObject, error) {
+	group, err := s.store.GetGroup(ctx, request.Id)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return DeleteGroup404JSONResponse{Error: "group not found"}, nil
+		}
+		return nil, err
+	}
+
+	if !s.isGroupOwner(ctx, group.ID) {
+		return DeleteGroup403JSONResponse{Error: msgForbidden}, nil
+	}
+
 	if err := s.store.DeleteGroup(ctx, request.Id); err != nil {
 		return nil, err
 	}

@@ -179,7 +179,7 @@ func TestCreateSession(t *testing.T) {
 				require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 				relayURL, ok := resp["relay_url"].(string)
 				require.True(t, ok)
-				assert.True(t, len(relayURL) > 0)
+				assert.NotEmpty(t, relayURL)
 				assert.Contains(t, relayURL, tt.wantScheme, "relay URL should use %s scheme", tt.wantScheme)
 			})
 		}
