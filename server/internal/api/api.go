@@ -38,9 +38,10 @@ type AMTOperator interface {
 	ConnectedDeviceCount() int
 }
 
-// CertProvider gives access to the server CA certificate.
+// CertProvider gives access to the server CA certificate and agent CSR signing.
 type CertProvider interface {
 	CACertPEM() []byte
+	SignAgentCSR(csrDER []byte) ([]byte, error)
 }
 
 // ServerConfig holds all dependencies for the API server.

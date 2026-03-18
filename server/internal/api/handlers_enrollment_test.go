@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -21,10 +22,17 @@ import (
 
 // stubCertProvider is a test double for CertProvider.
 type stubCertProvider struct {
-	pem []byte
+	pem    []byte
+	signFn func(csrDER []byte) ([]byte, error)
 }
 
 func (s *stubCertProvider) CACertPEM() []byte { return s.pem }
+func (s *stubCertProvider) SignAgentCSR(csrDER []byte) ([]byte, error) {
+	if s.signFn != nil {
+		return s.signFn(csrDER)
+	}
+	return nil, fmt.Errorf("SignAgentCSR not configured")
+}
 
 func newTestServerWithCert(t *testing.T) (*Server, *auth.JWTConfig) {
 	t.Helper()
@@ -187,7 +195,8 @@ func TestEnroll(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&tok))
 
 		// Enroll (public endpoint, no auth).
-		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", nil)
+		enrollBody := EnrollRequest{CsrPem: ""}
+		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", enrollBody)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp EnrollResponse
@@ -195,6 +204,7 @@ func TestEnroll(t *testing.T) {
 		assert.Contains(t, resp.CaPem, "BEGIN CERTIFICATE")
 		assert.Contains(t, resp.ServerAddr, ":9090")
 		assert.NotEmpty(t, resp.ServerDomain)
+		assert.Nil(t, resp.CertPem) // no CSR submitted
 	})
 
 	t.Run("increments use count", func(t *testing.T) {
@@ -210,15 +220,15 @@ func TestEnroll(t *testing.T) {
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&tok))
 
 		// First enroll.
-		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", nil)
+		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", EnrollRequest{})
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// Second enroll.
-		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", nil)
+		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", EnrollRequest{})
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// Third should fail — exhausted.
-		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", nil)
+		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", EnrollRequest{})
 		assert.Equal(t, http.StatusGone, w.Code)
 	})
 
@@ -234,7 +244,7 @@ func TestEnroll(t *testing.T) {
 		var tok EnrollmentToken
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&tok))
 
-		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", nil)
+		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", EnrollRequest{})
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp EnrollResponse
@@ -245,7 +255,7 @@ func TestEnroll(t *testing.T) {
 	t.Run("invalid token", func(t *testing.T) {
 		srv, _ := newTestServerWithCert(t)
 
-		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/nonexistent-token", "", nil)
+		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/nonexistent-token", "", EnrollRequest{})
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
@@ -266,7 +276,7 @@ func TestEnroll(t *testing.T) {
 		err := srv.store.CreateEnrollmentToken(t.Context(), et)
 		require.NoError(t, err)
 
-		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/expired-token-abc123", "", nil)
+		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/expired-token-abc123", "", EnrollRequest{})
 		assert.Equal(t, http.StatusGone, w.Code)
 	})
 
@@ -287,7 +297,7 @@ func TestEnroll(t *testing.T) {
 		err := srv.store.CreateEnrollmentToken(t.Context(), et)
 		require.NoError(t, err)
 
-		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/exhausted-token-abc123", "", nil)
+		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/exhausted-token-abc123", "", EnrollRequest{})
 		assert.Equal(t, http.StatusGone, w.Code)
 	})
 
@@ -308,7 +318,7 @@ func TestEnroll(t *testing.T) {
 		err := srv.store.CreateEnrollmentToken(t.Context(), et)
 		require.NoError(t, err)
 
-		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/token-no-cert", "", nil)
+		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/token-no-cert", "", EnrollRequest{})
 		assert.Equal(t, http.StatusInternalServerError, w.Code)
 	})
 }
