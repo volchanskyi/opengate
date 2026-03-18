@@ -143,6 +143,25 @@ func doRequest(srv *Server, method, path, token string, body interface{}) *httpt
 	return w
 }
 
+// doRequestWithHeaders sends a JSON request with extra headers to srv.
+func doRequestWithHeaders(srv *Server, method, path, token string, body interface{}, headers map[string]string) *httptest.ResponseRecorder {
+	var buf bytes.Buffer
+	if body != nil {
+		json.NewEncoder(&buf).Encode(body)
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	return w
+}
+
 // doRawRequest sends a request with a raw string body to srv.
 func doRawRequest(srv *Server, method, path, token string, rawBody string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, bytes.NewBufferString(rawBody))
