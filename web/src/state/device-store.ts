@@ -14,7 +14,7 @@ interface DeviceState {
   isLoading: boolean;
   error: string | null;
   fetchGroups: () => Promise<void>;
-  fetchDevices: (groupId: string) => Promise<void>;
+  fetchDevices: (groupId?: string) => Promise<void>;
   fetchDevice: (id: string) => Promise<void>;
   selectGroup: (id: string | null) => void;
   createGroup: (name: string) => Promise<void>;
@@ -35,9 +35,10 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     if (res.ok) set({ groups: res.data });
   },
 
-  fetchDevices: async (groupId) => {
+  fetchDevices: async (groupId?) => {
+    const query = groupId ? { group_id: groupId } : {};
     const res = await apiAction(set, () =>
-      api.GET('/api/v1/devices', { params: { query: { group_id: groupId } } }),
+      api.GET('/api/v1/devices', { params: { query } }),
     );
     if (res.ok) set({ devices: res.data });
   },
@@ -51,9 +52,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
 
   selectGroup: (id) => {
     set({ selectedGroupId: id });
-    if (id) {
-      get().fetchDevices(id);
-    }
+    get().fetchDevices(id ?? undefined);
   },
 
   createGroup: async (name) => {

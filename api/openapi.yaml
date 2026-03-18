@@ -783,13 +783,13 @@ paths:
   /api/v1/devices:
     get:
       operationId: listDevices
-      summary: List devices in a group
+      summary: List devices, optionally filtered by group
       security:
         - bearerAuth: []
       parameters:
         - name: group_id
           in: query
-          required: true
+          required: false
           schema:
             type: string
             format: uuid

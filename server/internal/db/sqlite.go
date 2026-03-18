@@ -204,6 +204,11 @@ func (s *SQLiteStore) ListDevices(ctx context.Context, groupID GroupID) ([]*Devi
 		groupID.String())
 }
 
+func (s *SQLiteStore) ListAllDevices(ctx context.Context) ([]*Device, error) {
+	return queryList(ctx, s.db, scanDeviceFrom,
+		`SELECT id, group_id, hostname, os, agent_version, status, last_seen, created_at, updated_at FROM devices ORDER BY hostname`)
+}
+
 func (s *SQLiteStore) DeleteDevice(ctx context.Context, id DeviceID) error {
 	return s.execAndCheckAffected(ctx, `DELETE FROM devices WHERE id = ?`, id.String())
 }
