@@ -68,6 +68,7 @@ func isAdmin(ctx context.Context) bool {
 }
 
 const msgAdminRequired = "admin access required"
+const msgForbidden = "forbidden"
 
 // denyIfNotAdmin returns the forbidden response and true when the caller lacks admin access.
 func denyIfNotAdmin[T any](ctx context.Context, forbidden T) (T, bool) {
@@ -76,6 +77,43 @@ func denyIfNotAdmin[T any](ctx context.Context, forbidden T) (T, bool) {
 	}
 	var zero T
 	return zero, false
+}
+
+// isGroupOwner returns true if the authenticated user owns the given group or is an admin.
+func (s *Server) isGroupOwner(ctx context.Context, groupID uuid.UUID) bool {
+	if isAdmin(ctx) {
+		return true
+	}
+	group, err := s.store.GetGroup(ctx, groupID)
+	if err != nil {
+		return false
+	}
+	return group.OwnerID == ContextUserID(ctx)
+}
+
+// maxRequestBodySize is the maximum allowed request body size (1 MB).
+const maxRequestBodySize = 1 << 20
+
+// MaxBodySize returns middleware that limits request body size.
+func MaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// SecurityHeaders returns middleware that adds security headers to every response.
+func SecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
 }
 
 // RequestLogger returns middleware that logs each request with method, path, status, and duration.

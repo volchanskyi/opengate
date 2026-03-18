@@ -129,18 +129,7 @@ func seedTestUser(t *testing.T, srv *Server, cfg *auth.JWTConfig, email string, 
 
 // doRequest sends a JSON request to srv and returns the response recorder.
 func doRequest(srv *Server, method, path, token string, body interface{}) *httptest.ResponseRecorder {
-	var buf bytes.Buffer
-	if body != nil {
-		json.NewEncoder(&buf).Encode(body)
-	}
-	req := httptest.NewRequest(method, path, &buf)
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-	return w
+	return doRequestWithHeaders(srv, method, path, token, body, nil)
 }
 
 // doRequestWithHeaders sends a JSON request with extra headers to srv.

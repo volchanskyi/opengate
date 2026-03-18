@@ -22,7 +22,7 @@ func TestAdminUserPromotion(t *testing.T) {
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
 	// Create regular user
-	regularToken := env.register(t, "promote-me@example.com", "pass123")
+	regularToken := env.register(t, "promote-me@example.com", "pass1234")
 
 	// Get regular user's info
 	resp := env.doJSON(t, http.MethodGet, pathUsersMe, regularToken, nil)
@@ -61,7 +61,7 @@ func TestAdminAuditLogCapturesActions(t *testing.T) {
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
 	// Create a user to delete (triggers audit log)
-	victimToken := env.register(t, "victim@example.com", "pass123")
+	victimToken := env.register(t, "victim@example.com", "pass1234")
 	resp := env.doJSON(t, http.MethodGet, pathUsersMe, victimToken, nil)
 	var victim db.User
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&victim))
@@ -104,8 +104,8 @@ func TestAdminAuditLogFiltering(t *testing.T) {
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
 	// Create some audit events by performing actions
-	env.register(t, "audit-filter-1@example.com", "pass")
-	env.register(t, "audit-filter-2@example.com", "pass")
+	env.register(t, "audit-filter-1@example.com", "pass1234")
+	env.register(t, "audit-filter-2@example.com", "pass1234")
 
 	// Create group (triggers audit log entry)
 	resp := env.doJSON(t, http.MethodPost, pathGroups, adminToken, map[string]string{"name": "audit-test-group"})

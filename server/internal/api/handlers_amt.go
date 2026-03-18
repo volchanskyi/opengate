@@ -19,6 +19,10 @@ var powerActionMap = map[AMTPowerRequestAction]int{
 
 // ListAMTDevices returns all AMT devices from the database.
 func (s *Server) ListAMTDevices(ctx context.Context, _ ListAMTDevicesRequestObject) (ListAMTDevicesResponseObject, error) {
+	if resp, denied := denyIfNotAdmin(ctx, ListAMTDevices403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
+	}
+
 	devices, err := s.store.ListAMTDevices(ctx)
 	if err != nil {
 		return nil, err
@@ -33,6 +37,10 @@ func (s *Server) ListAMTDevices(ctx context.Context, _ ListAMTDevicesRequestObje
 
 // GetAMTDevice returns a single AMT device by UUID.
 func (s *Server) GetAMTDevice(ctx context.Context, request GetAMTDeviceRequestObject) (GetAMTDeviceResponseObject, error) {
+	if resp, denied := denyIfNotAdmin(ctx, GetAMTDevice403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
+	}
+
 	d, err := s.store.GetAMTDevice(ctx, request.Uuid)
 	if err != nil {
 		return GetAMTDevice404JSONResponse{Error: "device not found"}, nil
@@ -42,6 +50,10 @@ func (s *Server) GetAMTDevice(ctx context.Context, request GetAMTDeviceRequestOb
 
 // AmtPowerAction sends a power command to a connected AMT device.
 func (s *Server) AmtPowerAction(ctx context.Context, request AmtPowerActionRequestObject) (AmtPowerActionResponseObject, error) {
+	if resp, denied := denyIfNotAdmin(ctx, AmtPowerAction403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
+	}
+
 	state, ok := powerActionMap[request.Body.Action]
 	if !ok {
 		return AmtPowerAction409JSONResponse{Error: "unknown power action"}, nil
@@ -49,7 +61,7 @@ func (s *Server) AmtPowerAction(ctx context.Context, request AmtPowerActionReque
 
 	if err := s.amt.PowerAction(ctx, request.Uuid, state); err != nil {
 		if errors.Is(err, amt.ErrDeviceNotConnected) {
-			return AmtPowerAction409JSONResponse{Error: err.Error()}, nil
+			return AmtPowerAction409JSONResponse{Error: "device not connected"}, nil
 		}
 		return nil, err
 	}
