@@ -1169,8 +1169,7 @@ paths:
     get:
       operationId: listUpdateManifests
       summary: List all agent update manifests
-      security:
-        - bearerAuth: []
+      security: []
       responses:
         "200":
           description: List of manifests
@@ -1180,12 +1179,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AgentManifest"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
 
     post:
       operationId: publishUpdate
