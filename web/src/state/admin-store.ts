@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import { apiAction } from './api-action';
 import type { components } from '../types/api';
 
 type User = components['schemas']['User'];
@@ -30,49 +31,28 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   error: null,
 
   fetchUsers: async () => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.GET('/api/v1/users');
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
-    }
-    set({ users: data, isLoading: false });
+    const res = await apiAction(set, () => api.GET('/api/v1/users'));
+    if (res.ok) set({ users: res.data });
   },
 
   updateUser: async (id, body) => {
-    set({ error: null });
-    const { error } = await api.PATCH('/api/v1/users/{id}', {
-      params: { path: { id } },
-      body,
-    });
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    await get().fetchUsers();
+    const res = await apiAction(set, () =>
+      api.PATCH('/api/v1/users/{id}', { params: { path: { id } }, body }), false,
+    );
+    if (res.ok) await get().fetchUsers();
   },
 
   deleteUser: async (id) => {
-    set({ error: null });
-    const { error } = await api.DELETE('/api/v1/users/{id}', {
-      params: { path: { id } },
-    });
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    await get().fetchUsers();
+    const res = await apiAction(set, () =>
+      api.DELETE('/api/v1/users/{id}', { params: { path: { id } } }), false,
+    );
+    if (res.ok) await get().fetchUsers();
   },
 
   fetchAuditEvents: async (filters = {}) => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.GET('/api/v1/audit', {
-      params: { query: filters },
-    });
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
-    }
-    set({ auditEvents: data, isLoading: false });
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/audit', { params: { query: filters } }),
+    );
+    if (res.ok) set({ auditEvents: res.data });
   },
 }));

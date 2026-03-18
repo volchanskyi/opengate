@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import { apiAction } from './api-action';
 import type { components } from '../types/api';
 
 type AgentManifest = components['schemas']['AgentManifest'];
@@ -28,74 +29,45 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   error: null,
 
   fetchManifests: async () => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.GET('/api/v1/updates/manifests');
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
-    }
-    set({ manifests: data, isLoading: false });
+    const res = await apiAction(set, () => api.GET('/api/v1/updates/manifests'));
+    if (res.ok) set({ manifests: res.data });
   },
 
   publishManifest: async (body) => {
-    set({ error: null });
-    const { error } = await api.POST('/api/v1/updates/manifests', { body });
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    await get().fetchManifests();
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/updates/manifests', { body }), false,
+    );
+    if (res.ok) await get().fetchManifests();
   },
 
   pushUpdate: async (body) => {
-    set({ error: null });
-    const { data, error } = await api.POST('/api/v1/updates/push', { body });
-    if (error) {
-      set({ error: error.error });
-      return undefined;
-    }
-    return data.pushed_count;
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/updates/push', { body }), false,
+    );
+    return res.ok ? res.data.pushed_count : undefined;
   },
 
   fetchEnrollmentTokens: async () => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.GET('/api/v1/enrollment-tokens');
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
-    }
-    set({ enrollmentTokens: data, isLoading: false });
+    const res = await apiAction(set, () => api.GET('/api/v1/enrollment-tokens'));
+    if (res.ok) set({ enrollmentTokens: res.data });
   },
 
   createEnrollmentToken: async (body) => {
-    set({ error: null });
-    const { error } = await api.POST('/api/v1/enrollment-tokens', { body });
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    await get().fetchEnrollmentTokens();
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/enrollment-tokens', { body }), false,
+    );
+    if (res.ok) await get().fetchEnrollmentTokens();
   },
 
   deleteEnrollmentToken: async (id) => {
-    set({ error: null });
-    const { error } = await api.DELETE('/api/v1/enrollment-tokens/{id}', {
-      params: { path: { id } },
-    });
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    await get().fetchEnrollmentTokens();
+    const res = await apiAction(set, () =>
+      api.DELETE('/api/v1/enrollment-tokens/{id}', { params: { path: { id } } }), false,
+    );
+    if (res.ok) await get().fetchEnrollmentTokens();
   },
 
   fetchCACert: async () => {
-    set({ error: null });
-    const { data, error } = await api.GET('/api/v1/server/ca');
-    if (error) {
-      set({ error: error.error });
-      return;
-    }
-    set({ caPem: data.pem });
+    const res = await apiAction(set, () => api.GET('/api/v1/server/ca'), false);
+    if (res.ok) set({ caPem: res.data.pem });
   },
 }));

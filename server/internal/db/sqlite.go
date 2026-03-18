@@ -6,6 +6,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -459,15 +460,20 @@ func (s *SQLiteStore) WriteAuditEvent(ctx context.Context, event *AuditEvent) er
 }
 
 func (s *SQLiteStore) QueryAuditLog(ctx context.Context, q AuditQuery) ([]*AuditEvent, error) {
-	query := `SELECT id, user_id, action, target, details, created_at FROM audit_events WHERE 1=1`
+	var where []string
 	var args []any
 	if q.UserID != nil {
-		query += ` AND user_id = ?`
+		where = append(where, "user_id = ?")
 		args = append(args, q.UserID.String())
 	}
 	if q.Action != "" {
-		query += ` AND action = ?`
+		where = append(where, "action = ?")
 		args = append(args, q.Action)
+	}
+
+	query := `SELECT id, user_id, action, target, details, created_at FROM audit_events`
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
 	}
 	query += ` ORDER BY created_at DESC`
 	if q.Limit > 0 {
@@ -479,21 +485,7 @@ func (s *SQLiteStore) QueryAuditLog(ctx context.Context, q AuditQuery) ([]*Audit
 		args = append(args, q.Offset)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var events []*AuditEvent
-	for rows.Next() {
-		e, err := scanAuditEventFrom(rows)
-		if err != nil {
-			return nil, err
-		}
-		events = append(events, e)
-	}
-	return events, rows.Err()
+	return queryList(ctx, s.db, scanAuditEventFrom, query, args...)
 }
 
 // --- AMT Devices ---

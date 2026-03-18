@@ -23,6 +23,6 @@ pub use platform::{
     CaptureError, InputError, InputInjector, NullCapture, NullInput, NullServiceLifecycle,
     RawFrame, ScreenCapture, ServiceLifecycle,
 };
-pub use session::SessionHandler;
+pub use session::{SessionHandler, TerminalHandle};
 pub use session_error::SessionError;
 pub use update::{UpdateConfig, UpdateError};

@@ -67,6 +67,17 @@ func isAdmin(ctx context.Context) bool {
 	return claims != nil && claims.IsAdmin
 }
 
+const msgAdminRequired = "admin access required"
+
+// denyIfNotAdmin returns the forbidden response and true when the caller lacks admin access.
+func denyIfNotAdmin[T any](ctx context.Context, forbidden T) (T, bool) {
+	if !isAdmin(ctx) {
+		return forbidden, true
+	}
+	var zero T
+	return zero, false
+}
+
 // RequestLogger returns middleware that logs each request with method, path, status, and duration.
 func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

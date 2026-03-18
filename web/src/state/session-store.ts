@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import { apiAction } from './api-action';
 import type { components } from '../types/api';
 
 type AgentSession = components['schemas']['AgentSession'];
@@ -19,41 +20,27 @@ export const useSessionStore = create<SessionState>((set) => ({
   error: null,
 
   fetchSessions: async (deviceId) => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.GET('/api/v1/sessions', {
-      params: { query: { device_id: deviceId } },
-    });
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
-    }
-    set({ sessions: data, isLoading: false });
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/sessions', { params: { query: { device_id: deviceId } } }),
+    );
+    if (res.ok) set({ sessions: res.data });
   },
 
   createSession: async (deviceId) => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.POST('/api/v1/sessions', {
-      body: { device_id: deviceId },
-    });
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return null;
-    }
-    set({ isLoading: false });
-    return data;
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/sessions', { body: { device_id: deviceId } }),
+    );
+    return res.ok ? res.data : null;
   },
 
   deleteSession: async (token) => {
-    set({ error: null });
-    const { error } = await api.DELETE('/api/v1/sessions/{token}', {
-      params: { path: { token } },
-    });
-    if (error) {
-      set({ error: error.error });
-      return;
+    const res = await apiAction(set, () =>
+      api.DELETE('/api/v1/sessions/{token}', { params: { path: { token } } }), false,
+    );
+    if (res.ok) {
+      set((state) => ({
+        sessions: state.sessions.filter((s) => s.token !== token),
+      }));
     }
-    set((state) => ({
-      sessions: state.sessions.filter((s) => s.token !== token),
-    }));
   },
 }));

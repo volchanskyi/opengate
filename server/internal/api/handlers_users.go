@@ -24,8 +24,8 @@ func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponse
 
 // ListUsers implements StrictServerInterface.
 func (s *Server) ListUsers(ctx context.Context, _ ListUsersRequestObject) (ListUsersResponseObject, error) {
-	if !isAdmin(ctx) {
-		return ListUsers403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, ListUsers403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 
 	users, err := s.store.ListUsers(ctx)
@@ -38,8 +38,8 @@ func (s *Server) ListUsers(ctx context.Context, _ ListUsersRequestObject) (ListU
 
 // DeleteUser implements StrictServerInterface.
 func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject) (DeleteUserResponseObject, error) {
-	if !isAdmin(ctx) {
-		return DeleteUser403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, DeleteUser403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 
 	if err := s.store.DeleteUser(ctx, request.Id); err != nil {
@@ -53,8 +53,8 @@ func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject
 
 // UpdateUser implements StrictServerInterface.
 func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject) (UpdateUserResponseObject, error) {
-	if !isAdmin(ctx) {
-		return UpdateUser403JSONResponse{Error: "admin access required"}, nil
+	if resp, denied := denyIfNotAdmin(ctx, UpdateUser403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 
 	user, err := s.store.GetUser(ctx, request.Id)

@@ -16,7 +16,7 @@ export function LoginPage() {
     return <Navigate to="/devices" replace />;
   }
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     await login(email, password);
     if (useAuthStore.getState().token) {
