@@ -70,6 +70,9 @@ func (m *notifMockStore) GetDevice(_ context.Context, _ db.DeviceID) (*db.Device
 func (m *notifMockStore) ListDevices(_ context.Context, _ db.GroupID) ([]*db.Device, error) {
 	return nil, nil
 }
+func (m *notifMockStore) ListAllDevices(_ context.Context) ([]*db.Device, error) {
+	return nil, nil
+}
 func (m *notifMockStore) DeleteDevice(_ context.Context, _ db.DeviceID) error { return nil }
 func (m *notifMockStore) SetDeviceStatus(_ context.Context, _ db.DeviceID, _ db.DeviceStatus) error {
 	return nil

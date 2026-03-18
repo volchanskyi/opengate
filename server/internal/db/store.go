@@ -18,6 +18,7 @@ type Store interface {
 	UpsertDevice(ctx context.Context, d *Device) error
 	GetDevice(ctx context.Context, id DeviceID) (*Device, error)
 	ListDevices(ctx context.Context, groupID GroupID) ([]*Device, error)
+	ListAllDevices(ctx context.Context) ([]*Device, error)
 	DeleteDevice(ctx context.Context, id DeviceID) error
 	SetDeviceStatus(ctx context.Context, id DeviceID, status DeviceStatus) error
 

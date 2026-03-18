@@ -42,9 +42,13 @@ func TestDeviceHandlers(t *testing.T) {
 		assert.Equal(t, device.ID, devices[0].ID)
 	})
 
-	t.Run("list devices missing group_id", func(t *testing.T) {
+	t.Run("list all devices without group_id", func(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathDevices, token, nil)
-		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var devices []*db.Device
+		json.NewDecoder(w.Body).Decode(&devices)
+		assert.GreaterOrEqual(t, len(devices), 1)
 	})
 
 	t.Run("get device", func(t *testing.T) {

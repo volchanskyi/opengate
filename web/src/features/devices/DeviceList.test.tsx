@@ -26,7 +26,6 @@ function renderDeviceList() {
 describe('DeviceList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Override fetchGroups to no-op so it doesn't overwrite pre-set state
     useDeviceStore.setState({
       groups: [{ id: 'g1', name: 'Group A', owner_id: 'u1', created_at: '', updated_at: '' }],
       devices: [],
@@ -35,25 +34,25 @@ describe('DeviceList', () => {
       isLoading: false,
       error: null,
       fetchGroups: vi.fn(),
+      fetchDevices: vi.fn(),
     });
   });
 
-  it('shows welcome message with CTA when no group selected', () => {
+  it('shows welcome message when no devices exist', () => {
     renderDeviceList();
     expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
     expect(screen.getByText('Add Device')).toBeInTheDocument();
   });
 
-  it('shows empty group message with CTA when group selected but empty', () => {
+  it('shows empty group message when group selected but empty', () => {
     useDeviceStore.setState({ selectedGroupId: 'g1' });
     renderDeviceList();
-    expect(screen.getByText(/No devices in this group/)).toBeInTheDocument();
-    expect(screen.getByText('Download Agent')).toBeInTheDocument();
+    expect(screen.getByText('No devices in this group')).toBeInTheDocument();
+    expect(screen.getByText('Add Device')).toBeInTheDocument();
   });
 
-  it('renders devices for selected group', () => {
+  it('renders devices', () => {
     useDeviceStore.setState({
-      selectedGroupId: 'g1',
       devices: [
         { id: 'd1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
         { id: 'd2', group_id: 'g1', hostname: 'host-2', os: 'windows', agent_version: '', status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
@@ -65,16 +64,18 @@ describe('DeviceList', () => {
   });
 
   it('shows loading skeleton', () => {
-    useDeviceStore.setState({ selectedGroupId: 'g1', isLoading: true });
+    useDeviceStore.setState({ isLoading: true });
     renderDeviceList();
     const skeletons = document.querySelectorAll('.animate-pulse');
     expect(skeletons.length).toBeGreaterThan(0);
   });
 
-  it('fetches groups on mount', () => {
+  it('fetches groups and devices on mount', () => {
     const fetchGroupsFn = vi.fn();
-    useDeviceStore.setState({ fetchGroups: fetchGroupsFn });
+    const fetchDevicesFn = vi.fn();
+    useDeviceStore.setState({ fetchGroups: fetchGroupsFn, fetchDevices: fetchDevicesFn });
     renderDeviceList();
     expect(fetchGroupsFn).toHaveBeenCalled();
+    expect(fetchDevicesFn).toHaveBeenCalled();
   });
 });
