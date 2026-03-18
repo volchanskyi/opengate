@@ -201,9 +201,14 @@ async fn main() -> Result<()> {
                 let qc = quinn_config.clone();
                 let ep = endpoint.clone();
                 async move {
-                    let addr: SocketAddr = addr_str
-                        .parse()
-                        .map_err(|e| format!("parse server addr: {e}"))?;
+                    let addr: SocketAddr = match addr_str.parse() {
+                        Ok(a) => a,
+                        Err(_) => tokio::net::lookup_host(&addr_str)
+                            .await
+                            .map_err(|e| format!("resolve server addr: {e}"))?
+                            .next()
+                            .ok_or_else(|| format!("no addresses found for {addr_str}"))?,
+                    };
                     let conn = ep
                         .connect_with(qc, addr, "server")
                         .map_err(|e| format!("QUIC connect: {e}"))?
