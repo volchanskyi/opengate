@@ -71,6 +71,7 @@ describe('Routing (integration)', () => {
       isLoading: false,
       error: null,
       fetchGroups: vi.fn(),
+      fetchDevices: vi.fn(),
     });
     useSessionStore.setState({
       sessions: [],

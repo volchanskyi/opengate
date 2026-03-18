@@ -64,6 +64,7 @@ describe('Device List Flow (integration)', () => {
       isLoading: false,
       error: null,
       fetchGroups: vi.fn(),
+      fetchDevices: vi.fn(),
     });
   });
 

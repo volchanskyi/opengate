@@ -9,7 +9,13 @@ import (
 
 // ListDevices implements StrictServerInterface.
 func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error) {
-	devices, err := s.store.ListDevices(ctx, request.Params.GroupId)
+	var devices []*db.Device
+	var err error
+	if request.Params.GroupId != nil {
+		devices, err = s.store.ListDevices(ctx, *request.Params.GroupId)
+	} else {
+		devices, err = s.store.ListAllDevices(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
