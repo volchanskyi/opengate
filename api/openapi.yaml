@@ -104,6 +104,14 @@ components:
           type: string
           format: date-time
 
+    UpdateDeviceRequest:
+      type: object
+      properties:
+        group_id:
+          type: string
+          format: uuid
+          nullable: true
+
     CreateGroupRequest:
       type: object
       required: [name]
@@ -841,6 +849,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Device"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    patch:
+      operationId: updateDevice
+      summary: Update device fields
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDeviceRequest"
+      responses:
+        "200":
+          description: Updated device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "401":
           description: Unauthorized
           content:

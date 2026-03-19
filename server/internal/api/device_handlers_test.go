@@ -65,6 +65,31 @@ func TestDeviceHandlers(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
+	t.Run("update device group", func(t *testing.T) {
+		newGroup := &db.Group{ID: uuid.New(), Name: "new-group", OwnerID: user.ID}
+		require.NoError(t, srv.store.CreateGroup(t.Context(), newGroup))
+
+		body := map[string]interface{}{"group_id": newGroup.ID.String()}
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+device.ID.String(), token, body)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var d Device
+		json.NewDecoder(w.Body).Decode(&d)
+		assert.Equal(t, newGroup.ID, d.GroupId)
+	})
+
+	t.Run("update device group not found", func(t *testing.T) {
+		body := map[string]interface{}{"group_id": uuid.New().String()}
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+device.ID.String(), token, body)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("update device not found", func(t *testing.T) {
+		body := map[string]interface{}{"group_id": uuid.New().String()}
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+uuid.New().String(), token, body)
+		assert.Equal(t, http.StatusNotFound, w.Code)
+	})
+
 	t.Run("delete device", func(t *testing.T) {
 		w := doRequest(srv, http.MethodDelete, testPathDevicesS+device.ID.String(), token, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)

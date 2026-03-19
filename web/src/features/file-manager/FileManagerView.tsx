@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useConnectionStore } from '../../state/connection-store';
 import { useFileStore } from '../../state/file-store';
 import { useFileManager } from './use-file-manager';
@@ -8,6 +9,15 @@ export function FileManagerView() {
   const entries = useFileStore((s) => s.entries);
   const downloads = useFileStore((s) => s.downloads);
   const { requestDirectory } = useFileManager();
+  const initialRequestSent = useRef(false);
+
+  // Request initial directory listing when connected
+  useEffect(() => {
+    if (connectionState === 'connected' && !initialRequestSent.current) {
+      initialRequestSent.current = true;
+      requestDirectory('/');
+    }
+  }, [connectionState, requestDirectory]);
 
   if (connectionState !== 'connected') {
     return (
@@ -22,9 +32,24 @@ export function FileManagerView() {
     requestDirectory(newPath);
   };
 
+  const navigateUp = () => {
+    if (currentPath === '/') return;
+    const parent = currentPath.replace(/\/[^/]+$/, '') || '/';
+    requestDirectory(parent);
+  };
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex items-center gap-2 text-sm">
+        {currentPath !== '/' && (
+          <button
+            type="button"
+            onClick={navigateUp}
+            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+          >
+            ..
+          </button>
+        )}
         <span className="text-gray-400">Path:</span>
         <span className="font-mono text-white">{currentPath}</span>
       </div>

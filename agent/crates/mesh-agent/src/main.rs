@@ -415,11 +415,11 @@ async fn main() -> Result<()> {
                             }
                         }
                         Ok(mesh_protocol::ControlMessage::AgentUpdate {
-                            version, url, signature,
+                            version, url, sha256, signature,
                         }) => {
                             if let Some(ref uc) = update_config {
                                 match mesh_agent_core::update::apply_update(
-                                    uc, &version, &url, "", &signature,
+                                    uc, &version, &url, &sha256, &signature,
                                 ).await {
                                     Ok(true) => {
                                         info!(version, "update applied, restarting");

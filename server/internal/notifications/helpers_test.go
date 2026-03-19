@@ -77,6 +77,9 @@ func (m *notifMockStore) ListDevicesForOwner(_ context.Context, _ db.UserID) ([]
 	return nil, nil
 }
 func (m *notifMockStore) DeleteDevice(_ context.Context, _ db.DeviceID) error { return nil }
+func (m *notifMockStore) UpdateDeviceGroup(_ context.Context, _ db.DeviceID, _ db.GroupID) error {
+	return nil
+}
 func (m *notifMockStore) SetDeviceStatus(_ context.Context, _ db.DeviceID, _ db.DeviceStatus) error {
 	return nil
 }

@@ -93,7 +93,7 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 	eligible := s.eligibleAgents(request.Body.Os, request.Body.Arch, m.Version, targetSet)
 	pushed := 0
 	for _, agent := range eligible {
-		if err := agent.SendAgentUpdate(ctx, m.Version, m.URL, m.Signature); err != nil {
+		if err := agent.SendAgentUpdate(ctx, m.Version, m.URL, m.SHA256, m.Signature); err != nil {
 			s.logger.Warn("push update to agent failed",
 				"device_id", agent.DeviceID,
 				"error", err)
