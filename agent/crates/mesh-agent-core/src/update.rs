@@ -71,9 +71,11 @@ pub async fn apply_update(
     info!(version, url, "downloading update binary");
     download_to_file(url, &new_path).await?;
 
-    // 2. Compute and verify SHA-256
+    // 2. Compute SHA-256 of the downloaded binary
     let actual_hash = sha256_file(&new_path).await?;
-    if actual_hash != sha256_hex {
+
+    // 3. If the server provided an expected hash, verify it matches
+    if !sha256_hex.is_empty() && actual_hash != sha256_hex {
         // Clean up on failure
         let _ = fs::remove_file(&new_path).await;
         return Err(UpdateError::HashMismatch {
@@ -81,10 +83,10 @@ pub async fn apply_update(
             actual: actual_hash,
         });
     }
-    info!("SHA-256 verified");
+    info!("SHA-256 computed: {actual_hash}");
 
-    // 3. Verify Ed25519 signature
-    verify_signature(&config.signing_public_key, sha256_hex, signature_hex)?;
+    // 4. Verify Ed25519 signature against the actual hash
+    verify_signature(&config.signing_public_key, &actual_hash, signature_hex)?;
     info!("Ed25519 signature verified");
 
     // 4. Backup current binary

@@ -37,6 +37,8 @@ pub enum ControlMessage {
     AgentUpdate {
         version: String,
         url: String,
+        #[serde(default)]
+        sha256: String,
         signature: String,
     },
     /// Agent acknowledges an update attempt (success or failure).

@@ -20,6 +20,7 @@ interface DeviceState {
   createGroup: (name: string) => Promise<void>;
   deleteGroup: (id: string) => Promise<void>;
   deleteDevice: (id: string) => Promise<void>;
+  updateDeviceGroup: (id: string, groupId: string) => Promise<boolean>;
 }
 
 export const useDeviceStore = create<DeviceState>((set, get) => ({
@@ -83,5 +84,18 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         devices: state.devices.filter((d) => d.id !== id),
       }));
     }
+  },
+
+  updateDeviceGroup: async (id, groupId) => {
+    const res = await apiAction(set, () =>
+      api.PATCH('/api/v1/devices/{id}', {
+        params: { path: { id } },
+        body: { group_id: groupId },
+      }), false,
+    );
+    if (res.ok) {
+      set({ selectedDevice: res.data });
+    }
+    return res.ok;
   },
 }));

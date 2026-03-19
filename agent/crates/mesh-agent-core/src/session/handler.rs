@@ -28,6 +28,13 @@ impl SessionHandler {
                 self.handle_control(msg, injector, frame_tx, file_ops, terminal, webrtc_pc)
                     .await;
             }
+            Frame::Terminal(term_frame) => {
+                if let Some(term) = terminal {
+                    term.send_raw(term_frame.data);
+                } else {
+                    debug!("terminal frame received but no terminal session active");
+                }
+            }
             Frame::Ping => {
                 let _ = send_frame(frame_tx, &Frame::Pong).await;
             }

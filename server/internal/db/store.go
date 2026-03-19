@@ -21,6 +21,7 @@ type Store interface {
 	ListAllDevices(ctx context.Context) ([]*Device, error)
 	ListDevicesForOwner(ctx context.Context, ownerID UserID) ([]*Device, error)
 	DeleteDevice(ctx context.Context, id DeviceID) error
+	UpdateDeviceGroup(ctx context.Context, id DeviceID, groupID GroupID) error
 	SetDeviceStatus(ctx context.Context, id DeviceID, status DeviceStatus) error
 
 	// Groups

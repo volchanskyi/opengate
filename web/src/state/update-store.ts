@@ -10,6 +10,7 @@ interface UpdateState {
   manifests: AgentManifest[];
   enrollmentTokens: EnrollmentToken[];
   caPem: string | null;
+  signingKey: string | null;
   isLoading: boolean;
   error: string | null;
   fetchManifests: () => Promise<void>;
@@ -19,12 +20,14 @@ interface UpdateState {
   createEnrollmentToken: (body: components['schemas']['CreateEnrollmentTokenRequest']) => Promise<void>;
   deleteEnrollmentToken: (id: string) => Promise<void>;
   fetchCACert: () => Promise<void>;
+  fetchSigningKey: () => Promise<void>;
 }
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({
   manifests: [],
   enrollmentTokens: [],
   caPem: null,
+  signingKey: null,
   isLoading: false,
   error: null,
 
@@ -69,5 +72,10 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   fetchCACert: async () => {
     const res = await apiAction(set, () => api.GET('/api/v1/server/ca'), false);
     if (res.ok) set({ caPem: res.data.pem });
+  },
+
+  fetchSigningKey: async () => {
+    const res = await apiAction(set, () => api.GET('/api/v1/updates/signing-key'), false);
+    if (res.ok) set({ signingKey: res.data.public_key });
   },
 }));

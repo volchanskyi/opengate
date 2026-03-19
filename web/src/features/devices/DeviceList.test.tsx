@@ -41,14 +41,14 @@ describe('DeviceList', () => {
   it('shows welcome message when no devices exist', () => {
     renderDeviceList();
     expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
-    expect(screen.getByText('Add Device')).toBeInTheDocument();
+    expect(screen.getAllByText('Add Device').length).toBeGreaterThan(0);
   });
 
   it('shows empty group message when group selected but empty', () => {
     useDeviceStore.setState({ selectedGroupId: 'g1' });
     renderDeviceList();
     expect(screen.getByText('No devices in this group')).toBeInTheDocument();
-    expect(screen.getByText('Add Device')).toBeInTheDocument();
+    expect(screen.getAllByText('Add Device').length).toBeGreaterThan(0);
   });
 
   it('renders devices', () => {

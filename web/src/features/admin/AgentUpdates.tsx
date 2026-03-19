@@ -1,19 +1,23 @@
 import { useEffect, useState } from 'react';
 import { useUpdateStore } from '../../state/update-store';
+import { useToastStore } from '../../state/toast-store';
 import { ManifestPublishForm } from './ManifestPublishForm';
 import { ManifestList } from './ManifestList';
 
 export function AgentUpdates() {
   const manifests = useUpdateStore((s) => s.manifests);
   const enrollmentTokens = useUpdateStore((s) => s.enrollmentTokens);
+  const signingKey = useUpdateStore((s) => s.signingKey);
   const isLoading = useUpdateStore((s) => s.isLoading);
   const error = useUpdateStore((s) => s.error);
   const fetchManifests = useUpdateStore((s) => s.fetchManifests);
   const fetchEnrollmentTokens = useUpdateStore((s) => s.fetchEnrollmentTokens);
+  const fetchSigningKey = useUpdateStore((s) => s.fetchSigningKey);
   const publishManifest = useUpdateStore((s) => s.publishManifest);
   const pushUpdate = useUpdateStore((s) => s.pushUpdate);
   const createEnrollmentToken = useUpdateStore((s) => s.createEnrollmentToken);
   const deleteEnrollmentToken = useUpdateStore((s) => s.deleteEnrollmentToken);
+  const addToast = useToastStore((s) => s.addToast);
 
   const [showPublishForm, setShowPublishForm] = useState(false);
   const [showTokenForm, setShowTokenForm] = useState(false);
@@ -24,7 +28,8 @@ export function AgentUpdates() {
   useEffect(() => {
     fetchManifests();
     fetchEnrollmentTokens();
-  }, [fetchManifests, fetchEnrollmentTokens]);
+    fetchSigningKey();
+  }, [fetchManifests, fetchEnrollmentTokens, fetchSigningKey]);
 
   const handlePublish = async (form: { version: string; os: string; arch: string; url: string; sha256: string }) => {
     await publishManifest(form);
@@ -41,6 +46,7 @@ export function AgentUpdates() {
     const count = await pushUpdate({ version, os, arch });
     if (count !== undefined) {
       setPushResult(count);
+      addToast(`Update pushed to ${count} agent(s)`, 'success');
       setTimeout(() => setPushResult(null), 3000);
     }
   };
@@ -187,6 +193,29 @@ export function AgentUpdates() {
         />
         <ManifestList manifests={manifests} onPush={handlePush} />
       </section>
+
+      {/* Signing Key */}
+      {signingKey && (
+        <section>
+          <h3 className="text-lg font-semibold mb-3">Signing Key</h3>
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+            <p className="text-sm text-gray-400 mb-2">Ed25519 public key used to verify agent update signatures:</p>
+            <code className="block bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs font-mono break-all">
+              {signingKey}
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(signingKey);
+                addToast('Signing key copied', 'info');
+              }}
+              className="mt-2 text-sm text-blue-400 hover:text-blue-300"
+            >
+              Copy to clipboard
+            </button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

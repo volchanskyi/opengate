@@ -4,15 +4,15 @@ const navSections = [
   {
     label: 'Management',
     items: [
-      { to: '/admin/users', label: 'Users' },
-      { to: '/admin/audit', label: 'Audit Log' },
-      { to: '/admin/updates', label: 'Agent Updates' },
+      { to: '/settings/users', label: 'Users' },
+      { to: '/settings/audit', label: 'Audit Log' },
+      { to: '/settings/updates', label: 'Agent Updates' },
     ],
   },
   {
     label: 'Security',
     items: [
-      { to: '/admin/security/permissions', label: 'Permissions' },
+      { to: '/settings/security/permissions', label: 'Permissions' },
     ],
   },
 ];

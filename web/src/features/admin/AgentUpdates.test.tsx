@@ -54,6 +54,7 @@ describe('AgentUpdates', () => {
       pushUpdate: noopPush,
       createEnrollmentToken: noopCreate,
       deleteEnrollmentToken: noopDelete,
+      fetchSigningKey: noopFetch,
     });
   });
 

@@ -13,7 +13,7 @@ test.describe("Security Permissions", () => {
   test("admin sees Security > Permissions in sidebar", async ({
     adminPage,
   }) => {
-    await adminPage.goto("/admin");
+    await adminPage.goto("/settings");
 
     // Sidebar should have Security section header and Permissions link
     await expect(adminPage.getByText("Security")).toBeVisible();
@@ -25,7 +25,7 @@ test.describe("Security Permissions", () => {
   test("Permissions page shows Administrators group with System badge", async ({
     adminPage,
   }) => {
-    await adminPage.goto("/admin/security/permissions");
+    await adminPage.goto("/settings/security/permissions");
 
     await expect(
       adminPage.getByRole("heading", { name: "Permissions" })
@@ -40,7 +40,7 @@ test.describe("Security Permissions", () => {
     adminPage,
     adminUser,
   }) => {
-    await adminPage.goto("/admin/security/permissions");
+    await adminPage.goto("/settings/security/permissions");
 
     // The admin's email should appear in the members table
     await expect(adminPage.getByRole('cell', { name: adminUser.email })).toBeVisible();

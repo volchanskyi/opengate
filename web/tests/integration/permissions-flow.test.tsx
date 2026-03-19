@@ -57,13 +57,13 @@ const routes = [
           { index: true, element: <Navigate to="/devices" replace /> },
           { path: 'devices', element: <p>Devices</p> },
           {
-            path: 'admin',
+            path: 'settings',
             element: <AdminGuard />,
             children: [
               {
                 element: <AdminLayout />,
                 children: [
-                  { index: true, element: <Navigate to="/admin/users" replace /> },
+                  { index: true, element: <Navigate to="/settings/users" replace /> },
                   { path: 'users', element: <p>Users Page</p> },
                   { path: 'security/permissions', element: <Permissions /> },
                 ],
@@ -104,18 +104,18 @@ describe('Permissions Flow (integration)', () => {
   });
 
   it('admin can navigate to Permissions page', () => {
-    renderRoute('/admin/security/permissions');
+    renderRoute('/settings/security/permissions');
     expect(screen.getByRole('heading', { name: 'Permissions' })).toBeInTheDocument();
   });
 
   it('sidebar shows Security section with Permissions link', () => {
-    renderRoute('/admin/security/permissions');
+    renderRoute('/settings/security/permissions');
     expect(screen.getByText('Security')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Permissions' })).toBeInTheDocument();
   });
 
   it('sidebar shows Management section links', () => {
-    renderRoute('/admin/security/permissions');
+    renderRoute('/settings/security/permissions');
     expect(screen.getByText('Management')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Users' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Audit Log' })).toBeInTheDocument();
@@ -123,7 +123,7 @@ describe('Permissions Flow (integration)', () => {
   });
 
   it('renders group with members and add member controls', () => {
-    renderRoute('/admin/security/permissions');
+    renderRoute('/settings/security/permissions');
 
     // Members table
     expect(screen.getByText('admin@test.com')).toBeInTheDocument();
@@ -143,7 +143,7 @@ describe('Permissions Flow (integration)', () => {
     useSecurityGroupsStore.setState({ addMember });
 
     const user = userEvent.setup();
-    renderRoute('/admin/security/permissions');
+    renderRoute('/settings/security/permissions');
 
     await user.selectOptions(screen.getByRole('combobox'), 'u2');
     await user.click(screen.getByRole('button', { name: 'Add Member' }));
@@ -153,14 +153,14 @@ describe('Permissions Flow (integration)', () => {
 
   it('non-admin is redirected away from admin routes', () => {
     useAuthStore.setState({ user: regularUser });
-    renderRoute('/admin/security/permissions');
+    renderRoute('/settings/security/permissions');
     // AdminGuard should redirect non-admin users
     expect(screen.queryByRole('heading', { name: 'Permissions' })).not.toBeInTheDocument();
   });
 
   it('shows error from store', () => {
     useSecurityGroupsStore.setState({ error: 'Failed to load groups' });
-    renderRoute('/admin/security/permissions');
+    renderRoute('/settings/security/permissions');
     expect(screen.getByText('Failed to load groups')).toBeInTheDocument();
   });
 });

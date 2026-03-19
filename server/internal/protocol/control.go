@@ -63,6 +63,7 @@ type ControlMessage struct {
 
 	// AgentUpdate
 	URL       string `msgpack:"url,omitempty"`
+	SHA256    string `msgpack:"sha256,omitempty"`
 	Signature string `msgpack:"signature,omitempty"`
 
 	// AgentUpdateAck

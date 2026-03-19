@@ -219,6 +219,18 @@ func (s *SQLiteStore) DeleteDevice(ctx context.Context, id DeviceID) error {
 	return s.execAndCheckAffected(ctx, `DELETE FROM devices WHERE id = ?`, id.String())
 }
 
+// UpdateDeviceGroup moves a device to a different group.
+func (s *SQLiteStore) UpdateDeviceGroup(ctx context.Context, id DeviceID, groupID GroupID) error {
+	now := nowRFC3339()
+	var gid any
+	if groupID != uuid.Nil {
+		gid = groupID.String()
+	}
+	return s.execAndCheckAffected(ctx,
+		`UPDATE devices SET group_id = ?, updated_at = ? WHERE id = ?`,
+		gid, now, id.String())
+}
+
 func (s *SQLiteStore) SetDeviceStatus(ctx context.Context, id DeviceID, status DeviceStatus) error {
 	now := nowRFC3339()
 	return s.execAndCheckAffected(ctx,

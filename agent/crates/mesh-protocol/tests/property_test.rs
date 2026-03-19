@@ -75,10 +75,11 @@ fn arb_control_message() -> impl Strategy<Value = ControlMessage> {
                 }
             }
         ),
-        (".*", ".*", ".*").prop_map(|(version, url, signature)| {
+        (".*", ".*", ".*", ".*").prop_map(|(version, url, sha256, signature)| {
             ControlMessage::AgentUpdate {
                 version,
                 url,
+                sha256,
                 signature,
             }
         }),
