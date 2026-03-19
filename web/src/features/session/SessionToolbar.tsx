@@ -12,7 +12,7 @@ const STATE_CONFIG: Record<ConnectionState, { label: string; color: string }> = 
   error:        { label: 'Error', color: 'bg-red-500' },
 };
 
-export function SessionToolbar({ connectionState, onDisconnect }: SessionToolbarProps) {
+export function SessionToolbar({ connectionState, onDisconnect }: Readonly<SessionToolbarProps>) {
   return (
     <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
       <div className="flex items-center gap-2">

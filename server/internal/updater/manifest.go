@@ -40,7 +40,10 @@ func (s *ManifestStore) Put(_ context.Context, m *Manifest) error {
 	if err != nil {
 		return fmt.Errorf("marshal manifest: %w", err)
 	}
-	path := filepath.Join(s.dir, manifestFilename(m.OS, m.Arch))
+	path, err := s.safePath(m.OS, m.Arch)
+	if err != nil {
+		return err
+	}
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("write manifest: %w", err)
 	}
@@ -49,7 +52,10 @@ func (s *ManifestStore) Put(_ context.Context, m *Manifest) error {
 
 // Get returns the current manifest for the given OS/arch, or nil if none exists.
 func (s *ManifestStore) Get(_ context.Context, osName, arch string) (*Manifest, error) {
-	path := filepath.Join(s.dir, manifestFilename(osName, arch))
+	path, err := s.safePath(osName, arch)
+	if err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -90,6 +96,17 @@ func (s *ManifestStore) List(_ context.Context) ([]*Manifest, error) {
 		manifests = append(manifests, &m)
 	}
 	return manifests, nil
+}
+
+// safePath constructs a manifest file path from OS/arch values and validates
+// the result stays within the store directory to prevent path traversal.
+func (s *ManifestStore) safePath(osName, arch string) (string, error) {
+	name := manifestFilename(osName, arch)
+	cleanPath := filepath.Join(s.dir, filepath.Clean(name))
+	if !strings.HasPrefix(cleanPath, filepath.Clean(s.dir)+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid manifest path: %s/%s", osName, arch)
+	}
+	return cleanPath, nil
 }
 
 func manifestFilename(osName, arch string) string {

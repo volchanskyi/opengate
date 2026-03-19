@@ -100,8 +100,9 @@ export function AgentUpdates() {
         {showTokenForm && (
           <form onSubmit={handleCreateToken} className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4 space-y-3">
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Label</label>
+              <label htmlFor="token-label" className="block text-sm text-gray-400 mb-1">Label</label>
               <input
+                id="token-label"
                 type="text"
                 value={tokenForm.label}
                 onChange={(e) => setTokenForm({ ...tokenForm, label: e.target.value })}
@@ -111,21 +112,23 @@ export function AgentUpdates() {
             </div>
             <div className="flex gap-4">
               <div className="flex-1">
-                <label className="block text-sm text-gray-400 mb-1">Max Uses (0 = unlimited)</label>
+                <label htmlFor="token-max-uses" className="block text-sm text-gray-400 mb-1">Max Uses (0 = unlimited)</label>
                 <input
+                  id="token-max-uses"
                   type="number"
                   value={tokenForm.max_uses}
-                  onChange={(e) => setTokenForm({ ...tokenForm, max_uses: parseInt(e.target.value) || 0 })}
+                  onChange={(e) => setTokenForm({ ...tokenForm, max_uses: Number.parseInt(e.target.value) || 0 })}
                   className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm"
                   min={0}
                 />
               </div>
               <div className="flex-1">
-                <label className="block text-sm text-gray-400 mb-1">Expires In (hours)</label>
+                <label htmlFor="token-expires-hours" className="block text-sm text-gray-400 mb-1">Expires In (hours)</label>
                 <input
+                  id="token-expires-hours"
                   type="number"
                   value={tokenForm.expires_in_hours}
-                  onChange={(e) => setTokenForm({ ...tokenForm, expires_in_hours: parseInt(e.target.value) || 24 })}
+                  onChange={(e) => setTokenForm({ ...tokenForm, expires_in_hours: Number.parseInt(e.target.value) || 24 })}
                   className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm"
                   min={1}
                 />

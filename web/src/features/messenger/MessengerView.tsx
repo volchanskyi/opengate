@@ -54,9 +54,9 @@ export function MessengerView() {
   return (
     <div className="flex flex-col h-full p-4">
       <div className="flex-1 overflow-y-auto space-y-2 mb-4">
-        {messages.map((msg, i) => (
+        {messages.map((msg) => (
           <div
-            key={i}
+            key={msg.id}
             className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${
               msg.sender === 'browser'
                 ? 'ml-auto bg-blue-600 text-white'

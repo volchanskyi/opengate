@@ -25,8 +25,8 @@ const VALID_KEYS = new Set<string>([
 
 /** Captures mouse/keyboard events on a canvas and emits ControlMessages. */
 export class InputHandler {
-  private canvas: HTMLCanvasElement;
-  private onMessage: (msg: ControlMessage) => void;
+  private readonly canvas: HTMLCanvasElement;
+  private readonly onMessage: (msg: ControlMessage) => void;
   private boundHandlers: Array<[string, EventListener]> = [];
   private boundWindowHandlers: Array<[string, EventListener]> = [];
   private cachedRect: DOMRect | null = null;
@@ -42,8 +42,8 @@ export class InputHandler {
     this.listen('keyup', this.handleKey);
 
     const invalidateRect = () => { this.cachedRect = null; };
-    window.addEventListener('resize', invalidateRect);
-    window.addEventListener('scroll', invalidateRect, true);
+    globalThis.addEventListener('resize', invalidateRect);
+    globalThis.addEventListener('scroll', invalidateRect, true);
     this.boundWindowHandlers = [['resize', invalidateRect], ['scroll', invalidateRect]];
   }
 
@@ -53,7 +53,7 @@ export class InputHandler {
     }
     this.boundHandlers = [];
     for (const [event, handler] of this.boundWindowHandlers) {
-      window.removeEventListener(event, handler, true);
+      globalThis.removeEventListener(event, handler, true);
     }
     this.boundWindowHandlers = [];
   }
@@ -65,9 +65,7 @@ export class InputHandler {
   }
 
   private scaleCoords(clientX: number, clientY: number): { x: number; y: number } {
-    if (!this.cachedRect) {
-      this.cachedRect = this.canvas.getBoundingClientRect();
-    }
+    this.cachedRect ??= this.canvas.getBoundingClientRect();
     const rect = this.cachedRect;
     const scaleX = this.canvas.width / rect.width;
     const scaleY = this.canvas.height / rect.height;

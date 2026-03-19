@@ -3,7 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
-	_ "embed"
+	_ "embed" // Required for //go:embed directive to embed install.sh into the binary.
 	"fmt"
 )
 

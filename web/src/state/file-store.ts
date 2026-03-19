@@ -33,8 +33,8 @@ export const useFileStore = create<FileState>((set) => ({
 
   clearDownload: (name) =>
     set((state) => {
-      const { [name]: _removed, ...rest } = state.downloads;
-      void _removed;
+      const rest = { ...state.downloads };
+      delete rest[name];
       return { downloads: rest };
     }),
 
@@ -43,8 +43,8 @@ export const useFileStore = create<FileState>((set) => ({
 
   clearUpload: (name) =>
     set((state) => {
-      const { [name]: _removed, ...rest } = state.uploads;
-      void _removed;
+      const rest = { ...state.uploads };
+      delete rest[name];
       return { uploads: rest };
     }),
 

@@ -164,8 +164,8 @@ describe('WebRTCTransport', () => {
   });
 
   it('ignores addIceCandidate when no peer connection', async () => {
-    // No createOffer called
+    // No createOffer called — should not throw and state remains idle
     await transport.addIceCandidate('candidate', 'mid');
-    // Should not throw
+    expect(transport.state).toBe('idle');
   });
 });
