@@ -110,10 +110,6 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 		return resp, nil
 	}
 
-	if err := s.store.IncrementEnrollmentTokenUseCount(ctx, et.ID); err != nil {
-		return nil, fmt.Errorf("increment token use count: %w", err)
-	}
-
 	host, quicHost := s.deriveEnrollHosts(ctx)
 
 	result := Enroll200JSONResponse{
@@ -122,7 +118,9 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 		ServerDomain: host,
 	}
 
-	// Sign agent CSR if provided.
+	// Sign agent CSR if provided; only count as a real enrollment when a
+	// certificate is actually issued (the install script probes with an
+	// empty csr_pem to validate the token without consuming a use).
 	if request.Body != nil && request.Body.CsrPem != "" {
 		certPEM, err := s.signCSR(request.Body.CsrPem)
 		if err != nil {
@@ -130,6 +128,10 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 			return Enroll400JSONResponse{Error: "invalid enrollment request"}, nil
 		}
 		result.CertPem = &certPEM
+
+		if err := s.store.IncrementEnrollmentTokenUseCount(ctx, et.ID); err != nil {
+			return nil, fmt.Errorf("increment token use count: %w", err)
+		}
 	}
 
 	return result, nil
