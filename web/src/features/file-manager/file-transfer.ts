@@ -5,9 +5,9 @@ export const CHUNK_SIZE = 256 * 1024;
 
 /** Accumulates incoming file chunks and produces a Blob on completion. */
 export class DownloadAccumulator {
-  private totalSize: number;
+  private readonly totalSize: number;
   private received = 0;
-  private chunks: Uint8Array[] = [];
+  private readonly chunks: Uint8Array[] = [];
 
   constructor(totalSize: number) {
     this.totalSize = totalSize;

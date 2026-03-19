@@ -16,7 +16,7 @@ describe('chat-store', () => {
 
     const { messages } = useChatStore.getState();
     expect(messages).toHaveLength(1);
-    expect(messages[0]).toEqual({ text: 'hello', sender: 'browser' });
+    expect(messages[0]).toEqual(expect.objectContaining({ text: 'hello', sender: 'browser' }));
   });
 
   it('addMessage preserves existing messages', () => {

@@ -77,7 +77,7 @@ export function SessionView() {
   );
 }
 
-function TabContent({ tab }: { tab: Tab }) {
+function TabContent({ tab }: Readonly<{ tab: Tab }>) {
   switch (tab) {
     case 'Desktop':
       return <RemoteDesktopView />;

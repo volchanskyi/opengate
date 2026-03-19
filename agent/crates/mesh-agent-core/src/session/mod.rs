@@ -108,6 +108,37 @@ impl SessionHandler {
             Arc::new(tokio::sync::Mutex::new(None));
 
         // Main receive loop: read frames from browser via relay
+        self.receive_loop(
+            &mut ws_rx,
+            &frame_tx,
+            &*injector,
+            &file_ops,
+            terminal.as_ref(),
+            &webrtc_pc,
+        )
+        .await;
+
+        info!(token = %self.token.as_str(), "session ended");
+        running.store(false, Ordering::Relaxed);
+
+        Self::cleanup(capture_handle, terminal.as_ref(), writer_handle, &webrtc_pc).await;
+        Ok(())
+    }
+
+    /// Process incoming WebSocket messages until the connection closes.
+    async fn receive_loop(
+        &self,
+        ws_rx: &mut futures_util::stream::SplitStream<
+            tokio_tungstenite::WebSocketStream<
+                tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+            >,
+        >,
+        frame_tx: &mpsc::Sender<Vec<u8>>,
+        injector: &dyn InputInjector,
+        file_ops: &FileOpsHandler,
+        terminal: Option<&TerminalHandle>,
+        webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
+    ) {
         while let Some(msg) = ws_rx.next().await {
             let msg = match msg {
                 Ok(m) => m,
@@ -133,39 +164,32 @@ impl SessionHandler {
 
             match Frame::decode(&data) {
                 Ok((frame, _consumed)) => {
-                    self.handle_frame(
-                        frame,
-                        &*injector,
-                        &frame_tx,
-                        &file_ops,
-                        terminal.as_ref(),
-                        &webrtc_pc,
-                    )
-                    .await;
+                    self.handle_frame(frame, injector, frame_tx, file_ops, terminal, webrtc_pc)
+                        .await;
                 }
                 Err(e) => {
                     warn!("frame decode error: {e}");
                 }
             }
         }
+    }
 
-        info!(token = %self.token.as_str(), "session ended");
-        running.store(false, Ordering::Relaxed);
-
-        // Clean up tasks
+    /// Clean up all spawned tasks and WebRTC connections.
+    async fn cleanup(
+        capture_handle: Option<tokio::task::JoinHandle<()>>,
+        terminal: Option<&TerminalHandle>,
+        writer_handle: tokio::task::JoinHandle<()>,
+        webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
+    ) {
         if let Some(h) = capture_handle {
             h.abort();
         }
-        if let Some(ref t) = terminal {
+        if let Some(t) = terminal {
             t.shutdown();
         }
         writer_handle.abort();
-
-        // Clean up WebRTC
         if let Some(ref pc) = *webrtc_pc.lock().await {
             pc.close().await;
         }
-
-        Ok(())
     }
 }

@@ -1,10 +1,8 @@
 import http from "k6/http";
-import ws from "k6/ws";
 import { check, sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
-const WS_URL = BASE_URL.replace("http", "ws");
 
 const relayMsgLatency = new Trend("relay_msg_latency_ms");
 const relayMsgCount = new Counter("relay_msg_count");

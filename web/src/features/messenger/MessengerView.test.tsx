@@ -34,8 +34,8 @@ describe('MessengerView', () => {
   it('renders messages from store', () => {
     useChatStore.setState({
       messages: [
-        { text: 'Hello', sender: 'browser' },
-        { text: 'Hi there', sender: 'agent' },
+        { text: 'Hello', sender: 'browser', id: 1 },
+        { text: 'Hi there', sender: 'agent', id: 2 },
       ],
     });
     render(<MessengerView />);
@@ -57,10 +57,9 @@ describe('MessengerView', () => {
       sender: 'browser',
     });
     // Message should be added to store
-    expect(useChatStore.getState().messages).toContainEqual({
-      text: 'test message',
-      sender: 'browser',
-    });
+    expect(useChatStore.getState().messages).toContainEqual(
+      expect.objectContaining({ text: 'test message', sender: 'browser' }),
+    );
   });
 
   it('sends message on Enter key', async () => {
