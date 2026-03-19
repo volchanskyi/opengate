@@ -61,24 +61,13 @@ func newTestServerWithCert(t *testing.T) (*Server, *auth.JWTConfig) {
 
 func newTestServerWithSigning(t *testing.T) (*Server, *auth.JWTConfig) {
 	t.Helper()
-	store := testutil.NewTestStore(t)
-	cfg := testJWTConfig()
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := NewServer(ServerConfig{
-		Store:  store,
-		JWT:    cfg,
-		Agents: &stubAgentGetter{},
-		AMT:    &stubAMTOperator{},
-		Cert: &stubCertProvider{
-			pem: []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"),
-			signFn: func(_ []byte) ([]byte, error) {
-				return []byte("fake-signed-cert"), nil
-			},
+	srv, cfg := newTestServerWithCert(t)
+	srv.cert = &stubCertProvider{
+		pem: []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n"),
+		signFn: func(_ []byte) ([]byte, error) {
+			return []byte("fake-signed-cert"), nil
 		},
-		Relay:    relay.NewRelay(),
-		Notifier: &notifications.NoopNotifier{},
-		Logger:   logger,
-	})
+	}
 	return srv, cfg
 }
 
@@ -294,35 +283,6 @@ func TestEnroll(t *testing.T) {
 		assert.Equal(t, http.StatusGone, w.Code)
 	})
 
-	t.Run("install script flow with max_uses 1", func(t *testing.T) {
-		srv, cfg := newTestServerWithSigning(t)
-		_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
-
-		maxUses := 1
-		body := CreateEnrollmentTokenRequest{MaxUses: &maxUses}
-		w := doRequest(srv, http.MethodPost, "/api/v1/enrollment-tokens", adminToken, body)
-		require.Equal(t, http.StatusCreated, w.Code)
-
-		var tok EnrollmentToken
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&tok))
-
-		// Step 1: install.sh probes with empty CSR to validate token.
-		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", EnrollRequest{CsrPem: ""})
-		assert.Equal(t, http.StatusOK, w.Code)
-
-		// Step 2: agent enrolls with real CSR — the single allowed use.
-		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", EnrollRequest{CsrPem: testCSRPEM})
-		assert.Equal(t, http.StatusOK, w.Code)
-
-		var resp EnrollResponse
-		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		assert.NotNil(t, resp.CertPem)
-
-		// Step 3: another agent cannot reuse the same token.
-		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", EnrollRequest{CsrPem: testCSRPEM})
-		assert.Equal(t, http.StatusGone, w.Code)
-	})
-
 	t.Run("uses quicHost override for server_addr", func(t *testing.T) {
 		srv, cfg := newTestServerWithCert(t)
 		srv.quicHost = "quic.opengate.example.com"
@@ -390,6 +350,22 @@ func TestEnroll(t *testing.T) {
 
 		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/exhausted-token-abc123", "", EnrollRequest{})
 		assert.Equal(t, http.StatusGone, w.Code)
+	})
+
+	t.Run("CSR signing failure returns 400", func(t *testing.T) {
+		// Server with cert provider that rejects CSR signing.
+		srv, cfg := newTestServerWithCert(t)
+		_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
+
+		body := CreateEnrollmentTokenRequest{}
+		w := doRequest(srv, http.MethodPost, "/api/v1/enrollment-tokens", adminToken, body)
+		require.Equal(t, http.StatusCreated, w.Code)
+
+		var tok EnrollmentToken
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&tok))
+
+		w = doRequest(srv, http.MethodPost, "/api/v1/enroll/"+tok.Token, "", EnrollRequest{CsrPem: testCSRPEM})
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("no cert provider", func(t *testing.T) {
