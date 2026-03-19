@@ -1,6 +1,8 @@
 name: Load Tests
 
 on:
+  schedule:
+    - cron: '0 2 * * 0'  # Weekly on Sunday at 02:00 UTC
   workflow_dispatch:
     inputs:
       agents:
@@ -14,6 +16,7 @@ concurrency:
 
 env:
   DEPLOY_DIR: /opt/opengate
+  K6_VERSION: v1.6.1
 
 permissions:
   contents: read
@@ -61,8 +64,12 @@ jobs:
       - name: Install k6 on VPS
         run: |
           ARCH=${{ steps.arch.outputs.k6 }}
-          # shellcheck disable=SC2029  # intentional client-side expansion of $ARCH
-          ssh deploy-target "curl -sL https://github.com/grafana/k6/releases/download/v0.54.0/k6-v0.54.0-linux-${ARCH}.tar.gz | tar xz && mv k6-v0.54.0-linux-${ARCH}/k6 /tmp/k6 && rm -rf k6-v0.54.0-linux-${ARCH}"
+          VER=${{ env.K6_VERSION }}
+          # shellcheck disable=SC2029  # intentional client-side expansion
+          ssh deploy-target "curl -fsSL https://github.com/grafana/k6/releases/download/${VER}/k6-${VER}-linux-${ARCH}.tar.gz | tar xz && mv k6-${VER}-linux-${ARCH}/k6 /tmp/k6 && chmod +x /tmp/k6 && rm -rf k6-${VER}-linux-${ARCH}"
+
+      - name: Verify k6 binary
+        run: ssh deploy-target "file /tmp/k6 && /tmp/k6 version"
 
       - name: Copy k6 scenarios to VPS
         run: scp load/k6/scenarios/*.js deploy-target:/tmp/
