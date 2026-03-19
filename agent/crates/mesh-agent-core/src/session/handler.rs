@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use mesh_protocol::{ControlMessage, Frame};
+use mesh_protocol::{ControlMessage, Frame, KeyCode, MouseButton};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
@@ -55,9 +55,7 @@ impl SessionHandler {
     ) {
         match msg {
             ControlMessage::MouseMove { x, y } => {
-                if self.permissions.input {
-                    let _ = injector.inject_mouse_move(x as i32, y as i32);
-                }
+                self.handle_mouse_move(injector, x, y);
             }
             ControlMessage::MouseClick {
                 button,
@@ -65,40 +63,21 @@ impl SessionHandler {
                 x,
                 y,
             } => {
-                if self.permissions.input {
-                    let _ = injector.inject_mouse_move(x as i32, y as i32);
-                    let _ = injector.inject_mouse_button(button, pressed);
-                }
+                self.handle_mouse_click(injector, button, pressed, x, y);
             }
             ControlMessage::KeyPress { key, pressed } => {
-                if self.permissions.input {
-                    let _ = injector.inject_key(mesh_protocol::KeyEvent { key, pressed });
-                }
-                if let Some(term) = terminal {
-                    if pressed {
-                        term.send_key(key);
-                    }
-                }
+                self.handle_key_press(injector, terminal, key, pressed);
             }
             ControlMessage::TerminalResize { cols, rows } => {
                 if let Some(term) = terminal {
                     term.resize(cols, rows);
                 }
             }
-            ControlMessage::FileListRequest { path } => match file_ops.list_directory(&path) {
-                Ok(response) => {
-                    let _ = send_frame(frame_tx, &Frame::Control(response)).await;
-                }
-                Err(e) => warn!("file list error: {e}"),
-            },
+            ControlMessage::FileListRequest { path } => {
+                Self::handle_file_list(file_ops, frame_tx, &path).await;
+            }
             ControlMessage::FileDownloadRequest { path } => {
-                let tx = frame_tx.clone();
-                let file_ops = file_ops.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = file_ops.stream_download(&path, &tx).await {
-                        warn!("file download error: {e}");
-                    }
-                });
+                Self::handle_file_download(file_ops, frame_tx, &path);
             }
             ControlMessage::FileUploadRequest { path, total_size } => {
                 debug!(
@@ -114,25 +93,105 @@ impl SessionHandler {
                     .await;
             }
             ControlMessage::IceCandidate { candidate, mid } => {
-                let guard = webrtc_pc.lock().await;
-                if let Some(ref pc) = *guard {
-                    if let Err(e) = pc.add_ice_candidate(&candidate, &mid).await {
-                        warn!("failed to add ICE candidate: {e}");
-                    }
-                } else {
-                    debug!("ICE candidate received but no WebRTC connection active");
-                }
+                Self::handle_ice_candidate(webrtc_pc, &candidate, &mid).await;
             }
             ControlMessage::SwitchAck => {
-                let guard = webrtc_pc.lock().await;
-                if guard.is_some() {
-                    info!("WebRTC switch acknowledged by browser");
-                    let _ = send_frame(frame_tx, &Frame::Control(ControlMessage::SwitchAck)).await;
-                }
+                Self::handle_switch_ack(webrtc_pc, frame_tx).await;
             }
             _ => {
                 debug!("unhandled control message in session");
             }
+        }
+    }
+
+    fn handle_mouse_move(&self, injector: &dyn InputInjector, x: u16, y: u16) {
+        if self.permissions.input {
+            let _ = injector.inject_mouse_move(x as i32, y as i32);
+        }
+    }
+
+    fn handle_mouse_click(
+        &self,
+        injector: &dyn InputInjector,
+        button: MouseButton,
+        pressed: bool,
+        x: u16,
+        y: u16,
+    ) {
+        if self.permissions.input {
+            let _ = injector.inject_mouse_move(x as i32, y as i32);
+            let _ = injector.inject_mouse_button(button, pressed);
+        }
+    }
+
+    fn handle_key_press(
+        &self,
+        injector: &dyn InputInjector,
+        terminal: Option<&TerminalHandle>,
+        key: KeyCode,
+        pressed: bool,
+    ) {
+        if self.permissions.input {
+            let _ = injector.inject_key(mesh_protocol::KeyEvent { key, pressed });
+        }
+        if let Some(term) = terminal {
+            if pressed {
+                term.send_key(key);
+            }
+        }
+    }
+
+    async fn handle_file_list(
+        file_ops: &FileOpsHandler,
+        frame_tx: &mpsc::Sender<Vec<u8>>,
+        path: &str,
+    ) {
+        match file_ops.list_directory(path) {
+            Ok(response) => {
+                let _ = send_frame(frame_tx, &Frame::Control(response)).await;
+            }
+            Err(e) => warn!("file list error: {e}"),
+        }
+    }
+
+    fn handle_file_download(
+        file_ops: &FileOpsHandler,
+        frame_tx: &mpsc::Sender<Vec<u8>>,
+        path: &str,
+    ) {
+        let tx = frame_tx.clone();
+        let file_ops = file_ops.clone();
+        let path = path.to_owned();
+        tokio::spawn(async move {
+            if let Err(e) = file_ops.stream_download(&path, &tx).await {
+                warn!("file download error: {e}");
+            }
+        });
+    }
+
+    async fn handle_ice_candidate(
+        webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
+        candidate: &str,
+        mid: &str,
+    ) {
+        let guard = webrtc_pc.lock().await;
+        if let Some(ref pc) = *guard {
+            if let Err(e) = pc.add_ice_candidate(candidate, mid).await {
+                warn!("failed to add ICE candidate: {e}");
+            }
+        } else {
+            debug!("ICE candidate received but no WebRTC connection active");
+        }
+    }
+
+    async fn handle_switch_ack(
+        webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
+        frame_tx: &mpsc::Sender<Vec<u8>>,
+    ) {
+        let guard = webrtc_pc.lock().await;
+        if guard.is_some() {
+            info!("WebRTC switch acknowledged by browser");
+            let _ = send_frame(frame_tx, &Frame::Control(ControlMessage::SwitchAck)).await;
         }
     }
 

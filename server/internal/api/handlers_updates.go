@@ -32,7 +32,7 @@ func (s *Server) PublishUpdate(ctx context.Context, request PublishUpdateRequest
 		return resp, nil
 	}
 	if s.signing == nil || s.manifests == nil {
-		return PublishUpdate403JSONResponse{Error: "update system not configured"}, nil
+		return PublishUpdate403JSONResponse{Error: msgUpdateNotConfigured}, nil
 	}
 
 	sig, err := s.signing.SignHash(request.Body.Sha256)
@@ -67,7 +67,7 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 		return resp, nil
 	}
 	if s.signing == nil || s.manifests == nil {
-		return PushUpdate403JSONResponse{Error: "update system not configured"}, nil
+		return PushUpdate403JSONResponse{Error: msgUpdateNotConfigured}, nil
 	}
 
 	m, err := s.manifests.Get(ctx, request.Body.Os, request.Body.Arch)
@@ -136,7 +136,7 @@ func (s *Server) GetUpdateSigningKey(ctx context.Context, _ GetUpdateSigningKeyR
 		return resp, nil
 	}
 	if s.signing == nil {
-		return GetUpdateSigningKey403JSONResponse{Error: "update system not configured"}, nil
+		return GetUpdateSigningKey403JSONResponse{Error: msgUpdateNotConfigured}, nil
 	}
 
 	return GetUpdateSigningKey200JSONResponse{PublicKey: s.signing.PublicKeyHex()}, nil

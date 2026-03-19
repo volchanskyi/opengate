@@ -25,7 +25,7 @@ export class WebRTCTransport {
   private desktopChannel: RTCDataChannel | null = null;
   private bulkChannel: RTCDataChannel | null = null;
   private _state: WebRTCState = 'idle';
-  private events: TransportEvents;
+  private readonly events: TransportEvents;
   private pendingCandidates: Array<{ candidate: string; mid: string }> = [];
   private remoteDescSet = false;
 
@@ -204,7 +204,7 @@ export class WebRTCTransport {
   }
 
   private sendOnChannel(channel: RTCDataChannel | null, data: Uint8Array): void {
-    if (!channel || channel.readyState !== 'open') {
+    if (channel?.readyState !== 'open') {
       throw new Error(`DataChannel ${channel?.label ?? 'unknown'} not open`);
     }
     channel.send(data as Uint8Array<ArrayBuffer>);

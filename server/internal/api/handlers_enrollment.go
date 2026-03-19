@@ -102,43 +102,21 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 		return nil, fmt.Errorf("cert provider not configured")
 	}
 
-	et, err := s.store.GetEnrollmentTokenByToken(ctx, request.Token)
+	et, resp, err := s.validateEnrollmentToken(ctx, request.Token)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			return Enroll404JSONResponse{Error: "invalid enrollment token"}, nil
-		}
-		return nil, fmt.Errorf("get enrollment token: %w", err)
+		return nil, err
+	}
+	if resp != nil {
+		return resp, nil
 	}
 
-	// Check expiry.
-	if time.Now().UTC().After(et.ExpiresAt) {
-		return Enroll410JSONResponse{Error: "enrollment token expired"}, nil
-	}
-
-	// Check usage limit (0 = unlimited).
-	if et.MaxUses > 0 && et.UseCount >= et.MaxUses {
-		return Enroll410JSONResponse{Error: "enrollment token exhausted"}, nil
-	}
-
-	// Increment use count.
 	if err := s.store.IncrementEnrollmentTokenUseCount(ctx, et.ID); err != nil {
 		return nil, fmt.Errorf("increment token use count: %w", err)
 	}
 
-	// Derive server address from the HTTP request host.
-	httpReq := httpRequestFromContext(ctx)
-	host := httpReq.Host
-	// Strip port if present to get just the hostname.
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
+	host, quicHost := s.deriveEnrollHosts(ctx)
 
-	quicHost := host
-	if s.quicHost != "" {
-		quicHost = s.quicHost
-	}
-
-	resp := Enroll200JSONResponse{
+	result := Enroll200JSONResponse{
 		CaPem:        string(s.cert.CACertPEM()),
 		ServerAddr:   quicHost + ":9090",
 		ServerDomain: host,
@@ -151,10 +129,47 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 			s.logger.Warn("CSR signing failed", "error", err)
 			return Enroll400JSONResponse{Error: "invalid enrollment request"}, nil
 		}
-		resp.CertPem = &certPEM
+		result.CertPem = &certPEM
 	}
 
-	return resp, nil
+	return result, nil
+}
+
+// validateEnrollmentToken fetches the token and checks expiry/usage limits.
+// Returns (token, nil, nil) on success, or (nil, response, nil) for client errors.
+func (s *Server) validateEnrollmentToken(ctx context.Context, token string) (*db.EnrollmentToken, EnrollResponseObject, error) {
+	et, err := s.store.GetEnrollmentTokenByToken(ctx, token)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return nil, Enroll404JSONResponse{Error: "invalid enrollment token"}, nil
+		}
+		return nil, nil, fmt.Errorf("get enrollment token: %w", err)
+	}
+
+	if time.Now().UTC().After(et.ExpiresAt) {
+		return nil, Enroll410JSONResponse{Error: "enrollment token expired"}, nil
+	}
+
+	if et.MaxUses > 0 && et.UseCount >= et.MaxUses {
+		return nil, Enroll410JSONResponse{Error: "enrollment token exhausted"}, nil
+	}
+
+	return et, nil, nil
+}
+
+// deriveEnrollHosts extracts the hostname and QUIC address from the request context.
+func (s *Server) deriveEnrollHosts(ctx context.Context) (host, quicHost string) {
+	httpReq := httpRequestFromContext(ctx)
+	host = httpReq.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	quicHost = host
+	if s.quicHost != "" {
+		quicHost = s.quicHost
+	}
+	return host, quicHost
 }
 
 // signCSR decodes a PEM-encoded CSR, signs it with the server CA,

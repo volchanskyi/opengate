@@ -26,7 +26,7 @@ export interface TransportEvents {
 export class WSTransport {
   private ws: WebSocket | null = null;
   private _state: ConnectionState = 'disconnected';
-  private events: TransportEvents;
+  private readonly events: TransportEvents;
 
   constructor(events: TransportEvents) {
     this.events = events;
@@ -102,7 +102,7 @@ export class WSTransport {
   }
 
   private sendRaw(data: Uint8Array): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
     this.ws.send(data);

@@ -78,16 +78,11 @@ export function FileManagerView() {
                   <span>{entry.name}</span>
                 )}
                 {downloads[entry.name] !== undefined && (
-                  <div
-                    role="progressbar"
-                    aria-valuenow={Math.round(downloads[entry.name]! * 100)}
-                    className="mt-1 h-1 bg-gray-700 rounded-full overflow-hidden"
-                  >
-                    <div
-                      className="h-full bg-blue-500"
-                      style={{ width: `${downloads[entry.name]! * 100}%` }}
-                    />
-                  </div>
+                  <progress
+                    value={Math.round(downloads[entry.name]! * 100)}
+                    max={100}
+                    className="mt-1 h-1 w-full rounded-full overflow-hidden [&::-webkit-progress-bar]:bg-gray-700 [&::-webkit-progress-value]:bg-blue-500 [&::-moz-progress-bar]:bg-blue-500"
+                  />
                 )}
               </td>
               <td className="py-2 pr-4 text-gray-400">

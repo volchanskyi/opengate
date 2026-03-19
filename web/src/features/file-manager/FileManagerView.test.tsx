@@ -59,7 +59,7 @@ describe('FileManagerView', () => {
   it('shows download progress bar', () => {
     useFileStore.setState({ downloads: { 'file.txt': 0.5 } });
     render(<FileManagerView />);
-    const progressBar = document.querySelector('[role="progressbar"]');
+    const progressBar = document.querySelector('progress');
     expect(progressBar).toBeInTheDocument();
   });
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -154,7 +155,14 @@ func (s *Server) routes() {
 			// Try to serve the exact file first (JS, CSS, images, etc.)
 			path := r.URL.Path
 			if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/ws/") {
-				if f, err := os.Open(s.webDir + path); err == nil {
+				// Sanitize path to prevent directory traversal attacks.
+				cleanPath := filepath.Clean(filepath.Join(s.webDir, path))
+				if !strings.HasPrefix(cleanPath, filepath.Clean(s.webDir)+string(filepath.Separator)) &&
+					cleanPath != filepath.Clean(s.webDir) {
+					http.NotFound(w, r)
+					return
+				}
+				if f, err := os.Open(cleanPath); err == nil {
 					f.Close()
 					fileServer.ServeHTTP(w, r)
 					return

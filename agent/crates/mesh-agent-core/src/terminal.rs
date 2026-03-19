@@ -54,7 +54,7 @@ impl TerminalSession {
             .spawn_command(cmd)
             .map_err(|e| SessionError::Terminal(e.to_string()))?;
 
-        let mut reader = self
+        let reader = self
             .pair
             .master
             .try_clone_reader()
@@ -74,31 +74,7 @@ impl TerminalSession {
         let reader_running = running.clone();
         let reader_shutdown = shutdown.clone();
         tokio::task::spawn_blocking(move || {
-            let mut buf = [0u8; 4096];
-            loop {
-                if !reader_running.load(Ordering::Relaxed)
-                    || reader_shutdown.load(Ordering::Relaxed)
-                {
-                    break;
-                }
-                match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let frame = Frame::Terminal(TerminalFrame {
-                            data: buf[..n].to_vec(),
-                        });
-                        if let Ok(encoded) = frame.encode() {
-                            if frame_tx.blocking_send(encoded).is_err() {
-                                break;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        debug!("PTY read error: {e}");
-                        break;
-                    }
-                }
-            }
+            pty_reader_loop(reader, frame_tx.clone(), reader_running, reader_shutdown);
         });
 
         // Spawn stdin writer
@@ -120,6 +96,38 @@ impl TerminalSession {
         });
 
         Ok(TerminalHandle::new(stdin_tx, resize_tx, shutdown))
+    }
+}
+
+/// Read PTY output and send encoded terminal frames.
+fn pty_reader_loop(
+    mut reader: Box<dyn Read + Send>,
+    frame_tx: mpsc::Sender<Vec<u8>>,
+    running: Arc<AtomicBool>,
+    shutdown: Arc<AtomicBool>,
+) {
+    let mut buf = [0u8; 4096];
+    loop {
+        if !running.load(Ordering::Relaxed) || shutdown.load(Ordering::Relaxed) {
+            break;
+        }
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                let frame = Frame::Terminal(TerminalFrame {
+                    data: buf[..n].to_vec(),
+                });
+                if let Ok(encoded) = frame.encode() {
+                    if frame_tx.blocking_send(encoded).is_err() {
+                        break;
+                    }
+                }
+            }
+            Err(e) => {
+                debug!("PTY read error: {e}");
+                break;
+            }
+        }
     }
 }
 

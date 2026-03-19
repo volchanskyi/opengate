@@ -50,8 +50,9 @@ export function ManifestPublishForm({
         <form onSubmit={handlePublish} className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4 space-y-3">
           <div className="flex gap-4">
             <div className="flex-1">
-              <label className="block text-sm text-gray-400 mb-1">Version</label>
+              <label htmlFor="manifest-version" className="block text-sm text-gray-400 mb-1">Version</label>
               <input
+                id="manifest-version"
                 type="text"
                 value={publishForm.version}
                 onChange={(e) => setPublishForm({ ...publishForm, version: e.target.value })}
@@ -61,8 +62,9 @@ export function ManifestPublishForm({
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">OS</label>
+              <label htmlFor="manifest-os" className="block text-sm text-gray-400 mb-1">OS</label>
               <select
+                id="manifest-os"
                 value={publishForm.os}
                 onChange={(e) => setPublishForm({ ...publishForm, os: e.target.value })}
                 className="bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm"
@@ -71,8 +73,9 @@ export function ManifestPublishForm({
               </select>
             </div>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Arch</label>
+              <label htmlFor="manifest-arch" className="block text-sm text-gray-400 mb-1">Arch</label>
               <select
+                id="manifest-arch"
                 value={publishForm.arch}
                 onChange={(e) => setPublishForm({ ...publishForm, arch: e.target.value })}
                 className="bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm"
@@ -83,8 +86,9 @@ export function ManifestPublishForm({
             </div>
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">URL</label>
+            <label htmlFor="manifest-url" className="block text-sm text-gray-400 mb-1">URL</label>
             <input
+              id="manifest-url"
               type="url"
               value={publishForm.url}
               onChange={(e) => setPublishForm({ ...publishForm, url: e.target.value })}
@@ -94,8 +98,9 @@ export function ManifestPublishForm({
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">SHA256</label>
+            <label htmlFor="manifest-sha256" className="block text-sm text-gray-400 mb-1">SHA256</label>
             <input
+              id="manifest-sha256"
               type="text"
               value={publishForm.sha256}
               onChange={(e) => setPublishForm({ ...publishForm, sha256: e.target.value })}
