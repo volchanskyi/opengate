@@ -52,9 +52,20 @@ func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject
 }
 
 // UpdateUser implements StrictServerInterface.
+// Admins can update any user. Non-admins can update their own display_name only.
 func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject) (UpdateUserResponseObject, error) {
-	if resp, denied := denyIfNotAdmin(ctx, UpdateUser403JSONResponse{Error: msgAdminRequired}); denied {
-		return resp, nil
+	callerID := ContextUserID(ctx)
+	isSelf := callerID == request.Id
+	admin := isAdmin(ctx)
+
+	// Non-admins can only update their own profile, and only display_name
+	if !admin {
+		if !isSelf {
+			return UpdateUser403JSONResponse{Error: msgAdminRequired}, nil
+		}
+		if request.Body.IsAdmin != nil {
+			return UpdateUser403JSONResponse{Error: msgAdminRequired}, nil
+		}
 	}
 
 	user, err := s.store.GetUser(ctx, request.Id)

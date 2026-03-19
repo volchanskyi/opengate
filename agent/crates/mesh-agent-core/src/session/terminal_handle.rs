@@ -35,6 +35,13 @@ impl TerminalHandle {
         }
     }
 
+    /// Send raw bytes to the terminal stdin (used for TerminalFrame data from browser).
+    pub fn send_raw(&self, data: Vec<u8>) {
+        if !data.is_empty() {
+            let _ = self.stdin_tx.try_send(data);
+        }
+    }
+
     /// Resize the terminal.
     pub fn resize(&self, cols: u16, rows: u16) {
         let _ = self.resize_tx.try_send((cols, rows));

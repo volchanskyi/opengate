@@ -66,11 +66,12 @@ func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.Sessi
 }
 
 // SendAgentUpdate sends an AgentUpdate control message to the agent.
-func (a *AgentConn) SendAgentUpdate(ctx context.Context, version, url, signature string) error {
+func (a *AgentConn) SendAgentUpdate(ctx context.Context, version, url, sha256, signature string) error {
 	msg := &protocol.ControlMessage{
 		Type:      protocol.MsgAgentUpdate,
 		Version:   version,
 		URL:       url,
+		SHA256:    sha256,
 		Signature: signature,
 	}
 

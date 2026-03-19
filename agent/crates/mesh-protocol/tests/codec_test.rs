@@ -35,6 +35,7 @@ fn test_control_message_roundtrip_msgpack() {
         ControlMessage::AgentUpdate {
             version: "1.2.3".to_string(),
             url: "https://update.example.com/agent-1.2.3".to_string(),
+            sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_string(),
             signature: "abc123".to_string(),
         },
         ControlMessage::RelayReady,

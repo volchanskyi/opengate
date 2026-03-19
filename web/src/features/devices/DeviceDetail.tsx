@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDeviceStore } from '../../state/device-store';
 import { useSessionStore } from '../../state/session-store';
+import { useAMTStore } from '../../state/amt-store';
+import { useToastStore } from '../../state/toast-store';
 import { StatusBadge } from './StatusBadge';
+import type { components } from '../../types/api';
+
+type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 
 export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -14,14 +19,43 @@ export function DeviceDetail() {
   const sessions = useSessionStore((s) => s.sessions);
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
   const createSession = useSessionStore((s) => s.createSession);
+  const amtDevices = useAMTStore((s) => s.amtDevices);
+  const fetchAmtDevices = useAMTStore((s) => s.fetchAmtDevices);
+  const sendPowerAction = useAMTStore((s) => s.sendPowerAction);
+  const addToast = useToastStore((s) => s.addToast);
+  const groups = useDeviceStore((s) => s.groups);
+  const fetchGroups = useDeviceStore((s) => s.fetchGroups);
+  const updateDeviceGroup = useDeviceStore((s) => s.updateDeviceGroup);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState('');
 
   useEffect(() => {
     if (id) {
       fetchDevice(id);
       fetchSessions(id);
     }
-  }, [id, fetchDevice, fetchSessions]);
+    fetchAmtDevices();
+    fetchGroups();
+  }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups]);
+
+  const amtDevice = device ? amtDevices.find((a) => a.hostname === device.hostname) : undefined;
+
+  const handlePowerAction = async (action: PowerAction) => {
+    const destructive = action === 'power_cycle' || action === 'hard_reset';
+    if (destructive && confirmPowerAction !== action) {
+      setConfirmPowerAction(action);
+      return;
+    }
+    setConfirmPowerAction(null);
+    if (!amtDevice) return;
+    const ok = await sendPowerAction(amtDevice.uuid, action);
+    if (ok) {
+      addToast(`Power action "${action.replace('_', ' ')}" sent`, 'success');
+    } else {
+      addToast(`Failed to send power action`, 'error');
+    }
+  };
 
   if (isLoading || !device) {
     return (
@@ -44,6 +78,17 @@ export function DeviceDetail() {
     navigate('/devices');
   };
 
+  const handleMoveGroup = async () => {
+    if (!selectedGroupId || selectedGroupId === device.group_id) return;
+    const ok = await updateDeviceGroup(device.id, selectedGroupId);
+    if (ok) {
+      addToast('Device moved to new group', 'success');
+      setSelectedGroupId('');
+    } else {
+      addToast('Failed to move device', 'error');
+    }
+  };
+
   const handleStartSession = async () => {
     const result = await createSession(device.id);
     if (result) {
@@ -53,14 +98,6 @@ export function DeviceDetail() {
 
   return (
     <div className="p-6 max-w-2xl">
-      <button
-        type="button"
-        onClick={() => navigate('/devices')}
-        className="text-sm text-gray-400 hover:text-white mb-4 inline-block"
-      >
-        &larr; Back to devices
-      </button>
-
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold">{device.hostname}</h2>
@@ -92,6 +129,32 @@ export function DeviceDetail() {
           )}
         </dl>
 
+        {groups.length > 1 && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-300 mb-2">Move to Group</h3>
+            <div className="flex gap-2">
+              <select
+                value={selectedGroupId}
+                onChange={(e) => setSelectedGroupId(e.target.value)}
+                className="bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-sm flex-1"
+              >
+                <option value="">Select group...</option>
+                {groups.filter((g) => g.id !== device.group_id).map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={handleMoveGroup}
+                disabled={!selectedGroupId}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm disabled:opacity-50"
+              >
+                Move
+              </button>
+            </div>
+          </div>
+        )}
+
         {sessions.length > 0 && (
           <div>
             <h3 className="text-sm font-semibold text-gray-300 mb-2">Active Sessions ({sessions.length})</h3>
@@ -100,6 +163,30 @@ export function DeviceDetail() {
                 <li key={s.token} className="text-xs text-gray-400 font-mono truncate">{s.token}</li>
               ))}
             </ul>
+          </div>
+        )}
+
+        {amtDevice && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-300 mb-2">AMT Power Actions</h3>
+            <p className="text-xs text-gray-500 mb-2">
+              AMT Status: <span className={amtDevice.status === 'online' ? 'text-green-400' : 'text-red-400'}>{amtDevice.status === 'online' ? 'Online' : 'Offline'}</span>
+              {amtDevice.model && <> &middot; {amtDevice.model}</>}
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              <button type="button" onClick={() => handlePowerAction('power_on')} className="px-3 py-1 bg-green-700 hover:bg-green-600 rounded text-xs">
+                Power On
+              </button>
+              <button type="button" onClick={() => handlePowerAction('soft_off')} className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-xs">
+                Soft Off
+              </button>
+              <button type="button" onClick={() => handlePowerAction('power_cycle')} className="px-3 py-1 bg-orange-700 hover:bg-orange-600 rounded text-xs">
+                {confirmPowerAction === 'power_cycle' ? 'Confirm Cycle' : 'Power Cycle'}
+              </button>
+              <button type="button" onClick={() => handlePowerAction('hard_reset')} className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded text-xs">
+                {confirmPowerAction === 'hard_reset' ? 'Confirm Reset' : 'Hard Reset'}
+              </button>
+            </div>
           </div>
         )}
 

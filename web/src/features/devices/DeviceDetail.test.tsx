@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { useDeviceStore } from '../../state/device-store';
 import { useSessionStore } from '../../state/session-store';
+import { useAMTStore } from '../../state/amt-store';
 import { DeviceDetail } from './DeviceDetail';
 
 vi.mock('../../lib/api', () => ({
@@ -49,7 +50,17 @@ describe('DeviceDetail', () => {
       groups: [],
       selectedGroupId: null,
       fetchDevice: vi.fn(),
+      fetchGroups: vi.fn(),
       deleteDevice: vi.fn(),
+    });
+    useAMTStore.setState({
+      amtDevices: [],
+      selectedAmtDevice: null,
+      isLoading: false,
+      error: null,
+      fetchAmtDevices: vi.fn(),
+      fetchAmtDevice: vi.fn(),
+      sendPowerAction: vi.fn(),
     });
     useSessionStore.setState({
       sessions: [{ token: 'tok1', device_id: 'd1', user_id: 'u1', created_at: '' }],
@@ -92,11 +103,8 @@ describe('DeviceDetail', () => {
     expect(screen.getByText('Confirm Delete')).toBeInTheDocument();
   });
 
-  it('navigates back on back button', async () => {
-    const user = userEvent.setup();
+  it('shows agent version', () => {
     renderDetail();
-
-    await user.click(screen.getByText(/Back to devices/));
-    expect(screen.getByText('Device List')).toBeInTheDocument();
+    expect(screen.getByText('1.0.0')).toBeInTheDocument();
   });
 });

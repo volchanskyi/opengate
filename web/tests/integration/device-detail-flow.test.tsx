@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { useAuthStore } from '../../src/state/auth-store';
 import { useDeviceStore } from '../../src/state/device-store';
 import { useSessionStore } from '../../src/state/session-store';
+import { useAMTStore } from '../../src/state/amt-store';
 import { AuthGuard } from '../../src/features/auth/AuthGuard';
 import { Layout } from '../../src/components/Layout';
 import { DeviceDetail } from '../../src/features/devices/DeviceDetail';
@@ -78,6 +79,13 @@ describe('Device Detail Flow (integration)', () => {
       deleteDevice: vi.fn(),
       fetchGroups: vi.fn(),
     });
+    useAMTStore.setState({
+      amtDevices: [],
+      isLoading: false,
+      error: null,
+      fetchAmtDevices: vi.fn(),
+      sendPowerAction: vi.fn(),
+    });
     useSessionStore.setState({
       sessions: [{ token: 'sess-1', device_id: 'd1', user_id: 'u1', created_at: '' }],
       isLoading: false,
@@ -90,7 +98,7 @@ describe('Device Detail Flow (integration)', () => {
   it('shows device info within layout', () => {
     renderDeviceDetailFlow();
     expect(screen.getByText('OpenGate')).toBeInTheDocument();
-    expect(screen.getByText('prod-server')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'prod-server' })).toBeInTheDocument();
     expect(screen.getByText('linux')).toBeInTheDocument();
     expect(screen.getByText('Online')).toBeInTheDocument();
   });
@@ -101,12 +109,13 @@ describe('Device Detail Flow (integration)', () => {
     expect(screen.getByText('sess-1')).toBeInTheDocument();
   });
 
-  it('navigates back to device list', async () => {
-    useDeviceStore.setState({ fetchGroups: vi.fn() });
+  it('navigates back to device list via breadcrumbs', async () => {
+    useDeviceStore.setState({ fetchGroups: vi.fn(), fetchDevices: vi.fn() });
     const user = userEvent.setup();
     renderDeviceDetailFlow();
 
-    await user.click(screen.getByText(/Back to devices/));
+    const devicesLinks = screen.getAllByRole('link', { name: 'Devices' });
+    await user.click(devicesLinks[0]!);
     expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
   });
 

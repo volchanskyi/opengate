@@ -85,9 +85,29 @@ func TestUserHandlers(t *testing.T) {
 		assert.Equal(t, "New Name", u.DisplayName)
 	})
 
-	t.Run("update user as regular user forbidden", func(t *testing.T) {
+	t.Run("regular user can update own display name", func(t *testing.T) {
+		selfUser, selfToken := seedTestUser(t, srv, cfg, "self-edit@example.com", false)
+		body := map[string]interface{}{"display_name": "My New Name"}
+		w := doRequest(srv, http.MethodPatch, "/api/v1/users/"+selfUser.ID.String(), selfToken, body)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var u User
+		json.NewDecoder(w.Body).Decode(&u)
+		assert.Equal(t, "My New Name", u.DisplayName)
+	})
+
+	t.Run("regular user cannot update another user", func(t *testing.T) {
+		_, otherToken := seedTestUser(t, srv, cfg, "other@example.com", false)
+		target, _ := seedTestUser(t, srv, cfg, "target@example.com", false)
 		body := map[string]interface{}{"display_name": "Hacked"}
-		w := doRequest(srv, http.MethodPatch, "/api/v1/users/"+regularUser.ID.String(), regularToken, body)
+		w := doRequest(srv, http.MethodPatch, "/api/v1/users/"+target.ID.String(), otherToken, body)
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
+
+	t.Run("regular user cannot set is_admin on self", func(t *testing.T) {
+		selfUser, selfToken := seedTestUser(t, srv, cfg, "escalate@example.com", false)
+		body := map[string]interface{}{"is_admin": true}
+		w := doRequest(srv, http.MethodPatch, "/api/v1/users/"+selfUser.ID.String(), selfToken, body)
 		assert.Equal(t, http.StatusForbidden, w.Code)
 	})
 

@@ -1,8 +1,8 @@
 import { test, expect } from "./fixtures";
 
 test.describe("Admin panel", () => {
-  test("non-admin is blocked from /admin", async ({ authedPage }) => {
-    await authedPage.goto("/admin/users");
+  test("non-admin is blocked from /settings", async ({ authedPage }) => {
+    await authedPage.goto("/settings/users");
 
     // AdminGuard should redirect non-admin users or show forbidden
     await expect(
@@ -11,17 +11,15 @@ test.describe("Admin panel", () => {
         .or(authedPage.locator("body"))
     ).toBeVisible();
 
-    // URL should not stay on /admin
+    // URL should not stay on /settings (should redirect to /devices or /login)
     const url = authedPage.url();
     expect(
-      url.includes("/admin") === false ||
-        url.includes("/devices") ||
-        url.includes("/login")
+      url.includes("/settings/users") === false
     ).toBeTruthy();
   });
 
-  test("admin can see user list at /admin/users", async ({ adminPage }) => {
-    await adminPage.goto("/admin/users");
+  test("admin can see user list at /settings/users", async ({ adminPage }) => {
+    await adminPage.goto("/settings/users");
 
     await expect(
       adminPage.getByRole("heading", { name: /user management/i })
@@ -31,7 +29,7 @@ test.describe("Admin panel", () => {
   });
 
   test("audit log page loads", async ({ adminPage }) => {
-    await adminPage.goto("/admin/audit");
+    await adminPage.goto("/settings/audit");
 
     await expect(
       adminPage.getByRole("heading", { name: /audit/i })
@@ -41,7 +39,7 @@ test.describe("Admin panel", () => {
   test("admin sidebar shows Management and Security sections", async ({
     adminPage,
   }) => {
-    await adminPage.goto("/admin");
+    await adminPage.goto("/settings");
 
     await expect(adminPage.getByText("Management", { exact: true })).toBeVisible();
     await expect(
