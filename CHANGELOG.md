@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.0] - 2026-03-19
+
+### Added
+- close web UI API coverage gaps, fix 4 agent/session bugs
+
+## [v0.8.1] - 2026-03-18
+
+### Fixed
+- use X-Forwarded-Proto for relay URL scheme behind reverse proxy
+
+## [v0.8.0] - 2026-03-18
+
+### Added
+- list all devices without requiring group_id filter
+
+## [v0.7.7] - 2026-03-18
+
+### Fixed
+- nullable device group_id to prevent FK violation on agent registration
+
+## [v0.7.6] - 2026-03-18
+
+### Fixed
+- CSR-based agent enrollment to resolve TLS error 48 (unknown_ca)
+
+## [v0.7.5] - 2026-03-18
+
+### Fixed
+- use actual hostname as QUIC TLS SNI, fix E2E strict mode violation
+
+### Changed
+- DRY helpers, module splits, and polish across all layers
+
+## [v0.7.4] - 2026-03-18
+
+### Fixed
+- add missing global-teardown.ts for Playwright config
+- use cross for aarch64 musl build instead of musl.cc download
+
 ## [v0.7.3] - 2026-03-18
 
 ### Fixed
