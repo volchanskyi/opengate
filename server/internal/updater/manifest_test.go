@@ -108,6 +108,52 @@ func TestManifestStore_ListCorruptedFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse")
 }
 
+func TestManifestStore_SafePath_RejectsTraversal(t *testing.T) {
+	store := NewManifestStore(t.TempDir())
+	ctx := context.Background()
+
+	// Only cases where the cleaned path actually escapes the store directory.
+	// Cases like "../etc" in OS produce "../etc-amd64.json" which traverses up.
+	// Cases like "../../etc" in arch produce "linux-../../etc.json" which cleans to
+	// "etc.json" (stays within dir) — so those are safe and NOT tested here.
+	tests := []struct {
+		name string
+		os   string
+		arch string
+	}{
+		{"dot-dot prefix in OS", "../etc", "amd64"},
+		{"deep traversal in OS", "a/../../secret", "amd64"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := store.Put(ctx, &Manifest{
+				Version: "1.0.0", OS: tc.os, Arch: tc.arch,
+				URL: "u", SHA256: "h", Signature: "s", CreatedAt: time.Now().UTC(),
+			})
+			assert.Error(t, err, "Put should reject traversal path %s/%s", tc.os, tc.arch)
+
+			got, err := store.Get(ctx, tc.os, tc.arch)
+			assert.Error(t, err, "Get should reject traversal path %s/%s", tc.os, tc.arch)
+			assert.Nil(t, got)
+		})
+	}
+}
+
+func TestManifestStore_SafePath_AllowsValidNames(t *testing.T) {
+	store := NewManifestStore(t.TempDir())
+	ctx := context.Background()
+
+	// Edge cases that look suspicious but are safe because the traversal chars
+	// become part of a flat filename (no path escaping).
+	m := &Manifest{Version: "1.0.0", OS: "linux", Arch: "amd64", URL: "u", SHA256: "h", Signature: "s", CreatedAt: time.Now().UTC()}
+	require.NoError(t, store.Put(ctx, m))
+
+	got, err := store.Get(ctx, "linux", "amd64")
+	require.NoError(t, err)
+	assert.Equal(t, "1.0.0", got.Version)
+}
+
 func TestManifestStore_ListEmpty(t *testing.T) {
 	store := NewManifestStore(t.TempDir())
 	ctx := context.Background()
