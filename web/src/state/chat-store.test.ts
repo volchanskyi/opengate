@@ -30,6 +30,17 @@ describe('chat-store', () => {
     expect(messages[1]!.text).toBe('second');
   });
 
+  it('addMessage assigns unique ids', () => {
+    const { addMessage } = useChatStore.getState();
+    addMessage({ text: 'a', sender: 'browser' });
+    addMessage({ text: 'b', sender: 'agent' });
+
+    const { messages } = useChatStore.getState();
+    expect(messages[0]!.id).toBeDefined();
+    expect(messages[1]!.id).toBeDefined();
+    expect(messages[0]!.id).not.toEqual(messages[1]!.id);
+  });
+
   it('clearMessages resets to empty', () => {
     const { addMessage, clearMessages } = useChatStore.getState();
     addMessage({ text: 'hello', sender: 'browser' });

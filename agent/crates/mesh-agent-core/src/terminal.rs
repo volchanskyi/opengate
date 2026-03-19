@@ -74,7 +74,7 @@ impl TerminalSession {
         let reader_running = running.clone();
         let reader_shutdown = shutdown.clone();
         tokio::task::spawn_blocking(move || {
-            pty_reader_loop(reader, frame_tx.clone(), reader_running, reader_shutdown);
+            pty_reader_loop(reader, frame_tx, reader_running, reader_shutdown);
         });
 
         // Spawn stdin writer
