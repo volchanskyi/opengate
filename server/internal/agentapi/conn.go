@@ -131,6 +131,15 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		} else {
 			a.logger.Warn("agent update failed", "device_id", a.DeviceID, "version", msg.Version, "error", msg.AckError)
 		}
+
+		// Persist update outcome.
+		status := db.UpdateStatusSuccess
+		if !success {
+			status = db.UpdateStatusFailed
+		}
+		if err := a.store.UpdateDeviceUpdateStatus(ctx, a.DeviceID, msg.Version, status, msg.AckError); err != nil {
+			a.logger.Warn("persist update ack failed", "device_id", a.DeviceID, "error", err)
+		}
 		return nil
 	default:
 		return fmt.Errorf("%w: %s", ErrUnexpectedMessage, msg.Type)

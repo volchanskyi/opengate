@@ -36,6 +36,8 @@ hex = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 serde_json = "1"
 
+semver = "1"
+
 # Dev dependencies
 proptest = "1"
 tempfile = "3"

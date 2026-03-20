@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -109,6 +110,38 @@ func SyncFromGitHub(ctx context.Context, repo, apiBase string, signing *SigningK
 	}
 
 	return synced, nil
+}
+
+// StartPeriodicSync runs SyncFromGitHub immediately and then on the given
+// interval until ctx is cancelled. Pass interval=0 for the default (1 hour).
+func StartPeriodicSync(ctx context.Context, repo string, interval time.Duration, signing *SigningKeys, store *ManifestStore, logger *slog.Logger) {
+	if interval == 0 {
+		interval = time.Hour
+	}
+	sync := func() {
+		syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		synced, err := SyncFromGitHub(syncCtx, repo, "", signing, store)
+		if err != nil {
+			logger.Warn("github manifest sync failed", "repo", repo, "error", err)
+		} else {
+			logger.Info("synced manifests from github", "repo", repo, "count", len(synced))
+		}
+	}
+
+	// Initial sync immediately.
+	sync()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sync()
+		}
+	}
 }
 
 // fetchSHA256 downloads a .sha256 file and returns the hex digest.
