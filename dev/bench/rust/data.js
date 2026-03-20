@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773985731219,
+  "lastUpdate": 1773986411267,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5267,6 +5267,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.163449105997607,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "bd19654d62ab3d91f6245748634a872a1c477146",
+          "message": "ci: remove Dependabot auto-merge workflow\n\nDependabot PRs now require manual owner review and approval before\nmerging. The dependabot-dev branch isolation and all CI triggers remain\nunchanged.",
+          "timestamp": "2026-03-19T22:58:19-07:00",
+          "tree_id": "fb72db45abf478795d8eeb245f13baf4895d9e2f",
+          "url": "https://github.com/volchanskyi/opengate/commit/bd19654d62ab3d91f6245748634a872a1c477146"
+        },
+        "date": 1773986411223,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.291043681215182,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.41674141205427,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 738.7937206091331,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 333.7878742016177,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.064476089452,
             "unit": "ns/iter"
           }
         ]
