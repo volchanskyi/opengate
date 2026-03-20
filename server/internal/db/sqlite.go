@@ -672,6 +672,7 @@ func scanDeviceUpdateFrom(sc scanner) (*DeviceUpdate, error) {
 	return &du, nil
 }
 
+// CreateDeviceUpdate inserts a new device update record (typically with status "pending").
 func (s *SQLiteStore) CreateDeviceUpdate(ctx context.Context, du *DeviceUpdate) error {
 	now := nowRFC3339()
 	res, err := s.db.ExecContext(ctx,
@@ -684,6 +685,7 @@ func (s *SQLiteStore) CreateDeviceUpdate(ctx context.Context, du *DeviceUpdate) 
 	return err
 }
 
+// UpdateDeviceUpdateStatus sets the status and acked_at timestamp for a device update record.
 func (s *SQLiteStore) UpdateDeviceUpdateStatus(ctx context.Context, deviceID DeviceID, version string, status UpdateStatus, errMsg string) error {
 	now := nowRFC3339()
 	return s.execAndCheckAffected(ctx,
@@ -691,6 +693,7 @@ func (s *SQLiteStore) UpdateDeviceUpdateStatus(ctx context.Context, deviceID Dev
 		string(status), errMsg, now, deviceID.String(), version)
 }
 
+// ListDeviceUpdatesByVersion returns all device update records for a given version, ordered by push time.
 func (s *SQLiteStore) ListDeviceUpdatesByVersion(ctx context.Context, version string) ([]*DeviceUpdate, error) {
 	return queryList(ctx, s.db, scanDeviceUpdateFrom,
 		`SELECT id, device_id, version, status, error, pushed_at, acked_at FROM device_updates WHERE version = ? ORDER BY pushed_at DESC`,

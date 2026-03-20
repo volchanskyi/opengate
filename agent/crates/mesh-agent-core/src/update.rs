@@ -126,14 +126,14 @@ pub async fn rollback(binary_path: &Path) -> Result<bool, UpdateError> {
     Ok(true)
 }
 
-/// Returns `true` if an `.update-pending` sentinel exists (post-update, pre-verify).
+/// Returns `true` if the update-pending sentinel exists (post-update, pre-verify).
 pub fn is_update_pending(data_dir: &Path) -> bool {
-    data_dir.join(".update-pending").exists()
+    data_dir.join(SENTINEL_UPDATE_PENDING).exists()
 }
 
-/// Removes the `.update-pending` sentinel after successful verification.
+/// Removes the update-pending sentinel after successful verification.
 pub async fn clear_update_pending(data_dir: &Path) {
-    let path = data_dir.join(".update-pending");
+    let path = data_dir.join(SENTINEL_UPDATE_PENDING);
     if let Err(e) = fs::remove_file(&path).await {
         if e.kind() != std::io::ErrorKind::NotFound {
             warn!(error = %e, "failed to clear update-pending sentinel");
@@ -143,7 +143,7 @@ pub async fn clear_update_pending(data_dir: &Path) {
 
 /// Reads the rollback counter (number of consecutive rollbacks).
 pub async fn rollback_count(data_dir: &Path) -> u32 {
-    let path = data_dir.join(".rollback-count");
+    let path = data_dir.join(FILE_ROLLBACK_COUNT);
     match fs::read_to_string(&path).await {
         Ok(s) => s.trim().parse().unwrap_or(0),
         Err(_) => 0,
@@ -153,22 +153,28 @@ pub async fn rollback_count(data_dir: &Path) -> u32 {
 /// Increments the rollback counter file.
 pub async fn increment_rollback_count(data_dir: &Path) {
     let count = rollback_count(data_dir).await + 1;
-    let path = data_dir.join(".rollback-count");
+    let path = data_dir.join(FILE_ROLLBACK_COUNT);
     let _ = fs::write(&path, count.to_string()).await;
 }
 
 /// Resets the rollback counter to zero (called after a healthy start).
 pub async fn reset_rollback_count(data_dir: &Path) {
-    let path = data_dir.join(".rollback-count");
+    let path = data_dir.join(FILE_ROLLBACK_COUNT);
     let _ = fs::remove_file(&path).await;
 }
 
 /// Maximum consecutive rollbacks before giving up.
 pub const MAX_ROLLBACKS: u32 = 2;
 
-/// Writes the `.update-pending` sentinel after a successful binary replacement.
+/// Sentinel file written after a binary replacement, cleared after healthy start.
+const SENTINEL_UPDATE_PENDING: &str = ".update-pending";
+
+/// Counter file tracking consecutive rollback attempts.
+const FILE_ROLLBACK_COUNT: &str = ".rollback-count";
+
+/// Writes the update-pending sentinel after a successful binary replacement.
 async fn write_update_pending(data_dir: &Path) {
-    let path = data_dir.join(".update-pending");
+    let path = data_dir.join(SENTINEL_UPDATE_PENDING);
     if let Err(e) = fs::write(&path, b"1").await {
         warn!(error = %e, "failed to write update-pending sentinel");
     }

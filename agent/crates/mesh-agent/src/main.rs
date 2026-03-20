@@ -5,7 +5,7 @@
 //! Exit code 42 signals the service manager to restart after an update.
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -324,6 +324,7 @@ async fn main() -> Result<()> {
     // The watchdog is cancelled once we successfully register with the server.
     // If registration doesn't happen within 60 seconds, rollback and restart.
     let pending_update = mesh_agent_core::update::is_update_pending(&args.data_dir);
+    let watchdog_cancel = Arc::new(tokio::sync::Notify::new());
     if pending_update {
         let count = mesh_agent_core::update::rollback_count(&args.data_dir).await;
         if count >= mesh_agent_core::update::MAX_ROLLBACKS {
@@ -338,40 +339,8 @@ async fn main() -> Result<()> {
                 count,
                 "post-update watchdog active, will rollback if registration fails within 60s"
             );
+            spawn_update_watchdog(&args.data_dir, &update_config, watchdog_cancel.clone());
         }
-    }
-    let watchdog_cancel = Arc::new(tokio::sync::Notify::new());
-    if pending_update
-        && mesh_agent_core::update::rollback_count(&args.data_dir).await
-            < mesh_agent_core::update::MAX_ROLLBACKS
-    {
-        let data_dir = args.data_dir.clone();
-        let binary_path = update_config
-            .as_ref()
-            .map(|c| c.current_binary_path.clone())
-            .unwrap_or_else(|| {
-                std::env::current_exe().unwrap_or_else(|_| PathBuf::from("mesh-agent"))
-            });
-        let cancel = watchdog_cancel.clone();
-        tokio::spawn(async move {
-            tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                    error!("watchdog: registration did not complete in 60s, rolling back");
-                    mesh_agent_core::update::increment_rollback_count(&data_dir).await;
-                    match mesh_agent_core::update::rollback(&binary_path).await {
-                        Ok(true) => {
-                            info!("watchdog: rollback complete, restarting");
-                            std::process::exit(EXIT_CODE_RESTART);
-                        }
-                        Ok(false) => error!("watchdog: no .prev binary to rollback to"),
-                        Err(e) => error!(error = %e, "watchdog: rollback failed"),
-                    }
-                }
-                _ = cancel.notified() => {
-                    // Registration succeeded — watchdog cancelled.
-                }
-            }
-        });
     }
 
     // Platform lifecycle
@@ -508,13 +477,7 @@ async fn main() -> Result<()> {
                                 // Version comparison: skip if incoming <= current
                                 if should_skip_version(&version) {
                                     info!(version, "update skipped: already up to date");
-                                    let _ = conn.send_control(
-                                        mesh_protocol::ControlMessage::AgentUpdateAck {
-                                            version: version.clone(),
-                                            success: true,
-                                            error: "already up to date".to_string(),
-                                        },
-                                    ).await;
+                                    send_update_ack(&mut conn, version, true, "already up to date".into()).await;
                                     continue;
                                 }
 
@@ -523,26 +486,14 @@ async fn main() -> Result<()> {
                                 ).await {
                                     Ok(true) => {
                                         info!(version, "update applied, restarting");
-                                        let _ = conn.send_control(
-                                            mesh_protocol::ControlMessage::AgentUpdateAck {
-                                                version: version.clone(),
-                                                success: true,
-                                                error: String::new(),
-                                            },
-                                        ).await;
+                                        send_update_ack(&mut conn, version, true, String::new()).await;
                                         lifecycle.notify_stopping();
                                         std::process::exit(EXIT_CODE_RESTART);
                                     }
                                     Ok(false) => info!("update skipped (same version)"),
                                     Err(e) => {
                                         error!(error = %e, "update failed");
-                                        let _ = conn.send_control(
-                                            mesh_protocol::ControlMessage::AgentUpdateAck {
-                                                version: version.clone(),
-                                                success: false,
-                                                error: e.to_string(),
-                                            },
-                                        ).await;
+                                        send_update_ack(&mut conn, version, false, e.to_string()).await;
                                     }
                                 }
                             }
@@ -662,6 +613,55 @@ fn should_skip_version(incoming: &str) -> bool {
         (Ok(cur), Ok(inc)) => inc <= cur,
         _ => false, // fail-open: if either version is invalid, proceed with update
     }
+}
+
+/// Sends an `AgentUpdateAck` control message, ignoring send failures.
+async fn send_update_ack<S: mesh_agent_core::ControlStream>(
+    conn: &mut mesh_agent_core::AgentConnection<S>,
+    version: String,
+    success: bool,
+    error: String,
+) {
+    let _ = conn
+        .send_control(mesh_protocol::ControlMessage::AgentUpdateAck {
+            version,
+            success,
+            error,
+        })
+        .await;
+}
+
+/// Spawns the post-update watchdog task. If registration doesn't succeed
+/// within 60 seconds, the watchdog rolls back to the previous binary and restarts.
+fn spawn_update_watchdog(
+    data_dir: &Path,
+    update_config: &Option<mesh_agent_core::UpdateConfig>,
+    cancel: Arc<tokio::sync::Notify>,
+) {
+    let data_dir = data_dir.to_path_buf();
+    let binary_path = update_config
+        .as_ref()
+        .map(|c| c.current_binary_path.clone())
+        .unwrap_or_else(|| std::env::current_exe().unwrap_or_else(|_| PathBuf::from("mesh-agent")));
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                error!("watchdog: registration did not complete in 60s, rolling back");
+                mesh_agent_core::update::increment_rollback_count(&data_dir).await;
+                match mesh_agent_core::update::rollback(&binary_path).await {
+                    Ok(true) => {
+                        info!("watchdog: rollback complete, restarting");
+                        std::process::exit(EXIT_CODE_RESTART);
+                    }
+                    Ok(false) => error!("watchdog: no .prev binary to rollback to"),
+                    Err(e) => error!(error = %e, "watchdog: rollback failed"),
+                }
+            }
+            _ = cancel.notified() => {
+                // Registration succeeded — watchdog cancelled.
+            }
+        }
+    });
 }
 
 /// Returns a human-readable OS name by parsing `/etc/os-release` on Linux.
@@ -852,5 +852,11 @@ mod tests {
         // Invalid semver should fail-open (proceed with update).
         assert!(!should_skip_version("not-a-version"));
         assert!(!should_skip_version(""));
+    }
+
+    #[test]
+    fn test_should_skip_version_prerelease() {
+        // Pre-release versions are less than the release (0.9.0-rc.1 < 0.9.0).
+        assert!(!should_skip_version("0.9.0-rc.1"));
     }
 }
