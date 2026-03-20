@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773986411267,
+  "lastUpdate": 1773987901771,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5316,6 +5316,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.064476089452,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d0358768bb9a8660033ea9b786d7507d7ac5dba9",
+          "message": "feat: add frontend-audit skill",
+          "timestamp": "2026-03-19T23:23:21-07:00",
+          "tree_id": "8a7079edeeade9c40511417e9ed98929a7f9eb43",
+          "url": "https://github.com/volchanskyi/opengate/commit/d0358768bb9a8660033ea9b786d7507d7ac5dba9"
+        },
+        "date": 1773987901729,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.3556749303754,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.422355449686698,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 741.7006309945481,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 319.72466352615896,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.227034143826362,
             "unit": "ns/iter"
           }
         ]
