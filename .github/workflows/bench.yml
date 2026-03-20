@@ -21,20 +21,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # --- Toolchains ---
-      - uses: actions/setup-go@v6
+      # --- Download benchmark artifacts from CI ---
+      - name: Download Go benchmark results
+        uses: actions/download-artifact@v8
         with:
-          go-version: '1.26'
-          cache-dependency-path: server/go.sum
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: agent
+          name: bench-go
+          path: .
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # --- Go benchmarks ---
-      - name: Run Go benchmarks
-        working-directory: server
-        run: go test -bench=. -benchmem -count=1 -run='^$' ./internal/... | tee "$GITHUB_WORKSPACE/bench-go.txt"
+      - name: Download Rust benchmark results
+        uses: actions/download-artifact@v8
+        with:
+          name: bench-rust
+          path: .
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # --- Store Go benchmark result ---
       - name: Store Go benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
@@ -48,22 +52,7 @@ jobs:
           comment-on-alert: true
           alert-comment-cc-users: '@volchanskyi'
 
-      # --- Rust benchmarks ---
-      - name: Run Rust benchmarks
-        working-directory: agent
-        run: cargo bench --package mesh-protocol --bench codec_bench
-      - name: Convert criterion JSON to benchmark format
-        working-directory: agent
-        run: |
-          # Read criterion's estimates.json files and produce the JSON format
-          # expected by github-action-benchmark's customSmallerIsBetter tool
-          jq -n '[inputs | {
-            name: input_filename | split("/")[-3],
-            unit: "ns/iter",
-            value: .mean.point_estimate
-          }]' target/criterion/*/new/estimates.json \
-            > "$GITHUB_WORKSPACE/bench-rust.json"
-          cat "$GITHUB_WORKSPACE/bench-rust.json"
+      # --- Store Rust benchmark result ---
       - name: Store Rust benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
