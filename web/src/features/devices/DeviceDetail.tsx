@@ -40,6 +40,13 @@ export function DeviceDetail() {
     fetchGroups();
   }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups]);
 
+  // Poll device data every 30s so agent_version and status stay in sync.
+  useEffect(() => {
+    if (!id) return;
+    const interval = setInterval(() => fetchDevice(id), 30_000);
+    return () => clearInterval(interval);
+  }, [id, fetchDevice]);
+
   const amtDevice = device ? amtDevices.find((a) => a.hostname === device.hostname) : undefined;
 
   const handlePowerAction = async (action: PowerAction) => {
