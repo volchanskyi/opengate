@@ -98,15 +98,19 @@ jobs:
       - name: Tune UDP buffers for QUIC
         run: ssh deploy-target "sudo sysctl -w net.core.rmem_max=7340032 net.core.wmem_max=7340032"
 
+      - name: Copy server CA for mTLS
+        run: |
+          ssh deploy-target "mkdir -p /tmp/loadtest-data && docker cp opengate-server-staging:/data/ca.crt /tmp/loadtest-data/ca.crt && docker cp opengate-server-staging:/data/ca.key /tmp/loadtest-data/ca.key"
+
       - name: Run QUIC load test
         run: |
           AGENTS="${{ inputs.agents || '100' }}"
           # shellcheck disable=SC2029
-          ssh deploy-target "/tmp/loadtest -agents=${AGENTS} -addr=127.0.0.1:19090"
+          ssh deploy-target "/tmp/loadtest -agents=${AGENTS} -addr=127.0.0.1:19090 -data-dir=/tmp/loadtest-data"
 
       - name: Cleanup harness on VPS
         if: always()
-        run: ssh deploy-target "rm -f /tmp/loadtest" || true
+        run: ssh deploy-target "rm -rf /tmp/loadtest /tmp/loadtest-data" || true
 
       # --- Teardown --------------------------------------------------------------
 
