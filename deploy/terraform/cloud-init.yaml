@@ -45,6 +45,12 @@ runcmd:
   - ufw allow 9090/udp
   - ufw --force enable
 
+  # QUIC UDP buffer tuning (required by quic-go for 100+ concurrent connections)
+  - sysctl -w net.core.rmem_max=7340032
+  - sysctl -w net.core.wmem_max=7340032
+  - echo 'net.core.rmem_max=7340032' >> /etc/sysctl.d/99-quic.conf
+  - echo 'net.core.wmem_max=7340032' >> /etc/sysctl.d/99-quic.conf
+
   # Prepare data directory
   - mkdir -p /opt/opengate/data /opt/opengate/caddy_data /opt/opengate/caddy_config
   - chown -R ubuntu:ubuntu /opt/opengate
