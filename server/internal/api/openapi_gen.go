@@ -91,6 +91,27 @@ func (e DeviceStatus) Valid() bool {
 	}
 }
 
+// Defines values for DeviceUpdateStatus.
+const (
+	Failed  DeviceUpdateStatus = "failed"
+	Pending DeviceUpdateStatus = "pending"
+	Success DeviceUpdateStatus = "success"
+)
+
+// Valid indicates whether the value is a known member of the DeviceUpdateStatus enum.
+func (e DeviceUpdateStatus) Valid() bool {
+	switch e {
+	case Failed:
+		return true
+	case Pending:
+		return true
+	case Success:
+		return true
+	default:
+		return false
+	}
+}
+
 // AMTDevice defines model for AMTDevice.
 type AMTDevice struct {
 	Firmware string             `json:"firmware"`
@@ -203,6 +224,20 @@ type Device struct {
 // DeviceStatus defines model for Device.Status.
 type DeviceStatus string
 
+// DeviceUpdate defines model for DeviceUpdate.
+type DeviceUpdate struct {
+	AckedAt  *time.Time         `json:"acked_at,omitempty"`
+	DeviceId openapi_types.UUID `json:"device_id"`
+	Error    string             `json:"error"`
+	Id       int64              `json:"id"`
+	PushedAt time.Time          `json:"pushed_at"`
+	Status   DeviceUpdateStatus `json:"status"`
+	Version  string             `json:"version"`
+}
+
+// DeviceUpdateStatus defines model for DeviceUpdate.Status.
+type DeviceUpdateStatus string
+
 // EnrollRequest defines model for EnrollRequest.
 type EnrollRequest struct {
 	// CsrPem PEM-encoded PKCS#10 certificate signing request
@@ -217,6 +252,9 @@ type EnrollResponse struct {
 	CertPem      *string `json:"cert_pem,omitempty"`
 	ServerAddr   string  `json:"server_addr"`
 	ServerDomain string  `json:"server_domain"`
+
+	// UpdateSigningKey Hex-encoded Ed25519 public key for verifying update signatures
+	UpdateSigningKey *string `json:"update_signing_key,omitempty"`
 }
 
 // EnrollmentToken defines model for EnrollmentToken.
@@ -531,6 +569,9 @@ type ServerInterface interface {
 	// Get the Ed25519 public signing key
 	// (GET /api/v1/updates/signing-key)
 	GetUpdateSigningKey(w http.ResponseWriter, r *http.Request)
+	// Get per-device update status for a version (admin only)
+	// (GET /api/v1/updates/status/{version})
+	GetUpdateStatus(w http.ResponseWriter, r *http.Request, version string)
 	// List all users (admin only)
 	// (GET /api/v1/users)
 	ListUsers(w http.ResponseWriter, r *http.Request)
@@ -768,6 +809,12 @@ func (_ Unimplemented) PushUpdate(w http.ResponseWriter, r *http.Request) {
 // Get the Ed25519 public signing key
 // (GET /api/v1/updates/signing-key)
 func (_ Unimplemented) GetUpdateSigningKey(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get per-device update status for a version (admin only)
+// (GET /api/v1/updates/status/{version})
+func (_ Unimplemented) GetUpdateStatus(w http.ResponseWriter, r *http.Request, version string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1741,6 +1788,37 @@ func (siw *ServerInterfaceWrapper) GetUpdateSigningKey(w http.ResponseWriter, r 
 	handler.ServeHTTP(w, r)
 }
 
+// GetUpdateStatus operation middleware
+func (siw *ServerInterfaceWrapper) GetUpdateStatus(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "version" -------------
+	var version string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version", chi.URLParam(r, "version"), &version, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUpdateStatus(w, r, version)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListUsers operation middleware
 func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
 
@@ -2066,6 +2144,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/updates/signing-key", wrapper.GetUpdateSigningKey)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/api/v1/updates/status/{version}", wrapper.GetUpdateStatus)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/users", wrapper.ListUsers)
@@ -3503,6 +3584,41 @@ func (response GetUpdateSigningKey403JSONResponse) VisitGetUpdateSigningKeyRespo
 	return json.NewEncoder(w).Encode(response)
 }
 
+type GetUpdateStatusRequestObject struct {
+	Version string `json:"version"`
+}
+
+type GetUpdateStatusResponseObject interface {
+	VisitGetUpdateStatusResponse(w http.ResponseWriter) error
+}
+
+type GetUpdateStatus200JSONResponse []DeviceUpdate
+
+func (response GetUpdateStatus200JSONResponse) VisitGetUpdateStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUpdateStatus401JSONResponse ApiError
+
+func (response GetUpdateStatus401JSONResponse) VisitGetUpdateStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type GetUpdateStatus403JSONResponse ApiError
+
+func (response GetUpdateStatus403JSONResponse) VisitGetUpdateStatusResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
 type ListUsersRequestObject struct {
 }
 
@@ -3763,6 +3879,9 @@ type StrictServerInterface interface {
 	// Get the Ed25519 public signing key
 	// (GET /api/v1/updates/signing-key)
 	GetUpdateSigningKey(ctx context.Context, request GetUpdateSigningKeyRequestObject) (GetUpdateSigningKeyResponseObject, error)
+	// Get per-device update status for a version (admin only)
+	// (GET /api/v1/updates/status/{version})
+	GetUpdateStatus(ctx context.Context, request GetUpdateStatusRequestObject) (GetUpdateStatusResponseObject, error)
 	// List all users (admin only)
 	// (GET /api/v1/users)
 	ListUsers(ctx context.Context, request ListUsersRequestObject) (ListUsersResponseObject, error)
@@ -4827,6 +4946,32 @@ func (sh *strictHandler) GetUpdateSigningKey(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// GetUpdateStatus operation middleware
+func (sh *strictHandler) GetUpdateStatus(w http.ResponseWriter, r *http.Request, version string) {
+	var request GetUpdateStatusRequestObject
+
+	request.Version = version
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUpdateStatus(ctx, request.(GetUpdateStatusRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUpdateStatus")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUpdateStatusResponseObject); ok {
+		if err := validResponse.VisitGetUpdateStatusResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListUsers operation middleware
 func (sh *strictHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	var request ListUsersRequestObject
@@ -4937,64 +5082,67 @@ func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id o
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/+xdW3PbNhb+Kxh2Z7adUSI7TTpTv7mJ6/W23nqjpH3IZDQQeSShIQEWAO1oPfrvOwB4",
-	"gwhQlC1Rcq03WwSBg3O+c8WF90HIkpRRoFIEZ/eBCOeQYP3n+fWHd3BLQlD/pJylwCUB/WhKeHKHuX4i",
-	"FykEZ4GQnNBZsBwEcyYkxYn7YYyFHAsAqrthPMEyOAsiLOGFJAkEg+YrCYsgdnYmJJaZJgholgRnnwJG",
-	"Y0JVL2w61X99dnSYZSSyhtc/NBouBwGHvzLCIVJd543K2RWEDSpulBTV51lRwCZ/QigVBefXH27YHfD3",
-	"8FcGQjYZjENJGK3PLFXtx4wGg/zPcBHGekg2lWM2nSraMI/GHARIx7xXppOP4KQuikYQZpzIxSVnWXoN",
-	"yaSF1kwAHz+Io/mLThpmQOU1pmTq5g8P505IhBywhGiMZXeAMeFG1xy/evOD+xGZUSwzjwJk3A3XW+Ai",
-	"l2o7Y4qGmrSBmazptqSqToM1ay8zRyCK0W1ePoRlkTYM3aQ+CCT7AtTNqodix3RZJ6TqbD0/UnLBOeNN",
-	"XkDxc/voppmz6ywi8uIWaKtSbwW2EUhMYjd2V1hKqPzhddUHoRJmwLVoMJ+B3K5sVoSRT7scq6J8raDe",
-	"nr8FLt+DSBkVDj+UQrJeWKqRs3M99gXlLI4ToPKDgpTXysHXlHAQY0LHc5Zx/VsEU5zFMjh79drF2xhP",
-	"jOMq2wVO/4a/jjMBdo8nzQ6X3jloK+2lvPDFCaG/Ap3JeXB2uk6E+h0/0yz34B04AhFykhagb+fCTqjU",
-	"Fq+Fvk2MWAo8IbpD/fI/OEyDs+CbYRU/DfPgaXhTa7pKczVoB8J9uFc9CODKT+h/JSRribp6ezHSrwQV",
-	"kDDneBFoCmO8GPscl89+e2xy1Zlrir6YEisnNfb7yIcZyZlCaFcRt0auHft4QIDriz/WR7eDIGSUQijV",
-	"K85QN402ZJnLlpdMtMJfE5tYUnMGwJbgLJJc8DD22KuzoeDj3Opb5iW4ubh+ATRkEUTo5pe3o29OT1Co",
-	"3puSEEtAKlwidIZ43vO6iRcDtdHoU88Qj92eaRAoktZPQHO1QT5EaLJAcg7I6D56e+6Ck3k4xlHE3bgy",
-	"zyOWYNJBq/PJ2P2u9uLnUulZtxN4Fu9MFp20sfDamwzRWdEnnrS07tAdEVdbMDwOWUal60WXXhYG15Bi",
-	"MadGRb1jiyNrwy/t3rcjt45M9Vpfdke7RqPbsnqFmStG3syOVe7Wxb8IqCQ49qWPtldv+uMV761ibQ/n",
-	"VlNu1beL3F/ZjLQEvwkmscVL84srTMJC3DEebRrLFR2W77uovLFjsEa4+UWytMaECWMxYKrenJIYxhxw",
-	"1PL4jhMJ7ueEppl0P5KKJmrJsnzqCtlvsklMxPyjho+/AOQrcGxerOijHOEUVvbwWZZRsq0J6ysNK5rh",
-	"4dajpr5urt5kNRNziDpbeKu5a8z3MCNCthTmIiJSFYl7jeqhqLWVTm6rQGXlng/1R0SMxUJIK5ir6b6X",
-	"s1v1QPW51EnazCFZTP6DyLkp64qnxO+kIrlTzvtRuNPdQ5VbNUOXBPMClc++bJSlu/o3Bszk516j0pZQ",
-	"0yyO8SSG4EzyDFys8oyp5PRwM0bEGEeJlcu0emCNiu2gvrOFfYRCeOe2LbgWNtqaTW3ozezM7zgl0S+w",
-	"aHOEk5iE4y+w6FC8rdq6BvsDJsr1jrKJUrVJS6SRSXekATRKGaHuEnj66s0P0bzDekDRSfnKwIzYQvNH",
-	"KtZS3UKcj4LmiDrlN7Z/pOyi6XoCmAM/z9li/vu5ANC///igYjvdWiFOP63ANJcyDZZLHRdPWbOU8R4S",
-	"JgGZIA4lmOIZJEAlwjRCujqIzm+uVH9EKmsR/JYCvcQS8p/L8Cw4fXny8kQHcilQnJLgLPj+5cnL73VE",
-	"Ied6JkOckuHt6RAncmiGNIbKLGsodmJF11UUnAW/EiHLdW2ha5UGpfqVVycn2hIwKvMFHJymMQn1+8M/",
-	"hfFtxrl09kHVMnrDES1XHaemD7EpOr/+gIq5LAfB65PTjQhrpadY/HIM/5Eq1DJO/geRGff7Xsb9mfEJ",
-	"iSKgFlqDs082Tj99Xn4eBCJLEswXBbcsVi0HLjgM75V5XXpRcQkVKDSyOE5A6kDj032gjK9GW+HZS2td",
-	"KaDxdxUj1i2YfX4k8joCrsnpiluoWIV7XvhSg77uZVAjBESZRFOW0WgzbF9CHdqVsFoRPtRbQ7QfYcIB",
-	"9PNE6n0n58WSbF9Q1/7tJxYttolyawvN0vaIisqlW8lWyu6qExSyJFHOSSi6jgrRl0KosX/se+x8yQw2",
-	"VMgR0AilFlokq6morZpZRGR7FFJuFBEePfwrA76oKWK5oaK77g3cXZU7MqqeOr4Zk4RI68VyVf/NiV5z",
-	"IEmWBGevTpwbGNydsulUgKdXVzefewnbqo08HeI23RqBEecxYPPp0H+V4JFWDhSzGfpWJ5iI0Xjx3Yr+",
-	"yPkwZjOT+LqdmV6yCHbjXazlkO6uZStj22UeV5KgiEMiC0MQYprFRvAnvQj+it7imETlMnqPWC+GrpbP",
-	"TDhUwUuBTj3RK+aZyIvqFqZ4XjT3w6ooq+8IWatV+07gOu0PXB8FcFRwqTAqe8KWJdyCcQgjCndN8XZJ",
-	"/au8v4PDre166S+x6+SbNq8nWLWEv72leIpljFxCA8R0bziOF2hKYq2EaLJAGo0uwA/v89JGBDGY9Wsb",
-	"+O/07xtUN7Ze23jdTLveFWmtoi06plwHWYMwyCnzm4G3erZPcG3PmvmrZu+OFbOnUTFrljZTLM0eExu0",
-	"9bXO3nC7/WjStWTbc7ri1xpDXFSzH8fY46iwlcIafBQ6OyUQR3aBG/QO4uG93rKw9KdsZqdxJzWuzij4",
-	"NLknzbX3ufessysb2B2SrTZv76nQ8BMu1Rd9S3J9fjt6/12f+C7siEGNGvi0n9nrNB2ZvdoRYhzB1znO",
-	"RFm0LnXIyCk/MJAJQmeGWPSt2TnxnUOhlFRf6Fbt2fLKBv5+lstXTw1skORWs0P57J6B3T/XFVSsVRSV",
-	"FmTz/LPBvJXi7MBje52nKHdUO2s9sdlzIa2BU58S53unjljshEUj4gYa/SsFDZPWsR7SROxhFEYMaJ5R",
-	"XcQDmv6cvOH440ok3fGq63jtfvfSNOnD25od9xv42Jz8veFyY7+WCeD/FDW629yYYccunZd1Yr5nl5UL",
-	"u8li/cB2VM8sT3+Ai8JF4tqszBuwdXREBeYOw/0YKBzL8rsd1HD5cS5nVphuX1F+j8A66ctmHSvyBwzU",
-	"S5AGpc7dq3PAsTl84APwv0yLR6LLPlFRXarRfp4ib+c4TdHg0Qi49gNEIDMnfcTsTU+wKEbPKL7FxBy/",
-	"sktEho0onEP4xZJAmon5sDyE0uapamdVbjIx31GE5D8Y0ylQcniz/FyQ/hdxSNjtPp3aJrrzXhOLlIiQ",
-	"qM3CH8GO+pPQaCfyEfjJSGeEbwFNOLsTwF0yWlWyW5yS6EV+4M1n7oqDc8EO3WnjcJ6DLb+f31y9Q6Z8",
-	"jBTNT0Ikytnk1+I0J1CTR9Hhiw6JuHVkup+E3D4Kv0FiXsxr7xn609huheN4lWUbFbxtOe2yYuC8a6/n",
-	"ysEKKl1RSJ2Vz7qUcPD4L+sXNv79JcsVk9mxrrGqIYdR31gB6rHQcfiFjjVA9RdADgCBJ7sxwfXrW9Zb",
-	"4zsi56i4WOSI9AOtlAi/0DYzzcPaLTmeY8DOC96f8DbI9hvrH5qdml4QjqJjKPP3VVnG9RrhQ1X3PIrM",
-	"+5I9KqAqtHZ4r3q7ao+wTHVoTzo8cN8ToKnefQCXK+Xei3nPRTcMLPdzaP8tpmpcI2sUY5W3K5UiQnIs",
-	"GX9QSVUr65SzZAN15bfAhyFuq96Zy171jcw7iwFXPofg4th5/dboJ1e5s8lHNxfXLkEQKiSO45eidfXo",
-	"yrQaaRrXS0XCVzn8+kLMIY7NvGy+rBorh9fW46H8ZXsNRs3R7NElzWbV9KqrbVtqknmjTmdY659H2V9e",
-	"0+3ChfpHajYqfBZfWjhGaIdabA0luYVSUmjKeLl9Zn2hVeQ38O6yxGp9KKTn4qr7mx/OtF43OVZXj1ck",
-	"7WQjrvZPj7ghqSwsmyseRWHLHS6ufqZrXRm50P+dHe5aXzM2encsFu96K4vh82PLxX74matrxTDJPyzY",
-	"HmqZ84nXZdveoqDyu4cbhEHVlFaY5l77zA+MmROYtXd9ztj6asGOnLHzywg9n4xc4b/vULPZXSDmx3M9",
-	"HZUzl21+eY9B34RQzBcov+3Xn38XWptmJuPzIXTn8NwzNh0fmWgD6DNHZ39+6z+stKDGb+kE57fRUH8u",
-	"ZEM1EfPCKktWBWJGY8R6Hck/c7Zur5kBycg03sKesx1d8O6IEfLPuO11X9qTsryXIPU34y6iV2/enP5Y",
-	"7IsTdUbWgSTypUN/WKRb9BEMuT/f4Y+BDO3HYszanW+aUS3GRD0emk9a+CzINeyy0m0k76hvZ5ybmw4M",
-	"MvYn6H5cy8dHrEwqxQ8tfjVE3G0nlxbGoWzg0hx5npn4A5JhvdjV2NfadiVWr8Le1YVY9e8J9Ryk+yxX",
-	"cRnW/i3X37iC9BhzmedNDo1Zlh/NNcqgP6gYDIPl5+X/AwAA//98TnPdP4UAAA==",
+	"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",
+	"8/p/AQAA//+pIOZkDooAAA==",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

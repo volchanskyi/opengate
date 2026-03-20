@@ -66,6 +66,11 @@ type Store interface {
 	WriteAuditEvent(ctx context.Context, event *AuditEvent) error
 	QueryAuditLog(ctx context.Context, q AuditQuery) ([]*AuditEvent, error)
 
+	// Device Updates
+	CreateDeviceUpdate(ctx context.Context, du *DeviceUpdate) error
+	UpdateDeviceUpdateStatus(ctx context.Context, deviceID DeviceID, version string, status UpdateStatus, errMsg string) error
+	ListDeviceUpdatesByVersion(ctx context.Context, version string) ([]*DeviceUpdate, error)
+
 	// Security Groups
 	CreateSecurityGroup(ctx context.Context, g *SecurityGroup) error
 	GetSecurityGroup(ctx context.Context, id SecurityGroupID) (*SecurityGroup, error)

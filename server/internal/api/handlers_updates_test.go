@@ -211,3 +211,21 @@ func TestGetUpdateSigningKey_NonAdmin(t *testing.T) {
 	w := doRequest(srv, http.MethodGet, "/api/v1/updates/signing-key", userToken, nil)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
+
+func TestGetUpdateStatus_Empty(t *testing.T) {
+	srv, adminToken, _ := newTestServerWithUpdater(t)
+
+	w := doRequest(srv, http.MethodGet, "/api/v1/updates/status/1.0.0", adminToken, nil)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var updates []DeviceUpdate
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&updates))
+	assert.Empty(t, updates)
+}
+
+func TestGetUpdateStatus_NonAdmin(t *testing.T) {
+	srv, _, userToken := newTestServerWithUpdater(t)
+
+	w := doRequest(srv, http.MethodGet, "/api/v1/updates/status/1.0.0", userToken, nil)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}

@@ -4,10 +4,12 @@ import { apiAction } from './api-action';
 import type { components } from '../types/api';
 
 type AgentManifest = components['schemas']['AgentManifest'];
+type DeviceUpdate = components['schemas']['DeviceUpdate'];
 type EnrollmentToken = components['schemas']['EnrollmentToken'];
 
 interface UpdateState {
   manifests: AgentManifest[];
+  updateStatus: DeviceUpdate[];
   enrollmentTokens: EnrollmentToken[];
   caPem: string | null;
   signingKey: string | null;
@@ -16,6 +18,7 @@ interface UpdateState {
   fetchManifests: () => Promise<void>;
   publishManifest: (body: components['schemas']['PublishUpdateRequest']) => Promise<void>;
   pushUpdate: (body: components['schemas']['PushUpdateRequest']) => Promise<number | undefined>;
+  fetchUpdateStatus: (version: string) => Promise<void>;
   fetchEnrollmentTokens: () => Promise<void>;
   createEnrollmentToken: (body: components['schemas']['CreateEnrollmentTokenRequest']) => Promise<void>;
   deleteEnrollmentToken: (id: string) => Promise<void>;
@@ -25,6 +28,7 @@ interface UpdateState {
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({
   manifests: [],
+  updateStatus: [],
   enrollmentTokens: [],
   caPem: null,
   signingKey: null,
@@ -48,6 +52,13 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       api.POST('/api/v1/updates/push', { body }), false,
     );
     return res.ok ? res.data.pushed_count : undefined;
+  },
+
+  fetchUpdateStatus: async (version) => {
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/updates/status/{version}', { params: { path: { version } } }), false,
+    );
+    if (res.ok) set({ updateStatus: res.data });
   },
 
   fetchEnrollmentTokens: async () => {

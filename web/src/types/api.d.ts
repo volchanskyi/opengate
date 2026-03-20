@@ -352,6 +352,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/updates/status/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get per-device update status for a version (admin only) */
+        get: operations["getUpdateStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/updates/signing-key": {
         parameters: {
             query?: never;
@@ -690,6 +707,20 @@ export interface components {
         PushUpdateResponse: {
             pushed_count: number;
         };
+        DeviceUpdate: {
+            /** Format: int64 */
+            id: number;
+            /** Format: uuid */
+            device_id: string;
+            version: string;
+            /** @enum {string} */
+            status: "pending" | "success" | "failed";
+            error: string;
+            /** Format: date-time */
+            pushed_at: string;
+            /** Format: date-time */
+            acked_at?: string;
+        };
         EnrollmentToken: {
             /** Format: uuid */
             id: string;
@@ -722,6 +753,8 @@ export interface components {
             cert_pem?: string;
             server_addr: string;
             server_domain: string;
+            /** @description Hex-encoded Ed25519 public key for verifying update signatures */
+            update_signing_key?: string;
         };
         CACertResponse: {
             pem: string;
@@ -1964,6 +1997,46 @@ export interface operations {
             };
             /** @description No manifest found for OS/arch */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getUpdateStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Per-device update status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceUpdate"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

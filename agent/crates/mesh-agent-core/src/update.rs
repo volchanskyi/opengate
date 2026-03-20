@@ -107,7 +107,77 @@ pub async fn apply_update(
     fs::rename(&new_path, &config.current_binary_path).await?;
     info!("binary replaced successfully");
 
+    // Write sentinel so the startup watchdog can detect a pending update.
+    write_update_pending(&config.data_dir).await;
+
     Ok(true)
+}
+
+/// Restores the previous binary from `{binary_path}.prev`.
+///
+/// Returns `Ok(true)` if rollback succeeded, `Ok(false)` if no `.prev` exists.
+pub async fn rollback(binary_path: &Path) -> Result<bool, UpdateError> {
+    let prev = binary_path.with_extension("prev");
+    if !prev.exists() {
+        return Ok(false);
+    }
+    fs::rename(&prev, binary_path).await?;
+    info!("rolled back to previous binary");
+    Ok(true)
+}
+
+/// Returns `true` if the update-pending sentinel exists (post-update, pre-verify).
+pub fn is_update_pending(data_dir: &Path) -> bool {
+    data_dir.join(SENTINEL_UPDATE_PENDING).exists()
+}
+
+/// Removes the update-pending sentinel after successful verification.
+pub async fn clear_update_pending(data_dir: &Path) {
+    let path = data_dir.join(SENTINEL_UPDATE_PENDING);
+    if let Err(e) = fs::remove_file(&path).await {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            warn!(error = %e, "failed to clear update-pending sentinel");
+        }
+    }
+}
+
+/// Reads the rollback counter (number of consecutive rollbacks).
+pub async fn rollback_count(data_dir: &Path) -> u32 {
+    let path = data_dir.join(FILE_ROLLBACK_COUNT);
+    match fs::read_to_string(&path).await {
+        Ok(s) => s.trim().parse().unwrap_or(0),
+        Err(_) => 0,
+    }
+}
+
+/// Increments the rollback counter file.
+pub async fn increment_rollback_count(data_dir: &Path) {
+    let count = rollback_count(data_dir).await + 1;
+    let path = data_dir.join(FILE_ROLLBACK_COUNT);
+    let _ = fs::write(&path, count.to_string()).await;
+}
+
+/// Resets the rollback counter to zero (called after a healthy start).
+pub async fn reset_rollback_count(data_dir: &Path) {
+    let path = data_dir.join(FILE_ROLLBACK_COUNT);
+    let _ = fs::remove_file(&path).await;
+}
+
+/// Maximum consecutive rollbacks before giving up.
+pub const MAX_ROLLBACKS: u32 = 2;
+
+/// Sentinel file written after a binary replacement, cleared after healthy start.
+const SENTINEL_UPDATE_PENDING: &str = ".update-pending";
+
+/// Counter file tracking consecutive rollback attempts.
+const FILE_ROLLBACK_COUNT: &str = ".rollback-count";
+
+/// Writes the update-pending sentinel after a successful binary replacement.
+async fn write_update_pending(data_dir: &Path) {
+    let path = data_dir.join(SENTINEL_UPDATE_PENDING);
+    if let Err(e) = fs::write(&path, b"1").await {
+        warn!(error = %e, "failed to write update-pending sentinel");
+    }
 }
 
 /// Download a file from `url` to `dest`.
@@ -253,6 +323,62 @@ mod tests {
             hash,
             "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
         );
+    }
+
+    #[tokio::test]
+    async fn test_rollback_restores_prev() {
+        let dir = tempfile::tempdir().unwrap();
+        let binary_path = dir.path().join("agent");
+        let prev_path = binary_path.with_extension("prev");
+
+        fs::write(&binary_path, b"bad binary").await.unwrap();
+        fs::write(&prev_path, b"good binary").await.unwrap();
+
+        let result = rollback(&binary_path).await.unwrap();
+        assert!(result);
+
+        let content = fs::read(&binary_path).await.unwrap();
+        assert_eq!(content, b"good binary");
+        assert!(!prev_path.exists());
+    }
+
+    #[tokio::test]
+    async fn test_rollback_no_prev() {
+        let dir = tempfile::tempdir().unwrap();
+        let binary_path = dir.path().join("agent");
+        fs::write(&binary_path, b"current").await.unwrap();
+
+        let result = rollback(&binary_path).await.unwrap();
+        assert!(!result);
+    }
+
+    #[tokio::test]
+    async fn test_update_pending_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert!(!is_update_pending(dir.path()));
+
+        write_update_pending(dir.path()).await;
+        assert!(is_update_pending(dir.path()));
+
+        clear_update_pending(dir.path()).await;
+        assert!(!is_update_pending(dir.path()));
+    }
+
+    #[tokio::test]
+    async fn test_rollback_counter() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert_eq!(rollback_count(dir.path()).await, 0);
+
+        increment_rollback_count(dir.path()).await;
+        assert_eq!(rollback_count(dir.path()).await, 1);
+
+        increment_rollback_count(dir.path()).await;
+        assert_eq!(rollback_count(dir.path()).await, 2);
+
+        reset_rollback_count(dir.path()).await;
+        assert_eq!(rollback_count(dir.path()).await, 0);
     }
 
     #[tokio::test]
