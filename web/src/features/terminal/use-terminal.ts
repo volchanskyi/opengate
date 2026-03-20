@@ -29,6 +29,24 @@ export function useTerminal(containerRef: React.RefObject<HTMLDivElement | null>
     fitAddon.fit();
     termRef.current = term;
 
+    // Intercept Ctrl+letter so the browser does not consume them for
+    // clipboard operations. We send the control character directly and
+    // block both browser and xterm.js default handling.
+    // Ctrl+Shift+C/V are left for clipboard copy/paste.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown') return true;
+      if (ev.ctrlKey && !ev.altKey && !ev.metaKey && !ev.shiftKey) {
+        const key = ev.key.toLowerCase();
+        if (key.length === 1 && key >= 'a' && key <= 'z') {
+          const ctrlChar = String.fromCharCode(key.charCodeAt(0) - 96);
+          transport.sendTerminalData(textEncoder.encode(ctrlChar));
+          ev.preventDefault();
+          return false;
+        }
+      }
+      return true;
+    });
+
     // Terminal input → send to relay
     term.onData((data) => {
       transport.sendTerminalData(textEncoder.encode(data));

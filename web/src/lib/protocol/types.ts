@@ -111,6 +111,7 @@ export type ControlMessage =
   // File operations
   | { type: 'FileListRequest'; path: string }
   | { type: 'FileListResponse'; path: string; entries: FileEntry[] }
+  | { type: 'FileListError'; path: string; error: string }
   | { type: 'FileDownloadRequest'; path: string }
   | { type: 'FileUploadRequest'; path: string; total_size: number }
   // Chat

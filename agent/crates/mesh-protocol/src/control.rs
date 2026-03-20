@@ -87,6 +87,10 @@ pub enum ControlMessage {
         path: String,
         entries: Vec<FileEntry>,
     },
+    FileListError {
+        path: String,
+        error: String,
+    },
     FileDownloadRequest {
         path: String,
     },

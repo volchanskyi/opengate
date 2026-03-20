@@ -20,6 +20,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   error: null,
 
   fetchSessions: async (deviceId) => {
+    // Clear stale sessions from a previous device immediately.
+    set({ sessions: [] });
     const res = await apiAction(set, () =>
       api.GET('/api/v1/sessions', { params: { query: { device_id: deviceId } } }),
     );
