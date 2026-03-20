@@ -111,6 +111,22 @@ func main() {
 	}
 
 	if failures > 0 {
+		// Print up to 3 unique error samples.
+		seen := map[string]int{}
+		for _, r := range results {
+			if r.err != nil {
+				seen[r.err.Error()]++
+			}
+		}
+		fmt.Printf("\nError samples:\n")
+		printed := 0
+		for msg, cnt := range seen {
+			fmt.Printf("  [%dx] %s\n", cnt, msg)
+			printed++
+			if printed >= 3 {
+				break
+			}
+		}
 		os.Exit(1)
 	}
 }
