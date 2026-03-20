@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useUpdateStore } from '../../state/update-store';
 import { useToastStore } from '../../state/toast-store';
+import { isTokenExpired, isTokenExhausted } from '../../lib/token-status';
 import { ManifestPublishForm } from './ManifestPublishForm';
 import { ManifestList } from './ManifestList';
 
@@ -65,8 +66,6 @@ export function AgentUpdates() {
   };
 
   const maskToken = (token: string) => token.slice(0, 8) + '...' + token.slice(-4);
-  const isTokenExpired = (expiresAt: string) => new Date(expiresAt) <= new Date();
-  const isTokenExhausted = (maxUses: number, useCount: number) => maxUses > 0 && useCount >= maxUses;
 
   if (isLoading && manifests.length === 0 && enrollmentTokens.length === 0) {
     return <p className="text-gray-400">Loading...</p>;

@@ -44,66 +44,45 @@ func NewAgentConn(deviceID protocol.DeviceID, groupID uuid.UUID, stream io.ReadW
 	}
 }
 
+// sendControl encodes and writes a control message to the agent stream.
+func (a *AgentConn) sendControl(msg *protocol.ControlMessage) error {
+	payload, err := a.codec.EncodeControl(msg)
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", msg.Type, err)
+	}
+	if err := a.codec.WriteFrame(a.stream, protocol.FrameControl, payload); err != nil {
+		return fmt.Errorf("write %s frame: %w", msg.Type, err)
+	}
+	return nil
+}
+
 // SendSessionRequest sends a SessionRequest control message to the agent.
 func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions) error {
-	msg := &protocol.ControlMessage{
+	return a.sendControl(&protocol.ControlMessage{
 		Type:        protocol.MsgSessionRequest,
 		Token:       token,
 		RelayURL:    relayURL,
 		Permissions: &perms,
-	}
-
-	payload, err := a.codec.EncodeControl(msg)
-	if err != nil {
-		return fmt.Errorf("encode session request: %w", err)
-	}
-
-	if err := a.codec.WriteFrame(a.stream, protocol.FrameControl, payload); err != nil {
-		return fmt.Errorf("write session request frame: %w", err)
-	}
-
-	return nil
+	})
 }
 
 // SendAgentUpdate sends an AgentUpdate control message to the agent.
 func (a *AgentConn) SendAgentUpdate(ctx context.Context, version, url, sha256, signature string) error {
-	msg := &protocol.ControlMessage{
+	return a.sendControl(&protocol.ControlMessage{
 		Type:      protocol.MsgAgentUpdate,
 		Version:   version,
 		URL:       url,
 		SHA256:    sha256,
 		Signature: signature,
-	}
-
-	payload, err := a.codec.EncodeControl(msg)
-	if err != nil {
-		return fmt.Errorf("encode agent update: %w", err)
-	}
-
-	if err := a.codec.WriteFrame(a.stream, protocol.FrameControl, payload); err != nil {
-		return fmt.Errorf("write agent update frame: %w", err)
-	}
-
-	return nil
+	})
 }
 
 // SendAgentDeregistered tells the agent its device was deleted and it should clean up.
 func (a *AgentConn) SendAgentDeregistered(ctx context.Context, reason string) error {
-	msg := &protocol.ControlMessage{
+	return a.sendControl(&protocol.ControlMessage{
 		Type:   protocol.MsgAgentDeregistered,
 		Reason: reason,
-	}
-
-	payload, err := a.codec.EncodeControl(msg)
-	if err != nil {
-		return fmt.Errorf("encode agent deregistered: %w", err)
-	}
-
-	if err := a.codec.WriteFrame(a.stream, protocol.FrameControl, payload); err != nil {
-		return fmt.Errorf("write agent deregistered frame: %w", err)
-	}
-
-	return nil
+	})
 }
 
 // Close closes the agent connection.
