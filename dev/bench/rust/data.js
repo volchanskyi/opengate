@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773983472141,
+  "lastUpdate": 1773983854517,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5169,6 +5169,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.100275266555236,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "8d05fc1aa34ea1253515dd14c3c4fb316a4d8283",
+          "message": "ci: consolidate benchmark publishing into CI workflow\n\nMove gh-pages benchmark publishing from standalone bench.yml into a\nbench-publish job in ci.yml. Eliminates the workflow_run indirection\nand keeps all CI logic in one place.",
+          "timestamp": "2026-03-19T22:15:59-07:00",
+          "tree_id": "a4ce020f3acadcdb989d8665c17d1dd49822dc54",
+          "url": "https://github.com/volchanskyi/opengate/commit/8d05fc1aa34ea1253515dd14c3c4fb316a4d8283"
+        },
+        "date": 1773983854473,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.181407608344806,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.297221078596163,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 760.9941014079891,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 323.660446554694,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.23461640961016,
             "unit": "ns/iter"
           }
         ]
