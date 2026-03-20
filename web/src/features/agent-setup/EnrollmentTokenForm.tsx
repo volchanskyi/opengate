@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { isTokenExpired, isTokenExhausted } from '../../lib/token-status';
 import type { components } from '../../types/api';
 
 type EnrollmentToken = components['schemas']['EnrollmentToken'];
@@ -37,10 +38,6 @@ export function EnrollmentTokenForm({
     setTokenMaxUses(0);
     setTokenExpiresHours(24);
   };
-
-  const isTokenExpired = (expiresAt: string) => new Date(expiresAt) <= new Date();
-  const isTokenExhausted = (maxUses: number, useCount: number) =>
-    maxUses > 0 && useCount >= maxUses;
 
   return (
     <section className="mb-8">
