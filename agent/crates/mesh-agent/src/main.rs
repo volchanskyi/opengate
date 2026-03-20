@@ -433,9 +433,9 @@ async fn main() -> Result<()> {
                         }
                         Ok(mesh_protocol::ControlMessage::AgentDeregistered { reason }) => {
                             warn!(reason, "device deregistered by server, cleaning up");
-                            cleanup_agent_identity(&args.data_dir);
+                            uninstall_agent(&args.data_dir);
                             lifecycle.notify_stopping();
-                            info!("agent identity removed, exiting");
+                            info!("agent fully uninstalled, exiting");
                             std::process::exit(0);
                         }
                         Ok(_other) => { /* ignore unknown messages */ }
@@ -462,9 +462,28 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Removes agent identity files from the data directory.
+/// Fully uninstalls the agent: stops systemd service, removes identity,
+/// config, data directories, service unit, and binary.
 /// Called when the server deregisters this device.
-fn cleanup_agent_identity(data_dir: &std::path::Path) {
+fn uninstall_agent(data_dir: &std::path::Path) {
+    use std::process::Command;
+
+    const SERVICE_NAME: &str = "mesh-agent";
+    const CONFIG_DIR: &str = "/etc/opengate-agent";
+    const INSTALL_DIR: &str = "/usr/local/bin";
+    const BINARY_NAME: &str = "mesh-agent";
+
+    // Stop and disable the systemd service (best-effort).
+    for action in &["stop", "disable"] {
+        if let Err(e) = Command::new("systemctl")
+            .args([action, SERVICE_NAME])
+            .output()
+        {
+            warn!(action, error = %e, "systemctl command failed");
+        }
+    }
+
+    // Remove identity files from data directory.
     let identity_files = [
         mesh_agent_core::DEVICE_ID_FILE,
         mesh_agent_core::CERT_FILE,
@@ -479,6 +498,37 @@ fn cleanup_agent_identity(data_dir: &std::path::Path) {
             }
         }
     }
+
+    // Remove directories and service unit.
+    let dirs_to_remove = [data_dir.to_path_buf(), std::path::PathBuf::from(CONFIG_DIR)];
+    for dir in &dirs_to_remove {
+        if dir.exists() {
+            if let Err(e) = std::fs::remove_dir_all(dir) {
+                warn!(dir = %dir.display(), error = %e, "failed to remove directory");
+            }
+        }
+    }
+
+    let service_file =
+        std::path::PathBuf::from(format!("/etc/systemd/system/{SERVICE_NAME}.service"));
+    if service_file.exists() {
+        if let Err(e) = std::fs::remove_file(&service_file) {
+            warn!(file = %service_file.display(), error = %e, "failed to remove service file");
+        }
+    }
+
+    // Reload systemd after removing the unit file.
+    let _ = Command::new("systemctl").arg("daemon-reload").output();
+
+    // Remove the binary itself.
+    let binary_path = std::path::PathBuf::from(INSTALL_DIR).join(BINARY_NAME);
+    if binary_path.exists() {
+        if let Err(e) = std::fs::remove_file(&binary_path) {
+            warn!(file = %binary_path.display(), error = %e, "failed to remove binary");
+        }
+    }
+
+    info!("agent uninstalled: service stopped, files removed");
 }
 
 /// Returns a human-readable OS name by parsing `/etc/os-release` on Linux.
