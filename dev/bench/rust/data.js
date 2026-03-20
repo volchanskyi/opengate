@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773987901771,
+  "lastUpdate": 1774024451163,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5365,6 +5365,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.227034143826362,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "c12a77641e2db953dffe547a84ea5b480e493552",
+          "message": "refactor: extract constants and helpers in Phase 14 code\n\n- Extract SENTINEL_UPDATE_PENDING/FILE_ROLLBACK_COUNT constants in update.rs\n- Extract send_update_ack() and spawn_update_watchdog() helpers in main.rs,\n  eliminating the duplicate rollback_count() async call and 3 repeated ack sends\n- Add doc comments to new Go store methods per project convention\n- Add semver pre-release boundary test",
+          "timestamp": "2026-03-20T09:32:19-07:00",
+          "tree_id": "30cd446a87a689452e0504cbe89a6dc745e2841c",
+          "url": "https://github.com/volchanskyi/opengate/commit/c12a77641e2db953dffe547a84ea5b480e493552"
+        },
+        "date": 1774024451117,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.456552020766754,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.396789554498245,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 745.6813670004121,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 319.4134415109832,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 26.87209126599089,
             "unit": "ns/iter"
           }
         ]
