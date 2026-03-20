@@ -119,7 +119,7 @@ describe('Permissions Flow (integration)', () => {
     expect(screen.getByText('Management')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Users' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Audit Log' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Agent Updates' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Agent Settings' })).toBeInTheDocument();
   });
 
   it('renders group with members and add member controls', () => {

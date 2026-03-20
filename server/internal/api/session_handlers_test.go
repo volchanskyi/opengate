@@ -213,15 +213,15 @@ func TestCreateSession(t *testing.T) {
 		})
 		assert.Equal(t, http.StatusCreated, w.Code)
 
-		// Verify permissions sent to agent are all false
+		// Verify permissions sent to agent default to all-true when omitted
 		codec := &protocol.Codec{}
 		_, payload, err := codec.ReadFrame(&agentStream)
 		require.NoError(t, err)
 		msg, err := codec.DecodeControl(payload)
 		require.NoError(t, err)
 		require.NotNil(t, msg.Permissions)
-		assert.False(t, msg.Permissions.Desktop)
-		assert.False(t, msg.Permissions.Terminal)
+		assert.True(t, msg.Permissions.Desktop)
+		assert.True(t, msg.Permissions.Terminal)
 	})
 
 	t.Run("custom_permissions", func(t *testing.T) {

@@ -23,16 +23,17 @@ import (
 
 // AgentServer accepts QUIC connections from agents and manages their lifecycle.
 type AgentServer struct {
-	cert     *cert.Manager
-	store    db.Store
-	relay    *relay.Relay
-	notifier notifications.Notifier
-	quicHost string // extra DNS SAN for the server certificate
-	conns    sync.Map // map[protocol.DeviceID]*AgentConn
-	count    atomic.Int64
-	logger   *slog.Logger
-	addrCh   chan string // signals the actual listen address
-	addrOnce sync.Once
+	cert       *cert.Manager
+	store      db.Store
+	relay      *relay.Relay
+	notifier   notifications.Notifier
+	quicHost   string // extra DNS SAN for the server certificate
+	conns      sync.Map // map[protocol.DeviceID]*AgentConn
+	count      atomic.Int64
+	tombstones sync.Map // map[protocol.DeviceID]struct{} — deleted devices
+	logger     *slog.Logger
+	addrCh     chan string // signals the actual listen address
+	addrOnce   sync.Once
 }
 
 // NewAgentServer creates a new AgentServer.
@@ -70,6 +71,24 @@ func (s *AgentServer) ListConnectedAgents() []*AgentConn {
 		return true
 	})
 	return agents
+}
+
+// DeregisterAgent marks a device as deleted and notifies the connected agent
+// (if online) to clean up and exit. Future reconnection attempts will be rejected.
+func (s *AgentServer) DeregisterAgent(ctx context.Context, deviceID protocol.DeviceID) {
+	s.tombstones.Store(deviceID, struct{}{})
+
+	ac := s.GetAgent(deviceID)
+	if ac == nil {
+		return
+	}
+
+	if err := ac.SendAgentDeregistered(ctx, "device deleted by administrator"); err != nil {
+		s.logger.Error("send deregistered to agent", "error", err, "device_id", deviceID)
+	}
+
+	// Close connection so the control loop exits.
+	_ = ac.Close()
 }
 
 // Addr blocks until the server is listening and returns the actual address.
@@ -170,6 +189,23 @@ func (s *AgentServer) accept(ctx context.Context, conn quic.Connection) {
 
 	logger = logger.With("device_id", result.DeviceID)
 	logger.Info("handshake complete")
+
+	// Reject reconnection of deleted devices.
+	if _, tombstoned := s.tombstones.Load(result.DeviceID); tombstoned {
+		logger.Info("rejecting tombstoned device")
+		// Send deregistered message before closing.
+		codec := &protocol.Codec{}
+		msg := &protocol.ControlMessage{
+			Type:   protocol.MsgAgentDeregistered,
+			Reason: "device deleted by administrator",
+		}
+		if payload, err := codec.EncodeControl(msg); err == nil {
+			_ = codec.WriteFrame(stream, protocol.FrameControl, payload)
+		}
+		stream.Close()
+		conn.CloseWithError(3, "device deregistered")
+		return
+	}
 
 	// Determine the group and hostname for this device.
 	groupID := uuid.Nil

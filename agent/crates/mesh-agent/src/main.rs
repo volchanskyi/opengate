@@ -376,9 +376,9 @@ async fn main() -> Result<()> {
                     mesh_protocol::AgentCapability::FileManager,
                 ],
                 hostname: gethostname::gethostname().to_string_lossy().to_string(),
-                os: std::env::consts::OS.to_string(),
+                os: os_pretty_name(),
                 arch: std::env::consts::ARCH.to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
+                version: env!("AGENT_VERSION").to_string(),
             })
             .await
         {
@@ -431,6 +431,13 @@ async fn main() -> Result<()> {
                                 }
                             }
                         }
+                        Ok(mesh_protocol::ControlMessage::AgentDeregistered { reason }) => {
+                            warn!(reason, "device deregistered by server, cleaning up");
+                            cleanup_agent_identity(&args.data_dir);
+                            lifecycle.notify_stopping();
+                            info!("agent identity removed, exiting");
+                            std::process::exit(0);
+                        }
                         Ok(_other) => { /* ignore unknown messages */ }
                         Err(e) if e.to_string().contains("ping received") => {
                             // Ping was handled (pong sent), continue listening
@@ -453,6 +460,36 @@ async fn main() -> Result<()> {
     lifecycle.notify_stopping();
     info!("mesh-agent stopped");
     Ok(())
+}
+
+/// Removes agent identity files from the data directory.
+/// Called when the server deregisters this device.
+fn cleanup_agent_identity(data_dir: &std::path::Path) {
+    for filename in &["device_id.txt", "agent.crt", "agent.key", "server_ca.pem"] {
+        let path = data_dir.join(filename);
+        if path.exists() {
+            if let Err(e) = std::fs::remove_file(&path) {
+                warn!(file = %path.display(), error = %e, "failed to remove identity file");
+            }
+        }
+    }
+}
+
+/// Returns a human-readable OS name by parsing `/etc/os-release` on Linux.
+/// Falls back to `std::env::consts::OS` (e.g. "linux") on other platforms or
+/// if the file cannot be read.
+fn os_pretty_name() -> String {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(contents) = std::fs::read_to_string("/etc/os-release") {
+            for line in contents.lines() {
+                if let Some(value) = line.strip_prefix("PRETTY_NAME=") {
+                    return value.trim_matches('"').to_string();
+                }
+            }
+        }
+    }
+    std::env::consts::OS.to_string()
 }
 
 #[cfg(test)]

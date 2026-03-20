@@ -24,6 +24,7 @@ export function AgentUpdates() {
   const [tokenForm, setTokenForm] = useState({ label: '', max_uses: 0, expires_in_hours: 24 });
   const [pushResult, setPushResult] = useState<number | null>(null);
   const [revealedTokens, setRevealedTokens] = useState<Set<string>>(new Set());
+  const [showSigningKey, setShowSigningKey] = useState(false);
 
   useEffect(() => {
     fetchManifests();
@@ -64,6 +65,8 @@ export function AgentUpdates() {
   };
 
   const maskToken = (token: string) => token.slice(0, 8) + '...' + token.slice(-4);
+  const isTokenExpired = (expiresAt: string) => new Date(expiresAt) <= new Date();
+  const isTokenExhausted = (maxUses: number, useCount: number) => maxUses > 0 && useCount >= maxUses;
 
   if (isLoading && manifests.length === 0 && enrollmentTokens.length === 0) {
     return <p className="text-gray-400">Loading...</p>;
@@ -71,7 +74,7 @@ export function AgentUpdates() {
 
   return (
     <div className="space-y-8">
-      <h2 className="text-xl font-bold">Agent Updates</h2>
+      <h2 className="text-xl font-bold">Agent Settings</h2>
 
       {error && (
         <div className="bg-red-900/30 border border-red-700 text-red-300 p-3 rounded text-sm">
@@ -147,6 +150,7 @@ export function AgentUpdates() {
             <thead>
               <tr className="border-b border-gray-700 text-left text-gray-400">
                 <th className="pb-2">Label</th>
+                <th className="pb-2">Status</th>
                 <th className="pb-2">Token</th>
                 <th className="pb-2">Uses</th>
                 <th className="pb-2">Expires</th>
@@ -157,6 +161,15 @@ export function AgentUpdates() {
               {enrollmentTokens.map((t) => (
                 <tr key={t.id} className="border-b border-gray-800">
                   <td className="py-2">{t.label || '\u2014'}</td>
+                  <td className="py-2">
+                    {isTokenExpired(t.expires_at) ? (
+                      <span className="px-1.5 py-0.5 bg-red-900/50 text-red-400 rounded text-xs">Expired</span>
+                    ) : isTokenExhausted(t.max_uses, t.use_count) ? (
+                      <span className="px-1.5 py-0.5 bg-yellow-900/50 text-yellow-400 rounded text-xs">Exhausted</span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 bg-green-900/50 text-green-400 rounded text-xs">Active</span>
+                    )}
+                  </td>
                   <td className="py-2 font-mono text-xs">
                     <button onClick={() => toggleReveal(t.id)} className="text-gray-300 hover:text-white">
                       {revealedTokens.has(t.id) ? t.token : maskToken(t.token)}
@@ -197,26 +210,37 @@ export function AgentUpdates() {
         <ManifestList manifests={manifests} onPush={handlePush} />
       </section>
 
-      {/* Signing Key */}
+      {/* Signing Key (hidden by default) */}
       {signingKey && (
         <section>
-          <h3 className="text-lg font-semibold mb-3">Signing Key</h3>
-          <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-            <p className="text-sm text-gray-400 mb-2">Ed25519 public key used to verify agent update signatures:</p>
-            <code className="block bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs font-mono break-all">
-              {signingKey}
-            </code>
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard.writeText(signingKey);
-                addToast('Signing key copied', 'info');
-              }}
-              className="mt-2 text-sm text-blue-400 hover:text-blue-300"
-            >
-              Copy to clipboard
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowSigningKey(!showSigningKey)}
+            className="text-lg font-semibold flex items-center gap-2"
+          >
+            <span className={`text-sm transition-transform ${showSigningKey ? 'rotate-90' : ''}`}>
+              &#9654;
+            </span>
+            Signing Key
+          </button>
+          {showSigningKey && (
+            <div className="mt-3 bg-gray-800 border border-gray-700 rounded-lg p-4">
+              <p className="text-sm text-gray-400 mb-2">Ed25519 public key used to verify agent update signatures:</p>
+              <code className="block bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs font-mono break-all">
+                {signingKey}
+              </code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(signingKey);
+                  addToast('Signing key copied', 'info');
+                }}
+                className="mt-2 text-sm text-blue-400 hover:text-blue-300"
+              >
+                Copy to clipboard
+              </button>
+            </div>
+          )}
         </section>
       )}
     </div>

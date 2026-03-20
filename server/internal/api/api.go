@@ -30,6 +30,7 @@ import (
 type AgentGetter interface {
 	GetAgent(deviceID db.DeviceID) *agentapi.AgentConn
 	ListConnectedAgents() []*agentapi.AgentConn
+	DeregisterAgent(ctx context.Context, deviceID db.DeviceID)
 }
 
 // AMTOperator provides high-level AMT device operations.

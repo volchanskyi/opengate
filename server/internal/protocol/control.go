@@ -31,6 +31,9 @@ const (
 
 	// Chat
 	MsgChatMessage ControlMessageType = "ChatMessage"
+
+	// Device lifecycle
+	MsgAgentDeregistered ControlMessageType = "AgentDeregistered"
 )
 
 // ControlMessage is the envelope for all control-plane messages.

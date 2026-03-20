@@ -49,7 +49,7 @@ test.describe("Admin panel", () => {
       adminPage.getByRole("link", { name: "Audit Log" })
     ).toBeVisible();
     await expect(
-      adminPage.getByRole("link", { name: "Agent Updates" })
+      adminPage.getByRole("link", { name: "Agent Settings" })
     ).toBeVisible();
     await expect(adminPage.getByText("Security")).toBeVisible();
     await expect(

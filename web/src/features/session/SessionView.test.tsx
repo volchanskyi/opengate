@@ -73,9 +73,9 @@ describe('SessionView', () => {
     expect(screen.getByRole('tab', { name: 'Chat' })).toBeInTheDocument();
   });
 
-  it('default tab is Desktop', () => {
+  it('default tab is Terminal', () => {
     renderSession();
-    expect(screen.getByRole('tab', { name: 'Desktop' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Terminal' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('switches tabs when clicked', async () => {
@@ -91,12 +91,12 @@ describe('SessionView', () => {
     const user = userEvent.setup();
     renderSession();
 
-    // Default: Desktop panel
-    expect(screen.getByRole('tabpanel')).toHaveTextContent('Remote Desktop Panel');
-
-    // Switch to Terminal
-    await user.click(screen.getByRole('tab', { name: 'Terminal' }));
+    // Default: Terminal panel
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Terminal Panel');
+
+    // Switch to Desktop
+    await user.click(screen.getByRole('tab', { name: 'Desktop' }));
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('Remote Desktop Panel');
 
     // Switch to Files
     await user.click(screen.getByRole('tab', { name: 'Files' }));

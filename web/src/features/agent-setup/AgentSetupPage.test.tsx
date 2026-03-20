@@ -106,12 +106,6 @@ describe('AgentSetupPage', () => {
     expect(screen.getByText('Add Device')).toBeInTheDocument();
   });
 
-  it('renders platform selector', () => {
-    render(<AgentSetupPage />);
-    expect(screen.getByText('Linux x86_64')).toBeInTheDocument();
-    expect(screen.getByText('Linux ARM64')).toBeInTheDocument();
-  });
-
   it('shows one-liner with enrollment token', () => {
     render(<AgentSetupPage />);
     expect(screen.getByText(/curl -sL/)).toBeInTheDocument();
@@ -119,36 +113,10 @@ describe('AgentSetupPage', () => {
     expect(screen.getAllByText('Copy').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('shows install script download link', () => {
-    render(<AgentSetupPage />);
-    expect(screen.getByText('Download install.sh')).toBeInTheDocument();
-  });
-
-  it('shows download link when manifest exists', () => {
-    render(<AgentSetupPage />);
-    expect(screen.getByText('Download binary')).toBeInTheDocument();
-    expect(screen.getByText('1.0.0')).toBeInTheDocument();
-  });
-
-  it('shows no binaries message when manifests empty', () => {
-    useUpdateStore.setState({ manifests: [] });
-    render(<AgentSetupPage />);
-    expect(screen.getByText(/No agent binaries published/)).toBeInTheDocument();
-  });
-
-  it('switches platform', async () => {
-    const armManifest = { ...fakeManifest, arch: 'arm64' };
-    useUpdateStore.setState({ manifests: [fakeManifest, armManifest] });
-    render(<AgentSetupPage />);
-
-    await userEvent.click(screen.getByText('Linux ARM64'));
-    expect(screen.getByText('Download binary')).toBeInTheDocument();
-  });
-
-  it('shows create token button for admin without tokens', () => {
+  it('shows create token prompt for admin without tokens', () => {
     useUpdateStore.setState({ enrollmentTokens: [] });
     render(<AgentSetupPage />);
-    expect(screen.getByText('Create Token')).toBeInTheDocument();
+    expect(screen.getByText(/Create an enrollment token below/)).toBeInTheDocument();
   });
 
   it('shows message for non-admin without tokens', () => {
@@ -156,13 +124,6 @@ describe('AgentSetupPage', () => {
     useUpdateStore.setState({ enrollmentTokens: [] });
     render(<AgentSetupPage />);
     expect(screen.getByText(/Ask your administrator/)).toBeInTheDocument();
-  });
-
-  it('shows manual install section when expanded', async () => {
-    render(<AgentSetupPage />);
-    await userEvent.click(screen.getByText('Manual Install'));
-    expect(screen.getByText('1. Download the agent binary')).toBeInTheDocument();
-    expect(screen.getByText('3. Run the agent')).toBeInTheDocument();
   });
 
   it('shows what happens next section', () => {

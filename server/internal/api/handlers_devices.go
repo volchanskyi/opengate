@@ -102,5 +102,10 @@ func (s *Server) DeleteDevice(ctx context.Context, request DeleteDeviceRequestOb
 		return nil, err
 	}
 
+	// Notify connected agent to clean up and reject future reconnections.
+	s.agents.DeregisterAgent(ctx, request.Id)
+
+	s.auditLog(ContextUserID(ctx), "device.delete", request.Id.String(), "")
+
 	return DeleteDevice204Response{}, nil
 }

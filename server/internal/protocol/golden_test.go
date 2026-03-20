@@ -67,6 +67,7 @@ func TestGoldenFrameWireFormat(t *testing.T) {
 		{"IceCandidate", "control_ice_candidate.bin", FrameControl},
 		{"SwitchAck", "control_switch_ack.bin", FrameControl},
 		{"AgentUpdateAck", "control_agent_update_ack.bin", FrameControl},
+		{"AgentDeregistered", "control_agent_deregistered.bin", FrameControl},
 	}
 
 	codec := &Codec{}
@@ -177,6 +178,21 @@ func TestGoldenControlAgentUpdateAck(t *testing.T) {
 	require.NotNil(t, msg.Success)
 	assert.True(t, *msg.Success)
 	assert.Empty(t, msg.AckError)
+}
+
+func TestGoldenControlAgentDeregistered(t *testing.T) {
+	data := readGolden(t, "control_agent_deregistered.bin")
+	codec := &Codec{}
+
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgAgentDeregistered, msg.Type)
+	assert.Equal(t, "device deleted by administrator", msg.Reason)
 }
 
 func TestGoldenDesktopFrame(t *testing.T) {
