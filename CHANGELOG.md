@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.9.4] - 2026-03-20
+
+### Fixed
+- use server CA for QUIC load test mTLS handshake
+
+## [v0.9.3] - 2026-03-20
+
+### Fixed
+- tune UDP buffers for QUIC load test (100+ agents)
+- session permissions, agent deregistration, UI cleanup
+
 ## [v0.9.2] - 2026-03-19
 
 ### Fixed
