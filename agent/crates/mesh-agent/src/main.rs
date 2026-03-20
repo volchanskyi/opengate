@@ -465,7 +465,13 @@ async fn main() -> Result<()> {
 /// Removes agent identity files from the data directory.
 /// Called when the server deregisters this device.
 fn cleanup_agent_identity(data_dir: &std::path::Path) {
-    for filename in &["device_id.txt", "agent.crt", "agent.key", "server_ca.pem"] {
+    let identity_files = [
+        mesh_agent_core::DEVICE_ID_FILE,
+        mesh_agent_core::CERT_FILE,
+        mesh_agent_core::KEY_FILE,
+        "server_ca.pem",
+    ];
+    for filename in &identity_files {
         let path = data_dir.join(filename);
         if path.exists() {
             if let Err(e) = std::fs::remove_file(&path) {

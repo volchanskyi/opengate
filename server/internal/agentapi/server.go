@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"net"
 
 	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"

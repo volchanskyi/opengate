@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useUpdateStore } from '../../state/update-store';
 import { useAuthStore } from '../../state/auth-store';
+import { isTokenActive } from '../../lib/token-status';
 import { EnrollmentTokenForm } from './EnrollmentTokenForm';
 
 export function AgentSetupPage() {
@@ -21,7 +22,7 @@ export function AgentSetupPage() {
   }, [fetchEnrollmentTokens, user?.is_admin]);
 
   const activeToken = enrollmentTokens.find(
-    (t) => new Date(t.expires_at) > new Date() && (t.max_uses === 0 || t.use_count < t.max_uses)
+    (t) => isTokenActive(t.expires_at, t.max_uses, t.use_count)
   );
 
   const serverUrl = globalThis.location.origin;
