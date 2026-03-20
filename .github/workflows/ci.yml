@@ -193,6 +193,57 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit $EXIT_CODE
 
+  go-bench:
+    name: Go Benchmarks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+      - name: Run Go benchmarks
+        run: go test -bench=. -benchmem -count=1 -run='^$' ./internal/... | tee "$GITHUB_WORKSPACE/bench-go.txt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-go
+          path: bench-go.txt
+
+  rust-bench:
+    name: Rust Benchmarks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: agent
+      - name: Run Rust benchmarks
+        run: cargo bench --package mesh-protocol --bench codec_bench
+      - name: Convert criterion JSON to benchmark format
+        run: |
+          jq -n '[inputs | {
+            name: input_filename | split("/")[-3],
+            unit: "ns/iter",
+            value: .mean.point_estimate
+          }]' target/criterion/*/new/estimates.json \
+            > "$GITHUB_WORKSPACE/bench-rust.json"
+          cat "$GITHUB_WORKSPACE/bench-rust.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-rust
+          path: bench-rust.json
+
   golden:
     name: Golden File Verification
     needs: [rust-test]
@@ -630,6 +681,8 @@ jobs:
       - security-audit
       - sonarcloud
       - e2e
+      - go-bench
+      - rust-bench
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/dependabot-dev')
     runs-on: ubuntu-latest
     outputs:
@@ -880,6 +933,8 @@ jobs:
       - security-audit
       - sonarcloud
       - e2e
+      - go-bench
+      - rust-bench
       - deploy-api-docs
       - merge-to-main
       - auto-tag
