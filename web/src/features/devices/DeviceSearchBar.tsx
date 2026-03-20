@@ -21,7 +21,7 @@ export function DeviceSearchBar({ onSearch, totalCount, filteredCount }: Props) 
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder=""
+          placeholder="Search Devices..."
           className="w-full bg-gray-900 border border-gray-600 rounded px-3 py-2 text-sm pr-8"
         />
         {query && (
