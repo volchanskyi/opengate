@@ -662,6 +662,56 @@ jobs:
           sarif_file: sonar-results.sarif
           category: sonarcloud
 
+  bench-publish:
+    name: Publish Benchmarks
+    needs: [go-bench, rust-bench]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download Go benchmark results
+        uses: actions/download-artifact@v8
+        with:
+          name: bench-go
+          path: .
+      - name: Download Rust benchmark results
+        uses: actions/download-artifact@v8
+        with:
+          name: bench-rust
+          path: .
+      - name: Store Go benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: go
+          output-file-path: bench-go.txt
+          benchmark-data-dir-path: dev/bench/go
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: false
+          alert-threshold: '120%'
+          fail-on-alert: false
+          comment-on-alert: true
+          alert-comment-cc-users: '@volchanskyi'
+      - name: Store Rust benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: customSmallerIsBetter
+          output-file-path: bench-rust.json
+          benchmark-data-dir-path: dev/bench/rust
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: false
+          skip-fetch-gh-pages: true
+          alert-threshold: '120%'
+          fail-on-alert: false
+          comment-on-alert: true
+          alert-comment-cc-users: '@volchanskyi'
+      - name: Push benchmark results
+        run: git push origin gh-pages
+
   merge-to-main:
     name: Auto-merge to main
     needs:
