@@ -344,6 +344,30 @@ components:
         pushed_count:
           type: integer
 
+    DeviceUpdate:
+      type: object
+      required: [id, device_id, version, status, error, pushed_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        device_id:
+          type: string
+          format: uuid
+        version:
+          type: string
+        status:
+          type: string
+          enum: [pending, success, failed]
+        error:
+          type: string
+        pushed_at:
+          type: string
+          format: date-time
+        acked_at:
+          type: string
+          format: date-time
+
     EnrollmentToken:
       type: object
       required: [id, token, label, created_by, max_uses, use_count, expires_at, created_at]
@@ -403,6 +427,9 @@ components:
           type: string
         server_domain:
           type: string
+        update_signing_key:
+          type: string
+          description: Hex-encoded Ed25519 public key for verifying update signatures
 
     CACertResponse:
       type: object
@@ -1390,6 +1417,40 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: No manifest found for OS/arch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/updates/status/{version}:
+    get:
+      operationId: getUpdateStatus
+      summary: Get per-device update status for a version (admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Per-device update status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeviceUpdate"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Admin access required
           content:
             application/json:
               schema:
