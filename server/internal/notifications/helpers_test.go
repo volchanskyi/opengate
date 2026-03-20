@@ -170,6 +170,15 @@ func (m *notifMockStore) IsUserInSecurityGroup(_ context.Context, _ db.UserID, _
 func (m *notifMockStore) CountSecurityGroupMembers(_ context.Context, _ db.SecurityGroupID) (int, error) {
 	return 0, nil
 }
+func (m *notifMockStore) CreateDeviceUpdate(_ context.Context, _ *db.DeviceUpdate) error {
+	return nil
+}
+func (m *notifMockStore) UpdateDeviceUpdateStatus(_ context.Context, _ db.DeviceID, _ string, _ db.UpdateStatus, _ string) error {
+	return nil
+}
+func (m *notifMockStore) ListDeviceUpdatesByVersion(_ context.Context, _ string) ([]*db.DeviceUpdate, error) {
+	return nil, nil
+}
 func (m *notifMockStore) Ping(_ context.Context) error { return nil }
 func (m *notifMockStore) Close() error                 { return nil }
 

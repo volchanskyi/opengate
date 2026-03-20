@@ -39,6 +39,7 @@ describe('update store', () => {
     vi.clearAllMocks();
     useUpdateStore.setState({
       manifests: [],
+      updateStatus: [],
       enrollmentTokens: [],
       caPem: null,
       isLoading: false,
@@ -101,6 +102,29 @@ describe('update store', () => {
 
     expect(count).toBeUndefined();
     expect(useUpdateStore.getState().error).toBe('not found');
+  });
+
+  it('fetchUpdateStatus populates updateStatus', async () => {
+    const fakeStatus = [
+      { id: 1, device_id: 'd1', version: '1.0.0', status: 'pending', error: '', pushed_at: '2024-01-01T00:00:00Z' },
+    ];
+    mockGet.mockResolvedValueOnce({ data: fakeStatus, error: undefined });
+
+    await useUpdateStore.getState().fetchUpdateStatus('1.0.0');
+
+    expect(useUpdateStore.getState().updateStatus).toEqual(fakeStatus);
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/updates/status/{version}', {
+      params: { path: { version: '1.0.0' } },
+    });
+  });
+
+  it('fetchUpdateStatus handles error', async () => {
+    mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
+
+    await useUpdateStore.getState().fetchUpdateStatus('1.0.0');
+
+    expect(useUpdateStore.getState().error).toBe('forbidden');
+    expect(useUpdateStore.getState().updateStatus).toEqual([]);
   });
 
   it('fetchEnrollmentTokens populates tokens', async () => {

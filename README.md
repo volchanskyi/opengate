@@ -76,9 +76,13 @@ server/                      Go module
 │   ├── notifications/       Web Push notifications (VAPID, webpush-go), Notifier interface
 │   ├── relay/               Byte-transparent WebSocket relay for browser↔agent piping
 │   ├── signaling/           WebRTC signaling state machine, ICE config, session tracker
+│   ├── updater/             Agent auto-update: Ed25519 signing, GitHub release sync, manifests
+│   ├── clientapi/           Client-facing API helpers
+│   ├── multiserver/         Cross-server routing types
 │   └── testutil/            Shared test helpers (excluded from coverage metrics)
 ├── tests/integration/       Integration test suite (real QUIC + SQLite)
 api/openapi.yaml             OpenAPI 3.0.3 spec (single source of truth)
+docs/adr/                    Architecture Decision Records
 docs/api/                    Scalar API reference viewer
 web/                         React + TypeScript (Vite, Tailwind, Zustand)
 deploy/                      Production deployment

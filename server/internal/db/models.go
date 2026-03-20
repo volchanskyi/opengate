@@ -114,6 +114,26 @@ type AuditQuery struct {
 	Offset int
 }
 
+// UpdateStatus represents the outcome of a pushed update.
+type UpdateStatus string
+
+const (
+	UpdateStatusPending UpdateStatus = "pending"
+	UpdateStatusSuccess UpdateStatus = "success"
+	UpdateStatusFailed  UpdateStatus = "failed"
+)
+
+// DeviceUpdate tracks a single update push to a device.
+type DeviceUpdate struct {
+	ID       int64        `json:"id"`
+	DeviceID DeviceID     `json:"device_id"`
+	Version  string       `json:"version"`
+	Status   UpdateStatus `json:"status"`
+	Error    string       `json:"error"`
+	PushedAt time.Time    `json:"pushed_at"`
+	AckedAt  *time.Time   `json:"acked_at,omitempty"`
+}
+
 // SecurityGroupID uniquely identifies a security group.
 type SecurityGroupID = uuid.UUID
 

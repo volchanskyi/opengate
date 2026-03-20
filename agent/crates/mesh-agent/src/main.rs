@@ -61,6 +61,7 @@ struct EnrollResponse {
     ca_pem: String,
     cert_pem: Option<String>,
     server_addr: String,
+    update_signing_key: Option<String>,
 }
 
 /// Perform first-boot enrollment: generate CSR, POST to server, save signed cert + CA.
@@ -120,6 +121,15 @@ async fn enroll(
     tokio::fs::write(server_ca_path, &enroll_resp.ca_pem)
         .await
         .context("save server CA certificate")?;
+
+    // Save the update signing key if the server provided one.
+    if let Some(ref key_hex) = enroll_resp.update_signing_key {
+        let key_path = data_dir.join("update-signing-key.hex");
+        tokio::fs::write(&key_path, key_hex)
+            .await
+            .context("save update signing key")?;
+        info!("saved update signing key from enrollment");
+    }
 
     info!(server_addr = %enroll_resp.server_addr, "enrollment complete");
 
@@ -237,7 +247,7 @@ async fn main() -> Result<()> {
         .await
         .context("create data directory")?;
 
-    // Parse update public key if provided
+    // Parse update public key: CLI flag takes precedence, then saved file from enrollment.
     let update_public_key: Option<[u8; 32]> = match &args.update_public_key {
         Some(hex_str) => {
             let bytes = hex::decode(hex_str).context("decode update public key hex")?;
@@ -247,8 +257,23 @@ async fn main() -> Result<()> {
             Some(key)
         }
         None => {
-            warn!("no update public key configured, auto-updates disabled");
-            None
+            // Try loading from enrollment-saved file.
+            let key_path = args.data_dir.join("update-signing-key.hex");
+            match tokio::fs::read_to_string(&key_path).await {
+                Ok(hex_str) => {
+                    let hex_str = hex_str.trim();
+                    let bytes = hex::decode(hex_str).context("decode saved update signing key")?;
+                    let key: [u8; 32] = bytes.try_into().map_err(|v: Vec<u8>| {
+                        anyhow::anyhow!("saved signing key must be 32 bytes, got {}", v.len())
+                    })?;
+                    info!("loaded update signing key from enrollment");
+                    Some(key)
+                }
+                Err(_) => {
+                    warn!("no update public key configured, auto-updates disabled");
+                    None
+                }
+            }
         }
     };
 
@@ -294,6 +319,60 @@ async fn main() -> Result<()> {
             .unwrap_or_else(|_| PathBuf::from("mesh-agent")),
         data_dir: args.data_dir.clone(),
     });
+
+    // Rollback guard: if a previous update left a sentinel, start a watchdog.
+    // The watchdog is cancelled once we successfully register with the server.
+    // If registration doesn't happen within 60 seconds, rollback and restart.
+    let pending_update = mesh_agent_core::update::is_update_pending(&args.data_dir);
+    if pending_update {
+        let count = mesh_agent_core::update::rollback_count(&args.data_dir).await;
+        if count >= mesh_agent_core::update::MAX_ROLLBACKS {
+            error!(
+                count,
+                "max rollback attempts reached, leaving current binary in place"
+            );
+            mesh_agent_core::update::clear_update_pending(&args.data_dir).await;
+            mesh_agent_core::update::reset_rollback_count(&args.data_dir).await;
+        } else {
+            info!(
+                count,
+                "post-update watchdog active, will rollback if registration fails within 60s"
+            );
+        }
+    }
+    let watchdog_cancel = Arc::new(tokio::sync::Notify::new());
+    if pending_update
+        && mesh_agent_core::update::rollback_count(&args.data_dir).await
+            < mesh_agent_core::update::MAX_ROLLBACKS
+    {
+        let data_dir = args.data_dir.clone();
+        let binary_path = update_config
+            .as_ref()
+            .map(|c| c.current_binary_path.clone())
+            .unwrap_or_else(|| {
+                std::env::current_exe().unwrap_or_else(|_| PathBuf::from("mesh-agent"))
+            });
+        let cancel = watchdog_cancel.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
+                    error!("watchdog: registration did not complete in 60s, rolling back");
+                    mesh_agent_core::update::increment_rollback_count(&data_dir).await;
+                    match mesh_agent_core::update::rollback(&binary_path).await {
+                        Ok(true) => {
+                            info!("watchdog: rollback complete, restarting");
+                            std::process::exit(EXIT_CODE_RESTART);
+                        }
+                        Ok(false) => error!("watchdog: no .prev binary to rollback to"),
+                        Err(e) => error!(error = %e, "watchdog: rollback failed"),
+                    }
+                }
+                _ = cancel.notified() => {
+                    // Registration succeeded — watchdog cancelled.
+                }
+            }
+        });
+    }
 
     // Platform lifecycle
     let lifecycle = platform_linux::create_service_lifecycle();
@@ -388,6 +467,14 @@ async fn main() -> Result<()> {
 
         info!("registered with server, entering control loop");
 
+        // Registration succeeded — cancel watchdog and clear sentinel.
+        if pending_update {
+            watchdog_cancel.notify_one();
+            mesh_agent_core::update::clear_update_pending(&args.data_dir).await;
+            mesh_agent_core::update::reset_rollback_count(&args.data_dir).await;
+            info!("post-update verification passed, sentinel cleared");
+        }
+
         // Control loop — dispatch messages until disconnect
         loop {
             tokio::select! {
@@ -418,16 +505,45 @@ async fn main() -> Result<()> {
                             version, url, sha256, signature,
                         }) => {
                             if let Some(ref uc) = update_config {
+                                // Version comparison: skip if incoming <= current
+                                if should_skip_version(&version) {
+                                    info!(version, "update skipped: already up to date");
+                                    let _ = conn.send_control(
+                                        mesh_protocol::ControlMessage::AgentUpdateAck {
+                                            version: version.clone(),
+                                            success: true,
+                                            error: "already up to date".to_string(),
+                                        },
+                                    ).await;
+                                    continue;
+                                }
+
                                 match mesh_agent_core::update::apply_update(
                                     uc, &version, &url, &sha256, &signature,
                                 ).await {
                                     Ok(true) => {
                                         info!(version, "update applied, restarting");
+                                        let _ = conn.send_control(
+                                            mesh_protocol::ControlMessage::AgentUpdateAck {
+                                                version: version.clone(),
+                                                success: true,
+                                                error: String::new(),
+                                            },
+                                        ).await;
                                         lifecycle.notify_stopping();
                                         std::process::exit(EXIT_CODE_RESTART);
                                     }
                                     Ok(false) => info!("update skipped (same version)"),
-                                    Err(e) => error!(error = %e, "update failed"),
+                                    Err(e) => {
+                                        error!(error = %e, "update failed");
+                                        let _ = conn.send_control(
+                                            mesh_protocol::ControlMessage::AgentUpdateAck {
+                                                version: version.clone(),
+                                                success: false,
+                                                error: e.to_string(),
+                                            },
+                                        ).await;
+                                    }
                                 }
                             }
                         }
@@ -529,6 +645,23 @@ fn uninstall_agent(data_dir: &std::path::Path) {
     }
 
     info!("agent uninstalled: service stopped, files removed");
+}
+
+/// Returns `true` if the incoming version should be skipped (not newer than current).
+///
+/// Parses both `AGENT_VERSION` and `incoming` as semver. If the incoming version
+/// is less than or equal to the current version, the update is skipped.
+/// If either version fails to parse, the function returns `false` (fail-open)
+/// to allow the update to proceed.
+fn should_skip_version(incoming: &str) -> bool {
+    let current = env!("AGENT_VERSION");
+    match (
+        semver::Version::parse(current),
+        semver::Version::parse(incoming),
+    ) {
+        (Ok(cur), Ok(inc)) => inc <= cur,
+        _ => false, // fail-open: if either version is invalid, proceed with update
+    }
 }
 
 /// Returns a human-readable OS name by parsing `/etc/os-release` on Linux.
@@ -694,5 +827,30 @@ mod tests {
         std::fs::write(dir.path().join("device_id.txt"), "test-id").unwrap();
         std::fs::write(dir.path().join("agent.key"), b"key").unwrap();
         assert!(needs_enrollment(dir.path()));
+    }
+
+    #[test]
+    fn test_should_skip_version_older() {
+        // AGENT_VERSION is "0.8.0"; anything <= 0.8.0 should be skipped.
+        assert!(should_skip_version("0.7.0"));
+        assert!(should_skip_version("0.7.9"));
+    }
+
+    #[test]
+    fn test_should_skip_version_same() {
+        assert!(should_skip_version(env!("AGENT_VERSION")));
+    }
+
+    #[test]
+    fn test_should_skip_version_newer() {
+        assert!(!should_skip_version("0.9.0"));
+        assert!(!should_skip_version("1.0.0"));
+    }
+
+    #[test]
+    fn test_should_skip_version_invalid_semver_proceeds() {
+        // Invalid semver should fail-open (proceed with update).
+        assert!(!should_skip_version("not-a-version"));
+        assert!(!should_skip_version(""));
     }
 }

@@ -643,6 +643,60 @@ func (s *SQLiteStore) IncrementEnrollmentTokenUseCount(ctx context.Context, id u
 		`UPDATE enrollment_tokens SET use_count = use_count + 1 WHERE id = ?`, id.String())
 }
 
+// --- Device Updates ---
+
+func scanDeviceUpdateFrom(sc scanner) (*DeviceUpdate, error) {
+	var du DeviceUpdate
+	var deviceIDStr, status, pushedAt string
+	var ackedAt sql.NullString
+	if err := sc.Scan(&du.ID, &deviceIDStr, &du.Version, &status, &du.Error, &pushedAt, &ackedAt); err != nil {
+		return nil, err
+	}
+	var err error
+	du.DeviceID, err = parseUUID(deviceIDStr)
+	if err != nil {
+		return nil, err
+	}
+	du.Status = UpdateStatus(status)
+	du.PushedAt, err = parseTime(pushedAt)
+	if err != nil {
+		return nil, err
+	}
+	if ackedAt.Valid {
+		t, err := parseTime(ackedAt.String)
+		if err != nil {
+			return nil, err
+		}
+		du.AckedAt = &t
+	}
+	return &du, nil
+}
+
+func (s *SQLiteStore) CreateDeviceUpdate(ctx context.Context, du *DeviceUpdate) error {
+	now := nowRFC3339()
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO device_updates (device_id, version, status, error, pushed_at) VALUES (?, ?, ?, ?, ?)`,
+		du.DeviceID.String(), du.Version, string(du.Status), du.Error, now)
+	if err != nil {
+		return err
+	}
+	du.ID, err = res.LastInsertId()
+	return err
+}
+
+func (s *SQLiteStore) UpdateDeviceUpdateStatus(ctx context.Context, deviceID DeviceID, version string, status UpdateStatus, errMsg string) error {
+	now := nowRFC3339()
+	return s.execAndCheckAffected(ctx,
+		`UPDATE device_updates SET status = ?, error = ?, acked_at = ? WHERE device_id = ? AND version = ?`,
+		string(status), errMsg, now, deviceID.String(), version)
+}
+
+func (s *SQLiteStore) ListDeviceUpdatesByVersion(ctx context.Context, version string) ([]*DeviceUpdate, error) {
+	return queryList(ctx, s.db, scanDeviceUpdateFrom,
+		`SELECT id, device_id, version, status, error, pushed_at, acked_at FROM device_updates WHERE version = ? ORDER BY pushed_at DESC`,
+		version)
+}
+
 // --- Security Groups ---
 
 func scanSecurityGroupFrom(sc scanner) (*SecurityGroup, error) {

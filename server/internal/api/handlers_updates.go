@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -100,6 +101,18 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 			continue
 		}
 		pushed++
+
+		// Record pending update status for tracking.
+		du := &db.DeviceUpdate{
+			DeviceID: agent.DeviceID,
+			Version:  m.Version,
+			Status:   db.UpdateStatusPending,
+		}
+		if err := s.store.CreateDeviceUpdate(ctx, du); err != nil {
+			s.logger.Warn("record device update failed",
+				"device_id", agent.DeviceID,
+				"error", err)
+		}
 	}
 
 	s.auditLog(ContextUserID(ctx), "update.push",
@@ -128,6 +141,36 @@ func (s *Server) eligibleAgents(osName, arch, version string, targetSet map[stri
 		eligible = append(eligible, agent)
 	}
 	return eligible
+}
+
+// GetUpdateStatus implements StrictServerInterface.
+func (s *Server) GetUpdateStatus(ctx context.Context, request GetUpdateStatusRequestObject) (GetUpdateStatusResponseObject, error) {
+	if resp, denied := denyIfNotAdmin(ctx, GetUpdateStatus403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
+	}
+
+	updates, err := s.store.ListDeviceUpdatesByVersion(ctx, request.Version)
+	if err != nil {
+		return nil, fmt.Errorf("list device updates: %w", err)
+	}
+
+	result := make([]DeviceUpdate, 0, len(updates))
+	for _, du := range updates {
+		item := DeviceUpdate{
+			Id:       du.ID,
+			DeviceId: du.DeviceID,
+			Version:  du.Version,
+			Status:   DeviceUpdateStatus(du.Status),
+			Error:    du.Error,
+			PushedAt: du.PushedAt,
+		}
+		if du.AckedAt != nil {
+			item.AckedAt = du.AckedAt
+		}
+		result = append(result, item)
+	}
+
+	return GetUpdateStatus200JSONResponse(result), nil
 }
 
 // GetUpdateSigningKey implements StrictServerInterface.

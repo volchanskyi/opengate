@@ -138,18 +138,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Auto-sync agent manifests from GitHub releases on startup.
+	// Periodically sync agent manifests from GitHub releases (default: every hour).
 	if githubRepo != "" {
-		go func() {
-			syncCtx, syncCancel := context.WithTimeout(ctx, 30*time.Second)
-			defer syncCancel()
-			synced, err := updater.SyncFromGitHub(syncCtx, githubRepo, "", signingKeys, manifestStore)
-			if err != nil {
-				logger.Warn("github manifest sync failed", "repo", githubRepo, "error", err)
-			} else {
-				logger.Info("synced manifests from github", "repo", githubRepo, "count", len(synced))
-			}
-		}()
+		go updater.StartPeriodicSync(ctx, githubRepo, 0, signingKeys, manifestStore, logger)
 	}
 
 	done := make(chan os.Signal, 1)

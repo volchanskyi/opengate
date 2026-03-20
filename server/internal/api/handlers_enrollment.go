@@ -118,6 +118,13 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 		ServerDomain: host,
 	}
 
+	// Include the Ed25519 update signing key so agents can verify updates
+	// without needing the --update-public-key CLI flag.
+	if s.signing != nil {
+		key := s.signing.PublicKeyHex()
+		result.UpdateSigningKey = &key
+	}
+
 	// Sign agent CSR if provided; only count as a real enrollment when a
 	// certificate is actually issued (the install script probes with an
 	// empty csr_pem to validate the token without consuming a use).

@@ -972,6 +972,98 @@ func TestSecurityGroupMigrationSeedsExistingAdmins(t *testing.T) {
 	assert.True(t, ok)
 }
 
+func TestDeviceUpdateCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	owner := seedUser(t, ctx, s)
+	group := seedGroup(t, ctx, s, owner.ID)
+	device := seedDevice(t, ctx, s, group.ID)
+
+	t.Run("create and list by version", func(t *testing.T) {
+		du := &DeviceUpdate{
+			DeviceID: device.ID,
+			Version:  "1.0.0",
+			Status:   UpdateStatusPending,
+		}
+		require.NoError(t, s.CreateDeviceUpdate(ctx, du))
+		assert.NotZero(t, du.ID)
+
+		list, err := s.ListDeviceUpdatesByVersion(ctx, "1.0.0")
+		require.NoError(t, err)
+		require.Len(t, list, 1)
+		assert.Equal(t, device.ID, list[0].DeviceID)
+		assert.Equal(t, "1.0.0", list[0].Version)
+		assert.Equal(t, UpdateStatusPending, list[0].Status)
+		assert.Empty(t, list[0].Error)
+		assert.False(t, list[0].PushedAt.IsZero())
+		assert.Nil(t, list[0].AckedAt)
+	})
+
+	t.Run("update status to success", func(t *testing.T) {
+		require.NoError(t, s.UpdateDeviceUpdateStatus(ctx, device.ID, "1.0.0", UpdateStatusSuccess, ""))
+
+		list, err := s.ListDeviceUpdatesByVersion(ctx, "1.0.0")
+		require.NoError(t, err)
+		require.Len(t, list, 1)
+		assert.Equal(t, UpdateStatusSuccess, list[0].Status)
+		assert.Empty(t, list[0].Error)
+		assert.NotNil(t, list[0].AckedAt)
+	})
+
+	t.Run("update status to failed with error", func(t *testing.T) {
+		du := &DeviceUpdate{
+			DeviceID: device.ID,
+			Version:  "2.0.0",
+			Status:   UpdateStatusPending,
+		}
+		require.NoError(t, s.CreateDeviceUpdate(ctx, du))
+
+		require.NoError(t, s.UpdateDeviceUpdateStatus(ctx, device.ID, "2.0.0", UpdateStatusFailed, "hash mismatch"))
+
+		list, err := s.ListDeviceUpdatesByVersion(ctx, "2.0.0")
+		require.NoError(t, err)
+		require.Len(t, list, 1)
+		assert.Equal(t, UpdateStatusFailed, list[0].Status)
+		assert.Equal(t, "hash mismatch", list[0].Error)
+		assert.NotNil(t, list[0].AckedAt)
+	})
+
+	t.Run("update status not found", func(t *testing.T) {
+		err := s.UpdateDeviceUpdateStatus(ctx, uuid.New(), "9.9.9", UpdateStatusSuccess, "")
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run("list empty version returns empty slice", func(t *testing.T) {
+		list, err := s.ListDeviceUpdatesByVersion(ctx, "99.99.99")
+		require.NoError(t, err)
+		assert.Empty(t, list)
+	})
+
+	t.Run("multiple devices same version", func(t *testing.T) {
+		d2 := seedDevice(t, ctx, s, group.ID)
+		du1 := &DeviceUpdate{DeviceID: device.ID, Version: "3.0.0", Status: UpdateStatusPending}
+		du2 := &DeviceUpdate{DeviceID: d2.ID, Version: "3.0.0", Status: UpdateStatusPending}
+		require.NoError(t, s.CreateDeviceUpdate(ctx, du1))
+		require.NoError(t, s.CreateDeviceUpdate(ctx, du2))
+
+		list, err := s.ListDeviceUpdatesByVersion(ctx, "3.0.0")
+		require.NoError(t, err)
+		assert.Len(t, list, 2)
+	})
+
+	t.Run("cascade delete on device removal", func(t *testing.T) {
+		d3 := seedDevice(t, ctx, s, group.ID)
+		du := &DeviceUpdate{DeviceID: d3.ID, Version: "4.0.0", Status: UpdateStatusPending}
+		require.NoError(t, s.CreateDeviceUpdate(ctx, du))
+
+		require.NoError(t, s.DeleteDevice(ctx, d3.ID))
+
+		list, err := s.ListDeviceUpdatesByVersion(ctx, "4.0.0")
+		require.NoError(t, err)
+		assert.Empty(t, list)
+	})
+}
+
 func TestWALMode(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "wal.db")
