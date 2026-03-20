@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774029151920,
+  "lastUpdate": 1774031089228,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5463,6 +5463,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.182167522616083,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9e6f5a547d7fb2e3f0f07094a7c00a95464d25a0",
+          "message": "fix: add \"Add Device\" button to /devices top-right corner",
+          "timestamp": "2026-03-20T11:23:07-07:00",
+          "tree_id": "de33546f16fbb6770306f1927ac41b053b56232d",
+          "url": "https://github.com/volchanskyi/opengate/commit/9e6f5a547d7fb2e3f0f07094a7c00a95464d25a0"
+        },
+        "date": 1774031089184,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.501636632079016,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.48763716164569,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 746.0106392377772,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 318.07003785139835,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.18007929039795,
             "unit": "ns/iter"
           }
         ]
