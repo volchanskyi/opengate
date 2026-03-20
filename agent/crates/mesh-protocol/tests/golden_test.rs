@@ -137,6 +137,16 @@ fn golden_control_frame_agent_update_ack() {
 }
 
 #[test]
+fn golden_control_frame_agent_deregistered() {
+    let msg = ControlMessage::AgentDeregistered {
+        reason: "device deleted by administrator".to_string(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_agent_deregistered.bin", &encoded);
+}
+
+#[test]
 fn golden_handshake_server_hello() {
     let msg = HandshakeMessage::ServerHello {
         nonce: [0xAA; 32],

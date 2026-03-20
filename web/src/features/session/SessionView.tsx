@@ -23,7 +23,7 @@ export function SessionView() {
   const disconnect = useConnectionStore((s) => s.disconnect);
   const authToken = useAuthStore((s) => s.token);
 
-  const [activeTab, setActiveTab] = useState<Tab>('Desktop');
+  const [activeTab, setActiveTab] = useState<Tab>('Terminal');
 
   useEffect(() => {
     if (token && relayUrl && authToken) {

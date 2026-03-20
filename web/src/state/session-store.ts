@@ -28,7 +28,18 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   createSession: async (deviceId) => {
     const res = await apiAction(set, () =>
-      api.POST('/api/v1/sessions', { body: { device_id: deviceId } }),
+      api.POST('/api/v1/sessions', {
+        body: {
+          device_id: deviceId,
+          permissions: {
+            desktop: true,
+            terminal: true,
+            file_read: true,
+            file_write: true,
+            input: true,
+          },
+        },
+      }),
     );
     return res.ok ? res.data : null;
   },

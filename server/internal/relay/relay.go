@@ -45,8 +45,11 @@ type session struct {
 
 // Relay pipes WebSocket connections from browsers and agents together.
 type Relay struct {
-	sessions sync.Map // map[protocol.SessionToken]*session
-	count    atomic.Int64
+	sessions     sync.Map // map[protocol.SessionToken]*session
+	count        atomic.Int64
+	// OnSessionEnd is called when a session finishes piping (both sides disconnected).
+	// It can be used to clean up external state such as DB sessions.
+	OnSessionEnd func(token protocol.SessionToken)
 }
 
 // NewRelay creates a new Relay.
@@ -132,6 +135,9 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 		cancel()
 		r.sessions.Delete(token)
 		r.count.Add(-1)
+		if r.OnSessionEnd != nil {
+			r.OnSessionEnd(token)
+		}
 	}()
 
 	done := make(chan struct{})

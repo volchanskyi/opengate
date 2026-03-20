@@ -35,6 +35,8 @@ func (s *stubAgentGetter) GetAgent(deviceID protocol.DeviceID) *agentapi.AgentCo
 	return s.agents[deviceID]
 }
 
+func (s *stubAgentGetter) DeregisterAgent(_ context.Context, _ protocol.DeviceID) {}
+
 func (s *stubAgentGetter) ListConnectedAgents() []*agentapi.AgentConn {
 	if s == nil || s.agents == nil {
 		return nil

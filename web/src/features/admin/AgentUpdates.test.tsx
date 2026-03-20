@@ -60,7 +60,7 @@ describe('AgentUpdates', () => {
 
   it('renders page title', () => {
     render(<AgentUpdates />);
-    expect(screen.getByText('Agent Updates')).toBeInTheDocument();
+    expect(screen.getByText('Agent Settings')).toBeInTheDocument();
   });
 
   it('renders enrollment token table', () => {
