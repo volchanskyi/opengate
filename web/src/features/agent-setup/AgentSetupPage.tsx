@@ -2,14 +2,11 @@ import { useEffect, useState } from 'react';
 import { useUpdateStore } from '../../state/update-store';
 import { useAuthStore } from '../../state/auth-store';
 import { EnrollmentTokenForm } from './EnrollmentTokenForm';
-import { InstallInstructions } from './InstallInstructions';
 
 export function AgentSetupPage() {
   const user = useAuthStore((s) => s.user);
-  const manifests = useUpdateStore((s) => s.manifests);
   const enrollmentTokens = useUpdateStore((s) => s.enrollmentTokens);
   const isLoading = useUpdateStore((s) => s.isLoading);
-  const fetchManifests = useUpdateStore((s) => s.fetchManifests);
   const fetchEnrollmentTokens = useUpdateStore((s) => s.fetchEnrollmentTokens);
   const createEnrollmentToken = useUpdateStore((s) => s.createEnrollmentToken);
   const deleteEnrollmentToken = useUpdateStore((s) => s.deleteEnrollmentToken);
@@ -18,11 +15,10 @@ export function AgentSetupPage() {
   const [showTokenForm, setShowTokenForm] = useState(false);
 
   useEffect(() => {
-    fetchManifests();
     if (user?.is_admin) {
       fetchEnrollmentTokens();
     }
-  }, [fetchManifests, fetchEnrollmentTokens, user?.is_admin]);
+  }, [fetchEnrollmentTokens, user?.is_admin]);
 
   const activeToken = enrollmentTokens.find(
     (t) => new Date(t.expires_at) > new Date() && (t.max_uses === 0 || t.use_count < t.max_uses)
@@ -47,7 +43,7 @@ export function AgentSetupPage() {
     await deleteEnrollmentToken(id);
   };
 
-  if (isLoading && manifests.length === 0) {
+  if (isLoading && enrollmentTokens.length === 0) {
     return (
       <div className="max-w-3xl mx-auto p-6">
         <p className="text-gray-400">Loading...</p>
@@ -61,13 +57,12 @@ export function AgentSetupPage() {
 
       {/* Quick Install */}
       <section className="mb-8">
-        <h3 className="text-lg font-semibold mb-3">Quick Install</h3>
+        <h3 className="text-lg font-semibold mb-3">Quick Setup</h3>
         <QuickInstallContent
           installCommand={installCommand}
           isAdmin={user?.is_admin ?? false}
           copiedField={copiedField}
           onCopy={handleCopy}
-          onShowTokenForm={() => setShowTokenForm(true)}
         />
       </section>
 
@@ -83,8 +78,6 @@ export function AgentSetupPage() {
           onDeleteToken={handleDeleteToken}
         />
       )}
-
-      <InstallInstructions manifests={manifests} />
 
       {/* What happens next */}
       <section>
@@ -104,13 +97,11 @@ function QuickInstallContent({
   isAdmin,
   copiedField,
   onCopy,
-  onShowTokenForm,
 }: Readonly<{
   installCommand: string | null;
   isAdmin: boolean;
   copiedField: string | null;
   onCopy: (text: string, field: string) => void;
-  onShowTokenForm: () => void;
 }>) {
   if (installCommand) {
     return (
@@ -133,25 +124,11 @@ function QuickInstallContent({
     );
   }
 
-  if (isAdmin) {
-    return (
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
-        <p className="text-sm text-gray-400 mb-3">
-          Create an enrollment token to generate a one-liner install command.
-        </p>
-        <button
-          onClick={onShowTokenForm}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm"
-        >
-          Create Token
-        </button>
-      </div>
-    );
-  }
-
   return (
     <p className="text-sm text-gray-400">
-      Ask your administrator to create an enrollment token for agent installation.
+      {isAdmin
+        ? 'Create an enrollment token below to generate a one-liner install command.'
+        : 'Ask your administrator to create an enrollment token for agent installation.'}
     </p>
   );
 }

@@ -100,4 +100,11 @@ pub enum ControlMessage {
         text: String,
         sender: String,
     },
+
+    // Device lifecycle
+    /// Server notifies agent that its device has been deleted.
+    /// Agent should clean up and exit.
+    AgentDeregistered {
+        reason: String,
+    },
 }

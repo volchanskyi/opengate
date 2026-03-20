@@ -29,6 +29,7 @@ export function DeviceDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [showAmtInstructions, setShowAmtInstructions] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -166,7 +167,7 @@ export function DeviceDetail() {
           </div>
         )}
 
-        {amtDevice && (
+        {amtDevice ? (
           <div>
             <h3 className="text-sm font-semibold text-gray-300 mb-2">AMT Power Actions</h3>
             <p className="text-xs text-gray-500 mb-2">
@@ -187,6 +188,49 @@ export function DeviceDetail() {
                 {confirmPowerAction === 'hard_reset' ? 'Confirm Reset' : 'Hard Reset'}
               </button>
             </div>
+          </div>
+        ) : (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowAmtInstructions(!showAmtInstructions)}
+              className="text-sm font-semibold text-gray-300 flex items-center gap-2"
+            >
+              <span className={`text-xs transition-transform ${showAmtInstructions ? 'rotate-90' : ''}`}>
+                &#9654;
+              </span>
+              Intel AMT Setup
+            </button>
+            {showAmtInstructions && (
+              <div className="mt-2 bg-gray-900 border border-gray-700 rounded-lg p-4 text-sm text-gray-400 space-y-3">
+                <p>
+                  Intel AMT (Active Management Technology) enables out-of-band power management
+                  for supported hardware. To enable AMT for this device:
+                </p>
+                <ol className="list-decimal list-inside space-y-2">
+                  <li>
+                    <strong className="text-gray-300">Enable AMT in BIOS</strong> — Enter the BIOS/UEFI
+                    setup (usually F2/Del at boot) and enable Intel AMT / ME (Management Engine).
+                  </li>
+                  <li>
+                    <strong className="text-gray-300">Configure MEBx</strong> — Press Ctrl+P at boot to
+                    enter MEBx. Set a strong password and configure the network settings (DHCP or static IP).
+                  </li>
+                  <li>
+                    <strong className="text-gray-300">Enable remote access</strong> — In MEBx, enable
+                    &quot;Remote Setup And Configuration&quot; and ensure the AMT network interface is active.
+                  </li>
+                  <li>
+                    <strong className="text-gray-300">Verify connectivity</strong> — The device will
+                    automatically register with the MPS server once AMT is configured and the network is
+                    reachable. Power actions will appear here once connected.
+                  </li>
+                </ol>
+                <p className="text-xs text-gray-500">
+                  Requires Intel vPro-compatible hardware with AMT firmware. Not all Intel processors support AMT.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

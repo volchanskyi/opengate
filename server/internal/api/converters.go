@@ -78,7 +78,14 @@ func sessionsToAPI(ss []*db.AgentSession) []AgentSession {
 
 func permissionsToProtocol(p *Permissions) protocol.Permissions {
 	if p == nil {
-		return protocol.Permissions{}
+		// Default to all-true so sessions work when no permissions are specified.
+		return protocol.Permissions{
+			Desktop:   true,
+			Terminal:  true,
+			FileRead:  true,
+			FileWrite: true,
+			Input:     true,
+		}
 	}
 	return protocol.Permissions{
 		Desktop:   derefBool(p.Desktop),

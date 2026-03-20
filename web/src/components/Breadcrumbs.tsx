@@ -42,7 +42,7 @@ export function Breadcrumbs() {
     } else if (seg === 'audit') {
       crumbs.push(isLast ? { label: 'Audit Log' } : { label: 'Audit Log', to: path });
     } else if (seg === 'updates') {
-      crumbs.push(isLast ? { label: 'Agent Updates' } : { label: 'Agent Updates', to: path });
+      crumbs.push(isLast ? { label: 'Agent Settings' } : { label: 'Agent Settings', to: path });
     } else if (seg === 'permissions') {
       crumbs.push({ label: 'Permissions' });
     } else if (seg === 'setup') {

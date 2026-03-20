@@ -87,6 +87,25 @@ func (a *AgentConn) SendAgentUpdate(ctx context.Context, version, url, sha256, s
 	return nil
 }
 
+// SendAgentDeregistered tells the agent its device was deleted and it should clean up.
+func (a *AgentConn) SendAgentDeregistered(ctx context.Context, reason string) error {
+	msg := &protocol.ControlMessage{
+		Type:   protocol.MsgAgentDeregistered,
+		Reason: reason,
+	}
+
+	payload, err := a.codec.EncodeControl(msg)
+	if err != nil {
+		return fmt.Errorf("encode agent deregistered: %w", err)
+	}
+
+	if err := a.codec.WriteFrame(a.stream, protocol.FrameControl, payload); err != nil {
+		return fmt.Errorf("write agent deregistered frame: %w", err)
+	}
+
+	return nil
+}
+
 // Close closes the agent connection.
 func (a *AgentConn) Close() error {
 	if closer, ok := a.stream.(io.Closer); ok {

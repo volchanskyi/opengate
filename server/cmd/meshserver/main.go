@@ -19,6 +19,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/mps"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
@@ -86,6 +87,13 @@ func main() {
 
 	// Create relay and agent server
 	agentRelay := relay.NewRelay()
+	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := store.DeleteAgentSession(ctx, string(token)); err != nil {
+			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
+		}
+	}
 	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, notifier, quicHost, logger)
 
 	// Initialize update signing keys and manifest store

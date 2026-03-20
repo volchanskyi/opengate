@@ -95,6 +95,9 @@ jobs:
       - name: Copy harness to VPS
         run: scp /tmp/loadtest deploy-target:/tmp/loadtest
 
+      - name: Tune UDP buffers for QUIC
+        run: ssh deploy-target "sudo sysctl -w net.core.rmem_max=7340032 net.core.wmem_max=7340032"
+
       - name: Run QUIC load test
         run: |
           AGENTS="${{ inputs.agents || '100' }}"
