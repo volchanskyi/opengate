@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774024451163,
+  "lastUpdate": 1774029151920,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5414,6 +5414,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 26.87209126599089,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "726526e01cf651ddb92c4bd9fb883aa2e2760a23",
+          "message": "fix: UI bugs — duplicate buttons, search placeholder, device version sync\n\n- Remove \"Quick Setup\" buttons from /devices page (toolbar + empty state)\n- Rename \"Quick Setup\" to \"Add Device\" on dashboard (/) — only location\n- Set search placeholder to \"Search Devices...\" on /devices\n- Add 30s polling on device detail page so agent_version stays in sync",
+          "timestamp": "2026-03-20T10:50:24-07:00",
+          "tree_id": "f86ad79a92166f6b25c3d433b67ad469f9e9eb3b",
+          "url": "https://github.com/volchanskyi/opengate/commit/726526e01cf651ddb92c4bd9fb883aa2e2760a23"
+        },
+        "date": 1774029151877,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.32020859084351,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.404546927631337,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 744.8445018780112,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 325.25007989158854,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.182167522616083,
             "unit": "ns/iter"
           }
         ]
