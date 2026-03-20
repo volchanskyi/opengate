@@ -48,7 +48,7 @@ export function Dashboard() {
           View All Devices
         </Link>
         <Link to="/setup" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm">
-          Quick Setup
+          Add Device
         </Link>
       </div>
 

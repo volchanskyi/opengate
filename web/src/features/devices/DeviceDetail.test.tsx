@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { useDeviceStore } from '../../state/device-store';
 import { useSessionStore } from '../../state/session-store';
@@ -40,6 +40,7 @@ const mockDevice = {
 
 describe('DeviceDetail', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
     // Override fetchDevice/fetchSessions to no-ops so they don't overwrite pre-set state
     useDeviceStore.setState({
@@ -71,6 +72,10 @@ describe('DeviceDetail', () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('renders device info', () => {
     renderDetail();
     expect(screen.getByText('test-host')).toBeInTheDocument();
@@ -96,6 +101,7 @@ describe('DeviceDetail', () => {
   });
 
   it('delete requires confirmation', async () => {
+    vi.useRealTimers();
     const user = userEvent.setup();
     renderDetail();
 
@@ -106,5 +112,22 @@ describe('DeviceDetail', () => {
   it('shows agent version', () => {
     renderDetail();
     expect(screen.getByText('1.0.0')).toBeInTheDocument();
+  });
+
+  it('polls device data every 30 seconds', () => {
+    const fetchDeviceFn = vi.fn();
+    useDeviceStore.setState({ fetchDevice: fetchDeviceFn });
+    renderDetail();
+
+    // Initial fetch on mount
+    expect(fetchDeviceFn).toHaveBeenCalledTimes(1);
+
+    // Advance 30s — should trigger second fetch
+    vi.advanceTimersByTime(30_000);
+    expect(fetchDeviceFn).toHaveBeenCalledTimes(2);
+
+    // Advance another 30s — third fetch
+    vi.advanceTimersByTime(30_000);
+    expect(fetchDeviceFn).toHaveBeenCalledTimes(3);
   });
 });
