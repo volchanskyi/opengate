@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1773983854517,
+  "lastUpdate": 1773985731219,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5218,6 +5218,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.23461640961016,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f505c54500be15b0b122bd77efcc63a53f2fdc66",
+          "message": "fix: UI bugs, terminal hotkeys, file error feedback, agent uninstall\n\n1. Rename \"Add Device\" buttons to \"Quick Setup\" on /devices and dashboard\n2. Remove search bar placeholder text that was visually cut off\n3. Clear stale sessions in fetchSessions before API call\n4. Add FileListError protocol message so file permission errors reach\n   the browser instead of being silently logged on the agent\n5. Full agent uninstall on deregistration: stop/disable systemd service,\n   remove identity files, data dir, config dir, service unit, and binary\n6. Intercept Ctrl+letter in terminal so browser does not consume them\n   for clipboard; send control characters directly to the remote PTY",
+          "timestamp": "2026-03-19T22:47:10-07:00",
+          "tree_id": "196c6411a1909e79abe9483ec78a2a83ff353986",
+          "url": "https://github.com/volchanskyi/opengate/commit/f505c54500be15b0b122bd77efcc63a53f2fdc66"
+        },
+        "date": 1773985731176,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.261454390618503,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.446823319979167,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 755.0318295932534,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 315.61842302767883,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.163449105997607,
             "unit": "ns/iter"
           }
         ]
