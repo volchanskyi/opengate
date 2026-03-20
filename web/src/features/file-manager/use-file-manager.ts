@@ -15,6 +15,9 @@ export function useFileManager() {
     setOnControlMessage((msg) => {
       if (msg.type === 'FileListResponse') {
         setEntries(msg.path, msg.entries);
+      } else if (msg.type === 'FileListError') {
+        useFileStore.getState().setLoading(false);
+        useFileStore.getState().setError(msg.error);
       }
     });
 
@@ -25,6 +28,7 @@ export function useFileManager() {
 
   const requestDirectory = (path: string) => {
     if (!transport) return;
+    useFileStore.getState().setError(null);
     useFileStore.getState().setLoading(true);
     transport.sendControl({ type: 'FileListRequest', path });
   };

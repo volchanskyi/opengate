@@ -150,7 +150,17 @@ impl SessionHandler {
             Ok(response) => {
                 let _ = send_frame(frame_tx, &Frame::Control(response)).await;
             }
-            Err(e) => warn!("file list error: {e}"),
+            Err(e) => {
+                warn!("file list error: {e}");
+                let _ = send_frame(
+                    frame_tx,
+                    &Frame::Control(ControlMessage::FileListError {
+                        path: path.to_string(),
+                        error: e.to_string(),
+                    }),
+                )
+                .await;
+            }
         }
     }
 

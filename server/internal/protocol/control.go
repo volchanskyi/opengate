@@ -26,6 +26,7 @@ const (
 	// File operations
 	MsgFileListRequest    ControlMessageType = "FileListRequest"
 	MsgFileListResponse   ControlMessageType = "FileListResponse"
+	MsgFileListError      ControlMessageType = "FileListError"
 	MsgFileDownloadRequest ControlMessageType = "FileDownloadRequest"
 	MsgFileUploadRequest  ControlMessageType = "FileUploadRequest"
 

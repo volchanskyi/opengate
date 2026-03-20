@@ -7,6 +7,7 @@ export function FileManagerView() {
   const connectionState = useConnectionStore((s) => s.state);
   const currentPath = useFileStore((s) => s.currentPath);
   const entries = useFileStore((s) => s.entries);
+  const fileError = useFileStore((s) => s.error);
   const downloads = useFileStore((s) => s.downloads);
   const { requestDirectory } = useFileManager();
   const initialRequestSent = useRef(false);
@@ -53,6 +54,12 @@ export function FileManagerView() {
         <span className="text-gray-400">Path:</span>
         <span className="font-mono text-white">{currentPath}</span>
       </div>
+
+      {fileError && (
+        <div className="bg-red-900/50 border border-red-700 rounded px-3 py-2 text-sm text-red-300">
+          {fileError}
+        </div>
+      )}
 
       <table className="w-full text-sm">
         <thead>
