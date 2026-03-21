@@ -1,0 +1,20 @@
+[
+  {
+    "name": "JS bundle",
+    "passed": true,
+    "size": 201225,
+    "sizeLimit": 250000
+  },
+  {
+    "name": "CSS bundle",
+    "passed": true,
+    "size": 5146,
+    "sizeLimit": 10000
+  },
+  {
+    "name": "Total",
+    "passed": true,
+    "size": 206371,
+    "sizeLimit": 260000
+  }
+]
