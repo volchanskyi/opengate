@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774055316557,
+  "lastUpdate": 1774056379865,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5561,6 +5561,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.11025321549525,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "c4cc1bcf7bf63003ccc0c5dddf64ccc3c3aef9e2",
+          "message": "fix: upgrade rustls-webpki 0.103.9 → 0.103.10 (RUSTSEC-2026-0049)",
+          "timestamp": "2026-03-20T18:24:40-07:00",
+          "tree_id": "340910370235d370427256f2c1ad08bf28d20894",
+          "url": "https://github.com/volchanskyi/opengate/commit/c4cc1bcf7bf63003ccc0c5dddf64ccc3c3aef9e2"
+        },
+        "date": 1774056379820,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.263708131510853,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.37172034512184,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 762.872412318539,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 315.22044422245904,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.0786984839418,
             "unit": "ns/iter"
           }
         ]
