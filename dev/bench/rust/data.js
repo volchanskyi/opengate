@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774031089228,
+  "lastUpdate": 1774055316557,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5512,6 +5512,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.18007929039795,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "195c2f106be4d5024c90f8f3bd4b5edb48c698a7",
+          "message": "feat: add frontend performance monitoring to CI/CD pipeline\n\nBundle size gate (size-limit), Lighthouse CI audits in E2E,\nperformance trend tracking on gh-pages, and PageSpeed Insights\nin CD staging deploy.",
+          "timestamp": "2026-03-20T18:06:58-07:00",
+          "tree_id": "1eded85c61533a698fb72c6869bd82426cbcf94a",
+          "url": "https://github.com/volchanskyi/opengate/commit/195c2f106be4d5024c90f8f3bd4b5edb48c698a7"
+        },
+        "date": 1774055316512,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.498471846025485,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.553818483196952,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 747.4267989662757,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 317.9151749320386,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.11025321549525,
             "unit": "ns/iter"
           }
         ]
