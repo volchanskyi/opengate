@@ -165,6 +165,50 @@ jobs:
         working-directory: web
         run: npx playwright test --config=playwright.staging.config.ts
 
+      - name: Run PageSpeed Insights
+        if: success()
+        env:
+          PSI_API_KEY: ${{ secrets.PSI_API_KEY }}
+          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+        run: |
+          if [ -z "$PSI_API_KEY" ] || [ -z "$DOMAIN" ]; then
+            echo "::notice::Skipping PSI — missing API key or domain"
+            exit 0
+          fi
+          URL="https://${DOMAIN}/login"
+          RESULT=$(curl -sf "https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${URL}&strategy=desktop&category=PERFORMANCE&category=ACCESSIBILITY&category=BEST_PRACTICES&key=${PSI_API_KEY}" || true)
+          if [ -z "$RESULT" ]; then
+            echo "::warning::PSI API call failed — skipping"
+            exit 0
+          fi
+          echo "$RESULT" > psi-report.json
+          node -e "
+            const fs = require('fs');
+            const r = JSON.parse(fs.readFileSync('psi-report.json', 'utf8'));
+            const cats = r.lighthouseResult?.categories || {};
+            let md = '## PageSpeed Insights (Production)\n\n| Category | Score |\n|----------|-------|\n';
+            Object.values(cats).forEach(c => {
+              const score = Math.round(c.score * 100);
+              const icon = score >= 90 ? ':green_circle:' : score >= 50 ? ':orange_circle:' : ':red_circle:';
+              md += '| ' + c.title + ' | ' + icon + ' ' + score + ' |\n';
+            });
+            const cwv = r.loadingExperience?.metrics || {};
+            if (Object.keys(cwv).length > 0) {
+              md += '\n### Core Web Vitals (Field Data)\n\n| Metric | Value | Category |\n|--------|-------|----------|\n';
+              Object.entries(cwv).forEach(([name, data]) => {
+                md += '| ' + name + ' | ' + data.percentile + ' | ' + data.category + ' |\n';
+              });
+            }
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+          "
+
+      - name: Upload PSI report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: psi-report
+          path: psi-report.json
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v7

@@ -369,6 +369,49 @@ jobs:
           fi
           exit $EXIT_CODE
 
+  web-bundle-size:
+    name: Bundle Size Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Build production bundle
+        run: npm run build
+      - name: Check bundle size
+        run: |
+          set +e
+          npx size-limit --json > size-report.json 2>&1
+          EXIT_CODE=$?
+          node -e "
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('size-report.json', 'utf8'));
+            let md = '## Bundle Size\n\n| Name | Size | Limit | Status |\n|------|------|-------|--------|\n';
+            data.forEach(entry => {
+              const status = entry.passed !== false ? ':white_check_mark:' : ':x:';
+              const size = (entry.size / 1024).toFixed(1) + ' KB';
+              const limit = entry.sizeLimit || 'N/A';
+              md += '| ' + entry.name + ' | ' + size + ' | ' + limit + ' | ' + status + ' |\n';
+            });
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+          "
+          exit $EXIT_CODE
+      - name: Upload size report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundle-size-report
+          path: web/size-report.json
+
   e2e:
     name: E2E Tests
     needs:
@@ -382,6 +425,7 @@ jobs:
       - web-unit
       - web-integration
       - config-lint
+      - web-bundle-size
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -406,6 +450,41 @@ jobs:
       - name: Run Playwright tests
         working-directory: web
         run: npx playwright test
+      - name: Install Lighthouse CI
+        run: npm install -g @lhci/cli@0.14.x
+
+      - name: Run Lighthouse CI
+        working-directory: web
+        run: lhci autorun
+
+      - name: Generate Lighthouse summary
+        if: always()
+        working-directory: web
+        run: |
+          node -e "
+            const fs = require('fs');
+            const dir = './lighthouse-results';
+            if (!fs.existsSync(dir)) process.exit(0);
+            const files = fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.startsWith('manifest'));
+            if (files.length === 0) process.exit(0);
+            const report = JSON.parse(fs.readFileSync(dir + '/' + files[files.length - 1], 'utf8'));
+            const cats = report.categories;
+            let md = '## Lighthouse Scores\n\n| Category | Score |\n|----------|-------|\n';
+            Object.entries(cats).forEach(([key, val]) => {
+              const score = Math.round(val.score * 100);
+              const icon = score >= 90 ? ':green_circle:' : score >= 50 ? ':orange_circle:' : ':red_circle:';
+              md += '| ' + val.title + ' | ' + icon + ' ' + score + ' |\n';
+            });
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
+          "
+
+      - name: Upload Lighthouse results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lighthouse-results
+          path: web/lighthouse-results/
+
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v7
@@ -712,6 +791,63 @@ jobs:
       - name: Push benchmark results
         run: git push origin gh-pages
 
+  perf-publish:
+    name: Publish Performance Data
+    needs: [e2e, web-bundle-size]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: gh-pages-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          ref: gh-pages
+          path: gh-pages
+      - name: Download Lighthouse results
+        uses: actions/download-artifact@v8
+        with:
+          name: lighthouse-results
+          path: lighthouse-results/
+      - name: Download bundle size report
+        uses: actions/download-artifact@v8
+        with:
+          name: bundle-size-report
+          path: .
+      - name: Update performance data
+        run: |
+          mkdir -p gh-pages/dev/perf
+          node -e "
+            const fs = require('fs');
+            const dir = './lighthouse-results';
+            const files = fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.startsWith('manifest'));
+            if (files.length === 0) process.exit(0);
+            const report = JSON.parse(fs.readFileSync(dir + '/' + files[files.length - 1], 'utf8'));
+            const entry = {
+              date: new Date().toISOString(),
+              sha: (process.env.GITHUB_SHA || '').substring(0, 7),
+              scores: {}
+            };
+            Object.entries(report.categories).forEach(([key, val]) => {
+              entry.scores[key] = Math.round(val.score * 100);
+            });
+            const histFile = 'gh-pages/dev/perf/lighthouse-history.json';
+            const history = fs.existsSync(histFile) ? JSON.parse(fs.readFileSync(histFile, 'utf8')) : [];
+            history.push(entry);
+            fs.writeFileSync(histFile, JSON.stringify(history.slice(-100), null, 2));
+          "
+          cp size-report.json gh-pages/dev/perf/latest-bundle-size.json
+          cd gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dev/perf/
+          git diff --cached --quiet && exit 0
+          git commit -m "perf: update Lighthouse + bundle size data"
+          git push
+
   merge-to-main:
     name: Auto-merge to main
     needs:
@@ -733,6 +869,7 @@ jobs:
       - e2e
       - go-bench
       - rust-bench
+      - web-bundle-size
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/dependabot-dev')
     runs-on: ubuntu-latest
     outputs:
