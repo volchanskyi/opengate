@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.12.0] - 2026-03-21
+
+### Added
+- add frontend performance monitoring to CI/CD pipeline
+
+### Fixed
+- upgrade rustls-webpki 0.103.9 → 0.103.10 (RUSTSEC-2026-0049)
+
+## [v0.11.2] - 2026-03-20
+
+### Fixed
+- add "Add Device" button to /devices top-right corner
+
+## [v0.11.1] - 2026-03-20
+
+### Fixed
+- UI bugs — duplicate buttons, search placeholder, device version sync
+
+## [v0.11.0] - 2026-03-20
+
+### Added
+- complete agent auto-update system (Phase 14, ADR-005)
+
+### Changed
+- extract constants and helpers in Phase 14 code
+
+## [v0.10.0] - 2026-03-20
+
+### Added
+- add frontend-audit skill
+
+## [v0.9.5] - 2026-03-20
+
+### Fixed
+- UI bugs, terminal hotkeys, file error feedback, agent uninstall
+
 ## [v0.9.4] - 2026-03-20
 
 ### Fixed
