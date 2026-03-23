@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774245058927,
+  "lastUpdate": 1774286586402,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5904,6 +5904,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.743633687134178,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ea2cfb574ab98e2a5f522fa1b41efff2b76f88fc",
+          "message": "fix: preserve WebSocket message boundaries in relay\n\nThe relay used io.CopyBuffer with a 32KB buffer to pipe data between\nbrowser and agent, treating WebSocket as a byte stream. This split\nframes larger than 32KB (e.g. desktop capture JPEGs) into multiple\nmessages, causing \"Invalid frame header\" errors on the browser.\n\nReplace stream-oriented io.ReadWriteCloser with message-oriented\nReadMessage/WriteMessage interface. Also raise nhooyr.io/websocket\nread limit from default 32KB to 16MB to match the protocol's max\nframe size.",
+          "timestamp": "2026-03-23T10:21:19-07:00",
+          "tree_id": "678646afba68f057616df0fd5ae4f275279fd023",
+          "url": "https://github.com/volchanskyi/opengate/commit/ea2cfb574ab98e2a5f522fa1b41efff2b76f88fc"
+        },
+        "date": 1774286586356,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.284562028951214,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.500336876570103,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 749.3690404837682,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 325.1914776061343,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.072951891416647,
             "unit": "ns/iter"
           }
         ]
