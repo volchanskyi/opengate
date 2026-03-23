@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774240440644,
+  "lastUpdate": 1774242440611,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5806,6 +5806,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.089866647545733,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "41b5d2689cc43265809b4a683440ac9fb26a195e",
+          "message": "fix: pass Telegram env vars to Grafana container\n\nGrafana provisioning expands ${TELEGRAM_BOT_TOKEN} and\n${TELEGRAM_CHAT_ID} in contact-points.yml, but these env vars\nwere not passed to the container — only GF_SECURITY_ADMIN_PASSWORD\nwas. Grafana crashed on startup because the contact point\nvalidation failed.",
+          "timestamp": "2026-03-22T22:05:34-07:00",
+          "tree_id": "946a934903f18b93977d05ae1e1cb93b88dd4fa9",
+          "url": "https://github.com/volchanskyi/opengate/commit/41b5d2689cc43265809b4a683440ac9fb26a195e"
+        },
+        "date": 1774242440566,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.150900457923182,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.52618013647874,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 775.8336196401408,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.9626785528873,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.78831212643354,
             "unit": "ns/iter"
           }
         ]
