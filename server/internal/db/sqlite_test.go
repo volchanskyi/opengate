@@ -314,6 +314,52 @@ func TestDeviceCRUD(t *testing.T) {
 	})
 }
 
+func TestListDevicesForOwner_IncludesUngrouped(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	owner := seedUser(t, ctx, s)
+	otherUser := seedUser(t, ctx, s)
+	group := seedGroup(t, ctx, s, owner.ID)
+
+	// Device in owner's group.
+	grouped := seedDevice(t, ctx, s, group.ID)
+
+	// Device with no group (ungrouped — the default after agent registration).
+	ungrouped := &Device{
+		ID:       uuid.New(),
+		GroupID:  uuid.Nil,
+		Hostname: "ungrouped-host",
+		OS:       "linux",
+		Status:   StatusOffline,
+	}
+	require.NoError(t, s.UpsertDevice(ctx, ungrouped))
+
+	t.Run("owner sees grouped and ungrouped devices", func(t *testing.T) {
+		devices, err := s.ListDevicesForOwner(ctx, owner.ID)
+		require.NoError(t, err)
+
+		ids := make(map[uuid.UUID]bool)
+		for _, d := range devices {
+			ids[d.ID] = true
+		}
+		assert.True(t, ids[grouped.ID], "should include grouped device")
+		assert.True(t, ids[ungrouped.ID], "should include ungrouped device")
+	})
+
+	t.Run("other user sees ungrouped devices", func(t *testing.T) {
+		devices, err := s.ListDevicesForOwner(ctx, otherUser.ID)
+		require.NoError(t, err)
+
+		ids := make(map[uuid.UUID]bool)
+		for _, d := range devices {
+			ids[d.ID] = true
+		}
+		assert.False(t, ids[grouped.ID], "should NOT include other owner's grouped device")
+		assert.True(t, ids[ungrouped.ID], "should include ungrouped device")
+	})
+}
+
 func TestAgentSessionCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

@@ -212,6 +212,41 @@ func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+func TestRelay_Pipe_SurvivesRegisterContextCancel(t *testing.T) {
+	r := NewRelay()
+	token := protocol.GenerateSessionToken()
+
+	agentLocal, agentRelay := newMockConnPair(t)
+	browserLocal, browserRelay := newMockConnPair(t)
+
+	// Register agent with background context.
+	require.NoError(t, r.Register(context.Background(), token, agentRelay, SideAgent))
+
+	// Register browser with a cancellable context (simulates HTTP handler context).
+	ctx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
+
+	// Verify data flows before cancellation.
+	msg := []byte("before cancel")
+	require.NoError(t, agentLocal.WriteMessage(msg))
+	data, err := browserLocal.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, msg, data)
+
+	// Cancel the registration context — pipe must survive.
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	// Data should still flow after context cancellation.
+	msg2 := []byte("after cancel")
+	require.NoError(t, agentLocal.WriteMessage(msg2))
+	data2, err := browserLocal.ReadMessage()
+	require.NoError(t, err, "pipe should survive registration context cancellation")
+	assert.Equal(t, msg2, data2)
+
+	assert.Equal(t, 1, r.ActiveSessionCount(), "session should still be active")
+}
+
 func TestRelay_ConnectionClose(t *testing.T) {
 	r := NewRelay()
 	token := protocol.GenerateSessionToken()
