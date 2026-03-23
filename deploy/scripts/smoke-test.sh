@@ -83,20 +83,21 @@ test_health() {
 
 check "GET /api/v1/health returns 200" test_health
 
-# --- Metrics endpoint (both modes) -------------------------------------------
+# --- Metrics endpoint ---------------------------------------------------------
+# /metrics is not proxied by Caddy — it's only reachable on the internal Docker
+# network. Both staging and production smoke tests go through Caddy, so this
+# test is skipped in CD. It runs in docker-compose.test.yml (E2E) where the
+# server port is exposed directly.
 
 test_metrics() {
-  # Metrics endpoint is only accessible internally (not proxied by Caddy).
-  # When using --domain (via Caddy), skip this test.
-  if [[ -n "$DOMAIN" ]]; then
-    return 0
-  fi
   http_get "${BASE_URL}/metrics"
   [[ "$RESPONSE_STATUS" == "200" ]] || return 1
   echo "$RESPONSE_BODY" | grep -q 'opengate_http_requests_total' || return 1
 }
 
-check "GET /metrics returns Prometheus metrics" test_metrics
+if [[ "$MODE" != "staging" && "$MODE" != "production" ]]; then
+  check "GET /metrics returns Prometheus metrics" test_metrics
+fi
 
 # --- Web UI tests (both modes) ------------------------------------------------
 
