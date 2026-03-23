@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"bufio"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -41,12 +43,13 @@ type statusWriter struct {
 	wroteHeader bool
 }
 
-// WriteHeader captures the status code.
+// WriteHeader captures the status code and forwards exactly once.
 func (sw *statusWriter) WriteHeader(code int) {
-	if !sw.wroteHeader {
-		sw.status = code
-		sw.wroteHeader = true
+	if sw.wroteHeader {
+		return
 	}
+	sw.status = code
+	sw.wroteHeader = true
 	sw.ResponseWriter.WriteHeader(code)
 }
 
@@ -56,6 +59,14 @@ func (sw *statusWriter) Write(b []byte) (int, error) {
 		sw.wroteHeader = true
 	}
 	return sw.ResponseWriter.Write(b)
+}
+
+// Hijack implements http.Hijacker so WebSocket upgrades work through the metrics middleware.
+func (sw *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := sw.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
 }
 
 // Unwrap returns the underlying ResponseWriter for middleware compatibility.

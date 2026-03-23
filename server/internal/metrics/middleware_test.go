@@ -105,6 +105,33 @@ func TestHTTPMiddleware_CapturesStatusCode(t *testing.T) {
 	assert.Equal(t, "401", labels["status_code"])
 }
 
+func TestStatusWriter_ImplementsHijacker(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := appmetrics.NewMetrics(reg)
+
+	r := chi.NewRouter()
+	r.Use(appmetrics.HTTPMiddleware(m))
+	r.Get("/ws/test", func(w http.ResponseWriter, r *http.Request) {
+		// The handler's ResponseWriter must support Hijack for WebSocket upgrades.
+		_, ok := w.(http.Hijacker)
+		if !ok {
+			t.Error("ResponseWriter wrapped by metrics middleware does not implement http.Hijacker")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// httptest.Server uses real TCP connections, so Hijack is available.
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ws/test")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
 func findMetricFamily(families []*io_prometheus_client.MetricFamily, name string) *io_prometheus_client.MetricFamily {
 	for _, f := range families {
 		if f.GetName() == name {
