@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774233623121,
+  "lastUpdate": 1774240440644,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5757,6 +5757,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.563596851537827,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "20b23639a2ce97bafbc215b9efb8d51186f5cadd",
+          "message": "fix: use container name for Uptime Kuma in Caddyfile\n\nUptime Kuma runs in a separate compose project (opengate-monitoring),\nso Caddy cannot resolve the service name 'uptime-kuma'. Use the\ncontainer name 'opengate-uptime-kuma' which is resolvable on the\nshared external Docker network.",
+          "timestamp": "2026-03-22T21:32:01-07:00",
+          "tree_id": "9f294e13083d71652ce9c1585891e8fb9a239310",
+          "url": "https://github.com/volchanskyi/opengate/commit/20b23639a2ce97bafbc215b9efb8d51186f5cadd"
+        },
+        "date": 1774240440596,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.447959607146416,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.489163646651065,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 742.7351799879787,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 318.46828626997086,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.089866647545733,
             "unit": "ns/iter"
           }
         ]
