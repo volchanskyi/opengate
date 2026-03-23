@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774296235873,
+  "lastUpdate": 1774309712798,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6051,6 +6051,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.152819718183796,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e7c074cd43d1f055e2f3a47475d673a35f6ef3f7",
+          "message": "fix: implement http.Hijacker on metrics statusWriter to unblock WebSocket upgrades\n\nThe metrics middleware wrapped http.ResponseWriter with statusWriter, which\ndid not implement http.Hijacker. WebSocket upgrades via nhooyr.io/websocket\nfailed because Accept() could not hijack the connection through the wrapper.\nAlso fixes duplicate WriteHeader forwarding that caused \"superfluous\nresponse.WriteHeader\" warnings.",
+          "timestamp": "2026-03-23T16:46:44-07:00",
+          "tree_id": "21385d4983722b772622a5cc75da497eabaa34a2",
+          "url": "https://github.com/volchanskyi/opengate/commit/e7c074cd43d1f055e2f3a47475d673a35f6ef3f7"
+        },
+        "date": 1774309712750,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.49094896850934,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.403650336877647,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 745.4380266231304,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 318.4952963361462,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.071442316891858,
             "unit": "ns/iter"
           }
         ]
