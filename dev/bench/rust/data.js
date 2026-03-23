@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774229124578,
+  "lastUpdate": 1774232203879,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5659,6 +5659,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.791827989224622,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "dc0e26920b17c4473770bf07e19bfe13b7cc709d",
+          "message": "fix: inject .env.monitoring via CD pipeline from GitHub Secrets\n\nInstead of manually creating .env.monitoring on the VPS, the CD\nworkflow now writes it during production deploy using three GitHub\nSecrets: DEPLOY_GF_ADMIN_PASSWORD, DEPLOY_TELEGRAM_BOT_TOKEN,\nDEPLOY_TELEGRAM_CHAT_ID. File is chmod 600.",
+          "timestamp": "2026-03-22T19:15:11-07:00",
+          "tree_id": "bb40e5664b3b2c42c9aa30fb9f6f37c6d4af1617",
+          "url": "https://github.com/volchanskyi/opengate/commit/dc0e26920b17c4473770bf07e19bfe13b7cc709d"
+        },
+        "date": 1774232203833,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.48576702476742,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.50272555662186,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 741.1403995296718,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 317.0609075878846,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.106357005968867,
             "unit": "ns/iter"
           }
         ]
