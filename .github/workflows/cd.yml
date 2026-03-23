@@ -293,6 +293,9 @@ jobs:
           AMT_PASS: ${{ secrets.DEPLOY_AMT_PASS }}
           DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
           VAPID_CONTACT: ${{ secrets.DEPLOY_VAPID_CONTACT }}
+          GF_ADMIN_PASSWORD: ${{ secrets.DEPLOY_GF_ADMIN_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
         run: |
           printf '%s\n' \
             "IMAGE_TAG=${{ env.IMAGE_TAG }}" \
@@ -304,6 +307,12 @@ jobs:
             "OPENGATE_GITHUB_REPO=${{ github.repository }}" \
             "OPENGATE_QUIC_HOST=${{ secrets.DEPLOY_QUIC_HOST }}" \
             | ssh deploy-target "cat > ${{ env.DEPLOY_DIR }}/.env"
+
+          printf '%s\n' \
+            "GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD}" \
+            "TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}" \
+            "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}" \
+            | ssh deploy-target "cat > ${{ env.DEPLOY_DIR }}/.env.monitoring && chmod 600 ${{ env.DEPLOY_DIR }}/.env.monitoring"
 
           ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh --mode production --tag ${{ env.IMAGE_TAG }}"
 
