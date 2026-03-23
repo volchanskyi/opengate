@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.13.4] - 2026-03-23
+
+### Fixed
+- pass Telegram env vars to Grafana container
+
+## [v0.13.3] - 2026-03-23
+
+### Fixed
+- use container name for Uptime Kuma in Caddyfile
+
+## [v0.13.2] - 2026-03-23
+
+### Fixed
+- skip /metrics smoke test in staging and production
+
+## [v0.13.1] - 2026-03-23
+
+### Fixed
+- inject .env.monitoring via CD pipeline from GitHub Secrets
+
+## [v0.13.0] - 2026-03-23
+
+### Added
+- add Phase D monitoring & observability stack
+
 ## [v0.12.0] - 2026-03-21
 
 ### Added
