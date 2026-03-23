@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774242440611,
+  "lastUpdate": 1774245058927,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5855,6 +5855,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.78831212643354,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "2812558016ba7e024f89796b50aca40fecbd1c5e",
+          "message": "fix: replace ReadTimeout/WriteTimeout with ReadHeaderTimeout for WebSocket compatibility\n\nWriteTimeout killed all WebSocket relay connections after 15 seconds because\nGo's http.Server treats the entire WebSocket session as one response write.\nReadHeaderTimeout protects against slowloris without affecting long-lived connections.",
+          "timestamp": "2026-03-22T22:49:04-07:00",
+          "tree_id": "6038a5d19a490940d938e6a199fbf13140233d0f",
+          "url": "https://github.com/volchanskyi/opengate/commit/2812558016ba7e024f89796b50aca40fecbd1c5e"
+        },
+        "date": 1774245058892,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.30179810752798,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.725088381266577,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 605.3811288376785,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 310.58622013468755,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.743633687134178,
             "unit": "ns/iter"
           }
         ]
