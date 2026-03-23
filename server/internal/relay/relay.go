@@ -5,7 +5,6 @@ package relay
 import (
 	"context"
 	"errors"
-	"io"
 	"sync"
 	"sync/atomic"
 
@@ -29,10 +28,17 @@ const (
 	SideBrowser
 )
 
-// Conn is the interface used by the relay to read, write, and close a
-// connection. *websocket.Conn satisfies this; tests inject net.Pipe pairs.
+// Conn is the interface used by the relay. Implementations must preserve
+// message boundaries: each ReadMessage returns exactly one complete message,
+// and each WriteMessage sends exactly one complete message.
 type Conn interface {
-	io.ReadWriteCloser
+	// ReadMessage reads one complete message. It blocks until a message is
+	// available or an error occurs.
+	ReadMessage() ([]byte, error)
+	// WriteMessage sends one complete message.
+	WriteMessage(data []byte) error
+	// Close closes the connection.
+	Close() error
 }
 
 type session struct {
@@ -45,8 +51,8 @@ type session struct {
 
 // Relay pipes WebSocket connections from browsers and agents together.
 type Relay struct {
-	sessions     sync.Map // map[protocol.SessionToken]*session
-	count        atomic.Int64
+	sessions sync.Map // map[protocol.SessionToken]*session
+	count    atomic.Int64
 	// OnSessionEnd is called when a session finishes piping (both sides disconnected).
 	// It can be used to clean up external state such as DB sessions.
 	OnSessionEnd func(token protocol.SessionToken)
@@ -119,7 +125,21 @@ func (r *Relay) ActiveSessionCount() int {
 	return int(r.count.Load())
 }
 
-// pipe copies data between agent and browser until one side disconnects
+// copyMessages reads complete messages from src and writes them to dst,
+// preserving message boundaries. Returns when either side errors.
+func copyMessages(dst, src Conn) {
+	for {
+		data, err := src.ReadMessage()
+		if err != nil {
+			return
+		}
+		if err := dst.WriteMessage(data); err != nil {
+			return
+		}
+	}
+}
+
+// pipe forwards messages between agent and browser until one side disconnects
 // or the session context is cancelled.
 func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token protocol.SessionToken, s *session) {
 	var closeOnce sync.Once
@@ -145,14 +165,12 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 	// agent → browser
 	go func() {
 		defer close(done)
-		buf := make([]byte, 32*1024)
-		io.CopyBuffer(s.browser, s.agent, buf)
+		copyMessages(s.browser, s.agent)
 	}()
 
 	// browser → agent
 	go func() {
-		buf := make([]byte, 32*1024)
-		io.CopyBuffer(s.agent, s.browser, buf)
+		copyMessages(s.agent, s.browser)
 		// When this direction ends, close both to unblock the other.
 		closeBoth()
 	}()

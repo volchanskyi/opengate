@@ -2,71 +2,39 @@ package api
 
 import (
 	"context"
-	"io"
-	"sync"
 
 	"nhooyr.io/websocket"
 )
 
-// WSConn adapts a *websocket.Conn into an io.ReadWriteCloser for use with
-// the relay.Conn interface. Context is not stored in the struct; each operation
-// uses context.Background() because Close() terminates all pending I/O by
-// closing the underlying WebSocket connection.
+// WSConn adapts a *websocket.Conn into a message-oriented relay.Conn.
+// Each ReadMessage returns one complete WebSocket message, and each
+// WriteMessage sends one complete WebSocket message, preserving boundaries.
 type WSConn struct {
-	conn   *websocket.Conn
-	reader io.Reader
-	mu     sync.Mutex // protects reader
+	conn *websocket.Conn
 }
+
+// maxRelayMessageSize is the maximum WebSocket message size the relay accepts.
+// Matches the browser protocol codec's 16 MiB frame limit.
+const maxRelayMessageSize = 16 << 20
 
 // NewWSConn wraps a websocket.Conn into a relay-compatible connection.
 func NewWSConn(conn *websocket.Conn) *WSConn {
+	conn.SetReadLimit(maxRelayMessageSize)
 	return &WSConn{conn: conn}
 }
 
-// Read reads from the WebSocket connection. It reads complete binary messages,
-// buffering partial reads within a single message.
-func (w *WSConn) Read(p []byte) (int, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.reader == nil {
-		_, reader, err := w.conn.Reader(context.Background())
-		if err != nil {
-			return 0, err
-		}
-		w.reader = reader
-	}
-
-	n, err := w.reader.Read(p)
-	if err == io.EOF {
-		// Current message consumed, reset for next message
-		w.reader = nil
-		if n > 0 {
-			return n, nil
-		}
-		// Try to read the next message
-		_, reader, err := w.conn.Reader(context.Background())
-		if err != nil {
-			return 0, err
-		}
-		w.reader = reader
-		return w.reader.Read(p)
-	}
-
-	return n, err
+// ReadMessage reads one complete binary message from the WebSocket.
+func (w *WSConn) ReadMessage() ([]byte, error) {
+	_, data, err := w.conn.Read(context.Background())
+	return data, err
 }
 
-// Write sends a binary message over the WebSocket connection.
-func (w *WSConn) Write(p []byte) (int, error) {
-	err := w.conn.Write(context.Background(), websocket.MessageBinary, p)
-	if err != nil {
-		return 0, err
-	}
-	return len(p), nil
+// WriteMessage sends one complete binary message over the WebSocket.
+func (w *WSConn) WriteMessage(data []byte) error {
+	return w.conn.Write(context.Background(), websocket.MessageBinary, data)
 }
 
 // Close closes the WebSocket connection with a normal closure status.
-// Closing the connection causes any pending Read or Write to return an error.
 func (w *WSConn) Close() error {
 	return w.conn.Close(websocket.StatusNormalClosure, "")
 }
