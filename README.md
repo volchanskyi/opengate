@@ -74,6 +74,7 @@ server/                      Go module
 │   ├── mps/                 Intel AMT Management Presence Server (CIRA/APF over TLS)
 │   ├── protocol/            Go-side wire protocol codec + golden file verification
 │   ├── notifications/       Web Push notifications (VAPID, webpush-go), Notifier interface
+│   ├── metrics/             Prometheus instrumentation (HTTP middleware, InstrumentedStore)
 │   ├── relay/               Byte-transparent WebSocket relay for browser↔agent piping
 │   ├── signaling/           WebRTC signaling state machine, ICE config, session tracker
 │   ├── updater/             Agent auto-update: Ed25519 signing, GitHub release sync, manifests
@@ -91,7 +92,8 @@ deploy/                      Production deployment
 ├── scripts/                 CD deploy, smoke-test, and rollback scripts
 ├── docker-compose.yml       Production stack (server + web-init + Caddy)
 ├── docker-compose.staging.yml  Persistent staging overrides
-└── docker-compose.test.yml  E2E test environment (tmpfs, single server)
+├── docker-compose.test.yml  E2E test environment (tmpfs, single server)
+└── docker-compose.monitoring.yml  Observability stack (VictoriaMetrics, Grafana, Loki, Promtail, Node Exporter, Uptime Kuma)
 load/k6/scenarios/           k6 load test scripts (API baseline, relay, concurrent agents)
 testdata/golden/             Cross-language wire format fixtures
 ```

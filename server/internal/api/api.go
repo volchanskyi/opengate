@@ -14,9 +14,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -61,8 +64,10 @@ type ServerConfig struct {
 	GitHubRepo string // GitHub repo for manifest auto-sync (e.g. "owner/repo")
 	BaseURL    string // public base URL for install script (e.g. "https://opengate.example.com")
 	QuicHost   string // override hostname for QUIC address in enrollment (bypasses CDN proxy)
-	Logger     *slog.Logger
-	WebDir     string // directory containing SPA static assets (optional)
+	Logger          *slog.Logger
+	WebDir          string // directory containing SPA static assets (optional)
+	MetricsRegistry *prometheus.Registry
+	Metrics         *appmetrics.Metrics
 }
 
 // Server is the HTTP API server.
@@ -83,6 +88,8 @@ type Server struct {
 	router     chi.Router
 	logger     *slog.Logger
 	webDir     string
+	metricsRegistry *prometheus.Registry
+	metrics         *appmetrics.Metrics
 }
 
 // NewServer creates an API server with all routes registered.
@@ -101,9 +108,11 @@ func NewServer(cfg ServerConfig) *Server {
 		githubRepo: cfg.GitHubRepo,
 		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
 		quicHost:   cfg.QuicHost,
-		router:     chi.NewRouter(),
-		logger:     cfg.Logger,
-		webDir:     cfg.WebDir,
+		router:          chi.NewRouter(),
+		logger:          cfg.Logger,
+		webDir:          cfg.WebDir,
+		metricsRegistry: cfg.MetricsRegistry,
+		metrics:         cfg.Metrics,
 	}
 	s.routes()
 	return s
@@ -119,9 +128,17 @@ func (s *Server) routes() {
 
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
+	if s.metrics != nil {
+		r.Use(appmetrics.HTTPMiddleware(s.metrics))
+	}
 	r.Use(SecurityHeaders)
 	r.Use(MaxBodySize(maxRequestBodySize))
 	r.Use(RequestLogger(s.logger))
+
+	// Prometheus metrics endpoint (not proxied by Caddy — internal only)
+	if s.metricsRegistry != nil {
+		r.Handle("/metrics", promhttp.HandlerFor(s.metricsRegistry, promhttp.HandlerOpts{}))
+	}
 
 	strictHandler := NewStrictHandlerWithOptions(s, []StrictMiddlewareFunc{requestContextMiddleware}, StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {

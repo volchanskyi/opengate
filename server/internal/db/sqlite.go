@@ -89,6 +89,11 @@ func (s *SQLiteStore) Close() error {
 	return s.db.Close()
 }
 
+// DB returns the underlying *sql.DB for direct queries (e.g. PRAGMA for metrics).
+func (s *SQLiteStore) DB() *sql.DB {
+	return s.db
+}
+
 // scanner abstracts *sql.Row and *sql.Rows for shared scan functions.
 type scanner interface {
 	Scan(dest ...any) error

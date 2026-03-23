@@ -17,6 +17,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/mps"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -37,7 +38,11 @@ func main() {
 	amtPass := flag.String("amt-pass", "", "AMT WSMAN password for device management")
 	flag.Parse()
 
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+	level := slog.LevelInfo
+	if os.Getenv("LOG_LEVEL") == "debug" {
+		level = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 
 	secret := *jwtSecret
 	if secret == "" {
@@ -60,6 +65,11 @@ func main() {
 	}
 	defer store.Close()
 
+	// Prometheus metrics
+	metricsRegistry := appmetrics.NewRegistry()
+	appMetrics := appmetrics.NewMetrics(metricsRegistry)
+	instrumentedStore := appmetrics.NewInstrumentedStore(store, appMetrics)
+
 	certMgr, err := cert.NewManager(*dataDir)
 	if err != nil {
 		logger.Error("init cert manager", "error", err)
@@ -78,7 +88,7 @@ func main() {
 		logger.Error("init VAPID keys", "error", err)
 		os.Exit(1)
 	}
-	notifier := notifications.NewPushNotifier(store, vapidPriv, vapidPub, *vapidContact, logger)
+	notifier := notifications.NewPushNotifier(instrumentedStore, vapidPriv, vapidPub, *vapidContact, logger)
 
 	// Environment overrides
 	githubRepo := os.Getenv("OPENGATE_GITHUB_REPO")
@@ -94,7 +104,7 @@ func main() {
 			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
 		}
 	}
-	agentSrv := agentapi.NewAgentServer(certMgr, store, agentRelay, notifier, quicHost, logger)
+	agentSrv := agentapi.NewAgentServer(certMgr, instrumentedStore, agentRelay, notifier, quicHost, logger)
 
 	// Initialize update signing keys and manifest store
 	signingKeys, err := updater.LoadOrGenerateSigningKeys(*dataDir)
@@ -104,12 +114,12 @@ func main() {
 	}
 	manifestStore := updater.NewManifestStore(*dataDir)
 
-	mpsSrv := mps.NewServer(certMgr, store, logger)
+	mpsSrv := mps.NewServer(certMgr, instrumentedStore, logger)
 	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
 	srv := api.NewServer(api.ServerConfig{
-		Store:     store,
+		Store:     instrumentedStore,
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		AMT:       amtSvc,
@@ -124,6 +134,8 @@ func main() {
 		QuicHost:   quicHost,
 		Logger:     logger,
 		WebDir:     *webDir,
+		MetricsRegistry: metricsRegistry,
+		Metrics:         appMetrics,
 	})
 
 	httpSrv := &http.Server{
@@ -137,6 +149,16 @@ func main() {
 	// Use a cancellable context for graceful shutdown of all servers
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Start metrics gauge updaters
+	go appmetrics.StartGaugeUpdater(ctx, appMetrics, appmetrics.GaugeSource{
+		ActiveSessions:      agentRelay.ActiveSessionCount,
+		ConnectedAgents:     agentSrv.ConnectedAgentCount,
+		ConnectedMPSDevices: amtSvc.ConnectedDeviceCount,
+		SignalingSuccesses:   sigTracker.SuccessCount,
+		SignalingFailures:    sigTracker.FailureCount,
+	}, 15*time.Second)
+	go appmetrics.StartDBSizeUpdater(ctx, appMetrics, store.DB(), logger, 60*time.Second)
 
 	// Periodically sync agent manifests from GitHub releases (default: every hour).
 	if githubRepo != "" {

@@ -52,6 +52,24 @@ redeploy "$MODE"
 
 wait_healthy "$(container_name "$MODE")"
 
+# --- Deploy monitoring stack (production only) --------------------------------
+
+if [[ "$MODE" == "production" ]]; then
+  MONITORING_COMPOSE="${DEPLOY_DIR}/docker-compose.monitoring.yml"
+  MONITORING_ENV="${DEPLOY_DIR}/.env.monitoring"
+  if [[ -f "$MONITORING_COMPOSE" && -f "$MONITORING_ENV" ]]; then
+    log "Deploying monitoring stack..."
+    docker compose \
+      --project-name opengate-monitoring \
+      -f "$MONITORING_COMPOSE" \
+      --env-file "$MONITORING_ENV" \
+      up -d --remove-orphans
+    log "Monitoring stack deployed"
+  else
+    log "Skipping monitoring stack (compose or env file not found)"
+  fi
+fi
+
 # --- Prune old images ---------------------------------------------------------
 
 log "Pruning images older than 7 days..."

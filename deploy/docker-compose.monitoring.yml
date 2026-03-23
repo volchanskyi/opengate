@@ -1,0 +1,114 @@
+# Monitoring & Observability stack for OpenGate.
+# Deployed with: docker compose --project-name opengate-monitoring -f docker-compose.monitoring.yml up -d
+# Separate lifecycle from the application — can be upgraded independently.
+
+services:
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.114.0
+    container_name: opengate-victoriametrics
+    restart: unless-stopped
+    command:
+      - "-storageDataPath=/storage"
+      - "-retentionPeriod=30d"
+      - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+      - "-httpListenAddr=:8428"
+    volumes:
+      - vm-data:/storage
+      - ./victoriametrics/scrape.yml:/etc/victoriametrics/scrape.yml:ro
+    networks:
+      - monitoring
+      - app
+
+  grafana:
+    image: grafana/grafana-oss:11.6.0
+    container_name: opengate-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_UNIFIED_ALERTING_ENABLED=true
+      - GF_ALERTING_ENABLED=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - monitoring
+    depends_on:
+      - victoriametrics
+
+  loki:
+    image: grafana/loki:3.5.0
+    container_name: opengate-loki
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - loki-data:/loki
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+    networks:
+      - monitoring
+
+  promtail:
+    image: grafana/promtail:3.5.0
+    container_name: opengate-promtail
+    restart: unless-stopped
+    command: ["-config.file=/etc/promtail/promtail-config.yml"]
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail-positions:/positions
+    networks:
+      - monitoring
+    depends_on:
+      - loki
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: opengate-node-exporter
+    restart: unless-stopped
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/host/root"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+    pid: host
+    networks:
+      - monitoring
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: opengate-uptime-kuma
+    restart: unless-stopped
+    volumes:
+      - uptime-kuma-data:/app/data
+    ports:
+      - "127.0.0.1:3001:3001"
+    networks:
+      - monitoring
+      - app
+
+volumes:
+  vm-data:
+    driver: local
+  grafana-data:
+    driver: local
+  loki-data:
+    driver: local
+  promtail-positions:
+    driver: local
+  uptime-kuma-data:
+    driver: local
+
+networks:
+  monitoring:
+    driver: bridge
+  app:
+    external: true
+    name: opengate_default
