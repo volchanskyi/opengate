@@ -14,7 +14,6 @@ import (
 )
 
 // wsEchoServer creates an httptest server that accepts a WebSocket and echoes messages.
-// Returns the server and a channel that receives all messages written by the client.
 func wsEchoServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -25,6 +24,7 @@ func wsEchoServer(t *testing.T) *httptest.Server {
 			return
 		}
 		defer conn.Close(websocket.StatusNormalClosure, "")
+		conn.SetReadLimit(maxRelayMessageSize)
 
 		for {
 			msgType, data, err := conn.Read(r.Context())
@@ -55,15 +55,31 @@ func TestWSConn_ReadWriteRoundtrip(t *testing.T) {
 
 	// Write data via adapter
 	testData := []byte("hello websocket")
-	n, err := conn.Write(testData)
-	require.NoError(t, err)
-	assert.Equal(t, len(testData), n)
+	require.NoError(t, conn.WriteMessage(testData))
 
 	// Read echoed data via adapter
-	buf := make([]byte, 256)
-	n, err = conn.Read(buf)
+	data, err := conn.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, testData, buf[:n])
+	assert.Equal(t, testData, data)
+}
+
+func TestWSConn_LargeMessage(t *testing.T) {
+	srv := wsEchoServer(t)
+	defer srv.Close()
+
+	conn, _ := dialWSConn(t, srv.URL)
+	defer conn.Close()
+
+	// 256 KB message — larger than the old 32KB io.CopyBuffer
+	largeData := make([]byte, 256*1024)
+	for i := range largeData {
+		largeData[i] = byte(i % 251)
+	}
+	require.NoError(t, conn.WriteMessage(largeData))
+
+	data, err := conn.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, largeData, data)
 }
 
 func TestWSConn_CloseClosesUnderlying(t *testing.T) {
@@ -76,8 +92,7 @@ func TestWSConn_CloseClosesUnderlying(t *testing.T) {
 	require.NoError(t, conn.Close())
 
 	// Subsequent read should fail
-	buf := make([]byte, 256)
-	_, err := conn.Read(buf)
+	_, err := conn.ReadMessage()
 	assert.Error(t, err)
 }
 
@@ -95,8 +110,7 @@ func TestWSConn_ConcurrentReadWrite(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			data := []byte{byte(i)}
-			conn.Write(data)
+			conn.WriteMessage([]byte{byte(i)})
 		}(i)
 	}
 
@@ -105,8 +119,7 @@ func TestWSConn_ConcurrentReadWrite(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			buf := make([]byte, 256)
-			conn.Read(buf)
+			conn.ReadMessage()
 		}()
 	}
 

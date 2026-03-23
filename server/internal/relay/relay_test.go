@@ -1,47 +1,71 @@
 package relay
 
 import (
-	"context"
 	"errors"
 	"io"
-	"net"
 	"sync"
 	"testing"
 	"time"
+
+	"context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// mockConn wraps a net.Conn to satisfy the Conn interface.
+// mockConn is a message-oriented in-memory connection for testing.
+// Paired connections share a done channel so closing either end
+// unblocks the other.
 type mockConn struct {
-	net.Conn
-	closed chan struct{}
-	once   sync.Once
+	readCh  <-chan []byte
+	writeCh chan<- []byte
+	done    chan struct{} // shared between paired conns
+	closeFn func()       // shared once-close of done
 }
 
+// newMockConnPair returns two connected mockConns: messages written to one
+// are readable from the other, preserving message boundaries.
+// Closing either end unblocks the other.
 func newMockConnPair(t *testing.T) (*mockConn, *mockConn) {
 	t.Helper()
-	a, b := net.Pipe()
-	ca := &mockConn{Conn: a, closed: make(chan struct{})}
-	cb := &mockConn{Conn: b, closed: make(chan struct{})}
-	t.Cleanup(func() { ca.Close(); cb.Close() })
-	return ca, cb
+	aToB := make(chan []byte, 16)
+	bToA := make(chan []byte, 16)
+	done := make(chan struct{})
+	var once sync.Once
+	closeFn := func() { once.Do(func() { close(done) }) }
+	a := &mockConn{readCh: bToA, writeCh: aToB, done: done, closeFn: closeFn}
+	b := &mockConn{readCh: aToB, writeCh: bToA, done: done, closeFn: closeFn}
+	t.Cleanup(func() { a.Close(); b.Close() })
+	return a, b
+}
+
+func (c *mockConn) ReadMessage() ([]byte, error) {
+	select {
+	case data, ok := <-c.readCh:
+		if !ok {
+			return nil, io.EOF
+		}
+		return data, nil
+	case <-c.done:
+		return nil, io.EOF
+	}
+}
+
+func (c *mockConn) WriteMessage(data []byte) error {
+	msg := make([]byte, len(data))
+	copy(msg, data)
+	select {
+	case c.writeCh <- msg:
+		return nil
+	case <-c.done:
+		return io.ErrClosedPipe
+	}
 }
 
 func (c *mockConn) Close() error {
-	c.once.Do(func() { close(c.closed) })
-	return c.Conn.Close()
-}
-
-func (c *mockConn) IsClosed() bool {
-	select {
-	case <-c.closed:
-		return true
-	default:
-		return false
-	}
+	c.closeFn()
+	return nil
 }
 
 func TestNewRelay_InitialState(t *testing.T) {
@@ -53,10 +77,8 @@ func TestRelay_Register_BothSides(t *testing.T) {
 	r := NewRelay()
 	token := protocol.GenerateSessionToken()
 
-	agentLocal, agentRelay := newMockConnPair(t)
-	browserLocal, browserRelay := newMockConnPair(t)
-	_ = agentLocal
-	_ = browserLocal
+	_, agentRelay := newMockConnPair(t)
+	_, browserRelay := newMockConnPair(t)
 
 	ctx := context.Background()
 	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
@@ -87,18 +109,13 @@ func TestRelay_Pipe_CopiesData(t *testing.T) {
 	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
 	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
 
-	// Wait for piping goroutines to start
-	time.Sleep(10 * time.Millisecond)
-
-	// Agent writes, browser reads
+	// Agent writes, browser reads — message boundary preserved
 	msg := []byte("hello from agent")
-	_, err := agentLocal.Write(msg)
-	require.NoError(t, err)
+	require.NoError(t, agentLocal.WriteMessage(msg))
 
-	buf := make([]byte, len(msg))
-	_, err = io.ReadFull(browserLocal, buf)
+	data, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, msg, buf)
+	assert.Equal(t, msg, data)
 }
 
 func TestRelay_Pipe_Bidirectional(t *testing.T) {
@@ -112,27 +129,42 @@ func TestRelay_Pipe_Bidirectional(t *testing.T) {
 	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
 	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
 
-	time.Sleep(10 * time.Millisecond)
-
 	// Agent → Browser
 	agentMsg := []byte("from agent")
-	_, err := agentLocal.Write(agentMsg)
+	require.NoError(t, agentLocal.WriteMessage(agentMsg))
+	data, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-
-	buf := make([]byte, len(agentMsg))
-	_, err = io.ReadFull(browserLocal, buf)
-	require.NoError(t, err)
-	assert.Equal(t, agentMsg, buf)
+	assert.Equal(t, agentMsg, data)
 
 	// Browser → Agent
 	browserMsg := []byte("from browser")
-	_, err = browserLocal.Write(browserMsg)
+	require.NoError(t, browserLocal.WriteMessage(browserMsg))
+	data, err = agentLocal.ReadMessage()
 	require.NoError(t, err)
+	assert.Equal(t, browserMsg, data)
+}
 
-	buf = make([]byte, len(browserMsg))
-	_, err = io.ReadFull(agentLocal, buf)
+func TestRelay_Pipe_LargeMessage(t *testing.T) {
+	r := NewRelay()
+	token := protocol.GenerateSessionToken()
+	ctx := context.Background()
+
+	agentLocal, agentRelay := newMockConnPair(t)
+	browserLocal, browserRelay := newMockConnPair(t)
+
+	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
+	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
+
+	// 256 KB — larger than the old 32KB io.CopyBuffer
+	largeMsg := make([]byte, 256*1024)
+	for i := range largeMsg {
+		largeMsg[i] = byte(i % 251)
+	}
+	require.NoError(t, agentLocal.WriteMessage(largeMsg))
+
+	data, err := browserLocal.ReadMessage()
 	require.NoError(t, err)
-	assert.Equal(t, browserMsg, buf)
+	assert.Equal(t, largeMsg, data)
 }
 
 func TestRelay_CloseOnOneSideDisconnect(t *testing.T) {
@@ -148,13 +180,11 @@ func TestRelay_CloseOnOneSideDisconnect(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	// Close agent side
+	// Close agent relay side — relay should tear down both sides
 	agentRelay.Close()
 
-	// Browser side should see a read error shortly
-	browserLocal.Conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-	buf := make([]byte, 1)
-	_, err := browserLocal.Read(buf)
+	// Browser local should see EOF because relay closed browserRelay
+	_, err := browserLocal.ReadMessage()
 	assert.Error(t, err)
 }
 
@@ -175,10 +205,8 @@ func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	// Close both sides to end the session
 	agentRelay.Close()
 
-	// Wait for cleanup
 	require.Eventually(t, func() bool {
 		return r.ActiveSessionCount() == 0
 	}, time.Second, 10*time.Millisecond)
@@ -197,7 +225,6 @@ func TestRelay_ConnectionClose(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond)
 
-	// Closing one side triggers the pipe to tear down both sides and clean up.
 	agentRelay.Close()
 
 	require.Eventually(t, func() bool {
