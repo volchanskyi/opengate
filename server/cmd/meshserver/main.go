@@ -139,11 +139,10 @@ func main() {
 	})
 
 	httpSrv := &http.Server{
-		Addr:         *listen,
-		Handler:      srv,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              *listen,
+		Handler:           srv,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// Use a cancellable context for graceful shutdown of all servers
