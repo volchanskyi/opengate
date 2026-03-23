@@ -96,7 +96,7 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 	// If both sides are now present, start piping.
 	if s.agent != nil && s.browser != nil {
 		close(s.ready)
-		pipeCtx, cancel := context.WithCancel(ctx)
+		pipeCtx, cancel := context.WithCancel(context.Background())
 		go r.pipe(pipeCtx, cancel, token, s)
 	}
 

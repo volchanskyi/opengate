@@ -81,8 +81,12 @@ func denyIfNotAdmin[T any](ctx context.Context, forbidden T) (T, bool) {
 }
 
 // isGroupOwner returns true if the authenticated user owns the given group or is an admin.
+// Ungrouped devices (uuid.Nil) are accessible to all authenticated users.
 func (s *Server) isGroupOwner(ctx context.Context, groupID uuid.UUID) bool {
 	if isAdmin(ctx) {
+		return true
+	}
+	if groupID == uuid.Nil {
 		return true
 	}
 	group, err := s.store.GetGroup(ctx, groupID)
