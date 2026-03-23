@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774232203879,
+  "lastUpdate": 1774233623121,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5708,6 +5708,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.106357005968867,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "87063db27b4e21638922cd1d38122d86fe90e836",
+          "message": "fix: skip /metrics smoke test in staging and production\n\nThe /metrics endpoint is not proxied by Caddy — it's only reachable\non the internal Docker network. Both staging (port 18080) and\nproduction go through Caddy, so the test always fails. Restrict it\nto non-CD environments (e.g. docker-compose.test.yml E2E).",
+          "timestamp": "2026-03-22T19:38:46-07:00",
+          "tree_id": "6e728d196e84c7c34e000fc7b1a21e3edf220fb0",
+          "url": "https://github.com/volchanskyi/opengate/commit/87063db27b4e21638922cd1d38122d86fe90e836"
+        },
+        "date": 1774233623075,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.273362117830533,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.508291302948315,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 745.5990245064173,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.08624337784426,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.563596851537827,
             "unit": "ns/iter"
           }
         ]
