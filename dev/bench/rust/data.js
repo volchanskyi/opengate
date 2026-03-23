@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774294299512,
+  "lastUpdate": 1774296235873,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6002,6 +6002,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.037247446675714,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "fb7017765a0225f8de8c0f1b31968a5ae4e814d8",
+          "message": "debug: add relay tracing logs to diagnose WebSocket failure\n\nTemporary instrumentation to trace the exact failure point:\n- WSConn: log every ReadMessage/WriteMessage with size and errors\n- handlers_relay: log WebSocket upgrade, register, peer connect, ctx.Done\n- relay pipe: log start/end, copyMessages direction, message counts, errors",
+          "timestamp": "2026-03-23T13:02:00-07:00",
+          "tree_id": "f43762214209614c728ed6e6d3fd322faa9a4879",
+          "url": "https://github.com/volchanskyi/opengate/commit/fb7017765a0225f8de8c0f1b31968a5ae4e814d8"
+        },
+        "date": 1774296235825,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.440307866664785,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.502915784494732,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 754.1447585257287,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.2567762499712,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.152819718183796,
             "unit": "ns/iter"
           }
         ]
