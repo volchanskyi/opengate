@@ -83,6 +83,21 @@ test_health() {
 
 check "GET /api/v1/health returns 200" test_health
 
+# --- Metrics endpoint (both modes) -------------------------------------------
+
+test_metrics() {
+  # Metrics endpoint is only accessible internally (not proxied by Caddy).
+  # When using --domain (via Caddy), skip this test.
+  if [[ -n "$DOMAIN" ]]; then
+    return 0
+  fi
+  http_get "${BASE_URL}/metrics"
+  [[ "$RESPONSE_STATUS" == "200" ]] || return 1
+  echo "$RESPONSE_BODY" | grep -q 'opengate_http_requests_total' || return 1
+}
+
+check "GET /metrics returns Prometheus metrics" test_metrics
+
 # --- Web UI tests (both modes) ------------------------------------------------
 
 test_web_index() {

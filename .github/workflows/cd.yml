@@ -117,6 +117,17 @@ jobs:
           scp deploy/caddy/Caddyfile deploy-target:${{ env.DEPLOY_DIR }}/caddy/
           scp deploy/caddy/Caddyfile.staging deploy-target:${{ env.DEPLOY_DIR }}/caddy/
 
+          # Copy monitoring configs
+          scp deploy/docker-compose.monitoring.yml deploy-target:${{ env.DEPLOY_DIR }}/
+          ssh deploy-target "mkdir -p ${{ env.DEPLOY_DIR }}/{victoriametrics,loki,promtail,grafana/provisioning/{datasources,dashboards,alerting}}"
+          scp deploy/victoriametrics/scrape.yml deploy-target:${{ env.DEPLOY_DIR }}/victoriametrics/
+          scp deploy/loki/loki-config.yml deploy-target:${{ env.DEPLOY_DIR }}/loki/
+          scp deploy/promtail/promtail-config.yml deploy-target:${{ env.DEPLOY_DIR }}/promtail/
+          scp deploy/grafana/provisioning/datasources/datasources.yml deploy-target:${{ env.DEPLOY_DIR }}/grafana/provisioning/datasources/
+          scp deploy/grafana/provisioning/dashboards/*.yml deploy-target:${{ env.DEPLOY_DIR }}/grafana/provisioning/dashboards/
+          scp deploy/grafana/provisioning/dashboards/*.json deploy-target:${{ env.DEPLOY_DIR }}/grafana/provisioning/dashboards/
+          scp deploy/grafana/provisioning/alerting/*.yml deploy-target:${{ env.DEPLOY_DIR }}/grafana/provisioning/alerting/
+
       - name: Deploy staging
         env:
           JWT_SECRET: ${{ secrets.DEPLOY_STAGING_JWT_SECRET }}
@@ -264,6 +275,17 @@ jobs:
 
           scp deploy/docker-compose.yml deploy-target:${{ env.DEPLOY_DIR }}/
           scp deploy/caddy/Caddyfile deploy-target:${{ env.DEPLOY_DIR }}/caddy/
+
+          # Copy monitoring configs
+          scp deploy/docker-compose.monitoring.yml deploy-target:${{ env.DEPLOY_DIR }}/
+          ssh deploy-target "mkdir -p ${{ env.DEPLOY_DIR }}/{victoriametrics,loki,promtail,grafana/provisioning/{datasources,dashboards,alerting}}"
+          scp deploy/victoriametrics/scrape.yml deploy-target:${{ env.DEPLOY_DIR }}/victoriametrics/
+          scp deploy/loki/loki-config.yml deploy-target:${{ env.DEPLOY_DIR }}/loki/
+          scp deploy/promtail/promtail-config.yml deploy-target:${{ env.DEPLOY_DIR }}/promtail/
+          scp deploy/grafana/provisioning/datasources/datasources.yml deploy-target:${{ env.DEPLOY_DIR }}/grafana/provisioning/datasources/
+          scp deploy/grafana/provisioning/dashboards/*.yml deploy-target:${{ env.DEPLOY_DIR }}/grafana/provisioning/dashboards/
+          scp deploy/grafana/provisioning/dashboards/*.json deploy-target:${{ env.DEPLOY_DIR }}/grafana/provisioning/dashboards/
+          scp deploy/grafana/provisioning/alerting/*.yml deploy-target:${{ env.DEPLOY_DIR }}/grafana/provisioning/alerting/
 
       - name: Deploy production
         env:

@@ -1,0 +1,235 @@
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: OpenGate Critical
+    folder: OpenGate
+    interval: 1m
+    rules:
+      - uid: health-check-failing
+        title: Health check failing
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: up{job="opengate-server"}
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: lt
+                    params: [1]
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenGate server health check is failing"
+          description: "The server has been unreachable for more than 1 minute."
+
+      - uid: disk-usage-critical
+        title: Disk usage > 90%
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                100 - (node_filesystem_avail_bytes{mountpoint="/"} /
+                node_filesystem_size_bytes{mountpoint="/"} * 100)
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [90]
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk usage is above 90%"
+          description: "Root filesystem usage has exceeded 90%. Immediate action required."
+
+  - orgId: 1
+    name: OpenGate Warning
+    folder: OpenGate
+    interval: 1m
+    rules:
+      - uid: high-latency-p99
+        title: "p99 latency > 2s"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                histogram_quantile(0.99,
+                sum(rate(opengate_http_request_duration_seconds_bucket[5m])) by (le))
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [2]
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 HTTP latency exceeds 2 seconds"
+          description: "The 99th percentile request duration has been above 2s for 5 minutes."
+
+      - uid: high-error-rate
+        title: "HTTP error rate > 5%"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                sum(rate(opengate_http_requests_total{status_code=~"5.."}[5m])) /
+                sum(rate(opengate_http_requests_total[5m])) * 100
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [5]
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP 5xx error rate exceeds 5%"
+          description: "More than 5% of HTTP requests are returning 5xx errors."
+
+      - uid: disk-usage-warning
+        title: Disk usage > 75%
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                100 - (node_filesystem_avail_bytes{mountpoint="/"} /
+                node_filesystem_size_bytes{mountpoint="/"} * 100)
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [75]
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk usage is above 75%"
+          description: "Root filesystem usage has exceeded 75%. Plan cleanup or expansion."
+
+      - uid: memory-usage-high
+        title: Memory usage > 80%
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                100 - (node_memory_MemAvailable_bytes /
+                node_memory_MemTotal_bytes * 100)
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [80]
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory usage is above 80%"
+          description: "System memory utilization has exceeded 80%."

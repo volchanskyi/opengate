@@ -1,3 +1,20 @@
+status.{$DOMAIN:localhost} {
+	reverse_proxy uptime-kuma:3001
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	encode gzip
+
+	log {
+		output stdout
+		format json
+	}
+}
+
 {$DOMAIN:localhost} {
 	# API routes → Go server
 	handle /api/* {

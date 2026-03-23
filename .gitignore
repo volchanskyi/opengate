@@ -25,6 +25,7 @@ ca.key
 .env
 .env.*
 !.env.example
+!.env.monitoring.example
 
 # OS
 .DS_Store
