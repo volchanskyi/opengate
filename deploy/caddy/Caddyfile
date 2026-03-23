@@ -1,5 +1,5 @@
 status.{$DOMAIN:localhost} {
-	reverse_proxy uptime-kuma:3001
+	reverse_proxy opengate-uptime-kuma:3001
 
 	header {
 		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
