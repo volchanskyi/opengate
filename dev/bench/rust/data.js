@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774286586402,
+  "lastUpdate": 1774294299512,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5953,6 +5953,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.072951891416647,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "295debd1cf65050a8785ac63491138b3a37797c1",
+          "message": "fix: relay pipe context, ungrouped device access, and device listing query\n\n- Revert relay pipe context from ctx to context.Background() so the pipe\n  outlives the HTTP handler that triggered it (fixes premature teardown)\n- Allow isGroupOwner to return true for uuid.Nil so ungrouped devices are\n  accessible to non-admin users (fixes 403 on session/device operations)\n- Change ListDevicesForOwner from INNER JOIN to LEFT JOIN so ungrouped\n  devices appear in query results",
+          "timestamp": "2026-03-23T12:29:57-07:00",
+          "tree_id": "01aa882fb4dd4c3f04c0b2ef7687b09a0649e155",
+          "url": "https://github.com/volchanskyi/opengate/commit/295debd1cf65050a8785ac63491138b3a37797c1"
+        },
+        "date": 1774294299464,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.32259942610365,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.401704000550666,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 744.456484300381,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 316.4837838407486,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.037247446675714,
             "unit": "ns/iter"
           }
         ]
