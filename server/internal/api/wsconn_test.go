@@ -43,7 +43,7 @@ func dialWSConn(t *testing.T, serverURL string) (*WSConn, *websocket.Conn) {
 	wsURL := "ws" + strings.TrimPrefix(serverURL, "http")
 	rawConn, _, err := websocket.Dial(context.Background(), wsURL, nil)
 	require.NoError(t, err)
-	return NewWSConn(rawConn), rawConn
+	return NewWSConn(rawConn, "test"), rawConn
 }
 
 func TestWSConn_ReadWriteRoundtrip(t *testing.T) {
