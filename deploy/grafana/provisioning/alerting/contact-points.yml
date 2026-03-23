@@ -1,0 +1,22 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: telegram
+    receivers:
+      - uid: telegram-bot
+        type: telegram
+        settings:
+          bottoken: ${TELEGRAM_BOT_TOKEN}
+          chatid: ${TELEGRAM_CHAT_ID}
+          parse_mode: HTML
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: default-email
+    receivers:
+      - uid: grafana-default-email
+        type: email
+        settings:
+          addresses: ""
+        disableResolveMessage: false

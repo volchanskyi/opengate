@@ -1,0 +1,185 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "HTTP Request Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        {
+          "expr": "sum(rate(opengate_http_requests_total[5m])) by (status_code)",
+          "legendFormat": "{{status_code}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "HTTP Request Duration (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(opengate_http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(opengate_http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(opengate_http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "fillOpacity": 5 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Connected Agents",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        { "expr": "opengate_agents_connected", "legendFormat": "Agents" }
+      ],
+      "fieldConfig": {
+        "defaults": { "thresholds": { "steps": [{ "color": "green", "value": null }] } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Active Relay Sessions",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        { "expr": "opengate_relay_active_sessions", "legendFormat": "Sessions" }
+      ],
+      "fieldConfig": {
+        "defaults": { "thresholds": { "steps": [{ "color": "blue", "value": null }] } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "MPS Devices",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        { "expr": "opengate_mps_connected_devices", "legendFormat": "MPS Devices" }
+      ],
+      "fieldConfig": {
+        "defaults": { "thresholds": { "steps": [{ "color": "purple", "value": null }] } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Signaling Upgrades",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        { "expr": "sum(rate(opengate_signaling_upgrades_total[5m])) by (result)", "legendFormat": "{{result}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "thresholds": { "steps": [{ "color": "green", "value": null }] }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "HTTP Requests by Route (Top 10)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        {
+          "expr": "topk(10, sum(rate(opengate_http_requests_total[5m])) by (route))",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Go Goroutines",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        { "expr": "go_goroutines", "legendFormat": "goroutines" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line" } }, "overrides": [] }
+    },
+    {
+      "title": "Go Memory (Heap)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        { "expr": "go_memstats_heap_alloc_bytes", "legendFormat": "heap alloc" },
+        { "expr": "go_memstats_heap_sys_bytes", "legendFormat": "heap sys" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Database Size",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "targets": [
+        { "expr": "opengate_db_size_bytes", "legendFormat": "DB Size" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 104857600 },
+              { "color": "red", "value": 524288000 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["opengate"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "OpenGate Overview",
+  "uid": "opengate-overview"
+}

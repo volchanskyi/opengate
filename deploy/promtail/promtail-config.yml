@@ -1,0 +1,57 @@
+# Promtail configuration for OpenGate monitoring.
+# Reads Docker container logs via the Docker socket.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /positions/positions.yaml
+
+clients:
+  - url: http://opengate-loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Keep only opengate containers
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(opengate-.*)"
+        action: keep
+      # Use container name as label
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+      # Add compose project label
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_project"]
+        target_label: project
+      # Add compose service label
+      - source_labels: ["__meta_docker_container_label_com_docker_compose_service"]
+        target_label: service
+    pipeline_stages:
+      # Parse JSON logs from the OpenGate server
+      - match:
+          selector: '{container="opengate-server"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  msg: msg
+                  error: error
+            - labels:
+                level:
+      # Parse JSON logs from Caddy
+      - match:
+          selector: '{container="opengate-caddy"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  status: status
+                  method: request.method
+            - labels:
+                level:
+                status:
