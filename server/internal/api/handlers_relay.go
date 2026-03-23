@@ -70,7 +70,7 @@ func (s *Server) upgradeRelayWebSocket(w http.ResponseWriter, r *http.Request) *
 
 // registerAndWait registers conn with the relay and blocks until the peer connects
 // or the request context is cancelled. It closes wsConn on registration failure.
-func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn *WSConn, token string, side relay.Side) {
+func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn relay.Conn, token string, side relay.Side) {
 	ctx := r.Context()
 	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {
 		s.logger.Error("relay register", "error", err, "token_prefix", protocol.RedactToken(token))
