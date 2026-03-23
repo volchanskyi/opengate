@@ -78,5 +78,15 @@
       "best-practices": 100,
       "seo": 82
     }
+  },
+  {
+    "date": "2026-03-23T17:27:18.017Z",
+    "sha": "ea2cfb5",
+    "scores": {
+      "performance": 98,
+      "accessibility": 92,
+      "best-practices": 100,
+      "seo": 82
+    }
   }
 ]
