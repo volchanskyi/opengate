@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774056379865,
+  "lastUpdate": 1774229124578,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -5610,6 +5610,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.0786984839418,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "7cf0325d5b5fea65c8bc9d6ba2418be68deb802b",
+          "message": "feat: add Phase D monitoring & observability stack\n\n- Prometheus instrumentation: metrics package with HTTP middleware,\n  InstrumentedStore (wraps db.Store), /metrics endpoint, gauge updaters\n  for relay sessions, connected agents, MPS devices, signaling, DB size\n- Structured logging: switch slog TextHandler → JSONHandler with\n  LOG_LEVEL env var support\n- Monitoring infrastructure: docker-compose.monitoring.yml with\n  VictoriaMetrics, Grafana OSS, Loki, Promtail, Node Exporter,\n  Uptime Kuma (~405 MB RAM total)\n- Grafana provisioning as code: datasources (VictoriaMetrics + Loki),\n  dashboards (overview + DB performance), alerting (critical → Telegram\n  for health/disk, warning for latency/errors/memory)\n- CD integration: deploy.sh deploys monitoring stack on production,\n  smoke-test.sh validates /metrics endpoint, cd.yml copies monitoring\n  configs to VPS, Caddyfile adds status.{domain} for Uptime Kuma",
+          "timestamp": "2026-03-22T18:23:40-07:00",
+          "tree_id": "77a774ac39efda7f5a3ea092144ff6bbdce1e95a",
+          "url": "https://github.com/volchanskyi/opengate/commit/7cf0325d5b5fea65c8bc9d6ba2418be68deb802b"
+        },
+        "date": 1774229124522,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.222877105599203,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.73362783855352,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 609.5300191800646,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.967368476308,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.791827989224622,
             "unit": "ns/iter"
           }
         ]
