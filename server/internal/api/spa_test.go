@@ -24,7 +24,7 @@ func newTestServerWithWebDir(t *testing.T, webDir string) *Server {
 		JWT:      testJWTConfig(),
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
-		Relay:    relay.NewRelay(),
+		Relay:    relay.NewRelay(slog.Default()),
 		Notifier: &notifications.NoopNotifier{},
 		Logger:   logger,
 		WebDir:   webDir,
@@ -102,7 +102,7 @@ func TestSPA_DisabledWhenWebDirEmpty(t *testing.T) {
 		JWT:      &auth.JWTConfig{Secret: "test-secret-key-at-least-32-bytes!", Issuer: "test", Duration: 60},
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
-		Relay:    relay.NewRelay(),
+		Relay:    relay.NewRelay(slog.Default()),
 		Notifier: &notifications.NoopNotifier{},
 		Logger:   logger,
 		// WebDir deliberately empty

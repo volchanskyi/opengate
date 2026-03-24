@@ -69,7 +69,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Store:    store,
 		JWT:      jwtCfg,
 		AMT:      &stubAMT{},
-		Relay:    relay.NewRelay(),
+		Relay:    relay.NewRelay(slog.Default()),
 		Notifier: &notifications.NoopNotifier{},
 		Logger:   logger,
 	})

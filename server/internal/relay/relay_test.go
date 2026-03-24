@@ -1,13 +1,13 @@
 package relay
 
 import (
+	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
-
-	"context"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,12 +69,12 @@ func (c *mockConn) Close() error {
 }
 
 func TestNewRelay_InitialState(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	assert.Equal(t, 0, r.ActiveSessionCount())
 }
 
 func TestRelay_Register_BothSides(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
 
 	_, agentRelay := newMockConnPair(t)
@@ -86,7 +86,7 @@ func TestRelay_Register_BothSides(t *testing.T) {
 }
 
 func TestRelay_Register_DuplicateSide(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
 	ctx := context.Background()
 
@@ -99,7 +99,7 @@ func TestRelay_Register_DuplicateSide(t *testing.T) {
 }
 
 func TestRelay_Pipe_CopiesData(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
 	ctx := context.Background()
 
@@ -119,7 +119,7 @@ func TestRelay_Pipe_CopiesData(t *testing.T) {
 }
 
 func TestRelay_Pipe_Bidirectional(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
 	ctx := context.Background()
 
@@ -145,7 +145,7 @@ func TestRelay_Pipe_Bidirectional(t *testing.T) {
 }
 
 func TestRelay_Pipe_LargeMessage(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
 	ctx := context.Background()
 
@@ -168,7 +168,7 @@ func TestRelay_Pipe_LargeMessage(t *testing.T) {
 }
 
 func TestRelay_CloseOnOneSideDisconnect(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
 	ctx := context.Background()
 
@@ -189,7 +189,7 @@ func TestRelay_CloseOnOneSideDisconnect(t *testing.T) {
 }
 
 func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
 	ctx := context.Background()
 
@@ -213,7 +213,7 @@ func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
 }
 
 func TestRelay_Pipe_SurvivesRegisterContextCancel(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
 
 	agentLocal, agentRelay := newMockConnPair(t)
@@ -248,7 +248,7 @@ func TestRelay_Pipe_SurvivesRegisterContextCancel(t *testing.T) {
 }
 
 func TestRelay_ConnectionClose(t *testing.T) {
-	r := NewRelay()
+	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
 	ctx := context.Background()
 

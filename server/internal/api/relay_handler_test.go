@@ -31,7 +31,7 @@ const (
 func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfig) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
-	r := relay.NewRelay()
+	r := relay.NewRelay(slog.Default())
 	cfg := &auth.JWTConfig{
 		Secret:   "test-secret-key-at-least-32-bytes!",
 		Issuer:   "opengate-test",

@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -96,32 +95,21 @@ func TestWSConn_CloseClosesUnderlying(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestWSConn_ConcurrentReadWrite(t *testing.T) {
+func TestWSConn_MultipleMessages(t *testing.T) {
 	srv := wsEchoServer(t)
 	defer srv.Close()
 
 	conn, _ := dialWSConn(t, srv.URL)
 	defer conn.Close()
 
-	var wg sync.WaitGroup
-
-	// Concurrent writes
+	// nhooyr.io/websocket does not support concurrent reads or writes,
+	// so verify sequential multi-message round-trips instead.
 	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			conn.WriteMessage([]byte{byte(i)})
-		}(i)
-	}
+		msg := []byte{byte(i)}
+		require.NoError(t, conn.WriteMessage(msg))
 
-	// Concurrent reads (echo server sends back each message)
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			conn.ReadMessage()
-		}()
+		data, err := conn.ReadMessage()
+		require.NoError(t, err)
+		assert.Equal(t, msg, data)
 	}
-
-	wg.Wait()
 }
