@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.13.8] - 2026-03-23
+
+### Fixed
+- implement http.Hijacker on metrics statusWriter to unblock WebSocket upgrades
+
+## [v0.13.7] - 2026-03-23
+
+### Fixed
+- relay pipe context, ungrouped device access, and device listing query
+
+## [v0.13.6] - 2026-03-23
+
+### Fixed
+- preserve WebSocket message boundaries in relay
+
+## [v0.13.5] - 2026-03-23
+
+### Fixed
+- replace ReadTimeout/WriteTimeout with ReadHeaderTimeout for WebSocket compatibility
+
 ## [v0.13.4] - 2026-03-23
 
 ### Fixed
