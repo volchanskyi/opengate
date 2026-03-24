@@ -1,6 +1,7 @@
 //! X11 screen capture using x11rb.
 
 use mesh_agent_core::{CaptureError, RawFrame, ScreenCapture};
+use x11rb::connection::Connection;
 
 /// X11 screen capture.
 ///

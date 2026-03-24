@@ -36,7 +36,7 @@ pub(crate) async fn ws_writer_loop(
         if !running.load(Ordering::Relaxed) {
             break;
         }
-        if let Err(e) = ws_tx.send(Message::Binary(data)).await {
+        if let Err(e) = ws_tx.send(Message::Binary(data.into())).await {
             debug!("WebSocket send error: {e}");
             break;
         }

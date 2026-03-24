@@ -6,6 +6,7 @@ use mesh_protocol::HandshakeMessage;
 use sha2::{Digest, Sha384};
 
 /// Certificate set for mTLS testing.
+#[allow(dead_code)]
 pub struct TestCerts {
     pub ca_pem: String,
     pub ca_cert_der: Vec<u8>,
@@ -68,6 +69,7 @@ pub fn generate_test_certs() -> TestCerts {
 }
 
 /// Generate a self-signed test CA and return its PEM.
+#[allow(dead_code)]
 pub fn generate_test_ca_pem() -> String {
     let ca_key =
         rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).expect("generate CA keypair");
