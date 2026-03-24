@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774384945975,
+  "lastUpdate": 1774386124068,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6296,6 +6296,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.09639545526483,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "989811f1eeeed758a410c6be6d3583654ff092ca",
+          "message": "fix: wrap monitoring deploy comment to satisfy yamllint line-length rule",
+          "timestamp": "2026-03-24T14:00:26-07:00",
+          "tree_id": "2c77d16325cfb99aa8bc85866703926c07eba0ca",
+          "url": "https://github.com/volchanskyi/opengate/commit/989811f1eeeed758a410c6be6d3583654ff092ca"
+        },
+        "date": 1774386124021,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.170855240829468,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.543805011225107,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 748.4279395709511,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.51538863422235,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.081360729215984,
             "unit": "ns/iter"
           }
         ]
