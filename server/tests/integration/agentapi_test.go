@@ -71,7 +71,7 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 
 // connectAgentWithID establishes a QUIC connection as a test agent with a specific device ID.
 // The device must already exist in the DB.
-func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) quic.Stream {
+func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) *quic.Stream {
 	t.Helper()
 	ctx := context.Background()
 
@@ -120,7 +120,7 @@ func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) quic
 
 // connectAgent establishes a QUIC connection as a test agent and performs the handshake.
 // Returns the stream, device ID, and agent cert DER.
-func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (quic.Stream, uuid.UUID) {
+func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stream, uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
 
