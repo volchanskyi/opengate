@@ -3,6 +3,7 @@ package integration
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -52,7 +53,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 
-	r := relay.NewRelay()
+	r := relay.NewRelay(slog.Default())
 	logger := testLogger()
 	agentSrv := agentapi.NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", logger)
 

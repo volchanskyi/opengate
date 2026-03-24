@@ -42,7 +42,7 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 
-	r := relay.NewRelay()
+	r := relay.NewRelay(slog.Default())
 	logger := testLogger()
 	srv := agentapi.NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", logger)
 

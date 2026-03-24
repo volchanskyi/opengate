@@ -52,7 +52,7 @@ func newTestServerWithCert(t *testing.T) (*Server, *auth.JWTConfig) {
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
 		Cert:     &stubCertProvider{pem: []byte("-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")},
-		Relay:    relay.NewRelay(),
+		Relay:    relay.NewRelay(slog.Default()),
 		Notifier: &notifications.NoopNotifier{},
 		Logger:   logger,
 	})
