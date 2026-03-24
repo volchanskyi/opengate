@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774335799358,
+  "lastUpdate": 1774384945975,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6247,6 +6247,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.11063094583523,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "34470982d1e80566a040459b1102336310a7bbe0",
+          "message": "fix: resolve Grafana provisioning crashes and datasource UID mismatches\n\n- Add explicit uid fields to VictoriaMetrics and Loki datasources so\n  alert rules can reference them correctly (fixes \"data source not found\")\n- Remove Telegram contact point and notification policies from file\n  provisioning due to Grafana bug #69950 (numeric chat IDs unmarshal as\n  JSON numbers instead of strings, crashing startup). Configure via UI.\n- Update docker-compose.monitoring.yml deploy command to include\n  --env-file .env.monitoring for correct credential injection",
+          "timestamp": "2026-03-24T13:39:53-07:00",
+          "tree_id": "b4cd8e71bc7e495eda2852a5133f70b5b6169829",
+          "url": "https://github.com/volchanskyi/opengate/commit/34470982d1e80566a040459b1102336310a7bbe0"
+        },
+        "date": 1774384945926,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.279424578347417,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.44971941135874,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 744.9884824402742,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.89738451738964,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.09639545526483,
             "unit": "ns/iter"
           }
         ]
