@@ -1,22 +1,7 @@
+# Telegram contact point is configured manually via the Grafana UI.
+# File-based provisioning of Telegram is blocked by a Grafana bug (#69950):
+# numeric chat IDs are unmarshaled as JSON numbers instead of strings,
+# causing a startup crash. No YAML-level workaround exists.
 apiVersion: 1
 
-contactPoints:
-  - orgId: 1
-    name: telegram
-    receivers:
-      - uid: telegram-bot
-        type: telegram
-        settings:
-          bottoken: ${TELEGRAM_BOT_TOKEN}
-          chatid: "${TELEGRAM_CHAT_ID}"
-          parse_mode: HTML
-        disableResolveMessage: false
-
-  - orgId: 1
-    name: default-email
-    receivers:
-      - uid: grafana-default-email
-        type: email
-        settings:
-          addresses: ""
-        disableResolveMessage: false
+contactPoints: []
