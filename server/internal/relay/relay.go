@@ -54,14 +54,15 @@ type session struct {
 type Relay struct {
 	sessions sync.Map // map[protocol.SessionToken]*session
 	count    atomic.Int64
+	logger   *slog.Logger
 	// OnSessionEnd is called when a session finishes piping (both sides disconnected).
 	// It can be used to clean up external state such as DB sessions.
 	OnSessionEnd func(token protocol.SessionToken)
 }
 
 // NewRelay creates a new Relay.
-func NewRelay() *Relay {
-	return &Relay{}
+func NewRelay(logger *slog.Logger) *Relay {
+	return &Relay{logger: logger}
 }
 
 // Register registers one side of a session identified by token.
@@ -128,22 +129,19 @@ func (r *Relay) ActiveSessionCount() int {
 
 // copyMessages reads complete messages from src and writes them to dst,
 // preserving message boundaries. Returns when either side errors.
-func copyMessages(dst, src Conn, direction string, tp string) {
+func (r *Relay) copyMessages(dst, src Conn, direction string, tp string) {
 	var count int
 	for {
 		data, err := src.ReadMessage()
 		if err != nil {
-			slog.Error("[RELAY-DEBUG] copyMessages read error, stopping", "direction", direction, "token_prefix", tp, "msgs_copied", count, "error", err)
+			r.logger.Error("relay read error", "direction", direction, "token_prefix", tp, "msgs_copied", count, "error", err)
 			return
 		}
 		if err := dst.WriteMessage(data); err != nil {
-			slog.Error("[RELAY-DEBUG] copyMessages write error, stopping", "direction", direction, "token_prefix", tp, "msgs_copied", count, "bytes", len(data), "error", err)
+			r.logger.Error("relay write error", "direction", direction, "token_prefix", tp, "msgs_copied", count, "error", err)
 			return
 		}
 		count++
-		if count <= 5 || count%50 == 0 {
-			slog.Info("[RELAY-DEBUG] copyMessages forwarded", "direction", direction, "token_prefix", tp, "msg_num", count, "bytes", len(data))
-		}
 	}
 }
 
@@ -151,12 +149,11 @@ func copyMessages(dst, src Conn, direction string, tp string) {
 // or the session context is cancelled.
 func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token protocol.SessionToken, s *session) {
 	tp := protocol.RedactToken(string(token))
-	slog.Info("[RELAY-DEBUG] pipe started", "token_prefix", tp)
+	r.logger.Info("relay session started", "token_prefix", tp)
 
 	var closeOnce sync.Once
 	closeBoth := func() {
 		closeOnce.Do(func() {
-			slog.Info("[RELAY-DEBUG] closeBoth called", "token_prefix", tp)
 			s.agent.Close()
 			s.browser.Close()
 		})
@@ -167,7 +164,7 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 		cancel()
 		r.sessions.Delete(token)
 		r.count.Add(-1)
-		slog.Info("[RELAY-DEBUG] pipe ended, session cleaned up", "token_prefix", tp)
+		r.logger.Info("relay session ended", "token_prefix", tp)
 		if r.OnSessionEnd != nil {
 			r.OnSessionEnd(token)
 		}
@@ -178,21 +175,19 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 	// agent → browser
 	go func() {
 		defer close(done)
-		copyMessages(s.browser, s.agent, "agent→browser", tp)
+		r.copyMessages(s.browser, s.agent, "agent→browser", tp)
 	}()
 
 	// browser → agent
 	go func() {
-		copyMessages(s.agent, s.browser, "browser→agent", tp)
+		r.copyMessages(s.agent, s.browser, "browser→agent", tp)
 		// When this direction ends, close both to unblock the other.
 		closeBoth()
 	}()
 
 	select {
 	case <-done:
-		slog.Info("[RELAY-DEBUG] pipe select: done channel closed", "token_prefix", tp)
 	case <-ctx.Done():
-		slog.Info("[RELAY-DEBUG] pipe select: ctx cancelled", "token_prefix", tp, "ctx_err", ctx.Err())
 		closeBoth()
 		<-done
 	}

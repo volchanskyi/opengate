@@ -62,7 +62,7 @@ func (s *Server) upgradeRelayWebSocket(w http.ResponseWriter, r *http.Request) *
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
-		s.logger.Error("websocket accept", "error", err)
+		s.logger.Error("relay websocket upgrade failed", "error", err)
 		return nil
 	}
 	return wsConn
@@ -75,21 +75,18 @@ func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn r
 	tp := protocol.RedactToken(token)
 
 	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {
-		s.logger.Error("[RELAY-DEBUG] register failed", "error", err, "token_prefix", tp)
+		s.logger.Error("relay register failed", "error", err, "token_prefix", tp)
 		wsConn.Close(websocket.StatusInternalError, "relay error")
 		return
 	}
-	s.logger.Info("[RELAY-DEBUG] registered, waiting for peer", "token_prefix", tp)
 
 	if err := s.relay.WaitForPeer(ctx, protocol.SessionToken(token)); err != nil {
-		s.logger.Error("[RELAY-DEBUG] WaitForPeer failed", "error", err, "token_prefix", tp, "ctx_err", ctx.Err())
+		s.logger.Error("relay wait for peer failed", "error", err, "token_prefix", tp)
 		return
 	}
-	s.logger.Info("[RELAY-DEBUG] peer connected, blocking on ctx.Done()", "token_prefix", tp)
 
 	// Block until the request context is done (relay handles piping).
 	<-ctx.Done()
-	s.logger.Info("[RELAY-DEBUG] ctx.Done() fired", "token_prefix", tp, "ctx_err", ctx.Err())
 }
 
 func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -98,10 +95,10 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.validateRelayToken(r, token); err != nil {
 		if errors.Is(err, db.ErrNotFound) {
-			s.logger.Info("[RELAY-DEBUG] token not found", "token_prefix", tp)
+			s.logger.Warn("relay token not found", "token_prefix", tp)
 			rejectWebSocket(w, r, "session not found")
 		} else {
-			s.logger.Error("[RELAY-DEBUG] validateRelayToken error", "token_prefix", tp, "error", err)
+			s.logger.Error("relay token validation error", "token_prefix", tp, "error", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 		}
 		return
@@ -109,7 +106,7 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	side, ok := parseSide(w, r)
 	if !ok {
-		s.logger.Warn("[RELAY-DEBUG] parseSide failed", "token_prefix", tp, "side_param", r.URL.Query().Get("side"))
+		s.logger.Warn("relay invalid side param", "token_prefix", tp, "side_param", r.URL.Query().Get("side"))
 		return
 	}
 
@@ -117,17 +114,15 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 	if side == relay.SideBrowser {
 		sideLabel = "browser"
 	}
-	s.logger.Info("[RELAY-DEBUG] upgrading WebSocket", "token_prefix", tp, "side", sideLabel)
 
 	wsConn := s.upgradeRelayWebSocket(w, r)
 	if wsConn == nil {
-		s.logger.Error("[RELAY-DEBUG] WebSocket upgrade failed", "token_prefix", tp, "side", sideLabel)
 		return
 	}
 
-	s.logger.Info("[RELAY-DEBUG] WebSocket upgraded, registering", "token_prefix", tp, "side", sideLabel)
+	s.logger.Info("relay session connected", "token_prefix", tp, "side", sideLabel)
 	s.registerAndWait(r, wsConn, NewWSConn(wsConn, sideLabel), token, side)
-	s.logger.Info("[RELAY-DEBUG] handler exiting", "token_prefix", tp, "side", sideLabel)
+	s.logger.Info("relay session disconnected", "token_prefix", tp, "side", sideLabel)
 }
 
 // validateRelayToken checks that the given token exists in the agent session store.
@@ -135,4 +130,3 @@ func (s *Server) validateRelayToken(r *http.Request, token string) error {
 	_, err := s.store.GetAgentSession(r.Context(), token)
 	return err
 }
-

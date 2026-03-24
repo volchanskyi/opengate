@@ -82,7 +82,7 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
-		Relay:    relay.NewRelay(),
+		Relay:    relay.NewRelay(slog.Default()),
 		Notifier: &notifications.NoopNotifier{},
 		Logger:   logger,
 	})

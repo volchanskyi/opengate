@@ -96,7 +96,7 @@ func main() {
 	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
 
 	// Create relay and agent server
-	agentRelay := relay.NewRelay()
+	agentRelay := relay.NewRelay(logger)
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

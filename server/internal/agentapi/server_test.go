@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,7 +18,7 @@ func TestAgentServer_ConnectedAgentCount_ZeroAtStart(t *testing.T) {
 	require.NoError(t, err)
 
 	store := testutil.NewTestStore(t)
-	r := relay.NewRelay()
+	r := relay.NewRelay(slog.Default())
 
 	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", testLogger())
 	assert.Equal(t, 0, srv.ConnectedAgentCount())
@@ -28,7 +29,7 @@ func TestAgentServer_StopsOnContextCancel(t *testing.T) {
 	require.NoError(t, err)
 
 	store := testutil.NewTestStore(t)
-	r := relay.NewRelay()
+	r := relay.NewRelay(slog.Default())
 
 	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", testLogger())
 

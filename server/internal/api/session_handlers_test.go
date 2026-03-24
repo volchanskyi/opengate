@@ -94,7 +94,7 @@ func TestCreateSession(t *testing.T) {
 			},
 		}
 
-		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay())
+		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
 		// Re-use the same store
 		srv.store = store
 
@@ -160,7 +160,7 @@ func TestCreateSession(t *testing.T) {
 					agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 				}
 
-				srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay())
+				srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
 				srv.store = store
 
 				jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
@@ -201,7 +201,7 @@ func TestCreateSession(t *testing.T) {
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 		}
 
-		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay())
+		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
 		srv.store = store
 
 		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
@@ -240,7 +240,7 @@ func TestCreateSession(t *testing.T) {
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 		}
 
-		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay())
+		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
 		srv.store = store
 
 		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)

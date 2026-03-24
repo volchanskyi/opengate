@@ -31,7 +31,7 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 		JWT:       cfg,
 		Agents:    &stubAgentGetter{},
 		AMT:       &stubAMTOperator{},
-		Relay:     relay.NewRelay(),
+		Relay:     relay.NewRelay(slog.Default()),
 		Notifier:  &notifications.NoopNotifier{},
 		Signing:   signing,
 		Manifests: manifests,

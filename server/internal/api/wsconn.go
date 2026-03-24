@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"log/slog"
 
 	"nhooyr.io/websocket"
 )
@@ -12,7 +11,7 @@ import (
 // WriteMessage sends one complete WebSocket message, preserving boundaries.
 type WSConn struct {
 	conn  *websocket.Conn
-	label string // "agent" or "browser" for debug logging
+	label string // "agent" or "browser" — used by handler-level logging
 }
 
 // maxRelayMessageSize is the maximum WebSocket message size the relay accepts.
@@ -27,28 +26,16 @@ func NewWSConn(conn *websocket.Conn, label string) *WSConn {
 
 // ReadMessage reads one complete binary message from the WebSocket.
 func (w *WSConn) ReadMessage() ([]byte, error) {
-	msgType, data, err := w.conn.Read(context.Background())
-	if err != nil {
-		slog.Error("[RELAY-DEBUG] WSConn.ReadMessage failed", "label", w.label, "error", err)
-	} else {
-		slog.Info("[RELAY-DEBUG] WSConn.ReadMessage OK", "label", w.label, "msgType", msgType, "bytes", len(data))
-	}
+	_, data, err := w.conn.Read(context.Background())
 	return data, err
 }
 
 // WriteMessage sends one complete binary message over the WebSocket.
 func (w *WSConn) WriteMessage(data []byte) error {
-	err := w.conn.Write(context.Background(), websocket.MessageBinary, data)
-	if err != nil {
-		slog.Error("[RELAY-DEBUG] WSConn.WriteMessage failed", "label", w.label, "bytes", len(data), "error", err)
-	} else {
-		slog.Info("[RELAY-DEBUG] WSConn.WriteMessage OK", "label", w.label, "bytes", len(data))
-	}
-	return err
+	return w.conn.Write(context.Background(), websocket.MessageBinary, data)
 }
 
 // Close closes the WebSocket connection with a normal closure status.
 func (w *WSConn) Close() error {
-	slog.Info("[RELAY-DEBUG] WSConn.Close called", "label", w.label)
 	return w.conn.Close(websocket.StatusNormalClosure, "")
 }
