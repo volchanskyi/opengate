@@ -1,5 +1,7 @@
 # Monitoring & Observability stack for OpenGate.
-# Deployed with: docker compose --project-name opengate-monitoring -f docker-compose.monitoring.yml up -d
+# Deployed with:
+#   docker compose --project-name opengate-monitoring \
+#     -f docker-compose.monitoring.yml --env-file .env.monitoring up -d
 # Separate lifecycle from the application — can be upgraded independently.
 
 services:
