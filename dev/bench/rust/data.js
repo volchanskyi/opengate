@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774309712798,
+  "lastUpdate": 1774313272640,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6100,6 +6100,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.071442316891858,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "1b241e983847a4655495b092676cef179828e4d8",
+          "message": "refactor: replace temporary debug logs with permanent structured relay logging\n\nRemove all [RELAY-DEBUG] temporary logs from wsconn.go, handlers_relay.go,\nand relay.go. Replace with permanent structured logging using injected\n*slog.Logger consistent with agentapi/mps/notifications patterns.\n\n- Relay now accepts *slog.Logger via NewRelay(logger)\n- Handler logs use clean messages at appropriate levels (Info for lifecycle,\n  Error for failures, Warn for client errors)\n- No per-message logging at Info level — only session start/end and errors\n- Fix pre-existing data race in TestWSConn_ConcurrentReadWrite by making\n  test sequential (nhooyr.io/websocket does not support concurrent r/w)",
+          "timestamp": "2026-03-23T17:46:22-07:00",
+          "tree_id": "f8c22935a37fc85c8f4557b6cbfee316a08672a1",
+          "url": "https://github.com/volchanskyi/opengate/commit/1b241e983847a4655495b092676cef179828e4d8"
+        },
+        "date": 1774313272594,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.311444080690357,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.54391911745171,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 762.1107515211806,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 314.4481786549199,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.11397872546175,
             "unit": "ns/iter"
           }
         ]
