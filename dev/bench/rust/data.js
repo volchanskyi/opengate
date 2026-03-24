@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774332529303,
+  "lastUpdate": 1774335799358,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6198,6 +6198,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.134052582260388,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d7a5787c2a4babfa6571335d22c4d5ffc8602942",
+          "message": "fix: quote Telegram chat ID to prevent Grafana provisioning crash\n\nGrafana 11.6 expects chatid as a string, but YAML parsed the bare\nnumeric env var as an integer, causing a crash loop on startup.",
+          "timestamp": "2026-03-24T00:01:28-07:00",
+          "tree_id": "29ecc57d18fe0c67ccb826940e7edf7e0dd84dfa",
+          "url": "https://github.com/volchanskyi/opengate/commit/d7a5787c2a4babfa6571335d22c4d5ffc8602942"
+        },
+        "date": 1774335799311,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.278822294265588,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.39083136382295,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 752.6397774802376,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 319.73342723330546,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.11063094583523,
             "unit": "ns/iter"
           }
         ]
