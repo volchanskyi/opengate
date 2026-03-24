@@ -153,7 +153,7 @@ func (s *AgentServer) ListenAndServe(ctx context.Context, addr string) error {
 }
 
 // accept handles a single QUIC connection.
-func (s *AgentServer) accept(ctx context.Context, conn quic.Connection) {
+func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	logger := s.logger.With("remote_addr", conn.RemoteAddr())
 
 	// Extract peer certificates from TLS state.
