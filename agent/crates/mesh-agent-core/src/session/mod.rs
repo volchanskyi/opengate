@@ -152,7 +152,9 @@ impl SessionHandler {
                 Message::Binary(data) => data,
                 Message::Close(_) => break,
                 Message::Ping(payload) => {
-                    let _ = frame_tx.send(Message::Pong(payload).into_data()).await;
+                    let _ = frame_tx
+                        .send(Message::Pong(payload).into_data().to_vec())
+                        .await;
                     continue;
                 }
                 _ => continue,

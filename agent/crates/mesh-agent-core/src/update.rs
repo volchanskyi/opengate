@@ -275,7 +275,7 @@ mod tests {
         let (signing_key, verifying_key) = test_keypair();
 
         let hash = Sha256::digest(b"original data");
-        let _hash_hex = hex::encode(&hash);
+        let _hash_hex = hex::encode(hash);
 
         let sig = signing_key.sign(&hash);
         let sig_hex = hex::encode(sig.to_bytes());
