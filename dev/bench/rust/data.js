@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774313272640,
+  "lastUpdate": 1774332529303,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6149,6 +6149,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.11397872546175,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e43b5c6aef7e0cc1974d7f96086e1b0921e6c2f0",
+          "message": "docs: update relay description from byte-transparent to message-oriented\n\nThe relay was changed from io.CopyBuffer (byte-stream) to\nReadMessage/WriteMessage (message-oriented) in v0.13.6.",
+          "timestamp": "2026-03-23T23:05:01-07:00",
+          "tree_id": "a7769a3b523cca04bb31e4218a3ed12762ab1745",
+          "url": "https://github.com/volchanskyi/opengate/commit/e43b5c6aef7e0cc1974d7f96086e1b0921e6c2f0"
+        },
+        "date": 1774332529256,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.263953502153317,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.401789133165163,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 746.749896848591,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 318.492329705501,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.134052582260388,
             "unit": "ns/iter"
           }
         ]
