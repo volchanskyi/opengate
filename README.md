@@ -75,7 +75,7 @@ server/                      Go module
 │   ├── protocol/            Go-side wire protocol codec + golden file verification
 │   ├── notifications/       Web Push notifications (VAPID, webpush-go), Notifier interface
 │   ├── metrics/             Prometheus instrumentation (HTTP middleware, InstrumentedStore)
-│   ├── relay/               Byte-transparent WebSocket relay for browser↔agent piping
+│   ├── relay/               Message-oriented WebSocket relay for browser↔agent piping
 │   ├── signaling/           WebRTC signaling state machine, ICE config, session tracker
 │   ├── updater/             Agent auto-update: Ed25519 signing, GitHub release sync, manifests
 │   ├── clientapi/           Client-facing API helpers
