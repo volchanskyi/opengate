@@ -100,6 +100,8 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
       - run: go vet ./...
+      - name: Install oapi-codegen
+        run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0
       - name: Verify OpenAPI codegen is in sync
         run: |
           go generate ./internal/api/
