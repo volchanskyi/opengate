@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774417872707,
+  "lastUpdate": 1774419884291,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6737,6 +6737,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 25.539869050271864,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "1067df9b877cf672fc49e2b7d20e92e3a5345513",
+          "message": "fix: verify cosign signature before stopping containers and auto-install cosign on VPS\n\nReorder redeploy() so verify_image runs before compose down — a verification\nfailure now leaves the running service intact instead of taking it offline.\n\nAdd idempotent cosign install step to both staging and production CD jobs\n(ARM64 binary for Oracle Cloud Always Free VPS).",
+          "timestamp": "2026-03-24T23:22:48-07:00",
+          "tree_id": "1e432243703bff8490f604316480644107f78129",
+          "url": "https://github.com/volchanskyi/opengate/commit/1067df9b877cf672fc49e2b7d20e92e3a5345513"
+        },
+        "date": 1774419884240,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.262778942447024,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.135658289353277,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 749.274918511971,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 303.65570346566665,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.072140301199987,
             "unit": "ns/iter"
           }
         ]
