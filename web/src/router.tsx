@@ -1,20 +1,32 @@
+/* eslint-disable react-refresh/only-export-components */
+import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { LoginPage } from './features/auth/LoginPage';
 import { RegisterPage } from './features/auth/RegisterPage';
 import { AuthGuard } from './features/auth/AuthGuard';
 import { AdminGuard } from './features/admin/AdminGuard';
-import { AdminLayout } from './features/admin/AdminLayout';
-import { UserManagement } from './features/admin/UserManagement';
-import { AuditLog } from './features/admin/AuditLog';
-import { AgentUpdates } from './features/admin/AgentUpdates';
-import { Permissions } from './features/admin/Permissions';
 import { Layout } from './components/Layout';
-import { DeviceList } from './features/devices/DeviceList';
-import { DeviceDetail } from './features/devices/DeviceDetail';
-import { SessionView } from './features/session/SessionView';
-import { AgentSetupPage } from './features/agent-setup/AgentSetupPage';
-import { Dashboard } from './features/dashboard/Dashboard';
-import { ProfilePage } from './features/profile/ProfilePage';
+import { LoadingSpinner } from './components/LoadingSpinner';
+
+const Dashboard = lazy(() => import('./features/dashboard/Dashboard').then((m) => ({ default: m.Dashboard })));
+const DeviceList = lazy(() => import('./features/devices/DeviceList').then((m) => ({ default: m.DeviceList })));
+const DeviceDetail = lazy(() => import('./features/devices/DeviceDetail').then((m) => ({ default: m.DeviceDetail })));
+const SessionView = lazy(() => import('./features/session/SessionView').then((m) => ({ default: m.SessionView })));
+const AgentSetupPage = lazy(() => import('./features/agent-setup/AgentSetupPage').then((m) => ({ default: m.AgentSetupPage })));
+const ProfilePage = lazy(() => import('./features/profile/ProfilePage').then((m) => ({ default: m.ProfilePage })));
+const AdminLayout = lazy(() => import('./features/admin/AdminLayout').then((m) => ({ default: m.AdminLayout })));
+const UserManagement = lazy(() => import('./features/admin/UserManagement').then((m) => ({ default: m.UserManagement })));
+const AuditLog = lazy(() => import('./features/admin/AuditLog').then((m) => ({ default: m.AuditLog })));
+const AgentUpdates = lazy(() => import('./features/admin/AgentUpdates').then((m) => ({ default: m.AgentUpdates })));
+const Permissions = lazy(() => import('./features/admin/Permissions').then((m) => ({ default: m.Permissions })));
+
+function withSuspense(Component: React.LazyExoticComponent<React.ComponentType>) {
+  return (
+    <Suspense fallback={<LoadingSpinner />}>
+      <Component />
+    </Suspense>
+  );
+}
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -26,24 +38,24 @@ export const router = createBrowserRouter([
       {
         element: <Layout />,
         children: [
-          { index: true, element: <Dashboard /> },
-          { path: 'devices', element: <DeviceList /> },
-          { path: 'devices/:id', element: <DeviceDetail /> },
-          { path: 'sessions/:token', element: <SessionView /> },
-          { path: 'setup', element: <AgentSetupPage /> },
-          { path: 'profile', element: <ProfilePage /> },
+          { index: true, element: withSuspense(Dashboard) },
+          { path: 'devices', element: withSuspense(DeviceList) },
+          { path: 'devices/:id', element: withSuspense(DeviceDetail) },
+          { path: 'sessions/:token', element: withSuspense(SessionView) },
+          { path: 'setup', element: withSuspense(AgentSetupPage) },
+          { path: 'profile', element: withSuspense(ProfilePage) },
           {
             path: 'settings',
             element: <AdminGuard />,
             children: [
               {
-                element: <AdminLayout />,
+                element: withSuspense(AdminLayout),
                 children: [
                   { index: true, element: <Navigate to="/settings/users" replace /> },
-                  { path: 'users', element: <UserManagement /> },
-                  { path: 'audit', element: <AuditLog /> },
-                  { path: 'updates', element: <AgentUpdates /> },
-                  { path: 'security/permissions', element: <Permissions /> },
+                  { path: 'users', element: withSuspense(UserManagement) },
+                  { path: 'audit', element: withSuspense(AuditLog) },
+                  { path: 'updates', element: withSuspense(AgentUpdates) },
+                  { path: 'security/permissions', element: withSuspense(Permissions) },
                 ],
               },
             ],
