@@ -100,6 +100,13 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
       - run: go vet ./...
+      - name: Verify OpenAPI codegen is in sync
+        run: |
+          go generate ./internal/api/
+          git diff --exit-code internal/api/ || {
+            echo "::error::OpenAPI generated code is out of sync. Run 'go generate ./internal/api/' and commit."
+            exit 1
+          }
 
   go-unit:
     name: Go Unit Tests

@@ -1,4 +1,4 @@
-.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt golden ci clean e2e load-test load-test-quic
+.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic
 
 build:
 	cd agent && cargo build --workspace
@@ -57,6 +57,9 @@ fmt:
 	cd agent && cargo fmt --all
 	cd server && gofmt -w .
 	cd web && npx prettier --write src/
+
+verify-codegen:
+	@command -v oapi-codegen >/dev/null && (cd server && go generate ./internal/api/ && git diff --exit-code internal/api/) || echo "SKIP: oapi-codegen not installed"
 
 golden:
 	cd agent && GENERATE_GOLDEN=1 cargo test -p mesh-protocol --test golden_test
