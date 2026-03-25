@@ -151,18 +151,26 @@ func (s *Server) routes() {
 		},
 	})
 
-	HandlerWithOptions(strictHandler, ChiServerOptions{
-		BaseRouter: r,
-		Middlewares: []MiddlewareFunc{
-			s.oapiAuthMiddleware(),
-		},
-		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			s.logger.Warn("request error", "error", err, "path", r.URL.Path)
-			writeError(w, http.StatusBadRequest, "invalid request")
-		},
+	// API routes in a group with rate limiting and request timeout.
+	// WebSocket routes stay outside so TimeoutHandler doesn't break upgrades.
+	r.Group(func(apiRouter chi.Router) {
+		apiRouter.Use(RequestTimeout(30 * time.Second))
+		apiRouter.Use(RateLimiter(100, 200))
+
+		HandlerWithOptions(strictHandler, ChiServerOptions{
+			BaseRouter: apiRouter,
+			Middlewares: []MiddlewareFunc{
+				s.oapiAuthMiddleware(),
+				AuthRateLimiter(10, 20),
+			},
+			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+				s.logger.Warn("request error", "error", err, "path", r.URL.Path)
+				writeError(w, http.StatusBadRequest, "invalid request")
+			},
+		})
 	})
 
-	// WebSocket relay — token in URL acts as auth
+	// WebSocket relay — token in URL acts as auth (no timeout middleware)
 	r.Get("/ws/relay/{token}", s.handleRelayWebSocket)
 
 	// SPA static file serving with index.html fallback
@@ -221,7 +229,7 @@ func (s *Server) auditLog(userID db.UserID, action, target, details string) {
 			Details:   details,
 			CreatedAt: time.Now(),
 		}); err != nil {
-			s.logger.Warn("audit log write failed", "action", action, "error", err)
+			s.logger.Error("audit log write failed", "action", action, "error", err)
 		}
 	}()
 }

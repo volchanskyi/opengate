@@ -1,4 +1,4 @@
-.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt golden ci clean e2e load-test load-test-quic
+.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic
 
 build:
 	cd agent && cargo build --workspace
@@ -57,6 +57,10 @@ fmt:
 	cd agent && cargo fmt --all
 	cd server && gofmt -w .
 	cd web && npx prettier --write src/
+
+verify-codegen:
+	@command -v oapi-codegen >/dev/null 2>&1 || { echo "ERROR: oapi-codegen not found in PATH. Install with: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0"; exit 1; }
+	cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go && git diff --exit-code internal/api/
 
 golden:
 	cd agent && GENERATE_GOLDEN=1 cargo test -p mesh-protocol --test golden_test

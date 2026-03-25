@@ -1,6 +1,11 @@
 package api
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -21,11 +26,23 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
+// generateTestCSRPEM creates a valid PEM-encoded CERTIFICATE REQUEST for testing.
+func generateTestCSRPEM() string {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		panic(err)
+	}
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{
+		Subject: pkix.Name{CommonName: "test-agent"},
+	}, key)
+	if err != nil {
+		panic(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER}))
+}
+
 // testCSRPEM is a valid PEM-encoded CERTIFICATE REQUEST for testing.
-var testCSRPEM = string(pem.EncodeToMemory(&pem.Block{
-	Type:  "CERTIFICATE REQUEST",
-	Bytes: []byte("fake-csr-data"),
-}))
+var testCSRPEM = generateTestCSRPEM()
 
 // stubCertProvider is a test double for CertProvider.
 type stubCertProvider struct {

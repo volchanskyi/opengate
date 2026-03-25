@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"net/mail"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/auth"
@@ -14,6 +15,10 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 	email := string(request.Body.Email)
 	if email == "" || request.Body.Password == "" {
 		return Register400JSONResponse{Error: "email and password are required"}, nil
+	}
+
+	if _, err := mail.ParseAddress(email); err != nil {
+		return Register400JSONResponse{Error: "invalid email format"}, nil
 	}
 
 	if len(request.Body.Password) < 8 {

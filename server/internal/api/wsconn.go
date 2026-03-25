@@ -14,9 +14,9 @@ type WSConn struct {
 	label string // "agent" or "browser" — used by handler-level logging
 }
 
-// maxRelayMessageSize is the maximum WebSocket message size the relay accepts.
-// Matches the browser protocol codec's 16 MiB frame limit.
-const maxRelayMessageSize = 16 << 20
+// maxRelayMessageSize is the maximum WebSocket message size the relay accepts (4 MiB).
+// The agent protocol chunks data, so 4 MiB per message is sufficient.
+const maxRelayMessageSize = 4 << 20
 
 // NewWSConn wraps a websocket.Conn into a relay-compatible connection.
 func NewWSConn(conn *websocket.Conn, label string) *WSConn {

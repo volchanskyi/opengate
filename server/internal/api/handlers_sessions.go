@@ -69,9 +69,11 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 	}
 	relayURL := fmt.Sprintf("%s://%s/ws/relay/%s", scheme, host, token)
 
-	// Send SessionRequest to agent
+	// Send SessionRequest to agent — clean up orphaned session on failure
 	if err := agentConn.SendSessionRequest(ctx, token, relayURL, perms); err != nil {
 		s.logger.Error("send session request to agent", "error", err, "device_id", deviceID)
+		_ = s.store.DeleteAgentSession(ctx, string(token))
+		return CreateSession409JSONResponse{Error: "agent communication failed"}, nil
 	}
 
 	// Build ICE server list from signaling config

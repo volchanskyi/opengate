@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -187,6 +188,14 @@ func (s *Server) signCSR(csrPEM string) (string, error) {
 	block, _ := pem.Decode([]byte(csrPEM))
 	if block == nil || block.Type != "CERTIFICATE REQUEST" {
 		return "", fmt.Errorf("invalid CSR PEM")
+	}
+
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("parse CSR: %w", err)
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return "", fmt.Errorf("CSR signature invalid: %w", err)
 	}
 
 	certDER, err := s.cert.SignAgentCSR(block.Bytes)
