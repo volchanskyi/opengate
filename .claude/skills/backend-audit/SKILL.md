@@ -262,12 +262,12 @@ grep -rn 'err\.Error()' server/internal/api/ --include='*.go' | grep -v '_test.g
 
 Any `err.Error()` that reaches the client is a potential information leak — replace with a safe message. Log the full error server-side at ERROR level.
 
-### 5c. Logging hygiene
+### 5c. Logging hygiene — sensitive data
 
 Verify that logs (via `slog`) NEVER contain:
 - Passwords (plaintext or hashed)
 - Full JWT tokens
-- Full session tokens (use first 8 chars only)
+- Full session tokens (use first 8 chars only via `protocol.RedactToken`)
 - Email addresses at DEBUG level (acceptable at INFO for auth events)
 - Request bodies containing credentials
 - Database connection strings
@@ -275,19 +275,219 @@ Verify that logs (via `slog`) NEVER contain:
 Search pattern:
 
 ```bash
-grep -rn 'slog\.\(Info\|Debug\|Warn\|Error\)' server/ --include='*.go' | grep -v '_test.go'
+grep -rn 'slog\.\(Info\|Debug\|Warn\|Error\)\|\.logger\.\(Info\|Debug\|Warn\|Error\)' server/ --include='*.go' | grep -v '_test.go'
 ```
+
+Verify `protocol.RedactToken()` is used everywhere a session token appears in logs:
+
+```bash
+grep -rn 'token' server/internal/api/ server/internal/agentapi/ server/internal/relay/ --include='*.go' | grep -v '_test.go' | grep -i 'slog\|log\.\|logger\.'
+```
+
+Every token in a log statement that does NOT use `RedactToken` is **HIGH**.
 
 ### 5d. Security event logging
 
-Verify these events ARE logged (at INFO or WARN level):
-- Failed login attempts (with IP, email — NOT password)
-- Successful logins
-- User registration
-- Password changes
-- Admin actions (user promotion, deletion)
-- Session creation and deletion
-- Rate limit violations (when implemented)
+Verify these security events ARE logged. For each event, check both slog output (for Loki/Promtail ingestion) and `auditLog()` (for the persistent audit trail in `audit_events` table). Both are required for security-critical events.
+
+| Security event | Required slog level | auditLog required? | Where to check |
+|----------------|--------------------|--------------------|----------------|
+| Failed login (wrong password) | WARN | Yes | `handlers_auth.go` Login handler, after `CheckPassword` failure |
+| Failed login (unknown email) | WARN | No (no user ID) | `handlers_auth.go` Login handler, after `ErrNotFound` |
+| Successful login | INFO | Yes | `handlers_auth.go` Login handler, success path |
+| User registration | INFO | Yes | `handlers_auth.go` Register handler |
+| JWT validation failure | WARN | No (no user ID) | `middleware.go` AuthMiddleware |
+| Authorization denied (403) | WARN | No (optional) | `middleware.go` denyIfNotAdmin |
+| Rate limit violation (429) | WARN | No | `ratelimit.go` RateLimiter |
+| Password change | INFO | Yes | Check if endpoint exists |
+| Admin privilege change | WARN | Yes | `handlers_users.go` UpdateUser |
+| Session creation | INFO | Yes | `handlers_sessions.go` |
+| Session deletion | INFO | Yes | `handlers_sessions.go` |
+| Enrollment token creation | INFO | Yes | `handlers_enrollment.go` |
+| Agent update push | INFO | Yes | `handlers_updates.go` |
+
+Verification steps:
+
+```bash
+# Find all auditLog call sites — cross-reference with the table above
+grep -rn 's\.auditLog(' server/internal/api/ --include='*.go' | grep -v '_test.go'
+
+# Find auth failure paths that lack logging (return 4xx with no slog/auditLog)
+grep -rn 'Login401\|Login400\|Register400' server/internal/api/ --include='*.go' | grep -v '_test.go'
+
+# Find 403/429 response paths that lack logging
+grep -rn 'StatusForbidden\|StatusTooManyRequests\|writeError.*403\|writeError.*429' server/internal/api/ --include='*.go' | grep -v '_test.go'
+```
+
+For every missing event, the fix must include:
+- `slog.Warn(...)` or `slog.Info(...)` with structured fields: `"event"`, `"ip"` (via `extractIP(r)` or `r.RemoteAddr`), and context-appropriate identifiers (redacted email for auth, path for authz)
+- `s.auditLog(...)` where a user ID is available (not for unauthenticated failures)
+- A test that verifies the log/audit entry is written
+
+Severity: **HIGH** for missing failed login logging (enables undetected brute force), **MEDIUM** for others.
+
+### 5e. Log injection prevention (CWE-117)
+
+User-controlled strings passed as slog field values can embed malicious content. While Go's `slog.JSONHandler` auto-escapes newlines and quotes (preventing classic log injection), verify the following:
+
+Verify the server uses JSON handler (not text handler):
+
+```bash
+grep -rn 'slog\.New' server/cmd/ --include='*.go'
+```
+
+If `slog.NewJSONHandler` is used, newline injection is mitigated. If `slog.NewTextHandler` is used, flag as **HIGH** — attacker-controlled fields can forge log lines.
+
+Verify user-supplied values in log fields do not leak secrets:
+
+```bash
+# Check that raw query strings are NOT logged (may contain tokens in ?auth= params)
+grep -rn 'RawQuery\|r\.URL\.String()' server/ --include='*.go' | grep -v '_test.go' | grep -i 'slog\|log\.\|logger\.'
+
+# Check that Authorization header is never logged
+grep -rn 'Authorization' server/ --include='*.go' | grep -v '_test.go' | grep -i 'slog\|log\.\|logger\.'
+```
+
+Check that `RequestLogger` middleware in `server/internal/api/middleware.go` logs `r.URL.Path` only (not `r.URL.String()` or `r.URL.RawQuery`), since query strings may contain authentication tokens passed via `?auth=` parameters.
+
+Severity: **MEDIUM** with JSON handler (partial mitigation), **HIGH** with text handler.
+
+### 5f. Request correlation
+
+Every log message within a request lifecycle must include a correlation ID so operators can trace multi-step flows through Loki.
+
+Verify `middleware.RequestID` is registered in the middleware chain:
+
+```bash
+grep -rn 'middleware\.RequestID' server/internal/api/ --include='*.go'
+```
+
+Then check that the generated request ID is propagated to all log calls:
+
+```bash
+# RequestLogger must include request_id
+grep -A10 'func RequestLogger' server/internal/api/middleware.go
+# Should contain: "request_id", middleware.GetReqID(r.Context())
+```
+
+Check that `auditLog()` in `server/internal/api/api.go` does NOT use `context.Background()` — this discards the request ID. It should accept and propagate the request context (with a separate timeout for the DB write):
+
+```bash
+grep -A15 'func.*auditLog' server/internal/api/api.go
+# Look for context.Background() — loses request_id
+# Should use a derived context that carries correlation values but has its own deadline
+```
+
+Check that error response handlers include request_id:
+
+```bash
+grep -B2 -A5 'RequestErrorHandlerFunc\|ResponseErrorHandlerFunc' server/internal/api/api.go
+# slog.Warn and slog.Error calls should include "request_id"
+```
+
+Every `slog` call in `server/internal/api/` that does NOT include `"request_id"` is a gap. Grep to find all gaps:
+
+```bash
+grep -rn 'slog\.\(Info\|Warn\|Error\)\|\.logger\.\(Info\|Warn\|Error\)' server/internal/api/ --include='*.go' | grep -v '_test.go' | grep -v 'request_id'
+```
+
+Severity: **HIGH** — without correlation, multi-request security incidents (brute force across endpoints, session hijacking attempts) cannot be traced through Loki.
+
+Fix pattern: add `"request_id", middleware.GetReqID(r.Context())` to `RequestLogger`, error handlers, and security event logs. For `auditLog`, pass request context values (not the full context) so the write outlives the request but retains correlation.
+
+### 5g. Log level discipline
+
+Verify log levels match the operational severity of the event. Misclassified levels cause operators to miss important signals or drown in noise.
+
+| Event | Required level | Rationale |
+|-------|---------------|-----------|
+| Successful HTTP request | INFO | Normal operation, access log |
+| Request validation error (400) | WARN | May indicate attack probing |
+| Authentication failure (401) | WARN | Security event |
+| Authorization denied (403) | WARN | Security event |
+| Rate limit hit (429) | WARN | Possible brute force |
+| Internal server error (500) | ERROR | Operational failure |
+| Response write failure | WARN | Client disconnect or network issue |
+| Database query error | ERROR | Operational failure |
+| Frame parsing detail | DEBUG | Verbose, dev-only |
+
+Scan for misclassified levels:
+
+```bash
+# Debug-level logs that should be Warn or higher (operational events invisible in production)
+grep -rn 'slog\.Debug\|\.logger\.Debug\|\.Debug(' server/internal/api/ --include='*.go' | grep -v '_test.go'
+
+# Verify each hit: is this a developer-only diagnostic (correct at Debug) or an operational event operators need (should be Warn/Error)?
+```
+
+Known issue: `server/internal/api/middleware.go` logs response write failures at `slog.Debug` — this should be `slog.Warn` since it indicates a client disconnect or network problem that may correlate with other issues. Severity: **MEDIUM**.
+
+### 5h. Audit trail reliability
+
+The `auditLog()` function in `server/internal/api/api.go` uses a fire-and-forget pattern. Verify the implementation is robust:
+
+```bash
+grep -A15 'func.*auditLog' server/internal/api/api.go
+```
+
+Check for these risks:
+
+| Risk | What to look for | Severity |
+|------|-----------------|----------|
+| Unbounded goroutines | `go func()` with no semaphore or channel — 1000 concurrent requests spawn 1000 goroutines | MEDIUM |
+| Silent event loss | Write error is logged but event is permanently lost — no retry, no queue | MEDIUM |
+| Shutdown race | On `SIGTERM`, in-flight `go func()` goroutines may be killed before completing DB writes | LOW |
+| Context loss | `context.Background()` discards request correlation (request_id, authenticated user context) | MEDIUM |
+| Timeout under contention | 5-second timeout with `MaxOpenConns(1)` SQLite — serial writes queue up under burst | LOW |
+
+Verify:
+- Write errors ARE logged at ERROR level (should already be the case)
+- The timeout (5 seconds) is documented as acceptable for expected load
+- If any of the above risks are realized in production (visible in Loki as "audit log write failed"), recommend a bounded worker pool or channel-based queue
+
+Fix pattern: replace `go func()` with a buffered channel + single writer goroutine, OR document accepted risk with a comment explaining the trade-off.
+
+### 5i. Rust agent logging standards
+
+The Rust agent is part of the backend system and its logs may feed into the same Loki pipeline. Verify logging hygiene in the agent codebase.
+
+Verify `tracing` crate is used consistently (no raw `println!`/`eprintln!` in production paths):
+
+```bash
+grep -rn 'println!\|eprintln!' agent/crates/ --include='*.rs' | grep -v 'target/' | grep -v '#\[test\]\|#\[cfg(test)\]\|mod tests'
+```
+
+Any `println!`/`eprintln!` in non-test code is **MEDIUM** — bypasses structured logging and tracing filters.
+
+Verify no session tokens or enrollment tokens are logged in full:
+
+```bash
+grep -rn 'token\|Token' agent/crates/ --include='*.rs' | grep -v 'target/' | grep -v 'test\|Test\|_test\|mod tests' | grep -i 'info!\|warn!\|error!\|debug!'
+```
+
+If tokens appear in log macros without truncation/redaction, flag as **HIGH**. Fix pattern: add a `redact_token()` utility mirroring Go's `RedactToken()`:
+
+```rust
+/// Returns the first 8 characters of a token for safe logging.
+fn redact_token(token: &str) -> String {
+    if token.len() <= 8 { "***".to_string() }
+    else { format!("{}...", &token[..8]) }
+}
+```
+
+Check output format — text vs JSON:
+
+```bash
+grep -rn 'tracing_subscriber' agent/crates/ --include='*.rs'
+```
+
+If the agent uses `tracing_subscriber::fmt()` with default text format and runs inside Docker with Promtail JSON parsing, logs will not be parsed correctly. Flag as **MEDIUM** if containerized (recommend `tracing_subscriber::fmt().json()` for Docker deployments), **LOW** if running as a systemd service.
+
+Verify `RUST_LOG` env-filter is configured for runtime log level control:
+
+```bash
+grep -rn 'EnvFilter\|env_filter\|RUST_LOG' agent/crates/ --include='*.rs'
+```
 
 ---
 
@@ -512,7 +712,9 @@ After completing all checks, print a table:
 | 2 SQLi   |   0   | All queries use parameterized statements                  | PASS   |
 | 3 Input  |   0   | All inputs validated (type, format, length)               | PASS   |
 | 4 Auth   |   0   | Password policy, JWT, brute-force, enumeration            | PASS   |
-| 5 Data   |   0   | No sensitive fields leaked, errors sanitized              | PASS   |
+| 5 Data   |   0   | Response filtering, error sanitization, logging hygiene,  | PASS   |
+|          |       | injection prevention, request correlation, log levels,    |        |
+|          |       | audit trail reliability, Rust agent logging standards     |        |
 | 6 Config |   0   | Headers, CORS, TLS, no debug endpoints                   | PASS   |
 | 7 XSS    |   0   | User-generated fields sanitized on input                  | PASS   |
 | 8 Deser  |   0   | Frame sizes bounded, types validated                      | PASS   |
