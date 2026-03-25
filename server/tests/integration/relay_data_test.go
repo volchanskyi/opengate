@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"sync"
 	"testing"
@@ -110,6 +111,163 @@ func TestRelayLargeFrameSequence(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, payload, data, "message %d corrupted or reordered", i)
 	}
+}
+
+func TestRelayProtocolFrameRoundTrip(t *testing.T) {
+	env := newSessionTestEnv(t)
+	ctx := context.Background()
+
+	agentConn, browserConn := env.setupRelayPair(t, ctx)
+	wsCtx, wsCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer wsCancel()
+
+	codec := &protocol.Codec{}
+
+	tests := []struct {
+		name      string
+		direction string // "browser_to_agent" or "agent_to_browser"
+		frameType byte
+		encode    func() (byte, []byte, error)
+		verify    func(t *testing.T, frameType byte, payload []byte)
+	}{
+		{
+			name:      "control_mouse_move",
+			direction: "browser_to_agent",
+			encode: func() (byte, []byte, error) {
+				msg := &protocol.ControlMessage{Type: protocol.MsgMouseMove, X: 100, Y: 200}
+				payload, err := codec.EncodeControl(msg)
+				return protocol.FrameControl, payload, err
+			},
+			verify: func(t *testing.T, ft byte, payload []byte) {
+				assert.Equal(t, protocol.FrameControl, ft)
+				msg, err := codec.DecodeControl(payload)
+				require.NoError(t, err)
+				assert.Equal(t, protocol.MsgMouseMove, msg.Type)
+				assert.Equal(t, uint16(100), msg.X)
+				assert.Equal(t, uint16(200), msg.Y)
+			},
+		},
+		{
+			name:      "control_file_list_request",
+			direction: "browser_to_agent",
+			encode: func() (byte, []byte, error) {
+				msg := &protocol.ControlMessage{Type: protocol.MsgFileListRequest, Path: "/home"}
+				payload, err := codec.EncodeControl(msg)
+				return protocol.FrameControl, payload, err
+			},
+			verify: func(t *testing.T, ft byte, payload []byte) {
+				assert.Equal(t, protocol.FrameControl, ft)
+				msg, err := codec.DecodeControl(payload)
+				require.NoError(t, err)
+				assert.Equal(t, protocol.MsgFileListRequest, msg.Type)
+				assert.Equal(t, "/home", msg.Path)
+			},
+		},
+		{
+			name:      "terminal_frame",
+			direction: "agent_to_browser",
+			encode: func() (byte, []byte, error) {
+				tf := &protocol.TerminalFrame{Data: []byte("ls -la\n")}
+				payload, err := codec.EncodeTerminalFrame(tf)
+				return protocol.FrameTerminal, payload, err
+			},
+			verify: func(t *testing.T, ft byte, payload []byte) {
+				assert.Equal(t, protocol.FrameTerminal, ft)
+				tf, err := codec.DecodeTerminalFrame(payload)
+				require.NoError(t, err)
+				assert.Equal(t, []byte("ls -la\n"), tf.Data)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ft, payload, err := tc.encode()
+			require.NoError(t, err)
+
+			// Build wire frame
+			var buf bytes.Buffer
+			require.NoError(t, codec.WriteFrame(&buf, ft, payload))
+
+			var sender, receiver *websocket.Conn
+			if tc.direction == "browser_to_agent" {
+				sender, receiver = browserConn, agentConn
+			} else {
+				sender, receiver = agentConn, browserConn
+			}
+
+			require.NoError(t, sender.Write(wsCtx, websocket.MessageBinary, buf.Bytes()))
+
+			_, data, err := receiver.Read(wsCtx)
+			require.NoError(t, err)
+
+			// Decode received frame
+			recvCodec := &protocol.Codec{}
+			recvFT, recvPayload, err := recvCodec.ReadFrame(bytes.NewReader(data))
+			require.NoError(t, err)
+
+			tc.verify(t, recvFT, recvPayload)
+		})
+	}
+
+	// Bidirectional sub-test: simultaneous control messages in both directions
+	t.Run("bidirectional_control", func(t *testing.T) {
+		// Browser → Agent: MouseMove
+		mouseMsg := &protocol.ControlMessage{Type: protocol.MsgMouseMove, X: 50, Y: 75}
+		mousePayload, err := codec.EncodeControl(mouseMsg)
+		require.NoError(t, err)
+		var mouseBuf bytes.Buffer
+		require.NoError(t, codec.WriteFrame(&mouseBuf, protocol.FrameControl, mousePayload))
+
+		// Agent → Browser: FileListResponse
+		fileMsg := &protocol.ControlMessage{
+			Type: protocol.MsgFileListResponse,
+			Path: "/home",
+			Entries: []protocol.FileEntry{
+				{Name: "test.txt", IsDir: false, Size: 42, Modified: 1700000000},
+			},
+		}
+		filePayload, err := codec.EncodeControl(fileMsg)
+		require.NoError(t, err)
+		var fileBuf bytes.Buffer
+		require.NoError(t, codec.WriteFrame(&fileBuf, protocol.FrameControl, filePayload))
+
+		// Send simultaneously
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			require.NoError(t, browserConn.Write(wsCtx, websocket.MessageBinary, mouseBuf.Bytes()))
+		}()
+		go func() {
+			defer wg.Done()
+			require.NoError(t, agentConn.Write(wsCtx, websocket.MessageBinary, fileBuf.Bytes()))
+		}()
+		wg.Wait()
+
+		// Agent receives MouseMove from browser
+		_, agentData, err := agentConn.Read(wsCtx)
+		require.NoError(t, err)
+		agentFT, agentPayload, err := codec.ReadFrame(bytes.NewReader(agentData))
+		require.NoError(t, err)
+		assert.Equal(t, protocol.FrameControl, agentFT)
+		agentMsg, err := codec.DecodeControl(agentPayload)
+		require.NoError(t, err)
+		assert.Equal(t, protocol.MsgMouseMove, agentMsg.Type)
+
+		// Browser receives FileListResponse from agent
+		_, browserData, err := browserConn.Read(wsCtx)
+		require.NoError(t, err)
+		browserFT, browserPayload, err := codec.ReadFrame(bytes.NewReader(browserData))
+		require.NoError(t, err)
+		assert.Equal(t, protocol.FrameControl, browserFT)
+		browserMsg, err := codec.DecodeControl(browserPayload)
+		require.NoError(t, err)
+		assert.Equal(t, protocol.MsgFileListResponse, browserMsg.Type)
+		assert.Equal(t, "/home", browserMsg.Path)
+		require.Len(t, browserMsg.Entries, 1)
+		assert.Equal(t, "test.txt", browserMsg.Entries[0].Name)
+	})
 }
 
 func TestRelayBidirectionalConcurrent(t *testing.T) {

@@ -41,3 +41,4 @@ semver = "1"
 # Dev dependencies
 proptest = "1"
 tempfile = "3"
+mockito = "1"

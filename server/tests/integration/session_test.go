@@ -26,6 +26,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 	"nhooyr.io/websocket"
 )
 
@@ -36,14 +37,17 @@ const (
 
 // sessionTestEnv bundles all dependencies for session integration tests.
 type sessionTestEnv struct {
-	store     db.Store
-	certMgr   *cert.Manager
-	relay     *relay.Relay
-	agentSrv  *agentapi.AgentServer
-	agentAddr string
-	httpSrv   *httptest.Server
-	jwt       *auth.JWTConfig
-	cancel    context.CancelFunc
+	store      db.Store
+	certMgr    *cert.Manager
+	relay      *relay.Relay
+	agentSrv   *agentapi.AgentServer
+	agentAddr  string
+	httpSrv    *httptest.Server
+	jwt        *auth.JWTConfig
+	sigTracker *signaling.Tracker
+	signing    *updater.SigningKeys
+	manifests  *updater.ManifestStore
+	cancel     context.CancelFunc
 }
 
 func newSessionTestEnv(t *testing.T) *sessionTestEnv {
@@ -71,6 +75,10 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	}
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
+	signingKeys, err := updater.LoadOrGenerateSigningKeys(t.TempDir())
+	require.NoError(t, err)
+	manifestStore := updater.NewManifestStore(t.TempDir())
+
 	apiSrv := api.NewServer(api.ServerConfig{
 		Store:     store,
 		JWT:       jwtCfg,
@@ -78,6 +86,8 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 		Relay:     r,
 		Signaling: sigTracker,
 		Notifier:  &notifications.NoopNotifier{},
+		Signing:   signingKeys,
+		Manifests: manifestStore,
 		Logger:    logger,
 	})
 	ts := httptest.NewServer(apiSrv)
@@ -89,14 +99,17 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	})
 
 	return &sessionTestEnv{
-		store:     store,
-		certMgr:   cm,
-		relay:     r,
-		agentSrv:  agentSrv,
-		agentAddr: agentAddr,
-		httpSrv:   ts,
-		jwt:       jwtCfg,
-		cancel:    cancel,
+		store:      store,
+		certMgr:    cm,
+		relay:      r,
+		agentSrv:   agentSrv,
+		agentAddr:  agentAddr,
+		httpSrv:    ts,
+		jwt:        jwtCfg,
+		sigTracker: sigTracker,
+		signing:    signingKeys,
+		manifests:  manifestStore,
+		cancel:     cancel,
 	}
 }
 
