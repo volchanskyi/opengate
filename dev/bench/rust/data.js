@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774386124068,
+  "lastUpdate": 1774399385780,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6345,6 +6345,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.081360729215984,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "2e6aeb7b670a25ed18d02c6529b7ea7d5e0e4818",
+          "message": "ci: add codegen sync check, update README JWT secret requirement\n\nAdd OpenAPI codegen sync check to CI go-lint job (go generate + git diff).\nAdd verify-codegen Makefile target. Update README to reflect 32-char\nminimum JWT secret requirement.",
+          "timestamp": "2026-03-24T17:41:12-07:00",
+          "tree_id": "5be41bb5b0a703742afcfb60f5ad39c7ac7acde4",
+          "url": "https://github.com/volchanskyi/opengate/commit/2e6aeb7b670a25ed18d02c6529b7ea7d5e0e4818"
+        },
+        "date": 1774399385745,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.25895381054426,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.110481605216833,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 767.0816126337668,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 318.7425066359306,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.05560788367208,
             "unit": "ns/iter"
           }
         ]
