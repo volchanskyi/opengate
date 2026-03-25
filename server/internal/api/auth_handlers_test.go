@@ -63,6 +63,42 @@ func TestRegisterHandler(t *testing.T) {
 		w := doRawRequest(srv, http.MethodPost, testPathRegister, "", "not-json{{{")
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
+
+	t.Run("invalid email format", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			email string
+		}{
+			{"no at sign", "invalid-email"},
+			{"no domain", "user@"},
+			{"spaces", "user @example.com"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				body := map[string]string{"email": tt.email, "password": "password123"}
+				w := doRequest(srv, http.MethodPost, testPathRegister, "", body)
+				assert.Equal(t, http.StatusBadRequest, w.Code)
+			})
+		}
+	})
+
+	t.Run("valid email formats accepted", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			email string
+		}{
+			{"simple", "valid@example.com"},
+			{"subdomain", "user@sub.example.com"},
+			{"plus tag", "user+tag@example.com"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				body := map[string]string{"email": tt.email, "password": "password123"}
+				w := doRequest(srv, http.MethodPost, testPathRegister, "", body)
+				assert.Equal(t, http.StatusCreated, w.Code)
+			})
+		}
+	})
 }
 
 func TestLoginHandler(t *testing.T) {

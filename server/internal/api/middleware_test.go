@@ -105,6 +105,24 @@ func TestSecurityHeaders(t *testing.T) {
 	assert.Equal(t, "nosniff", w.Header().Get("X-Content-Type-Options"))
 	assert.Equal(t, "DENY", w.Header().Get("X-Frame-Options"))
 	assert.Equal(t, "strict-origin-when-cross-origin", w.Header().Get("Referrer-Policy"))
+	assert.Equal(t, "max-age=63072000; includeSubDomains; preload", w.Header().Get("Strict-Transport-Security"))
+}
+
+func TestRequestTimeout(t *testing.T) {
+	slow := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(5 * time.Second):
+			w.WriteHeader(http.StatusOK)
+		case <-r.Context().Done():
+			return
+		}
+	})
+
+	handler := RequestTimeout(50 * time.Millisecond)(slow)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
 func TestMaxBodySize(t *testing.T) {

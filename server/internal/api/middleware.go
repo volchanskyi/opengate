@@ -14,6 +14,31 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 )
 
+// RequestTimeout returns middleware that applies a server-side timeout to requests.
+// It wraps http.TimeoutHandler, which does NOT implement http.Hijacker —
+// WebSocket routes must be registered outside this middleware.
+func RequestTimeout(d time.Duration) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.TimeoutHandler(next, d, `{"error":"request timeout"}`)
+	}
+}
+
+// AuthRateLimiter returns an oapi-codegen MiddlewareFunc that applies a tighter
+// rate limit to authentication endpoints (login/register).
+func AuthRateLimiter(rps float64, burst int) MiddlewareFunc {
+	limiter := RateLimiter(rps, burst)
+	return func(next http.Handler) http.Handler {
+		limited := limiter(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, "/api/v1/auth/") {
+				limited.ServeHTTP(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 type contextKey int
 
 const claimsKey contextKey = 1
@@ -114,6 +139,7 @@ func MaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 // SecurityHeaders returns middleware that adds security headers to every response.
 func SecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
