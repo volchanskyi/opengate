@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774413191456,
+  "lastUpdate": 1774415910486,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6639,6 +6639,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.09878652452658,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "3852faae23ecbadb5b1d7ed3ae8ae79c6bfdd53d",
+          "message": "fix: add artifact retention policy and replace silent error discards\n\nSet 20-day retention on all CI/CD artifact uploads to control storage.\nReplace `let _ =` silent discards in agent session handler with proper\nerror logging via warn!, and promote key session events from debug to\ninfo/warn for better observability.",
+          "timestamp": "2026-03-24T22:16:50-07:00",
+          "tree_id": "00b416e2e2d17c0046699f2dd38adf4bc28fa30c",
+          "url": "https://github.com/volchanskyi/opengate/commit/3852faae23ecbadb5b1d7ed3ae8ae79c6bfdd53d"
+        },
+        "date": 1774415910391,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.286347076436556,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 25.337663689689883,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 745.7878970273189,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.42663266240817,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.581473166710516,
             "unit": "ns/iter"
           }
         ]
