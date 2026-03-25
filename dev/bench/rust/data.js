@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774401265827,
+  "lastUpdate": 1774401931848,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6541,6 +6541,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.891267577325056,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "88285aa43e3ef2f65930a5676ff040e7f74201d6",
+          "message": "fix: replace all silent skip patterns in Makefile with loud failures\n\nyamllint, tflint, caddy, and trivy checks now fail with install\ninstructions instead of silently exiting 0 when the tool is missing.",
+          "timestamp": "2026-03-24T18:23:49-07:00",
+          "tree_id": "13ba5cb2b4956c730f72db49a7d9bbe77801f55e",
+          "url": "https://github.com/volchanskyi/opengate/commit/88285aa43e3ef2f65930a5676ff040e7f74201d6"
+        },
+        "date": 1774401931810,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.11121105846493,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.02882654343066,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 764.9170562113152,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 297.51697306146275,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.87830984075528,
             "unit": "ns/iter"
           }
         ]
