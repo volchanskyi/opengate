@@ -382,6 +382,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_apply_update_full_pipeline() {
+        let dir = tempfile::tempdir().unwrap();
+        let binary_path = dir.path().join("agent");
+        fs::write(&binary_path, b"old binary").await.unwrap();
+
+        let (signing_key, verifying_key) = test_keypair();
+
+        // Create fake binary content and compute its hash + signature
+        let fake_binary = b"new agent binary v2.0.0";
+        let hash = Sha256::digest(fake_binary);
+        let hash_hex = hex::encode(hash);
+        let sig = signing_key.sign(&hash);
+        let sig_hex = hex::encode(sig.to_bytes());
+
+        // Start mock HTTP server that serves the fake binary
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/agent-v2.0.0")
+            .with_status(200)
+            .with_body(fake_binary)
+            .create_async()
+            .await;
+
+        let config = UpdateConfig {
+            signing_public_key: verifying_key.to_bytes(),
+            current_binary_path: binary_path.clone(),
+            data_dir: dir.path().to_path_buf(),
+        };
+
+        let url = format!("{}/agent-v2.0.0", server.url());
+        let result = apply_update(&config, "2.0.0", &url, &hash_hex, &sig_hex).await;
+        assert!(result.is_ok(), "apply_update failed: {:?}", result.err());
+        assert!(result.unwrap(), "apply_update should return true");
+
+        // Verify mock was called
+        mock.assert_async().await;
+
+        // Verify new binary is in place
+        let current = fs::read(&binary_path).await.unwrap();
+        assert_eq!(current, fake_binary, "binary should be replaced");
+
+        // Verify backup exists
+        let prev_path = binary_path.with_extension("prev");
+        let backup = fs::read(&prev_path).await.unwrap();
+        assert_eq!(backup, b"old binary", "old binary should be backed up");
+
+        // Verify update-pending sentinel exists
+        assert!(
+            is_update_pending(dir.path()),
+            "update-pending sentinel should exist"
+        );
+    }
+
+    #[tokio::test]
     async fn test_apply_update_hash_mismatch() {
         let dir = tempfile::tempdir().unwrap();
         let binary_path = dir.path().join("agent");
