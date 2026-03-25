@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774422667731,
+  "lastUpdate": 1774455934994,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6884,6 +6884,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.241783903627944,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ef14fa2945ff9531574388c33bb939f47f7fdd95",
+          "message": "test: add 17 cross-component integration tests covering 5 coverage gaps\n\nPhase 1: 8 Rust unit tests for SessionHandler frame dispatch, permission\nenforcement, file ops, and error paths with RecordingInjector mock.\n\nPhase 2: Go relay protocol frame roundtrip test (4 sub-tests) sending\nmsgpack-encoded control messages through real QUIC+WS relay.\n\nPhase 3: 2 Go middleware+WS tests verifying http.Hijacker preservation\nthrough full middleware stack and relay timeout bypass.\n\nPhase 4: 2 Go signaling tests exercising SDP offer/answer/ICE/SwitchAck\nflow through relay with tracker state verification.\n\nPhase 5: 3 Go OTA update tests (publish→push→receive, version skip,\nOS mismatch) and 1 Rust apply_update pipeline test with mock HTTP server.",
+          "timestamp": "2026-03-25T09:23:48-07:00",
+          "tree_id": "a17a40d82311f0ea2d02c67e6716128ec7a86aa0",
+          "url": "https://github.com/volchanskyi/opengate/commit/ef14fa2945ff9531574388c33bb939f47f7fdd95"
+        },
+        "date": 1774455934946,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.37052269636855,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 25.76007244325862,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 777.4753896122761,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 309.45974618098455,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.07102550785488,
             "unit": "ns/iter"
           }
         ]
