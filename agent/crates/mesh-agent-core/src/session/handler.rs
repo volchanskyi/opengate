@@ -36,7 +36,9 @@ impl SessionHandler {
                 }
             }
             Frame::Ping => {
-                let _ = send_frame(frame_tx, &Frame::Pong).await;
+                if let Err(e) = send_frame(frame_tx, &Frame::Pong).await {
+                    warn!("failed to send pong: {e}");
+                }
             }
             _ => {
                 debug!("ignoring unexpected frame type from browser");
@@ -69,26 +71,30 @@ impl SessionHandler {
                 self.handle_key_press(injector, terminal, key, pressed);
             }
             ControlMessage::TerminalResize { cols, rows } => {
+                info!(cols, rows, "terminal resize requested");
                 if let Some(term) = terminal {
                     term.resize(cols, rows);
                 }
             }
             ControlMessage::FileListRequest { path } => {
+                info!(path, "file list requested");
                 Self::handle_file_list(file_ops, frame_tx, &path).await;
             }
             ControlMessage::FileDownloadRequest { path } => {
+                info!(path, "file download requested");
                 Self::handle_file_download(file_ops, frame_tx, &path);
             }
             ControlMessage::FileUploadRequest { path, total_size } => {
-                debug!(
+                info!(
                     path,
                     total_size, "file upload request (not yet implemented)"
                 );
             }
             ControlMessage::ChatMessage { text, sender } => {
-                debug!(sender, text, "chat message received");
+                info!(sender, text, "chat message received");
             }
             ControlMessage::SwitchToWebRTC { sdp_offer } => {
+                info!("WebRTC switch requested");
                 self.handle_webrtc_offer(sdp_offer, frame_tx, webrtc_pc)
                     .await;
             }
@@ -96,6 +102,7 @@ impl SessionHandler {
                 Self::handle_ice_candidate(webrtc_pc, &candidate, &mid).await;
             }
             ControlMessage::SwitchAck => {
+                info!("WebRTC switch ack received");
                 Self::handle_switch_ack(webrtc_pc, frame_tx).await;
             }
             _ => {
@@ -148,18 +155,23 @@ impl SessionHandler {
     ) {
         match file_ops.list_directory(path) {
             Ok(response) => {
-                let _ = send_frame(frame_tx, &Frame::Control(response)).await;
+                if let Err(e) = send_frame(frame_tx, &Frame::Control(response)).await {
+                    warn!("failed to send file list response: {e}");
+                }
             }
             Err(e) => {
                 warn!("file list error: {e}");
-                let _ = send_frame(
+                if let Err(e) = send_frame(
                     frame_tx,
                     &Frame::Control(ControlMessage::FileListError {
                         path: path.to_string(),
                         error: e.to_string(),
                     }),
                 )
-                .await;
+                .await
+                {
+                    warn!("failed to send file list error: {e}");
+                }
             }
         }
     }
@@ -201,7 +213,9 @@ impl SessionHandler {
         let guard = webrtc_pc.lock().await;
         if guard.is_some() {
             info!("WebRTC switch acknowledged by browser");
-            let _ = send_frame(frame_tx, &Frame::Control(ControlMessage::SwitchAck)).await;
+            if let Err(e) = send_frame(frame_tx, &Frame::Control(ControlMessage::SwitchAck)).await {
+                warn!("failed to send switch ack: {e}");
+            }
         }
     }
 
@@ -224,27 +238,33 @@ impl SessionHandler {
 
                 match pc.handle_offer(&sdp_offer).await {
                     Ok(answer_sdp) => {
-                        let _ = send_frame(
+                        if let Err(e) = send_frame(
                             &tx,
                             &Frame::Control(ControlMessage::SwitchToWebRTC {
                                 sdp_offer: answer_sdp,
                             }),
                         )
-                        .await;
+                        .await
+                        {
+                            warn!("failed to send WebRTC answer: {e}");
+                        }
 
                         // Spawn ICE candidate forwarding task
                         let pc_ice = pc.clone();
                         let tx_ice = tx.clone();
                         tokio::spawn(async move {
                             while let Some((candidate, mid)) = pc_ice.next_ice_candidate().await {
-                                let _ = send_frame(
+                                if let Err(e) = send_frame(
                                     &tx_ice,
                                     &Frame::Control(ControlMessage::IceCandidate {
                                         candidate,
                                         mid,
                                     }),
                                 )
-                                .await;
+                                .await
+                                {
+                                    warn!("failed to forward ICE candidate: {e}");
+                                }
                             }
                         });
 
@@ -259,7 +279,10 @@ impl SessionHandler {
                                         continue;
                                     }
                                 };
-                                let _ = tx_inbound.send(encoded).await;
+                                if tx_inbound.send(encoded).await.is_err() {
+                                    warn!("inbound WebRTC frame channel closed");
+                                    break;
+                                }
                             }
                         });
                     }
