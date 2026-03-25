@@ -191,13 +191,138 @@ Scan `deploy/caddy/Caddyfile` and `deploy/caddy/Caddyfile.staging`:
 
 ## 9. PII exposure check
 
-- Smoke test scripts must not log real user data — verify test users use obvious fake data (`@test.local` emails)
-- Application logs must not print passwords, tokens, or PII — check `slog`/`tracing` calls
-- Error responses must not leak stack traces or internal paths to clients
+### 9a. Test data hygiene
+
+Smoke test and integration test scripts must use obviously fake data:
+
+```bash
+# Look for real-looking email addresses in test files
+grep -rn '@' server/tests/ --include='*.go' | grep -v '@test.local\|@example.com\|_test.go' | head -10
+
+# Look for credentials in deploy scripts
+grep -rn 'email\|password' deploy/scripts/ --include='*.sh' | grep -v 'changeme\|example\|placeholder'
+```
+
+Flag real-looking email addresses or passwords in test fixtures as **MEDIUM**.
+
+### 9b. Application log PII scan
+
+**Go server** — scan all slog calls for sensitive data:
+
+```bash
+grep -rn 'slog\.\(Info\|Debug\|Warn\|Error\)\|\.logger\.\(Info\|Debug\|Warn\|Error\)' server/ --include='*.go' | grep -v '_test.go'
+```
+
+Verify:
+- Email addresses are logged only for auth events (login, register) at INFO level, never at DEBUG
+- Passwords and password hashes are never logged at any level
+- Full JWT tokens are never logged — only `token_prefix` via `protocol.RedactToken()`
+- Session tokens use `RedactToken()` (first 8 chars only)
+- Device IDs and user IDs are acceptable (internal identifiers, not PII)
+
+**Rust agent** — scan all tracing calls:
+
+```bash
+grep -rn 'info!\|warn!\|error!\|debug!' agent/crates/ --include='*.rs' | grep -v 'target/'
+```
+
+Verify:
+- Enrollment tokens are not logged in full
+- File paths from user-requested file operations are logged at DEBUG only (may reveal sensitive filenames)
+- Relay session tokens are redacted or truncated
+
+Severity: **HIGH** for passwords or full tokens logged, **MEDIUM** for email at DEBUG.
+
+### 9c. Error response leakage
+
+Verify error messages returned to clients do not contain internal details:
+
+```bash
+grep -rn 'err\.Error()' server/internal/api/ --include='*.go' | grep -v '_test.go'
+```
+
+Any `err.Error()` that reaches a client response (not just logged server-side) may leak internal paths, SQL fragments, or package names. Flag as **HIGH**.
 
 ---
 
-## 10. Summary report
+## 10. Log infrastructure audit
+
+The observability stack (Promtail → Loki → Grafana) must be correctly configured, secure, and complete. Misconfigured log ingestion creates blind spots; exposed log endpoints leak operational data.
+
+### 10a. Promtail configuration
+
+Read `deploy/promtail/promtail-config.yml` and verify:
+
+```bash
+cat deploy/promtail/promtail-config.yml
+```
+
+- JSON parsing stages exist for each container that emits JSON logs (`opengate-server`, `opengate-caddy`)
+- Labels extracted from log content do NOT include sensitive fields. Check which fields are promoted to Loki labels (labels are indexed and visible in Grafana's label browser to all dashboard users):
+
+```bash
+grep -A5 'labels:' deploy/promtail/promtail-config.yml
+```
+
+If `error` is extracted as a label and error messages can contain user-supplied data (email, file paths), flag as **MEDIUM** — label values are highly visible and not redacted.
+
+- Positions file path is on a persistent volume (not ephemeral tmpfs) — otherwise Promtail re-ingests all logs on restart
+- All Docker containers with application logs have a scrape config entry — check for missing containers
+
+### 10b. Loki configuration
+
+Read `deploy/loki/loki-config.yml` and verify:
+
+```bash
+cat deploy/loki/loki-config.yml
+```
+
+| Setting | Expected value | Why |
+|---------|---------------|-----|
+| `auth_enabled` | `false` (single-tenant) acceptable only if Loki is not exposed externally | Prevents unauthorized log access |
+| `retention_period` | Configured (e.g., `336h` / 14 days) | Prevents unbounded storage growth |
+| `retention_enabled` | `true` in compactor section | Actually enforces retention |
+| `ingestion_rate_mb` | Reasonable for expected log volume (e.g., 4 MB/s) | Prevents log loss under burst |
+
+### 10c. Log access control
+
+Verify monitoring services are NOT exposed to the public internet:
+
+```bash
+# Check if Loki port (3100) or Promtail port (9080) are published in Docker Compose
+grep -rn '3100\|9080\|3000' deploy/docker-compose*.yml | grep -i 'port'
+
+# Check Caddyfile for any reverse proxy to monitoring ports
+grep -rn '3100\|9080\|grafana\|loki\|promtail' deploy/caddy/ 2>/dev/null
+```
+
+Verify:
+- Loki API (`:3100`) is reachable only within the Docker network, NOT published to host
+- Promtail API (`:9080`) is reachable only within the Docker network
+- Grafana (`:3000`) requires authentication — check for `GF_SECURITY_ADMIN_PASSWORD` or equivalent in compose env vars
+- If Grafana IS exposed externally (via Caddy proxy), verify it has authentication enabled and uses HTTPS
+
+Severity: **HIGH** if Loki or Grafana is publicly accessible without authentication — exposes all application logs including auth events, IP addresses, and error details.
+
+### 10d. Log format completeness
+
+Verify every service emits logs in a format that Promtail can parse:
+
+```bash
+# Go server — must use JSON handler for Promtail compatibility
+grep -rn 'slog\.New\|JSONHandler\|TextHandler' server/cmd/ --include='*.go'
+
+# Rust agent — check output format
+grep -rn 'tracing_subscriber' agent/crates/ --include='*.rs'
+```
+
+- Go server: must use `slog.NewJSONHandler(os.Stdout, ...)` — JSON to stdout is the expected format for Promtail's JSON parsing stages
+- Rust agent: if it uses `tracing_subscriber::fmt()` with default text format and runs inside Docker alongside Promtail, the JSON parsing stage will fail silently (logs ingested as raw strings without extracted labels). Flag as **MEDIUM** if containerized, **LOW** if running as a systemd service outside Docker.
+- Caddy: emits JSON access logs by default — verify not overridden
+
+---
+
+## 11. Summary report
 
 After completing all checks, print a table:
 
@@ -208,6 +333,8 @@ After completing all checks, print a table:
 | 1        |   0   | No tracked secrets in git index                | PASS   |
 | 2a       |   0   | All TF variables have sensitive = true          | PASS   |
 | ...      |  ...  | ...                                            | ...    |
+| 9        |   0   | No PII in logs, test data fake, no error leaks | PASS   |
+| 10       |   0   | Log infra: Promtail, Loki, access, completeness| PASS   |
 +----------+-------+------------------------------------------------+--------+
 ```
 
