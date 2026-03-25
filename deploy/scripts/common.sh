@@ -122,18 +122,20 @@ verify_image() {
   log "Cosign signature verified"
 }
 
-# redeploy MODE — stops, verifies image signature, pulls, and starts containers.
+# redeploy MODE — verifies image signature, stops, pulls, and starts containers.
+# Verification runs BEFORE stopping so a failure leaves the old deployment intact.
 redeploy() {
   local mode="$1"
-  log "Stopping existing containers..."
-  compose_cmd "$mode" down --remove-orphans || true
 
-  # Verify image signature before pulling
+  # Verify image signature before stopping anything
   local ef
   ef=$(env_file "$mode")
   local tag
   tag=$(grep -oP '^IMAGE_TAG=\K.*' "$ef" 2>/dev/null || echo "latest")
   verify_image "$tag"
+
+  log "Stopping existing containers..."
+  compose_cmd "$mode" down --remove-orphans || true
 
   log "Pulling image..."
   compose_cmd "$mode" pull server
