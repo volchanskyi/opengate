@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774419884291,
+  "lastUpdate": 1774420834429,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6786,6 +6786,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.072140301199987,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b28dcd76a13e3d7e3a61cb379ba6f2b14dfd83de",
+          "message": "fix: use sudo for cosign install on VPS\n\nThe deploy user lacks write permission to /usr/local/bin/, causing the\ncosign binary download to fail silently and the subsequent deploy to\nabort with \"cosign not found\".",
+          "timestamp": "2026-03-24T23:38:45-07:00",
+          "tree_id": "a1a54e9982769b88e70e855d5208792371ed1ad9",
+          "url": "https://github.com/volchanskyi/opengate/commit/b28dcd76a13e3d7e3a61cb379ba6f2b14dfd83de"
+        },
+        "date": 1774420834380,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.232567724387547,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 25.82987368679734,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 753.1184833368061,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.61527220505764,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.221427927275315,
             "unit": "ns/iter"
           }
         ]
