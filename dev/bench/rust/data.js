@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774401931848,
+  "lastUpdate": 1774413191456,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6590,6 +6590,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.87830984075528,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "848ab1abdbd153a5a48181ff5d91812aad5a25ad",
+          "message": "fix: use latest tag for Trivy image scan instead of full SHA\n\nThe metadata-action tags with short SHA (sha-abc1234) but the Trivy\nstep referenced the full 40-char SHA, causing image-not-found errors.",
+          "timestamp": "2026-03-24T21:31:37-07:00",
+          "tree_id": "a56661a37a114ac375ccc9ccf65e60953fe32f69",
+          "url": "https://github.com/volchanskyi/opengate/commit/848ab1abdbd153a5a48181ff5d91812aad5a25ad"
+        },
+        "date": 1774413191409,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.18577595777464,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.708548537565974,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 753.6602635703009,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 300.3960377260963,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.09878652452658,
             "unit": "ns/iter"
           }
         ]
