@@ -1,3 +1,21 @@
+# Remote backend (recommended for production):
+#
+#   terraform {
+#     backend "s3" {
+#       bucket                      = "opengate-tfstate"
+#       key                         = "terraform.tfstate"
+#       region                      = "us-ashburn-1"
+#       endpoint                    = "https://<namespace>.compat.objectstorage.<region>.oraclecloud.com"
+#       shared_credentials_file     = "~/.oci/terraform-credentials"
+#       skip_region_validation      = true
+#       skip_credentials_validation = true
+#       skip_metadata_api_check     = true
+#       force_path_style            = true
+#     }
+#   }
+#
+# See: https://docs.oracle.com/en-us/iaas/Content/API/SDKDocs/terraformUsingObjectStore.htm
+
 terraform {
   required_version = ">= 1.5"
 

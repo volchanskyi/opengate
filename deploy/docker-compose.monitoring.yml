@@ -13,18 +13,34 @@ services:
       - "-storageDataPath=/storage"
       - "-retentionPeriod=30d"
       - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+      - "-rule=/etc/victoriametrics/alerts.yml"
       - "-httpListenAddr=:8428"
     volumes:
       - vm-data:/storage
       - ./victoriametrics/scrape.yml:/etc/victoriametrics/scrape.yml:ro
+      - ./victoriametrics/alerts.yml:/etc/victoriametrics/alerts.yml:ro
     networks:
       - monitoring
       - app
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
 
   grafana:
     image: grafana/grafana-oss:11.6.0
     container_name: opengate-grafana
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
       - GF_SERVER_ROOT_URL=http://localhost:3000
@@ -53,6 +69,13 @@ services:
       - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
     networks:
       - monitoring
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
 
   promtail:
     image: grafana/promtail:3.5.0
@@ -68,6 +91,13 @@ services:
       - monitoring
     depends_on:
       - loki
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+        reservations:
+          memory: 32M
 
   node-exporter:
     image: prom/node-exporter:v1.9.1
@@ -85,6 +115,13 @@ services:
     pid: host
     networks:
       - monitoring
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.25'
+        reservations:
+          memory: 16M
 
   uptime-kuma:
     image: louislam/uptime-kuma:1
@@ -97,6 +134,13 @@ services:
     networks:
       - monitoring
       - app
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 64M
 
 volumes:
   vm-data:
