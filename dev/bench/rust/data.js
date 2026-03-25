@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774399845443,
+  "lastUpdate": 1774400778503,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6443,6 +6443,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 28.055231870144965,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f9f56a5fb45d5f08771e1b5c42c797782e068cd8",
+          "message": "fix: use direct oapi-codegen invocation for codegen sync check\n\ngo generate runs from the file's directory (server/internal/api/)\nwhere the relative path ../../api/openapi.yaml resolves to\nserver/api/openapi.yaml which doesn't exist. Run oapi-codegen\ndirectly from server/ with correct relative path to repo-root\napi/openapi.yaml.",
+          "timestamp": "2026-03-24T18:04:22-07:00",
+          "tree_id": "e5d664dc380282e2ab21b09d0a49b70fe4b1183d",
+          "url": "https://github.com/volchanskyi/opengate/commit/f9f56a5fb45d5f08771e1b5c42c797782e068cd8"
+        },
+        "date": 1774400778468,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.201610467953074,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.676957361246423,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 768.7953176555696,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 300.1061735268103,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.09641362171396,
             "unit": "ns/iter"
           }
         ]
