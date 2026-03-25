@@ -14,7 +14,7 @@ use futures_util::StreamExt;
 use mesh_protocol::{Frame, Permissions, SessionToken};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 pub use terminal_handle::TerminalHandle;
 
@@ -143,7 +143,7 @@ impl SessionHandler {
             let msg = match msg {
                 Ok(m) => m,
                 Err(e) => {
-                    debug!("WebSocket receive error: {e}");
+                    warn!("WebSocket receive error: {e}");
                     break;
                 }
             };

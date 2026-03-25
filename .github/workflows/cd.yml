@@ -219,6 +219,7 @@ jobs:
         with:
           name: psi-report
           path: psi-report.json
+          retention-days: 20
 
       - name: Upload Playwright report
         if: failure()
@@ -226,6 +227,7 @@ jobs:
         with:
           name: staging-playwright-report
           path: web/playwright-report/
+          retention-days: 20
 
       - name: Rollback on failure
         if: failure()

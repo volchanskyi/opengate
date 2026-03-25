@@ -69,6 +69,7 @@ jobs:
           path: |
             agent/${{ matrix.artifact }}
             agent/${{ matrix.artifact }}.sha256
+          retention-days: 20
 
   release:
     name: Create Release
