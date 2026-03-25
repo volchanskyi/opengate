@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.13.11] - 2026-03-25
+
+### Fixed
+- resolve CI codegen check path issue and remove silent skip patterns
+- use direct oapi-codegen invocation for codegen sync check
+- install oapi-codegen in CI before codegen sync check
+
 ## [v0.13.10] - 2026-03-24
 
 ### Fixed
