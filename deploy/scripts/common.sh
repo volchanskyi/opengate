@@ -8,6 +8,10 @@ set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/opengate}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-60}"
+COSIGN_VERIFY="${COSIGN_VERIFY:-true}"
+IMAGE_REGISTRY="${IMAGE_REGISTRY:-ghcr.io}"
+IMAGE_OWNER="${IMAGE_OWNER:-volchanskyi}"
+IMAGE_NAME="${IMAGE_NAME:-opengate-server}"
 
 # env_file MODE — returns mode-specific .env path.
 env_file() {
@@ -94,11 +98,42 @@ validate_mode() {
   [[ "$mode" == "staging" || "$mode" == "production" ]] || fail "Invalid mode: $mode (expected 'staging' or 'production')"
 }
 
-# redeploy MODE — stops, pulls, and starts containers.
+# verify_image TAG — verifies cosign signature on the image before pulling.
+# Requires cosign installed on the VPS. Skipped if COSIGN_VERIFY=false.
+verify_image() {
+  local tag="$1"
+  local full_ref="${IMAGE_REGISTRY}/${IMAGE_OWNER}/${IMAGE_NAME}:${tag}"
+
+  if [[ "$COSIGN_VERIFY" != "true" ]]; then
+    log "Cosign verification disabled (COSIGN_VERIFY=$COSIGN_VERIFY)"
+    return 0
+  fi
+
+  if ! command -v cosign >/dev/null 2>&1; then
+    fail "cosign not found — install it or set COSIGN_VERIFY=false"
+  fi
+
+  log "Verifying cosign signature for ${full_ref}..."
+  cosign verify \
+    --certificate-identity-regexp="https://github.com/${IMAGE_OWNER}/.*" \
+    --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+    "$full_ref" > /dev/null 2>&1 \
+    || fail "Cosign signature verification failed for ${full_ref}"
+  log "Cosign signature verified"
+}
+
+# redeploy MODE — stops, verifies image signature, pulls, and starts containers.
 redeploy() {
   local mode="$1"
   log "Stopping existing containers..."
   compose_cmd "$mode" down --remove-orphans || true
+
+  # Verify image signature before pulling
+  local ef
+  ef=$(env_file "$mode")
+  local tag
+  tag=$(grep -oP '^IMAGE_TAG=\K.*' "$ef" 2>/dev/null || echo "latest")
+  verify_image "$tag"
 
   log "Pulling image..."
   compose_cmd "$mode" pull server

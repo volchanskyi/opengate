@@ -65,6 +65,17 @@ jobs:
           docker manifest inspect "ghcr.io/${{ env.IMAGE_NAME }}:${TAG}" \
             || { echo "::error::Image tag '${TAG}' not found in GHCR"; exit 1; }
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify image signature
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          cosign verify \
+            --certificate-identity-regexp="https://github.com/${{ github.repository_owner }}/.*" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "ghcr.io/${{ env.IMAGE_NAME }}:${TAG}"
+
   # --------------------------------------------------------------------------
   # Job 2: Deploy to persistent staging, run smoke tests
   # --------------------------------------------------------------------------
