@@ -75,6 +75,7 @@ jobs:
         with:
           name: golden-files
           path: testdata/golden/
+          retention-days: 20
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate Rust coverage
@@ -84,6 +85,7 @@ jobs:
         with:
           name: rust-coverage
           path: agent/lcov.info
+          retention-days: 20
 
   go-lint:
     name: Go Lint
@@ -167,6 +169,7 @@ jobs:
         with:
           name: go-coverage
           path: server/coverage.out
+          retention-days: 20
 
   go-integration:
     name: Go Integration Tests
@@ -223,6 +226,7 @@ jobs:
         with:
           name: bench-go
           path: bench-go.txt
+          retention-days: 20
 
   rust-bench:
     name: Rust Benchmarks
@@ -253,6 +257,7 @@ jobs:
         with:
           name: bench-rust
           path: bench-rust.json
+          retention-days: 20
 
   golden:
     name: Golden File Verification
@@ -337,6 +342,7 @@ jobs:
         with:
           name: web-coverage
           path: web/coverage/lcov.info
+          retention-days: 20
       - run: npx vite build
 
   web-integration:
@@ -421,6 +427,7 @@ jobs:
         with:
           name: bundle-size-report
           path: web/size-report.json
+          retention-days: 20
 
   e2e:
     name: E2E Tests
@@ -494,6 +501,7 @@ jobs:
         with:
           name: lighthouse-results
           path: web/lighthouse-results/
+          retention-days: 20
 
       - name: Upload Playwright report
         if: failure()
@@ -501,6 +509,7 @@ jobs:
         with:
           name: playwright-report
           path: web/playwright-report/
+          retention-days: 20
       - name: Teardown
         if: always()
         run: cd deploy && docker compose -f docker-compose.test.yml down -v
