@@ -17,7 +17,7 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 2. `cd server && go vet ./...` — Go vet
 3. `cd web && npx eslint .` — Web ESLint
 4. `~/go/bin/actionlint` — GitHub Actions workflow lint (ALWAYS run locally, no exceptions). Runs with `shellcheck` and `pyflakes` for full parity with CI (both are installed locally).
-5. `make lint-deploy` — Deploy config validation (yamllint, terraform, tflint, compose, caddy, trivy, integration tests). This runs all of the following (skips gracefully if a tool is not installed, but all SHOULD be installed for full CI parity):
+5. `make lint-deploy` — Deploy config validation (yamllint, terraform, tflint, compose, caddy, trivy, integration tests). Fails loudly if any tool is missing — all are required for CI parity:
    - `yamllint -c .yamllint.yml deploy/` — YAML lint on deploy configs
    - `terraform -chdir=deploy/terraform fmt -check -recursive` — Terraform format check
    - `terraform -chdir=deploy/terraform init -backend=false && terraform -chdir=deploy/terraform validate` — Terraform validation
