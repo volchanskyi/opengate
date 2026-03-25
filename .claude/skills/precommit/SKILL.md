@@ -29,7 +29,7 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 
 ## Codegen sync (must pass)
 
-6. `make verify-codegen` — Verify OpenAPI generated code is in sync. Requires `oapi-codegen` installed (`go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0`). Skips gracefully if not installed.
+6. `PATH="$HOME/go/bin:$PATH" make verify-codegen` — Verify OpenAPI generated code is in sync. This MUST actually run (not skip). If it prints "SKIP", install the tool first: `go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0`. A "SKIP" is a FAILURE — do not proceed to commit.
 
 ## Tests (all must pass)
 

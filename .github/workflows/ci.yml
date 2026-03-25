@@ -103,10 +103,10 @@ jobs:
       - name: Install oapi-codegen
         run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0
       - name: Verify OpenAPI codegen is in sync
-        working-directory: .
         run: |
           cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go
-          git diff --exit-code server/internal/api/ || {
+          cd ..
+          git diff --exit-code -- server/internal/api/ || {
             echo "::error::OpenAPI generated code is out of sync. Run oapi-codegen and commit."
             exit 1
           }
