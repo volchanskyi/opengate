@@ -236,7 +236,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     info!(
-        version = env!("CARGO_PKG_VERSION"),
+        version = env!("AGENT_VERSION"),
         server_addr = %args.server_addr,
         data_dir = %args.data_dir.display(),
         "mesh-agent starting"
@@ -831,9 +831,9 @@ mod tests {
 
     #[test]
     fn test_should_skip_version_older() {
-        // AGENT_VERSION is "0.8.0"; anything <= 0.8.0 should be skipped.
+        // Anything older than current AGENT_VERSION should be skipped.
         assert!(should_skip_version("0.7.0"));
-        assert!(should_skip_version("0.7.9"));
+        assert!(should_skip_version("0.13.0"));
     }
 
     #[test]
@@ -843,8 +843,8 @@ mod tests {
 
     #[test]
     fn test_should_skip_version_newer() {
-        assert!(!should_skip_version("0.9.0"));
-        assert!(!should_skip_version("1.0.0"));
+        assert!(!should_skip_version("99.0.0"));
+        assert!(!should_skip_version("99.1.0"));
     }
 
     #[test]
@@ -856,7 +856,7 @@ mod tests {
 
     #[test]
     fn test_should_skip_version_prerelease() {
-        // Pre-release versions are less than the release (0.9.0-rc.1 < 0.9.0).
-        assert!(!should_skip_version("0.9.0-rc.1"));
+        // Pre-release of a future version should not be skipped.
+        assert!(!should_skip_version("99.0.0-rc.1"));
     }
 }
