@@ -37,20 +37,24 @@ DEPLOY_DUMMY_ENV := JWT_SECRET=dummy AMT_USER=admin AMT_PASS=dummy \
 	VAPID_CONTACT=dummy IMAGE_TAG=latest DOMAIN=example.com
 
 lint-deploy:
-	@command -v yamllint >/dev/null && yamllint -c .yamllint.yml deploy/ || echo "SKIP: yamllint not installed"
+	@command -v yamllint >/dev/null 2>&1 || { echo "ERROR: yamllint not found. Install with: pip install yamllint"; exit 1; }
+	yamllint -c .yamllint.yml deploy/
 	terraform -chdir=deploy/terraform fmt -check -recursive
 	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null 2>&1
 	terraform -chdir=deploy/terraform validate
-	@command -v tflint >/dev/null && (tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact) || echo "SKIP: tflint not installed"
+	@command -v tflint >/dev/null 2>&1 || { echo "ERROR: tflint not found. Install from: https://github.com/terraform-linters/tflint"; exit 1; }
+	tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact
 	cd deploy && $(DEPLOY_DUMMY_ENV) docker compose config --quiet
 	cd deploy && $(DEPLOY_DUMMY_ENV) STAGING_JWT_SECRET=dummy \
 	  docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet
 	cd deploy && docker compose -f docker-compose.test.yml config --quiet
-	@command -v caddy >/dev/null && (caddy fmt --diff deploy/caddy/Caddyfile && caddy fmt --diff deploy/caddy/Caddyfile.staging \
+	@command -v caddy >/dev/null 2>&1 || { echo "ERROR: caddy not found. Install from: https://caddyserver.com/docs/install"; exit 1; }
+	caddy fmt --diff deploy/caddy/Caddyfile && caddy fmt --diff deploy/caddy/Caddyfile.staging \
 	  && caddy validate --config deploy/caddy/Caddyfile --adapter caddyfile \
-	  && caddy validate --config deploy/caddy/Caddyfile.staging --adapter caddyfile) || echo "SKIP: caddy not installed"
-	@command -v trivy >/dev/null && (trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/ \
-	  && trivy config --severity HIGH,CRITICAL --exit-code 1 Dockerfile) || echo "SKIP: trivy not installed"
+	  && caddy validate --config deploy/caddy/Caddyfile.staging --adapter caddyfile
+	@command -v trivy >/dev/null 2>&1 || { echo "ERROR: trivy not found. Install from: https://aquasecurity.github.io/trivy"; exit 1; }
+	trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/ \
+	  && trivy config --severity HIGH,CRITICAL --exit-code 1 Dockerfile
 	bash deploy/tests/validate-configs.sh
 
 fmt:
