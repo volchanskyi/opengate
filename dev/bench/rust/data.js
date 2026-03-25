@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774400778503,
+  "lastUpdate": 1774401265827,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6492,6 +6492,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.09641362171396,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "99f21dd33ae5d3d49d2b6cb2cfb9265b52627afd",
+          "message": "fix: resolve CI codegen check path issue and remove silent skip patterns\n\nThe git diff in CI ran from server/ but used server/internal/api/ as path,\ncausing \"unknown revision or path\" error. Also replaced || echo \"SKIP\"\npattern in Makefile verify-codegen with a loud failure when oapi-codegen\nis missing.",
+          "timestamp": "2026-03-24T18:12:48-07:00",
+          "tree_id": "2d66f61d896113a9afd24ede4d8e40974518e4f9",
+          "url": "https://github.com/volchanskyi/opengate/commit/99f21dd33ae5d3d49d2b6cb2cfb9265b52627afd"
+        },
+        "date": 1774401265780,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.422294565332287,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.059056037257086,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 768.8668055071852,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 310.59956622590283,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.891267577325056,
             "unit": "ns/iter"
           }
         ]
