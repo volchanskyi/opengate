@@ -29,7 +29,7 @@ go build -o meshserver ./cmd/meshserver
 
 # JWT_SECRET is required — pass via flag or env var
 # OPENGATE_GITHUB_REPO enables auto-sync of agent manifests from GitHub Releases
-JWT_SECRET=changeme OPENGATE_GITHUB_REPO=volchanskyi/opengate ./meshserver \
+JWT_SECRET=changeme-must-be-at-least-32chars OPENGATE_GITHUB_REPO=volchanskyi/opengate ./meshserver \
   -listen :8080 \
   -quic-listen :9090 \
   -mps-listen :4433 \
@@ -40,7 +40,7 @@ Or run via Docker (multi-arch images published to GHCR on every push to `main`):
 
 ```bash
 docker pull ghcr.io/volchanskyi/opengate-server:latest
-docker run -e JWT_SECRET=changeme -p 8080:8080 -p 9090:9090/udp \
+docker run -e JWT_SECRET=changeme-must-be-at-least-32chars -p 8080:8080 -p 9090:9090/udp \
   -v opengate-data:/data ghcr.io/volchanskyi/opengate-server:latest
 ```
 

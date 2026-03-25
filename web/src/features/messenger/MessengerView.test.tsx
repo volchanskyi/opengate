@@ -34,8 +34,8 @@ describe('MessengerView', () => {
   it('renders messages from store', () => {
     useChatStore.setState({
       messages: [
-        { text: 'Hello', sender: 'browser', id: 1 },
-        { text: 'Hi there', sender: 'agent', id: 2 },
+        { text: 'Hello', sender: 'browser', id: '1' },
+        { text: 'Hi there', sender: 'agent', id: '2' },
       ],
     });
     render(<MessengerView />);

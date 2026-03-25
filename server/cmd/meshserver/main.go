@@ -52,6 +52,10 @@ func main() {
 		logger.Error("jwt secret is required: set --jwt-secret or JWT_SECRET")
 		os.Exit(1)
 	}
+	if len(secret) < 32 {
+		logger.Error("jwt secret must be at least 32 characters")
+		os.Exit(1)
+	}
 
 	if err := os.MkdirAll(*dataDir, 0755); err != nil {
 		logger.Error("create data dir", "error", err)

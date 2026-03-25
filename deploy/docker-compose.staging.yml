@@ -1,3 +1,4 @@
+# Requires Docker Compose v2.24+ for !override tag support.
 # Persistent staging overrides — coexists with production on the same VPS.
 # Usage: docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
 #

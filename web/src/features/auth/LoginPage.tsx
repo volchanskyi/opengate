@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../state/auth-store';
 
@@ -12,6 +12,12 @@ export function LoginPage() {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
 
+  useEffect(() => {
+    if (token && user) {
+      navigate('/devices', { replace: true });
+    }
+  }, [token, user, navigate]);
+
   if (token && user) {
     return <Navigate to="/devices" replace />;
   }
@@ -19,9 +25,6 @@ export function LoginPage() {
   const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     await login(email, password);
-    if (useAuthStore.getState().token) {
-      navigate('/devices');
-    }
   };
 
   return (

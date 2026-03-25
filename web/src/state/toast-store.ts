@@ -14,13 +14,11 @@ interface ToastState {
   removeToast: (id: string) => void;
 }
 
-let nextId = 0;
-
 export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
 
   addToast: (message, type, duration = 5000) => {
-    const id = String(++nextId);
+    const id = crypto.randomUUID();
     set((s) => ({ toasts: [...s.toasts.slice(-4), { id, message, type }] }));
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
