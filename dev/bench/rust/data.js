@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774455934994,
+  "lastUpdate": 1774478007174,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6933,6 +6933,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.07102550785488,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b17ee218dae77ae282c0f559e16ef8a9796be0d8",
+          "message": "docs: upgrade audit skills with comprehensive logging best practices\n\nAdd 17 new checks across all three audit skills covering log injection\nprevention (CWE-117), request correlation, security event completeness,\naudit trail reliability, log level discipline, Rust agent logging\nstandards, frontend error observability, and log infrastructure\nvalidation (Promtail/Loki/Grafana).",
+          "timestamp": "2026-03-25T15:31:45-07:00",
+          "tree_id": "dc4de99cbde741a739e332b948ce4d86f9ab8886",
+          "url": "https://github.com/volchanskyi/opengate/commit/b17ee218dae77ae282c0f559e16ef8a9796be0d8"
+        },
+        "date": 1774478007137,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.117982420117837,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.32851312322644,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 754.3621345499345,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 302.1059943372422,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.067591871045074,
             "unit": "ns/iter"
           }
         ]
