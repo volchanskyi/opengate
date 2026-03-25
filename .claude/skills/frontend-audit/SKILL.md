@@ -303,6 +303,16 @@ Verify:
 - API error responses shown to users use the server's sanitized message, not raw error objects
 - Network errors show generic messages ("Connection failed"), not technical details
 
+Check for `console.log` statements that should be removed or gated in production:
+
+```bash
+grep -rn 'console\.log' web/src/ --include='*.ts' --include='*.tsx' | grep -v 'node_modules\|_test\.\|\.test\.'
+```
+
+- `console.log` in production code: **LOW** (noisy, may leak internal state to users who open DevTools)
+- Verify no `console.log(token)`, `console.log(password)`, or `console.log(response)` where the response may contain sensitive data — flag as **MEDIUM**
+- `console.warn`/`console.error` in WebRTC/transport code is acceptable if no tokens or PII are included
+
 #### 7b. React error boundaries
 
 Check if error boundaries exist to prevent white-screen crashes:
@@ -322,6 +332,45 @@ grep -rn '\.then(\|await ' web/src/ --include='*.ts' --include='*.tsx' | grep -v
 ```
 
 Unhandled rejections can leak error details to the console. All async operations should use try/catch or `.catch()`.
+
+#### 7d. Frontend error observability
+
+Check if production errors are reported beyond browser DevTools — operators have no visibility into frontend crashes unless errors are sent to the server for Loki ingestion.
+
+```bash
+# Check for any error reporting mechanism
+grep -rn 'reportError\|sendBeacon\|navigator\.sendBeacon\|window\.onerror\|unhandledrejection' web/src/ --include='*.ts' --include='*.tsx' | grep -v 'node_modules\|_test\.\|\.test\.'
+```
+
+Verify:
+- `ErrorBoundary` (`web/src/components/ErrorBoundary.tsx`) reports errors beyond `console.error`. If it only calls `console.error`, errors are invisible to operators in production. Flag as **MEDIUM**.
+- Check for a global `window.addEventListener('unhandledrejection', ...)` handler that reports unhandled promise rejections
+- Check if the service worker (`web/public/sw.js`) reports its own errors to the server
+
+Recommended fix pattern (self-hosted endpoint, no SaaS dependency):
+
+```tsx
+// BAD — error invisible to operators
+console.error('ErrorBoundary caught:', error);
+
+// GOOD — report to server for Loki ingestion
+if (import.meta.env.PROD) {
+  navigator.sendBeacon('/api/v1/client-errors', JSON.stringify({
+    message: error.message,
+    stack: error.stack?.slice(0, 500),
+    url: window.location.pathname,
+    timestamp: new Date().toISOString(),
+  }));
+}
+```
+
+If error reporting exists, verify it follows these safety rules:
+- Does NOT include auth tokens, user email, or other PII in the payload
+- Truncates stack traces (max 500 chars) to prevent log flooding
+- Uses `navigator.sendBeacon` (fire-and-forget, works during page unload) — not `fetch` which can block
+- Is rate-limited client-side (max 10 reports per minute) to prevent self-DoS on error loops
+
+**What NOT to recommend:** Sentry, LogRocket, or other SaaS. This project is self-hosted. The `sendBeacon` to a server endpoint pattern is sufficient.
 
 ---
 
@@ -784,7 +833,7 @@ After completing all checks, print a table:
 | 4  CSP    |   0   | CSP and security headers configured                      | PASS   |
 | 5  CSRF   |   0   | Bearer auth used, no cookie-based auth                    | PASS   |
 | 6  Deps   |   0   | No known vulnerabilities, deps current                    | PASS   |
-| 7  Errors |   0   | No info leakage, error boundaries present                 | PASS   |
+| 7  Errors |   0   | No info leakage, boundaries present, errors observable    | PASS   |
 | 8  Input  |   0   | Forms validated, file uploads sanitized                   | PASS   |
 | 9  3rdPty |   0   | Service worker safe, xterm safe, no external scripts      | PASS   |
 | 10 Bundle |   0   | Code splitting, tree shaking, bundle size within limits   | PASS   |
