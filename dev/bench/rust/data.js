@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774420834429,
+  "lastUpdate": 1774422667731,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6835,6 +6835,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.221427927275315,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "7c3365dca57e8127f6c4762ed061790a36b1608b",
+          "message": "fix: tie agent version to git release tags instead of stale Cargo.toml\n\nThe agent binary reported version 0.8.0 regardless of which release it\nwas built from. The build.rs already supported OPENGATE_VERSION env var\nbut release-agent.yml never set it.\n\n- Inject OPENGATE_VERSION from git tag in release workflow\n- Use AGENT_VERSION consistently in startup log (was CARGO_PKG_VERSION)\n- Bump Cargo.toml versions 0.8.0 → 0.14.1 as local build fallback\n- Update version comparison tests for new base version",
+          "timestamp": "2026-03-25T00:09:20-07:00",
+          "tree_id": "0375c9d9d0c3227bf91d3aac3e5fca8f79185dcf",
+          "url": "https://github.com/volchanskyi/opengate/commit/7c3365dca57e8127f6c4762ed061790a36b1608b"
+        },
+        "date": 1774422667684,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.41016342961378,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 26.27989072110129,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 740.5318277925389,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 313.1847783987676,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.241783903627944,
             "unit": "ns/iter"
           }
         ]
