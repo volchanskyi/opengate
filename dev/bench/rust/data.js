@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774415910486,
+  "lastUpdate": 1774417872707,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6688,6 +6688,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.581473166710516,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "724c97efdf1e3205eb2fe15761fc9f17ff519474",
+          "message": "feat: add cosign keyless signing, SBOM attestation, and deploy-time verification\n\n- Add cosign keyless signing (Sigstore OIDC) to build-image.yml\n- Enable SLSA provenance and built-in SBOM via build-push-action\n- Generate SPDX JSON SBOM via anchore/sbom-action and attest with cosign\n- Add cosign verify step in cd.yml resolve-tag job before deployment\n- Add verify_image() to deploy/scripts/common.sh for VPS-side\n  signature verification before pulling images\n- COSIGN_VERIFY env var (default: true) controls VPS verification",
+          "timestamp": "2026-03-24T22:49:40-07:00",
+          "tree_id": "b1dc615f41b2ff9d1a76c12019b39f4d6b49fe14",
+          "url": "https://github.com/volchanskyi/opengate/commit/724c97efdf1e3205eb2fe15761fc9f17ff519474"
+        },
+        "date": 1774417872660,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.148425555530835,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.239629701007875,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 745.2293170757252,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 301.51141671593575,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 25.539869050271864,
             "unit": "ns/iter"
           }
         ]
