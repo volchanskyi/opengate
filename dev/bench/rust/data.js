@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774399385780,
+  "lastUpdate": 1774399845443,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6394,6 +6394,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.05560788367208,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "700dbb124deaea8e253a67ead839c2e3f1d09ee2",
+          "message": "fix: install oapi-codegen in CI before codegen sync check\n\nThe go-lint job's codegen verification step failed because oapi-codegen\nwas not installed. Add explicit install step. Also add verify-codegen\nto the precommit skill checklist.",
+          "timestamp": "2026-03-24T17:48:51-07:00",
+          "tree_id": "d6a78cb1acc260cbf731f5d073a428d339444785",
+          "url": "https://github.com/volchanskyi/opengate/commit/700dbb124deaea8e253a67ead839c2e3f1d09ee2"
+        },
+        "date": 1774399845397,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.45218631988267,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.981858826540886,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 760.1224688596022,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.5844397188529,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 28.055231870144965,
             "unit": "ns/iter"
           }
         ]
