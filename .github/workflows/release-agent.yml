@@ -50,12 +50,24 @@ jobs:
           workspaces: agent
           key: ${{ matrix.target }}
 
+      - name: Determine version
+        id: version
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Agent version: $VERSION"
+
       - name: Build release binary (native)
         if: matrix.target == 'x86_64-unknown-linux-musl'
+        env:
+          OPENGATE_VERSION: ${{ steps.version.outputs.version }}
         run: cargo build --release --target ${{ matrix.target }} -p mesh-agent
 
       - name: Build release binary (cross)
         if: matrix.target == 'aarch64-unknown-linux-musl'
+        env:
+          OPENGATE_VERSION: ${{ steps.version.outputs.version }}
         run: cross build --release --target ${{ matrix.target }} -p mesh-agent
 
       - name: Prepare artifact
