@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774478007174,
+  "lastUpdate": 1774478447478,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -6982,6 +6982,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.067591871045074,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e00194c6346fde235cf372897d84898fb71ae866",
+          "message": "fix: npm deps bump",
+          "timestamp": "2026-03-25T15:39:14-07:00",
+          "tree_id": "d27550ebdbd96fc19a57c6b303edcb2d3f122a04",
+          "url": "https://github.com/volchanskyi/opengate/commit/e00194c6346fde235cf372897d84898fb71ae866"
+        },
+        "date": 1774478447429,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.271839588124624,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.477936662246808,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 743.1911956592485,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.9669177779206,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.41819573138261,
             "unit": "ns/iter"
           }
         ]
