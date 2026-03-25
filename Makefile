@@ -59,7 +59,7 @@ fmt:
 	cd web && npx prettier --write src/
 
 verify-codegen:
-	@command -v oapi-codegen >/dev/null && (cd server && go generate ./internal/api/ && git diff --exit-code internal/api/) || echo "SKIP: oapi-codegen not installed"
+	@command -v oapi-codegen >/dev/null && (cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go && git diff --exit-code internal/api/) || echo "SKIP: oapi-codegen not installed"
 
 golden:
 	cd agent && GENERATE_GOLDEN=1 cargo test -p mesh-protocol --test golden_test
