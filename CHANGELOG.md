@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.13.13] - 2026-03-25
+
+### Fixed
+- use latest tag for Trivy image scan instead of full SHA
+
+## [v0.13.12] - 2026-03-25
+
+### Fixed
+- replace all silent skip patterns in Makefile with loud failures
+
+## [v0.13.11] - 2026-03-25
+
+### Fixed
+- resolve CI codegen check path issue and remove silent skip patterns
+- use direct oapi-codegen invocation for codegen sync check
+- install oapi-codegen in CI before codegen sync check
+
+## [v0.13.10] - 2026-03-24
+
+### Fixed
+- wrap monitoring deploy comment to satisfy yamllint line-length rule
+- resolve Grafana provisioning crashes and datasource UID mismatches
+
 ## [v0.13.9] - 2026-03-24
 
 ### Fixed
