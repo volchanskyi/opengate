@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774545597966,
+  "lastUpdate": 1774545677468,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7472,6 +7472,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.106675296959157,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "a6647f6b8d881c8002aa4cf096e931d7a708e85c",
+          "message": "refactor: extract probe_socket helper and deduplicate display tests",
+          "timestamp": "2026-03-26T10:19:08-07:00",
+          "tree_id": "1c980e37aca319bc275968f8b1acbe5d1cbb1311",
+          "url": "https://github.com/volchanskyi/opengate/commit/a6647f6b8d881c8002aa4cf096e931d7a708e85c"
+        },
+        "date": 1774545677418,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.210146268061933,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.511977445533656,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 753.380629763152,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 329.4729842232532,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.080240663543403,
             "unit": "ns/iter"
           }
         ]
