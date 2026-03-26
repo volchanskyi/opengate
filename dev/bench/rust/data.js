@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774566387641,
+  "lastUpdate": 1774568665797,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7619,6 +7619,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.085114915291705,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "34e723d4132ec19964c6126d34ffe31404619bbf",
+          "message": "feat: X11 screen capture with JPEG encoding + chat echo\n\nImplement real X11 frame capture via x11rb (pure Rust, no libxcb dep),\nBGRX→RGBA conversion, and JPEG encoding at Q70 ~10 FPS. Add Jpeg\nFrameEncoding variant across Rust/Go/TS with golden file cross-lang\ntest. Browser decodes JPEG via createImageBitmap. Chat messages now\necho back from agent with sender=\"agent\", completing the relay pipeline.",
+          "timestamp": "2026-03-26T16:42:46-07:00",
+          "tree_id": "a7520164fc3e1e716c61edffe17cee233e415719",
+          "url": "https://github.com/volchanskyi/opengate/commit/34e723d4132ec19964c6126d34ffe31404619bbf"
+        },
+        "date": 1774568665743,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.30344878021928,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.372428844809228,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 741.802269731479,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 292.82575351433616,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.188304361249536,
             "unit": "ns/iter"
           }
         ]
