@@ -11,6 +11,7 @@ pub enum FrameEncoding {
     Zstd,
     H264Idr,
     H264Delta,
+    Jpeg,
 }
 
 /// A desktop video frame.

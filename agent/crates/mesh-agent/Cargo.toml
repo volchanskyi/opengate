@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 mesh-agent-core = { path = "../mesh-agent-core" }
 mesh-protocol = { path = "../mesh-protocol" }
-platform-linux = { path = "../platform-linux" }
+platform-linux = { path = "../platform-linux", features = ["x11"] }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
