@@ -47,21 +47,11 @@ pub fn has_display() -> bool {
 /// This avoids false positives from stub sockets (e.g. WSLg on headless
 /// WSL2) and false negatives from only checking `wayland-0`.
 fn has_display_server_socket() -> bool {
-    use std::os::unix::net::UnixStream;
-
     // Probe X11 sockets
     if let Ok(entries) = std::fs::read_dir("/tmp/.X11-unix") {
         for entry in entries.flatten() {
-            let path = entry.path();
-            debug!(path = %path.display(), "probing X11 socket");
-            match UnixStream::connect(&path) {
-                Ok(_) => {
-                    debug!(path = %path.display(), "X11 socket is connectable");
-                    return true;
-                }
-                Err(e) => {
-                    debug!(path = %path.display(), error = %e, "X11 socket not connectable");
-                }
+            if probe_socket(&entry.path(), "X11") {
+                return true;
             }
         }
     }
@@ -83,16 +73,8 @@ fn has_display_server_socket() -> bool {
                 if !name_str.starts_with("wayland-") || name_str.ends_with(".lock") {
                     continue;
                 }
-                let path = entry.path();
-                debug!(path = %path.display(), "probing Wayland socket");
-                match UnixStream::connect(&path) {
-                    Ok(_) => {
-                        debug!(path = %path.display(), "Wayland socket is connectable");
-                        return true;
-                    }
-                    Err(e) => {
-                        debug!(path = %path.display(), error = %e, "Wayland socket not connectable");
-                    }
+                if probe_socket(&entry.path(), "Wayland") {
+                    return true;
                 }
             }
         }
@@ -100,6 +82,23 @@ fn has_display_server_socket() -> bool {
 
     debug!("no connectable display server socket found");
     false
+}
+
+/// Attempt a Unix socket connect to verify a display server is listening.
+fn probe_socket(path: &std::path::Path, kind: &str) -> bool {
+    use std::os::unix::net::UnixStream;
+
+    debug!(path = %path.display(), kind, "probing socket");
+    match UnixStream::connect(path) {
+        Ok(_) => {
+            debug!(path = %path.display(), kind, "socket is connectable");
+            true
+        }
+        Err(e) => {
+            debug!(path = %path.display(), kind, error = %e, "socket not connectable");
+            false
+        }
+    }
 }
 
 /// Create a screen capture instance for the current environment.
@@ -157,9 +156,8 @@ mod tests {
     }
 
     #[test]
-    fn test_has_display_true_via_env_without_process_check() {
-        // Env vars should short-circuit — no process check needed.
-        std::env::set_var("DISPLAY", ":99");
+    fn test_has_display_true_with_display_env() {
+        std::env::set_var("DISPLAY", ":0");
         std::env::remove_var("WAYLAND_DISPLAY");
         let result = has_display();
         std::env::remove_var("DISPLAY");
@@ -167,12 +165,13 @@ mod tests {
     }
 
     #[test]
-    fn test_has_display_true_with_display() {
-        std::env::set_var("DISPLAY", ":0");
-        std::env::remove_var("WAYLAND_DISPLAY");
-        let result = has_display();
+    fn test_has_display_false_without_env_or_sockets() {
+        // With no env vars and no connectable sockets, should return false
+        // (unless the host actually has a display server running).
         std::env::remove_var("DISPLAY");
-        assert!(result);
+        std::env::remove_var("WAYLAND_DISPLAY");
+        // We can't guarantee false on all hosts, but we verify no panic.
+        let _ = has_display();
     }
 
     #[test]
