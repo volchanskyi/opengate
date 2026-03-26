@@ -269,23 +269,12 @@ async fn main() -> Result<()> {
     // Parse update public key: CLI flag takes precedence, then saved file from enrollment.
     // This runs AFTER enrollment so the signing key file exists on first boot.
     let update_public_key: Option<[u8; 32]> = match &args.update_public_key {
-        Some(hex_str) => {
-            let bytes = hex::decode(hex_str).context("decode update public key hex")?;
-            let key: [u8; 32] = bytes.try_into().map_err(|v: Vec<u8>| {
-                anyhow::anyhow!("update public key must be 32 bytes, got {}", v.len())
-            })?;
-            Some(key)
-        }
+        Some(hex_str) => Some(parse_ed25519_pubkey(hex_str)?),
         None => {
-            // Try loading from enrollment-saved file.
             let key_path = args.data_dir.join("update-signing-key.hex");
             match tokio::fs::read_to_string(&key_path).await {
                 Ok(hex_str) => {
-                    let hex_str = hex_str.trim();
-                    let bytes = hex::decode(hex_str).context("decode saved update signing key")?;
-                    let key: [u8; 32] = bytes.try_into().map_err(|v: Vec<u8>| {
-                        anyhow::anyhow!("saved signing key must be 32 bytes, got {}", v.len())
-                    })?;
+                    let key = parse_ed25519_pubkey(hex_str.trim())?;
                     info!("loaded update signing key from enrollment");
                     Some(key)
                 }
@@ -610,6 +599,14 @@ fn uninstall_agent(data_dir: &std::path::Path) {
 
 /// Returns `true` if the incoming version should be skipped (not newer than current).
 ///
+/// Decode a hex-encoded Ed25519 public key into a 32-byte array.
+fn parse_ed25519_pubkey(hex_str: &str) -> Result<[u8; 32]> {
+    let bytes = hex::decode(hex_str).context("decode Ed25519 public key hex")?;
+    bytes.try_into().map_err(|v: Vec<u8>| {
+        anyhow::anyhow!("Ed25519 public key must be 32 bytes, got {}", v.len())
+    })
+}
+
 /// Parses both `AGENT_VERSION` and `incoming` as semver. If the incoming version
 /// is less than or equal to the current version, the update is skipped.
 /// If either version fails to parse, the function returns `false` (fail-open)
@@ -868,5 +865,31 @@ mod tests {
     fn test_should_skip_version_prerelease() {
         // Pre-release of a future version should not be skipped.
         assert!(!should_skip_version("99.0.0-rc.1"));
+    }
+
+    #[test]
+    fn test_parse_ed25519_pubkey_valid() {
+        let hex = "a".repeat(64); // 32 bytes as hex
+        let key = parse_ed25519_pubkey(&hex).unwrap();
+        assert_eq!(key, [0xaa; 32]);
+    }
+
+    #[test]
+    fn test_parse_ed25519_pubkey_wrong_length() {
+        let hex = "aa".repeat(16); // 16 bytes, not 32
+        let err = parse_ed25519_pubkey(&hex).unwrap_err();
+        assert!(err.to_string().contains("32 bytes"));
+    }
+
+    #[test]
+    fn test_parse_ed25519_pubkey_invalid_hex() {
+        let err = parse_ed25519_pubkey("not-hex").unwrap_err();
+        assert!(err.to_string().contains("hex"));
+    }
+
+    #[test]
+    fn test_parse_ed25519_pubkey_empty() {
+        let key = parse_ed25519_pubkey("").unwrap_err();
+        assert!(key.to_string().contains("32 bytes"));
     }
 }
