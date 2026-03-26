@@ -22,8 +22,43 @@ pub use service::SystemdLifecycle;
 pub use capture::X11Capture;
 
 /// Returns true if a graphical display server (X11 or Wayland) is available.
+///
+/// Checks environment variables first (works in user sessions), then falls
+/// back to probing for running display server processes (works in systemd
+/// services which lack user session env vars).
 pub fn has_display() -> bool {
-    std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some()
+    // Fast path: env vars are set in user sessions / containers with display.
+    if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        return true;
+    }
+
+    // Slow path: check if a display server process is running on the system.
+    // This handles systemd services that don't inherit user session env vars.
+    has_display_server_process()
+}
+
+/// Checks if an X11 or Wayland display server process is running.
+fn has_display_server_process() -> bool {
+    // Check for X11 socket
+    if std::path::Path::new("/tmp/.X11-unix").exists() {
+        if let Ok(entries) = std::fs::read_dir("/tmp/.X11-unix") {
+            if entries.count() > 0 {
+                return true;
+            }
+        }
+    }
+
+    // Check for Wayland socket in common locations
+    if let Ok(entries) = std::fs::read_dir("/run/user") {
+        for entry in entries.flatten() {
+            let wayland_path = entry.path().join("wayland-0");
+            if wayland_path.exists() {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 /// Create a screen capture instance for the current environment.
@@ -65,10 +100,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_has_display_false_without_env() {
-        std::env::remove_var("DISPLAY");
+    fn test_has_display_server_process_returns_bool() {
+        // Smoke test: just verify it doesn't panic.
+        // Result depends on the host environment.
+        let _ = has_display_server_process();
+    }
+
+    #[test]
+    fn test_has_display_true_via_env_without_process_check() {
+        // Env vars should short-circuit — no process check needed.
+        std::env::set_var("DISPLAY", ":99");
         std::env::remove_var("WAYLAND_DISPLAY");
-        assert!(!has_display());
+        let result = has_display();
+        std::env::remove_var("DISPLAY");
+        assert!(result);
     }
 
     #[test]
