@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useConnectionStore } from '../../state/connection-store';
 import { useAuthStore } from '../../state/auth-store';
@@ -8,14 +8,30 @@ import { TerminalView } from '../terminal/TerminalView';
 import { FileManagerView } from '../file-manager/FileManagerView';
 import { MessengerView } from '../messenger/MessengerView';
 
-const TABS = ['Desktop', 'Terminal', 'Files', 'Chat'] as const;
-type Tab = (typeof TABS)[number];
+const ALL_TABS = ['Desktop', 'Terminal', 'Files', 'Chat'] as const;
+type Tab = (typeof ALL_TABS)[number];
+
+/** Determine which tabs to show based on device capabilities. */
+function availableTabs(capabilities?: string[]): readonly Tab[] {
+  if (!capabilities || capabilities.length === 0) {
+    // Fallback: show all tabs when capabilities are unknown (legacy agents)
+    return ALL_TABS;
+  }
+  const hasDesktop = capabilities.includes('RemoteDesktop');
+  return ALL_TABS.filter((tab) => {
+    if (tab === 'Desktop') return hasDesktop;
+    if (tab === 'Chat') return hasDesktop;
+    return true; // Terminal + Files always available
+  });
+}
 
 export function SessionView() {
   const { token } = useParams<{ token: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const relayUrl = (location.state as { relayUrl?: string } | null)?.relayUrl ?? '';
+  const locState = location.state as { relayUrl?: string; capabilities?: string[] } | null;
+  const relayUrl = locState?.relayUrl ?? '';
+  const capabilities = locState?.capabilities;
 
   const connectionState = useConnectionStore((s) => s.state);
   const connectionError = useConnectionStore((s) => s.error);
@@ -23,7 +39,8 @@ export function SessionView() {
   const disconnect = useConnectionStore((s) => s.disconnect);
   const authToken = useAuthStore((s) => s.token);
 
-  const [activeTab, setActiveTab] = useState<Tab>('Terminal');
+  const tabs = useMemo(() => availableTabs(capabilities), [capabilities]);
+  const [activeTab, setActiveTab] = useState<Tab>(tabs.includes('Terminal') ? 'Terminal' : tabs[0]!);
 
   useEffect(() => {
     if (token && relayUrl && authToken) {
@@ -52,7 +69,7 @@ export function SessionView() {
       )}
 
       <div className="flex border-b border-gray-700" role="tablist">
-        {TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab}
             role="tab"

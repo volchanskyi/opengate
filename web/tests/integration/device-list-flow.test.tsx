@@ -96,8 +96,8 @@ describe('Device List Flow (integration)', () => {
     useDeviceStore.setState({
       selectedGroupId: 'g1',
       devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'server-01', os: 'linux', agent_version: '1.0.0', status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
-        { id: 'd2', group_id: 'g1', hostname: 'server-02', os: 'windows', agent_version: '', status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd1', group_id: 'g1', hostname: 'server-01', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd2', group_id: 'g1', hostname: 'server-02', os: 'windows', agent_version: '', capabilities: [], status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
       ],
     });
 

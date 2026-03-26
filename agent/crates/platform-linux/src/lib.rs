@@ -21,6 +21,11 @@ pub use service::SystemdLifecycle;
 #[cfg(feature = "x11")]
 pub use capture::X11Capture;
 
+/// Returns true if a graphical display server (X11 or Wayland) is available.
+pub fn has_display() -> bool {
+    std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some()
+}
+
 /// Create a screen capture instance for the current environment.
 ///
 /// Returns [`X11Capture`] if the `x11` feature is enabled and `DISPLAY` is set,
@@ -58,6 +63,31 @@ pub fn create_service_lifecycle() -> Box<dyn ServiceLifecycle> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_has_display_false_without_env() {
+        std::env::remove_var("DISPLAY");
+        std::env::remove_var("WAYLAND_DISPLAY");
+        assert!(!has_display());
+    }
+
+    #[test]
+    fn test_has_display_true_with_display() {
+        std::env::set_var("DISPLAY", ":0");
+        std::env::remove_var("WAYLAND_DISPLAY");
+        let result = has_display();
+        std::env::remove_var("DISPLAY");
+        assert!(result);
+    }
+
+    #[test]
+    fn test_has_display_true_with_wayland() {
+        std::env::remove_var("DISPLAY");
+        std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
+        let result = has_display();
+        std::env::remove_var("WAYLAND_DISPLAY");
+        assert!(result);
+    }
 
     #[tokio::test]
     async fn test_create_screen_capture_returns_null_without_display() {

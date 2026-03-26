@@ -1,0 +1,1 @@
+ALTER TABLE devices ADD COLUMN capabilities TEXT NOT NULL DEFAULT '[]';
