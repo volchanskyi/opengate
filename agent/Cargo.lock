@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "mesh-agent"
-version = "0.14.1"
+version = "0.15.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -1708,7 +1708,7 @@ dependencies = [
 
 [[package]]
 name = "mesh-agent-core"
-version = "0.14.1"
+version = "0.15.4"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1738,7 +1738,7 @@ dependencies = [
 
 [[package]]
 name = "mesh-protocol"
-version = "0.14.1"
+version = "0.15.4"
 dependencies = [
  "bytes",
  "chrono",
@@ -2047,7 +2047,7 @@ dependencies = [
 
 [[package]]
 name = "platform-linux"
-version = "0.8.0"
+version = "0.15.4"
 dependencies = [
  "async-trait",
  "mesh-agent-core",
@@ -2060,7 +2060,7 @@ dependencies = [
 
 [[package]]
 name = "platform-windows"
-version = "0.8.0"
+version = "0.15.4"
 dependencies = [
  "async-trait",
  "mesh-agent-core",
