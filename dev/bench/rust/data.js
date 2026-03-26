@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774540853369,
+  "lastUpdate": 1774545597966,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7423,6 +7423,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.059677511925443,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "0b14e58a8aad01a59b1634658ed3861c2b6d89d0",
+          "message": "fix: probe display sockets instead of checking existence\n\nWSLg on headless WSL2 creates stub X11 sockets in /tmp/.X11-unix that\npass existence checks but are not connectable, causing false RemoteDesktop\ncapability. Conversely, only checking wayland-0 misses other numbered\nWayland sockets on GUI hosts running as systemd services.\n\nReplace Path::exists() with UnixStream::connect() probes so the agent\nonly reports RemoteDesktop when a display server is actually reachable.",
+          "timestamp": "2026-03-26T10:17:45-07:00",
+          "tree_id": "754966cfe1f9751fd237bc1d00ce20f3ac805359",
+          "url": "https://github.com/volchanskyi/opengate/commit/0b14e58a8aad01a59b1634658ed3861c2b6d89d0"
+        },
+        "date": 1774545597918,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.703428924623363,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.88711218071459,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 747.9791005445632,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 303.99160406576885,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.106675296959157,
             "unit": "ns/iter"
           }
         ]
