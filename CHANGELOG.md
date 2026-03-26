@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.15.5] - 2026-03-26
+
+### Fixed
+- agent startup ordering and version auto-sync from git tags
+
+## [v0.15.4] - 2026-03-26
+
+### Fixed
+- detect display server via socket probing for systemd services
+
+## [v0.15.3] - 2026-03-26
+
+### Fixed
+- stop capture loop after 3 consecutive failures instead of spamming
+
+## [v0.15.2] - 2026-03-26
+
+### Fixed
+- remove invalid -rule flag from VictoriaMetrics single-node config
+
+## [v0.15.1] - 2026-03-26
+
+### Fixed
+- OTA push returns 0 due to OS/arch mismatch between agent and manifest
+
+## [v0.15.0] - 2026-03-26
+
+### Added
+- file manager view/download and capability-based session tabs
+
 ## [v0.14.4] - 2026-03-25
 
 ### Fixed
