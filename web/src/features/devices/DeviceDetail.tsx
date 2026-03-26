@@ -101,6 +101,8 @@ export function DeviceDetail() {
     const result = await createSession(device.id);
     if (result) {
       navigate(`/sessions/${result.token}`, { state: { relayUrl: result.relay_url, capabilities: device.capabilities } });
+    } else {
+      addToast('Failed to start session — agent may be offline or restarting', 'error');
     }
   };
 

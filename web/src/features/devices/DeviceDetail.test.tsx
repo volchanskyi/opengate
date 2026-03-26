@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { useDeviceStore } from '../../state/device-store';
 import { useSessionStore } from '../../state/session-store';
 import { useAMTStore } from '../../state/amt-store';
+import { useToastStore } from '../../state/toast-store';
 import { DeviceDetail } from './DeviceDetail';
 
 vi.mock('../../lib/api', () => ({
@@ -130,5 +131,40 @@ describe('DeviceDetail', () => {
     // Advance another 30s — third fetch
     vi.advanceTimersByTime(30_000);
     expect(fetchDeviceFn).toHaveBeenCalledTimes(3);
+  });
+
+  it('shows error toast when session creation fails', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    useSessionStore.setState({
+      ...useSessionStore.getState(),
+      createSession: vi.fn().mockResolvedValue(null),
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Start Session'));
+
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]!.message).toMatch(/failed to start session/i);
+    expect(toasts[0]!.type).toBe('error');
+  });
+
+  it('navigates to session view on successful creation', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const router = createMemoryRouter(
+      [
+        { path: '/devices/:id', element: <DeviceDetail /> },
+        { path: '/sessions/:token', element: <p>Session View</p> },
+      ],
+      { initialEntries: ['/devices/d1'] },
+    );
+    render(<RouterProvider router={router} />);
+
+    await user.click(screen.getByText('Start Session'));
+
+    expect(await screen.findByText('Session View')).toBeInTheDocument();
   });
 });
