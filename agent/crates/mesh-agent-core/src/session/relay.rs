@@ -44,6 +44,9 @@ pub(crate) async fn ws_writer_loop(
     let _ = ws_tx.close().await;
 }
 
+/// Maximum consecutive capture failures before the loop gives up.
+const MAX_CONSECUTIVE_CAPTURE_ERRORS: u32 = 3;
+
 /// Desktop capture loop: captures frames and sends them to the relay.
 pub(crate) async fn capture_loop(
     capture: &mut dyn ScreenCapture,
@@ -52,10 +55,12 @@ pub(crate) async fn capture_loop(
 ) {
     let sequence = AtomicU64::new(0);
     let frame_interval = Duration::from_millis(33); // ~30 FPS
+    let mut consecutive_errors: u32 = 0;
 
     while running.load(Ordering::Relaxed) {
         match capture.next_frame().await {
             Ok(raw_frame) => {
+                consecutive_errors = 0;
                 let seq = sequence.fetch_add(1, Ordering::Relaxed);
                 let desktop_frame = DesktopFrame {
                     sequence: seq,
@@ -72,7 +77,12 @@ pub(crate) async fn capture_loop(
                 }
             }
             Err(e) => {
-                warn!("capture error: {e}");
+                consecutive_errors += 1;
+                if consecutive_errors >= MAX_CONSECUTIVE_CAPTURE_ERRORS {
+                    warn!("capture failed {consecutive_errors} times, stopping: {e}");
+                    break;
+                }
+                warn!("capture error ({consecutive_errors}/{MAX_CONSECUTIVE_CAPTURE_ERRORS}): {e}");
                 tokio::time::sleep(frame_interval).await;
             }
         }
