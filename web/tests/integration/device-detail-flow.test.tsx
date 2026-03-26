@@ -34,6 +34,7 @@ const mockDevice = {
   hostname: 'prod-server',
   os: 'linux',
   agent_version: '1.0.0',
+  capabilities: [],
   status: 'online' as const,
   last_seen: '2026-01-01T00:00:00Z',
   created_at: '2025-12-01T00:00:00Z',

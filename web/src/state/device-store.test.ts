@@ -122,8 +122,8 @@ describe('device store', () => {
   it('deleteDevice removes from list', async () => {
     useDeviceStore.setState({
       devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '', status: 'online', last_seen: '', created_at: '', updated_at: '' },
-        { id: 'd2', group_id: 'g1', hostname: 'h2', os: 'linux', agent_version: '', status: 'offline', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'd1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'd2', group_id: 'g1', hostname: 'h2', os: 'linux', agent_version: '', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
       ],
     });
     mockDelete.mockResolvedValueOnce({ error: undefined });

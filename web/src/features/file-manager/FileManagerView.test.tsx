@@ -30,6 +30,7 @@ describe('FileManagerView', () => {
       error: null,
       downloads: {},
       uploads: {},
+      viewingFile: null,
     });
   });
 
@@ -78,5 +79,76 @@ describe('FileManagerView', () => {
       type: 'FileListRequest',
       path: '/home/docs',
     });
+  });
+
+  it('shows View and Download buttons for files but not directories', () => {
+    render(<FileManagerView />);
+    // File entry should have both buttons
+    expect(screen.getByLabelText('View file.txt')).toBeInTheDocument();
+    expect(screen.getByLabelText('Download file.txt')).toBeInTheDocument();
+    // Directory entry should not have buttons
+    expect(screen.queryByLabelText('View docs')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Download docs')).not.toBeInTheDocument();
+  });
+
+  it('clicking Download button sends FileDownloadRequest with full path', async () => {
+    const user = userEvent.setup();
+    const mockSendControl = vi.fn();
+    useConnectionStore.setState({
+      state: 'connected',
+      transport: { sendControl: mockSendControl } as never,
+    });
+
+    render(<FileManagerView />);
+    await user.click(screen.getByLabelText('Download file.txt'));
+
+    expect(mockSendControl).toHaveBeenCalledWith({
+      type: 'FileDownloadRequest',
+      path: '/home/file.txt',
+    });
+  });
+
+  it('clicking View button sends FileDownloadRequest with full path', async () => {
+    const user = userEvent.setup();
+    const mockSendControl = vi.fn();
+    useConnectionStore.setState({
+      state: 'connected',
+      transport: { sendControl: mockSendControl } as never,
+    });
+
+    render(<FileManagerView />);
+    await user.click(screen.getByLabelText('View file.txt'));
+
+    expect(mockSendControl).toHaveBeenCalledWith({
+      type: 'FileDownloadRequest',
+      path: '/home/file.txt',
+    });
+  });
+
+  it('disables buttons while download is in progress', () => {
+    useFileStore.setState({ downloads: { 'file.txt': 0.5 } });
+    render(<FileManagerView />);
+    expect(screen.getByLabelText('View file.txt')).toBeDisabled();
+    expect(screen.getByLabelText('Download file.txt')).toBeDisabled();
+  });
+
+  it('renders file viewer when viewingFile is set', () => {
+    useFileStore.setState({
+      viewingFile: { name: 'readme.md', content: '# Hello World' },
+    });
+    render(<FileManagerView />);
+    expect(screen.getByText('readme.md')).toBeInTheDocument();
+    expect(screen.getByText('# Hello World')).toBeInTheDocument();
+  });
+
+  it('close button on viewer clears viewingFile', async () => {
+    const user = userEvent.setup();
+    useFileStore.setState({
+      viewingFile: { name: 'readme.md', content: '# Hello' },
+    });
+    render(<FileManagerView />);
+
+    await user.click(screen.getByLabelText('Close viewer'));
+    expect(useFileStore.getState().viewingFile).toBeNull();
   });
 });

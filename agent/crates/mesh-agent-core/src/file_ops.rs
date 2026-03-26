@@ -93,6 +93,22 @@ impl FileOpsHandler {
         debug!(path, total_size, "streaming file download");
 
         let data = tokio::fs::read(&file_path).await?;
+
+        // Empty files produce zero chunks, so send a single empty frame.
+        if data.is_empty() {
+            let frame = Frame::FileTransfer(FileFrame {
+                offset: 0,
+                total_size: 0,
+                data: vec![],
+            });
+            let encoded = frame.encode()?;
+            frame_tx
+                .send(encoded)
+                .await
+                .map_err(|_| SessionError::WebSocket("send channel closed".to_string()))?;
+            return Ok(());
+        }
+
         let mut offset: u64 = 0;
 
         for chunk in data.chunks(CHUNK_SIZE) {
@@ -205,6 +221,36 @@ mod tests {
             }
             _ => panic!("expected FileTransfer frame"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_stream_download_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("empty.txt");
+        std::fs::write(&file_path, "").unwrap();
+
+        let handler = FileOpsHandler::new(true, false);
+        let (tx, mut rx) = mpsc::channel(8);
+
+        handler
+            .stream_download(file_path.to_str().unwrap(), &tx)
+            .await
+            .unwrap();
+
+        // Should receive exactly one frame with total_size=0
+        let data = rx.try_recv().unwrap();
+        let (frame, _) = Frame::decode(&data).unwrap();
+        match frame {
+            Frame::FileTransfer(ff) => {
+                assert_eq!(ff.offset, 0);
+                assert_eq!(ff.total_size, 0);
+                assert!(ff.data.is_empty());
+            }
+            _ => panic!("expected FileTransfer frame"),
+        }
+
+        // No more frames
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]

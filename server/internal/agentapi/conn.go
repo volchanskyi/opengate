@@ -152,12 +152,18 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 	a.Arch = msg.Arch
 	a.AgentVersion = msg.Version
 
+	caps := make([]string, len(msg.Capabilities))
+	for i, c := range msg.Capabilities {
+		caps[i] = string(c)
+	}
+
 	device := &db.Device{
 		ID:           a.DeviceID,
 		GroupID:      a.GroupID,
 		Hostname:     msg.Hostname,
 		OS:           msg.OS,
 		AgentVersion: msg.Version,
+		Capabilities: caps,
 		Status:       db.StatusOnline,
 	}
 

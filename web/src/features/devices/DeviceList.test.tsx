@@ -54,8 +54,8 @@ describe('DeviceList', () => {
   it('renders devices', () => {
     useDeviceStore.setState({
       devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
-        { id: 'd2', group_id: 'g1', hostname: 'host-2', os: 'windows', agent_version: '', status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd2', group_id: 'g1', hostname: 'host-2', os: 'windows', agent_version: '', capabilities: [], status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
       ],
     });
     renderDeviceList();
