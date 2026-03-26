@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { paintFrame, type CanvasContext } from './desktop-worker';
 import type { DesktopFrame } from '../../lib/protocol/types';
 
@@ -13,11 +13,19 @@ function createMockContext(width = 1920, height = 1080): CanvasContext {
       data: new Uint8ClampedArray(w * h * 4),
       colorSpace: 'srgb' as const,
     })),
+    drawImage: vi.fn(),
   };
 }
 
+const mockBitmap = { close: vi.fn() } as unknown as ImageBitmap;
+
+beforeEach(() => {
+  vi.stubGlobal('createImageBitmap', vi.fn().mockResolvedValue(mockBitmap));
+  (mockBitmap.close as ReturnType<typeof vi.fn>).mockClear();
+});
+
 describe('desktop-worker paintFrame', () => {
-  it('paints Raw RGBA data to canvas context', () => {
+  it('paints Raw RGBA data to canvas context', async () => {
     const ctx = createMockContext();
     const rgba = new Uint8Array(10 * 10 * 4);
     rgba.fill(255);
@@ -32,7 +40,7 @@ describe('desktop-worker paintFrame', () => {
       data: rgba,
     };
 
-    paintFrame(ctx, frame);
+    await paintFrame(ctx, frame);
 
     expect(ctx.createImageData).toHaveBeenCalledWith(10, 10);
     expect(ctx.putImageData).toHaveBeenCalledTimes(1);
@@ -43,7 +51,7 @@ describe('desktop-worker paintFrame', () => {
     expect(imageData.height).toBe(10);
   });
 
-  it('places frame at correct x,y offset', () => {
+  it('places frame at correct x,y offset', async () => {
     const ctx = createMockContext();
     const frame: DesktopFrame = {
       sequence: 2,
@@ -55,14 +63,14 @@ describe('desktop-worker paintFrame', () => {
       data: new Uint8Array(5 * 5 * 4),
     };
 
-    paintFrame(ctx, frame);
+    await paintFrame(ctx, frame);
 
     const [, x, y] = (ctx.putImageData as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(x).toBe(100);
     expect(y).toBe(200);
   });
 
-  it('copies RGBA data into ImageData', () => {
+  it('copies RGBA data into ImageData', async () => {
     const ctx = createMockContext();
     const rgba = new Uint8Array(4);
     rgba[0] = 255; // R
@@ -80,7 +88,7 @@ describe('desktop-worker paintFrame', () => {
       data: rgba,
     };
 
-    paintFrame(ctx, frame);
+    await paintFrame(ctx, frame);
 
     const [imageData] = (ctx.putImageData as ReturnType<typeof vi.fn>).mock.calls[0]!;
     expect(imageData.data[0]).toBe(255);
@@ -89,7 +97,7 @@ describe('desktop-worker paintFrame', () => {
     expect(imageData.data[3]).toBe(255);
   });
 
-  it('handles non-Raw encoding by skipping (no paint)', () => {
+  it('handles unsupported encoding by skipping (no paint)', async () => {
     const ctx = createMockContext();
     const frame: DesktopFrame = {
       sequence: 4,
@@ -101,8 +109,35 @@ describe('desktop-worker paintFrame', () => {
       data: new Uint8Array(100),
     };
 
-    paintFrame(ctx, frame);
+    await paintFrame(ctx, frame);
 
     expect(ctx.putImageData).not.toHaveBeenCalled();
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+  });
+
+  it('decodes Jpeg frame via createImageBitmap and drawImage', async () => {
+    const ctx = createMockContext();
+    const jpegData = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0]); // fake JPEG header
+
+    const frame: DesktopFrame = {
+      sequence: 5,
+      x: 10,
+      y: 20,
+      width: 100,
+      height: 100,
+      encoding: 'Jpeg',
+      data: jpegData,
+    };
+
+    await paintFrame(ctx, frame);
+
+    expect(createImageBitmap).toHaveBeenCalledTimes(1);
+    const blobArg = (createImageBitmap as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Blob;
+    expect(blobArg).toBeInstanceOf(Blob);
+    expect(blobArg.type).toBe('image/jpeg');
+
+    expect(ctx.drawImage).toHaveBeenCalledWith(mockBitmap, 10, 20);
+    expect(ctx.putImageData).not.toHaveBeenCalled();
+    expect(mockBitmap.close).toHaveBeenCalledTimes(1);
   });
 });

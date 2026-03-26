@@ -47,6 +47,9 @@ pub(crate) async fn ws_writer_loop(
 /// Maximum consecutive capture failures before the loop gives up.
 const MAX_CONSECUTIVE_CAPTURE_ERRORS: u32 = 3;
 
+/// Default JPEG quality (0-100). Matches MeshCentral's default.
+const JPEG_QUALITY: u8 = 70;
+
 /// Desktop capture loop: captures frames and sends them to the relay.
 pub(crate) async fn capture_loop(
     capture: &mut dyn ScreenCapture,
@@ -54,7 +57,7 @@ pub(crate) async fn capture_loop(
     running: Arc<AtomicBool>,
 ) {
     let sequence = AtomicU64::new(0);
-    let frame_interval = Duration::from_millis(33); // ~30 FPS
+    let frame_interval = Duration::from_millis(100); // ~10 FPS
     let mut consecutive_errors: u32 = 0;
 
     while running.load(Ordering::Relaxed) {
@@ -62,14 +65,23 @@ pub(crate) async fn capture_loop(
             Ok(raw_frame) => {
                 consecutive_errors = 0;
                 let seq = sequence.fetch_add(1, Ordering::Relaxed);
+
+                let (encoding, data) = match encode_jpeg(&raw_frame, JPEG_QUALITY) {
+                    Ok(jpeg_data) => (FrameEncoding::Jpeg, jpeg_data),
+                    Err(e) => {
+                        warn!("JPEG encode failed, sending raw: {e}");
+                        (FrameEncoding::Raw, raw_frame.data)
+                    }
+                };
+
                 let desktop_frame = DesktopFrame {
                     sequence: seq,
                     x: 0,
                     y: 0,
                     width: raw_frame.width as u16,
                     height: raw_frame.height as u16,
-                    encoding: FrameEncoding::Raw,
-                    data: raw_frame.data,
+                    encoding,
+                    data,
                 };
                 let frame = Frame::Desktop(desktop_frame);
                 if send_frame(&frame_tx, &frame).await.is_err() {
@@ -89,6 +101,32 @@ pub(crate) async fn capture_loop(
 
         tokio::time::sleep(frame_interval).await;
     }
+}
+
+/// Encode RGBA pixel data as JPEG (strips alpha → RGB for JPEG compatibility).
+fn encode_jpeg(frame: &crate::platform::RawFrame, quality: u8) -> Result<Vec<u8>, SessionError> {
+    use image::codecs::jpeg::JpegEncoder;
+
+    // JPEG doesn't support alpha — convert RGBA → RGB by dropping every 4th byte.
+    let pixel_count = (frame.width * frame.height) as usize;
+    let mut rgb = Vec::with_capacity(pixel_count * 3);
+    for chunk in frame.data.chunks_exact(4) {
+        rgb.push(chunk[0]); // R
+        rgb.push(chunk[1]); // G
+        rgb.push(chunk[2]); // B
+    }
+
+    let mut buf = Vec::new();
+    let mut encoder = JpegEncoder::new_with_quality(&mut buf, quality);
+    encoder
+        .encode(
+            &rgb,
+            frame.width,
+            frame.height,
+            image::ExtendedColorType::Rgb8,
+        )
+        .map_err(|e| SessionError::WebSocket(format!("jpeg encode: {e}")))?;
+    Ok(buf)
 }
 
 /// Encode a frame and send it via the channel.
@@ -124,5 +162,41 @@ mod tests {
     fn test_build_relay_url_invalid() {
         let result = build_relay_url("not a url");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_encode_jpeg_valid_rgba() {
+        let frame = crate::platform::RawFrame {
+            width: 2,
+            height: 2,
+            data: vec![
+                255, 0, 0, 255, // red
+                0, 255, 0, 255, // green
+                0, 0, 255, 255, // blue
+                255, 255, 255, 255, // white
+            ],
+        };
+        let jpeg = encode_jpeg(&frame, 70).expect("encode should succeed");
+        // JPEG files start with SOI marker: 0xFF 0xD8
+        assert!(jpeg.len() >= 2);
+        assert_eq!(jpeg[0], 0xFF);
+        assert_eq!(jpeg[1], 0xD8);
+    }
+
+    #[test]
+    fn test_encode_jpeg_smaller_than_raw() {
+        // 100x100 RGBA = 40,000 bytes raw
+        let frame = crate::platform::RawFrame {
+            width: 100,
+            height: 100,
+            data: vec![128; 100 * 100 * 4],
+        };
+        let jpeg = encode_jpeg(&frame, 70).expect("encode should succeed");
+        assert!(
+            jpeg.len() < frame.data.len(),
+            "JPEG ({}) should be smaller than raw ({})",
+            jpeg.len(),
+            frame.data.len()
+        );
     }
 }

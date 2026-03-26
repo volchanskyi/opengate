@@ -92,6 +92,13 @@ impl SessionHandler {
             }
             ControlMessage::ChatMessage { text, sender } => {
                 info!(sender, text, "chat message received");
+                let echo = ControlMessage::ChatMessage {
+                    text,
+                    sender: "agent".to_string(),
+                };
+                if let Err(e) = send_frame(frame_tx, &Frame::Control(echo)).await {
+                    warn!("failed to echo chat message: {e}");
+                }
             }
             ControlMessage::SwitchToWebRTC { sdp_offer } => {
                 info!("WebRTC switch requested");
@@ -592,6 +599,78 @@ mod tests {
                 assert!(!error.is_empty());
             }
             other => panic!("expected FileListError, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_control_chat_echoes_back() {
+        let handler = new_handler(all_perms());
+        let injector = NullInput;
+        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::ChatMessage {
+                    text: "hello".to_string(),
+                    sender: "browser".to_string(),
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                None,
+                &webrtc_pc,
+            )
+            .await;
+
+        let data = frame_rx.try_recv().expect("expected chat echo frame");
+        let frame = decode_frame(&data);
+        match frame {
+            Frame::Control(ControlMessage::ChatMessage { text, sender }) => {
+                assert_eq!(sender, "agent");
+                assert_eq!(text, "hello");
+            }
+            other => panic!("expected ChatMessage, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_control_chat_preserves_text() {
+        let handler = new_handler(all_perms());
+        let injector = NullInput;
+        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+
+        // Test unicode and empty string
+        for text in ["", "héllo 🌍", "日本語テスト", "line1\nline2\ttab"] {
+            handler
+                .handle_frame(
+                    Frame::Control(ControlMessage::ChatMessage {
+                        text: text.to_string(),
+                        sender: "user".to_string(),
+                    }),
+                    &injector,
+                    &frame_tx,
+                    &file_ops,
+                    None,
+                    &webrtc_pc,
+                )
+                .await;
+
+            let data = frame_rx.try_recv().expect("expected chat echo frame");
+            let frame = decode_frame(&data);
+            match frame {
+                Frame::Control(ControlMessage::ChatMessage {
+                    text: echoed,
+                    sender,
+                }) => {
+                    assert_eq!(sender, "agent");
+                    assert_eq!(echoed, text);
+                }
+                other => panic!("expected ChatMessage, got {other:?}"),
+            }
         }
     }
 

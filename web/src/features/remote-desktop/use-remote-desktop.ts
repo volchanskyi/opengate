@@ -26,7 +26,7 @@ export function useRemoteDesktop(canvasRef: React.RefObject<HTMLCanvasElement | 
           canvas.height = frame.height;
         }
       }
-      paintFrame(ctx as unknown as CanvasContext, frame);
+      void paintFrame(ctx as unknown as CanvasContext, frame);
     });
 
     // Set up input capture

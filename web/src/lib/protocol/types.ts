@@ -19,7 +19,7 @@ export interface Permissions {
 }
 
 /** Encoding format for desktop frame data. */
-export type FrameEncoding = 'Raw' | 'Zlib' | 'Zstd' | 'H264Idr' | 'H264Delta';
+export type FrameEncoding = 'Raw' | 'Zlib' | 'Zstd' | 'H264Idr' | 'H264Delta' | 'Jpeg';
 
 /** A desktop video frame. */
 export interface DesktopFrame {

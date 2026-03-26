@@ -193,6 +193,21 @@ describe('round-trip encode/decode', () => {
     }
   });
 
+  it('round-trips DesktopFrame with Jpeg encoding', () => {
+    const jpegData = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0]);
+    const original: Frame = {
+      type: FRAME_DESKTOP,
+      frame: { sequence: 99, x: 0, y: 0, width: 1920, height: 1080, encoding: 'Jpeg', data: jpegData },
+    };
+    const encoded = encodeFrame(original);
+    const { frame } = decodeFrame(encoded);
+    expect(frame.type).toBe(FRAME_DESKTOP);
+    if (frame.type === FRAME_DESKTOP) {
+      expect(frame.frame.encoding).toBe('Jpeg');
+      expect(new Uint8Array(frame.frame.data)).toEqual(jpegData);
+    }
+  });
+
   it('round-trips TerminalFrame preserving binary data', () => {
     const textData = new Uint8Array([0x48, 0x65, 0x6c, 0x6c, 0x6f]);
     const original: Frame = { type: FRAME_TERMINAL, frame: { data: textData } };

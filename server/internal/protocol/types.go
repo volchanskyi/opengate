@@ -66,6 +66,7 @@ const (
 	EncodingZstd      FrameEncoding = "Zstd"
 	EncodingH264Idr   FrameEncoding = "H264Idr"
 	EncodingH264Delta FrameEncoding = "H264Delta"
+	EncodingJpeg      FrameEncoding = "Jpeg"
 )
 
 // DesktopFrame contains compressed pixel data for a screen region.

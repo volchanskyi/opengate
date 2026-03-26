@@ -7,14 +7,14 @@
 
 use mesh_protocol::{KeyEvent, MouseButton};
 
-/// A raw captured screen frame (BGRA pixel data).
+/// A raw captured screen frame (RGBA pixel data).
 #[derive(Debug, Clone)]
 pub struct RawFrame {
     /// Frame width in pixels.
     pub width: u32,
     /// Frame height in pixels.
     pub height: u32,
-    /// BGRA pixel data, length = width * height * 4.
+    /// RGBA pixel data, length = width * height * 4.
     pub data: Vec<u8>,
 }
 
