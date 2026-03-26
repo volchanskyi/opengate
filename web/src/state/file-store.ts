@@ -8,6 +8,7 @@ interface FileState {
   error: string | null;
   downloads: Record<string, number>;
   uploads: Record<string, number>;
+  viewingFile: { name: string; content: string } | null;
 
   setEntries: (path: string, entries: FileEntry[]) => void;
   setDownloadProgress: (name: string, progress: number) => void;
@@ -16,6 +17,8 @@ interface FileState {
   clearUpload: (name: string) => void;
   setError: (error: string | null) => void;
   setLoading: (loading: boolean) => void;
+  setViewingFile: (name: string, content: string) => void;
+  clearViewingFile: () => void;
 }
 
 export const useFileStore = create<FileState>((set) => ({
@@ -25,6 +28,7 @@ export const useFileStore = create<FileState>((set) => ({
   error: null,
   downloads: {},
   uploads: {},
+  viewingFile: null,
 
   setEntries: (path, entries) => set({ currentPath: path, entries, isLoading: false }),
 
@@ -50,4 +54,6 @@ export const useFileStore = create<FileState>((set) => ({
 
   setError: (error) => set({ error }),
   setLoading: (isLoading) => set({ isLoading }),
+  setViewingFile: (name, content) => set({ viewingFile: { name, content } }),
+  clearViewingFile: () => set({ viewingFile: null }),
 }));

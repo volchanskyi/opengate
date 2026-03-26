@@ -32,6 +32,7 @@ type Device struct {
 	Hostname     string       `json:"hostname"`
 	OS           string       `json:"os"`
 	AgentVersion string       `json:"agent_version"`
+	Capabilities []string     `json:"capabilities"`
 	Status       DeviceStatus `json:"status"`
 	LastSeen     time.Time    `json:"last_seen"`
 	CreatedAt    time.Time    `json:"created_at"`

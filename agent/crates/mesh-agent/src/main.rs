@@ -418,11 +418,16 @@ async fn main() -> Result<()> {
         // Register with server
         if let Err(e) = conn
             .send_control(mesh_protocol::ControlMessage::AgentRegister {
-                capabilities: vec![
-                    mesh_protocol::AgentCapability::RemoteDesktop,
-                    mesh_protocol::AgentCapability::Terminal,
-                    mesh_protocol::AgentCapability::FileManager,
-                ],
+                capabilities: {
+                    let mut caps = vec![
+                        mesh_protocol::AgentCapability::Terminal,
+                        mesh_protocol::AgentCapability::FileManager,
+                    ];
+                    if platform_linux::has_display() {
+                        caps.push(mesh_protocol::AgentCapability::RemoteDesktop);
+                    }
+                    caps
+                },
                 hostname: gethostname::gethostname().to_string_lossy().to_string(),
                 os: os_pretty_name(),
                 arch: std::env::consts::ARCH.to_string(),

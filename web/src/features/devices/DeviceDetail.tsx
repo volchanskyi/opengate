@@ -100,7 +100,7 @@ export function DeviceDetail() {
   const handleStartSession = async () => {
     const result = await createSession(device.id);
     if (result) {
-      navigate(`/sessions/${result.token}`, { state: { relayUrl: result.relay_url } });
+      navigate(`/sessions/${result.token}`, { state: { relayUrl: result.relay_url, capabilities: device.capabilities } });
     }
   };
 

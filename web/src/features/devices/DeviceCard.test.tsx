@@ -12,6 +12,7 @@ const mockDevice = {
   agent_version: '1.0.0',
   status: 'online' as const,
   last_seen: new Date().toISOString(),
+  capabilities: [],
   created_at: '',
   updated_at: '',
 };

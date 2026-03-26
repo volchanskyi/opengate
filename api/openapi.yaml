@@ -77,7 +77,7 @@ components:
 
     Device:
       type: object
-      required: [id, group_id, hostname, os, agent_version, status, last_seen, created_at, updated_at]
+      required: [id, group_id, hostname, os, agent_version, capabilities, status, last_seen, created_at, updated_at]
       properties:
         id:
           type: string
@@ -91,6 +91,10 @@ components:
           type: string
         agent_version:
           type: string
+        capabilities:
+          type: array
+          items:
+            type: string
         status:
           type: string
           enum: [online, offline, connecting]

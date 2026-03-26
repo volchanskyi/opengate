@@ -582,6 +582,7 @@ export interface components {
             hostname: string;
             os: string;
             agent_version: string;
+            capabilities: string[];
             /** @enum {string} */
             status: "online" | "offline" | "connecting";
             /** Format: date-time */

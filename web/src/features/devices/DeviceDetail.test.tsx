@@ -33,6 +33,7 @@ const mockDevice = {
   os: 'linux',
   agent_version: '1.0.0',
   status: 'online' as const,
+  capabilities: [],
   last_seen: '2026-01-01T00:00:00Z',
   created_at: '2025-12-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',

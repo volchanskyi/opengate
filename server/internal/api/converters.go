@@ -23,6 +23,7 @@ func deviceToAPI(d *db.Device) Device {
 		Hostname:     d.Hostname,
 		Os:           d.OS,
 		AgentVersion: d.AgentVersion,
+		Capabilities: d.Capabilities,
 		Status:       DeviceStatus(d.Status),
 		LastSeen:     d.LastSeen,
 		CreatedAt:    d.CreatedAt,
