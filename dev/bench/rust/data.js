@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774509726148,
+  "lastUpdate": 1774511157455,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7178,6 +7178,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.04748324688028,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "8f11b4217de3a459ed3d6fb2ecff405fb3ecb443",
+          "message": "fix: remove invalid -rule flag from VictoriaMetrics single-node config\n\nVictoriaMetrics single-node does not support the -rule flag (that is a\nvmalert feature). Alert rules are handled by Grafana unified alerting.",
+          "timestamp": "2026-03-26T00:44:32-07:00",
+          "tree_id": "d83bcc9ef942394a97253661175822ce60e809b6",
+          "url": "https://github.com/volchanskyi/opengate/commit/8f11b4217de3a459ed3d6fb2ecff405fb3ecb443"
+        },
+        "date": 1774511157406,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.308227384445676,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.660483773156624,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 743.7140014674526,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 303.75795478831515,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.097818933429885,
             "unit": "ns/iter"
           }
         ]
