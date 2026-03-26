@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774512813811,
+  "lastUpdate": 1774513529365,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7325,6 +7325,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.157259005475918,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "c30aec7fd6469e5380219ebd957647c587d5eec7",
+          "message": "fix: agent startup ordering and version auto-sync from git tags\n\nMove signing key loading AFTER enrollment so first boot doesn't produce\na spurious \"no update public key configured\" warning. The key file is\ncreated by enrollment, so it must be read after enrollment completes.\n\nUpdate build.rs to auto-detect version from git tags (git describe\n--tags --abbrev=0) as fallback, so local builds report the correct\nversion without manual Cargo.toml bumps. Bump all crate versions to\n0.15.4 to match the latest release.\n\nCo-Authored-By: Ivan Volchanskyi <ivan.volchanskyi@gmail.com>",
+          "timestamp": "2026-03-26T01:23:42-07:00",
+          "tree_id": "b1cbeb35663ca5314babd530726f1d4347cb0d27",
+          "url": "https://github.com/volchanskyi/opengate/commit/c30aec7fd6469e5380219ebd957647c587d5eec7"
+        },
+        "date": 1774513529314,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.306634844001852,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 26.86048804933581,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 743.3985307017779,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.55213136028027,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.182055657065707,
             "unit": "ns/iter"
           }
         ]
