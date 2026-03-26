@@ -13,12 +13,10 @@ services:
       - "-storageDataPath=/storage"
       - "-retentionPeriod=30d"
       - "-promscrape.config=/etc/victoriametrics/scrape.yml"
-      - "-rule=/etc/victoriametrics/alerts.yml"
       - "-httpListenAddr=:8428"
     volumes:
       - vm-data:/storage
       - ./victoriametrics/scrape.yml:/etc/victoriametrics/scrape.yml:ro
-      - ./victoriametrics/alerts.yml:/etc/victoriametrics/alerts.yml:ro
     networks:
       - monitoring
       - app
