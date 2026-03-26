@@ -247,7 +247,27 @@ async fn main() -> Result<()> {
         .await
         .context("create data directory")?;
 
+    // Load existing identity, or enroll to get a CA-signed certificate.
+    // Enrollment also writes the CA PEM to --server-ca and the update signing
+    // key, so it must happen before we read those files.
+    let identity = if needs_enrollment(&args.data_dir) {
+        match (&args.enroll_url, &args.enroll_token) {
+            (Some(url), Some(token)) => enroll(url, token, &args.data_dir, &args.server_ca).await?,
+            _ => {
+                anyhow::bail!(
+                    "no agent identity found at {} and --enroll-url / --enroll-token not set; \
+                     cannot connect without enrollment",
+                    args.data_dir.display()
+                );
+            }
+        }
+    } else {
+        mesh_agent_core::AgentIdentity::load_or_create(&args.data_dir)
+            .context("load agent identity")?
+    };
+
     // Parse update public key: CLI flag takes precedence, then saved file from enrollment.
+    // This runs AFTER enrollment so the signing key file exists on first boot.
     let update_public_key: Option<[u8; 32]> = match &args.update_public_key {
         Some(hex_str) => {
             let bytes = hex::decode(hex_str).context("decode update public key hex")?;
@@ -279,25 +299,6 @@ async fn main() -> Result<()> {
                 }
             }
         }
-    };
-
-    // Load existing identity, or enroll to get a CA-signed certificate.
-    // Enrollment also writes the CA PEM to --server-ca, so it must happen
-    // before we read the CA file.
-    let identity = if needs_enrollment(&args.data_dir) {
-        match (&args.enroll_url, &args.enroll_token) {
-            (Some(url), Some(token)) => enroll(url, token, &args.data_dir, &args.server_ca).await?,
-            _ => {
-                anyhow::bail!(
-                    "no agent identity found at {} and --enroll-url / --enroll-token not set; \
-                     cannot connect without enrollment",
-                    args.data_dir.display()
-                );
-            }
-        }
-    } else {
-        mesh_agent_core::AgentIdentity::load_or_create(&args.data_dir)
-            .context("load agent identity")?
     };
 
     info!(device_id = %identity.device_id.0, "agent identity loaded");
