@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774513529365,
+  "lastUpdate": 1774540853369,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7374,6 +7374,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.182055657065707,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "12ad0723bb6c7d9509765abc7f6c0fee11b340f3",
+          "message": "refactor: extract parse_ed25519_pubkey helper and add tests\n\nDeduplicate hex decode + 32-byte validation for signing keys into a\nsingle parse_ed25519_pubkey() function. Add 4 unit tests covering\nvalid key, wrong length, invalid hex, and empty input.\n\nCo-Authored-By: Ivan Volchanskyi <ivan.volchanskyi@gmail.com>",
+          "timestamp": "2026-03-26T08:58:26-07:00",
+          "tree_id": "1a2013845f282416cb08c687fb42fbb345d4e53c",
+          "url": "https://github.com/volchanskyi/opengate/commit/12ad0723bb6c7d9509765abc7f6c0fee11b340f3"
+        },
+        "date": 1774540853320,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.140619910458437,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.36154610944175,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 743.1757597326265,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 300.6047027302579,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.059677511925443,
             "unit": "ns/iter"
           }
         ]
