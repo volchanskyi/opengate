@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774511157455,
+  "lastUpdate": 1774511790678,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7227,6 +7227,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.097818933429885,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "869f6e4628ba15730b7564ece0d1cdf9a4cd1c10",
+          "message": "fix: stop capture loop after 3 consecutive failures instead of spamming\n\nOn headless systems NullCapture always fails, causing the capture loop\nto log warnings at ~15Hz indefinitely. Now breaks out after 3 consecutive\nerrors with a clear final message.",
+          "timestamp": "2026-03-26T00:54:52-07:00",
+          "tree_id": "a74abce992705b610164112ffed6541e3f7cbf00",
+          "url": "https://github.com/volchanskyi/opengate/commit/869f6e4628ba15730b7564ece0d1cdf9a4cd1c10"
+        },
+        "date": 1774511790640,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.45452936444788,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.112408193578663,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 764.2589124235525,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.0594137395121,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.819241344812276,
             "unit": "ns/iter"
           }
         ]
