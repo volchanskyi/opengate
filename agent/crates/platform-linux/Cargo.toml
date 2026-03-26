@@ -19,3 +19,4 @@ x11rb = { version = "0.13", features = ["allow-unsafe-code"], optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
+tempfile.workspace = true
