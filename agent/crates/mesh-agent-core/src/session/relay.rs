@@ -116,7 +116,8 @@ fn encode_jpeg(frame: &crate::platform::RawFrame, quality: u8) -> Result<Vec<u8>
         rgb.push(chunk[2]); // B
     }
 
-    let mut buf = Vec::new();
+    // Conservative pre-allocation: JPEG output is typically ~2-5% of raw RGB size.
+    let mut buf = Vec::with_capacity(pixel_count / 4);
     let mut encoder = JpegEncoder::new_with_quality(&mut buf, quality);
     encoder
         .encode(
@@ -125,7 +126,7 @@ fn encode_jpeg(frame: &crate::platform::RawFrame, quality: u8) -> Result<Vec<u8>
             frame.height,
             image::ExtendedColorType::Rgb8,
         )
-        .map_err(|e| SessionError::WebSocket(format!("jpeg encode: {e}")))?;
+        .map_err(|e| SessionError::Encode(e.to_string()))?;
     Ok(buf)
 }
 

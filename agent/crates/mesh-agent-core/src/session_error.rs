@@ -22,6 +22,10 @@ pub enum SessionError {
     #[error("permission denied: {0}")]
     PermissionDenied(String),
 
+    /// Frame encoding error (e.g. JPEG compression).
+    #[error("encode error: {0}")]
+    Encode(String),
+
     /// Terminal error.
     #[error("terminal error: {0}")]
     Terminal(String),
