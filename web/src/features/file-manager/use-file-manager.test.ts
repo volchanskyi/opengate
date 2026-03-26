@@ -102,7 +102,7 @@ describe('useFileManager', () => {
     expect(useFileStore.getState().downloads['file.bin']).toBeCloseTo(0.5);
   });
 
-  it('triggers browser save on completed download', () => {
+  function setupBrowserSaveMocks() {
     const createObjectURL = vi.fn(() => 'blob:mock-url');
     const revokeObjectURL = vi.fn();
     globalThis.URL.createObjectURL = createObjectURL;
@@ -111,14 +111,19 @@ describe('useFileManager', () => {
     const mockClick = vi.fn();
     const mockAnchor = { href: '', download: '', click: mockClick } as unknown as HTMLAnchorElement;
 
-    // Render hook first, then mock DOM methods (so React can mount)
-    const { result } = renderHook(() => useFileManager());
-
     vi.spyOn(document, 'createElement').mockImplementation((tag: string) =>
       tag === 'a' ? (mockAnchor as never) : originalCreateElement(tag),
     );
     vi.spyOn(document.body, 'appendChild').mockImplementation(() => mockAnchor as never);
     vi.spyOn(document.body, 'removeChild').mockImplementation(() => mockAnchor as never);
+
+    return { createObjectURL, revokeObjectURL, mockClick, mockAnchor };
+  }
+
+  it('triggers browser save on completed download', () => {
+    // Render hook first, then mock DOM methods (so React can mount)
+    const { result } = renderHook(() => useFileManager());
+    const { createObjectURL, revokeObjectURL, mockClick, mockAnchor } = setupBrowserSaveMocks();
 
     act(() => {
       result.current.requestDownload('/home/file.bin');
@@ -142,8 +147,7 @@ describe('useFileManager', () => {
       result.current.requestView('/home/hello.txt');
     });
 
-    const textEncoder = new TextEncoder();
-    const data = textEncoder.encode('hello world');
+    const data = new TextEncoder().encode('hello world');
 
     act(() => {
       capturedFileFrameHandler!({ offset: 0, total_size: data.length, data });
@@ -160,21 +164,8 @@ describe('useFileManager', () => {
   });
 
   it('handles empty file (total_size=0) download', () => {
-    const createObjectURL = vi.fn(() => 'blob:empty');
-    const revokeObjectURL = vi.fn();
-    globalThis.URL.createObjectURL = createObjectURL;
-    globalThis.URL.revokeObjectURL = revokeObjectURL;
-
-    const mockClick = vi.fn();
-    const mockAnchor = { href: '', download: '', click: mockClick } as unknown as HTMLAnchorElement;
-
     const { result } = renderHook(() => useFileManager());
-
-    vi.spyOn(document, 'createElement').mockImplementation((tag: string) =>
-      tag === 'a' ? (mockAnchor as never) : originalCreateElement(tag),
-    );
-    vi.spyOn(document.body, 'appendChild').mockImplementation(() => mockAnchor as never);
-    vi.spyOn(document.body, 'removeChild').mockImplementation(() => mockAnchor as never);
+    const { createObjectURL, mockClick } = setupBrowserSaveMocks();
 
     act(() => {
       result.current.requestDownload('/home/empty.txt');
