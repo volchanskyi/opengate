@@ -41,8 +41,9 @@ export function useFileManager() {
       if (msg.type === 'FileListResponse') {
         setEntries(msg.path, msg.entries);
       } else if (msg.type === 'FileListError') {
-        useFileStore.getState().setLoading(false);
-        useFileStore.getState().setError(msg.error);
+        const store = useFileStore.getState();
+        store.setLoading(false);
+        store.setError(msg.error);
       }
     });
 
@@ -56,7 +57,8 @@ export function useFileManager() {
       }
 
       transfer.accumulator.addChunk(frame);
-      useFileStore.getState().setDownloadProgress(transfer.name, transfer.accumulator.progress());
+      const store = useFileStore.getState();
+      store.setDownloadProgress(transfer.name, transfer.accumulator.progress());
 
       if (transfer.accumulator.isComplete()) {
         const blob = transfer.accumulator.toBlob();
@@ -65,11 +67,12 @@ export function useFileManager() {
 
         if (mode === 'download') {
           triggerBrowserSave(name, blob);
-          useFileStore.getState().clearDownload(name);
+          store.clearDownload(name);
         } else {
           blob.text().then((text) => {
-            useFileStore.getState().setViewingFile(name, text);
-            useFileStore.getState().clearDownload(name);
+            const s = useFileStore.getState();
+            s.setViewingFile(name, text);
+            s.clearDownload(name);
           });
         }
       }
@@ -88,21 +91,16 @@ export function useFileManager() {
     transport.sendControl({ type: 'FileListRequest', path });
   };
 
-  const requestDownload = (path: string) => {
+  const requestTransfer = (path: string, mode: TransferMode) => {
     if (!transport) return;
-    const name = path.split('/').pop() ?? 'download';
-    activeTransferRef.current = { name, mode: 'download', accumulator: null };
+    const name = path.split('/').pop() ?? 'file';
+    activeTransferRef.current = { name, mode, accumulator: null };
     useFileStore.getState().setDownloadProgress(name, 0);
     transport.sendControl({ type: 'FileDownloadRequest', path });
   };
 
-  const requestView = (path: string) => {
-    if (!transport) return;
-    const name = path.split('/').pop() ?? 'file';
-    activeTransferRef.current = { name, mode: 'view', accumulator: null };
-    useFileStore.getState().setDownloadProgress(name, 0);
-    transport.sendControl({ type: 'FileDownloadRequest', path });
-  };
+  const requestDownload = (path: string) => requestTransfer(path, 'download');
+  const requestView = (path: string) => requestTransfer(path, 'view');
 
   return { requestDirectory, requestDownload, requestView };
 }

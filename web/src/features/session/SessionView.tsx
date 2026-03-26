@@ -18,11 +18,9 @@ function availableTabs(capabilities?: string[]): readonly Tab[] {
     return ALL_TABS;
   }
   const hasDesktop = capabilities.includes('RemoteDesktop');
-  return ALL_TABS.filter((tab) => {
-    if (tab === 'Desktop') return hasDesktop;
-    if (tab === 'Chat') return hasDesktop;
-    return true; // Terminal + Files always available
-  });
+  return ALL_TABS.filter((tab) =>
+    tab === 'Desktop' || tab === 'Chat' ? hasDesktop : true,
+  );
 }
 
 export function SessionView() {
