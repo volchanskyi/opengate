@@ -4,7 +4,7 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::fs;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Errors that can occur during the update process.
 #[derive(Debug, thiserror::Error)]
@@ -105,6 +105,7 @@ pub async fn apply_update(
     }
 
     fs::rename(&new_path, &config.current_binary_path).await?;
+    restore_selinux_context(&config.current_binary_path).await;
     info!("binary replaced successfully");
 
     // Write sentinel so the startup watchdog can detect a pending update.
@@ -122,6 +123,7 @@ pub async fn rollback(binary_path: &Path) -> Result<bool, UpdateError> {
         return Ok(false);
     }
     fs::rename(&prev, binary_path).await?;
+    restore_selinux_context(binary_path).await;
     info!("rolled back to previous binary");
     Ok(true)
 }
@@ -177,6 +179,37 @@ async fn write_update_pending(data_dir: &Path) {
     let path = data_dir.join(SENTINEL_UPDATE_PENDING);
     if let Err(e) = fs::write(&path, b"1").await {
         warn!(error = %e, "failed to write update-pending sentinel");
+    }
+}
+
+/// Restore the SELinux security context for a file.
+///
+/// On SELinux-enabled systems (Fedora, RHEL, etc.), a `rename(2)` from a
+/// data directory to `/usr/local/bin/` preserves the source context (e.g.
+/// `var_lib_t`) instead of inheriting the target directory's context
+/// (`bin_t`), which blocks execution. Running `restorecon` fixes the label.
+///
+/// This is best-effort: on systems without SELinux or `restorecon`, the
+/// command silently fails and we proceed normally.
+async fn restore_selinux_context(path: &Path) {
+    match tokio::process::Command::new("restorecon")
+        .arg(path)
+        .output()
+        .await
+    {
+        Ok(output) if output.status.success() => {
+            info!(path = %path.display(), "SELinux context restored");
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            debug!(path = %path.display(), stderr = %stderr.trim(), "restorecon exited non-zero (non-SELinux system?)");
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            debug!("restorecon not found, skipping SELinux context restore");
+        }
+        Err(e) => {
+            debug!(error = %e, "restorecon failed, skipping SELinux context restore");
+        }
     }
 }
 
