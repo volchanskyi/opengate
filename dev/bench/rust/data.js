@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774568665797,
+  "lastUpdate": 1774569453428,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7668,6 +7668,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.188304361249536,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9bc4c67021511623bb2b25de75532b8fef74ceaf",
+          "message": "refactor: add SessionError::Encode variant for JPEG encoding errors\n\nReplace semantic misuse of SessionError::WebSocket for JPEG encoding\nfailures with a dedicated Encode variant. Add conservative buffer\npre-allocation for JPEG output.",
+          "timestamp": "2026-03-26T16:55:03-07:00",
+          "tree_id": "9c36149dc5a96ceab9c751cc39f1171ad30ab0fe",
+          "url": "https://github.com/volchanskyi/opengate/commit/9bc4c67021511623bb2b25de75532b8fef74ceaf"
+        },
+        "date": 1774569453380,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.33227139829523,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.449065912837533,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 748.9705751890988,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 291.4788639544746,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.222379254747416,
             "unit": "ns/iter"
           }
         ]
