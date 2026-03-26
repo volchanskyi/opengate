@@ -88,6 +88,21 @@ fn golden_desktop_frame() {
 }
 
 #[test]
+fn golden_desktop_frame_jpeg() {
+    let frame = Frame::Desktop(DesktopFrame {
+        sequence: 99,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        encoding: FrameEncoding::Jpeg,
+        data: vec![0xFF, 0xD8, 0xFF, 0xE0],
+    });
+    let encoded = frame.encode().unwrap();
+    golden_check("desktop_frame_jpeg.bin", &encoded);
+}
+
+#[test]
 fn golden_ping_pong() {
     let ping = Frame::Ping.encode().unwrap();
     let pong = Frame::Pong.encode().unwrap();
