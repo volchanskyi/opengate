@@ -2,19 +2,19 @@
   {
     "name": "JS bundle",
     "passed": true,
-    "size": 210099,
+    "size": 210909,
     "sizeLimit": 250000
   },
   {
     "name": "CSS bundle",
     "passed": true,
-    "size": 5287,
+    "size": 5321,
     "sizeLimit": 10000
   },
   {
     "name": "Total",
     "passed": true,
-    "size": 215386,
+    "size": 216230,
     "sizeLimit": 260000
   }
 ]
