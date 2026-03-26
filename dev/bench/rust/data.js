@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774511790678,
+  "lastUpdate": 1774512813811,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7276,6 +7276,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.819241344812276,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "2078ba60753f8e340015c44f17b87296ab7b6fe6",
+          "message": "fix: detect display server via socket probing for systemd services\n\nhas_display() only checked DISPLAY/WAYLAND_DISPLAY env vars, which are\nnot set in systemd service environments. Now falls back to checking for\nX11 sockets in /tmp/.X11-unix and Wayland sockets in /run/user/*/wayland-0\nso GUI machines correctly advertise RemoteDesktop even when the agent\nruns as a systemd service.",
+          "timestamp": "2026-03-26T01:12:07-07:00",
+          "tree_id": "94e9fba295b3da447c5ee97a786cf551a0ca1a12",
+          "url": "https://github.com/volchanskyi/opengate/commit/2078ba60753f8e340015c44f17b87296ab7b6fe6"
+        },
+        "date": 1774512813764,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 21.605327647272187,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 25.61525730131768,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.9544642377801,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.3803722150797,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.157259005475918,
             "unit": "ns/iter"
           }
         ]
