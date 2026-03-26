@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774507825510,
+  "lastUpdate": 1774509726148,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7129,6 +7129,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.081978522597456,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "33fe1fcab3387c76fbf22dcec619d9e719b3c3e7",
+          "message": "fix: OTA push returns 0 due to OS/arch mismatch between agent and manifest\n\nAgent registers OS as pretty name (e.g. \"Ubuntu 22.04 LTS\") and arch as\nRust consts (e.g. \"x86_64\", \"aarch64\"), but manifests use \"linux\"/\"amd64\"/\n\"arm64\". Add normalizeOS() and normalizeArch() to eligibleAgents filter.\nAlso log actual error when update signing key file cannot be read.",
+          "timestamp": "2026-03-26T00:20:24-07:00",
+          "tree_id": "0bf6d0686377f87c20887043553cbe4e1d66ace8",
+          "url": "https://github.com/volchanskyi/opengate/commit/33fe1fcab3387c76fbf22dcec619d9e719b3c3e7"
+        },
+        "date": 1774509726077,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.24566974188024,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.440048120347353,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 751.543701917706,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 301.1620950233321,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.04748324688028,
             "unit": "ns/iter"
           }
         ]
