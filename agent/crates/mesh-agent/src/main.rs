@@ -269,8 +269,12 @@ async fn main() -> Result<()> {
                     info!("loaded update signing key from enrollment");
                     Some(key)
                 }
-                Err(_) => {
-                    warn!("no update public key configured, auto-updates disabled");
+                Err(e) => {
+                    warn!(
+                        path = %key_path.display(),
+                        error = %e,
+                        "no update public key configured, auto-updates disabled"
+                    );
                     None
                 }
             }

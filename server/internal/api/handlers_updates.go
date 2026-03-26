@@ -3,12 +3,51 @@ package api
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
+
+// normalizeOS maps an agent's OS pretty name to a GOOS-style value for
+// matching against manifests.  E.g. "Ubuntu 22.04 LTS" → "linux".
+func normalizeOS(agentOS string) string {
+	lower := strings.ToLower(agentOS)
+	switch {
+	case lower == "linux" || lower == "windows" || lower == "darwin":
+		return lower
+	case strings.Contains(lower, "linux"),
+		strings.Contains(lower, "ubuntu"),
+		strings.Contains(lower, "debian"),
+		strings.Contains(lower, "fedora"),
+		strings.Contains(lower, "centos"),
+		strings.Contains(lower, "rhel"),
+		strings.Contains(lower, "arch"),
+		strings.Contains(lower, "alpine"):
+		return "linux"
+	case strings.Contains(lower, "windows"):
+		return "windows"
+	case strings.Contains(lower, "darwin"), strings.Contains(lower, "macos"):
+		return "darwin"
+	default:
+		return lower
+	}
+}
+
+// normalizeArch maps Rust std::env::consts::ARCH values to Go/manifest
+// conventions.  E.g. "x86_64" → "amd64", "aarch64" → "arm64".
+func normalizeArch(agentArch string) string {
+	switch agentArch {
+	case "x86_64":
+		return "amd64"
+	case "aarch64":
+		return "arm64"
+	default:
+		return agentArch
+	}
+}
 
 // ListUpdateManifests implements StrictServerInterface.
 func (s *Server) ListUpdateManifests(ctx context.Context, _ ListUpdateManifestsRequestObject) (ListUpdateManifestsResponseObject, error) {
@@ -127,7 +166,7 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 func (s *Server) eligibleAgents(osName, arch, version string, targetSet map[string]struct{}) []*agentapi.AgentConn {
 	var eligible []*agentapi.AgentConn
 	for _, agent := range s.agents.ListConnectedAgents() {
-		if agent.OS != osName || agent.Arch != arch {
+		if normalizeOS(agent.OS) != osName || normalizeArch(agent.Arch) != arch {
 			continue
 		}
 		if agent.AgentVersion == version {
