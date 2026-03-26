@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774546782323,
+  "lastUpdate": 1774566387641,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7570,6 +7570,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 25.337650937947352,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "1cf73f8e9396260edf830ce8faa0d592f71b7448",
+          "message": "fix: show error toast when Start Session fails silently\n\nPreviously, clicking Start Session on a device whose agent was offline\nor restarting after an OTA update did nothing — createSession returned\nnull and the UI gave no feedback. Now an error toast is displayed.",
+          "timestamp": "2026-03-26T16:04:53-07:00",
+          "tree_id": "d6b9f6d6bf32a60dac2b7364849942dcad4664e1",
+          "url": "https://github.com/volchanskyi/opengate/commit/1cf73f8e9396260edf830ce8faa0d592f71b7448"
+        },
+        "date": 1774566387595,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.097966583296298,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.406459569303106,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 750.0140611188291,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.861200809823,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.085114915291705,
             "unit": "ns/iter"
           }
         ]
