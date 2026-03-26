@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774507021788,
+  "lastUpdate": 1774507825510,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7080,6 +7080,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.812197687779037,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "72a29a5035ef4d264bced133594a13fd1ddb45b4",
+          "message": "refactor: deduplicate file transfer request logic and test fixtures\n\n- Extract requestTransfer() to share download/view logic\n- Extract setupBrowserSaveMocks() helper in tests\n- Consolidate repeated useFileStore.getState() calls\n- Simplify availableTabs filter with ternary",
+          "timestamp": "2026-03-25T23:48:42-07:00",
+          "tree_id": "54a82d7e6faaf902e192999472a3cdd70b885f59",
+          "url": "https://github.com/volchanskyi/opengate/commit/72a29a5035ef4d264bced133594a13fd1ddb45b4"
+        },
+        "date": 1774507825463,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.19455104734841,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.3678679278779,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.2938871583568,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.4701385980719,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.081978522597456,
             "unit": "ns/iter"
           }
         ]
