@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774545677468,
+  "lastUpdate": 1774546782323,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7521,6 +7521,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.080240663543403,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "47ba9ed7a67839db69cc01873c0d52526df34b82",
+          "message": "fix: restore SELinux context after OTA binary replacement\n\nOn SELinux-enabled systems (Fedora, RHEL), rename(2) from the data\ndirectory preserves the source SELinux context (var_lib_t) instead of\ninheriting the target bin_t context, blocking execution with\n\"Permission denied\". Run restorecon after rename in both apply_update\nand rollback paths. Best-effort: silently skipped on non-SELinux systems.",
+          "timestamp": "2026-03-26T10:38:00-07:00",
+          "tree_id": "ed35a06cddf4931a41857f567d615d7118351dcd",
+          "url": "https://github.com/volchanskyi/opengate/commit/47ba9ed7a67839db69cc01873c0d52526df34b82"
+        },
+        "date": 1774546782277,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.244395905499704,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.434456614330596,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 752.8872947442542,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.9017864252312,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 25.337650937947352,
             "unit": "ns/iter"
           }
         ]
