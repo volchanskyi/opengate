@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774478447478,
+  "lastUpdate": 1774507021788,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7031,6 +7031,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.41819573138261,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "91fceee58cf8f24f8981f2742a8fc3c84ade5ca5",
+          "message": "feat: file manager view/download and capability-based session tabs\n\nWire up FileFrame handler for file download and in-browser viewing.\nAdd headless detection (DISPLAY/WAYLAND_DISPLAY) so agents on headless\nLinux only advertise Terminal+FileManager capabilities. Capabilities\nflow full-stack: agent registration → DB (migration 008) → REST API →\nweb client, which hides Desktop/Chat tabs for headless devices.",
+          "timestamp": "2026-03-25T23:35:28-07:00",
+          "tree_id": "523d35958c92b4078037a8e3ac5f104b788d53a6",
+          "url": "https://github.com/volchanskyi/opengate/commit/91fceee58cf8f24f8981f2742a8fc3c84ade5ca5"
+        },
+        "date": 1774507021736,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.349799791870918,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.737369262222277,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 609.359188547383,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.11773297020477,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.812197687779037,
             "unit": "ns/iter"
           }
         ]
