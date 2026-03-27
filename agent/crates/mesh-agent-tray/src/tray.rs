@@ -27,10 +27,10 @@ impl IconState {
     fn color(&self) -> [u8; 4] {
         match self {
             Self::Connected => [0x4C, 0xAF, 0x50, 0xFF],    // Green
-            Self::Reconnecting => [0xFF, 0xC1, 0x07, 0xFF],  // Yellow
-            Self::Disconnected => [0x9E, 0x9E, 0x9E, 0xFF],  // Gray
-            Self::Updating => [0x21, 0x96, 0xF3, 0xFF],      // Blue
-            Self::Unavailable => [0xF4, 0x43, 0x36, 0xFF],   // Red
+            Self::Reconnecting => [0xFF, 0xC1, 0x07, 0xFF], // Yellow
+            Self::Disconnected => [0x9E, 0x9E, 0x9E, 0xFF], // Gray
+            Self::Updating => [0x21, 0x96, 0xF3, 0xFF],     // Blue
+            Self::Unavailable => [0xF4, 0x43, 0x36, 0xFF],  // Red
         }
     }
 
@@ -77,11 +77,7 @@ fn generate_icon(state: IconState, size: u32) -> Icon {
 }
 
 /// Create a tray icon with the given initial state.
-pub fn create_tray_icon(
-    menu: &muda::Menu,
-    state: IconState,
-    version: &str,
-) -> tray_icon::TrayIcon {
+pub fn create_tray_icon(menu: &muda::Menu, state: IconState, version: &str) -> tray_icon::TrayIcon {
     let icon = generate_icon(state, 32);
     let tooltip = format!("OpenGate Agent v{version} — {}", state.tooltip_suffix());
 
@@ -129,6 +125,9 @@ mod tests {
     #[test]
     fn test_icon_state_tooltips() {
         assert_eq!(IconState::Connected.tooltip_suffix(), "Connected");
-        assert_eq!(IconState::Unavailable.tooltip_suffix(), "Service unavailable");
+        assert_eq!(
+            IconState::Unavailable.tooltip_suffix(),
+            "Service unavailable"
+        );
     }
 }

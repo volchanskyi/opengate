@@ -108,11 +108,7 @@ fn find_current_log(log_path: &str) -> String {
         if let Ok(entries) = std::fs::read_dir(path) {
             let mut files: Vec<_> = entries
                 .flatten()
-                .filter(|e| {
-                    e.file_name()
-                        .to_string_lossy()
-                        .starts_with("agent.log")
-                })
+                .filter(|e| e.file_name().to_string_lossy().starts_with("agent.log"))
                 .collect();
 
             files.sort_by_key(|e| {

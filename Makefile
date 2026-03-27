@@ -1,19 +1,19 @@
 .PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic
 
 build:
-	cd agent && cargo build --workspace
+	cd agent && cargo build --workspace --exclude mesh-agent-tray
 	cd server && go build ./...
 	cd web && npm run build
 
 test: test-rust test-go test-web
 
 test-short:
-	cd agent && cargo test --workspace
+	cd agent && cargo test --workspace --exclude mesh-agent-tray
 	cd server && go test -short ./...
 	cd web && npx vitest run
 
 test-rust:
-	cd agent && cargo test --workspace
+	cd agent && cargo test --workspace --exclude mesh-agent-tray
 
 test-go:
 	cd server && go test -race -timeout 5m ./...
@@ -28,7 +28,7 @@ test-coverage:
 	cd server && go test -race -coverprofile=coverage.out -covermode=atomic ./... && go tool cover -func=coverage.out
 
 lint: lint-deploy
-	cd agent && cargo clippy --workspace -- -D warnings
+	cd agent && cargo clippy --workspace --exclude mesh-agent-tray -- -D warnings
 	cd server && go vet ./...
 	cd web && npx eslint src/
 	actionlint

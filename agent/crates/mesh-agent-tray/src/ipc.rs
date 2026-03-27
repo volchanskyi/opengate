@@ -46,12 +46,7 @@ impl IpcClient {
     /// and receiving responses/events.
     ///
     /// The manager automatically reconnects when the connection drops.
-    pub fn spawn(
-        self,
-    ) -> (
-        mpsc::Sender<TrayRequest>,
-        mpsc::Receiver<IpcMessage>,
-    ) {
+    pub fn spawn(self) -> (mpsc::Sender<TrayRequest>, mpsc::Receiver<IpcMessage>) {
         let (req_tx, req_rx) = mpsc::channel::<TrayRequest>(16);
         let (msg_tx, msg_rx) = mpsc::channel::<IpcMessage>(64);
 

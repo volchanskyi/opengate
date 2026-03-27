@@ -210,7 +210,11 @@ fn handle_response(
             };
             let _ = icon_state_tx.send((state, agent_ver));
         }
-        TrayResponse::Info { ref log_path, connected, .. } => {
+        TrayResponse::Info {
+            ref log_path,
+            connected,
+            ..
+        } => {
             *agent_connected = connected;
             *agent_log_path = log_path.clone();
             notifications::show_build_info(&resp);
@@ -218,32 +222,33 @@ fn handle_response(
         TrayResponse::RestartAck => {
             notifications::notify("OpenGate Agent", "Restarting agent...");
         }
-        TrayResponse::UpdateStatus { status, version: ver } => {
-            match status {
-                UpdateState::NoUpdate => {
-                    notifications::notify(
-                        "OpenGate Agent",
-                        &format!("Already on latest version ({ver})"),
-                    );
-                }
-                UpdateState::Applied => {
-                    notifications::notify(
-                        "OpenGate Agent",
-                        &format!("Updated to v{ver}, restarting..."),
-                    );
-                }
-                UpdateState::Failed => {
-                    notifications::notify("OpenGate Agent", "Update failed");
-                }
-                UpdateState::Checking => {
-                    notifications::notify("OpenGate Agent", "Checking for updates...");
-                }
-                UpdateState::Downloading => {
-                    let _ = icon_state_tx.send((tray::IconState::Updating, ver));
-                }
-                _ => {}
+        TrayResponse::UpdateStatus {
+            status,
+            version: ver,
+        } => match status {
+            UpdateState::NoUpdate => {
+                notifications::notify(
+                    "OpenGate Agent",
+                    &format!("Already on latest version ({ver})"),
+                );
             }
-        }
+            UpdateState::Applied => {
+                notifications::notify(
+                    "OpenGate Agent",
+                    &format!("Updated to v{ver}, restarting..."),
+                );
+            }
+            UpdateState::Failed => {
+                notifications::notify("OpenGate Agent", "Update failed");
+            }
+            UpdateState::Checking => {
+                notifications::notify("OpenGate Agent", "Checking for updates...");
+            }
+            UpdateState::Downloading => {
+                let _ = icon_state_tx.send((tray::IconState::Updating, ver));
+            }
+            _ => {}
+        },
         TrayResponse::ChatToken { url, token, .. } => {
             let full_url = if url.contains('?') {
                 format!("{url}&token={token}")
@@ -290,7 +295,10 @@ fn handle_event(
                 notifications::notify("OpenGate Agent", "Disconnected from server");
             }
         }
-        TrayEvent::UpdateProgress { percent: _, version: ver } => {
+        TrayEvent::UpdateProgress {
+            percent: _,
+            version: ver,
+        } => {
             let _ = icon_state_tx.send((tray::IconState::Updating, ver));
         }
         _ => {}

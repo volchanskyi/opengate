@@ -56,10 +56,13 @@ impl IpcHandle {
     /// Push a connection status change event to all connected tray clients.
     pub fn notify_connection_changed(&self, connected: bool) {
         self.update_state(|s| s.connected = connected);
-        let _ = self.event_tx.send(TrayEvent::ConnectionChanged { connected });
+        let _ = self
+            .event_tx
+            .send(TrayEvent::ConnectionChanged { connected });
     }
 
     /// Push an update progress event to all connected tray clients.
+    #[allow(dead_code)] // Used once update flow is implemented
     pub fn notify_update_progress(&self, percent: u8, version: String) {
         let _ = self
             .event_tx
@@ -103,7 +106,10 @@ pub fn start(
     let _ = std::fs::remove_file(&socket_path);
 
     let listener = UnixListener::bind(&socket_path).map_err(|e| {
-        anyhow::anyhow!("failed to bind IPC socket at {}: {e}", socket_path.display())
+        anyhow::anyhow!(
+            "failed to bind IPC socket at {}: {e}",
+            socket_path.display()
+        )
     })?;
 
     // Set socket permissions: owner + group readable/writable (0660).
@@ -509,12 +515,9 @@ mod tests {
     async fn test_ipc_get_logs() {
         let dir = tempfile::tempdir().unwrap();
         let log_file = dir.path().join("test.log");
-        tokio::fs::write(
-            &log_file,
-            "line1\nline2\nline3\nline4\nline5\n",
-        )
-        .await
-        .unwrap();
+        tokio::fs::write(&log_file, "line1\nline2\nline3\nline4\nline5\n")
+            .await
+            .unwrap();
 
         let sock_path = dir.path().join("test.sock");
         let listener = UnixListener::bind(&sock_path).unwrap();
@@ -582,10 +585,7 @@ mod tests {
         let mut line = String::new();
         buf_reader.read_line(&mut line).await.unwrap();
         let evt: TrayEvent = serde_json::from_str(&line).unwrap();
-        assert_eq!(
-            evt,
-            TrayEvent::ConnectionChanged { connected: false }
-        );
+        assert_eq!(evt, TrayEvent::ConnectionChanged { connected: false });
     }
 
     #[tokio::test]
