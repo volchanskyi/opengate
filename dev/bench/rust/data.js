@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774595068894,
+  "lastUpdate": 1774596080732,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7815,6 +7815,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.087787711732457,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "568cd1437ab57599e09a2be9bd4535f6189ce099",
+          "message": "fix: exclude tray crate from headless CI, add dedicated desktop CI job\n\nThe mesh-agent-tray crate requires GTK/glib dev libraries that aren't\navailable on standard CI runners. Exclude it from default workspace\nbuilds (clippy, test, coverage) and add a separate rust-tray job that\ninstalls desktop dev deps before building and testing the tray crate.\n\nAlso fixes cargo fmt diffs and a dead_code clippy warning.",
+          "timestamp": "2026-03-27T00:19:33-07:00",
+          "tree_id": "434b592983a3bfbbc27535f580f3e63edc89fe6f",
+          "url": "https://github.com/volchanskyi/opengate/commit/568cd1437ab57599e09a2be9bd4535f6189ce099"
+        },
+        "date": 1774596080681,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.328718165116594,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.387483455799597,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 756.8370263493318,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 316.09678977854213,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.095259858941464,
             "unit": "ns/iter"
           }
         ]
