@@ -17,8 +17,8 @@ serde_json.workspace = true
 anyhow.workspace = true
 image.workspace = true
 
-tray-icon = "0.19"
-muda = "0.15"
+tray-icon = "0.21"
+muda = "0.17"
 open = "5"
 notify-rust = "4"
 arboard = "3"
