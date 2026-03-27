@@ -18,6 +18,14 @@ export function DeviceList() {
     fetchDevices();
   }, [fetchGroups, fetchDevices]);
 
+  // Poll device status so online/offline stays current.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchDevices(selectedGroupId ?? undefined);
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, [fetchDevices, selectedGroupId]);
+
   const handleSearch = useCallback((q: string) => setSearchQuery(q), []);
 
   const filteredDevices = useMemo(() => {

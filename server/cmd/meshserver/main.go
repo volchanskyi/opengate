@@ -69,6 +69,12 @@ func main() {
 	}
 	defer store.Close()
 
+	// Reset stale device statuses from previous run.
+	if err := store.ResetAllDeviceStatuses(context.Background()); err != nil {
+		logger.Error("reset device statuses on startup", "error", err)
+		os.Exit(1)
+	}
+
 	// Prometheus metrics
 	metricsRegistry := appmetrics.NewRegistry()
 	appMetrics := appmetrics.NewMetrics(metricsRegistry)

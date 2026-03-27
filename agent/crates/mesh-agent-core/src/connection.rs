@@ -358,6 +358,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_send_control_encodes_heartbeat() {
+        let (client, mut server) = tokio::io::duplex(4096);
+        let mut conn = AgentConnection::new(client, test_config());
+
+        let msg = ControlMessage::AgentHeartbeat {
+            timestamp: 1700000000,
+        };
+
+        let send_handle = tokio::spawn(async move {
+            conn.send_control(msg).await.unwrap();
+        });
+
+        let mut type_buf = [0u8; 1];
+        AsyncReadExt::read_exact(&mut server, &mut type_buf)
+            .await
+            .unwrap();
+        assert_eq!(type_buf[0], FRAME_CONTROL);
+
+        let mut len_buf = [0u8; 4];
+        AsyncReadExt::read_exact(&mut server, &mut len_buf)
+            .await
+            .unwrap();
+        let payload_len = u32::from_be_bytes(len_buf) as usize;
+        assert!(payload_len > 0);
+
+        let mut payload = vec![0u8; payload_len];
+        AsyncReadExt::read_exact(&mut server, &mut payload)
+            .await
+            .unwrap();
+
+        let decoded: ControlMessage = rmp_serde::from_slice(&payload).unwrap();
+        match decoded {
+            ControlMessage::AgentHeartbeat { timestamp } => {
+                assert_eq!(timestamp, 1700000000);
+            }
+            _ => panic!("expected AgentHeartbeat"),
+        }
+
+        send_handle.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn test_reconnect_backoff_all_failures() {
         let result: Result<u32, _> = reconnect_with_backoff(
             || async { Err::<u32, String>("always fail".to_string()) },

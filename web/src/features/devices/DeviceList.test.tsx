@@ -78,4 +78,24 @@ describe('DeviceList', () => {
     expect(fetchGroupsFn).toHaveBeenCalled();
     expect(fetchDevicesFn).toHaveBeenCalled();
   });
+
+  it('polls devices every 15 seconds', () => {
+    vi.useFakeTimers();
+    const fetchDevicesFn = vi.fn();
+    useDeviceStore.setState({ fetchDevices: fetchDevicesFn });
+    renderDeviceList();
+
+    // Initial fetch on mount
+    expect(fetchDevicesFn).toHaveBeenCalledTimes(1);
+
+    // Advance 15s — should trigger second fetch
+    vi.advanceTimersByTime(15_000);
+    expect(fetchDevicesFn).toHaveBeenCalledTimes(2);
+
+    // Advance another 15s — third fetch
+    vi.advanceTimersByTime(15_000);
+    expect(fetchDevicesFn).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
+  });
 });
