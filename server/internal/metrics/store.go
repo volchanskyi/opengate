@@ -96,6 +96,14 @@ func (s *InstrumentedStore) SetDeviceStatus(ctx context.Context, id db.DeviceID,
 	return err
 }
 
+// ResetAllDeviceStatuses instruments db.Store.ResetAllDeviceStatuses.
+func (s *InstrumentedStore) ResetAllDeviceStatuses(ctx context.Context) error {
+	start := time.Now()
+	err := s.inner.ResetAllDeviceStatuses(ctx)
+	s.observe("ResetAllDeviceStatuses", start, err)
+	return err
+}
+
 // --- Groups ------------------------------------------------------------------
 
 // CreateGroup instruments db.Store.CreateGroup.

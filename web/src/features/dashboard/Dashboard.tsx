@@ -30,6 +30,12 @@ export function Dashboard() {
     }
   }, [fetchDevices, fetchGroups, fetchAuditEvents, user?.is_admin]);
 
+  // Poll device status so online/offline counts stay current.
+  useEffect(() => {
+    const interval = setInterval(() => fetchDevices(), 15_000);
+    return () => clearInterval(interval);
+  }, [fetchDevices]);
+
   const onlineCount = devices.filter((d) => d.status === 'online').length;
 
   return (

@@ -83,6 +83,7 @@ func (m *notifMockStore) UpdateDeviceGroup(_ context.Context, _ db.DeviceID, _ d
 func (m *notifMockStore) SetDeviceStatus(_ context.Context, _ db.DeviceID, _ db.DeviceStatus) error {
 	return nil
 }
+func (m *notifMockStore) ResetAllDeviceStatuses(_ context.Context) error { return nil }
 func (m *notifMockStore) CreateGroup(_ context.Context, _ *db.Group) error { return nil }
 func (m *notifMockStore) GetGroup(_ context.Context, _ db.GroupID) (*db.Group, error) {
 	return nil, nil

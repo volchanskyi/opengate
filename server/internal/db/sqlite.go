@@ -263,6 +263,16 @@ func (s *SQLiteStore) SetDeviceStatus(ctx context.Context, id DeviceID, status D
 		string(status), now, now, id.String())
 }
 
+// ResetAllDeviceStatuses sets all online devices to offline. Used on server
+// startup to clear stale statuses from a previous run.
+func (s *SQLiteStore) ResetAllDeviceStatuses(ctx context.Context) error {
+	now := nowRFC3339()
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE devices SET status = ?, updated_at = ? WHERE status = ?`,
+		string(StatusOffline), now, string(StatusOnline))
+	return err
+}
+
 // --- Groups ---
 
 func scanGroupFrom(sc scanner) (*Group, error) {

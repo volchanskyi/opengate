@@ -238,22 +238,27 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	})
 
 	defer func() {
-		s.conns.Delete(result.DeviceID)
-		s.count.Add(-1)
+		// Only update status if we are still the registered connection.
+		// A newer connection may have already replaced us in the map;
+		// unconditional Delete would remove the new (valid) entry.
+		if s.conns.CompareAndDelete(result.DeviceID, ac) {
+			s.count.Add(-1)
 
-		// Set device offline.
-		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := s.store.SetDeviceStatus(offlineCtx, result.DeviceID, db.StatusOffline); err != nil {
-			logger.Error("set device offline", "error", err)
+			offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := s.store.SetDeviceStatus(offlineCtx, result.DeviceID, db.StatusOffline); err != nil {
+				logger.Error("set device offline", "error", err)
+			}
+
+			_ = s.notifier.Notify(offlineCtx, notifications.Event{
+				Type:           notifications.EventDeviceOffline,
+				DeviceID:       result.DeviceID,
+				DeviceHostname: hostname,
+				Timestamp:      time.Now(),
+			})
+		} else {
+			logger.Info("skipping offline transition, newer connection exists")
 		}
-
-		_ = s.notifier.Notify(offlineCtx, notifications.Event{
-			Type:           notifications.EventDeviceOffline,
-			DeviceID:       result.DeviceID,
-			DeviceHostname: hostname,
-			Timestamp:      time.Now(),
-		})
 
 		stream.Close()
 		conn.CloseWithError(0, "bye")

@@ -174,9 +174,19 @@ fn build_quic_config(
 
     tls_config.alpn_protocols = vec![b"opengate".to_vec()];
 
-    let quinn_config = quinn::ClientConfig::new(Arc::new(
+    let mut quinn_config = quinn::ClientConfig::new(Arc::new(
         quinn::crypto::rustls::QuicClientConfig::try_from(tls_config)?,
     ));
+
+    // Match server QUIC transport config: MaxIdleTimeout=90s, KeepAlivePeriod=30s.
+    let mut transport = quinn::TransportConfig::default();
+    transport.max_idle_timeout(Some(
+        std::time::Duration::from_secs(90)
+            .try_into()
+            .context("idle timeout")?,
+    ));
+    transport.keep_alive_interval(Some(std::time::Duration::from_secs(30)));
+    quinn_config.transport_config(Arc::new(transport));
 
     Ok(quinn_config)
 }
@@ -444,6 +454,8 @@ async fn main() -> Result<()> {
         }
 
         // Control loop — dispatch messages until disconnect
+        let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(60));
+        heartbeat.tick().await; // consume immediate first tick
         loop {
             tokio::select! {
                 biased;
@@ -454,6 +466,19 @@ async fn main() -> Result<()> {
                 _ = sigterm.recv() => {
                     info!("received SIGTERM, shutting down");
                     break 'outer;
+                }
+                _ = heartbeat.tick() => {
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    if let Err(e) = conn.send_control(
+                        mesh_protocol::ControlMessage::AgentHeartbeat { timestamp: now },
+                    ).await {
+                        warn!(error = %e, "heartbeat failed, will reconnect");
+                        break;
+                    }
+                    tracing::debug!("heartbeat sent");
                 }
                 msg = conn.receive_control() => {
                     match msg {
