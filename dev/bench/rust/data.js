@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774588404953,
+  "lastUpdate": 1774595068894,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7766,6 +7766,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.09741284736485,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "03262128e16e8978577e78d0a20853673f12fc46",
+          "message": "feat: system tray with IPC for desktop agent management\n\nTwo-binary architecture: mesh-agent (root systemd service) communicates\nwith mesh-agent-tray (user session) via Unix socket IPC at\n/run/mesh-agent/tray.sock using JSON-over-newline protocol.\n\nNew crates:\n- mesh-agent-ipc: shared IPC protocol types (TrayRequest/TrayResponse/TrayEvent)\n- mesh-agent-tray: system tray binary with tray-icon/muda, context menu\n  (restart, update check, chat, log viewer, build info), auto-reconnect\n  IPC client, desktop notifications, clipboard support\n\nAgent-side changes:\n- IPC server module with Unix socket listener, state broadcasting,\n  push events for connection status changes\n- Rolling file logger via tracing-appender (daily rotation, /var/log/mesh-agent/)\n- Socket group ownership (mesh-agent group) for non-root tray access\n- New protocol messages: RequestUpdate, UpdateCheckResponse,\n  RequestChatToken, ChatTokenResponse\n\nInstallation:\n- install-tray.sh auto-detects desktop vs headless (WSL/container/CLI)\n- Installs runtime deps (GTK3, appindicator, xdo) via apt/dnf\n- Creates XDG autostart entry and mesh-agent system group\n- install.sh chains into install-tray.sh automatically — zero manual steps\n\nAlso fixes: platform-linux screen capture test on WSLg (was not clearing\nDISPLAY env var before asserting NullCapture).",
+          "timestamp": "2026-03-27T00:02:46-07:00",
+          "tree_id": "13c6323e9fa8dac1f79034430a213913f46b079c",
+          "url": "https://github.com/volchanskyi/opengate/commit/03262128e16e8978577e78d0a20853673f12fc46"
+        },
+        "date": 1774595068843,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.233138678295354,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.240123741268086,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 750.1688215325045,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 314.57231756212406,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.087787711732457,
             "unit": "ns/iter"
           }
         ]
