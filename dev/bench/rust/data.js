@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774569453428,
+  "lastUpdate": 1774588404953,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7717,6 +7717,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.222379254747416,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "cfad737dcfca359c78028c2860428d8a83527759",
+          "message": "fix: correct agent online/offline status misreporting across all layers\n\nFive bugs caused device status to be falsely reported:\n\n1. Reconnection race condition — old connection's defer deleted new\n   connection from sync.Map via CompareAndDelete guard\n2. No startup reconciliation — stale \"online\" statuses persisted after\n   server restart via ResetAllDeviceStatuses on boot\n3. Agent never sent heartbeats — added 60s interval sending\n   AgentHeartbeat to keep last_seen fresh\n4. QUIC transport config mismatch — agent now sets matching\n   max_idle_timeout=90s and keep_alive_interval=30s\n5. Web client never polled — DeviceList and Dashboard now poll every 15s",
+          "timestamp": "2026-03-26T22:11:45-07:00",
+          "tree_id": "b8d6d20a6753674f04e40c2c858ae2dbd15896dc",
+          "url": "https://github.com/volchanskyi/opengate/commit/cfad737dcfca359c78028c2860428d8a83527759"
+        },
+        "date": 1774588404903,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.201981356449906,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.26422183548484,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.618884986716,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 297.98599367881417,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.09741284736485,
             "unit": "ns/iter"
           }
         ]
