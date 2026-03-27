@@ -301,6 +301,27 @@ func TestDeviceCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
+	t.Run("reset all device statuses", func(t *testing.T) {
+		d1 := seedDevice(t, ctx, s, group.ID)
+		d2 := seedDevice(t, ctx, s, group.ID)
+		require.NoError(t, s.SetDeviceStatus(ctx, d1.ID, StatusOnline))
+		require.NoError(t, s.SetDeviceStatus(ctx, d2.ID, StatusOnline))
+
+		require.NoError(t, s.ResetAllDeviceStatuses(ctx))
+
+		got1, err := s.GetDevice(ctx, d1.ID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusOffline, got1.Status)
+
+		got2, err := s.GetDevice(ctx, d2.ID)
+		require.NoError(t, err)
+		assert.Equal(t, StatusOffline, got2.Status)
+	})
+
+	t.Run("reset all device statuses no-op when none online", func(t *testing.T) {
+		require.NoError(t, s.ResetAllDeviceStatuses(ctx))
+	})
+
 	t.Run("delete", func(t *testing.T) {
 		d := seedDevice(t, ctx, s, group.ID)
 		require.NoError(t, s.DeleteDevice(ctx, d.ID))

@@ -23,6 +23,7 @@ type Store interface {
 	DeleteDevice(ctx context.Context, id DeviceID) error
 	UpdateDeviceGroup(ctx context.Context, id DeviceID, groupID GroupID) error
 	SetDeviceStatus(ctx context.Context, id DeviceID, status DeviceStatus) error
+	ResetAllDeviceStatuses(ctx context.Context) error
 
 	// Groups
 	CreateGroup(ctx context.Context, g *Group) error
