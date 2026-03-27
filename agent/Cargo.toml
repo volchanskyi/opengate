@@ -38,6 +38,8 @@ serde_json = "1"
 
 semver = "1"
 image = "0.25"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Dev dependencies
 proptest = "1"

@@ -185,10 +185,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_screen_capture_returns_null_without_display() {
-        // In CI / WSL2 with no DISPLAY and no x11 feature, should get NullCapture
+        // Remove DISPLAY so X11Capture::new() cannot connect.
+        let saved = std::env::var("DISPLAY").ok();
+        std::env::remove_var("DISPLAY");
+        std::env::remove_var("WAYLAND_DISPLAY");
+
         let mut cap = create_screen_capture();
         assert_eq!(cap.resolution(), (0, 0));
         assert!(cap.next_frame().await.is_err());
+
+        // Restore env vars to avoid affecting other tests.
+        if let Some(val) = saved {
+            std::env::set_var("DISPLAY", val);
+        }
     }
 
     #[test]
