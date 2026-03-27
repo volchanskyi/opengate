@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.16.1] - 2026-03-27
+
+### Fixed
+- correct agent online/offline status misreporting across all layers
+
+## [v0.16.0] - 2026-03-26
+
+### Added
+- X11 screen capture with JPEG encoding + chat echo
+
+## [v0.15.8] - 2026-03-26
+
+### Fixed
+- show error toast when Start Session fails silently
+
+## [v0.15.7] - 2026-03-26
+
+### Fixed
+- restore SELinux context after OTA binary replacement
+
+## [v0.15.6] - 2026-03-26
+
+### Fixed
+- probe display sockets instead of checking existence
+
+### Changed
+- extract probe_socket helper and deduplicate display tests
+
 ## [v0.15.5] - 2026-03-26
 
 ### Fixed
