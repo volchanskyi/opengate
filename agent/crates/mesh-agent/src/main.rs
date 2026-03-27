@@ -4,6 +4,8 @@
 //! handles session requests, and applies binary updates.
 //! Exit code 42 signals the service manager to restart after an update.
 
+mod ipc_server;
+
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -234,14 +236,41 @@ async fn perform_handshake(
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+/// Default log directory for persistent log files.
+const LOG_DIR: &str = "/var/log/mesh-agent";
+
+/// Set up tracing with both stdout and rolling file appender.
+/// Returns the guard that must be held for the lifetime of the program.
+fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    // Rolling file appender: daily rotation, 7 files retained.
+    let log_dir = PathBuf::from(LOG_DIR);
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "agent.log");
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stdout))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_writer(non_blocking),
         )
         .init();
+
+    guard
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let _log_guard = setup_logging();
 
     let args = Args::parse();
 
@@ -357,6 +386,26 @@ async fn main() -> Result<()> {
     lifecycle.notify_ready();
     info!("agent ready, connecting to server");
 
+    // Start IPC server for tray communication.
+    let ipc_state = ipc_server::AgentState {
+        version: env!("AGENT_VERSION").to_string(),
+        device_id: identity.device_id.0.to_string(),
+        hostname: gethostname::gethostname().to_string_lossy().to_string(),
+        os: os_pretty_name(),
+        arch: std::env::consts::ARCH.to_string(),
+        server_addr: config.server_addr.clone(),
+        connected: false,
+        start_time: std::time::Instant::now(),
+        log_path: format!("{LOG_DIR}/agent.log"),
+    };
+    let (ipc_handle, mut ipc_actions) = match ipc_server::start(ipc_state) {
+        Ok(h) => (Some(h.0), Some(h.1)),
+        Err(e) => {
+            warn!(error = %e, "IPC server failed to start, tray integration disabled");
+            (None, None)
+        }
+    };
+
     // Shutdown signal handler
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
@@ -445,6 +494,11 @@ async fn main() -> Result<()> {
 
         info!("registered with server, entering control loop");
 
+        // Notify tray that we're connected.
+        if let Some(ref handle) = ipc_handle {
+            handle.notify_connection_changed(true);
+        }
+
         // Registration succeeded — cancel watchdog and clear sentinel.
         if pending_update {
             watchdog_cancel.notify_one();
@@ -479,6 +533,33 @@ async fn main() -> Result<()> {
                         break;
                     }
                     tracing::debug!("heartbeat sent");
+                }
+                action = async {
+                    match ipc_actions.as_mut() {
+                        Some(rx) => rx.recv().await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    if let Some(action) = action {
+                        match action {
+                            ipc_server::IpcAction::Restart => {
+                                info!("restart requested via tray IPC");
+                                lifecycle.notify_stopping();
+                                std::process::exit(EXIT_CODE_RESTART);
+                            }
+                            ipc_server::IpcAction::CheckUpdate => {
+                                info!("update check requested via tray IPC");
+                                // TODO: send RequestUpdate to server when protocol message is added
+                            }
+                            ipc_server::IpcAction::RequestChatToken { reply } => {
+                                info!("chat token requested via tray IPC");
+                                // TODO: request token from server when protocol message is added
+                                let _ = reply.send(mesh_agent_ipc::TrayResponse::Error {
+                                    message: "chat tokens not yet implemented".to_string(),
+                                });
+                            }
+                        }
+                    }
                 }
                 msg = conn.receive_control() => {
                     match msg {
@@ -536,10 +617,16 @@ async fn main() -> Result<()> {
                         }
                         Err(mesh_agent_core::ConnectionError::Io(_)) => {
                             warn!("connection lost, will reconnect");
+                            if let Some(ref handle) = ipc_handle {
+                                handle.notify_connection_changed(false);
+                            }
                             break; // break inner loop, outer loop reconnects
                         }
                         Err(e) => {
                             warn!(error = %e, "control error, will reconnect");
+                            if let Some(ref handle) = ipc_handle {
+                                handle.notify_connection_changed(false);
+                            }
                             break;
                         }
                     }
@@ -549,6 +636,9 @@ async fn main() -> Result<()> {
     }
 
     lifecycle.notify_stopping();
+    if let Some(ref handle) = ipc_handle {
+        ipc_server::cleanup(handle.socket_path());
+    }
     info!("mesh-agent stopped");
     Ok(())
 }

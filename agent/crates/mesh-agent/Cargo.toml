@@ -9,11 +9,13 @@ path = "src/main.rs"
 
 [dependencies]
 mesh-agent-core = { path = "../mesh-agent-core" }
+mesh-agent-ipc = { path = "../mesh-agent-ipc" }
 mesh-protocol = { path = "../mesh-protocol" }
 platform-linux = { path = "../platform-linux", features = ["x11"] }
 tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
 anyhow.workspace = true
 clap = { version = "4", features = ["derive", "env"] }
 hex.workspace = true
@@ -28,6 +30,7 @@ serde_json.workspace = true
 serde.workspace = true
 pem = "3"
 semver.workspace = true
+libc = "0.2"
 
 [dev-dependencies]
 rcgen.workspace = true

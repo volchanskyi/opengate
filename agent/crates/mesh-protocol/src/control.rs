@@ -105,6 +105,30 @@ pub enum ControlMessage {
         sender: String,
     },
 
+    // Agent → Server: request an update check.
+    RequestUpdate,
+
+    // Server → Agent: response to RequestUpdate.
+    UpdateCheckResponse {
+        available: bool,
+        version: String,
+        url: String,
+        sha256: String,
+        signature: String,
+    },
+
+    // Agent → Server: request a short-lived chat authentication token.
+    RequestChatToken {
+        device_id: String,
+    },
+
+    // Server → Agent: chat token response.
+    ChatTokenResponse {
+        url: String,
+        token: String,
+        expires_at: String,
+    },
+
     // Device lifecycle
     /// Server notifies agent that its device has been deleted.
     /// Agent should clean up and exit.
