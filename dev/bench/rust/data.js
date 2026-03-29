@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774819510054,
+  "lastUpdate": 1774822966411,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7913,6 +7913,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.267134467345173,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ca102d430e531e09b01f10f065a6070993eaab80",
+          "message": "docs: sync phases, decisions, and memory with actual project state (v0.17.0)\n\n- Update phases.md: move 9 items to Completed, add 6 missing features,\n  remove obsolete No Tray plan, fix broken plan references\n- Add ADR-009: Cosign keyless signing for container images\n- Slim MEMORY.md from 79 to 39 lines, redirect to .claude/ as canonical source\n- Delete 2 obsolete memory files, add status headers to CD phase memory files",
+          "timestamp": "2026-03-29T15:20:57-07:00",
+          "tree_id": "d747ef326c09be079e0ae9a509983bef5be818d2",
+          "url": "https://github.com/volchanskyi/opengate/commit/ca102d430e531e09b01f10f065a6070993eaab80"
+        },
+        "date": 1774822966360,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.19777957624486,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.294423998888888,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 774.5660942500232,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 317.24841422884515,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.096368658471295,
             "unit": "ns/iter"
           }
         ]
