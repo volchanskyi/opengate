@@ -1,5 +1,22 @@
 # OpenGate — Development Conventions
 
+## Project State — Read Before Starting Work
+
+**MANDATORY** — Before beginning any session, read these three files to understand current project state:
+
+- [`.claude/phases.md`](.claude/phases.md) — implementation phases (completed / in-progress / planned)
+- [`.claude/techdebt.md`](.claude/techdebt.md) — known tech debt by severity
+- [`.claude/decisions.md`](.claude/decisions.md) — architecture decision records (ADRs)
+
+**After completing any significant work**, update the relevant files:
+- Mark phases complete / update in-progress status in `phases.md`
+- Add or resolve debt items in `techdebt.md`
+- Record new architectural decisions in `decisions.md`
+
+**All agent plans** must be created in `.claude/plans/` with a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names.
+
+---
+
 ## Branching Rules
 **MANDATORY** — All work happens on `dev`. No exceptions.
 - **Before starting any work**, pull latest: `git checkout dev && git pull origin dev`
