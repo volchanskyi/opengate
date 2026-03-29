@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774596080732,
+  "lastUpdate": 1774819510054,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7864,6 +7864,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.095259858941464,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "7818d383fb1a849db15f157a65c53e07a86659ab",
+          "message": "docs: add project handover system with phases, tech debt, ADRs, and plans\n\n- Add .claude/phases.md: all 13 completed phases, 5 in-progress, 6 planned\n- Add .claude/techdebt.md: tech debt register with severity levels\n- Add .claude/decisions.md: 8 ADRs covering key architectural decisions\n- Add .claude/plans/: 50 historical plan files migrated with descriptive names\n- Update CLAUDE.md: mandatory Project State section at the top\n- Update .gitignore: exclude settings.local.json (machine-specific)",
+          "timestamp": "2026-03-29T14:23:26-07:00",
+          "tree_id": "306d1b8e67fbcbb998bce586cdd73f6241926ee7",
+          "url": "https://github.com/volchanskyi/opengate/commit/7818d383fb1a849db15f157a65c53e07a86659ab"
+        },
+        "date": 1774819510006,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.21712880034389,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.204783344252743,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 738.3831924117252,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 313.92974758402994,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.267134467345173,
             "unit": "ns/iter"
           }
         ]
