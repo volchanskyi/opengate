@@ -100,3 +100,15 @@
 **Why**: Production target is Oracle Cloud ARM64 Always Free. CI runners are x86_64.
 
 **Consequences**: Docker daemon required in CI. SELinux systems need `restorecon` after OTA binary replacement (fixed 2026-03-26 in `update.rs`).
+
+---
+
+## ADR-009: Cosign Keyless Signing for Container Images
+
+**Status**: Accepted | **Phase**: CD-E
+
+**Decision**: Keyless signing via GitHub Actions OIDC (Sigstore/cosign). Deploy scripts verify cosign signature before stopping containers. SBOM attestation attached to images.
+
+**Why**: Supply chain security without managing signing keys. GitHub OIDC identity ties signatures to the CI pipeline, eliminating key rotation burden.
+
+**Consequences**: Requires cosign installed on VPS (auto-installed by deploy script). Verification adds ~5s to deploy. Signature verification failure blocks deployment.
