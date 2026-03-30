@@ -1,6 +1,6 @@
 # Tech Debt Register
 
-<!-- Last updated: 2026-03-29 -->
+<!-- Last updated: 2026-03-30 -->
 <!-- Update this file whenever tech debt is identified, reduced, or resolved. -->
 <!-- Severity: 🔴 Critical | 🟠 High | 🟡 Medium | 🟢 Low -->
 
