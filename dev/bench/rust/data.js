@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774822966411,
+  "lastUpdate": 1774836567952,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -7962,6 +7962,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.096368658471295,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9a2dc68947d3d2a7322fc6805a98a5bf5ec29a32",
+          "message": "refactor: remove tray/IPC, Linux agent reports Terminal + FileManager only\n\nDisplay detection on Linux was unreliable (WSL2 false positives, CentOS\nStream 10 false negatives). Rather than fixing detection edge cases,\nLinux agents now statically report Terminal + FileManager capabilities.\nRemoteDesktop remains available for Windows/Mac.\n\nDeleted:\n- mesh-agent-tray crate (system tray UI)\n- mesh-agent-ipc crate (IPC protocol types)\n- ipc_server.rs (Unix socket IPC server)\n- install-tray.sh (tray installer script)\n- has_display() / has_display_server_socket() / probe_socket()\n- rust-tray CI job\n\nImplements: .claude/plans/linux-agent-no-tray.md",
+          "timestamp": "2026-03-29T19:07:30-07:00",
+          "tree_id": "e43c01dcc687ad03f703d23ab04c6ee63c12d5b4",
+          "url": "https://github.com/volchanskyi/opengate/commit/9a2dc68947d3d2a7322fc6805a98a5bf5ec29a32"
+        },
+        "date": 1774836567903,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.333652900337313,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.298181926334546,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 743.9017155476822,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 315.1920653282097,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 26.434705553383488,
             "unit": "ns/iter"
           }
         ]
