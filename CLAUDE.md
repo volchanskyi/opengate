@@ -6,14 +6,18 @@
 
 - [`.claude/phases.md`](.claude/phases.md) — implementation phases (completed / in-progress / planned)
 - [`.claude/techdebt.md`](.claude/techdebt.md) — known tech debt by severity
-- [`.claude/decisions.md`](.claude/decisions.md) — architecture decision records (ADRs)
+- [`.claude/decisions.md`](.claude/decisions.md) — ADR index (full text in [wiki](https://github.com/volchanskyi/opengate/wiki/Architecture-Decision-Records))
 
 **After completing any significant work**, update the relevant files:
 - Mark phases complete / update in-progress status in `phases.md`
 - Add or resolve debt items in `techdebt.md`
-- Record new architectural decisions in `decisions.md`
+- Record new architectural decisions in `decisions.md` (index row) AND the [wiki ADR page](https://github.com/volchanskyi/opengate/wiki/Architecture-Decision-Records) (full text)
 
-**All agent plans** must be created in `.claude/plans/` with a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names.
+**All agent plans** must be created in `.claude/plans/` with a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names. Completed plans are archived to `.claude/plans/archive/`.
+
+**Plans vs memory** — Plans and memory serve different purposes. Never confuse them:
+- **Plans** (`.claude/plans/`) — implementation details, steps, and task breakdowns. Always a `.md` file in this directory.
+- **Memory** (`~/.claude/projects/.../memory/`) — only for cross-session recall: user preferences, project context, references. Never store plans or task details here.
 
 ---
 
