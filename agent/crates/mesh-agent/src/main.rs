@@ -506,8 +506,10 @@ async fn main() -> Result<()> {
                         Ok(mesh_protocol::ControlMessage::SessionRequest {
                             token, relay_url, permissions,
                         }) => {
-                            let capture = platform_linux::create_screen_capture();
-                            let injector = platform_linux::create_input_injector();
+                            let capture: Box<dyn mesh_agent_core::ScreenCapture> =
+                                Box::new(mesh_agent_core::NullCapture);
+                            let injector: Box<dyn mesh_agent_core::InputInjector> =
+                                Box::new(mesh_agent_core::NullInput);
                             match conn.handle_session_request(
                                 token, relay_url, permissions, capture, injector,
                             ).await {
