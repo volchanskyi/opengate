@@ -1,8 +1,0 @@
-[package]
-name = "mesh-agent-ipc"
-version = "0.15.4"
-edition.workspace = true
-
-[dependencies]
-serde.workspace = true
-serde_json.workspace = true
