@@ -15,6 +15,10 @@
 
 **All agent plans** must be created in `.claude/plans/` with a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names. Completed plans are archived to `.claude/plans/archive/`.
 
+**Plans vs memory** — Plans and memory serve different purposes. Never confuse them:
+- **Plans** (`.claude/plans/`) — implementation details, steps, and task breakdowns. Always a `.md` file in this directory.
+- **Memory** (`~/.claude/projects/.../memory/`) — only for cross-session recall: user preferences, project context, references. Never store plans or task details here.
+
 ---
 
 ## Branching Rules
