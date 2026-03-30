@@ -13,11 +13,7 @@ type Tab = (typeof ALL_TABS)[number];
 
 /** Determine which tabs to show based on device capabilities. */
 function availableTabs(capabilities?: string[]): readonly Tab[] {
-  if (!capabilities || capabilities.length === 0) {
-    // Fallback: show all tabs when capabilities are unknown (legacy agents)
-    return ALL_TABS;
-  }
-  const hasDesktop = capabilities.includes('RemoteDesktop');
+  const hasDesktop = capabilities?.includes('RemoteDesktop') ?? false;
   return ALL_TABS.filter((tab) =>
     tab === 'Desktop' || tab === 'Chat' ? hasDesktop : true,
   );
