@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774890640524,
+  "lastUpdate": 1774892221728,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8158,6 +8158,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.387708992510106,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "fb4cdd6b249af0aabbf2da78ef958da2923e5418",
+          "message": "refactor: remove X11 display detection and capture from Linux agent\n\nLinux agents support Terminal and FileManager only, regardless of\nwhether a GUI is present. Remove all display-related code:\n\n- Delete capture/ module (X11Capture, x11rb connection, BGRX→RGBA)\n- Remove x11 feature flag, x11rb/image/async-trait/thiserror/mesh-protocol deps\n- Remove create_screen_capture() and create_input_injector() from platform-linux\n- Use NullCapture/NullInput directly in mesh-agent session creation",
+          "timestamp": "2026-03-30T10:34:48-07:00",
+          "tree_id": "0542d5196d2b85dc057ba400083a7ad5da45ca95",
+          "url": "https://github.com/volchanskyi/opengate/commit/fb4cdd6b249af0aabbf2da78ef958da2923e5418"
+        },
+        "date": 1774892221677,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.22250679654161,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.647535182273135,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 738.3438807208789,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 313.1641672151951,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.39483699511105,
             "unit": "ns/iter"
           }
         ]
