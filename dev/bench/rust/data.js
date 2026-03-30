@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774892221728,
+  "lastUpdate": 1774895856542,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8207,6 +8207,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.39483699511105,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "c302d310338f61bef11117f7cbba118d58eb83ed",
+          "message": "fix: hide Desktop and Chat tabs when capabilities are unknown\n\nThe fallback showed all tabs when capabilities were undefined (e.g.,\npage refresh losing router state). Now defaults to Terminal + Files\nonly — Desktop and Chat require explicit RemoteDesktop capability.",
+          "timestamp": "2026-03-30T11:35:34-07:00",
+          "tree_id": "ad1d607f78fe11bc8975857594359354b781e46f",
+          "url": "https://github.com/volchanskyi/opengate/commit/c302d310338f61bef11117f7cbba118d58eb83ed"
+        },
+        "date": 1774895856489,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.229548507850707,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.75898946610302,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 597.6366093427122,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.48996320486935,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.547984787104557,
             "unit": "ns/iter"
           }
         ]
