@@ -67,12 +67,12 @@ describe('SessionView', () => {
     expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument();
   });
 
-  it('shows all tabs when capabilities are undefined (legacy agent)', () => {
+  it('hides Desktop and Chat when capabilities are undefined', () => {
     renderWithRouter(undefined);
-    expect(screen.getByRole('tab', { name: 'Desktop' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Desktop' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Chat' })).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Terminal' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Files' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Chat' })).toBeInTheDocument();
   });
 
   it('defaults to Terminal tab', () => {
