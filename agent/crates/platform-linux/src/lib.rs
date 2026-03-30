@@ -11,8 +11,6 @@ mod capture;
 pub mod runtime;
 pub mod service;
 
-use tracing::debug;
-
 pub use mesh_agent_core::{
     CaptureError, InputError, InputInjector, NullCapture, NullInput, NullServiceLifecycle,
     RawFrame, ScreenCapture, ServiceLifecycle,
@@ -22,84 +20,6 @@ pub use service::SystemdLifecycle;
 
 #[cfg(feature = "x11")]
 pub use capture::X11Capture;
-
-/// Returns true if a graphical display server (X11 or Wayland) is available.
-///
-/// Checks environment variables first (works in user sessions), then falls
-/// back to probing for running display server processes (works in systemd
-/// services which lack user session env vars).
-pub fn has_display() -> bool {
-    // Fast path: env vars are set in user sessions / containers with display.
-    if std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some() {
-        debug!("display detected via environment variable");
-        return true;
-    }
-
-    // Slow path: probe display server sockets for connectivity.
-    // This handles systemd services that don't inherit user session env vars.
-    has_display_server_socket()
-}
-
-/// Probes X11 and Wayland sockets for actual connectivity.
-///
-/// Unlike a simple existence check, this tries to `connect()` to each
-/// socket. A successful connect proves a display server is listening.
-/// This avoids false positives from stub sockets (e.g. WSLg on headless
-/// WSL2) and false negatives from only checking `wayland-0`.
-fn has_display_server_socket() -> bool {
-    // Probe X11 sockets
-    if let Ok(entries) = std::fs::read_dir("/tmp/.X11-unix") {
-        for entry in entries.flatten() {
-            if probe_socket(&entry.path(), "X11") {
-                return true;
-            }
-        }
-    }
-
-    // Probe Wayland sockets in all user runtime dirs
-    if let Ok(uid_dirs) = std::fs::read_dir("/run/user") {
-        for uid_dir in uid_dirs.flatten() {
-            let runtime_dir = uid_dir.path();
-            let entries = match std::fs::read_dir(&runtime_dir) {
-                Ok(e) => e,
-                Err(e) => {
-                    debug!(path = %runtime_dir.display(), error = %e, "cannot read user runtime dir");
-                    continue;
-                }
-            };
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name_str = name.to_string_lossy();
-                if !name_str.starts_with("wayland-") || name_str.ends_with(".lock") {
-                    continue;
-                }
-                if probe_socket(&entry.path(), "Wayland") {
-                    return true;
-                }
-            }
-        }
-    }
-
-    debug!("no connectable display server socket found");
-    false
-}
-
-/// Attempt a Unix socket connect to verify a display server is listening.
-fn probe_socket(path: &std::path::Path, kind: &str) -> bool {
-    use std::os::unix::net::UnixStream;
-
-    debug!(path = %path.display(), kind, "probing socket");
-    match UnixStream::connect(path) {
-        Ok(_) => {
-            debug!(path = %path.display(), kind, "socket is connectable");
-            true
-        }
-        Err(e) => {
-            debug!(path = %path.display(), kind, error = %e, "socket not connectable");
-            false
-        }
-    }
-}
 
 /// Create a screen capture instance for the current environment.
 ///
@@ -138,50 +58,6 @@ pub fn create_service_lifecycle() -> Box<dyn ServiceLifecycle> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_has_display_server_socket_returns_bool() {
-        // Smoke test: just verify it doesn't panic.
-        // Result depends on the host environment.
-        let _ = has_display_server_socket();
-    }
-
-    #[test]
-    fn test_connect_rejects_regular_file() {
-        // A regular file is not a Unix socket — connect must fail.
-        let dir = tempfile::tempdir().unwrap();
-        let fake_socket = dir.path().join("X99");
-        std::fs::write(&fake_socket, b"").unwrap();
-        assert!(std::os::unix::net::UnixStream::connect(&fake_socket).is_err());
-    }
-
-    #[test]
-    fn test_has_display_true_with_display_env() {
-        std::env::set_var("DISPLAY", ":0");
-        std::env::remove_var("WAYLAND_DISPLAY");
-        let result = has_display();
-        std::env::remove_var("DISPLAY");
-        assert!(result);
-    }
-
-    #[test]
-    fn test_has_display_false_without_env_or_sockets() {
-        // With no env vars and no connectable sockets, should return false
-        // (unless the host actually has a display server running).
-        std::env::remove_var("DISPLAY");
-        std::env::remove_var("WAYLAND_DISPLAY");
-        // We can't guarantee false on all hosts, but we verify no panic.
-        let _ = has_display();
-    }
-
-    #[test]
-    fn test_has_display_true_with_wayland() {
-        std::env::remove_var("DISPLAY");
-        std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
-        let result = has_display();
-        std::env::remove_var("WAYLAND_DISPLAY");
-        assert!(result);
-    }
 
     #[tokio::test]
     async fn test_create_screen_capture_returns_null_without_display() {

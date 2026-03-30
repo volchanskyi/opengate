@@ -9,7 +9,6 @@ path = "src/main.rs"
 
 [dependencies]
 mesh-agent-core = { path = "../mesh-agent-core" }
-mesh-agent-ipc = { path = "../mesh-agent-ipc" }
 mesh-protocol = { path = "../mesh-protocol" }
 platform-linux = { path = "../platform-linux", features = ["x11"] }
 tokio.workspace = true

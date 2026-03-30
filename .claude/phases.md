@@ -32,6 +32,7 @@
 | CD Phase E (partial): Cosign + Trivy | Cosign keyless signing, SBOM attestation, Trivy image scanning | v0.14.0 | — |
 | CD Phase F: Agent Release Pipeline | Auto-tag, changelog, agent binary builds, release pipeline | — | [agent-binary-release.md](plans/agent-binary-release.md) |
 | CI Auto-Tag + Changelog | Conventional commit bumping, Keep a Changelog, SYNC_TOKEN trigger | — | [agent-binary-release.md](plans/agent-binary-release.md) |
+| Linux Agent: No Tray | Remove tray/IPC crates, Linux = Terminal + FileManager only, delete display detection | — | [linux-agent-no-tray.md](plans/linux-agent-no-tray.md) |
 
 ---
 

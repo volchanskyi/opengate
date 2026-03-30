@@ -216,17 +216,3 @@ log "  Data:    ${DATA_DIR}/"
 log "  Service: ${SERVICE_NAME}.service"
 log ""
 log "Check status: systemctl status ${SERVICE_NAME}"
-
-# --- Auto-detect desktop and install system tray ----------------------------
-# On desktop machines: install tray binary, runtime deps, and XDG autostart.
-# On headless/CLI/WSL/container: skip silently. No manual flags needed.
-
-log ""
-log "Detecting desktop environment..."
-
-TRAY_SCRIPT_URL="${SERVER_URL}/api/v1/server/install-tray.sh"
-if curl -sf --max-time 10 -o /dev/null "$TRAY_SCRIPT_URL"; then
-    curl -sf --max-time 10 "$TRAY_SCRIPT_URL" | bash
-else
-    log "Tray installer not available on server, skipping desktop integration."
-fi
