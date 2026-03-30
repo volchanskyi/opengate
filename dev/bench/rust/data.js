@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774890297566,
+  "lastUpdate": 1774890545636,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8060,6 +8060,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.11178861641796,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "029a164e0275a2ffa5a3d3e592f1cec671b1b411",
+          "message": "docs: add developer-workflow-enhancement plan to .claude/plans/",
+          "timestamp": "2026-03-30T10:07:25-07:00",
+          "tree_id": "f0247424cb7cb25d5e43db8925854bf8fdde009b",
+          "url": "https://github.com/volchanskyi/opengate/commit/029a164e0275a2ffa5a3d3e592f1cec671b1b411"
+        },
+        "date": 1774890545595,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.349994126290504,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.39702011128985,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 738.369012846521,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 343.104992876817,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.157320659127887,
             "unit": "ns/iter"
           }
         ]
