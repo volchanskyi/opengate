@@ -4,8 +4,6 @@
 //! handles session requests, and applies binary updates.
 //! Exit code 42 signals the service manager to restart after an update.
 
-mod ipc_server;
-
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -386,26 +384,6 @@ async fn main() -> Result<()> {
     lifecycle.notify_ready();
     info!("agent ready, connecting to server");
 
-    // Start IPC server for tray communication.
-    let ipc_state = ipc_server::AgentState {
-        version: env!("AGENT_VERSION").to_string(),
-        device_id: identity.device_id.0.to_string(),
-        hostname: gethostname::gethostname().to_string_lossy().to_string(),
-        os: os_pretty_name(),
-        arch: std::env::consts::ARCH.to_string(),
-        server_addr: config.server_addr.clone(),
-        connected: false,
-        start_time: std::time::Instant::now(),
-        log_path: format!("{LOG_DIR}/agent.log"),
-    };
-    let (ipc_handle, mut ipc_actions) = match ipc_server::start(ipc_state) {
-        Ok(h) => (Some(h.0), Some(h.1)),
-        Err(e) => {
-            warn!(error = %e, "IPC server failed to start, tray integration disabled");
-            (None, None)
-        }
-    };
-
     // Shutdown signal handler
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
@@ -471,16 +449,10 @@ async fn main() -> Result<()> {
         // Register with server
         if let Err(e) = conn
             .send_control(mesh_protocol::ControlMessage::AgentRegister {
-                capabilities: {
-                    let mut caps = vec![
-                        mesh_protocol::AgentCapability::Terminal,
-                        mesh_protocol::AgentCapability::FileManager,
-                    ];
-                    if platform_linux::has_display() {
-                        caps.push(mesh_protocol::AgentCapability::RemoteDesktop);
-                    }
-                    caps
-                },
+                capabilities: vec![
+                    mesh_protocol::AgentCapability::Terminal,
+                    mesh_protocol::AgentCapability::FileManager,
+                ],
                 hostname: gethostname::gethostname().to_string_lossy().to_string(),
                 os: os_pretty_name(),
                 arch: std::env::consts::ARCH.to_string(),
@@ -493,11 +465,6 @@ async fn main() -> Result<()> {
         }
 
         info!("registered with server, entering control loop");
-
-        // Notify tray that we're connected.
-        if let Some(ref handle) = ipc_handle {
-            handle.notify_connection_changed(true);
-        }
 
         // Registration succeeded — cancel watchdog and clear sentinel.
         if pending_update {
@@ -533,33 +500,6 @@ async fn main() -> Result<()> {
                         break;
                     }
                     tracing::debug!("heartbeat sent");
-                }
-                action = async {
-                    match ipc_actions.as_mut() {
-                        Some(rx) => rx.recv().await,
-                        None => std::future::pending().await,
-                    }
-                } => {
-                    if let Some(action) = action {
-                        match action {
-                            ipc_server::IpcAction::Restart => {
-                                info!("restart requested via tray IPC");
-                                lifecycle.notify_stopping();
-                                std::process::exit(EXIT_CODE_RESTART);
-                            }
-                            ipc_server::IpcAction::CheckUpdate => {
-                                info!("update check requested via tray IPC");
-                                // TODO: send RequestUpdate to server when protocol message is added
-                            }
-                            ipc_server::IpcAction::RequestChatToken { reply } => {
-                                info!("chat token requested via tray IPC");
-                                // TODO: request token from server when protocol message is added
-                                let _ = reply.send(mesh_agent_ipc::TrayResponse::Error {
-                                    message: "chat tokens not yet implemented".to_string(),
-                                });
-                            }
-                        }
-                    }
                 }
                 msg = conn.receive_control() => {
                     match msg {
@@ -617,16 +557,10 @@ async fn main() -> Result<()> {
                         }
                         Err(mesh_agent_core::ConnectionError::Io(_)) => {
                             warn!("connection lost, will reconnect");
-                            if let Some(ref handle) = ipc_handle {
-                                handle.notify_connection_changed(false);
-                            }
                             break; // break inner loop, outer loop reconnects
                         }
                         Err(e) => {
                             warn!(error = %e, "control error, will reconnect");
-                            if let Some(ref handle) = ipc_handle {
-                                handle.notify_connection_changed(false);
-                            }
                             break;
                         }
                     }
@@ -636,9 +570,6 @@ async fn main() -> Result<()> {
     }
 
     lifecycle.notify_stopping();
-    if let Some(ref handle) = ipc_handle {
-        ipc_server::cleanup(handle.socket_path());
-    }
     info!("mesh-agent stopped");
     Ok(())
 }

@@ -1,16 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["crates/*"]
-# mesh-agent-tray requires GTK/glib dev libraries (desktop-only).
-# Exclude from default builds so headless CI passes without desktop deps.
-default-members = [
-    "crates/mesh-agent",
-    "crates/mesh-agent-core",
-    "crates/mesh-agent-ipc",
-    "crates/mesh-protocol",
-    "crates/platform-linux",
-    "crates/platform-windows",
-]
 
 [workspace.package]
 edition = "2021"
