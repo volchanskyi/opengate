@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774890545636,
+  "lastUpdate": 1774890640524,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8109,6 +8109,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.157320659127887,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "054d8eb481d8aa9cc36316d2714faa1fa23410bc",
+          "message": "docs: clarify plans vs memory separation in CLAUDE.md\n\nPrevent plans from being stored in the memory directory instead of\n.claude/plans/ where they belong.",
+          "timestamp": "2026-03-30T10:08:50-07:00",
+          "tree_id": "d19432e7627a8e27762d66df8e8906d4727349b3",
+          "url": "https://github.com/volchanskyi/opengate/commit/054d8eb481d8aa9cc36316d2714faa1fa23410bc"
+        },
+        "date": 1774890640472,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.208400342561212,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.69614634822465,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 733.8642670191596,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 319.15390911098063,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.387708992510106,
             "unit": "ns/iter"
           }
         ]
