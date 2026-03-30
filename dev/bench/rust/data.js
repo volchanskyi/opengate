@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774836567952,
+  "lastUpdate": 1774890297566,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8011,6 +8011,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 26.434705553383488,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "4b724dc79b0bbc253a7229a85d21cd0326397ff5",
+          "message": "docs: dedup .claude/ — compact ADR index, archive 47 completed plans\n\n- decisions.md → compact index table; full ADR text moved to wiki\n- 47 completed plan files → .claude/plans/archive/\n- 3 active plans remain: sonarcloud, benchmarks, QUIC stream fix\n- phases.md links updated to archive paths\n- CLAUDE.md updated with new ADR workflow and archive convention",
+          "timestamp": "2026-03-30T10:02:46-07:00",
+          "tree_id": "fb089fba5f5ebf3ad3176804ebf517e92c5217b1",
+          "url": "https://github.com/volchanskyi/opengate/commit/4b724dc79b0bbc253a7229a85d21cd0326397ff5"
+        },
+        "date": 1774890297523,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.205301663239357,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.6989958283991,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 743.5705897795197,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 323.6065683417084,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.11178861641796,
             "unit": "ns/iter"
           }
         ]
