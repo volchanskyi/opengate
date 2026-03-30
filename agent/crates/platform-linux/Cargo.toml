@@ -3,20 +3,10 @@ name = "platform-linux"
 version = "0.15.4"
 edition.workspace = true
 
-[features]
-x11 = ["dep:x11rb", "dep:image"]
-
 [dependencies]
 mesh-agent-core = { path = "../mesh-agent-core" }
-mesh-protocol = { path = "../mesh-protocol" }
 tokio.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
-async-trait.workspace = true
-
-# Optional X11 support
-x11rb = { version = "0.13", optional = true }
-image = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
