@@ -588,15 +588,11 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Fully uninstalls the agent: stops systemd service, removes identity,
-/// config, data directories, service unit, and binary.
-/// Called when the server deregisters this device.
 /// Collects hardware inventory from the local system.
 fn collect_hardware_info() -> mesh_protocol::ControlMessage {
     use sysinfo::{Disks, System};
 
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let sys = System::new_all();
 
     let cpu_model = sys
         .cpus()
