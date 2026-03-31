@@ -1,4 +1,6 @@
-use crate::types::{AgentCapability, FileEntry, KeyCode, MouseButton, Permissions, SessionToken};
+use crate::types::{
+    AgentCapability, FileEntry, KeyCode, MouseButton, NetworkInterface, Permissions, SessionToken,
+};
 use serde::{Deserialize, Serialize};
 
 /// All control messages exchanged between agent and server.
@@ -134,5 +136,23 @@ pub enum ControlMessage {
     /// Agent should clean up and exit.
     AgentDeregistered {
         reason: String,
+    },
+
+    /// Server requests agent to restart (exit code 42, systemd auto-restarts).
+    RestartAgent {
+        reason: String,
+    },
+
+    /// Server requests the agent to collect and send hardware inventory.
+    RequestHardwareReport,
+
+    /// Agent reports hardware inventory to the server.
+    HardwareReport {
+        cpu_model: String,
+        cpu_cores: u32,
+        ram_total_mb: u64,
+        disk_total_mb: u64,
+        disk_free_mb: u64,
+        network_interfaces: Vec<NetworkInterface>,
     },
 }

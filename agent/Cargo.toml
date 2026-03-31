@@ -30,6 +30,7 @@ url = "2"
 webrtc = "0.17"
 
 gethostname = "1.1"
+sysinfo = "0.34"
 ed25519-dalek = { version = "2", features = ["std"] }
 sha2 = "0.11"
 hex = "0.4"

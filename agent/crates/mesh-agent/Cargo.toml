@@ -30,6 +30,7 @@ serde.workspace = true
 pem = "3"
 semver.workspace = true
 libc = "0.2"
+sysinfo.workspace = true
 
 [dev-dependencies]
 rcgen.workspace = true

@@ -67,6 +67,10 @@ type Store interface {
 	WriteAuditEvent(ctx context.Context, event *AuditEvent) error
 	QueryAuditLog(ctx context.Context, q AuditQuery) ([]*AuditEvent, error)
 
+	// Device Hardware
+	UpsertDeviceHardware(ctx context.Context, hw *DeviceHardware) error
+	GetDeviceHardware(ctx context.Context, deviceID DeviceID) (*DeviceHardware, error)
+
 	// Device Updates
 	CreateDeviceUpdate(ctx context.Context, du *DeviceUpdate) error
 	UpdateDeviceUpdateStatus(ctx context.Context, deviceID DeviceID, version string, status UpdateStatus, errMsg string) error

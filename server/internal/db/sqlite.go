@@ -707,6 +707,63 @@ func scanDeviceUpdateFrom(sc scanner) (*DeviceUpdate, error) {
 	return &du, nil
 }
 
+// --- Device Hardware ---
+
+// UpsertDeviceHardware inserts or updates hardware inventory for a device.
+func (s *SQLiteStore) UpsertDeviceHardware(ctx context.Context, hw *DeviceHardware) error {
+	now := nowRFC3339()
+	niJSON, err := json.Marshal(hw.NetworkInterfaces)
+	if err != nil {
+		return fmt.Errorf("marshal network interfaces: %w", err)
+	}
+	_, err = s.db.ExecContext(ctx,
+		`INSERT INTO device_hardware (device_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(device_id) DO UPDATE SET
+		   cpu_model = excluded.cpu_model,
+		   cpu_cores = excluded.cpu_cores,
+		   ram_total_mb = excluded.ram_total_mb,
+		   disk_total_mb = excluded.disk_total_mb,
+		   disk_free_mb = excluded.disk_free_mb,
+		   network_interfaces = excluded.network_interfaces,
+		   updated_at = excluded.updated_at`,
+		hw.DeviceID.String(), hw.CPUModel, hw.CPUCores,
+		hw.RAMTotalMB, hw.DiskTotalMB, hw.DiskFreeMB,
+		string(niJSON), now)
+	return err
+}
+
+// GetDeviceHardware returns the hardware inventory for a device.
+func (s *SQLiteStore) GetDeviceHardware(ctx context.Context, deviceID DeviceID) (*DeviceHardware, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT device_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces, updated_at
+		 FROM device_hardware WHERE device_id = ?`, deviceID.String())
+
+	var hw DeviceHardware
+	var deviceStr, niJSON, updatedAt string
+	err := row.Scan(&deviceStr, &hw.CPUModel, &hw.CPUCores,
+		&hw.RAMTotalMB, &hw.DiskTotalMB, &hw.DiskFreeMB,
+		&niJSON, &updatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	hw.DeviceID, err = uuid.Parse(deviceStr)
+	if err != nil {
+		return nil, fmt.Errorf("parse device id: %w", err)
+	}
+	hw.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+
+	if err := json.Unmarshal([]byte(niJSON), &hw.NetworkInterfaces); err != nil {
+		return nil, fmt.Errorf("unmarshal network interfaces: %w", err)
+	}
+
+	return &hw, nil
+}
+
 // CreateDeviceUpdate inserts a new device update record (typically with status "pending").
 func (s *SQLiteStore) CreateDeviceUpdate(ctx context.Context, du *DeviceUpdate) error {
 	now := nowRFC3339()

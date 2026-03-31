@@ -135,6 +135,28 @@ func manifestsToAPI(ms []*updater.Manifest) []AgentManifest {
 	return mapSlice(ms, manifestToAPI)
 }
 
+func deviceHardwareToAPI(hw *db.DeviceHardware) DeviceHardware {
+	return DeviceHardware{
+		DeviceId:          hw.DeviceID,
+		CpuModel:          hw.CPUModel,
+		CpuCores:          hw.CPUCores,
+		RamTotalMb:        hw.RAMTotalMB,
+		DiskTotalMb:       hw.DiskTotalMB,
+		DiskFreeMb:        hw.DiskFreeMB,
+		NetworkInterfaces: mapSlice(hw.NetworkInterfaces, networkInterfaceToAPI),
+		UpdatedAt:         hw.UpdatedAt,
+	}
+}
+
+func networkInterfaceToAPI(ni db.NetworkInterfaceInfo) NetworkInterfaceInfo {
+	return NetworkInterfaceInfo{
+		Name: ni.Name,
+		Mac:  ni.MAC,
+		Ipv4: ni.IPv4,
+		Ipv6: ni.IPv6,
+	}
+}
+
 func iceServersToAPI(servers []signaling.ICEServer) []ICEServer {
 	out := make([]ICEServer, len(servers))
 	for i, srv := range servers {

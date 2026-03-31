@@ -34,7 +34,10 @@ const (
 	MsgChatMessage ControlMessageType = "ChatMessage"
 
 	// Device lifecycle
-	MsgAgentDeregistered ControlMessageType = "AgentDeregistered"
+	MsgAgentDeregistered     ControlMessageType = "AgentDeregistered"
+	MsgRestartAgent          ControlMessageType = "RestartAgent"
+	MsgRequestHardwareReport ControlMessageType = "RequestHardwareReport"
+	MsgHardwareReport        ControlMessageType = "HardwareReport"
 )
 
 // ControlMessage is the envelope for all control-plane messages.
@@ -106,4 +109,12 @@ type ControlMessage struct {
 	// ChatMessage
 	Text   string `msgpack:"text,omitempty"`
 	Sender string `msgpack:"sender,omitempty"`
+
+	// HardwareReport
+	CPUModel          string             `msgpack:"cpu_model,omitempty"`
+	CPUCores          uint32             `msgpack:"cpu_cores,omitempty"`
+	RAMTotalMB        uint64             `msgpack:"ram_total_mb,omitempty"`
+	DiskTotalMB       uint64             `msgpack:"disk_total_mb,omitempty"`
+	DiskFreeMB        uint64             `msgpack:"disk_free_mb,omitempty"`
+	NetworkInterfaces []NetworkInterface `msgpack:"network_interfaces,omitempty"`
 }
