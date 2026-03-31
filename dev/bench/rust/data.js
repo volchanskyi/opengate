@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774895856542,
+  "lastUpdate": 1774974415859,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8256,6 +8256,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.547984787104557,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "76927e7f740f0343c90b7ed7396ec24b6e43f7c1",
+          "message": "feat: add agent restart and on-demand hardware inventory\n\nTwo new remote agent capabilities:\n- Restart Agent: web UI button sends RestartAgent control message,\n  agent exits with code 42 (systemd auto-restarts). REST endpoint\n  POST /api/v1/devices/{id}/restart with session-aware confirmation.\n- Hardware Inventory: on-demand collection via RequestHardwareReport/\n  HardwareReport control messages. Agent collects CPU, RAM, disk, and\n  network interfaces (sysinfo + libc::getifaddrs). Cached in new\n  device_hardware table (migration 009). GET /api/v1/devices/{id}/hardware\n  returns cached data or 202 to trigger collection.",
+          "timestamp": "2026-03-31T09:24:38-07:00",
+          "tree_id": "4e46819d0eafed9f02c63974a60c6f702df51a82",
+          "url": "https://github.com/volchanskyi/opengate/commit/76927e7f740f0343c90b7ed7396ec24b6e43f7c1"
+        },
+        "date": 1774974415809,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.742756623256316,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 37.91646481001058,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 757.87184381832,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.574255414406,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.780001066970808,
             "unit": "ns/iter"
           }
         ]
