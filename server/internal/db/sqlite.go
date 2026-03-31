@@ -751,11 +751,14 @@ func (s *SQLiteStore) GetDeviceHardware(ctx context.Context, deviceID DeviceID) 
 		return nil, err
 	}
 
-	hw.DeviceID, err = uuid.Parse(deviceStr)
+	hw.DeviceID, err = parseUUID(deviceStr)
 	if err != nil {
-		return nil, fmt.Errorf("parse device id: %w", err)
+		return nil, err
 	}
-	hw.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updatedAt)
+	hw.UpdatedAt, err = parseTime(updatedAt)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := json.Unmarshal([]byte(niJSON), &hw.NetworkInterfaces); err != nil {
 		return nil, fmt.Errorf("unmarshal network interfaces: %w", err)
