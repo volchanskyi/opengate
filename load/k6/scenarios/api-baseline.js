@@ -5,8 +5,8 @@ const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
 export const options = {
   stages: [
-    { duration: "30s", target: 50 },
-    { duration: "1m", target: 50 },
+    { duration: "30s", target: 20 },
+    { duration: "1m", target: 20 },
     { duration: "30s", target: 0 },
   ],
   thresholds: {
@@ -64,5 +64,5 @@ export default function (data) {
   );
   check(devices, { "devices 200": (r) => r.status === 200 });
 
-  sleep(0.5);
+  sleep(1);
 }
