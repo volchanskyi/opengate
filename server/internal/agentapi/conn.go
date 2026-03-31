@@ -85,6 +85,21 @@ func (a *AgentConn) SendAgentDeregistered(ctx context.Context, reason string) er
 	})
 }
 
+// SendRestartAgent asks the agent to restart itself.
+func (a *AgentConn) SendRestartAgent(ctx context.Context, reason string) error {
+	return a.sendControl(&protocol.ControlMessage{
+		Type:   protocol.MsgRestartAgent,
+		Reason: reason,
+	})
+}
+
+// SendRequestHardwareReport asks the agent to collect and send hardware info.
+func (a *AgentConn) SendRequestHardwareReport(ctx context.Context) error {
+	return a.sendControl(&protocol.ControlMessage{
+		Type: protocol.MsgRequestHardwareReport,
+	})
+}
+
 // Close closes the agent connection.
 func (a *AgentConn) Close() error {
 	if closer, ok := a.stream.(io.Closer); ok {
@@ -141,9 +156,39 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 			a.logger.Warn("persist update ack failed", "device_id", a.DeviceID, "error", err)
 		}
 		return nil
+	case protocol.MsgHardwareReport:
+		return a.handleHardwareReport(ctx, msg)
 	default:
 		return fmt.Errorf("%w: %s", ErrUnexpectedMessage, msg.Type)
 	}
+}
+
+func (a *AgentConn) handleHardwareReport(ctx context.Context, msg *protocol.ControlMessage) error {
+	nis := make([]db.NetworkInterfaceInfo, len(msg.NetworkInterfaces))
+	for i, ni := range msg.NetworkInterfaces {
+		nis[i] = db.NetworkInterfaceInfo{
+			Name: ni.Name,
+			MAC:  ni.MAC,
+			IPv4: ni.IPv4,
+			IPv6: ni.IPv6,
+		}
+	}
+
+	hw := &db.DeviceHardware{
+		DeviceID:          a.DeviceID,
+		CPUModel:          msg.CPUModel,
+		CPUCores:          int(msg.CPUCores),
+		RAMTotalMB:        int64(msg.RAMTotalMB),
+		DiskTotalMB:       int64(msg.DiskTotalMB),
+		DiskFreeMB:        int64(msg.DiskFreeMB),
+		NetworkInterfaces: nis,
+	}
+	if err := a.store.UpsertDeviceHardware(ctx, hw); err != nil {
+		return fmt.Errorf("upsert hardware: %w", err)
+	}
+
+	a.logger.Debug("hardware report stored", "device_id", a.DeviceID)
+	return nil
 }
 
 func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMessage) error {

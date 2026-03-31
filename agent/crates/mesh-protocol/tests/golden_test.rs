@@ -162,6 +162,44 @@ fn golden_control_frame_agent_deregistered() {
 }
 
 #[test]
+fn golden_control_frame_restart_agent() {
+    let msg = ControlMessage::RestartAgent {
+        reason: "restart requested from web UI".to_string(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_restart_agent.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_request_hardware_report() {
+    let msg = ControlMessage::RequestHardwareReport;
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_request_hardware_report.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_hardware_report() {
+    let msg = ControlMessage::HardwareReport {
+        cpu_model: "Intel Core i7-12700K".to_string(),
+        cpu_cores: 12,
+        ram_total_mb: 32768,
+        disk_total_mb: 512000,
+        disk_free_mb: 256000,
+        network_interfaces: vec![NetworkInterface {
+            name: "eth0".to_string(),
+            mac: "00:11:22:33:44:55".to_string(),
+            ipv4: vec!["192.168.1.100".to_string()],
+            ipv6: vec!["fe80::1".to_string()],
+        }],
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_hardware_report.bin", &encoded);
+}
+
+#[test]
 fn golden_handshake_server_hello() {
     let msg = HandshakeMessage::ServerHello {
         nonce: [0xAA; 32],

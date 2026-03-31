@@ -135,6 +135,26 @@ type DeviceUpdate struct {
 	AckedAt  *time.Time   `json:"acked_at,omitempty"`
 }
 
+// NetworkInterfaceInfo describes a single network interface on the agent host.
+type NetworkInterfaceInfo struct {
+	Name string   `json:"name"`
+	MAC  string   `json:"mac"`
+	IPv4 []string `json:"ipv4"`
+	IPv6 []string `json:"ipv6"`
+}
+
+// DeviceHardware stores hardware inventory for a device.
+type DeviceHardware struct {
+	DeviceID          DeviceID               `json:"device_id"`
+	CPUModel          string                 `json:"cpu_model"`
+	CPUCores          int                    `json:"cpu_cores"`
+	RAMTotalMB        int64                  `json:"ram_total_mb"`
+	DiskTotalMB       int64                  `json:"disk_total_mb"`
+	DiskFreeMB        int64                  `json:"disk_free_mb"`
+	NetworkInterfaces []NetworkInterfaceInfo  `json:"network_interfaces"`
+	UpdatedAt         time.Time              `json:"updated_at"`
+}
+
 // SecurityGroupID uniquely identifies a security group.
 type SecurityGroupID = uuid.UUID
 

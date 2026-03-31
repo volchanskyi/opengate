@@ -5,12 +5,14 @@ import type { components } from '../types/api';
 
 type Device = components['schemas']['Device'];
 type Group = components['schemas']['Group'];
+type DeviceHardware = components['schemas']['DeviceHardware'];
 
 interface DeviceState {
   devices: Device[];
   groups: Group[];
   selectedGroupId: string | null;
   selectedDevice: Device | null;
+  hardware: DeviceHardware | null;
   isLoading: boolean;
   error: string | null;
   fetchGroups: () => Promise<void>;
@@ -21,6 +23,8 @@ interface DeviceState {
   deleteGroup: (id: string) => Promise<void>;
   deleteDevice: (id: string) => Promise<void>;
   updateDeviceGroup: (id: string, groupId: string) => Promise<boolean>;
+  restartAgent: (id: string) => Promise<boolean>;
+  fetchHardware: (id: string) => Promise<void>;
 }
 
 export const useDeviceStore = create<DeviceState>((set, get) => ({
@@ -28,6 +32,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   groups: [],
   selectedGroupId: null,
   selectedDevice: null,
+  hardware: null,
   isLoading: false,
   error: null,
 
@@ -97,5 +102,37 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       set({ selectedDevice: res.data });
     }
     return res.ok;
+  },
+
+  restartAgent: async (id) => {
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/devices/{id}/restart', {
+        params: { path: { id } },
+        body: { reason: 'restart requested from web UI' },
+      }), false,
+    );
+    return res.ok;
+  },
+
+  fetchHardware: async (id) => {
+    set({ hardware: null });
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/devices/{id}/hardware', {
+        params: { path: { id } },
+      }), false,
+    );
+    if (res.ok) {
+      set({ hardware: res.data });
+    } else {
+      // 202 (report requested) or 404 — retry once after 2s in case the agent responds
+      setTimeout(async () => {
+        const retry = await apiAction(set, () =>
+          api.GET('/api/v1/devices/{id}/hardware', {
+            params: { path: { id } },
+          }), false,
+        );
+        if (retry.ok) set({ hardware: retry.data });
+      }, 2000);
+    }
   },
 }));
