@@ -1131,6 +1131,98 @@ func TestDeviceUpdateCRUD(t *testing.T) {
 	})
 }
 
+func TestDeviceHardwareCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	owner := seedUser(t, ctx, s)
+	group := seedGroup(t, ctx, s, owner.ID)
+	device := seedDevice(t, ctx, s, group.ID)
+
+	t.Run("upsert and get", func(t *testing.T) {
+		hw := &DeviceHardware{
+			DeviceID:   device.ID,
+			CPUModel:   "Intel Core i7-12700K",
+			CPUCores:   12,
+			RAMTotalMB: 32768,
+			DiskTotalMB: 512000,
+			DiskFreeMB:  256000,
+			NetworkInterfaces: []NetworkInterfaceInfo{
+				{Name: "eth0", MAC: "00:11:22:33:44:55", IPv4: []string{"192.168.1.100"}, IPv6: []string{}},
+			},
+		}
+		require.NoError(t, s.UpsertDeviceHardware(ctx, hw))
+
+		got, err := s.GetDeviceHardware(ctx, device.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "Intel Core i7-12700K", got.CPUModel)
+		assert.Equal(t, 12, got.CPUCores)
+		assert.Equal(t, int64(32768), got.RAMTotalMB)
+		assert.Equal(t, int64(512000), got.DiskTotalMB)
+		assert.Equal(t, int64(256000), got.DiskFreeMB)
+		require.Len(t, got.NetworkInterfaces, 1)
+		assert.Equal(t, "eth0", got.NetworkInterfaces[0].Name)
+		assert.Equal(t, "00:11:22:33:44:55", got.NetworkInterfaces[0].MAC)
+		assert.False(t, got.UpdatedAt.IsZero())
+	})
+
+	t.Run(testNameUpsertUpdates, func(t *testing.T) {
+		hw := &DeviceHardware{
+			DeviceID:   device.ID,
+			CPUModel:   "AMD Ryzen 9 7950X",
+			CPUCores:   16,
+			RAMTotalMB: 65536,
+			DiskTotalMB: 1024000,
+			DiskFreeMB:  500000,
+			NetworkInterfaces: []NetworkInterfaceInfo{
+				{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff", IPv4: []string{"10.0.0.1"}, IPv6: []string{"::1"}},
+				{Name: "wlan0", MAC: "11:22:33:44:55:66", IPv4: []string{"192.168.1.50"}, IPv6: []string{}},
+			},
+		}
+		require.NoError(t, s.UpsertDeviceHardware(ctx, hw))
+
+		got, err := s.GetDeviceHardware(ctx, device.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "AMD Ryzen 9 7950X", got.CPUModel)
+		assert.Equal(t, 16, got.CPUCores)
+		assert.Len(t, got.NetworkInterfaces, 2)
+	})
+
+	t.Run(testNameGetNotFound, func(t *testing.T) {
+		_, err := s.GetDeviceHardware(ctx, uuid.New())
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+
+	t.Run("empty network interfaces", func(t *testing.T) {
+		d2 := seedDevice(t, ctx, s, group.ID)
+		hw := &DeviceHardware{
+			DeviceID:          d2.ID,
+			CPUModel:          "ARM Cortex-A72",
+			CPUCores:          4,
+			RAMTotalMB:        4096,
+			NetworkInterfaces: []NetworkInterfaceInfo{},
+		}
+		require.NoError(t, s.UpsertDeviceHardware(ctx, hw))
+
+		got, err := s.GetDeviceHardware(ctx, d2.ID)
+		require.NoError(t, err)
+		assert.Empty(t, got.NetworkInterfaces)
+	})
+
+	t.Run("cascade delete on device removal", func(t *testing.T) {
+		d3 := seedDevice(t, ctx, s, group.ID)
+		hw := &DeviceHardware{
+			DeviceID: d3.ID, CPUModel: "test", CPUCores: 1,
+			NetworkInterfaces: []NetworkInterfaceInfo{},
+		}
+		require.NoError(t, s.UpsertDeviceHardware(ctx, hw))
+
+		require.NoError(t, s.DeleteDevice(ctx, d3.ID))
+
+		_, err := s.GetDeviceHardware(ctx, d3.ID)
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+}
+
 func TestWALMode(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "wal.db")

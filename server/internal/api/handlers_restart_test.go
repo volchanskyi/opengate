@@ -19,6 +19,55 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
+// deviceTestEnv holds common setup for restart and hardware handler tests.
+type deviceTestEnv struct {
+	store       db.Store
+	device      *db.Device
+	srv         *Server
+	ownerToken  string
+	agentStream *bytes.Buffer
+	generateToken func(userID uuid.UUID, email string, isAdmin bool) (string, error)
+}
+
+// setupDeviceTest creates a user, group, device, and test server. When online
+// is true an AgentConn backed by agentStream is registered.
+func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
+	t.Helper()
+
+	var agentStream bytes.Buffer
+	store := testutil.NewTestStore(t)
+	ctx := t.Context()
+
+	user := testutil.SeedUser(t, ctx, store)
+	group := testutil.SeedGroup(t, ctx, store, user.ID)
+	device := testutil.SeedDevice(t, ctx, store, group.ID)
+
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+
+	lookup := &stubAgentGetter{}
+	if online {
+		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, logger)
+		lookup = &stubAgentGetter{
+			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
+		}
+	}
+
+	srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
+	srv.store = store
+
+	token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	require.NoError(t, err)
+
+	return &deviceTestEnv{
+		store:         store,
+		device:        device,
+		srv:           srv,
+		ownerToken:    token,
+		agentStream:   &agentStream,
+		generateToken: cfg.GenerateToken,
+	}
+}
+
 func TestRestartDevice(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -35,47 +84,22 @@ func TestRestartDevice(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var agentStream bytes.Buffer
-			store := testutil.NewTestStore(t)
-			ctx := t.Context()
+			env := setupDeviceTest(t, tt.online)
 
-			user := testutil.SeedUser(t, ctx, store)
-			group := testutil.SeedGroup(t, ctx, store, user.ID)
-			device := testutil.SeedDevice(t, ctx, store, group.ID)
-
-			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-
-			lookup := &stubAgentGetter{}
-			if tt.online {
-				ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, logger)
-				lookup = &stubAgentGetter{
-					agents: map[protocol.DeviceID]*agentapi.AgentConn{
-						device.ID: ac,
-					},
-				}
-			}
-
-			srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
-			srv.store = store
-
-			var token string
-			if tt.owned {
+			token := env.ownerToken
+			if !tt.owned {
+				otherUser := testutil.SeedUser(t, t.Context(), env.store)
 				var err error
-				token, err = cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
-				require.NoError(t, err)
-			} else {
-				otherUser := testutil.SeedUser(t, ctx, store)
-				var err error
-				token, err = cfg.GenerateToken(otherUser.ID, otherUser.Email, otherUser.IsAdmin)
+				token, err = env.generateToken(otherUser.ID, otherUser.Email, otherUser.IsAdmin)
 				require.NoError(t, err)
 			}
 
-			targetID := device.ID
+			targetID := env.device.ID
 			if !tt.found {
 				targetID = uuid.New()
 			}
 
-			w := doRequest(srv, http.MethodPost, "/api/v1/devices/"+targetID.String()+"/restart", token, map[string]string{
+			w := doRequest(env.srv, http.MethodPost, "/api/v1/devices/"+targetID.String()+"/restart", token, map[string]string{
 				"reason": "test restart",
 			})
 
@@ -84,7 +108,7 @@ func TestRestartDevice(t *testing.T) {
 			if tt.wantStatus == http.StatusOK && tt.online {
 				// Verify the RestartAgent message was written to the agent stream
 				codec := &protocol.Codec{}
-				frameType, payload, err := codec.ReadFrame(&agentStream)
+				frameType, payload, err := codec.ReadFrame(env.agentStream)
 				require.NoError(t, err)
 				assert.Equal(t, byte(protocol.FrameControl), frameType)
 
@@ -103,33 +127,13 @@ func TestRestartDevice(t *testing.T) {
 	})
 
 	t.Run("default reason when body is nil", func(t *testing.T) {
-		var agentStream bytes.Buffer
-		store := testutil.NewTestStore(t)
-		ctx := t.Context()
+		env := setupDeviceTest(t, true)
 
-		user := testutil.SeedUser(t, ctx, store)
-		group := testutil.SeedGroup(t, ctx, store, user.ID)
-		device := testutil.SeedDevice(t, ctx, store, group.ID)
-
-		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, logger)
-
-		lookup := &stubAgentGetter{
-			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
-		}
-
-		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
-		srv.store = store
-
-		token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
-		require.NoError(t, err)
-
-		// Send request with no body
-		w := doRawRequest(srv, http.MethodPost, "/api/v1/devices/"+device.ID.String()+"/restart", token, "")
+		w := doRawRequest(env.srv, http.MethodPost, "/api/v1/devices/"+env.device.ID.String()+"/restart", env.ownerToken, "")
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		codec := &protocol.Codec{}
-		_, payload, err := codec.ReadFrame(&agentStream)
+		_, payload, err := codec.ReadFrame(env.agentStream)
 		require.NoError(t, err)
 		msg, err := codec.DecodeControl(payload)
 		require.NoError(t, err)
@@ -137,38 +141,18 @@ func TestRestartDevice(t *testing.T) {
 	})
 
 	t.Run("audit log written", func(t *testing.T) {
-		var agentStream bytes.Buffer
-		store := testutil.NewTestStore(t)
-		ctx := t.Context()
+		env := setupDeviceTest(t, true)
 
-		user := testutil.SeedUser(t, ctx, store)
-		group := testutil.SeedGroup(t, ctx, store, user.ID)
-		device := testutil.SeedDevice(t, ctx, store, group.ID)
-
-		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, logger)
-
-		lookup := &stubAgentGetter{
-			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
-		}
-
-		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
-		srv.store = store
-
-		token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
-		require.NoError(t, err)
-
-		w := doRequest(srv, http.MethodPost, "/api/v1/devices/"+device.ID.String()+"/restart", token, nil)
+		w := doRequest(env.srv, http.MethodPost, "/api/v1/devices/"+env.device.ID.String()+"/restart", env.ownerToken, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// auditLog is async (fire-and-forget goroutine)
 		time.Sleep(100 * time.Millisecond)
 
-		events, err := store.QueryAuditLog(ctx, db.AuditQuery{Action: "device.restart"})
+		events, err := env.store.QueryAuditLog(t.Context(), db.AuditQuery{Action: "device.restart"})
 		require.NoError(t, err)
 		require.Len(t, events, 1)
-		assert.Equal(t, user.ID, events[0].UserID)
-		assert.Equal(t, device.ID.String(), events[0].Target)
+		assert.Equal(t, env.device.ID.String(), events[0].Target)
 	})
 }
 
@@ -190,30 +174,11 @@ func TestGetDeviceHardware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var agentStream bytes.Buffer
-			store := testutil.NewTestStore(t)
-			ctx := t.Context()
-
-			user := testutil.SeedUser(t, ctx, store)
-			group := testutil.SeedGroup(t, ctx, store, user.ID)
-			device := testutil.SeedDevice(t, ctx, store, group.ID)
-
-			logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-
-			lookup := &stubAgentGetter{}
-			if tt.online {
-				ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, logger)
-				lookup = &stubAgentGetter{
-					agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
-				}
-			}
-
-			srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
-			srv.store = store
+			env := setupDeviceTest(t, tt.online)
 
 			if tt.hasCached {
 				hw := &db.DeviceHardware{
-					DeviceID:    device.ID,
+					DeviceID:    env.device.ID,
 					CPUModel:    "Intel Core i7-12700K",
 					CPUCores:    12,
 					RAMTotalMB:  32768,
@@ -223,27 +188,23 @@ func TestGetDeviceHardware(t *testing.T) {
 						{Name: "eth0", MAC: "00:11:22:33:44:55", IPv4: []string{"192.168.1.100"}, IPv6: []string{}},
 					},
 				}
-				require.NoError(t, store.UpsertDeviceHardware(ctx, hw))
+				require.NoError(t, env.store.UpsertDeviceHardware(t.Context(), hw))
 			}
 
-			var token string
-			if tt.owned {
+			token := env.ownerToken
+			if !tt.owned {
+				otherUser := testutil.SeedUser(t, t.Context(), env.store)
 				var err error
-				token, err = cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
-				require.NoError(t, err)
-			} else {
-				otherUser := testutil.SeedUser(t, ctx, store)
-				var err error
-				token, err = cfg.GenerateToken(otherUser.ID, otherUser.Email, otherUser.IsAdmin)
+				token, err = env.generateToken(otherUser.ID, otherUser.Email, otherUser.IsAdmin)
 				require.NoError(t, err)
 			}
 
-			targetID := device.ID
+			targetID := env.device.ID
 			if !tt.found {
 				targetID = uuid.New()
 			}
 
-			w := doRequest(srv, http.MethodGet, "/api/v1/devices/"+targetID.String()+"/hardware", token, nil)
+			w := doRequest(env.srv, http.MethodGet, "/api/v1/devices/"+targetID.String()+"/hardware", token, nil)
 
 			assert.Equal(t, tt.wantStatus, w.Code)
 
@@ -258,7 +219,7 @@ func TestGetDeviceHardware(t *testing.T) {
 			if tt.wantStatus == http.StatusAccepted && tt.online {
 				// Verify RequestHardwareReport was sent to agent
 				codec := &protocol.Codec{}
-				_, payload, err := codec.ReadFrame(&agentStream)
+				_, payload, err := codec.ReadFrame(env.agentStream)
 				require.NoError(t, err)
 				msg, err := codec.DecodeControl(payload)
 				require.NoError(t, err)
