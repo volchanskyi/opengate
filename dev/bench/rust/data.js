@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774974415859,
+  "lastUpdate": 1774975925184,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8305,6 +8305,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.780001066970808,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "da9a04ce42305d19f2d991c733fb048d24400629",
+          "message": "refactor: clean up hardware inventory code and add DB-level tests\n\n- Fix stale doc comment on collect_hardware_info\n- Remove redundant refresh_all() after System::new_all()\n- Use parseUUID/parseTime helpers in GetDeviceHardware (no silent error discard)\n- Extract shared test setup into deviceTestEnv helper\n- Add TestDeviceHardwareCRUD (upsert, update, not-found, empty NICs, cascade delete)",
+          "timestamp": "2026-03-31T09:50:01-07:00",
+          "tree_id": "5c396fad3f5182e42ce8ac78a4dc4d1341c36eee",
+          "url": "https://github.com/volchanskyi/opengate/commit/da9a04ce42305d19f2d991c733fb048d24400629"
+        },
+        "date": 1774975925144,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.286768938538161,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.864776295578373,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 595.2079584033452,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 289.84817484667064,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.743173888283312,
             "unit": "ns/iter"
           }
         ]
