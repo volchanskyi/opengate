@@ -35,6 +35,7 @@
 | Linux Agent: No Tray | Remove tray/IPC crates, Linux = Terminal + FileManager only, delete display detection | — | [linux-agent-no-tray.md](plans/archive/linux-agent-no-tray.md) |
 | Dev Workflow Phase 1 | `.claude/` dedup — compact ADR index with wiki cross-refs, archive 47 completed plan files | — | — |
 | Linux Agent: Remove Display Detection | Strip X11 capture, input injection, and related deps from platform-linux; Linux = Terminal + FileManager only | — | — |
+| Agent Restart + Hardware Inventory | Restart agent from web UI (exit code 42), on-demand hardware inventory (CPU/RAM/disk/NICs) | — | [quirky-snacking-knuth.md](plans/quirky-snacking-knuth.md) |
 
 ---
 

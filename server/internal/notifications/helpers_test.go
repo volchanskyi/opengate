@@ -180,6 +180,12 @@ func (m *notifMockStore) UpdateDeviceUpdateStatus(_ context.Context, _ db.Device
 func (m *notifMockStore) ListDeviceUpdatesByVersion(_ context.Context, _ string) ([]*db.DeviceUpdate, error) {
 	return nil, nil
 }
+func (m *notifMockStore) UpsertDeviceHardware(_ context.Context, _ *db.DeviceHardware) error {
+	return nil
+}
+func (m *notifMockStore) GetDeviceHardware(_ context.Context, _ db.DeviceID) (*db.DeviceHardware, error) {
+	return nil, db.ErrNotFound
+}
 func (m *notifMockStore) Ping(_ context.Context) error { return nil }
 func (m *notifMockStore) Close() error                 { return nil }
 

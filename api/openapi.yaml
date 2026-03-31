@@ -108,6 +108,57 @@ components:
           type: string
           format: date-time
 
+    RestartDeviceRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+
+    DeviceHardware:
+      type: object
+      required: [device_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces, updated_at]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        cpu_model:
+          type: string
+        cpu_cores:
+          type: integer
+        ram_total_mb:
+          type: integer
+          format: int64
+        disk_total_mb:
+          type: integer
+          format: int64
+        disk_free_mb:
+          type: integer
+          format: int64
+        network_interfaces:
+          type: array
+          items:
+            $ref: "#/components/schemas/NetworkInterfaceInfo"
+        updated_at:
+          type: string
+          format: date-time
+
+    NetworkInterfaceInfo:
+      type: object
+      required: [name, mac, ipv4, ipv6]
+      properties:
+        name:
+          type: string
+        mac:
+          type: string
+        ipv4:
+          type: array
+          items:
+            type: string
+        ipv6:
+          type: array
+          items:
+            type: string
+
     UpdateDeviceRequest:
       type: object
       properties:
@@ -976,6 +1027,94 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/restart:
+    post:
+      operationId: restartDevice
+      summary: Restart agent on device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestartDeviceRequest"
+      responses:
+        "200":
+          description: Restart command sent
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Agent not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/hardware:
+    get:
+      operationId: getDeviceHardware
+      summary: Get hardware info for a device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Hardware info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceHardware"
+        "202":
+          description: Hardware report requested, poll again shortly
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device or hardware info not found
           content:
             application/json:
               schema:

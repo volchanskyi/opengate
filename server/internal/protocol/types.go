@@ -112,6 +112,14 @@ const (
 	MsgExpectHash  byte = 0x15
 )
 
+// NetworkInterface describes a single network interface on the agent host.
+type NetworkInterface struct {
+	Name string   `msgpack:"name" json:"name"`
+	MAC  string   `msgpack:"mac" json:"mac"`
+	IPv4 []string `msgpack:"ipv4" json:"ipv4"`
+	IPv6 []string `msgpack:"ipv6" json:"ipv6"`
+}
+
 // FileEntry represents a file or directory in a listing.
 type FileEntry struct {
 	Name     string `msgpack:"name" json:"name"`

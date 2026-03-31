@@ -143,6 +143,55 @@ func TestAgentConn_SendSessionRequest(t *testing.T) {
 	assert.True(t, decoded.Permissions.Terminal)
 }
 
+func TestAgentConn_SendRestartAgent(t *testing.T) {
+	codec := &protocol.Codec{}
+	var buf bytes.Buffer
+
+	ac := &AgentConn{
+		DeviceID: uuid.New(),
+		stream:   &buf,
+		codec:    codec,
+		store:    nil,
+		logger:   testLogger(),
+	}
+
+	err := ac.SendRestartAgent(context.Background(), "restart requested from web UI")
+	require.NoError(t, err)
+
+	frameType, payload, err := codec.ReadFrame(&buf)
+	require.NoError(t, err)
+	assert.Equal(t, byte(protocol.FrameControl), frameType)
+
+	decoded, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, protocol.MsgRestartAgent, decoded.Type)
+	assert.Equal(t, "restart requested from web UI", decoded.Reason)
+}
+
+func TestAgentConn_SendRequestHardwareReport(t *testing.T) {
+	codec := &protocol.Codec{}
+	var buf bytes.Buffer
+
+	ac := &AgentConn{
+		DeviceID: uuid.New(),
+		stream:   &buf,
+		codec:    codec,
+		store:    nil,
+		logger:   testLogger(),
+	}
+
+	err := ac.SendRequestHardwareReport(context.Background())
+	require.NoError(t, err)
+
+	frameType, payload, err := codec.ReadFrame(&buf)
+	require.NoError(t, err)
+	assert.Equal(t, byte(protocol.FrameControl), frameType)
+
+	decoded, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, protocol.MsgRequestHardwareReport, decoded.Type)
+}
+
 func TestAgentConn_HandleUnknownMessage(t *testing.T) {
 	codec := &protocol.Codec{}
 

@@ -344,6 +344,22 @@ func (s *InstrumentedStore) QueryAuditLog(ctx context.Context, q db.AuditQuery) 
 
 // --- Device Updates ----------------------------------------------------------
 
+// UpsertDeviceHardware instruments db.Store.UpsertDeviceHardware.
+func (s *InstrumentedStore) UpsertDeviceHardware(ctx context.Context, hw *db.DeviceHardware) error {
+	start := time.Now()
+	err := s.inner.UpsertDeviceHardware(ctx, hw)
+	s.observe("UpsertDeviceHardware", start, err)
+	return err
+}
+
+// GetDeviceHardware instruments db.Store.GetDeviceHardware.
+func (s *InstrumentedStore) GetDeviceHardware(ctx context.Context, deviceID db.DeviceID) (*db.DeviceHardware, error) {
+	start := time.Now()
+	hw, err := s.inner.GetDeviceHardware(ctx, deviceID)
+	s.observe("GetDeviceHardware", start, err)
+	return hw, err
+}
+
 // CreateDeviceUpdate instruments db.Store.CreateDeviceUpdate.
 func (s *InstrumentedStore) CreateDeviceUpdate(ctx context.Context, du *db.DeviceUpdate) error {
 	start := time.Now()

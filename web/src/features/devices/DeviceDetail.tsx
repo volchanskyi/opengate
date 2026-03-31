@@ -9,6 +9,14 @@ import type { components } from '../../types/api';
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const val = bytes / Math.pow(1024, i);
+  return `${val.toFixed(val >= 100 ? 0 : 1)} ${units[i]}`;
+}
+
 export function DeviceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -26,7 +34,12 @@ export function DeviceDetail() {
   const groups = useDeviceStore((s) => s.groups);
   const fetchGroups = useDeviceStore((s) => s.fetchGroups);
   const updateDeviceGroup = useDeviceStore((s) => s.updateDeviceGroup);
+  const restartAgent = useDeviceStore((s) => s.restartAgent);
+  const hardware = useDeviceStore((s) => s.hardware);
+  const fetchHardware = useDeviceStore((s) => s.fetchHardware);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [isRestarting, setIsRestarting] = useState(false);
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [showAmtInstructions, setShowAmtInstructions] = useState(false);
@@ -38,7 +51,8 @@ export function DeviceDetail() {
     }
     fetchAmtDevices();
     fetchGroups();
-  }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups]);
+    if (id) fetchHardware(id);
+  }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchHardware]);
 
   // Poll device data every 30s so agent_version and status stay in sync.
   useEffect(() => {
@@ -76,6 +90,22 @@ export function DeviceDetail() {
       </div>
     );
   }
+
+  const handleRestart = async () => {
+    if (sessions.length > 0 && !confirmRestart) {
+      setConfirmRestart(true);
+      return;
+    }
+    setConfirmRestart(false);
+    setIsRestarting(true);
+    const ok = await restartAgent(device.id);
+    if (ok) {
+      addToast('Restart command sent', 'success');
+    } else {
+      addToast('Failed to restart agent', 'error');
+    }
+    setIsRestarting(false);
+  };
 
   const handleDelete = async () => {
     if (!confirmDelete) {
@@ -243,6 +273,49 @@ export function DeviceDetail() {
           </div>
         )}
 
+        {hardware && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-300 mb-2">Hardware</h3>
+            <dl className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <dt className="text-gray-400">CPU</dt>
+                <dd>{hardware.cpu_model} ({hardware.cpu_cores} cores)</dd>
+              </div>
+              <div>
+                <dt className="text-gray-400">RAM</dt>
+                <dd>{formatBytes(hardware.ram_total_mb * 1024 * 1024)}</dd>
+              </div>
+              <div>
+                <dt className="text-gray-400">Disk</dt>
+                <dd>{formatBytes(hardware.disk_free_mb * 1024 * 1024)} free / {formatBytes(hardware.disk_total_mb * 1024 * 1024)}</dd>
+              </div>
+              <div>
+                <dt className="text-gray-400">Last Updated</dt>
+                <dd>{new Date(hardware.updated_at).toLocaleString()}</dd>
+              </div>
+            </dl>
+            {hardware.network_interfaces.length > 0 && (
+              <div className="mt-2">
+                <h4 className="text-xs text-gray-400 mb-1">Network Interfaces</h4>
+                <ul className="text-xs space-y-1">
+                  {hardware.network_interfaces.map((ni) => (
+                    <li key={ni.name} className="font-mono">
+                      {ni.name}: {ni.mac}{ni.ipv4.length > 0 && ` — ${ni.ipv4.join(', ')}`}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => id && fetchHardware(id)}
+              className="mt-2 text-xs text-blue-400 hover:text-blue-300"
+            >
+              Refresh
+            </button>
+          </div>
+        )}
+
         <div className="flex gap-3 pt-2">
           <button
             type="button"
@@ -250,6 +323,18 @@ export function DeviceDetail() {
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium"
           >
             Start Session
+          </button>
+          <button
+            type="button"
+            onClick={handleRestart}
+            disabled={device.status !== 'online' || isRestarting}
+            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded text-sm font-medium disabled:opacity-50"
+          >
+            {isRestarting
+              ? 'Restarting...'
+              : confirmRestart
+                ? `Confirm (${sessions.length} session${sessions.length !== 1 ? 's' : ''} will end)`
+                : 'Restart Agent'}
           </button>
           <button
             type="button"
