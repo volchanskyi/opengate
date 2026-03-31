@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774975925184,
+  "lastUpdate": 1774998676272,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8354,6 +8354,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.743173888283312,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f1315040badd844fe76915240d43a377db4676c8",
+          "message": "fix: tune k6 scenarios to stay within per-IP rate limit\n\nThe server enforces 100 rps / 200 burst per IP. The k6 scenarios ran\nfrom 127.0.0.1 and exceeded this at peak VUs (api-baseline: ~394 rps,\nconcurrent-agents: ~600 rps), causing 67% HTTP 429 failures.\n\n- api-baseline: 50 VUs / 0.5s sleep -> 20 VUs / 1s sleep (~79 rps)\n- concurrent-agents: 100 VUs / 0.5s sleep -> 30 VUs / 1s sleep (~89 rps)",
+          "timestamp": "2026-03-31T16:09:32-07:00",
+          "tree_id": "b93e9dbcac5fa0a757d16a0636f9f7d2ef015c09",
+          "url": "https://github.com/volchanskyi/opengate/commit/f1315040badd844fe76915240d43a377db4676c8"
+        },
+        "date": 1774998676223,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.491679954400443,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 25.16692772419302,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 727.8697006910916,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.34611259004987,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.84686499206624,
             "unit": "ns/iter"
           }
         ]
