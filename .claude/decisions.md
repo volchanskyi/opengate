@@ -16,4 +16,4 @@
 | 007 | VAPID Web Push, keypair persisted to `{dataDir}/vapid.json` | 10 | Accepted |
 | 008 | `aarch64-unknown-linux-musl` cross-compilation via `cross` | CD-C | Accepted |
 | 009 | Cosign keyless signing for container images (GitHub OIDC) | CD-E | Accepted |
-| 010 | Separate `device_hardware` table for on-demand hardware inventory; `RestartAgent`/`RequestHardwareReport`/`HardwareReport` control messages | — | Accepted |
+| 010 | Separate `device_hardware` table for on-demand hardware inventory; `RestartAgent`/`RequestHardwareReport`/`HardwareReport` control messages | 12+ | Accepted |
