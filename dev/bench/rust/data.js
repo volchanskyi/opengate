@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775019980629,
+  "lastUpdate": 1775020230228,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8452,6 +8452,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.861587690839926,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9f3233995f0dd85dc4f52ae05cd2ffa64112fd42",
+          "message": "docs: add infrastructure configs to /refactor skill scope\n\nInclude Docker Compose, Caddy, Terraform, CI/CD workflows, deploy\nscripts, and monitoring configs as refactoring targets.",
+          "timestamp": "2026-03-31T22:08:22-07:00",
+          "tree_id": "a9cb925766a235818290a4120e44efae3c9dc461",
+          "url": "https://github.com/volchanskyi/opengate/commit/9f3233995f0dd85dc4f52ae05cd2ffa64112fd42"
+        },
+        "date": 1775020230179,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.472004545894887,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.95728722578955,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 729.312223294643,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 318.7740893244783,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.829806725646947,
             "unit": "ns/iter"
           }
         ]
