@@ -745,7 +745,7 @@ func (s *SQLiteStore) GetDeviceHardware(ctx context.Context, deviceID DeviceID) 
 		&hw.RAMTotalMB, &hw.DiskTotalMB, &hw.DiskFreeMB,
 		&niJSON, &updatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err

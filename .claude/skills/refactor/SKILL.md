@@ -27,3 +27,16 @@ After all pre-commit checks pass, refactor the newly added code. DO NOT CHANGE B
 - Readability and performance
 - Eliminate duplications, unused imports, and unused libraries
 - Apply industry best practices
+
+## Infrastructure Configs
+
+In addition to application code, refactor infrastructure configs under `deploy/` and `.github/workflows/`:
+
+- **Docker Compose** (`deploy/docker-compose*.yml`) — duplicated service definitions, unused env vars, stale volumes/networks
+- **Caddy** (`deploy/caddy/`) — staging/production parity (security headers, cache directives, routes)
+- **Terraform** (`deploy/terraform/`) — unused variables, stale outputs, undocumented constraints
+- **CI/CD workflows** (`.github/workflows/`) — duplicated steps, unused inputs, hardcoded versions
+- **Deploy scripts** (`deploy/scripts/`) — duplicated logic that should be in `common.sh`
+- **Monitoring** (`deploy/victoriametrics/`, `deploy/grafana/`, `deploy/loki/`, `deploy/promtail/`) — stale scrape targets, orphaned alert rules, dashboard panels referencing removed metrics
+
+Validate changes with `make lint-deploy && actionlint`.

@@ -54,9 +54,10 @@ pub struct UpdateConfig {
 /// # Steps
 /// 1. Download binary from `url` to `{data_dir}/.update.new`
 /// 2. Compute SHA-256 hash of the downloaded binary
-/// 3. Verify the Ed25519 signature against the hash
-/// 4. Backup the current binary to `{current_binary_path}.prev`
-/// 5. Atomically replace the current binary via `rename(2)`
+/// 3. Verify SHA-256 matches the expected hash
+/// 4. Verify the Ed25519 signature against the hash
+/// 5. Backup the current binary to `{current_binary_path}.prev`
+/// 6. Atomically replace the current binary via `rename(2)`
 pub async fn apply_update(
     config: &UpdateConfig,
     version: &str,
@@ -89,14 +90,14 @@ pub async fn apply_update(
     verify_signature(&config.signing_public_key, &actual_hash, signature_hex)?;
     info!("Ed25519 signature verified");
 
-    // 4. Backup current binary
+    // 5. Backup current binary
     if config.current_binary_path.exists() {
         if let Err(e) = fs::copy(&config.current_binary_path, &prev_path).await {
             warn!(?e, "failed to backup current binary, continuing");
         }
     }
 
-    // 5. Set executable permissions and atomically replace
+    // 6. Set executable permissions and atomically replace
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
