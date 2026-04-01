@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1774998676272,
+  "lastUpdate": 1775019980629,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8403,6 +8403,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.84686499206624,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "134ec1435429aab3d7d90f55bd6342317b665f40",
+          "message": "refactor: broad code quality pass across all components\n\nRust: fix stale doc comment on parse_ed25519_pubkey, correct\nduplicate step numbering in apply_update doc comments.\n\nGo: replace direct sql.ErrNoRows comparison with errors.Is for\nconsistency with the rest of the codebase, remove unused\nGenerateJWT test helper.\n\nTypeScript: migrate auth-store login/register to use the shared\napiAction helper, matching all other Zustand stores.\n\nInfrastructure: add missing security headers, cache directives,\nand server header suppression to staging Caddyfile to match\nproduction configuration.\n\nDocs: add wiki description to CLAUDE.md project state section.",
+          "timestamp": "2026-03-31T22:00:23-07:00",
+          "tree_id": "d10064f5f7c2c850770dd05b97c60c4ef7dfa178",
+          "url": "https://github.com/volchanskyi/opengate/commit/134ec1435429aab3d7d90f55bd6342317b665f40"
+        },
+        "date": 1775019980579,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.496141036383595,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.511163260346162,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 731.5708112472292,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 311.4200017003433,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.861587690839926,
             "unit": "ns/iter"
           }
         ]
