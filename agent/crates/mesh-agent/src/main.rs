@@ -749,8 +749,6 @@ fn uninstall_agent(data_dir: &std::path::Path) {
     info!("agent uninstalled: service stopped, files removed");
 }
 
-/// Returns `true` if the incoming version should be skipped (not newer than current).
-///
 /// Decode a hex-encoded Ed25519 public key into a 32-byte array.
 fn parse_ed25519_pubkey(hex_str: &str) -> Result<[u8; 32]> {
     let bytes = hex::decode(hex_str).context("decode Ed25519 public key hex")?;

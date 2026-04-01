@@ -15,8 +15,27 @@
 	# Web UI — SPA with try_files fallback
 	handle {
 		root * /srv/web
+
+		# Vite hashed assets — cache forever
+		@hashed path /assets/*
+		header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+		# Everything else (index.html) — never cache
+		@html not path /assets/*
+		header @html Cache-Control "no-cache, no-store, must-revalidate"
+
 		try_files {path} /index.html
 		file_server
+	}
+
+	# Security headers (no HSTS — staging runs on :80 behind the production proxy)
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' wss:; frame-ancestors 'none'"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		-Server
 	}
 
 	encode gzip

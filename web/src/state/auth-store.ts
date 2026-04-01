@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
+import { apiAction } from './api-action';
 import type { components } from '../types/api';
 
 type User = components['schemas']['User'];
@@ -25,31 +26,27 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   error: null,
 
   login: async (email, password) => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.POST('/api/v1/auth/login', {
-      body: { email, password },
-    });
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/auth/login', { body: { email, password } }),
+    );
+    if (res.ok) {
+      localStorage.setItem('token', res.data.token);
+      set({ token: res.data.token });
+      await get().fetchMe();
     }
-    localStorage.setItem('token', data.token);
-    set({ token: data.token, isLoading: false });
-    await get().fetchMe();
   },
 
   register: async (email, password, displayName) => {
-    set({ isLoading: true, error: null });
-    const { data, error } = await api.POST('/api/v1/auth/register', {
-      body: { email, password, display_name: displayName },
-    });
-    if (error) {
-      set({ isLoading: false, error: error.error });
-      return;
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/auth/register', {
+        body: { email, password, display_name: displayName },
+      }),
+    );
+    if (res.ok) {
+      localStorage.setItem('token', res.data.token);
+      set({ token: res.data.token });
+      await get().fetchMe();
     }
-    localStorage.setItem('token', data.token);
-    set({ token: data.token, isLoading: false });
-    await get().fetchMe();
   },
 
   logout: () => {

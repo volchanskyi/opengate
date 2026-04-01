@@ -8,6 +8,8 @@
 - [`.claude/techdebt.md`](.claude/techdebt.md) — known tech debt by severity
 - [`.claude/decisions.md`](.claude/decisions.md) — ADR index (full text in [wiki](https://github.com/volchanskyi/opengate/wiki/Architecture-Decision-Records))
 
+**[Wiki](https://github.com/volchanskyi/opengate/wiki)** — The canonical developer documentation for the project. Covers architecture, API reference, wire protocol, platform abstraction, database, testing, CI/CD pipeline, continuous deployment, container images, monitoring, infrastructure, agent updates, security, and ADRs. Consult the wiki when you need context on how a system works before making changes. The wiki repo is cloned locally at `/home/ivan/opengate.wiki/` (push to `master` branch).
+
 **After completing any significant work**, update the relevant files:
 - Mark phases complete / update in-progress status in `phases.md`
 - Add or resolve debt items in `techdebt.md`
