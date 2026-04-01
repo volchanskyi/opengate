@@ -919,7 +919,7 @@ jobs:
           echo "merged=true" >> "$GITHUB_OUTPUT"
       - name: Update coverage badge
         if: github.ref == 'refs/heads/dev'
-        uses: schneegans/dynamic-badges-action@v1.7.0
+        uses: schneegans/dynamic-badges-action@v1.8.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: cf505c74b56eab52c9497af517b53222
