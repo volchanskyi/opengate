@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775020786927,
+  "lastUpdate": 1775061643127,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8599,6 +8599,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.88739546499629,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b4ae29c2473db20f07752f43220ce7f70d7d8175",
+          "message": "docs: set ADR-010 phase to 12+",
+          "timestamp": "2026-04-01T09:38:58-07:00",
+          "tree_id": "09c63a2052caef87989b929a937ca876bd61a12c",
+          "url": "https://github.com/volchanskyi/opengate/commit/b4ae29c2473db20f07752f43220ce7f70d7d8175"
+        },
+        "date": 1775061643078,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.210152263242914,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.46029135969127,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 744.0847226489967,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 292.17950856425307,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.03208774947918,
             "unit": "ns/iter"
           }
         ]
