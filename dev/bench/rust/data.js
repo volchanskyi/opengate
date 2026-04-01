@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775020508251,
+  "lastUpdate": 1775020786927,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8550,6 +8550,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.866396931062646,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "0fcb676c6bef9a66ee7f40ee7048398ed0990c09",
+          "message": "fix: sync go.sum with go.mod for modernc.org/sqlite v1.47.0",
+          "timestamp": "2026-03-31T22:18:01-07:00",
+          "tree_id": "5df77ad2eb09231f65169a255661b154334da1f2",
+          "url": "https://github.com/volchanskyi/opengate/commit/0fcb676c6bef9a66ee7f40ee7048398ed0990c09"
+        },
+        "date": 1775020786876,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.19590837694081,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.26626212435974,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 735.8675597436501,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 298.56977349645405,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.88739546499629,
             "unit": "ns/iter"
           }
         ]
