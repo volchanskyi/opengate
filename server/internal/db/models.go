@@ -155,6 +155,27 @@ type DeviceHardware struct {
 	UpdatedAt         time.Time              `json:"updated_at"`
 }
 
+// DeviceLogEntry stores a single log entry fetched from a device.
+type DeviceLogEntry struct {
+	ID        int64     `json:"id"`
+	DeviceID  DeviceID  `json:"device_id"`
+	Timestamp string    `json:"timestamp"`
+	Level     string    `json:"level"`
+	Target    string    `json:"target"`
+	Message   string    `json:"message"`
+	FetchedAt time.Time `json:"fetched_at"`
+}
+
+// LogFilter specifies criteria for querying device logs.
+type LogFilter struct {
+	Level  string
+	From   string
+	To     string
+	Search string
+	Offset int
+	Limit  int
+}
+
 // SecurityGroupID uniquely identifies a security group.
 type SecurityGroupID = uuid.UUID
 

@@ -76,3 +76,6 @@ Test Both Scenarios: positive cases (expected behavior) and negative cases (erro
 - `make test` — run all tests
 - `make lint` — clippy + go vet + eslint + actionlint
 - `make golden` — cross-language compatibility check
+- `make e2e` — run Playwright end-to-end tests
+- `cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go` — regenerate Go API from OpenAPI spec
+- `cd web && npm run generate:api` — regenerate TypeScript types from OpenAPI spec

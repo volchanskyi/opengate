@@ -71,6 +71,10 @@ func TestGoldenFrameWireFormat(t *testing.T) {
 		{"RestartAgent", "control_restart_agent.bin", FrameControl},
 		{"RequestHardwareReport", "control_request_hardware_report.bin", FrameControl},
 		{"HardwareReport", "control_hardware_report.bin", FrameControl},
+		{"HardwareReportError", "control_hardware_report_error.bin", FrameControl},
+		{"RequestDeviceLogs", "control_request_device_logs.bin", FrameControl},
+		{"DeviceLogsResponse", "control_device_logs_response.bin", FrameControl},
+		{"DeviceLogsError", "control_device_logs_error.bin", FrameControl},
 	}
 
 	codec := &Codec{}
@@ -249,6 +253,81 @@ func TestGoldenControlHardwareReport(t *testing.T) {
 	assert.Equal(t, "00:11:22:33:44:55", msg.NetworkInterfaces[0].MAC)
 	assert.Equal(t, []string{"192.168.1.100"}, msg.NetworkInterfaces[0].IPv4)
 	assert.Equal(t, []string{"fe80::1"}, msg.NetworkInterfaces[0].IPv6)
+}
+
+func TestGoldenControlHardwareReportError(t *testing.T) {
+	data := readGolden(t, "control_hardware_report_error.bin")
+	codec := &Codec{}
+
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgHardwareReportError, msg.Type)
+	assert.Equal(t, "failed to read system info", msg.AckError)
+}
+
+func TestGoldenControlRequestDeviceLogs(t *testing.T) {
+	data := readGolden(t, "control_request_device_logs.bin")
+	codec := &Codec{}
+
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgRequestDeviceLogs, msg.Type)
+	assert.Equal(t, "WARN", msg.LogLevel)
+	assert.Equal(t, "2026-04-01T00:00:00Z", msg.TimeFrom)
+	assert.Equal(t, "2026-04-01T23:59:59Z", msg.TimeTo)
+	assert.Equal(t, "connection", msg.Search)
+	assert.Equal(t, uint32(0), msg.LogOffset)
+	assert.Equal(t, uint32(100), msg.LogLimit)
+}
+
+func TestGoldenControlDeviceLogsResponse(t *testing.T) {
+	data := readGolden(t, "control_device_logs_response.bin")
+	codec := &Codec{}
+
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgDeviceLogsResponse, msg.Type)
+	require.Len(t, msg.LogEntries, 2)
+	assert.Equal(t, "2026-04-01T12:00:00.000000Z", msg.LogEntries[0].Timestamp)
+	assert.Equal(t, "WARN", msg.LogEntries[0].Level)
+	assert.Equal(t, "mesh_agent::connection", msg.LogEntries[0].Target)
+	assert.Equal(t, "slow heartbeat detected", msg.LogEntries[0].Message)
+	assert.Equal(t, "2026-04-01T12:00:01.000000Z", msg.LogEntries[1].Timestamp)
+	assert.Equal(t, "ERROR", msg.LogEntries[1].Level)
+	assert.Equal(t, "connection lost", msg.LogEntries[1].Message)
+	assert.Equal(t, uint32(42), msg.TotalCount)
+	require.NotNil(t, msg.HasMore)
+	assert.True(t, *msg.HasMore)
+}
+
+func TestGoldenControlDeviceLogsError(t *testing.T) {
+	data := readGolden(t, "control_device_logs_error.bin")
+	codec := &Codec{}
+
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	assert.Equal(t, MsgDeviceLogsError, msg.Type)
+	assert.Equal(t, "log directory not found", msg.AckError)
 }
 
 func TestGoldenDesktopFrame(t *testing.T) {

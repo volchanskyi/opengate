@@ -1,5 +1,6 @@
 use crate::types::{
-    AgentCapability, FileEntry, KeyCode, MouseButton, NetworkInterface, Permissions, SessionToken,
+    AgentCapability, FileEntry, KeyCode, LogEntry, MouseButton, NetworkInterface, Permissions,
+    SessionToken,
 };
 use serde::{Deserialize, Serialize};
 
@@ -154,5 +155,32 @@ pub enum ControlMessage {
         disk_total_mb: u64,
         disk_free_mb: u64,
         network_interfaces: Vec<NetworkInterface>,
+    },
+
+    /// Agent reports a hardware collection error.
+    HardwareReportError {
+        error: String,
+    },
+
+    /// Server requests the agent to collect and send log entries.
+    RequestDeviceLogs {
+        log_level: String,
+        time_from: String,
+        time_to: String,
+        search: String,
+        log_offset: u32,
+        log_limit: u32,
+    },
+
+    /// Agent responds with log entries.
+    DeviceLogsResponse {
+        log_entries: Vec<LogEntry>,
+        total_count: u32,
+        has_more: bool,
+    },
+
+    /// Agent reports a log retrieval error.
+    DeviceLogsError {
+        error: String,
     },
 }

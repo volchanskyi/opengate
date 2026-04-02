@@ -229,6 +229,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices/{id}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get log entries for a device */
+        get: operations["getDeviceLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -649,6 +666,17 @@ export interface components {
             mac: string;
             ipv4: string[];
             ipv6: string[];
+        };
+        DeviceLogsResponse: {
+            entries: components["schemas"]["DeviceLogEntry"][];
+            total: number;
+            has_more: boolean;
+        };
+        DeviceLogEntry: {
+            timestamp: string;
+            level: string;
+            target: string;
+            message: string;
         };
         UpdateDeviceRequest: {
             /** Format: uuid */
@@ -1579,6 +1607,69 @@ export interface operations {
                 };
             };
             /** @description Device or hardware info not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getDeviceLogs: {
+        parameters: {
+            query?: {
+                level?: "" | "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR";
+                from?: string;
+                to?: string;
+                search?: string;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Log entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceLogsResponse"];
+                };
+            };
+            /** @description Log retrieval requested, poll again shortly */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found or logs unavailable */
             404: {
                 headers: {
                     [name: string]: unknown;
