@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775114377212,
+  "lastUpdate": 1775171516820,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8746,6 +8746,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.86703226940691,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "a72852d516b7320ba33f58f7050a649e2f166dcb",
+          "message": "feat: add on-demand device log retrieval via QUIC control path\n\nWire protocol: RequestDeviceLogs/DeviceLogsResponse/DeviceLogsError\ncontrol messages with LogEntry struct and golden file tests.\n\nAgent: LogCollector parses daily-rotated tracing-subscriber logs with\nlevel/time/keyword filtering and offset/limit pagination.\n\nServer: device_logs table (migration 010) with 5-min cache TTL,\nUpsertDeviceLogs/QueryDeviceLogs/HasRecentLogs store methods,\nGET /api/v1/devices/{id}/logs REST endpoint (200/202/404).\n\nFrontend: DeviceLogs component with level dropdown, search input,\ncolor-coded log levels, and Load More pagination.",
+          "timestamp": "2026-04-02T16:10:07-07:00",
+          "tree_id": "f6352a8fc7207e9e4f6efedfeceafa6f0e66de22",
+          "url": "https://github.com/volchanskyi/opengate/commit/a72852d516b7320ba33f58f7050a649e2f166dcb"
+        },
+        "date": 1775171516771,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.348203828530373,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.75550049820476,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 731.0286502778471,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 328.7636857727416,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.923038626870238,
             "unit": "ns/iter"
           }
         ]
