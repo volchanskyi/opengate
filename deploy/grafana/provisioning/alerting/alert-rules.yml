@@ -125,6 +125,7 @@ groups:
 
       - uid: high-error-rate
         title: "HTTP error rate > 5%"
+        no_data_state: OK
         condition: C
         data:
           - refId: A
