@@ -37,7 +37,7 @@
 | Linux Agent: Remove Display Detection | Strip X11 capture, input injection, and related deps from platform-linux; Linux = Terminal + FileManager only | — | — |
 | Agent Restart + Hardware Inventory | Restart agent from web UI (exit code 42), on-demand hardware inventory (CPU/RAM/disk/NICs) | — | [quirky-snacking-knuth.md](plans/quirky-snacking-knuth.md) |
 | SonarCloud Quality Gates | SonarCloud scanning, 3-language coverage, SARIF export, merge gating | — | [sonarcloud-quality-gates.md](plans/archive/sonarcloud-quality-gates.md) |
-| Dev Workflow Phase 3 | `/observe` skill — PromQL, LogQL, container health, WSL agent diagnostics, investigation playbooks | — | [developer-workflow-enhancement.md](plans/developer-workflow-enhancement.md) |
+| Dev Workflow Phase 3 | `/observe` skill — PromQL, LogQL, container health, WSL agent diagnostics, investigation playbooks | — | [developer-workflow-enhancement.md](plans/archive/developer-workflow-enhancement.md) |
 
 ---
 
