@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775092900407,
+  "lastUpdate": 1775114377212,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8697,6 +8697,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.879340360729966,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ae84f4f3c33910159d29b46ff494430fabe96ad2",
+          "message": "fix: use camelCase noDataState in Grafana alert provisioning\n\nThe alert-rules.yml used snake_case `no_data_state` which Grafana\nsilently ignores, defaulting to NoData — causing false DatasourceNoData\nalerts on Telegram when zero 5xx errors meant an empty query result.\n\n- Fix high-error-rate: noDataState: OK (no 5xx series = zero errors)\n- Add high-latency-p99: noDataState: OK (no requests = no latency issue)\n- Archive completed developer-workflow-enhancement plan\n- Add device-logs-feature plan\n- Clarify plan file path in CLAUDE.md to prevent global vs project confusion",
+          "timestamp": "2026-04-02T00:17:57-07:00",
+          "tree_id": "2136e440c2702171f471224ed94ea9639a40c972",
+          "url": "https://github.com/volchanskyi/opengate/commit/ae84f4f3c33910159d29b46ff494430fabe96ad2"
+        },
+        "date": 1775114377165,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.31289077878334,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 25.99313954274627,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 734.5246434631654,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 297.35098839336445,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.86703226940691,
             "unit": "ns/iter"
           }
         ]
