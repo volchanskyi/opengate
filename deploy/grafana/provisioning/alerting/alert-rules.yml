@@ -88,6 +88,7 @@ groups:
     rules:
       - uid: high-latency-p99
         title: "p99 latency > 2s"
+        noDataState: OK
         condition: C
         data:
           - refId: A
@@ -125,7 +126,7 @@ groups:
 
       - uid: high-error-rate
         title: "HTTP error rate > 5%"
-        no_data_state: OK
+        noDataState: OK
         condition: C
         data:
           - refId: A
