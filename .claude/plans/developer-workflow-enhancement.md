@@ -13,22 +13,20 @@ Approved: 2026-03-30
 
 ---
 
-## Phase 2: Playwright MCP Server for Browser Automation
+## Phase 2: Playwright MCP Server ~~for Browser Automation~~ — Cancelled
 
-- Install `@anthropic-ai/mcp-playwright` (or equivalent Playwright MCP server)
-- Configure in `.claude/mcp.json`
-- Create `/browser` skill for browser automation tasks
+Playwright E2E tests already run in CI and against staging. A browser-automation MCP adds no value over the existing test infrastructure.
 
 ---
 
-## Phase 3: Observability + Autonomous E2E
+## Phase 3: `/observe` Skill — Autonomous Diagnostics ✅
 
-- `/observe` skill — SSH tunnel + PromQL/LogQL queries against staging/prod
-- `/local-e2e` skill — run Playwright E2E tests locally
-- `/agent-test` skill — full agent lifecycle test (QUIC port in `docker-compose.test.yml`)
+Created `.claude/skills/observe/SKILL.md` with 5 sections:
 
----
+1. **PromQL** — query VictoriaMetrics via SSH + `docker exec` (14 pre-defined queries covering HTTP, app gauges, DB, host metrics)
+2. **LogQL** — query Loki via SSH + `docker exec` (server errors, auth failures, Caddy 5xx, agent/relay/enrollment events)
+3. **Container health** — `docker ps`, health endpoints, resource usage, logs, image version
+4. **Local agent diagnostics (WSL)** — systemctl, journalctl, log files, data directory, cert validation, QUIC connectivity
+5. **Investigation playbooks** — "agent offline?", "requests slow?", "deployment health", "post-deploy verification"
 
-## Motivation
-
-Enable autonomous bug reproduction, UI validation, log/metric querying, and full agent lifecycle testing without manual user intervention. Phases are independent — each is a standalone deliverable.
+**Completed**: 2026-04-01

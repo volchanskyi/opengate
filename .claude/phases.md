@@ -36,6 +36,8 @@
 | Dev Workflow Phase 1 | `.claude/` dedup — compact ADR index with wiki cross-refs, archive 47 completed plan files | — | — |
 | Linux Agent: Remove Display Detection | Strip X11 capture, input injection, and related deps from platform-linux; Linux = Terminal + FileManager only | — | — |
 | Agent Restart + Hardware Inventory | Restart agent from web UI (exit code 42), on-demand hardware inventory (CPU/RAM/disk/NICs) | — | [quirky-snacking-knuth.md](plans/quirky-snacking-knuth.md) |
+| SonarCloud Quality Gates | SonarCloud scanning, 3-language coverage, SARIF export, merge gating | — | [sonarcloud-quality-gates.md](plans/archive/sonarcloud-quality-gates.md) |
+| Dev Workflow Phase 3 | `/observe` skill — PromQL, LogQL, container health, WSL agent diagnostics, investigation playbooks | — | [developer-workflow-enhancement.md](plans/developer-workflow-enhancement.md) |
 
 ---
 
@@ -47,5 +49,4 @@
 | Phase 15: Advanced Features | MFA/TOTP, API keys, Prometheus metrics, session recordings, group permissions CRUD | Low | |
 | CD Phase E (remaining) | Secrets management, network policies | Deprioritized | Cosign + Trivy already done |
 | CD Phase G: Testing & Retention | Testing strategy, release notes, 20-day retention policy | Low | |
-| SonarCloud Quality Gates | Integrate SonarCloud scanning and quality gate enforcement in CI | Low | [sonarcloud-quality-gates.md](plans/sonarcloud-quality-gates.md) |
 | Performance Benchmarks | Go + Rust benchmarks with regression detection in CI | Low | [performance-benchmarks.md](plans/performance-benchmarks.md) |
