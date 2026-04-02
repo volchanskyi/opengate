@@ -15,7 +15,7 @@
 - Add or resolve debt items in `techdebt.md`
 - Record new architectural decisions in `decisions.md` (index row) AND the [wiki ADR page](https://github.com/volchanskyi/opengate/wiki/Architecture-Decision-Records) (full text)
 
-**All agent plans** must be created in `.claude/plans/` with a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names. Completed plans are archived to `.claude/plans/archive/`.
+**All agent plans** must be created in **this repo's** `.claude/plans/` directory (i.e. `/home/ivan/opengate/.claude/plans/`), **not** the global `~/.claude/plans/`. Use a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names. If plan mode suggests a path under `~/.claude/plans/`, ignore it and use the project-local path instead. Completed plans are archived to `.claude/plans/archive/`.
 
 **Plans vs memory** — Plans and memory serve different purposes. Never confuse them:
 - **Plans** (`.claude/plans/`) — implementation details, steps, and task breakdowns. Always a `.md` file in this directory.
