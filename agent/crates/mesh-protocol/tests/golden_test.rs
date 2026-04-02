@@ -200,6 +200,66 @@ fn golden_control_frame_hardware_report() {
 }
 
 #[test]
+fn golden_control_frame_hardware_report_error() {
+    let msg = ControlMessage::HardwareReportError {
+        error: "failed to read system info".to_string(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_hardware_report_error.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_request_device_logs() {
+    let msg = ControlMessage::RequestDeviceLogs {
+        log_level: "WARN".to_string(),
+        time_from: "2026-04-01T00:00:00Z".to_string(),
+        time_to: "2026-04-01T23:59:59Z".to_string(),
+        search: "connection".to_string(),
+        log_offset: 0,
+        log_limit: 100,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_request_device_logs.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_device_logs_response() {
+    let msg = ControlMessage::DeviceLogsResponse {
+        log_entries: vec![
+            LogEntry {
+                timestamp: "2026-04-01T12:00:00.000000Z".to_string(),
+                level: "WARN".to_string(),
+                target: "mesh_agent::connection".to_string(),
+                message: "slow heartbeat detected".to_string(),
+            },
+            LogEntry {
+                timestamp: "2026-04-01T12:00:01.000000Z".to_string(),
+                level: "ERROR".to_string(),
+                target: "mesh_agent::connection".to_string(),
+                message: "connection lost".to_string(),
+            },
+        ],
+        total_count: 42,
+        has_more: true,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_device_logs_response.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_device_logs_error() {
+    let msg = ControlMessage::DeviceLogsError {
+        error: "log directory not found".to_string(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_device_logs_error.bin", &encoded);
+}
+
+#[test]
 fn golden_handshake_server_hello() {
     let msg = HandshakeMessage::ServerHello {
         nonce: [0xAA; 32],

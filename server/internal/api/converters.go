@@ -104,6 +104,20 @@ func derefBool(b *bool) bool {
 	return *b
 }
 
+func derefStr[T ~string](s *T) string {
+	if s == nil {
+		return ""
+	}
+	return string(*s)
+}
+
+func derefInt(p *int, fallback int) int {
+	if p == nil {
+		return fallback
+	}
+	return *p
+}
+
 func auditEventToAPI(e *db.AuditEvent) AuditEvent {
 	return AuditEvent{
 		Id:        e.ID,
@@ -154,6 +168,24 @@ func networkInterfaceToAPI(ni db.NetworkInterfaceInfo) NetworkInterfaceInfo {
 		Mac:  ni.MAC,
 		Ipv4: ni.IPv4,
 		Ipv6: ni.IPv6,
+	}
+}
+
+func deviceLogsToAPI(entries []db.DeviceLogEntry, total int, filter db.LogFilter) DeviceLogsResponse {
+	apiEntries := make([]DeviceLogEntry, len(entries))
+	for i, e := range entries {
+		apiEntries[i] = DeviceLogEntry{
+			Timestamp: e.Timestamp,
+			Level:     e.Level,
+			Target:    e.Target,
+			Message:   e.Message,
+		}
+	}
+	hasMore := filter.Offset+filter.Limit < total
+	return DeviceLogsResponse{
+		Entries: apiEntries,
+		Total:   total,
+		HasMore: hasMore,
 	}
 }
 

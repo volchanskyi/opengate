@@ -43,9 +43,25 @@ Browser                    Server                      Agent
 
 ## Phase 1: Wire Protocol (mesh-protocol + Go protocol)
 
-### 1.1 Rust — New Types
+> TDD: Write golden tests first (RED), then add types/variants until tests pass (GREEN).
 
-**File:** `agent/crates/mesh-protocol/src/types/mod.rs` — add `pub mod log_entry;`
+### 1.1 RED — Write failing golden tests
+
+**Rust** `agent/crates/mesh-protocol/tests/golden_test.rs` — add 3 tests:
+- `golden_control_frame_request_device_logs` — with populated filter fields
+- `golden_control_frame_device_logs_response` — with sample LogEntry vec
+- `golden_control_frame_device_logs_error` — with error string
+
+These will fail to compile because the types don't exist yet.
+
+**Go** `server/internal/protocol/golden_test.go` — add 3 matching verification tests:
+- `TestGoldenControlRequestDeviceLogs`
+- `TestGoldenControlDeviceLogsResponse`
+- `TestGoldenControlDeviceLogsError`
+
+These will fail to compile because the constants/fields don't exist yet.
+
+### 1.2 GREEN — Add types and variants to make tests pass
 
 **New file:** `agent/crates/mesh-protocol/src/types/log_entry.rs`
 ```rust
@@ -58,6 +74,8 @@ pub struct LogEntry {
     pub message: String,     // log message text
 }
 ```
+
+**File:** `agent/crates/mesh-protocol/src/types/mod.rs` — add `pub mod log_entry;`
 
 **File:** `agent/crates/mesh-protocol/src/control.rs` — add 3 new variants:
 ```rust
@@ -84,11 +102,7 @@ DeviceLogsError {
 },
 ```
 
-### 1.2 Go — Protocol Constants + Fields
-
-**File:** `server/internal/protocol/control.go`
-
-Add constants:
+**File:** `server/internal/protocol/control.go` — add constants:
 ```go
 MsgRequestDeviceLogs  ControlMessageType = "RequestDeviceLogs"
 MsgDeviceLogsResponse ControlMessageType = "DeviceLogsResponse"
@@ -121,37 +135,42 @@ type LogEntry struct {
 }
 ```
 
-### 1.3 Golden File Tests
+### 1.3 Verify — `make golden`
 
-**File:** `agent/crates/mesh-protocol/tests/golden_test.rs` — add 3 tests:
-- `golden_control_frame_request_device_logs` — with populated filter fields
-- `golden_control_frame_device_logs_response` — with sample LogEntry vec
-- `golden_control_frame_device_logs_error` — with error string
-
-**File:** `server/internal/protocol/golden_test.go` — add 3 matching verification tests
-
-**Run:** `make golden` to generate .bin files and verify cross-language compat
+Generate .bin files from Rust, verify Go decodes them. All 6 new tests pass.
 
 ---
 
 ## Phase 2: Agent Log Collection
 
-### 2.1 Log File Reader Module
+> TDD: Write unit tests for log parsing/filtering first (RED), then implement `logs.rs` (GREEN), then refactor.
+
+### 2.1 RED — Write failing tests in `agent/crates/mesh-agent/src/logs.rs`
+
+Create the module file with structs and a stub `collect()` that returns `unimplemented!()`, then write tests:
+
+**Positive cases:**
+- `test_parse_standard_tracing_format` — single well-formed line → correct LogEntry fields
+- `test_parse_multi_line_entry` — continuation lines appended to previous entry's message
+- `test_filter_by_level` — INFO-only filter excludes DEBUG/TRACE entries
+- `test_filter_by_level_severity` — WARN filter includes WARN + ERROR
+- `test_filter_by_time_range` — only entries within [from, to] returned
+- `test_filter_by_keyword` — substring match on message field
+- `test_pagination_offset_limit` — offset=50, limit=25 returns correct slice
+- `test_pagination_has_more` — has_more=true when more entries exist beyond offset+limit
+- `test_multiple_log_files` — reads across daily-rotated files sorted by date
+
+**Negative cases:**
+- `test_empty_log_dir` — returns empty result, no error
+- `test_missing_log_dir` — returns error (not panic)
+- `test_malformed_line_skipped` — garbage lines silently skipped
+- `test_empty_file` — returns empty result, no error
+
+All tests fail (unimplemented).
+
+### 2.2 GREEN — Implement `LogCollector`
 
 **New file:** `agent/crates/mesh-agent/src/logs.rs`
-
-Responsibilities:
-- Discover log files in `/var/log/mesh-agent/` (glob `agent.log*`)
-- Sort by date (newest first for recent logs, oldest first for time-range queries)
-- Parse tracing-subscriber default format: `2026-04-01T12:00:00.000000Z  INFO mesh_agent: message here`
-- Apply filters: level, time range, keyword search
-- Return paginated results with total count
-
-**Key design decisions:**
-- **Manual string parsing** (no regex crate dependency): split on whitespace to extract timestamp, level, target, message
-- **Safety limits**: scan max 10,000 lines per request, max 7 log files (1 week of dailies)
-- **Memory efficient**: read line-by-line, filter early, collect only matching entries
-- **Handle multi-line log entries**: lines without a timestamp prefix are continuation of previous entry (append to message)
 
 ```rust
 pub struct LogCollector {
@@ -178,6 +197,12 @@ impl LogCollector {
 }
 ```
 
+**Key design decisions:**
+- **Manual string parsing** (no regex crate dependency): split on whitespace to extract timestamp, level, target, message
+- **Safety limits**: scan max 10,000 lines per request, max 7 log files (1 week of dailies)
+- **Memory efficient**: read line-by-line, filter early, collect only matching entries
+- **Handle multi-line log entries**: lines without a timestamp prefix are continuation of previous entry (append to message)
+
 **Parsing logic for tracing-subscriber format:**
 ```
 2026-04-01T12:34:56.789012Z  INFO mesh_agent::connection: connected to server
@@ -189,7 +214,9 @@ timestamp                    level target                 message
 - Level filtering: parse to enum, compare severity
 - Time filtering: string comparison works for ISO 8601
 
-### 2.2 Agent Handler
+Run tests until all pass.
+
+### 2.3 GREEN — Add handler in `main.rs`
 
 **File:** `agent/crates/mesh-agent/src/main.rs` — add match arm in control message handler:
 
@@ -228,16 +255,37 @@ Ok(ControlMessage::RequestDeviceLogs { log_level, time_from, time_to, search, lo
 }
 ```
 
-### 2.3 Agent Tests
-
-- Unit tests in `logs.rs`: parse various tracing formats, filter by level/time/keyword, pagination, multi-line entries, missing log dir, empty files
-- Integration test: write sample log file, collect with filters, verify output
+### 2.4 REFACTOR — Review and clean up, `make test`
 
 ---
 
 ## Phase 3: Server — Database + Agent Handler
 
-### 3.1 Database Migration
+> TDD: Write DB store tests first (RED), then add migration + models + implementation (GREEN).
+
+### 3.1 RED — Write failing DB tests in `server/internal/db/sqlite_test.go`
+
+Add table-driven tests using `t.Run`:
+
+**Positive cases:**
+- `TestUpsertDeviceLogs/insert_new_entries` — insert batch, verify all stored
+- `TestUpsertDeviceLogs/replace_existing_entries` — upsert replaces old data for same device
+- `TestQueryDeviceLogs/all_entries` — no filters, returns all
+- `TestQueryDeviceLogs/filter_by_level` — level=ERROR returns only ERROR entries
+- `TestQueryDeviceLogs/filter_by_time_range` — from/to bounds respected
+- `TestQueryDeviceLogs/filter_by_keyword` — LIKE match on message
+- `TestQueryDeviceLogs/pagination` — offset/limit returns correct page + total count
+- `TestQueryDeviceLogs/combined_filters` — level + time + keyword together
+- `TestHasRecentLogs/recent_exists` — returns true within TTL
+- `TestHasRecentLogs/stale_data` — returns false outside TTL
+
+**Negative cases:**
+- `TestQueryDeviceLogs/no_entries_for_device` — returns empty slice, total=0
+- `TestHasRecentLogs/no_data_at_all` — returns false
+
+All tests fail (methods don't exist).
+
+### 3.2 GREEN — Migration + Models + Store
 
 **New file:** `server/internal/db/migrations/010_device_logs.up.sql`
 ```sql
@@ -268,8 +316,6 @@ Individual rows chosen because:
 - No need to deserialize a blob for every query
 - Retention cleanup is simple (DELETE WHERE fetched_at < ?)
 
-### 3.2 Database Models
-
 **File:** `server/internal/db/models.go` — add:
 ```go
 type DeviceLogEntry struct {
@@ -281,20 +327,7 @@ type DeviceLogEntry struct {
     Message   string   `json:"message"`
     FetchedAt time.Time `json:"fetched_at"`
 }
-```
 
-### 3.3 Store Interface
-
-**File:** `server/internal/db/store.go` — add:
-```go
-// Device Logs
-UpsertDeviceLogs(ctx context.Context, deviceID DeviceID, entries []DeviceLogEntry) error
-QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error)
-HasRecentLogs(ctx context.Context, deviceID DeviceID, maxAge time.Duration) (bool, error)
-```
-
-**LogFilter struct in `server/internal/db/models.go`:**
-```go
 type LogFilter struct {
     Level  string
     From   string
@@ -305,15 +338,22 @@ type LogFilter struct {
 }
 ```
 
-### 3.4 SQLite Implementation
+**File:** `server/internal/db/store.go` — add:
+```go
+// Device Logs
+UpsertDeviceLogs(ctx context.Context, deviceID DeviceID, entries []DeviceLogEntry) error
+QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error)
+HasRecentLogs(ctx context.Context, deviceID DeviceID, maxAge time.Duration) (bool, error)
+```
 
-**File:** `server/internal/db/sqlite.go` — add methods:
-
+**File:** `server/internal/db/sqlite.go` — implement:
 - `UpsertDeviceLogs`: DELETE existing logs for device, INSERT new batch (transaction)
 - `QueryDeviceLogs`: SELECT with dynamic WHERE clauses (level, timestamp range, message LIKE), ORDER BY timestamp DESC, LIMIT/OFFSET. Returns entries + total count.
 - `HasRecentLogs`: SELECT 1 WHERE fetched_at > (now - maxAge) — for cache freshness check
 
-### 3.5 AgentConn — Send & Receive
+Run tests until all pass.
+
+### 3.3 GREEN — AgentConn send & receive
 
 **File:** `server/internal/agentapi/conn.go`
 
@@ -361,11 +401,32 @@ func (a *AgentConn) handleDeviceLogsResponse(ctx context.Context, msg *protocol.
 }
 ```
 
+### 3.4 REFACTOR — Review and clean up, `make test`
+
 ---
 
 ## Phase 4: REST API
 
-### 4.1 OpenAPI Spec
+> TDD: Write handler tests first (RED), then add OpenAPI spec + codegen + handler (GREEN).
+
+### 4.1 RED — Write failing handler tests in `server/internal/api/handlers_devices_test.go`
+
+Add table-driven `TestGetDeviceLogs` following the existing `TestGetDeviceHardware` pattern:
+
+**Positive cases:**
+- `cached_data_available` — recent logs in DB → 200 + entries
+- `stale_cache_served_when_offline` — old logs in DB, agent offline → 200 + entries
+- `no_cache_agent_online_triggers_request` — no logs, agent online → 202 + verify RequestDeviceLogs written to stream
+
+**Negative cases:**
+- `device_not_found` → 404
+- `wrong_group_ownership` → 403
+- `no_cache_agent_offline` — no logs, agent offline → 404
+- `no_cache_no_entries_agent_offline` — empty DB, agent offline → 404
+
+All tests fail (handler doesn't exist).
+
+### 4.2 GREEN — OpenAPI spec + codegen
 
 **File:** `api/openapi.yaml` — add endpoint and schemas:
 
@@ -459,11 +520,9 @@ DeviceLogEntry:
       type: string
 ```
 
-### 4.2 Code Generation
+Run `oapi-codegen` to regenerate Go handlers.
 
-Run `oapi-codegen` to regenerate Go handlers (same as existing build process).
-
-### 4.3 HTTP Handler
+### 4.3 GREEN — Implement handler
 
 **File:** `server/internal/api/handlers_devices.go` — add:
 
@@ -522,14 +581,22 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 }
 ```
 
+**File:** `server/internal/api/converters.go` — add `deviceLogsToAPI` converter.
+
+Run tests until all pass.
+
 **Cache strategy:**
 - 5-minute TTL: if logs were fetched within 5 minutes, serve from DB
 - Stale cache served when agent offline (better than nothing)
 - Each fetch from agent replaces previous cached entries (full replace, not append)
 
+### 4.4 REFACTOR — Review and clean up, `make test`
+
 ---
 
 ## Phase 5: Frontend
+
+> TDD: Write component tests first (RED), then implement store + component (GREEN).
 
 ### 5.1 Types (auto-generated)
 
@@ -548,7 +615,27 @@ DeviceLogEntry: {
 }
 ```
 
-### 5.2 Zustand Store
+### 5.2 RED — Write failing component tests
+
+**New file:** `web/src/features/devices/DeviceLogs.test.tsx`
+
+Using Vitest + React Testing Library:
+
+**Positive cases:**
+- `renders fetch button` — Fetch Logs button visible
+- `displays log entries with level color coding` — ERROR=red, WARN=yellow, INFO=blue
+- `shows filter bar with level dropdown and search` — filter controls present
+- `pagination load more works` — clicking Load More increments offset
+- `shows entry count` — "Showing 1-100 of 342"
+
+**Negative cases:**
+- `shows loading state while fetching` — spinner/disabled state during fetch
+- `shows empty state when no logs` — "No logs available" message
+- `fetch button disabled while loading` — prevents double-fetch
+
+All tests fail (component doesn't exist).
+
+### 5.3 GREEN — Implement Zustand store additions
 
 **File:** `web/src/state/device-store.ts` — add state and action:
 
@@ -563,7 +650,7 @@ fetchLogs: (id: string, params?: { level?: string; from?: string; to?: string; s
 
 Pattern: same as `fetchHardware` — 202 triggers retry after 3 seconds.
 
-### 5.3 DeviceLogs Component
+### 5.4 GREEN — Implement DeviceLogs component
 
 **New file:** `web/src/features/devices/DeviceLogs.tsx`
 
@@ -573,7 +660,7 @@ Structure:
 │ Logs                                   [Fetch]  │
 │                                                  │
 │ ┌──────┐ ┌──────────────────────┐ ┌───────────┐│
-│ │Level▾│ │🔍 Search keyword...  │ │From│ │To  ││
+│ │Level▾│ │Search keyword...     │ │From│ │To  ││
 │ └──────┘ └──────────────────────┘ └───────────┘│
 │                                                  │
 │ ┌──────────────────────────────────────────────┐│
@@ -584,8 +671,6 @@ Structure:
 │ └──────────────────────────────────────────────┘│
 │                                                  │
 │ Showing 1-100 of 342            [Load More]     │
-│                                                  │
-│ ⓘ Cached 3 minutes ago                         │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -602,11 +687,11 @@ Structure:
 - **States**: loading spinner, "No logs available" empty state, "Device offline" message
 - **Fetch button**: triggers `fetchLogs(id)`, disabled while loading
 
-### 5.4 Integration into DeviceDetail
+### 5.5 GREEN — Integrate into DeviceDetail
 
 **File:** `web/src/features/devices/DeviceDetail.tsx`
 
-Add `<DeviceLogs />` component after the Hardware section (before action buttons), following the same conditional pattern:
+Add `<DeviceLogs />` component after the Hardware section (before action buttons):
 
 ```tsx
 {/* After hardware section, before action buttons */}
@@ -615,43 +700,13 @@ Add `<DeviceLogs />` component after the Hardware section (before action buttons
 
 The component manages its own state (fetch on user click, not on page load — logs are on-demand only).
 
----
+Run tests until all pass.
 
-## Phase 6: Tests
-
-### 6.1 Rust Tests
-- `agent/crates/mesh-protocol/tests/golden_test.rs` — 3 new golden tests
-- `agent/crates/mesh-agent/src/logs.rs` — unit tests:
-  - Parse standard tracing format
-  - Parse multi-line entries
-  - Filter by level (INFO only, WARN+ERROR)
-  - Filter by time range
-  - Filter by keyword search
-  - Pagination (offset/limit)
-  - Empty log dir
-  - Permission denied (graceful error)
-
-### 6.2 Go Tests
-- `server/internal/protocol/golden_test.go` — 3 new golden verification tests
-- `server/internal/db/sqlite_test.go` — UpsertDeviceLogs, QueryDeviceLogs with filters
-- `server/internal/api/handlers_devices_test.go` — GetDeviceLogs handler tests:
-  - 200: cached data available
-  - 202: no cache, agent online → triggers request
-  - 404: no cache, agent offline
-  - 200: stale cache served when agent offline
-  - 403: wrong group ownership
-
-### 6.3 Frontend Tests
-- `web/src/features/devices/DeviceLogs.test.tsx` — component tests:
-  - Renders filter bar and fetch button
-  - Displays log entries with color coding
-  - Shows loading state
-  - Shows empty state
-  - Pagination "Load More" works
+### 5.6 REFACTOR — Review and clean up, `make test`
 
 ---
 
-## Phase 7: Wiki & Project Files
+## Phase 6: Wiki & Project Files
 
 - Update `.claude/phases.md` — mark "Device Logs" as completed
 - Update `.claude/decisions.md` — add ADR 011 for device logs architecture
@@ -659,17 +714,16 @@ The component manages its own state (fetch on user click, not on page load — l
 
 ---
 
-## Implementation Order
+## Implementation Order (TDD: RED → GREEN → REFACTOR per phase)
 
-1. Wire protocol (Rust types + Go types + golden tests) — `make golden`
-2. Agent log collector (`logs.rs`) + unit tests — `make test`
-3. DB migration + models + store methods + tests — `make test`
-4. AgentConn send/receive handlers + tests — `make test`
-5. OpenAPI spec + codegen + REST handler + tests — `make test`
-6. Frontend store + DeviceLogs component + tests — `make test`
-7. Integration: wire everything together, `make build && make test && make lint`
-8. E2E smoke test (manual or Playwright if feasible)
-9. Wiki + project file updates
+1. **Phase 1** — Golden tests (RED) → wire protocol types (GREEN) → `make golden`
+2. **Phase 2** — Log collector tests (RED) → `logs.rs` impl (GREEN) → handler → refactor → `make test`
+3. **Phase 3** — DB store tests (RED) → migration + models + impl (GREEN) → AgentConn → refactor → `make test`
+4. **Phase 4** — Handler tests (RED) → OpenAPI + codegen + handler (GREEN) → refactor → `make test`
+5. **Phase 5** — Component tests (RED) → store + component (GREEN) → refactor → `make test`
+6. **Phase 6** — Integration: `make build && make test && make lint`
+7. **Phase 7** — E2E smoke test (manual or Playwright if feasible)
+8. **Phase 8** — Wiki + project file updates
 
 ---
 

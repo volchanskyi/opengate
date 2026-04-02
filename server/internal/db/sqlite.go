@@ -919,6 +919,117 @@ func (s *SQLiteStore) CountSecurityGroupMembers(ctx context.Context, groupID Sec
 	return count, err
 }
 
+// --- Device Logs ---
+
+// UpsertDeviceLogs replaces all cached log entries for a device with a new batch.
+func (s *SQLiteStore) UpsertDeviceLogs(ctx context.Context, deviceID DeviceID, entries []DeviceLogEntry) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// Delete existing logs for this device
+	if _, err := tx.ExecContext(ctx, `DELETE FROM device_logs WHERE device_id = ?`, deviceID.String()); err != nil {
+		return fmt.Errorf("delete old logs: %w", err)
+	}
+
+	now := nowRFC3339()
+	for _, e := range entries {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO device_logs (device_id, timestamp, level, target, message, fetched_at) VALUES (?, ?, ?, ?, ?, ?)`,
+			deviceID.String(), e.Timestamp, e.Level, e.Target, e.Message, now); err != nil {
+			return fmt.Errorf("insert log entry: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+// QueryDeviceLogs returns filtered, paginated log entries and a total count.
+func (s *SQLiteStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error) {
+	var conditions []string
+	var args []any
+
+	conditions = append(conditions, "device_id = ?")
+	args = append(args, deviceID.String())
+
+	if filter.Level != "" {
+		conditions = append(conditions, "level = ?")
+		args = append(args, filter.Level)
+	}
+	if filter.From != "" {
+		conditions = append(conditions, "timestamp >= ?")
+		args = append(args, filter.From)
+	}
+	if filter.To != "" {
+		conditions = append(conditions, "timestamp <= ?")
+		args = append(args, filter.To)
+	}
+	if filter.Search != "" {
+		conditions = append(conditions, "message LIKE ?")
+		args = append(args, "%"+filter.Search+"%")
+	}
+
+	where := strings.Join(conditions, " AND ")
+
+	// Count total matching entries
+	var total int
+	countQuery := "SELECT COUNT(*) FROM device_logs WHERE " + where
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count logs: %w", err)
+	}
+
+	// Fetch page
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+
+	dataQuery := "SELECT id, device_id, timestamp, level, target, message, fetched_at FROM device_logs WHERE " +
+		where + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	dataArgs := append(args, limit, filter.Offset) //nolint:gocritic
+
+	rows, err := s.db.QueryContext(ctx, dataQuery, dataArgs...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query logs: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []DeviceLogEntry
+	for rows.Next() {
+		var e DeviceLogEntry
+		var deviceStr, fetchedAt string
+		if err := rows.Scan(&e.ID, &deviceStr, &e.Timestamp, &e.Level, &e.Target, &e.Message, &fetchedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan log entry: %w", err)
+		}
+		e.DeviceID, err = parseUUID(deviceStr)
+		if err != nil {
+			return nil, 0, err
+		}
+		e.FetchedAt, err = parseTime(fetchedAt)
+		if err != nil {
+			return nil, 0, err
+		}
+		entries = append(entries, e)
+	}
+
+	return entries, total, rows.Err()
+}
+
+// HasRecentLogs checks whether logs for a device were fetched within maxAge.
+func (s *SQLiteStore) HasRecentLogs(ctx context.Context, deviceID DeviceID, maxAge time.Duration) (bool, error) {
+	cutoff := time.Now().UTC().Add(-maxAge).Format(time.RFC3339)
+	var exists int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM device_logs WHERE device_id = ? AND fetched_at > ?)`,
+		deviceID.String(), cutoff).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check recent logs: %w", err)
+	}
+	return exists == 1, nil
+}
+
 // syncIsAdmin keeps the users.is_admin boolean in sync with Administrators group membership.
 func (s *SQLiteStore) syncIsAdmin(ctx context.Context, userID UserID) error {
 	now := nowRFC3339()

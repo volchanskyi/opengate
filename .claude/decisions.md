@@ -17,3 +17,4 @@
 | 008 | `aarch64-unknown-linux-musl` cross-compilation via `cross` | CD-C | Accepted |
 | 009 | Cosign keyless signing for container images (GitHub OIDC) | CD-E | Accepted |
 | 010 | Separate `device_hardware` table for on-demand hardware inventory; `RestartAgent`/`RequestHardwareReport`/`HardwareReport` control messages | 12+ | Accepted |
+| 011 | On-demand device logs via control path (`RequestDeviceLogs`/`DeviceLogsResponse`/`DeviceLogsError`), individual rows in `device_logs` table with 5-min cache TTL, SQL-level filtering | — | Accepted |

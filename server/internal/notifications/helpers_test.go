@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -185,6 +186,15 @@ func (m *notifMockStore) UpsertDeviceHardware(_ context.Context, _ *db.DeviceHar
 }
 func (m *notifMockStore) GetDeviceHardware(_ context.Context, _ db.DeviceID) (*db.DeviceHardware, error) {
 	return nil, db.ErrNotFound
+}
+func (m *notifMockStore) UpsertDeviceLogs(_ context.Context, _ db.DeviceID, _ []db.DeviceLogEntry) error {
+	return nil
+}
+func (m *notifMockStore) QueryDeviceLogs(_ context.Context, _ db.DeviceID, _ db.LogFilter) ([]db.DeviceLogEntry, int, error) {
+	return nil, 0, nil
+}
+func (m *notifMockStore) HasRecentLogs(_ context.Context, _ db.DeviceID, _ time.Duration) (bool, error) {
+	return false, nil
 }
 func (m *notifMockStore) Ping(_ context.Context) error { return nil }
 func (m *notifMockStore) Close() error                 { return nil }

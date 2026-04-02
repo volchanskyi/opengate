@@ -360,6 +360,30 @@ func (s *InstrumentedStore) GetDeviceHardware(ctx context.Context, deviceID db.D
 	return hw, err
 }
 
+// UpsertDeviceLogs instruments db.Store.UpsertDeviceLogs.
+func (s *InstrumentedStore) UpsertDeviceLogs(ctx context.Context, deviceID db.DeviceID, entries []db.DeviceLogEntry) error {
+	start := time.Now()
+	err := s.inner.UpsertDeviceLogs(ctx, deviceID, entries)
+	s.observe("UpsertDeviceLogs", start, err)
+	return err
+}
+
+// QueryDeviceLogs instruments db.Store.QueryDeviceLogs.
+func (s *InstrumentedStore) QueryDeviceLogs(ctx context.Context, deviceID db.DeviceID, filter db.LogFilter) ([]db.DeviceLogEntry, int, error) {
+	start := time.Now()
+	entries, total, err := s.inner.QueryDeviceLogs(ctx, deviceID, filter)
+	s.observe("QueryDeviceLogs", start, err)
+	return entries, total, err
+}
+
+// HasRecentLogs instruments db.Store.HasRecentLogs.
+func (s *InstrumentedStore) HasRecentLogs(ctx context.Context, deviceID db.DeviceID, maxAge time.Duration) (bool, error) {
+	start := time.Now()
+	ok, err := s.inner.HasRecentLogs(ctx, deviceID, maxAge)
+	s.observe("HasRecentLogs", start, err)
+	return ok, err
+}
+
 // CreateDeviceUpdate instruments db.Store.CreateDeviceUpdate.
 func (s *InstrumentedStore) CreateDeviceUpdate(ctx context.Context, du *db.DeviceUpdate) error {
 	start := time.Now()

@@ -5,6 +5,7 @@ import { useSessionStore } from '../../state/session-store';
 import { useAMTStore } from '../../state/amt-store';
 import { useToastStore } from '../../state/toast-store';
 import { StatusBadge } from './StatusBadge';
+import { DeviceLogs } from './DeviceLogs';
 import type { components } from '../../types/api';
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
@@ -51,8 +52,7 @@ export function DeviceDetail() {
     }
     fetchAmtDevices();
     fetchGroups();
-    if (id) fetchHardware(id);
-  }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchHardware]);
+  }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups]);
 
   // Poll device data every 30s so agent_version and status stay in sync.
   useEffect(() => {
@@ -273,48 +273,54 @@ export function DeviceDetail() {
           </div>
         )}
 
-        {hardware && (
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-2">Hardware</h3>
-            <dl className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <dt className="text-gray-400">CPU</dt>
-                <dd>{hardware.cpu_model} ({hardware.cpu_cores} cores)</dd>
-              </div>
-              <div>
-                <dt className="text-gray-400">RAM</dt>
-                <dd>{formatBytes(hardware.ram_total_mb * 1024 * 1024)}</dd>
-              </div>
-              <div>
-                <dt className="text-gray-400">Disk</dt>
-                <dd>{formatBytes(hardware.disk_free_mb * 1024 * 1024)} free / {formatBytes(hardware.disk_total_mb * 1024 * 1024)}</dd>
-              </div>
-              <div>
-                <dt className="text-gray-400">Last Updated</dt>
-                <dd>{new Date(hardware.updated_at).toLocaleString()}</dd>
-              </div>
-            </dl>
-            {hardware.network_interfaces.length > 0 && (
-              <div className="mt-2">
-                <h4 className="text-xs text-gray-400 mb-1">Network Interfaces</h4>
-                <ul className="text-xs space-y-1">
-                  {hardware.network_interfaces.map((ni) => (
-                    <li key={ni.name} className="font-mono">
-                      {ni.name}: {ni.mac}{ni.ipv4.length > 0 && ` — ${ni.ipv4.join(', ')}`}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-300">Hardware</h3>
             <button
               type="button"
               onClick={() => id && fetchHardware(id)}
-              className="mt-2 text-xs text-blue-400 hover:text-blue-300"
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium"
             >
-              Refresh
+              Refresh Hardware
             </button>
           </div>
-        )}
+          {hardware && (
+            <>
+              <dl className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <dt className="text-gray-400">CPU</dt>
+                  <dd>{hardware.cpu_model} ({hardware.cpu_cores} cores)</dd>
+                </div>
+                <div>
+                  <dt className="text-gray-400">RAM</dt>
+                  <dd>{formatBytes(hardware.ram_total_mb * 1024 * 1024)}</dd>
+                </div>
+                <div>
+                  <dt className="text-gray-400">Disk</dt>
+                  <dd>{formatBytes(hardware.disk_free_mb * 1024 * 1024)} free / {formatBytes(hardware.disk_total_mb * 1024 * 1024)}</dd>
+                </div>
+                <div>
+                  <dt className="text-gray-400">Last Updated</dt>
+                  <dd>{new Date(hardware.updated_at).toLocaleString()}</dd>
+                </div>
+              </dl>
+              {hardware.network_interfaces.length > 0 && (
+                <div className="mt-2">
+                  <h4 className="text-xs text-gray-400 mb-1">Network Interfaces</h4>
+                  <ul className="text-xs space-y-1">
+                    {hardware.network_interfaces.map((ni) => (
+                      <li key={ni.name} className="font-mono">
+                        {ni.name}: {ni.mac}{ni.ipv4.length > 0 && ` — ${ni.ipv4.join(', ')}`}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <DeviceLogs deviceId={device.id} />
 
         <div className="flex gap-3 pt-2">
           <button

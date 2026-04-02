@@ -100,6 +100,19 @@ func (a *AgentConn) SendRequestHardwareReport(ctx context.Context) error {
 	})
 }
 
+// SendRequestDeviceLogs asks the agent to collect and send filtered log entries.
+func (a *AgentConn) SendRequestDeviceLogs(ctx context.Context, filter db.LogFilter) error {
+	return a.sendControl(&protocol.ControlMessage{
+		Type:      protocol.MsgRequestDeviceLogs,
+		LogLevel:  filter.Level,
+		TimeFrom:  filter.From,
+		TimeTo:    filter.To,
+		Search:    filter.Search,
+		LogOffset: uint32(filter.Offset),
+		LogLimit:  uint32(filter.Limit),
+	})
+}
+
 // Close closes the agent connection.
 func (a *AgentConn) Close() error {
 	if closer, ok := a.stream.(io.Closer); ok {
@@ -158,6 +171,14 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return nil
 	case protocol.MsgHardwareReport:
 		return a.handleHardwareReport(ctx, msg)
+	case protocol.MsgHardwareReportError:
+		a.logger.Warn("hardware report error from agent", "device_id", a.DeviceID, "error", msg.AckError)
+		return nil
+	case protocol.MsgDeviceLogsResponse:
+		return a.handleDeviceLogsResponse(ctx, msg)
+	case protocol.MsgDeviceLogsError:
+		a.logger.Warn("device logs error from agent", "device_id", a.DeviceID, "error", msg.AckError)
+		return nil
 	default:
 		return fmt.Errorf("%w: %s", ErrUnexpectedMessage, msg.Type)
 	}
@@ -227,6 +248,25 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 		"capabilities", msg.Capabilities,
 	)
 
+	return nil
+}
+
+func (a *AgentConn) handleDeviceLogsResponse(ctx context.Context, msg *protocol.ControlMessage) error {
+	entries := make([]db.DeviceLogEntry, len(msg.LogEntries))
+	for i, le := range msg.LogEntries {
+		entries[i] = db.DeviceLogEntry{
+			DeviceID:  a.DeviceID,
+			Timestamp: le.Timestamp,
+			Level:     le.Level,
+			Target:    le.Target,
+			Message:   le.Message,
+		}
+	}
+	if err := a.store.UpsertDeviceLogs(ctx, a.DeviceID, entries); err != nil {
+		return fmt.Errorf("upsert device logs: %w", err)
+	}
+
+	a.logger.Debug("device logs stored", "device_id", a.DeviceID, "count", len(entries))
 	return nil
 }
 

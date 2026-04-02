@@ -6,6 +6,7 @@ import type { components } from '../types/api';
 type Device = components['schemas']['Device'];
 type Group = components['schemas']['Group'];
 type DeviceHardware = components['schemas']['DeviceHardware'];
+type DeviceLogsResponse = components['schemas']['DeviceLogsResponse'];
 
 interface DeviceState {
   devices: Device[];
@@ -13,6 +14,8 @@ interface DeviceState {
   selectedGroupId: string | null;
   selectedDevice: Device | null;
   hardware: DeviceHardware | null;
+  logs: DeviceLogsResponse | null;
+  logsLoading: boolean;
   isLoading: boolean;
   error: string | null;
   fetchGroups: () => Promise<void>;
@@ -25,6 +28,7 @@ interface DeviceState {
   updateDeviceGroup: (id: string, groupId: string) => Promise<boolean>;
   restartAgent: (id: string) => Promise<boolean>;
   fetchHardware: (id: string) => Promise<void>;
+  fetchLogs: (id: string, params?: { level?: string; from?: string; to?: string; search?: string; offset?: number; limit?: number }) => Promise<void>;
 }
 
 export const useDeviceStore = create<DeviceState>((set, get) => ({
@@ -33,6 +37,8 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   selectedGroupId: null,
   selectedDevice: null,
   hardware: null,
+  logs: null,
+  logsLoading: false,
   isLoading: false,
   error: null,
 
@@ -133,6 +139,38 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         );
         if (retry.ok) set({ hardware: retry.data });
       }, 2000);
+    }
+  },
+
+  fetchLogs: async (id, params) => {
+    set({ logsLoading: true });
+    const query: Record<string, string | number> = {};
+    if (params?.level) query.level = params.level;
+    if (params?.from) query.from = params.from;
+    if (params?.to) query.to = params.to;
+    if (params?.search) query.search = params.search;
+    if (params?.offset !== undefined) query.offset = params.offset;
+    if (params?.limit !== undefined) query.limit = params.limit;
+
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/devices/{id}/logs', {
+        params: { path: { id }, query },
+      }), false,
+    );
+    if (res.ok) {
+      set({ logs: res.data, logsLoading: false });
+    } else {
+      // 202 (logs requested) — retry once after 3s
+      set({ logsLoading: true });
+      setTimeout(async () => {
+        const retry = await apiAction(set, () =>
+          api.GET('/api/v1/devices/{id}/logs', {
+            params: { path: { id }, query },
+          }), false,
+        );
+        if (retry.ok) set({ logs: retry.data });
+        set({ logsLoading: false });
+      }, 3000);
     }
   },
 }));
