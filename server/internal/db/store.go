@@ -5,6 +5,7 @@ package db
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -70,6 +71,11 @@ type Store interface {
 	// Device Hardware
 	UpsertDeviceHardware(ctx context.Context, hw *DeviceHardware) error
 	GetDeviceHardware(ctx context.Context, deviceID DeviceID) (*DeviceHardware, error)
+
+	// Device Logs
+	UpsertDeviceLogs(ctx context.Context, deviceID DeviceID, entries []DeviceLogEntry) error
+	QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error)
+	HasRecentLogs(ctx context.Context, deviceID DeviceID, maxAge time.Duration) (bool, error)
 
 	// Device Updates
 	CreateDeviceUpdate(ctx context.Context, du *DeviceUpdate) error

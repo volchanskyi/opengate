@@ -1237,3 +1237,110 @@ func TestWALMode(t *testing.T) {
 	_, err = os.Stat(dbPath + "-wal")
 	assert.NoError(t, err, "WAL file should exist")
 }
+
+func TestDeviceLogsCRUD(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	owner := seedUser(t, ctx, s)
+	group := seedGroup(t, ctx, s, owner.ID)
+	device := seedDevice(t, ctx, s, group.ID)
+
+	sampleEntries := []DeviceLogEntry{
+		{Timestamp: "2026-04-01T10:00:00Z", Level: "INFO", Target: "mesh_agent::main", Message: "agent started"},
+		{Timestamp: "2026-04-01T11:00:00Z", Level: "WARN", Target: "mesh_agent::connection", Message: "slow heartbeat"},
+		{Timestamp: "2026-04-01T12:00:00Z", Level: "ERROR", Target: "mesh_agent::connection", Message: "connection lost"},
+		{Timestamp: "2026-04-01T13:00:00Z", Level: "INFO", Target: "mesh_agent::main", Message: "reconnected to server"},
+		{Timestamp: "2026-04-01T14:00:00Z", Level: "DEBUG", Target: "mesh_agent::connection", Message: "heartbeat sent"},
+	}
+
+	t.Run("insert_new_entries", func(t *testing.T) {
+		require.NoError(t, s.UpsertDeviceLogs(ctx, device.ID, sampleEntries))
+
+		entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Limit: 100})
+		require.NoError(t, err)
+		assert.Equal(t, 5, total)
+		assert.Len(t, entries, 5)
+	})
+
+	t.Run("replace_existing_entries", func(t *testing.T) {
+		newEntries := []DeviceLogEntry{
+			{Timestamp: "2026-04-02T10:00:00Z", Level: "INFO", Target: "mesh_agent::main", Message: "new day"},
+		}
+		require.NoError(t, s.UpsertDeviceLogs(ctx, device.ID, newEntries))
+
+		entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Limit: 100})
+		require.NoError(t, err)
+		assert.Equal(t, 1, total)
+		assert.Len(t, entries, 1)
+		assert.Equal(t, "new day", entries[0].Message)
+	})
+
+	// Re-seed for filter tests
+	require.NoError(t, s.UpsertDeviceLogs(ctx, device.ID, sampleEntries))
+
+	t.Run("filter_by_level", func(t *testing.T) {
+		entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Level: "ERROR", Limit: 100})
+		require.NoError(t, err)
+		assert.Equal(t, 1, total)
+		assert.Len(t, entries, 1)
+		assert.Equal(t, "ERROR", entries[0].Level)
+	})
+
+	t.Run("filter_by_time_range", func(t *testing.T) {
+		entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{
+			From:  "2026-04-01T11:00:00Z",
+			To:    "2026-04-01T13:00:00Z",
+			Limit: 100,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 3, total)
+		assert.Len(t, entries, 3)
+	})
+
+	t.Run("filter_by_keyword", func(t *testing.T) {
+		entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Search: "heartbeat", Limit: 100})
+		require.NoError(t, err)
+		assert.Equal(t, 2, total)
+		assert.Len(t, entries, 2)
+	})
+
+	t.Run("pagination", func(t *testing.T) {
+		entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Offset: 2, Limit: 2})
+		require.NoError(t, err)
+		assert.Equal(t, 5, total)
+		assert.Len(t, entries, 2)
+	})
+
+	t.Run("combined_filters", func(t *testing.T) {
+		entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{
+			Level:  "INFO",
+			Search: "server",
+			Limit:  100,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 1, total)
+		require.Len(t, entries, 1)
+		assert.Equal(t, "reconnected to server", entries[0].Message)
+	})
+
+	t.Run("no_entries_for_device", func(t *testing.T) {
+		otherDevice := seedDevice(t, ctx, s, group.ID)
+		entries, total, err := s.QueryDeviceLogs(ctx, otherDevice.ID, LogFilter{Limit: 100})
+		require.NoError(t, err)
+		assert.Equal(t, 0, total)
+		assert.Empty(t, entries)
+	})
+
+	t.Run("has_recent_logs_true", func(t *testing.T) {
+		ok, err := s.HasRecentLogs(ctx, device.ID, 5*time.Minute)
+		require.NoError(t, err)
+		assert.True(t, ok)
+	})
+
+	t.Run("has_recent_logs_no_data", func(t *testing.T) {
+		otherDevice := seedDevice(t, ctx, s, group.ID)
+		ok, err := s.HasRecentLogs(ctx, otherDevice.ID, 5*time.Minute)
+		require.NoError(t, err)
+		assert.False(t, ok)
+	})
+}

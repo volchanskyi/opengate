@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
@@ -71,6 +72,60 @@ func (s *Server) GetDeviceHardware(ctx context.Context, request GetDeviceHardwar
 	}
 
 	return GetDeviceHardware200JSONResponse(deviceHardwareToAPI(hw)), nil
+}
+
+// GetDeviceLogs implements StrictServerInterface.
+func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequestObject) (GetDeviceLogsResponseObject, error) {
+	device, err := s.store.GetDevice(ctx, request.Id)
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			return GetDeviceLogs404JSONResponse{Error: "device not found"}, nil
+		}
+		return nil, err
+	}
+
+	if !s.isGroupOwner(ctx, device.GroupID) {
+		return GetDeviceLogs403JSONResponse{Error: msgForbidden}, nil
+	}
+
+	filter := db.LogFilter{
+		Level:  derefStr(request.Params.Level),
+		From:   derefStr(request.Params.From),
+		To:     derefStr(request.Params.To),
+		Search: derefStr(request.Params.Search),
+		Offset: derefInt(request.Params.Offset, 0),
+		Limit:  derefInt(request.Params.Limit, 100),
+	}
+
+	// Check if we have recent cached logs (5-minute TTL)
+	hasRecent, err := s.store.HasRecentLogs(ctx, request.Id, 5*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+
+	if hasRecent {
+		entries, total, err := s.store.QueryDeviceLogs(ctx, request.Id, filter)
+		if err != nil {
+			return nil, err
+		}
+		return GetDeviceLogs200JSONResponse(deviceLogsToAPI(entries, total, filter)), nil
+	}
+
+	// No recent cache — request from agent if online
+	ac := s.agents.GetAgent(request.Id)
+	if ac == nil {
+		// Agent offline — try serving stale cache if any exists
+		entries, total, err := s.store.QueryDeviceLogs(ctx, request.Id, filter)
+		if err != nil || total == 0 {
+			return GetDeviceLogs404JSONResponse{Error: "logs not available — device offline"}, nil
+		}
+		return GetDeviceLogs200JSONResponse(deviceLogsToAPI(entries, total, filter)), nil
+	}
+
+	if err := ac.SendRequestDeviceLogs(ctx, filter); err != nil {
+		return nil, err
+	}
+	return GetDeviceLogs202Response{}, nil
 }
 
 // ListDevices implements StrictServerInterface.

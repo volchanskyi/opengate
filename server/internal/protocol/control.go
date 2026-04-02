@@ -38,6 +38,10 @@ const (
 	MsgRestartAgent          ControlMessageType = "RestartAgent"
 	MsgRequestHardwareReport ControlMessageType = "RequestHardwareReport"
 	MsgHardwareReport        ControlMessageType = "HardwareReport"
+	MsgHardwareReportError   ControlMessageType = "HardwareReportError"
+	MsgRequestDeviceLogs     ControlMessageType = "RequestDeviceLogs"
+	MsgDeviceLogsResponse    ControlMessageType = "DeviceLogsResponse"
+	MsgDeviceLogsError       ControlMessageType = "DeviceLogsError"
 )
 
 // ControlMessage is the envelope for all control-plane messages.
@@ -117,4 +121,25 @@ type ControlMessage struct {
 	DiskTotalMB       uint64             `msgpack:"disk_total_mb,omitempty"`
 	DiskFreeMB        uint64             `msgpack:"disk_free_mb,omitempty"`
 	NetworkInterfaces []NetworkInterface `msgpack:"network_interfaces,omitempty"`
+
+	// RequestDeviceLogs
+	LogLevel  string `msgpack:"log_level,omitempty"`
+	TimeFrom  string `msgpack:"time_from,omitempty"`
+	TimeTo    string `msgpack:"time_to,omitempty"`
+	Search    string `msgpack:"search,omitempty"`
+	LogOffset uint32 `msgpack:"log_offset,omitempty"`
+	LogLimit  uint32 `msgpack:"log_limit,omitempty"`
+
+	// DeviceLogsResponse
+	LogEntries []LogEntry `msgpack:"log_entries,omitempty"`
+	TotalCount uint32     `msgpack:"total_count,omitempty"`
+	HasMore    *bool      `msgpack:"has_more,omitempty"`
+}
+
+// LogEntry represents a single parsed log entry from the agent.
+type LogEntry struct {
+	Timestamp string `msgpack:"timestamp"`
+	Level     string `msgpack:"level"`
+	Target    string `msgpack:"target"`
+	Message   string `msgpack:"message"`
 }

@@ -4,6 +4,8 @@
 //! handles session requests, and applies binary updates.
 //! Exit code 42 signals the service manager to restart after an update.
 
+mod logs;
+
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -559,9 +561,59 @@ async fn main() -> Result<()> {
                         }
                         Ok(mesh_protocol::ControlMessage::RequestHardwareReport) => {
                             info!("hardware report requested by server");
-                            let report = collect_hardware_info();
-                            if let Err(e) = conn.send_control(report).await {
-                                warn!(error = %e, "failed to send hardware report");
+                            match std::panic::catch_unwind(collect_hardware_info) {
+                                Ok(report) => {
+                                    if let Err(e) = conn.send_control(report).await {
+                                        warn!(error = %e, "failed to send hardware report");
+                                    }
+                                }
+                                Err(_) => {
+                                    let msg = mesh_protocol::ControlMessage::HardwareReportError {
+                                        error: "failed to collect hardware info".to_string(),
+                                    };
+                                    if let Err(e) = conn.send_control(msg).await {
+                                        warn!(error = %e, "failed to send hardware report error");
+                                    }
+                                }
+                            }
+                        }
+                        Ok(mesh_protocol::ControlMessage::RequestDeviceLogs {
+                            log_level,
+                            time_from,
+                            time_to,
+                            search,
+                            log_offset,
+                            log_limit,
+                        }) => {
+                            info!("device logs requested by server");
+                            let collector = logs::LogCollector::new(PathBuf::from(LOG_DIR));
+                            let filter = logs::LogFilter {
+                                level: if log_level.is_empty() { None } else { Some(log_level) },
+                                time_from: if time_from.is_empty() { None } else { Some(time_from) },
+                                time_to: if time_to.is_empty() { None } else { Some(time_to) },
+                                search: if search.is_empty() { None } else { Some(search) },
+                                offset: log_offset,
+                                limit: log_limit,
+                            };
+                            match collector.collect(&filter) {
+                                Ok(result) => {
+                                    let msg = mesh_protocol::ControlMessage::DeviceLogsResponse {
+                                        log_entries: result.entries,
+                                        total_count: result.total_count,
+                                        has_more: result.has_more,
+                                    };
+                                    if let Err(e) = conn.send_control(msg).await {
+                                        warn!(error = %e, "failed to send device logs response");
+                                    }
+                                }
+                                Err(e) => {
+                                    let msg = mesh_protocol::ControlMessage::DeviceLogsError {
+                                        error: e.to_string(),
+                                    };
+                                    if let Err(e) = conn.send_control(msg).await {
+                                        warn!(error = %e, "failed to send device logs error");
+                                    }
+                                }
                             }
                         }
                         Ok(_other) => { /* ignore unknown messages */ }
