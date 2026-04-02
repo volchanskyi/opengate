@@ -159,6 +159,32 @@ components:
           items:
             type: string
 
+    DeviceLogsResponse:
+      type: object
+      required: [entries, total, has_more]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeviceLogEntry"
+        total:
+          type: integer
+        has_more:
+          type: boolean
+
+    DeviceLogEntry:
+      type: object
+      required: [timestamp, level, target, message]
+      properties:
+        timestamp:
+          type: string
+        level:
+          type: string
+        target:
+          type: string
+        message:
+          type: string
+
     UpdateDeviceRequest:
       type: object
       properties:
@@ -1115,6 +1141,75 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Device or hardware info not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/logs:
+    get:
+      operationId: getDeviceLogs
+      summary: Get log entries for a device
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: ["", "TRACE", "DEBUG", "INFO", "WARN", "ERROR"]
+        - name: from
+          in: query
+          schema:
+            type: string
+        - name: to
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+      responses:
+        "200":
+          description: Log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceLogsResponse"
+        "202":
+          description: Log retrieval requested, poll again shortly
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found or logs unavailable
           content:
             application/json:
               schema:
