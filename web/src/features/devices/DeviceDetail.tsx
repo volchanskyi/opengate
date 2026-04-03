@@ -79,7 +79,7 @@ export function DeviceDetail() {
   const isUpToDate = !!(
     latestManifest &&
     device?.agent_version &&
-    device.agent_version >= latestManifest.version
+    device.agent_version.localeCompare(latestManifest.version, undefined, { numeric: true }) >= 0
   );
 
   const handlePowerAction = async (action: PowerAction) => {

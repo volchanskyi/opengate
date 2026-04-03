@@ -305,6 +305,28 @@ fn test_codec_never_panics_on_arbitrary_bytes() {
 }
 
 #[test]
+fn test_request_device_logs_missing_fields() {
+    // Simulate what Go sends when fields are empty (omitempty drops them).
+    // Only "type" is present; all other fields are missing.
+    use std::collections::BTreeMap;
+    let mut map = BTreeMap::new();
+    map.insert("type", "RequestDeviceLogs");
+    let encoded = rmp_serde::to_vec_named(&map).unwrap();
+    let decoded: ControlMessage = rmp_serde::from_slice(&encoded).unwrap();
+    assert_eq!(
+        decoded,
+        ControlMessage::RequestDeviceLogs {
+            log_level: String::new(),
+            time_from: String::new(),
+            time_to: String::new(),
+            search: String::new(),
+            log_offset: 0,
+            log_limit: 0,
+        }
+    );
+}
+
+#[test]
 fn test_key_event_msgpack_roundtrip() {
     let events = vec![
         KeyEvent {
