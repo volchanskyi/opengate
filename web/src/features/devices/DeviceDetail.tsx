@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useDeviceStore } from '../../state/device-store';
 import { useSessionStore } from '../../state/session-store';
 import { useAMTStore } from '../../state/amt-store';
+import { useUpdateStore } from '../../state/update-store';
 import { useToastStore } from '../../state/toast-store';
 import { StatusBadge } from './StatusBadge';
 import { DeviceLogs } from './DeviceLogs';
@@ -38,9 +39,13 @@ export function DeviceDetail() {
   const restartAgent = useDeviceStore((s) => s.restartAgent);
   const hardware = useDeviceStore((s) => s.hardware);
   const fetchHardware = useDeviceStore((s) => s.fetchHardware);
+  const upgradeAgent = useDeviceStore((s) => s.upgradeAgent);
+  const manifests = useUpdateStore((s) => s.manifests);
+  const fetchManifests = useUpdateStore((s) => s.fetchManifests);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
+  const [isUpgrading, setIsUpgrading] = useState(false);
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [showAmtInstructions, setShowAmtInstructions] = useState(false);
@@ -52,7 +57,8 @@ export function DeviceDetail() {
     }
     fetchAmtDevices();
     fetchGroups();
-  }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups]);
+    fetchManifests();
+  }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchManifests]);
 
   // Poll device data every 30s so agent_version and status stay in sync.
   useEffect(() => {
@@ -62,6 +68,19 @@ export function DeviceDetail() {
   }, [id, fetchDevice]);
 
   const amtDevice = device ? amtDevices.find((a) => a.hostname === device.hostname) : undefined;
+
+  // Find the latest manifest matching this device's OS.
+  const latestManifest = device
+    ? manifests
+        .filter((m) => m.os === device.os)
+        .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0]
+    : undefined;
+
+  const isUpToDate = !!(
+    latestManifest &&
+    device?.agent_version &&
+    device.agent_version >= latestManifest.version
+  );
 
   const handlePowerAction = async (action: PowerAction) => {
     const destructive = action === 'power_cycle' || action === 'hard_reset';
@@ -136,12 +155,70 @@ export function DeviceDetail() {
     }
   };
 
+  const handleUpgrade = async () => {
+    if (!latestManifest) return;
+    setIsUpgrading(true);
+    const ok = await upgradeAgent(device.id, latestManifest.version, latestManifest.os, latestManifest.arch);
+    if (ok) {
+      addToast(`Upgrade to v${latestManifest.version} pushed`, 'success');
+    } else {
+      addToast('Failed to push upgrade', 'error');
+    }
+    setIsUpgrading(false);
+  };
+
   return (
-    <div className="p-6 max-w-2xl">
+    <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      {/* Device Detail Card */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">{device.hostname}</h2>
-          <StatusBadge status={device.status} />
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-bold">{device.hostname}</h2>
+            <StatusBadge status={device.status} />
+          </div>
+          <div className="flex gap-2 flex-wrap justify-end">
+            <button
+              type="button"
+              onClick={handleStartSession}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium"
+            >
+              Start Session
+            </button>
+            <button
+              type="button"
+              onClick={handleRestart}
+              disabled={device.status !== 'online' || isRestarting}
+              className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-700 rounded text-xs font-medium disabled:opacity-50"
+            >
+              {isRestarting
+                ? 'Restarting...'
+                : confirmRestart
+                  ? `Confirm (${sessions.length} active)`
+                  : 'Restart Agent'}
+            </button>
+            {latestManifest && !isUpToDate && (
+              <button
+                type="button"
+                onClick={handleUpgrade}
+                disabled={isUpgrading || device.status !== 'online'}
+                className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-xs font-medium disabled:opacity-50"
+              >
+                {isUpgrading ? 'Upgrading...' : `Upgrade to v${latestManifest.version}`}
+              </button>
+            )}
+            {isUpToDate && (
+              <span className="px-3 py-1.5 bg-gray-700 text-gray-400 rounded text-xs font-medium">
+                Up to date
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-xs font-medium"
+            >
+              {confirmDelete ? 'Confirm Delete' : 'Delete Device'}
+            </button>
+          </div>
         </div>
 
         <dl className="grid grid-cols-2 gap-3 text-sm">
@@ -319,37 +396,11 @@ export function DeviceDetail() {
             </>
           )}
         </div>
+      </div>
 
+      {/* Agent Logs Card (separate tile, right side) */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
         <DeviceLogs deviceId={device.id} />
-
-        <div className="flex gap-3 pt-2">
-          <button
-            type="button"
-            onClick={handleStartSession}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium"
-          >
-            Start Session
-          </button>
-          <button
-            type="button"
-            onClick={handleRestart}
-            disabled={device.status !== 'online' || isRestarting}
-            className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded text-sm font-medium disabled:opacity-50"
-          >
-            {isRestarting
-              ? 'Restarting...'
-              : confirmRestart
-                ? `Confirm (${sessions.length} session${sessions.length !== 1 ? 's' : ''} will end)`
-                : 'Restart Agent'}
-          </button>
-          <button
-            type="button"
-            onClick={handleDelete}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-sm font-medium"
-          >
-            {confirmDelete ? 'Confirm Delete' : 'Delete Device'}
-          </button>
-        </div>
       </div>
     </div>
   );

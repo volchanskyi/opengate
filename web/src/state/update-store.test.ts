@@ -39,9 +39,7 @@ describe('update store', () => {
     vi.clearAllMocks();
     useUpdateStore.setState({
       manifests: [],
-      updateStatus: [],
       enrollmentTokens: [],
-      caPem: null,
       isLoading: false,
       error: null,
     });
@@ -63,68 +61,6 @@ describe('update store', () => {
 
     expect(useUpdateStore.getState().error).toBe('forbidden');
     expect(useUpdateStore.getState().manifests).toEqual([]);
-  });
-
-  it('publishManifest posts and refreshes', async () => {
-    mockPost.mockResolvedValueOnce({ data: fakeManifest, error: undefined });
-    mockGet.mockResolvedValueOnce({ data: [fakeManifest], error: undefined });
-
-    const body = { version: '1.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc123' };
-    await useUpdateStore.getState().publishManifest(body);
-
-    expect(mockPost).toHaveBeenCalledWith('/api/v1/updates/manifests', { body });
-    expect(useUpdateStore.getState().manifests).toEqual([fakeManifest]);
-  });
-
-  it('publishManifest handles error', async () => {
-    mockPost.mockResolvedValueOnce({ data: undefined, error: { error: 'bad request' } });
-
-    await useUpdateStore.getState().publishManifest({ version: '1.0.0', os: 'linux', arch: 'amd64', url: '', sha256: '' });
-
-    expect(useUpdateStore.getState().error).toBe('bad request');
-  });
-
-  it('pushUpdate returns pushed count', async () => {
-    mockPost.mockResolvedValueOnce({ data: { pushed_count: 3 }, error: undefined });
-
-    const count = await useUpdateStore.getState().pushUpdate({ version: '1.0.0', os: 'linux', arch: 'amd64' });
-
-    expect(count).toBe(3);
-    expect(mockPost).toHaveBeenCalledWith('/api/v1/updates/push', {
-      body: { version: '1.0.0', os: 'linux', arch: 'amd64' },
-    });
-  });
-
-  it('pushUpdate handles error', async () => {
-    mockPost.mockResolvedValueOnce({ data: undefined, error: { error: 'not found' } });
-
-    const count = await useUpdateStore.getState().pushUpdate({ version: '1.0.0', os: 'linux', arch: 'amd64' });
-
-    expect(count).toBeUndefined();
-    expect(useUpdateStore.getState().error).toBe('not found');
-  });
-
-  it('fetchUpdateStatus populates updateStatus', async () => {
-    const fakeStatus = [
-      { id: 1, device_id: 'd1', version: '1.0.0', status: 'pending', error: '', pushed_at: '2024-01-01T00:00:00Z' },
-    ];
-    mockGet.mockResolvedValueOnce({ data: fakeStatus, error: undefined });
-
-    await useUpdateStore.getState().fetchUpdateStatus('1.0.0');
-
-    expect(useUpdateStore.getState().updateStatus).toEqual(fakeStatus);
-    expect(mockGet).toHaveBeenCalledWith('/api/v1/updates/status/{version}', {
-      params: { path: { version: '1.0.0' } },
-    });
-  });
-
-  it('fetchUpdateStatus handles error', async () => {
-    mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
-
-    await useUpdateStore.getState().fetchUpdateStatus('1.0.0');
-
-    expect(useUpdateStore.getState().error).toBe('forbidden');
-    expect(useUpdateStore.getState().updateStatus).toEqual([]);
   });
 
   it('fetchEnrollmentTokens populates tokens', async () => {
@@ -182,23 +118,5 @@ describe('update store', () => {
     await useUpdateStore.getState().deleteEnrollmentToken('t1');
 
     expect(useUpdateStore.getState().error).toBe('not found');
-  });
-
-  it('fetchCACert populates caPem', async () => {
-    mockGet.mockResolvedValueOnce({ data: { pem: '-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----' }, error: undefined });
-
-    await useUpdateStore.getState().fetchCACert();
-
-    expect(useUpdateStore.getState().caPem).toContain('BEGIN CERTIFICATE');
-    expect(mockGet).toHaveBeenCalledWith('/api/v1/server/ca');
-  });
-
-  it('fetchCACert handles error', async () => {
-    mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'unauthorized' } });
-
-    await useUpdateStore.getState().fetchCACert();
-
-    expect(useUpdateStore.getState().error).toBe('unauthorized');
-    expect(useUpdateStore.getState().caPem).toBeNull();
   });
 });

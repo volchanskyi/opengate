@@ -91,7 +91,6 @@ describe('AgentSetupPage', () => {
     useUpdateStore.setState({
       manifests: [fakeManifest],
       enrollmentTokens: [fakeToken],
-      caPem: null,
       isLoading: false,
       error: null,
       fetchManifests: noopFetch,

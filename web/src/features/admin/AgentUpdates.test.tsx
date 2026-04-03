@@ -12,16 +12,6 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-const fakeManifest = {
-  version: '1.0.0',
-  os: 'linux',
-  arch: 'amd64',
-  url: 'https://github.com/example/releases/download/v1.0.0/mesh-agent-linux-amd64',
-  sha256: 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
-  signature: 'sig',
-  created_at: '2024-01-01T00:00:00Z',
-};
-
 const fakeToken = {
   id: 't1',
   token: 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890',
@@ -36,25 +26,19 @@ const fakeToken = {
 const noopFetch = vi.fn();
 const noopCreate = vi.fn();
 const noopDelete = vi.fn();
-const noopPublish = vi.fn();
-const noopPush = vi.fn().mockResolvedValue(0);
 
 describe('AgentUpdates', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useUpdateStore.setState({
-      manifests: [fakeManifest],
+      manifests: [],
       enrollmentTokens: [fakeToken],
-      caPem: null,
       isLoading: false,
       error: null,
       fetchManifests: noopFetch,
       fetchEnrollmentTokens: noopFetch,
-      publishManifest: noopPublish,
-      pushUpdate: noopPush,
       createEnrollmentToken: noopCreate,
       deleteEnrollmentToken: noopDelete,
-      fetchSigningKey: noopFetch,
     });
   });
 
@@ -70,30 +54,10 @@ describe('AgentUpdates', () => {
     expect(screen.getByText('3/10')).toBeInTheDocument();
   });
 
-  it('renders manifest table', () => {
-    render(<AgentUpdates />);
-    expect(screen.getByText('Published Manifests')).toBeInTheDocument();
-    expect(screen.getByText('1.0.0')).toBeInTheDocument();
-    expect(screen.getByText('amd64')).toBeInTheDocument();
-  });
-
   it('shows empty state for tokens', () => {
     useUpdateStore.setState({ enrollmentTokens: [] });
     render(<AgentUpdates />);
     expect(screen.getByText('No enrollment tokens yet.')).toBeInTheDocument();
-  });
-
-  it('shows empty state for manifests', () => {
-    useUpdateStore.setState({ manifests: [] });
-    render(<AgentUpdates />);
-    expect(screen.getByText('No manifests published yet.')).toBeInTheDocument();
-  });
-
-  it('shows publish form when clicked', async () => {
-    render(<AgentUpdates />);
-    await userEvent.click(screen.getByText('Publish Version'));
-    expect(screen.getByPlaceholderText('1.0.0')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('64-character hex digest')).toBeInTheDocument();
   });
 
   it('shows create token form when clicked', async () => {
@@ -105,12 +69,10 @@ describe('AgentUpdates', () => {
 
   it('masks token by default and reveals on click', async () => {
     render(<AgentUpdates />);
-    // Token should be masked by default.
     const maskedButton = screen.getByText(/abcdef12\.\.\.7890/);
     expect(maskedButton).toBeInTheDocument();
 
     await userEvent.click(maskedButton);
-    // After clicking, full token should be shown.
     expect(screen.getByText(fakeToken.token)).toBeInTheDocument();
   });
 
@@ -120,8 +82,9 @@ describe('AgentUpdates', () => {
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
   });
 
-  it('has push to agents button', () => {
+  it('does not render manifest or signing key sections', () => {
     render(<AgentUpdates />);
-    expect(screen.getByText('Push to Agents')).toBeInTheDocument();
+    expect(screen.queryByText('Published Manifests')).not.toBeInTheDocument();
+    expect(screen.queryByText('Signing Key')).not.toBeInTheDocument();
   });
 });

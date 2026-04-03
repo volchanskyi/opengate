@@ -5,6 +5,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { useDeviceStore } from '../../state/device-store';
 import { useSessionStore } from '../../state/session-store';
 import { useAMTStore } from '../../state/amt-store';
+import { useUpdateStore } from '../../state/update-store';
 import { useToastStore } from '../../state/toast-store';
 import { DeviceDetail } from './DeviceDetail';
 
@@ -44,7 +45,6 @@ describe('DeviceDetail', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    // Override fetchDevice/fetchSessions to no-ops so they don't overwrite pre-set state
     useDeviceStore.setState({
       selectedDevice: mockDevice,
       isLoading: false,
@@ -55,6 +55,7 @@ describe('DeviceDetail', () => {
       fetchDevice: vi.fn(),
       fetchGroups: vi.fn(),
       deleteDevice: vi.fn(),
+      upgradeAgent: vi.fn().mockResolvedValue(true),
     });
     useAMTStore.setState({
       amtDevices: [],
@@ -71,6 +72,10 @@ describe('DeviceDetail', () => {
       error: null,
       fetchSessions: vi.fn(),
       createSession: vi.fn().mockResolvedValue({ token: 'new-tok', relay_url: 'ws://localhost' }),
+    });
+    useUpdateStore.setState({
+      manifests: [],
+      fetchManifests: vi.fn(),
     });
   });
 
@@ -97,7 +102,7 @@ describe('DeviceDetail', () => {
     expect(screen.getByText('tok1')).toBeInTheDocument();
   });
 
-  it('has start session button', () => {
+  it('has start session button in header', () => {
     renderDetail();
     expect(screen.getByText('Start Session')).toBeInTheDocument();
   });
@@ -121,14 +126,11 @@ describe('DeviceDetail', () => {
     useDeviceStore.setState({ fetchDevice: fetchDeviceFn });
     renderDetail();
 
-    // Initial fetch on mount
     expect(fetchDeviceFn).toHaveBeenCalledTimes(1);
 
-    // Advance 30s — should trigger second fetch
     vi.advanceTimersByTime(30_000);
     expect(fetchDeviceFn).toHaveBeenCalledTimes(2);
 
-    // Advance another 30s — third fetch
     vi.advanceTimersByTime(30_000);
     expect(fetchDeviceFn).toHaveBeenCalledTimes(3);
   });
@@ -166,5 +168,26 @@ describe('DeviceDetail', () => {
     await user.click(screen.getByText('Start Session'));
 
     expect(await screen.findByText('Session View')).toBeInTheDocument();
+  });
+
+  it('shows upgrade button when newer manifest available', () => {
+    useUpdateStore.setState({
+      manifests: [{ version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' }],
+    });
+    renderDetail();
+    expect(screen.getByText('Upgrade to v2.0.0')).toBeInTheDocument();
+  });
+
+  it('shows up to date when on latest version', () => {
+    useUpdateStore.setState({
+      manifests: [{ version: '1.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' }],
+    });
+    renderDetail();
+    expect(screen.getByText('Up to date')).toBeInTheDocument();
+  });
+
+  it('renders logs card as separate tile', () => {
+    renderDetail();
+    expect(screen.getByText('Fetch Logs')).toBeInTheDocument();
   });
 });
