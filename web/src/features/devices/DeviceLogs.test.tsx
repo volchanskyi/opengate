@@ -89,7 +89,7 @@ describe('DeviceLogs', () => {
     render(<DeviceLogs deviceId="d1" />);
     await user.click(screen.getByText('Fetch Logs'));
 
-    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({ offset: 0, limit: 300 }));
+    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({ offset: 0, limit: 300, refresh: true }));
   });
 
   it('shows Load More button when has_more is true', () => {

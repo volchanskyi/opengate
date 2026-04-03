@@ -632,6 +632,7 @@ export interface components {
             group_id: string;
             hostname: string;
             os: string;
+            os_display?: string;
             agent_version: string;
             capabilities: string[];
             /** @enum {string} */
@@ -1626,6 +1627,7 @@ export interface operations {
                 search?: string;
                 offset?: number;
                 limit?: number;
+                refresh?: boolean;
             };
             header?: never;
             path: {

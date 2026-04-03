@@ -103,7 +103,8 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 		return nil, err
 	}
 
-	if hasRecent {
+	refresh := request.Params.Refresh != nil && *request.Params.Refresh
+	if hasRecent && !refresh {
 		entries, total, err := s.store.QueryDeviceLogs(ctx, request.Id, filter)
 		if err != nil {
 			return nil, err

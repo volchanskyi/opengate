@@ -28,7 +28,7 @@ interface DeviceState {
   updateDeviceGroup: (id: string, groupId: string) => Promise<boolean>;
   restartAgent: (id: string) => Promise<boolean>;
   fetchHardware: (id: string) => Promise<void>;
-  fetchLogs: (id: string, params?: { level?: string; from?: string; to?: string; search?: string; offset?: number; limit?: number }) => Promise<void>;
+  fetchLogs: (id: string, params?: { level?: string; from?: string; to?: string; search?: string; offset?: number; limit?: number; refresh?: boolean }) => Promise<void>;
   upgradeAgent: (deviceId: string, version: string, os: string, arch: string) => Promise<boolean>;
 }
 
@@ -152,6 +152,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     if (params?.search) query.search = params.search;
     if (params?.offset !== undefined) query.offset = params.offset;
     if (params?.limit !== undefined) query.limit = params.limit;
+    if (params?.refresh) query.refresh = 'true';
 
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/{id}/logs', {

@@ -29,7 +29,7 @@ export function DeviceCard({ device }: Readonly<{ device: Device }>) {
         <StatusBadge status={device.status} />
       </div>
       <div className="text-sm text-gray-400 space-y-1">
-        <p>OS: {device.os}</p>
+        <p>OS: {device.os_display || device.os}</p>
         <p>Last seen: {timeAgo(device.last_seen)}</p>
       </div>
     </button>

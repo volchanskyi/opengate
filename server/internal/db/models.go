@@ -31,6 +31,7 @@ type Device struct {
 	GroupID      GroupID      `json:"group_id"`
 	Hostname     string       `json:"hostname"`
 	OS           string       `json:"os"`
+	OsDisplay    string       `json:"os_display"`
 	AgentVersion string       `json:"agent_version"`
 	Capabilities []string     `json:"capabilities"`
 	Status       DeviceStatus `json:"status"`
