@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775171516820,
+  "lastUpdate": 1775177708899,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8795,6 +8795,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.923038626870238,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "541c6755f9633760c9e41a04834236aad4307654",
+          "message": "feat: redesign device detail UI with upgrade button and side-by-side logs\n\nMove action buttons (Start Session, Restart, Delete) to header row next\nto hostname. Add per-device Upgrade Agent button that auto-detects the\nlatest manifest for the device OS and pushes via existing API. Extract\nDeviceLogs into a separate card in a 2-column grid layout.\n\nRemove Published Manifests and Signing Key sections from Agent Settings\npage — only Enrollment Tokens remain. Delete ManifestPublishForm and\nManifestList components.",
+          "timestamp": "2026-04-02T17:53:27-07:00",
+          "tree_id": "241087eb83d8c609ff16aa7ae35e8c9f9db6609b",
+          "url": "https://github.com/volchanskyi/opengate/commit/541c6755f9633760c9e41a04834236aad4307654"
+        },
+        "date": 1775177708847,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.193965372654112,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.27781810148626,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 738.1536890917856,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 314.24120832077284,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.91966775459809,
             "unit": "ns/iter"
           }
         ]
