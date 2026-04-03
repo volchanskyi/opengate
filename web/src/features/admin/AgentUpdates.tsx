@@ -1,56 +1,28 @@
 import { useEffect, useState } from 'react';
 import { useUpdateStore } from '../../state/update-store';
-import { useToastStore } from '../../state/toast-store';
 import { isTokenExpired, isTokenExhausted } from '../../lib/token-status';
-import { ManifestPublishForm } from './ManifestPublishForm';
-import { ManifestList } from './ManifestList';
 
 export function AgentUpdates() {
-  const manifests = useUpdateStore((s) => s.manifests);
   const enrollmentTokens = useUpdateStore((s) => s.enrollmentTokens);
-  const signingKey = useUpdateStore((s) => s.signingKey);
   const isLoading = useUpdateStore((s) => s.isLoading);
   const error = useUpdateStore((s) => s.error);
-  const fetchManifests = useUpdateStore((s) => s.fetchManifests);
   const fetchEnrollmentTokens = useUpdateStore((s) => s.fetchEnrollmentTokens);
-  const fetchSigningKey = useUpdateStore((s) => s.fetchSigningKey);
-  const publishManifest = useUpdateStore((s) => s.publishManifest);
-  const pushUpdate = useUpdateStore((s) => s.pushUpdate);
   const createEnrollmentToken = useUpdateStore((s) => s.createEnrollmentToken);
   const deleteEnrollmentToken = useUpdateStore((s) => s.deleteEnrollmentToken);
-  const addToast = useToastStore((s) => s.addToast);
 
-  const [showPublishForm, setShowPublishForm] = useState(false);
   const [showTokenForm, setShowTokenForm] = useState(false);
   const [tokenForm, setTokenForm] = useState({ label: '', max_uses: 0, expires_in_hours: 24 });
-  const [pushResult, setPushResult] = useState<number | null>(null);
   const [revealedTokens, setRevealedTokens] = useState<Set<string>>(new Set());
-  const [showSigningKey, setShowSigningKey] = useState(false);
 
   useEffect(() => {
-    fetchManifests();
     fetchEnrollmentTokens();
-    fetchSigningKey();
-  }, [fetchManifests, fetchEnrollmentTokens, fetchSigningKey]);
-
-  const handlePublish = async (form: { version: string; os: string; arch: string; url: string; sha256: string }) => {
-    await publishManifest(form);
-  };
+  }, [fetchEnrollmentTokens]);
 
   const handleCreateToken = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     await createEnrollmentToken(tokenForm);
     setTokenForm({ label: '', max_uses: 0, expires_in_hours: 24 });
     setShowTokenForm(false);
-  };
-
-  const handlePush = async (version: string, os: string, arch: string) => {
-    const count = await pushUpdate({ version, os, arch });
-    if (count !== undefined) {
-      setPushResult(count);
-      addToast(`Update pushed to ${count} agent(s)`, 'success');
-      setTimeout(() => setPushResult(null), 3000);
-    }
   };
 
   const toggleReveal = (id: string) => {
@@ -67,7 +39,7 @@ export function AgentUpdates() {
 
   const maskToken = (token: string) => token.slice(0, 8) + '...' + token.slice(-4);
 
-  if (isLoading && manifests.length === 0 && enrollmentTokens.length === 0) {
+  if (isLoading && enrollmentTokens.length === 0) {
     return <p className="text-gray-400">Loading...</p>;
   }
 
@@ -78,12 +50,6 @@ export function AgentUpdates() {
       {error && (
         <div className="bg-red-900/30 border border-red-700 text-red-300 p-3 rounded text-sm">
           {error}
-        </div>
-      )}
-
-      {pushResult !== null && (
-        <div className="bg-green-900/30 border border-green-700 text-green-300 p-3 rounded text-sm">
-          Update pushed to {pushResult} agent(s).
         </div>
       )}
 
@@ -199,49 +165,6 @@ export function AgentUpdates() {
         )}
       </section>
 
-      {/* Published Manifests */}
-      <section>
-        <ManifestPublishForm
-          showPublishForm={showPublishForm}
-          setShowPublishForm={setShowPublishForm}
-          onPublish={handlePublish}
-        />
-        <ManifestList manifests={manifests} onPush={handlePush} />
-      </section>
-
-      {/* Signing Key (hidden by default) */}
-      {signingKey && (
-        <section>
-          <button
-            type="button"
-            onClick={() => setShowSigningKey(!showSigningKey)}
-            className="text-lg font-semibold flex items-center gap-2"
-          >
-            <span className={`text-sm transition-transform ${showSigningKey ? 'rotate-90' : ''}`}>
-              &#9654;
-            </span>
-            Signing Key
-          </button>
-          {showSigningKey && (
-            <div className="mt-3 bg-gray-800 border border-gray-700 rounded-lg p-4">
-              <p className="text-sm text-gray-400 mb-2">Ed25519 public key used to verify agent update signatures:</p>
-              <code className="block bg-gray-900 border border-gray-700 rounded px-3 py-2 text-xs font-mono break-all">
-                {signingKey}
-              </code>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(signingKey);
-                  addToast('Signing key copied', 'info');
-                }}
-                className="mt-2 text-sm text-blue-400 hover:text-blue-300"
-              >
-                Copy to clipboard
-              </button>
-            </div>
-          )}
-        </section>
-      )}
     </div>
   );
 }
