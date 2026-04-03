@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775177708899,
+  "lastUpdate": 1775188046815,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8844,6 +8844,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.91966775459809,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e4afcb1dd00ef275ee8ce62888434c819dca0a7b",
+          "message": "fix: resolve log fetch crash and upgrade button issues, add bulk upgrade\n\n- Add #[serde(default)] to RequestDeviceLogs fields so missing msgpack\n  fields (caused by Go omitempty on empty strings) default gracefully\n  instead of crashing the agent with \"missing field log_level\"\n- Fix semver comparison on device detail page (use localeCompare with\n  numeric option instead of plain string >=) so upgrade button appears\n- Add \"Upgrade All Agents\" button to /devices page that pushes updates\n  to all online devices running outdated agent versions",
+          "timestamp": "2026-04-02T20:45:47-07:00",
+          "tree_id": "b6dd4d4eb5eccaaee7c09b67c77330952d38c87b",
+          "url": "https://github.com/volchanskyi/opengate/commit/e4afcb1dd00ef275ee8ce62888434c819dca0a7b"
+        },
+        "date": 1775188046762,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.317427859224484,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.669950751288365,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 725.8831213794962,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 303.6565177138641,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.10778802659562,
             "unit": "ns/iter"
           }
         ]
