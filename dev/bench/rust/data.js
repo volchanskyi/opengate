@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775191494384,
+  "lastUpdate": 1775236004535,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8991,6 +8991,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.91420994902956,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "27174553deca78a13160dc30eca2d3126e6cb590",
+          "message": "fix: normalize OS at registration and add force-refresh for device logs\n\nAgent sends pretty OS name (e.g. \"Ubuntu 22.04 LTS\") which didn't match\nmanifest GOOS values (\"linux\"), preventing upgrade buttons from appearing.\nNow normalizes OS/arch at registration time via shared osutil package and\npreserves the pretty name in os_display for UI display. Includes SQL\nmigration to backfill existing devices. Adds refresh query param to logs\nendpoint so clicking Fetch Logs always gets fresh data instead of waiting\nfor the 5-minute cache TTL.",
+          "timestamp": "2026-04-03T10:05:11-07:00",
+          "tree_id": "5bedb341c5e3e2ee1a9ea0408552edac80afabd1",
+          "url": "https://github.com/volchanskyi/opengate/commit/27174553deca78a13160dc30eca2d3126e6cb590"
+        },
+        "date": 1775236004485,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.189905149775626,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.442815263175586,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 740.5548902642563,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.62008729980175,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.906865946415778,
             "unit": "ns/iter"
           }
         ]
