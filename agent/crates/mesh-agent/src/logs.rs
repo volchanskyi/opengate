@@ -14,6 +14,9 @@ const MAX_LOG_FILES: usize = 7;
 /// Maximum number of lines to scan per request to bound memory/CPU.
 const MAX_SCAN_LINES: usize = 10_000;
 
+/// Default page size when limit is 0 (omitted by server).
+const DEFAULT_LIMIT: usize = 300;
+
 /// Collects and filters log entries from the agent's log directory.
 pub struct LogCollector {
     log_dir: PathBuf,
@@ -119,9 +122,18 @@ impl LogCollector {
             }
         }
 
+        // Sort newest-first by timestamp. Files are scanned newest-first (for
+        // scan-budget efficiency) but lines within each file are chronological,
+        // so a simple reverse wouldn't produce correct ordering.
+        all_entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
         let total_count = all_entries.len() as u32;
         let offset = filter.offset as usize;
-        let limit = filter.limit as usize;
+        let limit = if filter.limit == 0 {
+            DEFAULT_LIMIT
+        } else {
+            filter.limit as usize
+        };
         let has_more = offset + limit < all_entries.len();
 
         let entries = all_entries.into_iter().skip(offset).take(limit).collect();
@@ -133,7 +145,7 @@ impl LogCollector {
         })
     }
 
-    /// Discovers log files sorted by name (oldest first).
+    /// Discovers log files sorted by name (newest first).
     /// tracing-appender daily rotation produces files like:
     ///   agent.log.2026-04-01
     ///   agent.log.2026-04-02
@@ -154,6 +166,10 @@ impl LogCollector {
         if files.len() > MAX_LOG_FILES {
             files = files.split_off(files.len() - MAX_LOG_FILES);
         }
+
+        // Reverse so newest files are scanned first (avoids wasting
+        // MAX_SCAN_LINES budget on old entries).
+        files.reverse();
 
         Ok(files)
     }
@@ -288,13 +304,14 @@ mod tests {
         let collector = LogCollector::new(dir.path().to_path_buf());
         let result = collector.collect(&default_filter()).unwrap();
 
+        // Newest-first ordering
         assert_eq!(result.entries.len(), 2);
-        assert_eq!(result.entries[0].level, "ERROR");
-        assert!(result.entries[0].message.contains("panic occurred"));
-        assert!(result.entries[0].message.contains("at src/main.rs:42"));
-        assert!(result.entries[0].message.contains("stack trace follows"));
-        assert_eq!(result.entries[1].level, "INFO");
-        assert_eq!(result.entries[1].message, "recovered");
+        assert_eq!(result.entries[0].level, "INFO");
+        assert_eq!(result.entries[0].message, "recovered");
+        assert_eq!(result.entries[1].level, "ERROR");
+        assert!(result.entries[1].message.contains("panic occurred"));
+        assert!(result.entries[1].message.contains("at src/main.rs:42"));
+        assert!(result.entries[1].message.contains("stack trace follows"));
     }
 
     #[test]
@@ -315,9 +332,10 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
+        // Newest-first: WARN before INFO
         assert_eq!(result.entries.len(), 2);
-        assert_eq!(result.entries[0].level, "INFO");
-        assert_eq!(result.entries[1].level, "WARN");
+        assert_eq!(result.entries[0].level, "WARN");
+        assert_eq!(result.entries[1].level, "INFO");
     }
 
     #[test]
@@ -340,9 +358,10 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
+        // Newest-first: ERROR before WARN
         assert_eq!(result.entries.len(), 2);
-        assert_eq!(result.entries[0].level, "WARN");
-        assert_eq!(result.entries[1].level, "ERROR");
+        assert_eq!(result.entries[0].level, "ERROR");
+        assert_eq!(result.entries[1].level, "WARN");
     }
 
     #[test]
@@ -365,9 +384,10 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
+        // Newest-first: afternoon before midday
         assert_eq!(result.entries.len(), 2);
-        assert_eq!(result.entries[0].message, "midday");
-        assert_eq!(result.entries[1].message, "afternoon");
+        assert_eq!(result.entries[0].message, "afternoon");
+        assert_eq!(result.entries[1].message, "midday");
     }
 
     #[test]
@@ -388,20 +408,23 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
+        // Newest-first: "connection lost" before "connected to server"
         assert_eq!(result.entries.len(), 2);
-        assert!(result.entries[0].message.contains("connected"));
-        assert!(result.entries[1].message.contains("connection"));
+        assert!(result.entries[0].message.contains("connection"));
+        assert!(result.entries[1].message.contains("connected"));
     }
 
     #[test]
     fn test_pagination_offset_limit() {
         let dir = TempDir::new().unwrap();
         let mut content = String::new();
-        for i in 0..100 {
+        // Use unique timestamps: hour 10-11, minutes 0-99 spread across
+        for i in 0..100u32 {
+            let hour = 10 + i / 60;
+            let min = i % 60;
             content.push_str(&format!(
-                "2026-04-01T12:{:02}:00.000000Z  INFO mesh_agent: line {}\n",
-                i % 60,
-                i
+                "2026-04-01T{:02}:{:02}:00.000000Z  INFO mesh_agent: line {}\n",
+                hour, min, i
             ));
         }
         write_log_file(dir.path(), "agent.log.2026-04-01", &content);
@@ -414,9 +437,10 @@ mod tests {
         };
         let result = collector.collect(&filter).unwrap();
 
+        // Newest-first: entries are 99,98,...,0. offset=50 skips 99..50 → starts at 49.
         assert_eq!(result.entries.len(), 25);
-        assert_eq!(result.entries[0].message, "line 50");
-        assert_eq!(result.entries[24].message, "line 74");
+        assert_eq!(result.entries[0].message, "line 49");
+        assert_eq!(result.entries[24].message, "line 25");
         assert_eq!(result.total_count, 100);
     }
 
@@ -481,9 +505,10 @@ mod tests {
         let collector = LogCollector::new(dir.path().to_path_buf());
         let result = collector.collect(&default_filter()).unwrap();
 
+        // Newest-first: day2 before day1
         assert_eq!(result.entries.len(), 2);
-        assert_eq!(result.entries[0].message, "day1");
-        assert_eq!(result.entries[1].message, "day2");
+        assert_eq!(result.entries[0].message, "day2");
+        assert_eq!(result.entries[1].message, "day1");
     }
 
     // --- Negative cases ---

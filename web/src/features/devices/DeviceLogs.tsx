@@ -23,7 +23,7 @@ export function DeviceLogs({ deviceId }: DeviceLogsProps) {
   const [level, setLevel] = useState('');
   const [search, setSearch] = useState('');
   const [offset, setOffset] = useState(0);
-  const limit = 100;
+  const limit = 300;
 
   const handleFetch = useCallback(() => {
     setOffset(0);
@@ -49,7 +49,7 @@ export function DeviceLogs({ deviceId }: DeviceLogsProps) {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold text-gray-300">Logs</h3>
+        <h3 className="text-sm font-semibold text-gray-300">Agent Logs</h3>
         <button
           type="button"
           onClick={handleFetch}
