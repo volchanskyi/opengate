@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775188046815,
+  "lastUpdate": 1775190988408,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8893,6 +8893,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.10778802659562,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "88964ae73b86d9d27e29d72ffd7e55c59b16c314",
+          "message": "fix: improve log retrieval — newest-first, working filters, 300 limit\n\n- Agent: scan newest log files first and sort entries by timestamp\n  descending so users see recent logs instead of old ones\n- Server: send empty filter to agent for comprehensive cache; apply\n  search/level/time filters at the DB level only, fixing keyword\n  search that broke when cached data was already filtered\n- Increase default page size from 100 to 300\n- Rename \"Logs\" heading to \"Agent Logs\"",
+          "timestamp": "2026-04-02T21:34:49-07:00",
+          "tree_id": "7e369ec63d9489b47b6a0a31492011f1f011062e",
+          "url": "https://github.com/volchanskyi/opengate/commit/88964ae73b86d9d27e29d72ffd7e55c59b16c314"
+        },
+        "date": 1775190988357,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.20897187419359,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.295195958173807,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 737.5941595940111,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 309.7110634280362,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.91319645874206,
             "unit": "ns/iter"
           }
         ]
