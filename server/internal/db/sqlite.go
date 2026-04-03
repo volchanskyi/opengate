@@ -141,7 +141,7 @@ func scanDeviceFrom(sc scanner) (*Device, error) {
 	var d Device
 	var idStr, status, lastSeen, createdAt, updatedAt, capsJSON string
 	var groupIDStr sql.NullString
-	if err := sc.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &d.AgentVersion, &capsJSON, &status, &lastSeen, &createdAt, &updatedAt); err != nil {
+	if err := sc.Scan(&idStr, &groupIDStr, &d.Hostname, &d.OS, &d.OsDisplay, &d.AgentVersion, &capsJSON, &status, &lastSeen, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
 	var err error
@@ -195,24 +195,25 @@ func (s *SQLiteStore) UpsertDevice(ctx context.Context, d *Device) error {
 		return fmt.Errorf("marshal capabilities: %w", err)
 	}
 	_, err = s.db.ExecContext(ctx,
-		`INSERT INTO devices (id, group_id, hostname, os, agent_version, capabilities, status, last_seen, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO devices (id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   group_id = COALESCE(excluded.group_id, devices.group_id),
 		   hostname = excluded.hostname,
 		   os = excluded.os,
+		   os_display = excluded.os_display,
 		   agent_version = excluded.agent_version,
 		   capabilities = excluded.capabilities,
 		   status = excluded.status,
 		   last_seen = excluded.last_seen,
 		   updated_at = excluded.updated_at`,
-		d.ID.String(), groupID, d.Hostname, d.OS, d.AgentVersion, string(capsJSON), string(d.Status), now, now, now)
+		d.ID.String(), groupID, d.Hostname, d.OS, d.OsDisplay, d.AgentVersion, string(capsJSON), string(d.Status), now, now, now)
 	return err
 }
 
 func (s *SQLiteStore) GetDevice(ctx context.Context, id DeviceID) (*Device, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, group_id, hostname, os, agent_version, capabilities, status, last_seen, created_at, updated_at FROM devices WHERE id = ?`,
+		`SELECT id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at FROM devices WHERE id = ?`,
 		id.String())
 	d, err := scanDeviceFrom(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -223,18 +224,18 @@ func (s *SQLiteStore) GetDevice(ctx context.Context, id DeviceID) (*Device, erro
 
 func (s *SQLiteStore) ListDevices(ctx context.Context, groupID GroupID) ([]*Device, error) {
 	return queryList(ctx, s.db, scanDeviceFrom,
-		`SELECT id, group_id, hostname, os, agent_version, capabilities, status, last_seen, created_at, updated_at FROM devices WHERE group_id = ?`,
+		`SELECT id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at FROM devices WHERE group_id = ?`,
 		groupID.String())
 }
 
 func (s *SQLiteStore) ListAllDevices(ctx context.Context) ([]*Device, error) {
 	return queryList(ctx, s.db, scanDeviceFrom,
-		`SELECT id, group_id, hostname, os, agent_version, capabilities, status, last_seen, created_at, updated_at FROM devices ORDER BY hostname`)
+		`SELECT id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at FROM devices ORDER BY hostname`)
 }
 
 func (s *SQLiteStore) ListDevicesForOwner(ctx context.Context, ownerID UserID) ([]*Device, error) {
 	return queryList(ctx, s.db, scanDeviceFrom,
-		`SELECT d.id, d.group_id, d.hostname, d.os, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at
+		`SELECT d.id, d.group_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at
 		 FROM devices d LEFT JOIN groups_ g ON d.group_id = g.id
 		 WHERE g.owner_id = ? OR d.group_id IS NULL
 		 ORDER BY d.hostname`, ownerID.String())

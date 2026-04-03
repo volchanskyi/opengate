@@ -300,6 +300,24 @@ func TestGetDeviceLogs(t *testing.T) {
 		})
 	}
 
+	t.Run("refresh bypasses cache", func(t *testing.T) {
+		env := setupDeviceTest(t, true)
+
+		// Seed cached logs so hasRecent returns true.
+		entries := []db.DeviceLogEntry{
+			{Timestamp: "2026-04-01T12:00:00Z", Level: "INFO", Target: "test", Message: "cached"},
+		}
+		require.NoError(t, env.store.UpsertDeviceLogs(t.Context(), env.device.ID, entries))
+
+		// Without refresh, should return cached data (200).
+		w := doRequest(env.srv, http.MethodGet, "/api/v1/devices/"+env.device.ID.String()+"/logs", env.ownerToken, nil)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		// With refresh=true, should bypass cache and request from agent (202).
+		w = doRequest(env.srv, http.MethodGet, "/api/v1/devices/"+env.device.ID.String()+"/logs?refresh=true", env.ownerToken, nil)
+		assert.Equal(t, http.StatusAccepted, w.Code)
+	})
+
 	t.Run("requires auth", func(t *testing.T) {
 		srv, _ := newTestServer(t)
 		w := doRequest(srv, http.MethodGet, "/api/v1/devices/"+uuid.New().String()+"/logs", "", nil)

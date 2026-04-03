@@ -17,7 +17,7 @@ func mapSlice[S, D any](items []S, fn func(S) D) []D {
 }
 
 func deviceToAPI(d *db.Device) Device {
-	return Device{
+	dev := Device{
 		Id:           d.ID,
 		GroupId:      d.GroupID,
 		Hostname:     d.Hostname,
@@ -29,6 +29,10 @@ func deviceToAPI(d *db.Device) Device {
 		CreatedAt:    d.CreatedAt,
 		UpdatedAt:    d.UpdatedAt,
 	}
+	if d.OsDisplay != "" {
+		dev.OsDisplay = &d.OsDisplay
+	}
+	return dev
 }
 
 func devicesToAPI(ds []*db.Device) []Device {

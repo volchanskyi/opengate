@@ -89,6 +89,8 @@ components:
           type: string
         os:
           type: string
+        os_display:
+          type: string
         agent_version:
           type: string
         capabilities:
@@ -1185,8 +1187,13 @@ paths:
           in: query
           schema:
             type: integer
-            default: 100
-            maximum: 500
+            default: 300
+            maximum: 1000
+        - name: refresh
+          in: query
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: Log entries
