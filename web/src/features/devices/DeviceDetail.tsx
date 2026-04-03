@@ -224,7 +224,7 @@ export function DeviceDetail() {
         <dl className="grid grid-cols-2 gap-3 text-sm">
           <div>
             <dt className="text-gray-400">OS</dt>
-            <dd>{device.os}</dd>
+            <dd>{device.os_display || device.os}</dd>
           </div>
           <div>
             <dt className="text-gray-400">Group ID</dt>

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
@@ -214,8 +215,8 @@ func (a *AgentConn) handleHardwareReport(ctx context.Context, msg *protocol.Cont
 
 func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMessage) error {
 	a.Capabilities = msg.Capabilities
-	a.OS = msg.OS
-	a.Arch = msg.Arch
+	a.OS = osutil.NormalizeOS(msg.OS)
+	a.Arch = osutil.NormalizeArch(msg.Arch)
 	a.AgentVersion = msg.Version
 
 	caps := make([]string, len(msg.Capabilities))
@@ -227,7 +228,8 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 		ID:           a.DeviceID,
 		GroupID:      a.GroupID,
 		Hostname:     msg.Hostname,
-		OS:           msg.OS,
+		OS:           a.OS,
+		OsDisplay:    msg.OS,
 		AgentVersion: msg.Version,
 		Capabilities: caps,
 		Status:       db.StatusOnline,
