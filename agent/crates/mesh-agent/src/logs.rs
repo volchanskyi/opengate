@@ -129,7 +129,11 @@ impl LogCollector {
 
         let total_count = all_entries.len() as u32;
         let offset = filter.offset as usize;
-        let limit = if filter.limit == 0 { DEFAULT_LIMIT } else { filter.limit as usize };
+        let limit = if filter.limit == 0 {
+            DEFAULT_LIMIT
+        } else {
+            filter.limit as usize
+        };
         let has_more = offset + limit < all_entries.len();
 
         let entries = all_entries.into_iter().skip(offset).take(limit).collect();
