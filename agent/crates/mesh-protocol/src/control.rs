@@ -164,11 +164,17 @@ pub enum ControlMessage {
 
     /// Server requests the agent to collect and send log entries.
     RequestDeviceLogs {
+        #[serde(default)]
         log_level: String,
+        #[serde(default)]
         time_from: String,
+        #[serde(default)]
         time_to: String,
+        #[serde(default)]
         search: String,
+        #[serde(default)]
         log_offset: u32,
+        #[serde(default)]
         log_limit: u32,
     },
 
