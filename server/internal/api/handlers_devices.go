@@ -94,7 +94,7 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 		To:     derefStr(request.Params.To),
 		Search: derefStr(request.Params.Search),
 		Offset: derefInt(request.Params.Offset, 0),
-		Limit:  derefInt(request.Params.Limit, 100),
+		Limit:  derefInt(request.Params.Limit, 300),
 	}
 
 	// Check if we have recent cached logs (5-minute TTL)
@@ -122,7 +122,10 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 		return GetDeviceLogs200JSONResponse(deviceLogsToAPI(entries, total, filter)), nil
 	}
 
-	if err := ac.SendRequestDeviceLogs(ctx, filter); err != nil {
+	// Request ALL recent logs from agent (no search/level filter) so the
+	// DB cache is comprehensive.  Filtering happens at the DB level on retry.
+	cacheFilter := db.LogFilter{Limit: 1000}
+	if err := ac.SendRequestDeviceLogs(ctx, cacheFilter); err != nil {
 		return nil, err
 	}
 	return GetDeviceLogs202Response{}, nil
