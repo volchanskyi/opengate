@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775190988408,
+  "lastUpdate": 1775191494384,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -8942,6 +8942,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.91319645874206,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "39cd2ef6b1d54db8b3c4f84faf454acfa44dd6be",
+          "message": "fix: resolve CI lint failures — rustfmt and test limit mismatch",
+          "timestamp": "2026-04-02T21:43:17-07:00",
+          "tree_id": "b9538365a8a1f3c3b00784831c8487e90245640f",
+          "url": "https://github.com/volchanskyi/opengate/commit/39cd2ef6b1d54db8b3c4f84faf454acfa44dd6be"
+        },
+        "date": 1775191494333,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.382152856674924,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.45603608141307,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 747.2560585866989,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.0660304905955,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.91420994902956,
             "unit": "ns/iter"
           }
         ]
