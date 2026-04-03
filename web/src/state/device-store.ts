@@ -29,6 +29,7 @@ interface DeviceState {
   restartAgent: (id: string) => Promise<boolean>;
   fetchHardware: (id: string) => Promise<void>;
   fetchLogs: (id: string, params?: { level?: string; from?: string; to?: string; search?: string; offset?: number; limit?: number }) => Promise<void>;
+  upgradeAgent: (deviceId: string, version: string, os: string, arch: string) => Promise<boolean>;
 }
 
 export const useDeviceStore = create<DeviceState>((set, get) => ({
@@ -172,5 +173,14 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         set({ logsLoading: false });
       }, 3000);
     }
+  },
+
+  upgradeAgent: async (deviceId, version, os, arch) => {
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/updates/push', {
+        body: { version, os, arch, device_ids: [deviceId] },
+      }), false,
+    );
+    return res.ok;
   },
 }));
