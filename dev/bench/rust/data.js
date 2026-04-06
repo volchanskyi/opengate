@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775236004535,
+  "lastUpdate": 1775454191618,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9040,6 +9040,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.906865946415778,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f42194cf4d6e8425c296660d9a343d34fa428a5e",
+          "message": "fix: handle 202 response in log fetching and remove refresh on retry\n\nThe Fetch Logs button was broken because:\n1. openapi-fetch treats 202 as ok (2xx), so the retry branch never fired\n2. refresh=true was sent on every request including retries, so the\n   server always bypassed cache and returned 202 in a loop\n\nNow uses raw response.status to detect 202, and drops the refresh param\non the retry so it reads from the cache populated by the agent response.",
+          "timestamp": "2026-04-05T22:41:36-07:00",
+          "tree_id": "45afb0402a03167f79ab052601b32486e0a2c9be",
+          "url": "https://github.com/volchanskyi/opengate/commit/f42194cf4d6e8425c296660d9a343d34fa428a5e"
+        },
+        "date": 1775454191573,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.438161762006857,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.995658569953108,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 729.2260407950837,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 318.2576134299746,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.904987642712445,
             "unit": "ns/iter"
           }
         ]
