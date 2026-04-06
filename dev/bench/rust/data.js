@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775454191618,
+  "lastUpdate": 1775455245650,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9089,6 +9089,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.904987642712445,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "92368266201db615e66b7848bba6b63e6e24b4bb",
+          "message": "ci: remove SARIF upload and enforce SonarCloud quality gate\n\nThe SARIF upload to GitHub code scanning was ineffective — all 150\nalerts were previously dismissed and new uploads matched the same\nfingerprints, keeping them invisible. SonarCloud.io is the authoritative\nconsole for these findings, making the upload redundant.\n\nAlso adds -Dsonar.qualitygate.wait=true so CI fails when the SonarCloud\nquality gate fails (new blockers, criticals, insufficient coverage).",
+          "timestamp": "2026-04-05T22:59:03-07:00",
+          "tree_id": "577a3034d711aac6ef3fdeee49a137f7711d7605",
+          "url": "https://github.com/volchanskyi/opengate/commit/92368266201db615e66b7848bba6b63e6e24b4bb"
+        },
+        "date": 1775455245600,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.212864268760868,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.38015375179933,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 733.2971032493152,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 317.81571904962357,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.93742565946136,
             "unit": "ns/iter"
           }
         ]
