@@ -154,26 +154,33 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     if (params?.limit !== undefined) query.limit = params.limit;
     if (params?.refresh) query.refresh = 'true';
 
-    const res = await apiAction(set, () =>
-      api.GET('/api/v1/devices/{id}/logs', {
-        params: { path: { id }, query },
-      }), false,
-    );
-    if (res.ok) {
-      set({ logs: res.data, logsLoading: false });
-    } else {
-      // 202 (logs requested) — retry once after 3s
-      set({ logsLoading: true });
+    const { data, response } = await api.GET('/api/v1/devices/{id}/logs', {
+      params: { path: { id }, query },
+    });
+
+    if (response.status === 200 && data) {
+      set({ logs: data, logsLoading: false });
+      return;
+    }
+
+    if (response.status === 202) {
+      // Agent is collecting logs — retry once after 3s without refresh
+      // so the retry reads from the newly populated cache.
+      const retryQuery = { ...query };
+      delete retryQuery.refresh;
       setTimeout(async () => {
-        const retry = await apiAction(set, () =>
-          api.GET('/api/v1/devices/{id}/logs', {
-            params: { path: { id }, query },
-          }), false,
-        );
-        if (retry.ok) set({ logs: retry.data });
+        const retry = await api.GET('/api/v1/devices/{id}/logs', {
+          params: { path: { id }, query: retryQuery },
+        });
+        if (retry.response.status === 200 && retry.data) {
+          set({ logs: retry.data });
+        }
         set({ logsLoading: false });
       }, 3000);
+      return;
     }
+
+    set({ logsLoading: false });
   },
 
   upgradeAgent: async (deviceId, version, os, arch) => {
