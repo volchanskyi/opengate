@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775631829542,
+  "lastUpdate": 1775671970463,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9187,6 +9187,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.9003545489169,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b16eb33cedcf3e08058a5785c4e420162a945890",
+          "message": "fix(ci): resolve SonarCloud quality gate failure\n\n- Refactor uninstall_agent, AgentPeerConnection::new, AgentServer.accept\n  to drop cognitive complexity below 15 (was 22/17/23)\n- Replace `void` operator with fireAndForget helper across web/src to\n  satisfy both ESLint no-floating-promises and SonarCloud S3735 without\n  rule suppression; helper hardened for non-Promise inputs (e.g.\n  react-router navigate)\n- Tighten coverage exclusions: bootstrap entrypoints (main.rs/main.tsx/\n  App.tsx), generated code (openapi_gen.go), IO/transport modules\n  covered by integration tests (webrtc.rs, terminal.rs, session/*,\n  mps/wsman, internal/metrics) in vitest.config.ts, sonar-project.properties,\n  and CI Rust/Go coverage filters\n- Add Rust --fail-under-lines 80 (currently 81.55%)",
+          "timestamp": "2026-04-08T11:11:05-07:00",
+          "tree_id": "de0690166adb2eced2f41f5211f9854ad598c3cd",
+          "url": "https://github.com/volchanskyi/opengate/commit/b16eb33cedcf3e08058a5785c4e420162a945890"
+        },
+        "date": 1775671970398,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.225505456644147,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.42533666410748,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 727.4173966318551,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 309.233892497722,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.88363200648429,
             "unit": "ns/iter"
           }
         ]
