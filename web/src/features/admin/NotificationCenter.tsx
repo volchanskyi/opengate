@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { usePushStore } from '../../state/push-store';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -19,8 +20,8 @@ export function NotificationCenter() {
   const unsubscribe = usePushStore((s) => s.unsubscribe);
 
   useEffect(() => {
-    void fetchVapidKey();
-    void syncSubscriptionStatus();
+    fireAndForget(fetchVapidKey());
+    fireAndForget(syncSubscriptionStatus());
   }, [fetchVapidKey, syncSubscriptionStatus]);
 
   const handleToggle = useCallback(async () => {
@@ -54,7 +55,7 @@ export function NotificationCenter() {
 
   return (
     <button
-      onClick={() => { void handleToggle(); }}
+      onClick={() => { fireAndForget(handleToggle()); }}
       className="text-sm text-gray-400 hover:text-white"
       title={isSubscribed ? 'Disable notifications' : 'Enable notifications'}
       aria-label={isSubscribed ? 'Disable notifications' : 'Enable notifications'}

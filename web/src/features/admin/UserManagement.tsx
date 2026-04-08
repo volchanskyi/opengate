@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useAdminStore } from '../../state/admin-store';
 import { useAuthStore } from '../../state/auth-store';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 export function UserManagement() {
   const users = useAdminStore((s) => s.users);
@@ -11,7 +12,7 @@ export function UserManagement() {
   const currentUser = useAuthStore((s) => s.user);
 
   useEffect(() => {
-    void fetchUsers();
+    fireAndForget(fetchUsers());
   }, [fetchUsers]);
 
   if (isLoading && users.length === 0) {
@@ -37,7 +38,7 @@ export function UserManagement() {
               <td className="py-2">{user.display_name}</td>
               <td className="py-2">
                 <button
-                  onClick={() => { void updateUser(user.id, { is_admin: !user.is_admin }); }}
+                  onClick={() => { fireAndForget(updateUser(user.id, { is_admin: !user.is_admin })); }}
                   disabled={user.id === currentUser?.id}
                   className={`px-2 py-0.5 rounded text-xs ${
                     user.is_admin
@@ -50,7 +51,7 @@ export function UserManagement() {
               </td>
               <td className="py-2">
                 <button
-                  onClick={() => { void deleteUser(user.id); }}
+                  onClick={() => { fireAndForget(deleteUser(user.id)); }}
                   disabled={user.id === currentUser?.id}
                   className="text-red-400 hover:text-red-300 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
                 >

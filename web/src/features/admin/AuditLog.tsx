@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAdminStore } from '../../state/admin-store';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 export function AuditLog() {
   const auditEvents = useAdminStore((s) => s.auditEvents);
@@ -11,11 +12,11 @@ export function AuditLog() {
   const limit = 50;
 
   useEffect(() => {
-    void fetchAuditEvents({
+    fireAndForget(fetchAuditEvents({
       limit,
       offset,
       ...(actionFilter ? { action: actionFilter } : {}),
-    });
+    }));
   }, [fetchAuditEvents, actionFilter, offset]);
 
   return (

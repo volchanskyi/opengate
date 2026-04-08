@@ -741,24 +741,31 @@ fn collect_network_interfaces() -> Vec<mesh_protocol::NetworkInterface> {
 }
 
 fn uninstall_agent(data_dir: &std::path::Path) {
-    use std::process::Command;
-
     const SERVICE_NAME: &str = "mesh-agent";
     const CONFIG_DIR: &str = "/etc/opengate-agent";
     const INSTALL_DIR: &str = "/usr/local/bin";
     const BINARY_NAME: &str = "mesh-agent";
 
-    // Stop and disable the systemd service (best-effort).
+    stop_systemd_service(SERVICE_NAME);
+    remove_identity_files(data_dir);
+    remove_dirs(&[data_dir.to_path_buf(), std::path::PathBuf::from(CONFIG_DIR)]);
+    remove_systemd_unit(SERVICE_NAME);
+    daemon_reload();
+    remove_binary(INSTALL_DIR, BINARY_NAME);
+
+    info!("agent uninstalled: service stopped, files removed");
+}
+
+fn stop_systemd_service(name: &str) {
+    use std::process::Command;
     for action in &["stop", "disable"] {
-        if let Err(e) = Command::new("systemctl")
-            .args([action, SERVICE_NAME])
-            .output()
-        {
+        if let Err(e) = Command::new("systemctl").args([action, name]).output() {
             warn!(action, error = %e, "systemctl command failed");
         }
     }
+}
 
-    // Remove identity files from data directory.
+fn remove_identity_files(data_dir: &std::path::Path) {
     let identity_files = [
         mesh_agent_core::DEVICE_ID_FILE,
         mesh_agent_core::CERT_FILE,
@@ -766,34 +773,28 @@ fn uninstall_agent(data_dir: &std::path::Path) {
         "server_ca.pem",
     ];
     for filename in &identity_files {
-        let path = data_dir.join(filename);
-        if path.exists() {
-            if let Err(e) = std::fs::remove_file(&path) {
-                warn!(file = %path.display(), error = %e, "failed to remove identity file");
-            }
-        }
+        try_remove_file(&data_dir.join(filename), "identity file");
     }
+}
 
-    // Remove directories and service unit.
-    let dirs_to_remove = [data_dir.to_path_buf(), std::path::PathBuf::from(CONFIG_DIR)];
-    for dir in &dirs_to_remove {
+fn remove_dirs(dirs: &[std::path::PathBuf]) {
+    for dir in dirs {
         if dir.exists() {
             if let Err(e) = std::fs::remove_dir_all(dir) {
                 warn!(dir = %dir.display(), error = %e, "failed to remove directory");
             }
         }
     }
+}
 
-    let service_file =
-        std::path::PathBuf::from(format!("/etc/systemd/system/{SERVICE_NAME}.service"));
-    if service_file.exists() {
-        if let Err(e) = std::fs::remove_file(&service_file) {
-            warn!(file = %service_file.display(), error = %e, "failed to remove service file");
-        }
-    }
+fn remove_systemd_unit(name: &str) {
+    let path = std::path::PathBuf::from(format!("/etc/systemd/system/{name}.service"));
+    try_remove_file(&path, "service file");
+}
 
-    // Reload systemd after removing the unit file. Non-systemd hosts will fail
-    // here harmlessly — log at debug.
+fn daemon_reload() {
+    use std::process::Command;
+    // Non-systemd hosts will fail here harmlessly — log at debug.
     match Command::new("systemctl").arg("daemon-reload").output() {
         Ok(out) if !out.status.success() => {
             debug!(
@@ -804,16 +805,19 @@ fn uninstall_agent(data_dir: &std::path::Path) {
         Err(e) => debug!(error = %e, "systemctl daemon-reload not available"),
         _ => {}
     }
+}
 
-    // Remove the binary itself.
-    let binary_path = std::path::PathBuf::from(INSTALL_DIR).join(BINARY_NAME);
-    if binary_path.exists() {
-        if let Err(e) = std::fs::remove_file(&binary_path) {
-            warn!(file = %binary_path.display(), error = %e, "failed to remove binary");
+fn remove_binary(install_dir: &str, name: &str) {
+    let path = std::path::PathBuf::from(install_dir).join(name);
+    try_remove_file(&path, "binary");
+}
+
+fn try_remove_file(path: &std::path::Path, kind: &str) {
+    if path.exists() {
+        if let Err(e) = std::fs::remove_file(path) {
+            warn!(file = %path.display(), error = %e, kind, "failed to remove file");
         }
     }
-
-    info!("agent uninstalled: service stopped, files removed");
 }
 
 /// Decode a hex-encoded Ed25519 public key into a 32-byte array.

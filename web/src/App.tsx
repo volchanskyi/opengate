@@ -3,13 +3,14 @@ import { RouterProvider } from 'react-router-dom';
 import { router } from './router';
 import { useAuthStore } from './state/auth-store';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { fireAndForget } from './lib/fire-and-forget';
 
 function App() {
   const hydrate = useAuthStore((s) => s.hydrate);
   const hydrated = useAuthStore((s) => s.hydrated);
 
   useEffect(() => {
-    void hydrate();
+    fireAndForget(hydrate());
   }, [hydrate]);
 
   if (!hydrated) return null;

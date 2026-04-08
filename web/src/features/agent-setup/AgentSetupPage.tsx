@@ -3,6 +3,7 @@ import { useUpdateStore } from '../../state/update-store';
 import { useAuthStore } from '../../state/auth-store';
 import { isTokenActive } from '../../lib/token-status';
 import { EnrollmentTokenForm } from './EnrollmentTokenForm';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 export function AgentSetupPage() {
   const user = useAuthStore((s) => s.user);
@@ -17,7 +18,7 @@ export function AgentSetupPage() {
 
   useEffect(() => {
     if (user?.is_admin) {
-      void fetchEnrollmentTokens();
+      fireAndForget(fetchEnrollmentTokens());
     }
   }, [fetchEnrollmentTokens, user?.is_admin]);
 
@@ -63,7 +64,7 @@ export function AgentSetupPage() {
           installCommand={installCommand}
           isAdmin={user?.is_admin ?? false}
           copiedField={copiedField}
-          onCopy={(text, field) => { void handleCopy(text, field); }}
+          onCopy={(text, field) => { fireAndForget(handleCopy(text, field)); }}
         />
       </section>
 
@@ -74,7 +75,7 @@ export function AgentSetupPage() {
           showTokenForm={showTokenForm}
           setShowTokenForm={setShowTokenForm}
           copiedField={copiedField}
-          onCopy={(text, field) => { void handleCopy(text, field); }}
+          onCopy={(text, field) => { fireAndForget(handleCopy(text, field)); }}
           onCreateToken={handleCreateToken}
           onDeleteToken={handleDeleteToken}
         />

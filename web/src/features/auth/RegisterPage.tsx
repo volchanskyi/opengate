@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../state/auth-store';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 export function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -21,7 +22,7 @@ export function RegisterPage() {
     e.preventDefault();
     await register(email, password, displayName);
     if (useAuthStore.getState().token) {
-      void navigate('/devices');
+      fireAndForget(navigate('/devices'));
     }
   };
 
@@ -29,7 +30,7 @@ export function RegisterPage() {
     <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
       <div className="w-full max-w-sm p-6">
         <h1 className="text-2xl font-bold mb-6 text-center">Register</h1>
-        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
+        <form onSubmit={(e) => { fireAndForget(handleSubmit(e)); }} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm mb-1">Email</label>
             <input

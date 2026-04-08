@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { DeviceCard } from './DeviceCard';
 
@@ -47,5 +47,3 @@ describe('DeviceCard', () => {
     expect(screen.getByText('Device Detail')).toBeInTheDocument();
   });
 });
-
-void vi;

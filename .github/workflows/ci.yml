@@ -79,7 +79,10 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate Rust coverage
-        run: cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
+        run: |
+          cargo llvm-cov nextest --workspace --lcov --output-path lcov.info \
+            --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)' \
+            --fail-under-lines 80
       - name: Upload Rust coverage
         uses: actions/upload-artifact@v7
         with:
@@ -154,7 +157,9 @@ jobs:
       - name: Enforce coverage threshold
         id: coverage
         run: |
-          grep -v '/testutil/' coverage.out > coverage-prod.out
+          # Exclude test scaffolding, generated code, infrastructure exposition,
+          # and IO-only WSMAN client (covered by integration tests).
+          grep -v -E '/(testutil|metrics|mps/wsman)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
           TOTAL=$(go tool cover -func=coverage-prod.out | grep total | awk '{print $3}' | tr -d '%')
           echo "Unit test coverage: $TOTAL%"
           go tool cover -func=coverage-prod.out

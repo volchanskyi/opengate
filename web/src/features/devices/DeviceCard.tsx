@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import type { components } from '../../types/api';
 import { StatusBadge } from './StatusBadge';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 type Device = components['schemas']['Device'];
 
@@ -21,7 +22,7 @@ export function DeviceCard({ device }: Readonly<{ device: Device }>) {
   return (
     <button
       type="button"
-      onClick={() => { void navigate(`/devices/${device.id}`); }}
+      onClick={() => { fireAndForget(navigate(`/devices/${device.id}`)); }}
       className="w-full text-left bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-gray-500 transition-colors"
     >
       <div className="flex items-center justify-between mb-2">

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useDeviceStore } from '../../state/device-store';
 import { useAuthStore } from '../../state/auth-store';
 import { useAdminStore } from '../../state/admin-store';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
@@ -23,16 +24,16 @@ export function Dashboard() {
   const fetchAuditEvents = useAdminStore((s) => s.fetchAuditEvents);
 
   useEffect(() => {
-    void fetchDevices();
-    void fetchGroups();
+    fireAndForget(fetchDevices());
+    fireAndForget(fetchGroups());
     if (user?.is_admin) {
-      void fetchAuditEvents({ limit: 10 });
+      fireAndForget(fetchAuditEvents({ limit: 10 }));
     }
   }, [fetchDevices, fetchGroups, fetchAuditEvents, user?.is_admin]);
 
   // Poll device status so online/offline counts stay current.
   useEffect(() => {
-    const interval = setInterval(() => { void fetchDevices(); }, 15_000);
+    const interval = setInterval(() => { fireAndForget(fetchDevices()); }, 15_000);
     return () => clearInterval(interval);
   }, [fetchDevices]);
 

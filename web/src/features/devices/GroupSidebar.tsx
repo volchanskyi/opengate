@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useDeviceStore } from '../../state/device-store';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 export function GroupSidebar() {
   const groups = useDeviceStore((s) => s.groups);
@@ -42,7 +43,7 @@ export function GroupSidebar() {
       </div>
 
       {showForm && (
-        <form onSubmit={(e) => { void handleCreate(e); }} className="flex gap-2 mb-2">
+        <form onSubmit={(e) => { fireAndForget(handleCreate(e)); }} className="flex gap-2 mb-2">
           <input
             type="text"
             value={newName}
@@ -72,7 +73,7 @@ export function GroupSidebar() {
           </button>
           <button
             type="button"
-            onClick={() => { void handleDelete(group.id); }}
+            onClick={() => { fireAndForget(handleDelete(group.id)); }}
             className="ml-2 text-xs text-gray-500 hover:text-red-400"
             title={confirmDelete === group.id ? 'Click again to confirm' : 'Delete group'}
           >

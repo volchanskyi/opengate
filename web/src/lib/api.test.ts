@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import createClient, { type Middleware } from 'openapi-fetch';
 
 describe('api client', () => {
@@ -64,6 +64,3 @@ describe('api client', () => {
     expect(capturedHeaders?.get('Authorization')).toBeNull();
   });
 });
-
-// Suppress unused import warning
-void vi;

@@ -3,6 +3,7 @@ import { api } from '../lib/api';
 import { apiAction } from './api-action';
 import { useToastStore } from './toast-store';
 import type { components } from '../types/api';
+import { fireAndForget } from '../lib/fire-and-forget';
 
 type Device = components['schemas']['Device'];
 type Group = components['schemas']['Group'];
@@ -66,7 +67,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
 
   selectGroup: (id) => {
     set({ selectedGroupId: id });
-    void get().fetchDevices(id ?? undefined);
+    fireAndForget(get().fetchDevices(id ?? undefined));
   },
 
   createGroup: async (name) => {
@@ -134,7 +135,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     } else {
       // 202 (report requested) or 404 — retry once after 2s in case the agent responds
       setTimeout(() => {
-        void (async () => {
+        fireAndForget((async () => {
           try {
             const retry = await apiAction(set, () =>
               api.GET('/api/v1/devices/{id}/hardware', {
@@ -148,7 +149,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
               'error',
             );
           }
-        })();
+        })());
       }, 2000);
     }
   },
@@ -179,7 +180,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       const retryQuery = { ...query };
       delete retryQuery.refresh;
       setTimeout(() => {
-        void (async () => {
+        fireAndForget((async () => {
           try {
             const retry = await api.GET('/api/v1/devices/{id}/logs', {
               params: { path: { id }, query: retryQuery },
@@ -195,7 +196,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
           } finally {
             set({ logsLoading: false });
           }
-        })();
+        })());
       }, 3000);
       return;
     }

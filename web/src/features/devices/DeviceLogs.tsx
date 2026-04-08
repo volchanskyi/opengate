@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useDeviceStore } from '../../state/device-store';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 const levelColors: Record<string, string> = {
   ERROR: 'text-red-400',
@@ -27,24 +28,24 @@ export function DeviceLogs({ deviceId }: DeviceLogsProps) {
 
   const handleFetch = useCallback(() => {
     setOffset(0);
-    void fetchLogs(deviceId, {
+    fireAndForget(fetchLogs(deviceId, {
       level: level || undefined,
       search: search || undefined,
       offset: 0,
       limit,
       refresh: true,
-    });
+    }));
   }, [deviceId, fetchLogs, level, search]);
 
   const handleLoadMore = useCallback(() => {
     const newOffset = offset + limit;
     setOffset(newOffset);
-    void fetchLogs(deviceId, {
+    fireAndForget(fetchLogs(deviceId, {
       level: level || undefined,
       search: search || undefined,
       offset: newOffset,
       limit,
-    });
+    }));
   }, [deviceId, fetchLogs, level, search, offset]);
 
   return (
