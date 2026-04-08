@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775455245650,
+  "lastUpdate": 1775631829542,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9138,6 +9138,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.93742565946136,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "79c37a545e0e57ce4aabfc91c28324d255ba9a90",
+          "message": "fix: handle silently swallowed errors across agent, server, and web\n\nAudit and fix error-swallowing patterns in all three languages:\n\n- agent: log channel send failures (distinguishing Full vs Closed),\n  injector errors, terminal child/flush failures, update cleanup, and\n  WebRTC signaling failures via tracing\n- server: fix two real bugs in agentapi where Close and tombstone\n  encode/write errors were dropped; log mps forwarded-channel close\n- web: wrap fire-and-forget promises with void, add toast on\n  device-store retry failures and file-manager blob.text failures,\n  add deduped WebRTC fallback toast\n\nEnforce going forward:\n- agent: workspace clippy lints let_underscore_must_use and\n  let_underscore_future\n- server: golangci.yml with errcheck (check-blank, check-type-assertions)\n  and errorlint\n- web: eslint type-checked rules no-floating-promises and\n  no-misused-promises",
+          "timestamp": "2026-04-08T00:01:54-07:00",
+          "tree_id": "5d52692fdccf5255d0e9d7705b35e92d58387a41",
+          "url": "https://github.com/volchanskyi/opengate/commit/79c37a545e0e57ce4aabfc91c28324d255ba9a90"
+        },
+        "date": 1775631829491,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.3363900643982,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.583602276946934,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 728.3932107603245,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 320.87049741678993,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.9003545489169,
             "unit": "ns/iter"
           }
         ]
