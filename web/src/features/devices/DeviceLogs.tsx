@@ -27,7 +27,7 @@ export function DeviceLogs({ deviceId }: DeviceLogsProps) {
 
   const handleFetch = useCallback(() => {
     setOffset(0);
-    fetchLogs(deviceId, {
+    void fetchLogs(deviceId, {
       level: level || undefined,
       search: search || undefined,
       offset: 0,
@@ -39,7 +39,7 @@ export function DeviceLogs({ deviceId }: DeviceLogsProps) {
   const handleLoadMore = useCallback(() => {
     const newOffset = offset + limit;
     setOffset(newOffset);
-    fetchLogs(deviceId, {
+    void fetchLogs(deviceId, {
       level: level || undefined,
       search: search || undefined,
       offset: newOffset,

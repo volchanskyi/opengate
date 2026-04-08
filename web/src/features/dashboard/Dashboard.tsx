@@ -23,16 +23,16 @@ export function Dashboard() {
   const fetchAuditEvents = useAdminStore((s) => s.fetchAuditEvents);
 
   useEffect(() => {
-    fetchDevices();
-    fetchGroups();
+    void fetchDevices();
+    void fetchGroups();
     if (user?.is_admin) {
-      fetchAuditEvents({ limit: 10 });
+      void fetchAuditEvents({ limit: 10 });
     }
   }, [fetchDevices, fetchGroups, fetchAuditEvents, user?.is_admin]);
 
   // Poll device status so online/offline counts stay current.
   useEffect(() => {
-    const interval = setInterval(() => fetchDevices(), 15_000);
+    const interval = setInterval(() => { void fetchDevices(); }, 15_000);
     return () => clearInterval(interval);
   }, [fetchDevices]);
 

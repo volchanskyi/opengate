@@ -31,7 +31,7 @@ export function ProfilePage() {
   return (
     <div className="p-6 max-w-lg">
       <h2 className="text-xl font-bold mb-4">Profile</h2>
-      <form onSubmit={handleSave} className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
+      <form onSubmit={(e) => { void handleSave(e); }} className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
         <div>
           <label className="block text-sm text-gray-400 mb-1">Email</label>
           <p className="text-sm font-mono bg-gray-900 border border-gray-700 rounded px-3 py-2">{user.email}</p>

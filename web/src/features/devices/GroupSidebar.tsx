@@ -42,7 +42,7 @@ export function GroupSidebar() {
       </div>
 
       {showForm && (
-        <form onSubmit={handleCreate} className="flex gap-2 mb-2">
+        <form onSubmit={(e) => { void handleCreate(e); }} className="flex gap-2 mb-2">
           <input
             type="text"
             value={newName}
@@ -72,7 +72,7 @@ export function GroupSidebar() {
           </button>
           <button
             type="button"
-            onClick={() => handleDelete(group.id)}
+            onClick={() => { void handleDelete(group.id); }}
             className="ml-2 text-xs text-gray-500 hover:text-red-400"
             title={confirmDelete === group.id ? 'Click again to confirm' : 'Delete group'}
           >

@@ -12,6 +12,6 @@ createRoot(document.getElementById('root')!).render(
 // Register service worker for push notifications and offline support
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js');
+    void navigator.serviceWorker.register('/sw.js');
   });
 }

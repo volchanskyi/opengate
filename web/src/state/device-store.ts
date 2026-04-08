@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
 import { apiAction } from './api-action';
+import { useToastStore } from './toast-store';
 import type { components } from '../types/api';
 
 type Device = components['schemas']['Device'];
@@ -65,7 +66,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
 
   selectGroup: (id) => {
     set({ selectedGroupId: id });
-    get().fetchDevices(id ?? undefined);
+    void get().fetchDevices(id ?? undefined);
   },
 
   createGroup: async (name) => {
@@ -132,13 +133,22 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       set({ hardware: res.data });
     } else {
       // 202 (report requested) or 404 — retry once after 2s in case the agent responds
-      setTimeout(async () => {
-        const retry = await apiAction(set, () =>
-          api.GET('/api/v1/devices/{id}/hardware', {
-            params: { path: { id } },
-          }), false,
-        );
-        if (retry.ok) set({ hardware: retry.data });
+      setTimeout(() => {
+        void (async () => {
+          try {
+            const retry = await apiAction(set, () =>
+              api.GET('/api/v1/devices/{id}/hardware', {
+                params: { path: { id } },
+              }), false,
+            );
+            if (retry.ok) set({ hardware: retry.data });
+          } catch (err) {
+            useToastStore.getState().addToast(
+              `Failed to refresh hardware: ${err instanceof Error ? err.message : String(err)}`,
+              'error',
+            );
+          }
+        })();
       }, 2000);
     }
   },
@@ -168,14 +178,24 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       // so the retry reads from the newly populated cache.
       const retryQuery = { ...query };
       delete retryQuery.refresh;
-      setTimeout(async () => {
-        const retry = await api.GET('/api/v1/devices/{id}/logs', {
-          params: { path: { id }, query: retryQuery },
-        });
-        if (retry.response.status === 200 && retry.data) {
-          set({ logs: retry.data });
-        }
-        set({ logsLoading: false });
+      setTimeout(() => {
+        void (async () => {
+          try {
+            const retry = await api.GET('/api/v1/devices/{id}/logs', {
+              params: { path: { id }, query: retryQuery },
+            });
+            if (retry.response.status === 200 && retry.data) {
+              set({ logs: retry.data });
+            }
+          } catch (err) {
+            useToastStore.getState().addToast(
+              `Failed to refresh logs: ${err instanceof Error ? err.message : String(err)}`,
+              'error',
+            );
+          } finally {
+            set({ logsLoading: false });
+          }
+        })();
       }, 3000);
       return;
     }

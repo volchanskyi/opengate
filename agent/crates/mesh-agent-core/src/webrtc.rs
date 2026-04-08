@@ -129,7 +129,9 @@ impl AgentPeerConnection {
                         }
                     };
                     let mid = json.sdp_mid.unwrap_or_default();
-                    let _ = tx.send((json.candidate, mid)).await;
+                    if let Err(e) = tx.send((json.candidate, mid)).await {
+                        debug!("ICE candidate channel closed: {e}");
+                    }
                 }
             })
         }));
@@ -173,7 +175,9 @@ impl AgentPeerConnection {
                     Box::pin(async move {
                         match Frame::decode(&msg.data) {
                             Ok((frame, _)) => {
-                                let _ = ftx.send(frame).await;
+                                if let Err(e) = ftx.send(frame).await {
+                                    debug!("WebRTC inbound frame channel closed: {e}");
+                                }
                             }
                             Err(e) => {
                                 warn!("data channel frame decode error: {e}");

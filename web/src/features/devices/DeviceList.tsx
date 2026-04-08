@@ -21,15 +21,15 @@ export function DeviceList() {
   const [isUpgradingAll, setIsUpgradingAll] = useState(false);
 
   useEffect(() => {
-    fetchGroups();
-    fetchDevices();
-    fetchManifests();
+    void fetchGroups();
+    void fetchDevices();
+    void fetchManifests();
   }, [fetchGroups, fetchDevices, fetchManifests]);
 
   // Poll device status so online/offline stays current.
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchDevices(selectedGroupId ?? undefined);
+      void fetchDevices(selectedGroupId ?? undefined);
     }, 15_000);
     return () => clearInterval(interval);
   }, [fetchDevices, selectedGroupId]);
@@ -97,7 +97,7 @@ export function DeviceList() {
             {outdatedDevices.length > 0 && (
               <button
                 type="button"
-                onClick={handleUpgradeAll}
+                onClick={() => { void handleUpgradeAll(); }}
                 disabled={isUpgradingAll}
                 className="px-3 py-2 bg-green-600 hover:bg-green-700 rounded text-sm whitespace-nowrap disabled:opacity-50"
               >

@@ -17,7 +17,7 @@ export function AgentSetupPage() {
 
   useEffect(() => {
     if (user?.is_admin) {
-      fetchEnrollmentTokens();
+      void fetchEnrollmentTokens();
     }
   }, [fetchEnrollmentTokens, user?.is_admin]);
 
@@ -63,7 +63,7 @@ export function AgentSetupPage() {
           installCommand={installCommand}
           isAdmin={user?.is_admin ?? false}
           copiedField={copiedField}
-          onCopy={handleCopy}
+          onCopy={(text, field) => { void handleCopy(text, field); }}
         />
       </section>
 
@@ -74,7 +74,7 @@ export function AgentSetupPage() {
           showTokenForm={showTokenForm}
           setShowTokenForm={setShowTokenForm}
           copiedField={copiedField}
-          onCopy={handleCopy}
+          onCopy={(text, field) => { void handleCopy(text, field); }}
           onCreateToken={handleCreateToken}
           onDeleteToken={handleDeleteToken}
         />

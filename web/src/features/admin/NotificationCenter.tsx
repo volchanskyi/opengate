@@ -19,8 +19,8 @@ export function NotificationCenter() {
   const unsubscribe = usePushStore((s) => s.unsubscribe);
 
   useEffect(() => {
-    fetchVapidKey();
-    syncSubscriptionStatus();
+    void fetchVapidKey();
+    void syncSubscriptionStatus();
   }, [fetchVapidKey, syncSubscriptionStatus]);
 
   const handleToggle = useCallback(async () => {
@@ -54,7 +54,7 @@ export function NotificationCenter() {
 
   return (
     <button
-      onClick={handleToggle}
+      onClick={() => { void handleToggle(); }}
       className="text-sm text-gray-400 hover:text-white"
       title={isSubscribed ? 'Disable notifications' : 'Enable notifications'}
       aria-label={isSubscribed ? 'Disable notifications' : 'Enable notifications'}

@@ -9,7 +9,7 @@ export function AuthGuard() {
 
   useEffect(() => {
     if (token && !user) {
-      fetchMe();
+      void fetchMe();
     }
   }, [token, user, fetchMe]);
 

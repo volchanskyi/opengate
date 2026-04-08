@@ -9,7 +9,7 @@ function App() {
   const hydrated = useAuthStore((s) => s.hydrated);
 
   useEffect(() => {
-    hydrate();
+    void hydrate();
   }, [hydrate]);
 
   if (!hydrated) return null;

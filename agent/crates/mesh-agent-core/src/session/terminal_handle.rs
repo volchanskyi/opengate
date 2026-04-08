@@ -5,6 +5,15 @@ use std::sync::Arc;
 
 use mesh_protocol::KeyCode;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
+use tracing::{trace, warn};
+
+fn log_try_send<T>(err: TrySendError<T>, target: &'static str) {
+    match err {
+        TrySendError::Full(_) => warn!(channel = target, "terminal channel full, dropping send"),
+        TrySendError::Closed(_) => trace!(channel = target, "terminal channel closed during send"),
+    }
+}
 
 /// Terminal handle for sending data and managing lifecycle.
 pub struct TerminalHandle {
@@ -31,20 +40,26 @@ impl TerminalHandle {
     pub fn send_key(&self, key: KeyCode) {
         let bytes = key_to_bytes(key);
         if !bytes.is_empty() {
-            let _ = self.stdin_tx.try_send(bytes.to_vec());
+            if let Err(e) = self.stdin_tx.try_send(bytes.to_vec()) {
+                log_try_send(e, "stdin");
+            }
         }
     }
 
     /// Send raw bytes to the terminal stdin (used for TerminalFrame data from browser).
     pub fn send_raw(&self, data: Vec<u8>) {
         if !data.is_empty() {
-            let _ = self.stdin_tx.try_send(data);
+            if let Err(e) = self.stdin_tx.try_send(data) {
+                log_try_send(e, "stdin");
+            }
         }
     }
 
     /// Resize the terminal.
     pub fn resize(&self, cols: u16, rows: u16) {
-        let _ = self.resize_tx.try_send((cols, rows));
+        if let Err(e) = self.resize_tx.try_send((cols, rows)) {
+            log_try_send(e, "resize");
+        }
     }
 
     /// Signal the terminal to shut down.

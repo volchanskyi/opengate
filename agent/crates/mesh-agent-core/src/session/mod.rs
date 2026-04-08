@@ -14,7 +14,7 @@ use futures_util::StreamExt;
 use mesh_protocol::{Frame, Permissions, SessionToken};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 pub use terminal_handle::TerminalHandle;
 
@@ -152,9 +152,12 @@ impl SessionHandler {
                 Message::Binary(data) => data,
                 Message::Close(_) => break,
                 Message::Ping(payload) => {
-                    let _ = frame_tx
+                    if let Err(e) = frame_tx
                         .send(Message::Pong(payload).into_data().to_vec())
-                        .await;
+                        .await
+                    {
+                        debug!("pong send failed (frame channel closed): {e}");
+                    }
                     continue;
                 }
                 _ => continue,

@@ -14,7 +14,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (token && user) {
-      navigate('/devices', { replace: true });
+      void navigate('/devices', { replace: true });
     }
   }, [token, user, navigate]);
 
@@ -31,7 +31,7 @@ export function LoginPage() {
     <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
       <div className="w-full max-w-sm p-6">
         <h1 className="text-2xl font-bold mb-6 text-center">Login</h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
           <div>
             <label htmlFor="email" className="block text-sm mb-1">Email</label>
             <input

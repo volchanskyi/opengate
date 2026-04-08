@@ -15,7 +15,7 @@ export function AgentUpdates() {
   const [revealedTokens, setRevealedTokens] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    fetchEnrollmentTokens();
+    void fetchEnrollmentTokens();
   }, [fetchEnrollmentTokens]);
 
   const handleCreateToken = async (e: React.SyntheticEvent) => {
@@ -66,7 +66,7 @@ export function AgentUpdates() {
         </div>
 
         {showTokenForm && (
-          <form onSubmit={handleCreateToken} className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4 space-y-3">
+          <form onSubmit={(e) => { void handleCreateToken(e); }} className="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4 space-y-3">
             <div>
               <label htmlFor="token-label" className="block text-sm text-gray-400 mb-1">Label</label>
               <input
@@ -146,13 +146,13 @@ export function AgentUpdates() {
                   <td className="py-2 text-xs">{new Date(t.expires_at).toLocaleString()}</td>
                   <td className="py-2 flex gap-2">
                     <button
-                      onClick={() => navigator.clipboard.writeText(t.token)}
+                      onClick={() => { void navigator.clipboard.writeText(t.token); }}
                       className="text-blue-400 hover:text-blue-300 text-xs"
                     >
                       Copy
                     </button>
                     <button
-                      onClick={() => deleteEnrollmentToken(t.id)}
+                      onClick={() => { void deleteEnrollmentToken(t.id); }}
                       className="text-red-400 hover:text-red-300 text-xs"
                     >
                       Delete

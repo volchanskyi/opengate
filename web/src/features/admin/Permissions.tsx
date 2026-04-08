@@ -18,15 +18,15 @@ export function Permissions() {
   const [selectedUserId, setSelectedUserId] = useState('');
 
   useEffect(() => {
-    fetchGroups();
-    fetchUsers();
+    void fetchGroups();
+    void fetchUsers();
   }, [fetchGroups, fetchUsers]);
 
   // Auto-select the first group when groups load.
   useEffect(() => {
     const first = groups[0];
     if (first && !selectedGroup) {
-      fetchGroupDetail(first.id);
+      void fetchGroupDetail(first.id);
     }
   }, [groups, selectedGroup, fetchGroupDetail]);
 
@@ -64,7 +64,7 @@ export function Permissions() {
         {groups.map((group) => (
           <button
             key={group.id}
-            onClick={() => fetchGroupDetail(group.id)}
+            onClick={() => { void fetchGroupDetail(group.id); }}
             className={`px-3 py-1.5 rounded text-sm flex items-center gap-2 ${
               selectedGroup?.id === group.id
                 ? 'bg-blue-600 text-white'
@@ -103,7 +103,7 @@ export function Permissions() {
               ))}
             </select>
             <button
-              onClick={handleAdd}
+              onClick={() => { void handleAdd(); }}
               disabled={!selectedUserId}
               className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -127,7 +127,7 @@ export function Permissions() {
                   <td className="py-2">{member.display_name || '-'}</td>
                   <td className="py-2">
                     <button
-                      onClick={() => handleRemove(member.id)}
+                      onClick={() => { void handleRemove(member.id); }}
                       disabled={isLastAdmin && member.id === currentUser?.id}
                       title={
                         isLastAdmin && member.id === currentUser?.id

@@ -78,7 +78,9 @@ pub async fn apply_update(
     // 3. If the server provided an expected hash, verify it matches
     if !sha256_hex.is_empty() && actual_hash != sha256_hex {
         // Clean up on failure
-        let _ = fs::remove_file(&new_path).await;
+        if let Err(e) = fs::remove_file(&new_path).await {
+            warn!(path = %new_path.display(), error = %e, "failed to remove tampered binary on hash mismatch");
+        }
         return Err(UpdateError::HashMismatch {
             expected: sha256_hex.to_string(),
             actual: actual_hash,
@@ -157,13 +159,19 @@ pub async fn rollback_count(data_dir: &Path) -> u32 {
 pub async fn increment_rollback_count(data_dir: &Path) {
     let count = rollback_count(data_dir).await + 1;
     let path = data_dir.join(FILE_ROLLBACK_COUNT);
-    let _ = fs::write(&path, count.to_string()).await;
+    if let Err(e) = fs::write(&path, count.to_string()).await {
+        warn!(path = %path.display(), error = %e, "failed to persist rollback counter");
+    }
 }
 
 /// Resets the rollback counter to zero (called after a healthy start).
 pub async fn reset_rollback_count(data_dir: &Path) {
     let path = data_dir.join(FILE_ROLLBACK_COUNT);
-    let _ = fs::remove_file(&path).await;
+    if let Err(e) = fs::remove_file(&path).await {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            warn!(path = %path.display(), error = %e, "failed to clear rollback counter");
+        }
+    }
 }
 
 /// Maximum consecutive rollbacks before giving up.

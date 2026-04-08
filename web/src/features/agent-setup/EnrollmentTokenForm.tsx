@@ -92,7 +92,7 @@ export function EnrollmentTokenForm({
           </div>
           <div className="flex gap-2">
             <button
-              onClick={handleCreateToken}
+              onClick={() => { void handleCreateToken(); }}
               className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm"
             >
               Create
@@ -145,7 +145,7 @@ export function EnrollmentTokenForm({
                     )}
                   </div>
                   <button
-                    onClick={() => onDeleteToken(t.id)}
+                    onClick={() => { void onDeleteToken(t.id); }}
                     className="px-2 py-0.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded text-xs"
                     title="Delete token"
                   >

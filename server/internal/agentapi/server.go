@@ -87,7 +87,9 @@ func (s *AgentServer) DeregisterAgent(ctx context.Context, deviceID protocol.Dev
 	}
 
 	// Close connection so the control loop exits.
-	_ = ac.Close()
+	if err := ac.Close(); err != nil {
+		s.logger.Warn("close agent connection on deregister", "error", err, "device_id", deviceID)
+	}
 }
 
 // Addr blocks until the server is listening and returns the actual address.
@@ -198,8 +200,10 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 			Type:   protocol.MsgAgentDeregistered,
 			Reason: "device deleted by administrator",
 		}
-		if payload, err := codec.EncodeControl(msg); err == nil {
-			_ = codec.WriteFrame(stream, protocol.FrameControl, payload)
+		if payload, err := codec.EncodeControl(msg); err != nil {
+			logger.Warn("encode tombstone deregister", "error", err)
+		} else if err := codec.WriteFrame(stream, protocol.FrameControl, payload); err != nil {
+			logger.Warn("write tombstone deregister frame", "error", err)
 		}
 		stream.Close()
 		conn.CloseWithError(3, "device deregistered")

@@ -49,7 +49,7 @@ export function SessionView() {
 
   const handleDisconnect = () => {
     disconnect();
-    navigate('/devices');
+    void navigate('/devices');
   };
 
   return (

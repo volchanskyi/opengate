@@ -299,7 +299,7 @@ fn test_codec_never_panics_on_arbitrary_bytes() {
     ];
 
     for data in test_cases {
-        let _ = Frame::decode(&data);
+        Frame::decode(&data).ok();
         // Just verify no panic
     }
 }

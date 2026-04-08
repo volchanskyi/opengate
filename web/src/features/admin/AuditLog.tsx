@@ -11,7 +11,7 @@ export function AuditLog() {
   const limit = 50;
 
   useEffect(() => {
-    fetchAuditEvents({
+    void fetchAuditEvents({
       limit,
       offset,
       ...(actionFilter ? { action: actionFilter } : {}),

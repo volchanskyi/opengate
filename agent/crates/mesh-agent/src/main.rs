@@ -15,7 +15,7 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha384};
 use tokio::io::AsyncWriteExt;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// OpenGate mesh agent.
 #[derive(Parser, Debug)]
@@ -250,7 +250,12 @@ fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
 
     // Rolling file appender: daily rotation, 7 files retained.
     let log_dir = PathBuf::from(LOG_DIR);
-    let _ = std::fs::create_dir_all(&log_dir);
+    if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        eprintln!(
+            "warning: failed to create log dir {}: {e}",
+            log_dir.display()
+        );
+    }
 
     let file_appender = tracing_appender::rolling::daily(&log_dir, "agent.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
@@ -787,8 +792,18 @@ fn uninstall_agent(data_dir: &std::path::Path) {
         }
     }
 
-    // Reload systemd after removing the unit file.
-    let _ = Command::new("systemctl").arg("daemon-reload").output();
+    // Reload systemd after removing the unit file. Non-systemd hosts will fail
+    // here harmlessly — log at debug.
+    match Command::new("systemctl").arg("daemon-reload").output() {
+        Ok(out) if !out.status.success() => {
+            debug!(
+                stderr = %String::from_utf8_lossy(&out.stderr),
+                "systemctl daemon-reload exited non-zero"
+            );
+        }
+        Err(e) => debug!(error = %e, "systemctl daemon-reload not available"),
+        _ => {}
+    }
 
     // Remove the binary itself.
     let binary_path = std::path::PathBuf::from(INSTALL_DIR).join(BINARY_NAME);
@@ -831,13 +846,16 @@ async fn send_update_ack<S: mesh_agent_core::ControlStream>(
     success: bool,
     error: String,
 ) {
-    let _ = conn
+    if let Err(e) = conn
         .send_control(mesh_protocol::ControlMessage::AgentUpdateAck {
             version,
             success,
             error,
         })
-        .await;
+        .await
+    {
+        warn!(error = %e, "failed to send AgentUpdateAck (server may be disconnected)");
+    }
 }
 
 /// Spawns the post-update watchdog task. If registration doesn't succeed
