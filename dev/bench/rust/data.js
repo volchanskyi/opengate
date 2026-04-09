@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775767090270,
+  "lastUpdate": 1775769104371,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9285,6 +9285,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.96989012127017,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "2f6b130f123a04d3719f0e5314b7ba40e88b212a",
+          "message": "fix(ci): resolve SonarCloud quality gate — coverage exclusions and tests\n\nAdd coverage exclusions for transport/IO code that is only exercised by\nintegration tests (QUIC accept loop, session handlers, binary\nself-update, systemd service). Suppress hardcoded-IP hotspot rule for\ntest files. Add TypeScript tests for fetchLogs, upgradeAgent,\nDeviceDetail upgrade flow, and connection-store disconnect.",
+          "timestamp": "2026-04-09T14:10:07-07:00",
+          "tree_id": "30957c19077ad1fcc42fe222027ec2ebdfd0e1aa",
+          "url": "https://github.com/volchanskyi/opengate/commit/2f6b130f123a04d3719f0e5314b7ba40e88b212a"
+        },
+        "date": 1775769104318,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.172363246672177,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 26.30361716896557,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 753.2209829793005,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.36204813436876,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 25.177902921869986,
             "unit": "ns/iter"
           }
         ]
