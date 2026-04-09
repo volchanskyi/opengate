@@ -190,4 +190,37 @@ describe('DeviceDetail', () => {
     renderDetail();
     expect(screen.getByText('Fetch Logs')).toBeInTheDocument();
   });
+
+  it('calls upgradeAgent when upgrade button is clicked', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const upgradeFn = vi.fn().mockResolvedValue(true);
+    useDeviceStore.setState({ upgradeAgent: upgradeFn });
+    useUpdateStore.setState({
+      manifests: [{ version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' }],
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Upgrade to v2.0.0'));
+
+    expect(upgradeFn).toHaveBeenCalledWith('d1', '2.0.0', 'linux', 'amd64');
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Upgrade to v2.0.0 pushed'))).toBe(true);
+  });
+
+  it('shows os_display when available', () => {
+    useDeviceStore.setState({
+      selectedDevice: { ...mockDevice, os: 'linux', os_display: 'Ubuntu 22.04 LTS' },
+    });
+    renderDetail();
+    expect(screen.getByText('Ubuntu 22.04 LTS')).toBeInTheDocument();
+  });
+
+  it('fetches manifests on mount', () => {
+    const fetchManifestsFn = vi.fn();
+    useUpdateStore.setState({ fetchManifests: fetchManifestsFn });
+    renderDetail();
+    expect(fetchManifestsFn).toHaveBeenCalled();
+  });
 });

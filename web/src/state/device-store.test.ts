@@ -21,6 +21,9 @@ describe('device store', () => {
       groups: [],
       selectedGroupId: null,
       selectedDevice: null,
+      hardware: null,
+      logs: null,
+      logsLoading: false,
       isLoading: false,
       error: null,
     });
@@ -132,5 +135,66 @@ describe('device store', () => {
 
     expect(useDeviceStore.getState().devices).toHaveLength(1);
     expect(useDeviceStore.getState().devices[0]?.id).toBe('d2');
+  });
+
+  it('fetchLogs sets logs on 200 response', async () => {
+    const logsData = { entries: [{ timestamp: '2026-01-01T00:00:00Z', level: 'INFO', target: 'agent', message: 'started' }], total: 1, has_more: false };
+    mockGet.mockResolvedValueOnce({
+      data: logsData,
+      response: { status: 200 },
+    });
+
+    await useDeviceStore.getState().fetchLogs('d1', { level: 'INFO', limit: 50 });
+
+    expect(useDeviceStore.getState().logs).toEqual(logsData);
+    expect(useDeviceStore.getState().logsLoading).toBe(false);
+  });
+
+  it('fetchLogs sets logsLoading on 202 and retries', async () => {
+    vi.useFakeTimers();
+    mockGet
+      .mockResolvedValueOnce({ data: undefined, response: { status: 202 } })
+      .mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
+
+    const promise = useDeviceStore.getState().fetchLogs('d1');
+    await promise;
+
+    // After 202 the store stays in loading state until the retry
+    expect(useDeviceStore.getState().logsLoading).toBe(true);
+
+    // Advance past the 3s retry timeout
+    vi.advanceTimersByTime(3500);
+    await vi.runAllTimersAsync();
+
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('fetchLogs clears loading on non-200/202', async () => {
+    mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 404 } });
+
+    await useDeviceStore.getState().fetchLogs('d1');
+
+    expect(useDeviceStore.getState().logsLoading).toBe(false);
+    expect(useDeviceStore.getState().logs).toBeNull();
+  });
+
+  it('upgradeAgent calls POST and returns true on success', async () => {
+    mockPost.mockResolvedValueOnce({ data: {}, error: undefined });
+
+    const ok = await useDeviceStore.getState().upgradeAgent('d1', '2.0.0', 'linux', 'amd64');
+
+    expect(ok).toBe(true);
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/updates/push', {
+      body: { version: '2.0.0', os: 'linux', arch: 'amd64', device_ids: ['d1'] },
+    });
+  });
+
+  it('upgradeAgent returns false on error', async () => {
+    mockPost.mockResolvedValueOnce({ data: undefined, error: { error: 'not found' } });
+
+    const ok = await useDeviceStore.getState().upgradeAgent('d1', '2.0.0', 'linux', 'amd64');
+
+    expect(ok).toBe(false);
   });
 });
