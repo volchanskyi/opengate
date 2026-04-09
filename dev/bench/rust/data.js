@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775671970463,
+  "lastUpdate": 1775767090270,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9236,6 +9236,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.88363200648429,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "07f6a588aa4d9ba720a52f353d3b226eda772456",
+          "message": "test: improve new code coverage for SonarCloud quality gate\n\nAdd tests for agentapi conn handlers (device logs, hardware report,\nupdate ack, session accept/reject, ping frame) and metrics store\ndevice log instrumentation wrappers to raise new code coverage above\nthe 80% threshold.",
+          "timestamp": "2026-04-09T13:36:25-07:00",
+          "tree_id": "85f5ddd72ad723feec393a1d5dad1aa01f73d8d6",
+          "url": "https://github.com/volchanskyi/opengate/commit/07f6a588aa4d9ba720a52f353d3b226eda772456"
+        },
+        "date": 1775767090219,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.365370017854286,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.40718395093857,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 737.9076062920526,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 318.02194675528085,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.96989012127017,
             "unit": "ns/iter"
           }
         ]
