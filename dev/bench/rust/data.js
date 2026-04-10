@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775795238621,
+  "lastUpdate": 1775801355730,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9530,6 +9530,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.617978871502984,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9c482e66137e71cc1412b2cf3c06993e9d8af110",
+          "message": "refactor: eliminate 12 lint suppressions and upgrade dependencies\n\nReplace #[allow(dead_code)] with #[expect(dead_code)] for self-cleaning\nannotations, remove dead code, fix error handling (strconv.Atoi over\nfmt.Sscanf, explicit pipe-write handling), remove false-positive gosec\nsuppression, and restructure ESLint/React patterns to eliminate inline\ndisables. Add suppression audit step to /refactor skill.\n\nBump Go deps (kin-openapi 0.135.0, oapi-codegen/runtime 1.4.0, sqlite\n1.48.2) and npm deps (react 19.2.5, eslint 10.2.0, typescript 6.0.2,\nvite 8.0.8, vitest 4.1.4, playwright 1.59.1).",
+          "timestamp": "2026-04-09T23:07:21-07:00",
+          "tree_id": "2e51bac7a1e7ae28a10633a4e1913fb9d6ec8c04",
+          "url": "https://github.com/volchanskyi/opengate/commit/9c482e66137e71cc1412b2cf3c06993e9d8af110"
+        },
+        "date": 1775801355689,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.260180905411904,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.16199530716645,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 735.9290745312398,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 332.42588738196986,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.910148606224354,
             "unit": "ns/iter"
           }
         ]
