@@ -46,6 +46,13 @@ _None currently._
 - **Fix**: Upgrade once `openapi-typescript` releases a version supporting TypeScript 6. Comment in `eslint.config.js` documents the constraint.
 - **Identified**: 2026-04-10
 
+### SonarCloud Coverage Exclusions Need Integration Tests
+- **Files**: `sonar-project.properties`, plus all files listed in `sonar.coverage.exclusions`
+- **Issue**: Several production files are excluded from SonarCloud coverage analysis because they contain hardware-interaction, IO/transport, or bootstrap code that can't be unit-tested. Current exclusions include WSMAN protocol files (`digest.go`, `operations.go`, `client.go`), agent session/relay modules, MPS connection handling, and UI components with complex side effects.
+- **Impact**: Excluded code paths could regress without detection. Unit-testable helpers extracted from these files (e.g. `parseEnabledState`, `extractXMLField`) are at 100%, but the surrounding client methods remain at 0%.
+- **Fix**: Incrementally add integration tests, mock-based tests, or narrow the exclusion scope as testing infrastructure matures. Prioritize files with business logic over pure IO wrappers. Review exclusion list each quarter — remove entries when coverage improves.
+- **Identified**: 2026-04-10
+
 ### Platform-Windows Stubs Are Cfg-Gated Only
 - **Files**: `crates/platform-windows/`
 - **Issue**: Windows platform code is entirely stubbed with `cfg(target_os = "windows")` — no real implementation. Builds but does nothing useful on Windows.
