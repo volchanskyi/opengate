@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.21.5] - 2026-04-10
+
+### Fixed
+- **ci:** resolve SonarCloud quality gate — coverage exclusions and tests
+- **ci:** resolve SonarCloud quality gate failure
+- handle silently swallowed errors across agent, server, and web
+
+### Changed
+- extract duplicated test fixtures in device tests
+
 ## [v0.21.4] - 2026-04-06
 
 ### Fixed
