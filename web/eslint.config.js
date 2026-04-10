@@ -1,7 +1,9 @@
 import js from '@eslint/js'
 import globals from 'globals'
-// NOTE: eslint-plugin-react-hooks 7.x only supports ESLint ≤9.
-// Do NOT upgrade ESLint to v10+ until a stable react-hooks release adds support.
+// NOTE: eslint-plugin-react-hooks 7.x only supports ESLint ≤9,
+// and openapi-typescript 7.x only supports TypeScript ≤5.
+// Do NOT upgrade ESLint to v10+ or TypeScript to v6+ until stable
+// releases of these plugins add support.
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
