@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775836101212,
+  "lastUpdate": 1775836692232,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9677,6 +9677,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.53136512121897,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "3f33595c4c118c1dc859dbfc200eee05aefd0891",
+          "message": "fix(ci): downgrade ESLint to v9, suppress MD5 hotspot in digest auth\n\neslint-plugin-react-hooks 7.x has no stable release supporting ESLint\n10 — revert to ESLint 9.39.4 to fix npm peer dep conflict in Docker\nbuild (E2E). Add S4790 (weak hash) ignore for digest.go — MD5 is\nmandated by HTTP Digest Auth (RFC 2617).",
+          "timestamp": "2026-04-10T08:56:32-07:00",
+          "tree_id": "5280f66da7408ac67e25298bb02f3444c31e6456",
+          "url": "https://github.com/volchanskyi/opengate/commit/3f33595c4c118c1dc859dbfc200eee05aefd0891"
+        },
+        "date": 1775836692181,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.210666998610233,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.427085392237842,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 743.0856562462596,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 333.90549880113895,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.844742350143697,
             "unit": "ns/iter"
           }
         ]
