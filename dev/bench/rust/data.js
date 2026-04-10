@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775801355730,
+  "lastUpdate": 1775801730863,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9579,6 +9579,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.910148606224354,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ad0a890aecd3dcbac8fda68d4f958ad106ea4086",
+          "message": "fix: narrow Uint8Array return type for TypeScript 6 compatibility\n\nTypeScript 6 tightened ArrayBufferView generics — Uint8Array<ArrayBufferLike>\nis no longer assignable to BufferSource. Fix at the source by typing\nencodeFrame() as Uint8Array<ArrayBuffer> (which it always was at runtime)\nrather than using type assertions at each call site.",
+          "timestamp": "2026-04-09T23:13:51-07:00",
+          "tree_id": "b31eed3dad3b773cf72426216195a0475c40bf77",
+          "url": "https://github.com/volchanskyi/opengate/commit/ad0a890aecd3dcbac8fda68d4f958ad106ea4086"
+        },
+        "date": 1775801730803,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.40807572526099,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.528711747620562,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 778.1687022912463,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.20131255198436,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.605550974227455,
             "unit": "ns/iter"
           }
         ]
