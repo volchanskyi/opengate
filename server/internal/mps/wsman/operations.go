@@ -3,6 +3,7 @@ package wsman
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -102,8 +103,15 @@ func (c *Client) GetPowerState(ctx context.Context) (PowerState, error) {
 	}
 
 	stateStr := extractXMLField(bodyXML, "EnabledState")
-	var state int
-	fmt.Sscanf(stateStr, "%d", &state) //nolint:errcheck
+	return parseEnabledState(stateStr)
+}
+
+// parseEnabledState converts a string EnabledState value to a PowerState.
+func parseEnabledState(s string) (PowerState, error) {
+	state, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("parse EnabledState %q: %w", s, err)
+	}
 	return PowerState(state), nil
 }
 

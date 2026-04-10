@@ -32,6 +32,16 @@ func TestChannelConnReadWrite(t *testing.T) {
 	require.NoError(t, cc.Close())
 }
 
+func TestChannelConnFeedAfterClose(t *testing.T) {
+	cc := NewChannelConn(func([]byte) error { return nil })
+	cc.Close()
+
+	// Feed on a closed pipe should not panic — it silently returns.
+	assert.NotPanics(t, func() {
+		cc.Feed([]byte("data after close"))
+	})
+}
+
 func TestChannelConnWriteErrorPropagation(t *testing.T) {
 	pr, pw := io.Pipe()
 	defer pr.Close()

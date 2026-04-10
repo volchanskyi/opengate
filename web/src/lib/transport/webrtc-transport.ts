@@ -203,10 +203,10 @@ export class WebRTCTransport {
     }
   }
 
-  private sendOnChannel(channel: RTCDataChannel | null, data: Uint8Array): void {
+  private sendOnChannel(channel: RTCDataChannel | null, data: Uint8Array<ArrayBuffer>): void {
     if (channel?.readyState !== 'open') {
       throw new Error(`DataChannel ${channel?.label ?? 'unknown'} not open`);
     }
-    channel.send(data as Uint8Array<ArrayBuffer>);
+    channel.send(data);
   }
 }

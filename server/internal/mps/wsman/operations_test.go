@@ -62,6 +62,38 @@ func TestExtractXMLFieldWithNamespacePrefix(t *testing.T) {
 	}
 }
 
+func TestExtractXMLFieldParsesEnabledState(t *testing.T) {
+	// Valid EnabledState parses to int
+	xml := []byte("<EnabledState>2</EnabledState>")
+	stateStr := extractXMLField(xml, "EnabledState")
+	assert.Equal(t, "2", stateStr)
+}
+
+func TestParseEnabledStateInvalid(t *testing.T) {
+	// strconv.Atoi fails on non-numeric EnabledState — verify error path
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"empty", ""},
+		{"non-numeric", "abc"},
+		{"float", "2.5"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseEnabledState(tt.input)
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "parse EnabledState")
+		})
+	}
+}
+
+func TestParseEnabledStateValid(t *testing.T) {
+	state, err := parseEnabledState("2")
+	assert.NoError(t, err)
+	assert.Equal(t, PowerOn, state)
+}
+
 func TestDeviceInfoEnvelope(t *testing.T) {
 	env := Envelope(ComputerSystemResourceURI,
 		"http://schemas.xmlsoap.org/ws/2004/09/transfer/Get",

@@ -18,7 +18,7 @@ const CHUNK_SIZE: usize = 256 * 1024;
 #[derive(Debug, Clone)]
 pub struct FileOpsHandler {
     can_read: bool,
-    #[allow(dead_code)] // Used when file upload is implemented
+    #[expect(dead_code, reason = "reserved for file upload (Phase 6)")]
     can_write: bool,
 }
 

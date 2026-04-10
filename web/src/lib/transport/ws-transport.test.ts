@@ -56,12 +56,12 @@ class MockWebSocket {
 }
 
 let mockWsInstance: MockWebSocket;
+function captureMockWs(ws: MockWebSocket) { mockWsInstance = ws; }
 
 vi.stubGlobal('WebSocket', class extends MockWebSocket {
   constructor(url: string) {
     super(url);
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    mockWsInstance = this;
+    captureMockWs(this);
   }
 
   // WebSocket static constants

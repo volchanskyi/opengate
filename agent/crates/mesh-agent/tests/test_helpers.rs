@@ -6,7 +6,7 @@ use mesh_protocol::HandshakeMessage;
 use sha2::{Digest, Sha384};
 
 /// Certificate set for mTLS testing.
-#[allow(dead_code)]
+#[allow(dead_code)] // Rust integration tests compile each file as a separate crate — fields unused by some binaries trigger dead_code
 pub struct TestCerts {
     pub ca_pem: String,
     pub ca_cert_der: Vec<u8>,
@@ -66,22 +66,6 @@ pub fn generate_test_certs() -> TestCerts {
         agent_cert_der: agent_cert.der().to_vec(),
         agent_key_der: agent_key.serialize_der(),
     }
-}
-
-/// Generate a self-signed test CA and return its PEM.
-#[allow(dead_code)]
-pub fn generate_test_ca_pem() -> String {
-    let ca_key =
-        rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).expect("generate CA keypair");
-    let mut ca_params =
-        rcgen::CertificateParams::new(Vec::<String>::new()).expect("create CA cert params");
-    ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-    ca_params.distinguished_name.push(
-        rcgen::DnType::CommonName,
-        rcgen::DnValue::Utf8String("Test CA".to_string()),
-    );
-    let ca_cert = ca_params.self_signed(&ca_key).expect("self-sign CA cert");
-    ca_cert.pem()
 }
 
 /// Build quinn server endpoint with mTLS.

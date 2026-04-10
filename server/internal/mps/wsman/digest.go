@@ -4,7 +4,7 @@ package wsman
 
 import (
 	"crypto/md5"  //nolint:gosec // Digest auth requires MD5 per RFC 2617
-	"crypto/rand" //nolint:gosec
+	"crypto/rand"
 	"fmt"
 	"strings"
 )
@@ -73,6 +73,8 @@ func md5Hash(s string) string {
 
 func randomHex(n int) string {
 	b := make([]byte, n)
-	rand.Read(b) //nolint:errcheck
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand: " + err.Error()) // unreachable on supported platforms
+	}
 	return fmt.Sprintf("%x", b)
 }

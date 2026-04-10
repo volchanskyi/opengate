@@ -44,9 +44,7 @@ export function SessionView() {
     return () => {
       disconnect();
     };
-    // Only run on mount/unmount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token, relayUrl, authToken, connect, disconnect]);
 
   const handleDisconnect = () => {
     disconnect();

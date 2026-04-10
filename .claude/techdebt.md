@@ -1,6 +1,6 @@
 # Tech Debt Register
 
-<!-- Last updated: 2026-03-30 -->
+<!-- Last updated: 2026-04-10 -->
 <!-- Update this file whenever tech debt is identified, reduced, or resolved. -->
 <!-- Severity: 🔴 Critical | 🟠 High | 🟡 Medium | 🟢 Low -->
 
@@ -31,6 +31,27 @@ _None currently._
 ---
 
 ## 🟢 Low
+
+### ESLint 10 Upgrade Blocked by eslint-plugin-react-hooks
+- **Files**: `web/eslint.config.js`, `web/package.json`
+- **Issue**: `eslint-plugin-react-hooks@7.x` peer-depends on ESLint ≤9. No stable release supports ESLint 10.
+- **Impact**: Stuck on ESLint 9.x; missing new lint rules and performance improvements from ESLint 10.
+- **Fix**: Upgrade once a stable `eslint-plugin-react-hooks` release adds ESLint 10 support. Comment in `eslint.config.js` documents the constraint.
+- **Identified**: 2026-04-10
+
+### TypeScript 6 Upgrade Blocked by openapi-typescript
+- **Files**: `web/eslint.config.js`, `web/package.json`
+- **Issue**: `openapi-typescript@7.x` peer-depends on `typescript@"^5.x"`. TypeScript 6 introduced stricter `Uint8Array` generics (already adapted in `codec.ts`).
+- **Impact**: Stuck on TypeScript 5.x; missing TS 6 type-safety improvements.
+- **Fix**: Upgrade once `openapi-typescript` releases a version supporting TypeScript 6. Comment in `eslint.config.js` documents the constraint.
+- **Identified**: 2026-04-10
+
+### SonarCloud Coverage Exclusions Need Integration Tests
+- **Files**: `sonar-project.properties`, plus all files listed in `sonar.coverage.exclusions`
+- **Issue**: Several production files are excluded from SonarCloud coverage analysis because they contain hardware-interaction, IO/transport, or bootstrap code that can't be unit-tested. Current exclusions include WSMAN protocol files (`digest.go`, `operations.go`, `client.go`), agent session/relay modules, MPS connection handling, and UI components with complex side effects.
+- **Impact**: Excluded code paths could regress without detection. Unit-testable helpers extracted from these files (e.g. `parseEnabledState`, `extractXMLField`) are at 100%, but the surrounding client methods remain at 0%.
+- **Fix**: Incrementally add integration tests, mock-based tests, or narrow the exclusion scope as testing infrastructure matures. Prioritize files with business logic over pure IO wrappers. Review exclusion list each quarter — remove entries when coverage improves.
+- **Identified**: 2026-04-10
 
 ### Platform-Windows Stubs Are Cfg-Gated Only
 - **Files**: `crates/platform-windows/`

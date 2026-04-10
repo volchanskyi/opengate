@@ -123,11 +123,11 @@ func simulateCIRA(t *testing.T, conn net.Conn, amtUUID uuid.UUID) {
 	assert.Equal(t, APFRequestSuccess, msgType)
 
 	// Consume the KeepaliveOptionsRequest sent by the server after handshake.
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second)) //nolint:errcheck
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
 	msgType, _, err = ReadMessage(conn)
 	require.NoError(t, err)
 	assert.Equal(t, APFKeepaliveOptionsRequest, msgType)
-	conn.SetReadDeadline(time.Time{}) //nolint:errcheck
+	require.NoError(t, conn.SetReadDeadline(time.Time{}))
 }
 
 func TestMPSServerStartStop(t *testing.T) {

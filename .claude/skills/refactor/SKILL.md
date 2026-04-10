@@ -27,6 +27,9 @@ After all pre-commit checks pass, refactor the newly added code. DO NOT CHANGE B
 - Readability and performance
 - Eliminate duplications, unused imports, and unused libraries
 - Apply industry best practices
+- Audit and fix lint/warning suppressions (`#[allow(...)]`, `//nolint:`, `eslint-disable`) — prefer
+  restructuring code to eliminate the root cause; keep suppressions only for genuine language
+  limitations or protocol requirements, always with clear justification comments
 
 ## Infrastructure Configs
 

@@ -101,7 +101,7 @@ export class WSTransport {
     this.events.onStateChange(state);
   }
 
-  private sendRaw(data: Uint8Array): void {
+  private sendRaw(data: Uint8Array<ArrayBuffer>): void {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket not connected');
     }
