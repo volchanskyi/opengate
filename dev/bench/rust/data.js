@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775769104371,
+  "lastUpdate": 1775792901293,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9334,6 +9334,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 25.177902921869986,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "074932bf35d33538cb1d629600cc2f20e29bf933",
+          "message": "test: improve new code coverage for SonarCloud quality gate\n\nAdd coverage exclusions for transport/IO modules (connection-store,\nuse-remote-desktop, use-file-manager, mps.go) that are covered by\nintegration/E2E tests rather than unit tests.\n\nAdd targeted unit tests: fire-and-forget error path, device-store\nfetchHardware retry and updateDeviceGroup, DeviceDetail handleRestart/\nhandleMoveGroup/handleDelete/handleUpgrade failure paths, AgentUpdates\nform submit and token reveal toggle.",
+          "timestamp": "2026-04-09T20:46:41-07:00",
+          "tree_id": "9dc48a488fe015d107366997182de8f24a6fde52",
+          "url": "https://github.com/volchanskyi/opengate/commit/074932bf35d33538cb1d629600cc2f20e29bf933"
+        },
+        "date": 1775792901251,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.401453104120005,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.922069413645612,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 588.5130479763355,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 302.3782483247397,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.259138411976906,
             "unit": "ns/iter"
           }
         ]
