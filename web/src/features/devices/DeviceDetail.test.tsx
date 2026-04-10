@@ -223,4 +223,103 @@ describe('DeviceDetail', () => {
     renderDetail();
     expect(fetchManifestsFn).toHaveBeenCalled();
   });
+
+  it('handleRestart shows confirm when active sessions exist', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const restartFn = vi.fn().mockResolvedValue(true);
+    useDeviceStore.setState({ restartAgent: restartFn });
+
+    renderDetail();
+
+    // First click shows confirmation
+    await user.click(screen.getByText('Restart Agent'));
+    expect(screen.getByText(/Confirm \(1 active\)/)).toBeInTheDocument();
+
+    // Second click triggers the actual restart
+    await user.click(screen.getByText(/Confirm \(1 active\)/));
+    expect(restartFn).toHaveBeenCalledWith('d1');
+  });
+
+  it('handleRestart shows failure toast', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const restartFn = vi.fn().mockResolvedValue(false);
+    useDeviceStore.setState({ restartAgent: restartFn });
+    useSessionStore.setState({ sessions: [] });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Restart Agent'));
+
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Failed to restart'))).toBe(true);
+  });
+
+  it('handleMoveGroup moves device to new group', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const updateGroupFn = vi.fn().mockResolvedValue(true);
+    useDeviceStore.setState({
+      groups: [
+        { id: 'g1', name: 'Group 1', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group 2', owner_id: 'u1', created_at: '', updated_at: '' },
+      ],
+      updateDeviceGroup: updateGroupFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+
+    // Select new group from the "Move to Group" dropdown (not the logs filter dropdown)
+    const groupSelect = screen.getByDisplayValue('Select group...');
+    await user.selectOptions(groupSelect, 'g2');
+    await user.click(screen.getByText('Move'));
+
+    expect(updateGroupFn).toHaveBeenCalledWith('d1', 'g2');
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('moved to new group'))).toBe(true);
+  });
+
+  it('handleDelete navigates to device list after confirm', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const deleteFn = vi.fn().mockResolvedValue(undefined);
+    useDeviceStore.setState({ deleteDevice: deleteFn });
+
+    const router = createMemoryRouter(
+      [
+        { path: '/devices/:id', element: <DeviceDetail /> },
+        { path: '/devices', element: <p>Device List</p> },
+      ],
+      { initialEntries: ['/devices/d1'] },
+    );
+    render(<RouterProvider router={router} />);
+
+    // First click shows confirm
+    await user.click(screen.getByText('Delete Device'));
+    expect(screen.getByText('Confirm Delete')).toBeInTheDocument();
+
+    // Second click deletes and navigates
+    await user.click(screen.getByText('Confirm Delete'));
+    expect(deleteFn).toHaveBeenCalledWith('d1');
+    expect(await screen.findByText('Device List')).toBeInTheDocument();
+  });
+
+  it('handleUpgrade shows failure toast on error', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const upgradeFn = vi.fn().mockResolvedValue(false);
+    useDeviceStore.setState({ upgradeAgent: upgradeFn });
+    useUpdateStore.setState({
+      manifests: [{ version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' }],
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Upgrade to v2.0.0'));
+
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Failed to push upgrade'))).toBe(true);
+  });
 });

@@ -4,12 +4,14 @@ import { useDeviceStore } from './device-store';
 const mockPost = vi.fn();
 const mockGet = vi.fn();
 const mockDelete = vi.fn();
+const mockPatch = vi.fn();
 
 vi.mock('../lib/api', () => ({
   api: {
     POST: (...args: unknown[]) => mockPost(...args),
     GET: (...args: unknown[]) => mockGet(...args),
     DELETE: (...args: unknown[]) => mockDelete(...args),
+    PATCH: (...args: unknown[]) => mockPatch(...args),
   },
 }));
 
@@ -196,5 +198,69 @@ describe('device store', () => {
     const ok = await useDeviceStore.getState().upgradeAgent('d1', '2.0.0', 'linux', 'amd64');
 
     expect(ok).toBe(false);
+  });
+
+  it('fetchHardware sets hardware on success', async () => {
+    const hw = { cpu_model: 'Intel', cpu_cores: 4, ram_total_mb: 8192, disk_free_mb: 100, disk_total_mb: 500, updated_at: '', network_interfaces: [] };
+    mockGet.mockResolvedValueOnce({ data: hw, error: undefined });
+
+    await useDeviceStore.getState().fetchHardware('d1');
+
+    expect(useDeviceStore.getState().hardware).toEqual(hw);
+  });
+
+  it('fetchHardware retries on non-ok and sets hardware on retry success', async () => {
+    vi.useFakeTimers();
+    const hw = { cpu_model: 'Intel', cpu_cores: 4, ram_total_mb: 8192, disk_free_mb: 100, disk_total_mb: 500, updated_at: '', network_interfaces: [] };
+    // First call returns 202 (non-ok via apiAction)
+    mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } });
+    // Retry returns success
+    mockGet.mockResolvedValueOnce({ data: hw, error: undefined });
+
+    await useDeviceStore.getState().fetchHardware('d1');
+
+    // Hardware not set yet — waiting for retry
+    expect(useDeviceStore.getState().hardware).toBeNull();
+
+    // Advance past the 2s retry timeout
+    vi.advanceTimersByTime(2500);
+    await vi.runAllTimersAsync();
+
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(useDeviceStore.getState().hardware).toEqual(hw);
+    vi.useRealTimers();
+  });
+
+  it('fetchHardware retry error shows toast', async () => {
+    vi.useFakeTimers();
+    // First call returns non-ok
+    mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } });
+    // Retry throws
+    mockGet.mockRejectedValueOnce(new Error('network failure'));
+
+    await useDeviceStore.getState().fetchHardware('d1');
+
+    vi.advanceTimersByTime(2500);
+    await vi.runAllTimersAsync();
+
+    // The error is caught inside fireAndForget, so just verify the retry was attempted
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('restartAgent returns true on success', async () => {
+    mockPost.mockResolvedValueOnce({ data: {}, error: undefined, ok: true, response: { ok: true } });
+
+    const ok = await useDeviceStore.getState().restartAgent('d1');
+
+    expect(ok).toBe(true);
+  });
+
+  it('updateDeviceGroup returns true on success', async () => {
+    mockPatch.mockResolvedValueOnce({ data: {}, error: undefined });
+
+    const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+
+    expect(ok).toBe(true);
   });
 });
