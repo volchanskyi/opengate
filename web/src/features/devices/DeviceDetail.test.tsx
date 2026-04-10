@@ -41,6 +41,8 @@ const mockDevice = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
+const newerManifest = { version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' };
+
 describe('DeviceDetail', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -172,7 +174,7 @@ describe('DeviceDetail', () => {
 
   it('shows upgrade button when newer manifest available', () => {
     useUpdateStore.setState({
-      manifests: [{ version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' }],
+      manifests: [newerManifest],
     });
     renderDetail();
     expect(screen.getByText('Upgrade to v2.0.0')).toBeInTheDocument();
@@ -197,7 +199,7 @@ describe('DeviceDetail', () => {
     const upgradeFn = vi.fn().mockResolvedValue(true);
     useDeviceStore.setState({ upgradeAgent: upgradeFn });
     useUpdateStore.setState({
-      manifests: [{ version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' }],
+      manifests: [newerManifest],
     });
     useToastStore.setState({ toasts: [] });
 
@@ -312,7 +314,7 @@ describe('DeviceDetail', () => {
     const upgradeFn = vi.fn().mockResolvedValue(false);
     useDeviceStore.setState({ upgradeAgent: upgradeFn });
     useUpdateStore.setState({
-      manifests: [{ version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' }],
+      manifests: [newerManifest],
     });
     useToastStore.setState({ toasts: [] });
 

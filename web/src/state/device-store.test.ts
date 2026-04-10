@@ -15,6 +15,8 @@ vi.mock('../lib/api', () => ({
   },
 }));
 
+const mockHardware = { cpu_model: 'Intel', cpu_cores: 4, ram_total_mb: 8192, disk_free_mb: 100, disk_total_mb: 500, updated_at: '', network_interfaces: [] };
+
 describe('device store', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -201,21 +203,19 @@ describe('device store', () => {
   });
 
   it('fetchHardware sets hardware on success', async () => {
-    const hw = { cpu_model: 'Intel', cpu_cores: 4, ram_total_mb: 8192, disk_free_mb: 100, disk_total_mb: 500, updated_at: '', network_interfaces: [] };
-    mockGet.mockResolvedValueOnce({ data: hw, error: undefined });
+    mockGet.mockResolvedValueOnce({ data: mockHardware, error: undefined });
 
     await useDeviceStore.getState().fetchHardware('d1');
 
-    expect(useDeviceStore.getState().hardware).toEqual(hw);
+    expect(useDeviceStore.getState().hardware).toEqual(mockHardware);
   });
 
   it('fetchHardware retries on non-ok and sets hardware on retry success', async () => {
     vi.useFakeTimers();
-    const hw = { cpu_model: 'Intel', cpu_cores: 4, ram_total_mb: 8192, disk_free_mb: 100, disk_total_mb: 500, updated_at: '', network_interfaces: [] };
     // First call returns 202 (non-ok via apiAction)
     mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } });
     // Retry returns success
-    mockGet.mockResolvedValueOnce({ data: hw, error: undefined });
+    mockGet.mockResolvedValueOnce({ data: mockHardware, error: undefined });
 
     await useDeviceStore.getState().fetchHardware('d1');
 
@@ -227,7 +227,7 @@ describe('device store', () => {
     await vi.runAllTimersAsync();
 
     expect(mockGet).toHaveBeenCalledTimes(2);
-    expect(useDeviceStore.getState().hardware).toEqual(hw);
+    expect(useDeviceStore.getState().hardware).toEqual(mockHardware);
     vi.useRealTimers();
   });
 
