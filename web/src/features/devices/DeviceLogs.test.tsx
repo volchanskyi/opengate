@@ -99,4 +99,42 @@ describe('DeviceLogs', () => {
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('Load More')).toBeInTheDocument();
   });
+
+  it('Load More increments offset and fetches next page', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({
+      fetchLogs,
+      logs: { ...sampleLogs, has_more: true, total: 600 },
+    });
+    render(<DeviceLogs deviceId="d1" />);
+
+    await user.click(screen.getByText('Load More'));
+
+    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({
+      offset: 300,
+      limit: 300,
+    }));
+  });
+
+  it('passes level and search filters to fetchLogs', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    render(<DeviceLogs deviceId="d1" />);
+
+    // Set level filter
+    await user.selectOptions(screen.getByDisplayValue('All Levels'), 'ERROR');
+    // Set search filter
+    await user.type(screen.getByPlaceholderText('Search keyword...'), 'timeout');
+
+    await user.click(screen.getByText('Fetch Logs'));
+
+    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({
+      level: 'ERROR',
+      search: 'timeout',
+      offset: 0,
+      refresh: true,
+    }));
+  });
 });

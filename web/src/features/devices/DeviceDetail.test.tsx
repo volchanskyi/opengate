@@ -381,4 +381,65 @@ describe('DeviceDetail', () => {
     const toasts = useToastStore.getState().toasts;
     expect(toasts.some((t) => t.message.includes('Failed to send power action'))).toBe(true);
   });
+
+  it('shows AMT instructions toggle when no AMT device', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    useAMTStore.setState({ amtDevices: [] });
+
+    renderDetail();
+
+    expect(screen.getByText('Intel AMT Setup')).toBeInTheDocument();
+    // Instructions hidden by default
+    expect(screen.queryByText(/Enable AMT in BIOS/)).not.toBeInTheDocument();
+
+    // Click to expand
+    await user.click(screen.getByText('Intel AMT Setup'));
+    expect(screen.getByText(/Enable AMT in BIOS/)).toBeInTheDocument();
+  });
+
+  it('handleMoveGroup shows failure toast on error', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const updateGroupFn = vi.fn().mockResolvedValue(false);
+    useDeviceStore.setState({
+      groups: [
+        { id: 'g1', name: 'Group 1', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group 2', owner_id: 'u1', created_at: '', updated_at: '' },
+      ],
+      updateDeviceGroup: updateGroupFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    const groupSelect = screen.getByDisplayValue('Select group...');
+    await user.selectOptions(groupSelect, 'g2');
+    await user.click(screen.getByText('Move'));
+
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Failed to move device'))).toBe(true);
+  });
+
+  it('shows hardware details when hardware data is available', () => {
+    useDeviceStore.setState({
+      hardware: {
+        device_id: 'd1',
+        cpu_model: 'Intel i7-12700',
+        cpu_cores: 12,
+        ram_total_mb: 32768,
+        disk_free_mb: 102400,
+        disk_total_mb: 512000,
+        updated_at: '2026-01-01T00:00:00Z',
+        network_interfaces: [
+          { name: 'eth0', mac: '00:11:22:33:44:55', ipv4: ['192.168.1.10'], ipv6: [] },
+        ],
+      },
+    });
+    renderDetail();
+
+    expect(screen.getByText(/Intel i7-12700/)).toBeInTheDocument();
+    expect(screen.getByText(/12 cores/)).toBeInTheDocument();
+    expect(screen.getByText(/eth0/)).toBeInTheDocument();
+    expect(screen.getByText(/00:11:22:33:44:55/)).toBeInTheDocument();
+  });
 });

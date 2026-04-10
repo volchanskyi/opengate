@@ -174,22 +174,33 @@ describe('device store', () => {
     vi.useRealTimers();
   });
 
-  it('fetchLogs retry error shows toast and clears loading', async () => {
+  it('fetchLogs retry error with Error shows toast and clears loading', async () => {
     vi.useFakeTimers();
-    // First call returns 202 → triggers retry
     mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 202 } });
-    // Retry throws an error
     mockGet.mockRejectedValueOnce(new Error('network error'));
 
     await useDeviceStore.getState().fetchLogs('d1');
 
     expect(useDeviceStore.getState().logsLoading).toBe(true);
 
-    // Advance past the 3s retry timeout
     vi.advanceTimersByTime(3500);
     await vi.runAllTimersAsync();
 
-    // Loading should be cleared by the finally block
+    expect(useDeviceStore.getState().logsLoading).toBe(false);
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('fetchLogs retry error with non-Error shows toast via String()', async () => {
+    vi.useFakeTimers();
+    mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 202 } });
+    mockGet.mockRejectedValueOnce('string rejection');
+
+    await useDeviceStore.getState().fetchLogs('d1');
+
+    vi.advanceTimersByTime(3500);
+    await vi.runAllTimersAsync();
+
     expect(useDeviceStore.getState().logsLoading).toBe(false);
     expect(mockGet).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
@@ -252,11 +263,9 @@ describe('device store', () => {
     vi.useRealTimers();
   });
 
-  it('fetchHardware retry error shows toast', async () => {
+  it('fetchHardware retry error with Error shows toast', async () => {
     vi.useFakeTimers();
-    // First call returns non-ok
     mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } });
-    // Retry throws
     mockGet.mockRejectedValueOnce(new Error('network failure'));
 
     await useDeviceStore.getState().fetchHardware('d1');
@@ -264,7 +273,20 @@ describe('device store', () => {
     vi.advanceTimersByTime(2500);
     await vi.runAllTimersAsync();
 
-    // The error is caught inside fireAndForget, so just verify the retry was attempted
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('fetchHardware retry error with non-Error shows toast via String()', async () => {
+    vi.useFakeTimers();
+    mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } });
+    mockGet.mockRejectedValueOnce('string rejection');
+
+    await useDeviceStore.getState().fetchHardware('d1');
+
+    vi.advanceTimersByTime(2500);
+    await vi.runAllTimersAsync();
+
     expect(mockGet).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
@@ -283,5 +305,83 @@ describe('device store', () => {
     const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
 
     expect(ok).toBe(true);
+  });
+
+  it('updateDeviceGroup returns false on error', async () => {
+    mockPatch.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
+
+    const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+
+    expect(ok).toBe(false);
+  });
+
+  it('updateDeviceGroup updates selectedDevice on success', async () => {
+    const updatedDevice = { id: 'd1', group_id: 'g2', hostname: 'host1', os: 'linux', agent_version: '', status: 'online' };
+    mockPatch.mockResolvedValueOnce({ data: updatedDevice, error: undefined });
+
+    await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+
+    expect(useDeviceStore.getState().selectedDevice).toEqual(updatedDevice);
+  });
+
+  it('restartAgent returns false on error', async () => {
+    mockPost.mockResolvedValueOnce({ data: undefined, error: { error: 'offline' } });
+
+    const ok = await useDeviceStore.getState().restartAgent('d1');
+
+    expect(ok).toBe(false);
+  });
+
+  it('fetchLogs passes all query params correctly', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: { entries: [], total: 0, has_more: false },
+      response: { status: 200 },
+    });
+
+    await useDeviceStore.getState().fetchLogs('d1', {
+      level: 'ERROR',
+      from: '2026-01-01',
+      to: '2026-01-31',
+      search: 'timeout',
+      offset: 100,
+      limit: 50,
+      refresh: true,
+    });
+
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/devices/{id}/logs', {
+      params: {
+        path: { id: 'd1' },
+        query: {
+          level: 'ERROR',
+          from: '2026-01-01',
+          to: '2026-01-31',
+          search: 'timeout',
+          offset: 100,
+          limit: 50,
+          refresh: 'true',
+        },
+      },
+    });
+  });
+
+  it('fetchLogs 202 retry omits refresh param', async () => {
+    vi.useFakeTimers();
+    mockGet
+      .mockResolvedValueOnce({ data: undefined, response: { status: 202 } })
+      .mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
+
+    await useDeviceStore.getState().fetchLogs('d1', { refresh: true, level: 'INFO' });
+
+    vi.advanceTimersByTime(3500);
+    await vi.runAllTimersAsync();
+
+    // Retry call should have level but NOT refresh
+    const retryCall = mockGet.mock.calls[1];
+    expect(retryCall![1]).toEqual(expect.objectContaining({
+      params: expect.objectContaining({
+        query: expect.not.objectContaining({ refresh: 'true' }),
+      }),
+    }));
+    vi.useRealTimers();
   });
 });
