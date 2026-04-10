@@ -11,7 +11,7 @@ import {
 } from './types';
 
 /** Encode a Frame to wire format: [1-byte type][4-byte BE length][msgpack payload]. */
-export function encodeFrame(frame: Frame): Uint8Array {
+export function encodeFrame(frame: Frame): Uint8Array<ArrayBuffer> {
   if (frame.type === FRAME_PING) return new Uint8Array([FRAME_PING]);
   if (frame.type === FRAME_PONG) return new Uint8Array([FRAME_PONG]);
 
