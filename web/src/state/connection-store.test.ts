@@ -196,4 +196,18 @@ describe('connection-store', () => {
     capturedEvents['onError']?.(new Error('test error'));
     expect(useConnectionStore.getState().error).toBe('test error');
   });
+
+  it('disconnect resets signaling state and clears webrtc transport', () => {
+    const { connect, disconnect } = useConnectionStore.getState();
+    connect('token', 'ws://host/relay', 'jwt');
+
+    // Trigger error to set signalingState
+    capturedEvents['onError']?.(new Error('connection lost'));
+    expect(useConnectionStore.getState().error).toBe('connection lost');
+
+    disconnect();
+    expect(useConnectionStore.getState().state).toBe('disconnected');
+    expect(useConnectionStore.getState().signalingState).toBe('relay-only');
+    expect(useConnectionStore.getState().webrtcTransport).toBeNull();
+  });
 });

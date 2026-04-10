@@ -92,7 +92,9 @@ impl TerminalSession {
 
         // Spawn child waiter (cleanup on exit)
         tokio::task::spawn_blocking(move || {
-            let _ = child.wait();
+            if let Err(e) = child.wait() {
+                debug!("PTY child wait failed: {e}");
+            }
         });
 
         Ok(TerminalHandle::new(stdin_tx, resize_tx, shutdown))
@@ -144,7 +146,10 @@ fn stdin_writer_loop(
         if writer.write_all(&data).is_err() {
             break;
         }
-        let _ = writer.flush();
+        if let Err(e) = writer.flush() {
+            debug!("PTY writer flush failed: {e}");
+            break;
+        }
     }
 }
 

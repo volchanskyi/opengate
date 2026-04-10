@@ -7,6 +7,7 @@ import { RemoteDesktopView } from '../remote-desktop/RemoteDesktopView';
 import { TerminalView } from '../terminal/TerminalView';
 import { FileManagerView } from '../file-manager/FileManagerView';
 import { MessengerView } from '../messenger/MessengerView';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 const ALL_TABS = ['Desktop', 'Terminal', 'Files', 'Chat'] as const;
 type Tab = (typeof ALL_TABS)[number];
@@ -49,7 +50,7 @@ export function SessionView() {
 
   const handleDisconnect = () => {
     disconnect();
-    navigate('/devices');
+    fireAndForget(navigate('/devices'));
   };
 
   return (

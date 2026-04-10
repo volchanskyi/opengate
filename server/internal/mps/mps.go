@@ -225,6 +225,9 @@ func (s *Server) handshake(mc *Conn) (uuid.UUID, error) {
 	if err := mc.netConn.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
 		return uuid.Nil, err
 	}
+	// Reset deadline on exit. SetDeadline only fails on a closed conn, in which
+	// case the handshake error path has already taken over and the result here
+	// is irrelevant — safe to ignore.
 	defer mc.netConn.SetDeadline(time.Time{}) //nolint:errcheck
 
 	amtUUID, err := s.hsExchangeVersion(mc)
@@ -537,7 +540,9 @@ func (c *Conn) Close() error {
 	for _, ch := range c.channels {
 		ch.mu.Lock()
 		if ch.fwd != nil {
-			ch.fwd.Close()
+			if err := ch.fwd.Close(); err != nil {
+				c.logger.Debug("close forwarded channel during conn shutdown", "error", err)
+			}
 		}
 		ch.mu.Unlock()
 	}

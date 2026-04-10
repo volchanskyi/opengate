@@ -7,6 +7,10 @@ exclude = ["crates/mesh-agent-tray"]
 edition = "2021"
 license = "Apache-2.0"
 
+[workspace.lints.clippy]
+let_underscore_must_use = "warn"
+let_underscore_future = "warn"
+
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 rmp-serde = "1"

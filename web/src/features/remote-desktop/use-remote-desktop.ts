@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useConnectionStore } from '../../state/connection-store';
 import { InputHandler } from './input-handler';
 import { paintFrame, type CanvasContext } from './desktop-worker';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 /** Hook that wires the transport's desktop frames to a canvas and captures input. */
 export function useRemoteDesktop(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
@@ -26,7 +27,7 @@ export function useRemoteDesktop(canvasRef: React.RefObject<HTMLCanvasElement | 
           canvas.height = frame.height;
         }
       }
-      void paintFrame(ctx as unknown as CanvasContext, frame);
+      fireAndForget(paintFrame(ctx as unknown as CanvasContext, frame));
     });
 
     // Set up input capture

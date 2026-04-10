@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useConnectionStore } from '../../state/connection-store';
 import { useFileStore } from '../../state/file-store';
+import { useToastStore } from '../../state/toast-store';
 import { DownloadAccumulator } from './file-transfer';
 import type { FileFrame } from '../../lib/protocol/types';
 
@@ -73,6 +74,12 @@ export function useFileManager() {
             const s = useFileStore.getState();
             s.setViewingFile(name, text);
             s.clearDownload(name);
+          }).catch((err: unknown) => {
+            useFileStore.getState().clearDownload(name);
+            useToastStore.getState().addToast(
+              `Failed to read file '${name}': ${err instanceof Error ? err.message : String(err)}`,
+              'error',
+            );
           });
         }
       }

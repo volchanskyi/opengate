@@ -7,7 +7,7 @@ proptest! {
     #[test]
     fn test_codec_never_panics_on_arbitrary_bytes(data: Vec<u8>) {
         // Frame::decode must return Err, never panic
-        let _ = Frame::decode(&data);
+        Frame::decode(&data).ok();
     }
 }
 
