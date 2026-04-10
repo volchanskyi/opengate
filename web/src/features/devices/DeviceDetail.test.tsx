@@ -324,4 +324,61 @@ describe('DeviceDetail', () => {
     const toasts = useToastStore.getState().toasts;
     expect(toasts.some((t) => t.message.includes('Failed to push upgrade'))).toBe(true);
   });
+
+  it('handlePowerAction sends non-destructive action immediately', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const sendPowerFn = vi.fn().mockResolvedValue(true);
+    useAMTStore.setState({
+      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
+      sendPowerAction: sendPowerFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Power On'));
+
+    expect(sendPowerFn).toHaveBeenCalledWith('amt-1', 'power_on');
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('power on'))).toBe(true);
+  });
+
+  it('handlePowerAction requires confirm for destructive action', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const sendPowerFn = vi.fn().mockResolvedValue(true);
+    useAMTStore.setState({
+      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
+      sendPowerAction: sendPowerFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+
+    // First click on destructive action shows confirmation
+    await user.click(screen.getByText('Power Cycle'));
+    expect(screen.getByText('Confirm Cycle')).toBeInTheDocument();
+    expect(sendPowerFn).not.toHaveBeenCalled();
+
+    // Second click triggers the action
+    await user.click(screen.getByText('Confirm Cycle'));
+    expect(sendPowerFn).toHaveBeenCalledWith('amt-1', 'power_cycle');
+  });
+
+  it('handlePowerAction shows error toast on failure', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const sendPowerFn = vi.fn().mockResolvedValue(false);
+    useAMTStore.setState({
+      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
+      sendPowerAction: sendPowerFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Soft Off'));
+
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Failed to send power action'))).toBe(true);
+  });
 });

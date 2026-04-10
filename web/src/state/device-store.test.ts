@@ -174,6 +174,27 @@ describe('device store', () => {
     vi.useRealTimers();
   });
 
+  it('fetchLogs retry error shows toast and clears loading', async () => {
+    vi.useFakeTimers();
+    // First call returns 202 → triggers retry
+    mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 202 } });
+    // Retry throws an error
+    mockGet.mockRejectedValueOnce(new Error('network error'));
+
+    await useDeviceStore.getState().fetchLogs('d1');
+
+    expect(useDeviceStore.getState().logsLoading).toBe(true);
+
+    // Advance past the 3s retry timeout
+    vi.advanceTimersByTime(3500);
+    await vi.runAllTimersAsync();
+
+    // Loading should be cleared by the finally block
+    expect(useDeviceStore.getState().logsLoading).toBe(false);
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it('fetchLogs clears loading on non-200/202', async () => {
     mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 404 } });
 
