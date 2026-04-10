@@ -1,5 +1,7 @@
 import js from '@eslint/js'
 import globals from 'globals'
+// NOTE: eslint-plugin-react-hooks 7.x only supports ESLint ≤9.
+// Do NOT upgrade ESLint to v10+ until a stable react-hooks release adds support.
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
