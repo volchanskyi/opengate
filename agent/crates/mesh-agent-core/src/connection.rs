@@ -64,7 +64,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> ControlStream for AsyncControlStr
 /// An established connection to the server with control stream framing.
 pub struct AgentConnection<S: ControlStream> {
     stream: S,
-    #[allow(dead_code)] // Used in QUIC connect flow (Phase 4D)
+    #[expect(dead_code, reason = "used in QUIC reconnect flow (Phase 4D)")]
     config: AgentConfig,
 }
 

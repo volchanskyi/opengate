@@ -157,6 +157,12 @@ describe('WebRTCTransport', () => {
     expect(transport.state).toBe('idle');
   });
 
+  it('sendControl sends encoded frame on open control channel', async () => {
+    await transport.createOffer(testConfig);
+    transport.sendControl({ type: 'RelayReady' });
+    expect(mockPC._channels[0]!.send).toHaveBeenCalledTimes(1);
+  });
+
   it('sendControl throws when channel not open', () => {
     expect(() => {
       transport.sendControl({ type: 'RelayReady' });

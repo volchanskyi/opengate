@@ -379,7 +379,7 @@ func TestReadStringMsgOversized(t *testing.T) {
 	var buf bytes.Buffer
 	buf.WriteByte(APFServiceRequest)
 	// Write a string length exceeding maxAPFStringLen.
-	binary.Write(&buf, binary.BigEndian, uint32(maxAPFStringLen+1)) //nolint:errcheck
+	buf.Write(encodeUint32(uint32(maxAPFStringLen + 1)))
 	buf.Write(make([]byte, maxAPFStringLen+1))
 
 	_, _, err := ReadMessage(&buf)
@@ -392,7 +392,7 @@ func TestReadUserAuthRequestOversized(t *testing.T) {
 	buf.WriteByte(APFUserAuthRequest)
 	// First string is valid, second is oversized.
 	buf.Write(encodeAPFString("admin"))
-	binary.Write(&buf, binary.BigEndian, uint32(maxAPFStringLen+1)) //nolint:errcheck
+	buf.Write(encodeUint32(uint32(maxAPFStringLen + 1)))
 	buf.Write(make([]byte, maxAPFStringLen+1))
 	buf.Write(encodeAPFString("digest"))
 
