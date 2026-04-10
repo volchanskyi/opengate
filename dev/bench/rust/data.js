@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775837901855,
+  "lastUpdate": 1775838096129,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9922,6 +9922,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.128199451103548,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "23b5e5e6cb08626f266c291804a204742c3b3569",
+          "message": "docs: add coverage exclusions to tech debt register\n\nTrack SonarCloud coverage exclusions as low-severity tech debt to\nensure excluded production files get integration tests over time.",
+          "timestamp": "2026-04-10T09:19:58-07:00",
+          "tree_id": "7c18086ae8c5db34313005c5e9d812b00f036eea",
+          "url": "https://github.com/volchanskyi/opengate/commit/23b5e5e6cb08626f266c291804a204742c3b3569"
+        },
+        "date": 1775838096073,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.19821206468717,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.935365413180904,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 735.5563714092507,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 325.80221465477314,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.91793408081839,
             "unit": "ns/iter"
           }
         ]
