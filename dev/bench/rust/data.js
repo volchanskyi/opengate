@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775837275853,
+  "lastUpdate": 1775837414276,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9824,6 +9824,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.89533720411186,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "463024a6e255c44b76b1480bd4b007dcbacdcce3",
+          "message": "docs: add ESLint 10 and TypeScript 6 upgrade blockers to tech debt",
+          "timestamp": "2026-04-10T09:08:41-07:00",
+          "tree_id": "000e06e738be0bc98fb5773286d9a9c494d026cb",
+          "url": "https://github.com/volchanskyi/opengate/commit/463024a6e255c44b76b1480bd4b007dcbacdcce3"
+        },
+        "date": 1775837414222,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.340588960766222,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.34985138440089,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.8995314427556,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 325.3882045179957,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.863112602109705,
             "unit": "ns/iter"
           }
         ]
