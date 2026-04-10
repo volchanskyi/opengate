@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.21.6] - 2026-04-10
+
+### Fixed
+- **ci:** exclude WSMAN protocol files from coverage analysis
+- **ci:** downgrade TypeScript to 5.x for openapi-typescript compat
+- **ci:** downgrade ESLint to v9, suppress MD5 hotspot in digest auth
+- TypeScript 6 Uint8Array compat, SonarCloud quality gate
+- narrow Uint8Array return type for TypeScript 6 compatibility
+
+### Changed
+- eliminate 12 lint suppressions and upgrade dependencies
+
 ## [v0.21.5] - 2026-04-10
 
 ### Fixed
