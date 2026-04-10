@@ -103,9 +103,14 @@ func (c *Client) GetPowerState(ctx context.Context) (PowerState, error) {
 	}
 
 	stateStr := extractXMLField(bodyXML, "EnabledState")
-	state, err := strconv.Atoi(stateStr)
+	return parseEnabledState(stateStr)
+}
+
+// parseEnabledState converts a string EnabledState value to a PowerState.
+func parseEnabledState(s string) (PowerState, error) {
+	state, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, fmt.Errorf("parse EnabledState %q: %w", stateStr, err)
+		return 0, fmt.Errorf("parse EnabledState %q: %w", s, err)
 	}
 	return PowerState(state), nil
 }
