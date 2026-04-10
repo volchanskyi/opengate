@@ -29,4 +29,12 @@ export default defineConfig([
       '@typescript-eslint/no-misused-promises': 'error',
     },
   },
+  {
+    // Router config file — contains lazy() declarations alongside the router
+    // export. Fast refresh is irrelevant for routing configuration.
+    files: ['src/router.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

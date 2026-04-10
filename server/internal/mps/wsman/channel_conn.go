@@ -35,7 +35,9 @@ func (cc *ChannelConn) Write(p []byte) (int, error) {
 // Feed pushes received channel data into the read pipe.
 // Called by the MPS message loop via Channel.OnData.
 func (cc *ChannelConn) Feed(data []byte) {
-	cc.pw.Write(data) //nolint:errcheck
+	if _, err := cc.pw.Write(data); err != nil {
+		return // pipe closed — reader shut down during teardown
+	}
 }
 
 // Close closes both ends of the pipe.
