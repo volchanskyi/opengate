@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775793086735,
+  "lastUpdate": 1775794496259,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9432,6 +9432,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.041311099366222,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "bdf0a45773fefaa24267236edbe20d5f7ad9d2e5",
+          "message": "test: cover handlePowerAction and fetchLogs retry error paths\n\nAdd DeviceDetail tests for AMT power actions: non-destructive\nimmediate send, destructive confirmation flow, and failure toast.\nAdd device-store test for fetchLogs 202 retry error path covering\nthe catch/finally block inside setTimeout+fireAndForget.",
+          "timestamp": "2026-04-09T21:13:16-07:00",
+          "tree_id": "8dc71a0c0fb71ff4405a244c78d433d0f56e99d9",
+          "url": "https://github.com/volchanskyi/opengate/commit/bdf0a45773fefaa24267236edbe20d5f7ad9d2e5"
+        },
+        "date": 1775794496205,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.323658676950828,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.88544413406094,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 732.6000241752913,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.85811415226857,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.928237965096624,
             "unit": "ns/iter"
           }
         ]
