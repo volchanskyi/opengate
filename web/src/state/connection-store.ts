@@ -1,7 +1,18 @@
 import { create } from 'zustand';
 import { WSTransport, type ConnectionState, type TransportEvents } from '../lib/transport/ws-transport';
 import { WebRTCTransport, type RTCConfig } from '../lib/transport/webrtc-transport';
+import { useToastStore } from './toast-store';
 import type { ControlMessage, DesktopFrame, TerminalFrame, FileFrame } from '../lib/protocol/types';
+
+let webrtcFallbackToastShown = false;
+function notifyWebRTCFallback(reason: string): void {
+  if (webrtcFallbackToastShown) return;
+  webrtcFallbackToastShown = true;
+  useToastStore.getState().addToast(
+    `WebRTC unavailable, using WebSocket fallback (${reason})`,
+    'info',
+  );
+}
 
 /** Signaling state for the relay-to-WebRTC upgrade. */
 export type SignalingState = 'relay-only' | 'upgrading' | 'webrtc' | 'fallback';
@@ -41,16 +52,18 @@ function handleSignalingMessage(msg: ControlMessage, get: () => ConnectionStore,
     case 'SwitchToWebRTC': {
       // Agent's SDP answer
       if (webrtcTransport && get().signalingState === 'upgrading') {
-        webrtcTransport.handleAnswer(msg.sdp_offer).catch((err) => {
+        webrtcTransport.handleAnswer(msg.sdp_offer).catch((err: unknown) => {
           console.warn('[webrtc] handleAnswer failed:', err);
           set({ signalingState: 'fallback' });
+          notifyWebRTCFallback(err instanceof Error ? err.message : 'handleAnswer failed');
         });
       }
       return true;
     }
     case 'IceCandidate': {
       if (webrtcTransport) {
-        webrtcTransport.addIceCandidate(msg.candidate, msg.mid).catch((err) => {
+        webrtcTransport.addIceCandidate(msg.candidate, msg.mid).catch((err: unknown) => {
+          // ICE candidate failures are common and recoverable; log only.
           console.warn('[webrtc] addIceCandidate failed:', err);
         });
       }
@@ -139,6 +152,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
       onFileFrame: (frame) => get().onFileFrame?.(frame),
       onError: (err) => {
         set({ signalingState: 'fallback', error: err.message });
+        notifyWebRTCFallback(err.message);
       },
     };
 
@@ -154,9 +168,10 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     const config: RTCConfig = { iceServers };
     webrtc.createOffer(config).then((sdpOffer) => {
       transport.sendControl({ type: 'SwitchToWebRTC', sdp_offer: sdpOffer });
-    }).catch((err) => {
+    }).catch((err: unknown) => {
       console.warn('[webrtc] createOffer failed:', err);
       set({ signalingState: 'fallback' });
+      notifyWebRTCFallback(err instanceof Error ? err.message : 'createOffer failed');
     });
   },
 
@@ -168,6 +183,7 @@ export const useConnectionStore = create<ConnectionStore>((set, get) => ({
     if (webrtcTransport) {
       webrtcTransport.close();
     }
+    webrtcFallbackToastShown = false;
     set({
       transport: null,
       webrtcTransport: null,

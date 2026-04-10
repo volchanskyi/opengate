@@ -41,6 +41,8 @@ const mockDevice = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
+const newerManifest = { version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' };
+
 describe('DeviceDetail', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -172,7 +174,7 @@ describe('DeviceDetail', () => {
 
   it('shows upgrade button when newer manifest available', () => {
     useUpdateStore.setState({
-      manifests: [{ version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' }],
+      manifests: [newerManifest],
     });
     renderDetail();
     expect(screen.getByText('Upgrade to v2.0.0')).toBeInTheDocument();
@@ -189,5 +191,255 @@ describe('DeviceDetail', () => {
   it('renders logs card as separate tile', () => {
     renderDetail();
     expect(screen.getByText('Fetch Logs')).toBeInTheDocument();
+  });
+
+  it('calls upgradeAgent when upgrade button is clicked', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const upgradeFn = vi.fn().mockResolvedValue(true);
+    useDeviceStore.setState({ upgradeAgent: upgradeFn });
+    useUpdateStore.setState({
+      manifests: [newerManifest],
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Upgrade to v2.0.0'));
+
+    expect(upgradeFn).toHaveBeenCalledWith('d1', '2.0.0', 'linux', 'amd64');
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Upgrade to v2.0.0 pushed'))).toBe(true);
+  });
+
+  it('shows os_display when available', () => {
+    useDeviceStore.setState({
+      selectedDevice: { ...mockDevice, os: 'linux', os_display: 'Ubuntu 22.04 LTS' },
+    });
+    renderDetail();
+    expect(screen.getByText('Ubuntu 22.04 LTS')).toBeInTheDocument();
+  });
+
+  it('fetches manifests on mount', () => {
+    const fetchManifestsFn = vi.fn();
+    useUpdateStore.setState({ fetchManifests: fetchManifestsFn });
+    renderDetail();
+    expect(fetchManifestsFn).toHaveBeenCalled();
+  });
+
+  it('handleRestart shows confirm when active sessions exist', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const restartFn = vi.fn().mockResolvedValue(true);
+    useDeviceStore.setState({ restartAgent: restartFn });
+
+    renderDetail();
+
+    // First click shows confirmation
+    await user.click(screen.getByText('Restart Agent'));
+    expect(screen.getByText(/Confirm \(1 active\)/)).toBeInTheDocument();
+
+    // Second click triggers the actual restart
+    await user.click(screen.getByText(/Confirm \(1 active\)/));
+    expect(restartFn).toHaveBeenCalledWith('d1');
+  });
+
+  it('handleRestart shows failure toast', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const restartFn = vi.fn().mockResolvedValue(false);
+    useDeviceStore.setState({ restartAgent: restartFn });
+    useSessionStore.setState({ sessions: [] });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Restart Agent'));
+
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Failed to restart'))).toBe(true);
+  });
+
+  it('handleMoveGroup moves device to new group', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const updateGroupFn = vi.fn().mockResolvedValue(true);
+    useDeviceStore.setState({
+      groups: [
+        { id: 'g1', name: 'Group 1', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group 2', owner_id: 'u1', created_at: '', updated_at: '' },
+      ],
+      updateDeviceGroup: updateGroupFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+
+    // Select new group from the "Move to Group" dropdown (not the logs filter dropdown)
+    const groupSelect = screen.getByDisplayValue('Select group...');
+    await user.selectOptions(groupSelect, 'g2');
+    await user.click(screen.getByText('Move'));
+
+    expect(updateGroupFn).toHaveBeenCalledWith('d1', 'g2');
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('moved to new group'))).toBe(true);
+  });
+
+  it('handleDelete navigates to device list after confirm', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const deleteFn = vi.fn().mockResolvedValue(undefined);
+    useDeviceStore.setState({ deleteDevice: deleteFn });
+
+    const router = createMemoryRouter(
+      [
+        { path: '/devices/:id', element: <DeviceDetail /> },
+        { path: '/devices', element: <p>Device List</p> },
+      ],
+      { initialEntries: ['/devices/d1'] },
+    );
+    render(<RouterProvider router={router} />);
+
+    // First click shows confirm
+    await user.click(screen.getByText('Delete Device'));
+    expect(screen.getByText('Confirm Delete')).toBeInTheDocument();
+
+    // Second click deletes and navigates
+    await user.click(screen.getByText('Confirm Delete'));
+    expect(deleteFn).toHaveBeenCalledWith('d1');
+    expect(await screen.findByText('Device List')).toBeInTheDocument();
+  });
+
+  it('handleUpgrade shows failure toast on error', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const upgradeFn = vi.fn().mockResolvedValue(false);
+    useDeviceStore.setState({ upgradeAgent: upgradeFn });
+    useUpdateStore.setState({
+      manifests: [newerManifest],
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Upgrade to v2.0.0'));
+
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Failed to push upgrade'))).toBe(true);
+  });
+
+  it('handlePowerAction sends non-destructive action immediately', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const sendPowerFn = vi.fn().mockResolvedValue(true);
+    useAMTStore.setState({
+      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
+      sendPowerAction: sendPowerFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Power On'));
+
+    expect(sendPowerFn).toHaveBeenCalledWith('amt-1', 'power_on');
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('power on'))).toBe(true);
+  });
+
+  it('handlePowerAction requires confirm for destructive action', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const sendPowerFn = vi.fn().mockResolvedValue(true);
+    useAMTStore.setState({
+      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
+      sendPowerAction: sendPowerFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+
+    // First click on destructive action shows confirmation
+    await user.click(screen.getByText('Power Cycle'));
+    expect(screen.getByText('Confirm Cycle')).toBeInTheDocument();
+    expect(sendPowerFn).not.toHaveBeenCalled();
+
+    // Second click triggers the action
+    await user.click(screen.getByText('Confirm Cycle'));
+    expect(sendPowerFn).toHaveBeenCalledWith('amt-1', 'power_cycle');
+  });
+
+  it('handlePowerAction shows error toast on failure', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const sendPowerFn = vi.fn().mockResolvedValue(false);
+    useAMTStore.setState({
+      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
+      sendPowerAction: sendPowerFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByText('Soft Off'));
+
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Failed to send power action'))).toBe(true);
+  });
+
+  it('shows AMT instructions toggle when no AMT device', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    useAMTStore.setState({ amtDevices: [] });
+
+    renderDetail();
+
+    expect(screen.getByText('Intel AMT Setup')).toBeInTheDocument();
+    // Instructions hidden by default
+    expect(screen.queryByText(/Enable AMT in BIOS/)).not.toBeInTheDocument();
+
+    // Click to expand
+    await user.click(screen.getByText('Intel AMT Setup'));
+    expect(screen.getByText(/Enable AMT in BIOS/)).toBeInTheDocument();
+  });
+
+  it('handleMoveGroup shows failure toast on error', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const updateGroupFn = vi.fn().mockResolvedValue(false);
+    useDeviceStore.setState({
+      groups: [
+        { id: 'g1', name: 'Group 1', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group 2', owner_id: 'u1', created_at: '', updated_at: '' },
+      ],
+      updateDeviceGroup: updateGroupFn,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    const groupSelect = screen.getByDisplayValue('Select group...');
+    await user.selectOptions(groupSelect, 'g2');
+    await user.click(screen.getByText('Move'));
+
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('Failed to move device'))).toBe(true);
+  });
+
+  it('shows hardware details when hardware data is available', () => {
+    useDeviceStore.setState({
+      hardware: {
+        device_id: 'd1',
+        cpu_model: 'Intel i7-12700',
+        cpu_cores: 12,
+        ram_total_mb: 32768,
+        disk_free_mb: 102400,
+        disk_total_mb: 512000,
+        updated_at: '2026-01-01T00:00:00Z',
+        network_interfaces: [
+          { name: 'eth0', mac: '00:11:22:33:44:55', ipv4: ['192.168.1.10'], ipv6: [] },
+        ],
+      },
+    });
+    renderDetail();
+
+    expect(screen.getByText(/Intel i7-12700/)).toBeInTheDocument();
+    expect(screen.getByText(/12 cores/)).toBeInTheDocument();
+    expect(screen.getByText(/eth0/)).toBeInTheDocument();
+    expect(screen.getByText(/00:11:22:33:44:55/)).toBeInTheDocument();
   });
 });

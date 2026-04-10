@@ -120,7 +120,9 @@ impl SessionHandler {
 
     fn handle_mouse_move(&self, injector: &dyn InputInjector, x: u16, y: u16) {
         if self.permissions.input {
-            let _ = injector.inject_mouse_move(x as i32, y as i32);
+            if let Err(e) = injector.inject_mouse_move(x as i32, y as i32) {
+                warn!(target: "input", error = %e, "inject_mouse_move failed");
+            }
         }
     }
 
@@ -133,8 +135,12 @@ impl SessionHandler {
         y: u16,
     ) {
         if self.permissions.input {
-            let _ = injector.inject_mouse_move(x as i32, y as i32);
-            let _ = injector.inject_mouse_button(button, pressed);
+            if let Err(e) = injector.inject_mouse_move(x as i32, y as i32) {
+                warn!(target: "input", error = %e, "inject_mouse_move failed");
+            }
+            if let Err(e) = injector.inject_mouse_button(button, pressed) {
+                warn!(target: "input", error = %e, "inject_mouse_button failed");
+            }
         }
     }
 
@@ -146,7 +152,9 @@ impl SessionHandler {
         pressed: bool,
     ) {
         if self.permissions.input {
-            let _ = injector.inject_key(mesh_protocol::KeyEvent { key, pressed });
+            if let Err(e) = injector.inject_key(mesh_protocol::KeyEvent { key, pressed }) {
+                warn!(target: "input", error = %e, "inject_key failed");
+            }
         }
         if let Some(term) = terminal {
             if pressed {

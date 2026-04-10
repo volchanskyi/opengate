@@ -21,3 +21,6 @@ windows = { version = "0.62", features = [
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util", "macros"] }
+
+[lints]
+workspace = true

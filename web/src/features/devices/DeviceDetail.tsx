@@ -8,6 +8,7 @@ import { useToastStore } from '../../state/toast-store';
 import { StatusBadge } from './StatusBadge';
 import { DeviceLogs } from './DeviceLogs';
 import type { components } from '../../types/api';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 
@@ -52,18 +53,18 @@ export function DeviceDetail() {
 
   useEffect(() => {
     if (id) {
-      fetchDevice(id);
-      fetchSessions(id);
+      fireAndForget(fetchDevice(id));
+      fireAndForget(fetchSessions(id));
     }
-    fetchAmtDevices();
-    fetchGroups();
-    fetchManifests();
+    fireAndForget(fetchAmtDevices());
+    fireAndForget(fetchGroups());
+    fireAndForget(fetchManifests());
   }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchManifests]);
 
   // Poll device data every 30s so agent_version and status stay in sync.
   useEffect(() => {
     if (!id) return;
-    const interval = setInterval(() => fetchDevice(id), 30_000);
+    const interval = setInterval(() => { fireAndForget(fetchDevice(id)); }, 30_000);
     return () => clearInterval(interval);
   }, [id, fetchDevice]);
 
@@ -132,7 +133,7 @@ export function DeviceDetail() {
       return;
     }
     await deleteDevice(device.id);
-    navigate('/devices');
+    fireAndForget(navigate('/devices'));
   };
 
   const handleMoveGroup = async () => {
@@ -149,7 +150,7 @@ export function DeviceDetail() {
   const handleStartSession = async () => {
     const result = await createSession(device.id);
     if (result) {
-      navigate(`/sessions/${result.token}`, { state: { relayUrl: result.relay_url, capabilities: device.capabilities } });
+      fireAndForget(navigate(`/sessions/${result.token}`, { state: { relayUrl: result.relay_url, capabilities: device.capabilities } }));
     } else {
       addToast('Failed to start session — agent may be offline or restarting', 'error');
     }
@@ -179,14 +180,14 @@ export function DeviceDetail() {
           <div className="flex gap-2 flex-wrap justify-end">
             <button
               type="button"
-              onClick={handleStartSession}
+              onClick={() => { fireAndForget(handleStartSession()); }}
               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium"
             >
               Start Session
             </button>
             <button
               type="button"
-              onClick={handleRestart}
+              onClick={() => { fireAndForget(handleRestart()); }}
               disabled={device.status !== 'online' || isRestarting}
               className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-700 rounded text-xs font-medium disabled:opacity-50"
             >
@@ -199,7 +200,7 @@ export function DeviceDetail() {
             {latestManifest && !isUpToDate && (
               <button
                 type="button"
-                onClick={handleUpgrade}
+                onClick={() => { fireAndForget(handleUpgrade()); }}
                 disabled={isUpgrading || device.status !== 'online'}
                 className="px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-xs font-medium disabled:opacity-50"
               >
@@ -213,7 +214,7 @@ export function DeviceDetail() {
             )}
             <button
               type="button"
-              onClick={handleDelete}
+              onClick={() => { fireAndForget(handleDelete()); }}
               className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-xs font-medium"
             >
               {confirmDelete ? 'Confirm Delete' : 'Delete Device'}
@@ -262,7 +263,7 @@ export function DeviceDetail() {
               </select>
               <button
                 type="button"
-                onClick={handleMoveGroup}
+                onClick={() => { fireAndForget(handleMoveGroup()); }}
                 disabled={!selectedGroupId}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm disabled:opacity-50"
               >
@@ -291,16 +292,16 @@ export function DeviceDetail() {
               {amtDevice.model && <> &middot; {amtDevice.model}</>}
             </p>
             <div className="flex gap-2 flex-wrap">
-              <button type="button" onClick={() => handlePowerAction('power_on')} className="px-3 py-1 bg-green-700 hover:bg-green-600 rounded text-xs">
+              <button type="button" onClick={() => { fireAndForget(handlePowerAction('power_on')); }} className="px-3 py-1 bg-green-700 hover:bg-green-600 rounded text-xs">
                 Power On
               </button>
-              <button type="button" onClick={() => handlePowerAction('soft_off')} className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-xs">
+              <button type="button" onClick={() => { fireAndForget(handlePowerAction('soft_off')); }} className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-xs">
                 Soft Off
               </button>
-              <button type="button" onClick={() => handlePowerAction('power_cycle')} className="px-3 py-1 bg-orange-700 hover:bg-orange-600 rounded text-xs">
+              <button type="button" onClick={() => { fireAndForget(handlePowerAction('power_cycle')); }} className="px-3 py-1 bg-orange-700 hover:bg-orange-600 rounded text-xs">
                 {confirmPowerAction === 'power_cycle' ? 'Confirm Cycle' : 'Power Cycle'}
               </button>
-              <button type="button" onClick={() => handlePowerAction('hard_reset')} className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded text-xs">
+              <button type="button" onClick={() => { fireAndForget(handlePowerAction('hard_reset')); }} className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded text-xs">
                 {confirmPowerAction === 'hard_reset' ? 'Confirm Reset' : 'Hard Reset'}
               </button>
             </div>
@@ -355,7 +356,7 @@ export function DeviceDetail() {
             <h3 className="text-sm font-semibold text-gray-300">Hardware</h3>
             <button
               type="button"
-              onClick={() => id && fetchHardware(id)}
+              onClick={() => { if (id) fireAndForget(fetchHardware(id)); }}
               className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium"
             >
               Refresh Hardware

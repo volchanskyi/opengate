@@ -115,36 +115,55 @@ impl AgentPeerConnection {
             pending_candidates,
         };
 
-        // Set up ICE candidate callback
-        let ice_tx_clone = conn.ice_candidate_tx.clone();
+        Self::wire_ice_callback(&pc, conn.ice_candidate_tx.clone());
+        Self::wire_state_callback(&pc);
+        Self::wire_data_channel_handler(
+            &pc,
+            conn.inbound_frame_tx.clone(),
+            control_channel,
+            desktop_channel,
+            bulk_channel,
+        );
+
+        Ok(conn)
+    }
+
+    fn wire_ice_callback(pc: &Arc<RTCPeerConnection>, ice_tx: mpsc::Sender<(String, String)>) {
         pc.on_ice_candidate(Box::new(move |candidate| {
-            let tx = ice_tx_clone.clone();
+            let tx = ice_tx.clone();
             Box::pin(async move {
-                if let Some(c) = candidate {
-                    let json = match c.to_json() {
-                        Ok(j) => j,
-                        Err(e) => {
-                            warn!("failed to serialize ICE candidate: {e}");
-                            return;
-                        }
-                    };
-                    let mid = json.sdp_mid.unwrap_or_default();
-                    let _ = tx.send((json.candidate, mid)).await;
+                let Some(c) = candidate else {
+                    return;
+                };
+                let json = match c.to_json() {
+                    Ok(j) => j,
+                    Err(e) => {
+                        warn!("failed to serialize ICE candidate: {e}");
+                        return;
+                    }
+                };
+                let mid = json.sdp_mid.unwrap_or_default();
+                if let Err(e) = tx.send((json.candidate, mid)).await {
+                    debug!("ICE candidate channel closed: {e}");
                 }
             })
         }));
+    }
 
-        // Set up peer connection state change callback
+    fn wire_state_callback(pc: &Arc<RTCPeerConnection>) {
         pc.on_peer_connection_state_change(Box::new(move |state: RTCPeerConnectionState| {
             info!("WebRTC peer connection state: {state}");
             Box::pin(async {})
         }));
+    }
 
-        // Set up data channel handler (browser creates channels, agent receives)
-        let frame_tx = conn.inbound_frame_tx.clone();
-        let cc = control_channel;
-        let dc = desktop_channel;
-        let bc = bulk_channel;
+    fn wire_data_channel_handler(
+        pc: &Arc<RTCPeerConnection>,
+        frame_tx: mpsc::Sender<Frame>,
+        cc: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
+        dc: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
+        bc: Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
+    ) {
         pc.on_data_channel(Box::new(move |d: Arc<RTCDataChannel>| {
             let label = d.label().to_owned();
             let frame_tx = frame_tx.clone();
@@ -155,36 +174,57 @@ impl AgentPeerConnection {
             debug!(label, "received data channel from browser");
 
             Box::pin(async move {
-                // Store channel reference
-                match label.as_str() {
-                    "control" => *cc.lock().await = Some(d.clone()),
-                    "desktop" => *dc.lock().await = Some(d.clone()),
-                    "bulk" => *bc.lock().await = Some(d.clone()),
-                    other => {
-                        warn!(channel = other, "unknown data channel label");
-                        return;
-                    }
+                if !Self::store_channel_by_label(&label, &d, &cc, &dc, &bc).await {
+                    return;
                 }
-
-                // Set up message handler
-                let ftx = frame_tx.clone();
-                d.on_message(Box::new(move |msg: DataChannelMessage| {
-                    let ftx = ftx.clone();
-                    Box::pin(async move {
-                        match Frame::decode(&msg.data) {
-                            Ok((frame, _)) => {
-                                let _ = ftx.send(frame).await;
-                            }
-                            Err(e) => {
-                                warn!("data channel frame decode error: {e}");
-                            }
-                        }
-                    })
-                }));
+                Self::wire_data_channel_messages(&d, frame_tx);
             })
         }));
+    }
 
-        Ok(conn)
+    async fn store_channel_by_label(
+        label: &str,
+        d: &Arc<RTCDataChannel>,
+        cc: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
+        dc: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
+        bc: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
+    ) -> bool {
+        match label {
+            "control" => {
+                *cc.lock().await = Some(d.clone());
+                true
+            }
+            "desktop" => {
+                *dc.lock().await = Some(d.clone());
+                true
+            }
+            "bulk" => {
+                *bc.lock().await = Some(d.clone());
+                true
+            }
+            other => {
+                warn!(channel = other, "unknown data channel label");
+                false
+            }
+        }
+    }
+
+    fn wire_data_channel_messages(d: &Arc<RTCDataChannel>, frame_tx: mpsc::Sender<Frame>) {
+        d.on_message(Box::new(move |msg: DataChannelMessage| {
+            let ftx = frame_tx.clone();
+            Box::pin(async move {
+                match Frame::decode(&msg.data) {
+                    Ok((frame, _)) => {
+                        if let Err(e) = ftx.send(frame).await {
+                            debug!("WebRTC inbound frame channel closed: {e}");
+                        }
+                    }
+                    Err(e) => {
+                        warn!("data channel frame decode error: {e}");
+                    }
+                }
+            })
+        }));
     }
 
     /// Handle an SDP offer from the browser. Returns the SDP answer string.

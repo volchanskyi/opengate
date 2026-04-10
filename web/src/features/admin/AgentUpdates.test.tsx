@@ -87,4 +87,46 @@ describe('AgentUpdates', () => {
     expect(screen.queryByText('Published Manifests')).not.toBeInTheDocument();
     expect(screen.queryByText('Signing Key')).not.toBeInTheDocument();
   });
+
+  it('submits create token form', async () => {
+    const createFn = vi.fn().mockResolvedValue(undefined);
+    useUpdateStore.setState({ createEnrollmentToken: createFn });
+    render(<AgentUpdates />);
+
+    await userEvent.click(screen.getByText('Create Token'));
+
+    const labelInput = screen.getByPlaceholderText('e.g. Production rollout');
+    await userEvent.clear(labelInput);
+    await userEvent.type(labelInput, 'My token');
+
+    await userEvent.click(screen.getByText('Create'));
+
+    expect(createFn).toHaveBeenCalledWith({
+      label: 'My token',
+      max_uses: 0,
+      expires_in_hours: 24,
+    });
+  });
+
+  it('deletes enrollment token', async () => {
+    const deleteFn = vi.fn().mockResolvedValue(undefined);
+    useUpdateStore.setState({ deleteEnrollmentToken: deleteFn });
+    render(<AgentUpdates />);
+
+    await userEvent.click(screen.getByText('Delete'));
+
+    expect(deleteFn).toHaveBeenCalledWith('t1');
+  });
+
+  it('toggles token reveal back to masked', async () => {
+    render(<AgentUpdates />);
+
+    const maskedButton = screen.getByText(/abcdef12\.\.\.7890/);
+    await userEvent.click(maskedButton);
+    expect(screen.getByText(fakeToken.token)).toBeInTheDocument();
+
+    // Click again to re-mask
+    await userEvent.click(screen.getByText(fakeToken.token));
+    expect(screen.getByText(/abcdef12\.\.\.7890/)).toBeInTheDocument();
+  });
 });

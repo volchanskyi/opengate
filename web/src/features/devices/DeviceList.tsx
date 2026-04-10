@@ -6,6 +6,7 @@ import { useToastStore } from '../../state/toast-store';
 import { GroupSidebar } from './GroupSidebar';
 import { DeviceCard } from './DeviceCard';
 import { DeviceSearchBar } from './DeviceSearchBar';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 export function DeviceList() {
   const devices = useDeviceStore((s) => s.devices);
@@ -21,15 +22,15 @@ export function DeviceList() {
   const [isUpgradingAll, setIsUpgradingAll] = useState(false);
 
   useEffect(() => {
-    fetchGroups();
-    fetchDevices();
-    fetchManifests();
+    fireAndForget(fetchGroups());
+    fireAndForget(fetchDevices());
+    fireAndForget(fetchManifests());
   }, [fetchGroups, fetchDevices, fetchManifests]);
 
   // Poll device status so online/offline stays current.
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchDevices(selectedGroupId ?? undefined);
+      fireAndForget(fetchDevices(selectedGroupId ?? undefined));
     }, 15_000);
     return () => clearInterval(interval);
   }, [fetchDevices, selectedGroupId]);
@@ -97,7 +98,7 @@ export function DeviceList() {
             {outdatedDevices.length > 0 && (
               <button
                 type="button"
-                onClick={handleUpgradeAll}
+                onClick={() => { fireAndForget(handleUpgradeAll()); }}
                 disabled={isUpgradingAll}
                 className="px-3 py-2 bg-green-600 hover:bg-green-700 rounded text-sm whitespace-nowrap disabled:opacity-50"
               >

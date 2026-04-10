@@ -10,7 +10,7 @@ use mesh_protocol::{DesktopFrame, Frame, FrameEncoding};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::MaybeTlsStream;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use crate::platform::ScreenCapture;
 use crate::session_error::SessionError;
@@ -41,7 +41,9 @@ pub(crate) async fn ws_writer_loop(
             break;
         }
     }
-    let _ = ws_tx.close().await;
+    if let Err(e) = ws_tx.close().await {
+        debug!("WebSocket close error on writer-loop exit: {e}");
+    }
 }
 
 /// Maximum consecutive capture failures before the loop gives up.

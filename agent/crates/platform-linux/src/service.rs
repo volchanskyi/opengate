@@ -26,8 +26,13 @@ impl SystemdLifecycle {
     fn notify(&self, state: &str) {
         if let Some(ref socket_path) = self.notify_socket {
             debug!(socket = socket_path, state, "sending sd_notify");
-            if let Ok(sock) = UnixDatagram::unbound() {
-                let _ = sock.send_to(state.as_bytes(), socket_path);
+            match UnixDatagram::unbound() {
+                Ok(sock) => {
+                    if let Err(e) = sock.send_to(state.as_bytes(), socket_path) {
+                        debug!(socket = socket_path, error = %e, "sd_notify send failed");
+                    }
+                }
+                Err(e) => debug!(error = %e, "sd_notify socket creation failed"),
             }
         }
     }
@@ -63,7 +68,7 @@ mod tests {
     fn setup_notify_test(suffix: &str) -> (UnixDatagram, SystemdLifecycle, PathBuf) {
         let path =
             std::env::temp_dir().join(format!("sd_notify_{}_{}", suffix, std::process::id()));
-        let _ = std::fs::remove_file(&path);
+        std::fs::remove_file(&path).ok();
         let receiver = UnixDatagram::bind(&path).expect("bind test socket");
         receiver
             .set_read_timeout(Some(std::time::Duration::from_secs(1)))
@@ -87,7 +92,7 @@ mod tests {
         let (receiver, svc, path) = setup_notify_test("ready");
         svc.notify_ready();
         assert_eq!(recv_msg(&receiver), b"READY=1");
-        let _ = std::fs::remove_file(&path);
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]
@@ -95,7 +100,7 @@ mod tests {
         let (receiver, svc, path) = setup_notify_test("stop");
         svc.notify_stopping();
         assert_eq!(recv_msg(&receiver), b"STOPPING=1");
-        let _ = std::fs::remove_file(&path);
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]

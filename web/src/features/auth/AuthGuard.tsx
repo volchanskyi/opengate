@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../../state/auth-store';
+import { fireAndForget } from '../../lib/fire-and-forget';
 
 export function AuthGuard() {
   const token = useAuthStore((s) => s.token);
@@ -9,7 +10,7 @@ export function AuthGuard() {
 
   useEffect(() => {
     if (token && !user) {
-      fetchMe();
+      fireAndForget(fetchMe());
     }
   }, [token, user, fetchMe]);
 
