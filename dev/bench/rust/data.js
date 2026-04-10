@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775836894119,
+  "lastUpdate": 1775837275853,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9775,6 +9775,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 28.1100643924455,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e9a5e9070220e169d3959bcae7bcb3ba32393b39",
+          "message": "fix(ci): downgrade TypeScript to 5.x for openapi-typescript compat\n\nopenapi-typescript 7.x requires typescript@\"^5.x\". Update the\ncompatibility comment in eslint.config.js to cover both constraints.",
+          "timestamp": "2026-04-10T09:06:17-07:00",
+          "tree_id": "74d4dc33f7c10da660d1e0d5997458c35d652a55",
+          "url": "https://github.com/volchanskyi/opengate/commit/e9a5e9070220e169d3959bcae7bcb3ba32393b39"
+        },
+        "date": 1775837275808,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.32462358021412,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.607253355253064,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 727.4597325308263,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 335.7869937438069,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.89533720411186,
             "unit": "ns/iter"
           }
         ]
