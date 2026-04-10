@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775838096129,
+  "lastUpdate": 1775859739822,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9971,6 +9971,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.91793408081839,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "871087e58861a67aa0db2965934f87fac2d601e0",
+          "message": "test: cover WebRTC sendOnChannel happy path for SonarCloud gate\n\nAdd test exercising sendControl on an open data channel so the\nnarrowed Uint8Array<ArrayBuffer> parameter line is covered — raises\nnew_coverage from 66.7% to 100%.",
+          "timestamp": "2026-04-10T15:20:40-07:00",
+          "tree_id": "f39688db22c698f5e5d71d65e94d6a0364e48ab7",
+          "url": "https://github.com/volchanskyi/opengate/commit/871087e58861a67aa0db2965934f87fac2d601e0"
+        },
+        "date": 1775859739770,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.201582040826157,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.485168250203042,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 737.1882694661138,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 334.34195945674554,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.11409359110356,
             "unit": "ns/iter"
           }
         ]
