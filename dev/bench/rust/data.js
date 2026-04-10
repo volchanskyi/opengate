@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775801730863,
+  "lastUpdate": 1775836101212,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9628,6 +9628,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.605550974227455,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "54fc6df1c929a107750e459b7550ae0506578184",
+          "message": "fix: TypeScript 6 Uint8Array compat, SonarCloud quality gate\n\nNarrow encodeFrame() return to Uint8Array<ArrayBuffer> — fixes TS6\nBufferSource incompatibility without type assertions. Extract\nparseEnabledState() for testability, add tests for error paths in\noperations.go and channel_conn.go (Feed after close). Suppress\nInsecureSkipVerify rules (S4830/S5527) in test files via SonarCloud\nmulticriteria config.",
+          "timestamp": "2026-04-10T08:46:38-07:00",
+          "tree_id": "e69e5c65dda2bbf52558c422855e6b79beb36abb",
+          "url": "https://github.com/volchanskyi/opengate/commit/54fc6df1c929a107750e459b7550ae0506578184"
+        },
+        "date": 1775836101171,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.37114608121582,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.688122141178113,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 759.3888204867112,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 296.0392522586824,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.53136512121897,
             "unit": "ns/iter"
           }
         ]
