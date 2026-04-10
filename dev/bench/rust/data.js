@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775837414276,
+  "lastUpdate": 1775837901855,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9873,6 +9873,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.863112602109705,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "bfb2abc10c45a4370b48f69fbb9f888dbdc168be",
+          "message": "fix(ci): exclude WSMAN protocol files from coverage analysis\n\noperations.go and digest.go contain hardware-interaction and\nprotocol-mandated methods (Digest Auth, AMT power state) only testable\nvia integration tests with real devices. Unit-testable helpers\n(parseEnabledState, extractXMLField) are at 100% — exclusion only\naffects the untestable client methods.",
+          "timestamp": "2026-04-10T09:16:51-07:00",
+          "tree_id": "4cca7405042387fd7cd12846b6535120fa2f8054",
+          "url": "https://github.com/volchanskyi/opengate/commit/bfb2abc10c45a4370b48f69fbb9f888dbdc168be"
+        },
+        "date": 1775837901799,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.35676163996473,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.412428632738603,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.4697137919268,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 325.00577036531604,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.128199451103548,
             "unit": "ns/iter"
           }
         ]
