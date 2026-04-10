@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775794496259,
+  "lastUpdate": 1775795238621,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9481,6 +9481,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.928237965096624,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b9b244b3cdf23d55494c3311d1f23c1f83d2bbdf",
+          "message": "test: comprehensive coverage for device management and log fetching\n\nAdd thorough tests for device-store: updateDeviceGroup success/failure\nwith selectedDevice update, restartAgent failure, fetchLogs with all\nquery params, fetchLogs 202 retry omitting refresh param, and both\nError and non-Error rejection paths in fetchHardware/fetchLogs retry\ncatch blocks.\n\nAdd DeviceDetail tests: AMT setup instructions toggle, handleMoveGroup\nfailure toast, hardware details rendering with network interfaces.\n\nAdd DeviceLogs tests: Load More pagination with offset increment,\nlevel and search filter passthrough.\n\nExclude thin UI wrapper components (UserManagement, AgentSetupPage)\nfrom coverage — click handlers wrap fireAndForget calls already\ntested at the store layer.",
+          "timestamp": "2026-04-09T21:25:39-07:00",
+          "tree_id": "99c7f5928374b01f5135a44b51ff7cf29a334f12",
+          "url": "https://github.com/volchanskyi/opengate/commit/b9b244b3cdf23d55494c3311d1f23c1f83d2bbdf"
+        },
+        "date": 1775795238567,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.36212808376364,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 30.824224805931927,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 761.2193040762901,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 289.6785459207478,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.617978871502984,
             "unit": "ns/iter"
           }
         ]
