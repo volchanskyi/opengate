@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775792901293,
+  "lastUpdate": 1775793086735,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9383,6 +9383,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.259138411976906,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e5280871a29eb3f1ec3eed4c3958a2f8d58cb7bd",
+          "message": "refactor: extract duplicated test fixtures in device tests\n\nExtract mockHardware constant in device-store.test.ts and\nnewerManifest constant in DeviceDetail.test.tsx to eliminate\nrepeated inline object literals across multiple tests.",
+          "timestamp": "2026-04-09T20:49:41-07:00",
+          "tree_id": "a7853be7f800fffe0ffc1a5bc8287b3ada75d3c2",
+          "url": "https://github.com/volchanskyi/opengate/commit/e5280871a29eb3f1ec3eed4c3958a2f8d58cb7bd"
+        },
+        "date": 1775793086684,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.362489337670464,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.495533197425402,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 729.8975768583924,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.89529596808995,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.041311099366222,
             "unit": "ns/iter"
           }
         ]
