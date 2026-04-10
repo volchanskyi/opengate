@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775836692232,
+  "lastUpdate": 1775836894119,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -9726,6 +9726,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.844742350143697,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "6a91c6af9e46dbc973eef93febc4aafe8c1a7b38",
+          "message": "chore: document ESLint 10 incompatibility with react-hooks plugin",
+          "timestamp": "2026-04-10T08:59:55-07:00",
+          "tree_id": "18a1f531c165ea833551710c971ca587968ec058",
+          "url": "https://github.com/volchanskyi/opengate/commit/6a91c6af9e46dbc973eef93febc4aafe8c1a7b38"
+        },
+        "date": 1775836894062,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.42992759647927,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.182210447574498,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 759.2164545628818,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 296.4915953104942,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 28.1100643924455,
             "unit": "ns/iter"
           }
         ]
