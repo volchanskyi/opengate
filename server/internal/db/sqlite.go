@@ -947,39 +947,13 @@ func (s *SQLiteStore) UpsertDeviceLogs(ctx context.Context, deviceID DeviceID, e
 	return tx.Commit()
 }
 
-// Device log query filter clause. Every optional filter is guarded by a
-// `? = ” OR ...` sentinel so the SQL is a compile-time constant — no string
-// concatenation, parameterized throughout. Level filtering is severity-based
-// (WARN matches WARN+ERROR) to mirror mesh-agent/src/logs.rs semantics.
-const deviceLogsFilterClause = `
-WHERE device_id = ?
-  AND (? = '' OR (CASE level
-        WHEN 'TRACE' THEN 0
-        WHEN 'DEBUG' THEN 1
-        WHEN 'INFO'  THEN 2
-        WHEN 'WARN'  THEN 3
-        WHEN 'ERROR' THEN 4
-        ELSE -1
-      END) >= (CASE ?
-        WHEN 'TRACE' THEN 0
-        WHEN 'DEBUG' THEN 1
-        WHEN 'INFO'  THEN 2
-        WHEN 'WARN'  THEN 3
-        WHEN 'ERROR' THEN 4
-        ELSE -1
-      END))
-  AND (? = '' OR timestamp >= ?)
-  AND (? = '' OR timestamp <= ?)
-  AND (? = '' OR message LIKE ?)`
-
-const queryDeviceLogsCount = `SELECT COUNT(*) FROM device_logs` + deviceLogsFilterClause
-
-const queryDeviceLogsSelect = `SELECT id, device_id, timestamp, level, target, message, fetched_at
-FROM device_logs` + deviceLogsFilterClause + `
-ORDER BY timestamp DESC
-LIMIT ? OFFSET ?`
-
 // QueryDeviceLogs returns filtered, paginated log entries and a total count.
+//
+// Both queries are inline string literals so Sonar's go:S2077 analyzer
+// recognizes them as static SQL. Every optional filter is guarded by a
+// `? = ” OR ...` sentinel — no dynamic concatenation, parameterized
+// throughout. Level filtering is severity-based (WARN matches WARN+ERROR)
+// to mirror mesh-agent/src/logs.rs semantics.
 func (s *SQLiteStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error) {
 	searchPattern := ""
 	if filter.Search != "" {
@@ -996,7 +970,28 @@ func (s *SQLiteStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, fi
 
 	// Count total matching entries
 	var total int
-	if err := s.db.QueryRowContext(ctx, queryDeviceLogsCount, filterArgs...).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM device_logs
+		WHERE device_id = ?
+		  AND (? = '' OR (CASE level
+		        WHEN 'TRACE' THEN 0
+		        WHEN 'DEBUG' THEN 1
+		        WHEN 'INFO'  THEN 2
+		        WHEN 'WARN'  THEN 3
+		        WHEN 'ERROR' THEN 4
+		        ELSE -1
+		      END) >= (CASE ?
+		        WHEN 'TRACE' THEN 0
+		        WHEN 'DEBUG' THEN 1
+		        WHEN 'INFO'  THEN 2
+		        WHEN 'WARN'  THEN 3
+		        WHEN 'ERROR' THEN 4
+		        ELSE -1
+		      END))
+		  AND (? = '' OR timestamp >= ?)
+		  AND (? = '' OR timestamp <= ?)
+		  AND (? = '' OR message LIKE ?)`,
+		filterArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count logs: %w", err)
 	}
 
@@ -1007,7 +1002,30 @@ func (s *SQLiteStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, fi
 	}
 
 	dataArgs := append(filterArgs, limit, filter.Offset) //nolint:gocritic
-	rows, err := s.db.QueryContext(ctx, queryDeviceLogsSelect, dataArgs...)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, device_id, timestamp, level, target, message, fetched_at FROM device_logs
+		WHERE device_id = ?
+		  AND (? = '' OR (CASE level
+		        WHEN 'TRACE' THEN 0
+		        WHEN 'DEBUG' THEN 1
+		        WHEN 'INFO'  THEN 2
+		        WHEN 'WARN'  THEN 3
+		        WHEN 'ERROR' THEN 4
+		        ELSE -1
+		      END) >= (CASE ?
+		        WHEN 'TRACE' THEN 0
+		        WHEN 'DEBUG' THEN 1
+		        WHEN 'INFO'  THEN 2
+		        WHEN 'WARN'  THEN 3
+		        WHEN 'ERROR' THEN 4
+		        ELSE -1
+		      END))
+		  AND (? = '' OR timestamp >= ?)
+		  AND (? = '' OR timestamp <= ?)
+		  AND (? = '' OR message LIKE ?)
+		ORDER BY timestamp DESC
+		LIMIT ? OFFSET ?`,
+		dataArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query logs: %w", err)
 	}
