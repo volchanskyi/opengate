@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775879055992,
+  "lastUpdate": 1775898029478,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10167,6 +10167,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.90133221930473,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f130df7e9b8ec6cb17425a0b601fe9bb6676b048",
+          "message": "docs(claude): archive completed plans, record ADR-012 (SonarCloud gate)\n\n- Move 4 completed plans to .claude/plans/archive/ (coverage-80,\n  device-logs, fix-suppressed-warnings, fix-swallowed-errors)\n- Fix phases.md path references for the archived plans; drop dangling\n  quirky-snacking-knuth.md link\n- Add ADR-012 row to decisions.md (SonarCloud as hard merge block);\n  full text lives in the wiki ADR page\n- Bump \"Last updated\" timestamps on both index files",
+          "timestamp": "2026-04-11T01:58:44-07:00",
+          "tree_id": "10901f808f9c073d59f1a286b690b449e2fab0ae",
+          "url": "https://github.com/volchanskyi/opengate/commit/f130df7e9b8ec6cb17425a0b601fe9bb6676b048"
+        },
+        "date": 1775898029424,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.332700545914946,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.4519119941402,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 729.4338740862202,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 327.2930197974081,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.967793789274072,
             "unit": "ns/iter"
           }
         ]
