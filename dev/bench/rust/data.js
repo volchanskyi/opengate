@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775859739822,
+  "lastUpdate": 1775877352286,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10020,6 +10020,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.11409359110356,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ec808f1dfb4e9954e219852c252f65ec42376436",
+          "message": "test: close Go/Web coverage to 80% and flip quality gates\n\nBring Go server coverage from 78.4% → 80.1% and web client from\n80.2% → 82.8%, then flip CI thresholds from warn to hard-fail for\nboth languages (Rust was already enforced). Add dynamic coverage\nbadges for all three languages in README.\n\nGo additions:\n- protocol/codec_test.go — round-trip tests for EncodeTerminal/File\n  Frame, EncodeHandshake, DecodeHandshakeType (6 untested functions)\n- db/sqlite_test.go — TestDB, TestListAllDevices, TestUpdateDevice\n  Group, TestListAllWebPushSubscriptions\n- api/converters_test.go — full coverage of deref/map helpers and\n  iceServers/device/manifest/deviceLogs/permissions converters\n- agentapi/conn_test.go — TestNewAgentConn + newTestAgentConn and\n  writeControlMsg helpers that deduplicate 12 boilerplate test\n  setups (-104 LOC)\n- agentapi/server_test.go — newTestAgentServer helper, ListConnected\n  Agents and DeregisterAgent tests covering previously 0%-covered\n  server.go functions\n\nWeb additions:\n- Breadcrumbs, InstallInstructions, NotificationCenter, ProfilePage,\n  toast-store tests covering margin components. toast-store test\n  uses afterEach to restore real timers, preventing state leak.\n\nCI / precommit:\n- go-unit: threshold 70 → 80\n- web-unit: new \"Enforce coverage threshold\" step (≥80% lines)\n- rust-test / web-unit jobs expose coverage as job outputs\n- merge-to-main: new Rust and Web badge update steps via\n  schneegans/dynamic-badges-action\n- precommit SKILL.md: new steps 12-14 for local Go/Web/Rust\n  coverage enforcement\n\nDocs:\n- README: add Rust Agent Coverage and Web Client Coverage badges\n- phases.md: mark \"Coverage 80% + Quality Gates\" phase complete",
+          "timestamp": "2026-04-10T20:14:11-07:00",
+          "tree_id": "acd2b2d0297bff0f2acd4790ca0cd964a9153718",
+          "url": "https://github.com/volchanskyi/opengate/commit/ec808f1dfb4e9954e219852c252f65ec42376436"
+        },
+        "date": 1775877352231,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.31150621580646,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.75281014431267,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 586.6505672791502,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 303.8303495313646,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.867494304554402,
             "unit": "ns/iter"
           }
         ]
