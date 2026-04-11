@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775900378526,
+  "lastUpdate": 1775901160948,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10314,6 +10314,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.371851162565328,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d076c54ac9f4b8bdfe4b05a1192c6c17a619b132",
+          "message": "refactor(db): inline device-log SQL literals so SonarCloud scanner accepts them\n\nThe previous refactor moved the device-log queries into package-level\nstring constants (queryDeviceLogsCount, queryDeviceLogsSelect) built\nfrom a shared filter clause. SonarCloud's Go analyzer for go:S2077\nonly recognizes inline BasicLit AST nodes as \"static SQL\" — a const\nidentifier or const-time concatenation still trips the hotspot rule.\n\nInline both queries as raw-string literals at the call site, matching\nthe pattern used throughout the rest of this file (see lines 215, 314,\n374, etc. where every QueryRowContext call passes an inline literal).\nThe WHERE clause is duplicated between the count and select queries —\nthe duplication is acceptable because (a) Sonar flags anything else,\nand (b) the filter semantics are covered by the existing test suite.\n\nTests unchanged; TestDeviceLogsCRUD still passes all 11 sub-tests\nincluding filter_by_level_severity_based.",
+          "timestamp": "2026-04-11T02:51:01-07:00",
+          "tree_id": "9560e8182d0726854f29e9c4bfcc92d4753392a1",
+          "url": "https://github.com/volchanskyi/opengate/commit/d076c54ac9f4b8bdfe4b05a1192c6c17a619b132"
+        },
+        "date": 1775901160889,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.356145967503107,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.37877774898805,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 727.9673642397205,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 329.239275410062,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.939746547049687,
             "unit": "ns/iter"
           }
         ]
