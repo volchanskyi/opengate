@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.21.9] - 2026-04-11
+
+### Fixed
+- **device-logs:** severity-based level filter + clear stale logs on device nav
+
+### Changed
+- **db:** inline device-log SQL literals so SonarCloud scanner accepts them
+- **db:** build device-log query from SQL constants to clear SonarCloud hotspot
+
 ## [v0.21.8] - 2026-04-11
 
 ### Fixed
