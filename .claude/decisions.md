@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-<!-- Last updated: 2026-03-30 -->
+<!-- Last updated: 2026-04-11 -->
 <!-- Compact index — full ADR text lives in the wiki: -->
 <!-- https://github.com/volchanskyi/opengate/wiki/Architecture-Decision-Records -->
 <!-- Add a new row here AND a full section in the wiki page for each new ADR. -->
@@ -18,3 +18,4 @@
 | 009 | Cosign keyless signing for container images (GitHub OIDC) | CD-E | Accepted |
 | 010 | Separate `device_hardware` table for on-demand hardware inventory; `RestartAgent`/`RequestHardwareReport`/`HardwareReport` control messages | 12+ | Accepted |
 | 011 | On-demand device logs via control path (`RequestDeviceLogs`/`DeviceLogsResponse`/`DeviceLogsError`), individual rows in `device_logs` table with 5-min cache TTL, SQL-level filtering | — | Accepted |
+| 012 | SonarCloud quality gate as a hard merge block (coverage, code-smell, duplication, security hotspots) + SARIF export to GitHub Code Scanning | — | Accepted |
