@@ -1,6 +1,6 @@
 # Implementation Phases
 
-<!-- Last updated: 2026-03-30 -->
+<!-- Last updated: 2026-04-11 -->
 <!-- Update this file after completing or starting any significant phase of work. -->
 
 ## Completed
@@ -35,11 +35,11 @@
 | Linux Agent: No Tray | Remove tray/IPC crates, Linux = Terminal + FileManager only, delete display detection | — | [linux-agent-no-tray.md](plans/archive/linux-agent-no-tray.md) |
 | Dev Workflow Phase 1 | `.claude/` dedup — compact ADR index with wiki cross-refs, archive 47 completed plan files | — | — |
 | Linux Agent: Remove Display Detection | Strip X11 capture, input injection, and related deps from platform-linux; Linux = Terminal + FileManager only | — | — |
-| Agent Restart + Hardware Inventory | Restart agent from web UI (exit code 42), on-demand hardware inventory (CPU/RAM/disk/NICs) | — | [quirky-snacking-knuth.md](plans/quirky-snacking-knuth.md) |
+| Agent Restart + Hardware Inventory | Restart agent from web UI (exit code 42), on-demand hardware inventory (CPU/RAM/disk/NICs) | — | — |
 | SonarCloud Quality Gates | SonarCloud scanning, 3-language coverage, SARIF export, merge gating | — | [sonarcloud-quality-gates.md](plans/archive/sonarcloud-quality-gates.md) |
 | Dev Workflow Phase 3 | `/observe` skill — PromQL, LogQL, container health, WSL agent diagnostics, investigation playbooks | — | [developer-workflow-enhancement.md](plans/archive/developer-workflow-enhancement.md) |
-| Device Logs | On-demand log retrieval via QUIC control path, DB caching, REST API, React UI with filtering/pagination | — | [device-logs-feature.md](plans/device-logs-feature.md) |
-| Coverage 80% + Quality Gates | Go/Web coverage to 80%, CI thresholds, precommit enforcement, 3-language coverage badges, SonarCloud hard-fail | — | [coverage-80-flip-gates.md](plans/coverage-80-flip-gates.md) |
+| Device Logs | On-demand log retrieval via QUIC control path, DB caching, REST API, React UI with filtering/pagination | — | [device-logs-feature.md](plans/archive/device-logs-feature.md) |
+| Coverage 80% + Quality Gates | Go/Web coverage to 80%, CI thresholds, precommit enforcement, 3-language coverage badges, SonarCloud hard-fail | — | [coverage-80-flip-gates.md](plans/archive/coverage-80-flip-gates.md) |
 
 ---
 
