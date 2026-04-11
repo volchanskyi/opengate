@@ -947,53 +947,56 @@ func (s *SQLiteStore) UpsertDeviceLogs(ctx context.Context, deviceID DeviceID, e
 	return tx.Commit()
 }
 
+// Device log query filter clause. Every optional filter is guarded by a
+// `? = ” OR ...` sentinel so the SQL is a compile-time constant — no string
+// concatenation, parameterized throughout. Level filtering is severity-based
+// (WARN matches WARN+ERROR) to mirror mesh-agent/src/logs.rs semantics.
+const deviceLogsFilterClause = `
+WHERE device_id = ?
+  AND (? = '' OR (CASE level
+        WHEN 'TRACE' THEN 0
+        WHEN 'DEBUG' THEN 1
+        WHEN 'INFO'  THEN 2
+        WHEN 'WARN'  THEN 3
+        WHEN 'ERROR' THEN 4
+        ELSE -1
+      END) >= (CASE ?
+        WHEN 'TRACE' THEN 0
+        WHEN 'DEBUG' THEN 1
+        WHEN 'INFO'  THEN 2
+        WHEN 'WARN'  THEN 3
+        WHEN 'ERROR' THEN 4
+        ELSE -1
+      END))
+  AND (? = '' OR timestamp >= ?)
+  AND (? = '' OR timestamp <= ?)
+  AND (? = '' OR message LIKE ?)`
+
+const queryDeviceLogsCount = `SELECT COUNT(*) FROM device_logs` + deviceLogsFilterClause
+
+const queryDeviceLogsSelect = `SELECT id, device_id, timestamp, level, target, message, fetched_at
+FROM device_logs` + deviceLogsFilterClause + `
+ORDER BY timestamp DESC
+LIMIT ? OFFSET ?`
+
 // QueryDeviceLogs returns filtered, paginated log entries and a total count.
 func (s *SQLiteStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error) {
-	var conditions []string
-	var args []any
-
-	conditions = append(conditions, "device_id = ?")
-	args = append(args, deviceID.String())
-
-	if filter.Level != "" {
-		// Severity-based filtering: selecting WARN matches WARN and ERROR.
-		// Matches the agent-side semantics in mesh-agent/src/logs.rs.
-		conditions = append(conditions, `(CASE level
-			WHEN 'TRACE' THEN 0
-			WHEN 'DEBUG' THEN 1
-			WHEN 'INFO'  THEN 2
-			WHEN 'WARN'  THEN 3
-			WHEN 'ERROR' THEN 4
-			ELSE -1
-		END) >= (CASE ?
-			WHEN 'TRACE' THEN 0
-			WHEN 'DEBUG' THEN 1
-			WHEN 'INFO'  THEN 2
-			WHEN 'WARN'  THEN 3
-			WHEN 'ERROR' THEN 4
-			ELSE -1
-		END)`)
-		args = append(args, filter.Level)
-	}
-	if filter.From != "" {
-		conditions = append(conditions, "timestamp >= ?")
-		args = append(args, filter.From)
-	}
-	if filter.To != "" {
-		conditions = append(conditions, "timestamp <= ?")
-		args = append(args, filter.To)
-	}
+	searchPattern := ""
 	if filter.Search != "" {
-		conditions = append(conditions, "message LIKE ?")
-		args = append(args, "%"+filter.Search+"%")
+		searchPattern = "%" + filter.Search + "%"
 	}
 
-	where := strings.Join(conditions, " AND ")
+	filterArgs := []any{
+		deviceID.String(),
+		filter.Level, filter.Level,
+		filter.From, filter.From,
+		filter.To, filter.To,
+		filter.Search, searchPattern,
+	}
 
 	// Count total matching entries
 	var total int
-	countQuery := "SELECT COUNT(*) FROM device_logs WHERE " + where
-	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, queryDeviceLogsCount, filterArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count logs: %w", err)
 	}
 
@@ -1003,11 +1006,8 @@ func (s *SQLiteStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, fi
 		limit = 100
 	}
 
-	dataQuery := "SELECT id, device_id, timestamp, level, target, message, fetched_at FROM device_logs WHERE " +
-		where + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-	dataArgs := append(args, limit, filter.Offset) //nolint:gocritic
-
-	rows, err := s.db.QueryContext(ctx, dataQuery, dataArgs...)
+	dataArgs := append(filterArgs, limit, filter.Offset) //nolint:gocritic
+	rows, err := s.db.QueryContext(ctx, queryDeviceLogsSelect, dataArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query logs: %w", err)
 	}
