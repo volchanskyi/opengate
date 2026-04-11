@@ -956,7 +956,23 @@ func (s *SQLiteStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, fi
 	args = append(args, deviceID.String())
 
 	if filter.Level != "" {
-		conditions = append(conditions, "level = ?")
+		// Severity-based filtering: selecting WARN matches WARN and ERROR.
+		// Matches the agent-side semantics in mesh-agent/src/logs.rs.
+		conditions = append(conditions, `(CASE level
+			WHEN 'TRACE' THEN 0
+			WHEN 'DEBUG' THEN 1
+			WHEN 'INFO'  THEN 2
+			WHEN 'WARN'  THEN 3
+			WHEN 'ERROR' THEN 4
+			ELSE -1
+		END) >= (CASE ?
+			WHEN 'TRACE' THEN 0
+			WHEN 'DEBUG' THEN 1
+			WHEN 'INFO'  THEN 2
+			WHEN 'WARN'  THEN 3
+			WHEN 'ERROR' THEN 4
+			ELSE -1
+		END)`)
 		args = append(args, filter.Level)
 	}
 	if filter.From != "" {

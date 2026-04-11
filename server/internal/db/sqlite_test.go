@@ -1363,6 +1363,19 @@ func TestDeviceLogsCRUD(t *testing.T) {
 		assert.Equal(t, "ERROR", entries[0].Level)
 	})
 
+	t.Run("filter_by_level_severity_based", func(t *testing.T) {
+		// Selecting WARN must include both WARN and ERROR (severity >= WARN),
+		// matching the agent-side filter in mesh-agent/src/logs.rs so that
+		// users don't miss error rows while filtering at the warn threshold.
+		entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Level: "WARN", Limit: 100})
+		require.NoError(t, err)
+		assert.Equal(t, 2, total)
+		require.Len(t, entries, 2)
+		// Ordered by timestamp DESC: ERROR (12:00) before WARN (11:00).
+		assert.Equal(t, "ERROR", entries[0].Level)
+		assert.Equal(t, "WARN", entries[1].Level)
+	})
+
 	t.Run("filter_by_time_range", func(t *testing.T) {
 		entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{
 			From:  "2026-04-01T11:00:00Z",
