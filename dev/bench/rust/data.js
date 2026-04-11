@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775933450597,
+  "lastUpdate": 1775934265104,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10461,6 +10461,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.551278747416244,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "aa37fbe4e49e33c8185d3bddf36c579ca75d45f4",
+          "message": "refactor(db): extract duplicated test literals in postgres_test to clear SonarCloud\n\nPull shared t.Run names, log timestamp, and version strings into a const\nblock so go:S1192 stops flagging them on the new postgres_test.go file.",
+          "timestamp": "2026-04-11T12:02:48-07:00",
+          "tree_id": "ebcbfdec067e4f6d59649b02e23d4191957346fb",
+          "url": "https://github.com/volchanskyi/opengate/commit/aa37fbe4e49e33c8185d3bddf36c579ca75d45f4"
+        },
+        "date": 1775934265046,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.383256068503307,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.414970523062976,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 734.1444425497252,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 328.0232846956522,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.884562307060822,
             "unit": "ns/iter"
           }
         ]
