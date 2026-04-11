@@ -19,6 +19,20 @@ import (
 // are skipped. In CI, the env var is set by a service container.
 const postgresTestURLEnv = "POSTGRES_TEST_URL"
 
+// Shared test literals. Extracted to satisfy SonarCloud's "duplicated string
+// literals" rule (go:S1192) without sprinkling nolint comments through the file.
+const (
+	tcUpsertAndGet          = "upsert and get"
+	tcUpsertUpdatesExisting = "upsert updates existing"
+	tcGetNotFound           = "get not found"
+	tcDeleteNotFound        = "delete not found"
+	tcCreateAndGet          = "create and get"
+
+	pgTestLogTimestamp = "2026-04-10T10:00:00Z"
+	pgTestVersionV123  = "v1.2.3"
+	pgTestVersionV200  = "v2.0.0"
+)
+
 // newPostgresTestStore creates a fresh isolated Postgres schema for one test
 // and returns a store backed by it. The schema is created with a unique name,
 // set as the search_path, and dropped in t.Cleanup. This isolates each test
@@ -120,7 +134,7 @@ func TestPostgresUserCRUD(t *testing.T) {
 	s := newPostgresTestStore(t)
 	ctx := context.Background()
 
-	t.Run("upsert and get", func(t *testing.T) {
+	t.Run(tcUpsertAndGet, func(t *testing.T) {
 		u := &User{
 			ID:           uuid.New(),
 			Email:        "alice-pg@example.com",
@@ -141,7 +155,7 @@ func TestPostgresUserCRUD(t *testing.T) {
 		assert.False(t, got.UpdatedAt.IsZero())
 	})
 
-	t.Run("upsert updates existing", func(t *testing.T) {
+	t.Run(tcUpsertUpdatesExisting, func(t *testing.T) {
 		u := &User{ID: uuid.New(), Email: "update-pg@example.com", DisplayName: "Before"}
 		require.NoError(t, s.UpsertUser(ctx, u))
 		u.DisplayName = "After"
@@ -166,7 +180,7 @@ func TestPostgresUserCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("get not found", func(t *testing.T) {
+	t.Run(tcGetNotFound, func(t *testing.T) {
 		_, err := s.GetUser(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -185,7 +199,7 @@ func TestPostgresUserCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(tcDeleteNotFound, func(t *testing.T) {
 		err := s.DeleteUser(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -196,7 +210,7 @@ func TestPostgresGroupCRUD(t *testing.T) {
 	ctx := context.Background()
 	owner := seedUserPG(t, ctx, s)
 
-	t.Run("create and get", func(t *testing.T) {
+	t.Run(tcCreateAndGet, func(t *testing.T) {
 		g := &Group{ID: uuid.New(), Name: "Engineering PG", OwnerID: owner.ID}
 		require.NoError(t, s.CreateGroup(ctx, g))
 
@@ -229,7 +243,7 @@ func TestPostgresGroupCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(tcDeleteNotFound, func(t *testing.T) {
 		err := s.DeleteGroup(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -241,7 +255,7 @@ func TestPostgresDeviceCRUD(t *testing.T) {
 	owner := seedUserPG(t, ctx, s)
 	group := seedGroupPG(t, ctx, s, owner.ID)
 
-	t.Run("upsert and get", func(t *testing.T) {
+	t.Run(tcUpsertAndGet, func(t *testing.T) {
 		d := &Device{
 			ID:       uuid.New(),
 			GroupID:  group.ID,
@@ -259,7 +273,7 @@ func TestPostgresDeviceCRUD(t *testing.T) {
 		assert.Equal(t, group.ID, got.GroupID)
 	})
 
-	t.Run("upsert updates existing", func(t *testing.T) {
+	t.Run(tcUpsertUpdatesExisting, func(t *testing.T) {
 		d := &Device{ID: uuid.New(), GroupID: group.ID, Hostname: "old-pg", OS: "linux", Status: StatusOffline}
 		require.NoError(t, s.UpsertDevice(ctx, d))
 		d.Hostname = "new-pg"
@@ -328,7 +342,7 @@ func TestPostgresDeviceCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(tcDeleteNotFound, func(t *testing.T) {
 		err := s.DeleteDevice(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -385,7 +399,7 @@ func TestPostgresAgentSessionCRUD(t *testing.T) {
 	group := seedGroupPG(t, ctx, s, owner.ID)
 	device := seedDevicePG(t, ctx, s, group.ID)
 
-	t.Run("create and get", func(t *testing.T) {
+	t.Run(tcCreateAndGet, func(t *testing.T) {
 		sess := &AgentSession{
 			Token:    "pg-tok-" + uuid.New().String()[:8],
 			DeviceID: device.ID,
@@ -401,7 +415,7 @@ func TestPostgresAgentSessionCRUD(t *testing.T) {
 		assert.False(t, got.CreatedAt.IsZero())
 	})
 
-	t.Run("get not found", func(t *testing.T) {
+	t.Run(tcGetNotFound, func(t *testing.T) {
 		_, err := s.GetAgentSession(ctx, "nope-pg")
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -426,7 +440,7 @@ func TestPostgresAgentSessionCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(tcDeleteNotFound, func(t *testing.T) {
 		err := s.DeleteAgentSession(ctx, "nope-pg")
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -459,7 +473,7 @@ func TestPostgresWebPushSubscription(t *testing.T) {
 		assert.GreaterOrEqual(t, len(subs), 1)
 	})
 
-	t.Run("upsert updates existing", func(t *testing.T) {
+	t.Run(tcUpsertUpdatesExisting, func(t *testing.T) {
 		endpoint := "https://push.example.com/pg-upd-" + uuid.New().String()[:8]
 		sub := &WebPushSubscription{Endpoint: endpoint, UserID: owner.ID, P256dh: "old", Auth: "old"}
 		require.NoError(t, s.UpsertWebPushSubscription(ctx, sub))
@@ -488,7 +502,7 @@ func TestPostgresWebPushSubscription(t *testing.T) {
 		require.NoError(t, s.DeleteWebPushSubscription(ctx, endpoint))
 	})
 
-	t.Run("delete not found", func(t *testing.T) {
+	t.Run(tcDeleteNotFound, func(t *testing.T) {
 		err := s.DeleteWebPushSubscription(ctx, "https://push.example.com/nope-pg")
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -552,7 +566,7 @@ func TestPostgresAMTDeviceCRUD(t *testing.T) {
 	s := newPostgresTestStore(t)
 	ctx := context.Background()
 
-	t.Run("upsert and get", func(t *testing.T) {
+	t.Run(tcUpsertAndGet, func(t *testing.T) {
 		d := &AMTDevice{
 			UUID:     uuid.New(),
 			Hostname: "amt-host",
@@ -602,7 +616,7 @@ func TestPostgresAMTDeviceCRUD(t *testing.T) {
 		assert.Equal(t, StatusOnline, got.Status)
 	})
 
-	t.Run("get not found", func(t *testing.T) {
+	t.Run(tcGetNotFound, func(t *testing.T) {
 		_, err := s.GetAMTDevice(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -613,7 +627,7 @@ func TestPostgresEnrollmentTokens(t *testing.T) {
 	ctx := context.Background()
 	owner := seedUserPG(t, ctx, s)
 
-	t.Run("create and get", func(t *testing.T) {
+	t.Run(tcCreateAndGet, func(t *testing.T) {
 		token := &EnrollmentToken{
 			ID:        uuid.New(),
 			Token:     "enroll-" + uuid.New().String()[:8],
@@ -673,7 +687,7 @@ func TestPostgresDeviceHardware(t *testing.T) {
 	group := seedGroupPG(t, ctx, s, owner.ID)
 	device := seedDevicePG(t, ctx, s, group.ID)
 
-	t.Run("upsert and get", func(t *testing.T) {
+	t.Run(tcUpsertAndGet, func(t *testing.T) {
 		hw := &DeviceHardware{
 			DeviceID:    device.ID,
 			CPUModel:    "Intel Xeon E-2388G",
@@ -726,7 +740,7 @@ func TestPostgresDeviceHardware(t *testing.T) {
 		assert.Empty(t, got.NetworkInterfaces)
 	})
 
-	t.Run("get not found", func(t *testing.T) {
+	t.Run(tcGetNotFound, func(t *testing.T) {
 		_, err := s.GetDeviceHardware(ctx, uuid.New())
 		assert.True(t, errors.Is(err, ErrNotFound))
 	})
@@ -741,7 +755,7 @@ func TestPostgresDeviceLogs(t *testing.T) {
 
 	t.Run("upsert batch and query", func(t *testing.T) {
 		entries := []DeviceLogEntry{
-			{Timestamp: "2026-04-10T10:00:00Z", Level: "INFO", Target: "mesh_agent::main", Message: "first"},
+			{Timestamp: pgTestLogTimestamp, Level: "INFO", Target: "mesh_agent::main", Message: "first"},
 			{Timestamp: "2026-04-10T10:01:00Z", Level: "WARN", Target: "mesh_agent::main", Message: "second"},
 			{Timestamp: "2026-04-10T10:02:00Z", Level: "ERROR", Target: "mesh_agent::connection", Message: "third"},
 		}
@@ -776,7 +790,7 @@ func TestPostgresDeviceLogs(t *testing.T) {
 		assert.False(t, has)
 
 		require.NoError(t, s.UpsertDeviceLogs(ctx, d.ID, []DeviceLogEntry{
-			{Timestamp: "2026-04-10T10:00:00Z", Level: "INFO", Target: "agent", Message: "hi"},
+			{Timestamp: pgTestLogTimestamp, Level: "INFO", Target: "agent", Message: "hi"},
 		}))
 		has, err = s.HasRecentLogs(ctx, d.ID, time.Hour)
 		require.NoError(t, err)
@@ -789,7 +803,7 @@ func TestPostgresDeviceLogs(t *testing.T) {
 			{Timestamp: "2026-04-10T09:00:00Z", Level: "INFO", Target: "agent", Message: "old"},
 		}))
 		require.NoError(t, s.UpsertDeviceLogs(ctx, d.ID, []DeviceLogEntry{
-			{Timestamp: "2026-04-10T10:00:00Z", Level: "INFO", Target: "agent", Message: "new"},
+			{Timestamp: pgTestLogTimestamp, Level: "INFO", Target: "agent", Message: "new"},
 		}))
 
 		logs, _, err := s.QueryDeviceLogs(ctx, d.ID, LogFilter{Limit: 10})
@@ -809,21 +823,21 @@ func TestPostgresDeviceUpdates(t *testing.T) {
 	t.Run("create and list by version", func(t *testing.T) {
 		du := &DeviceUpdate{
 			DeviceID: device.ID,
-			Version:  "v1.2.3",
+			Version:  pgTestVersionV123,
 			Status:   UpdateStatusPending,
 		}
 		require.NoError(t, s.CreateDeviceUpdate(ctx, du))
 		assert.Greater(t, du.ID, int64(0))
 
-		list, err := s.ListDeviceUpdatesByVersion(ctx, "v1.2.3")
+		list, err := s.ListDeviceUpdatesByVersion(ctx, pgTestVersionV123)
 		require.NoError(t, err)
 		require.Len(t, list, 1)
 		assert.Equal(t, UpdateStatusPending, list[0].Status)
 	})
 
 	t.Run("update status", func(t *testing.T) {
-		require.NoError(t, s.UpdateDeviceUpdateStatus(ctx, device.ID, "v1.2.3", UpdateStatusSuccess, ""))
-		list, err := s.ListDeviceUpdatesByVersion(ctx, "v1.2.3")
+		require.NoError(t, s.UpdateDeviceUpdateStatus(ctx, device.ID, pgTestVersionV123, UpdateStatusSuccess, ""))
+		list, err := s.ListDeviceUpdatesByVersion(ctx, pgTestVersionV123)
 		require.NoError(t, err)
 		require.Len(t, list, 1)
 		assert.Equal(t, UpdateStatusSuccess, list[0].Status)
@@ -833,13 +847,13 @@ func TestPostgresDeviceUpdates(t *testing.T) {
 	t.Run("update status with error", func(t *testing.T) {
 		du := &DeviceUpdate{
 			DeviceID: device.ID,
-			Version:  "v2.0.0",
+			Version:  pgTestVersionV200,
 			Status:   UpdateStatusPending,
 		}
 		require.NoError(t, s.CreateDeviceUpdate(ctx, du))
-		require.NoError(t, s.UpdateDeviceUpdateStatus(ctx, device.ID, "v2.0.0", UpdateStatusFailed, "download error"))
+		require.NoError(t, s.UpdateDeviceUpdateStatus(ctx, device.ID, pgTestVersionV200, UpdateStatusFailed, "download error"))
 
-		list, err := s.ListDeviceUpdatesByVersion(ctx, "v2.0.0")
+		list, err := s.ListDeviceUpdatesByVersion(ctx, pgTestVersionV200)
 		require.NoError(t, err)
 		require.Len(t, list, 1)
 		assert.Equal(t, UpdateStatusFailed, list[0].Status)
