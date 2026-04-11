@@ -1223,6 +1223,83 @@ func TestDeviceHardwareCRUD(t *testing.T) {
 	})
 }
 
+func TestDB(t *testing.T) {
+	s := newTestStore(t)
+	assert.NotNil(t, s.DB(), "DB() should return underlying *sql.DB")
+}
+
+func TestListAllDevices(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	owner := seedUser(t, ctx, s)
+	g1 := seedGroup(t, ctx, s, owner.ID)
+	g2 := seedGroup(t, ctx, s, owner.ID)
+	d1 := seedDevice(t, ctx, s, g1.ID)
+	d2 := seedDevice(t, ctx, s, g2.ID)
+
+	devices, err := s.ListAllDevices(ctx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(devices), 2)
+
+	ids := make(map[uuid.UUID]bool)
+	for _, d := range devices {
+		ids[d.ID] = true
+	}
+	assert.True(t, ids[d1.ID], "should contain device from group 1")
+	assert.True(t, ids[d2.ID], "should contain device from group 2")
+}
+
+func TestUpdateDeviceGroup(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	owner := seedUser(t, ctx, s)
+	g1 := seedGroup(t, ctx, s, owner.ID)
+	g2 := seedGroup(t, ctx, s, owner.ID)
+	d := seedDevice(t, ctx, s, g1.ID)
+
+	t.Run("move to different group", func(t *testing.T) {
+		require.NoError(t, s.UpdateDeviceGroup(ctx, d.ID, g2.ID))
+		got, err := s.GetDevice(ctx, d.ID)
+		require.NoError(t, err)
+		assert.Equal(t, g2.ID, got.GroupID)
+	})
+
+	t.Run("clear group", func(t *testing.T) {
+		require.NoError(t, s.UpdateDeviceGroup(ctx, d.ID, uuid.Nil))
+		got, err := s.GetDevice(ctx, d.ID)
+		require.NoError(t, err)
+		assert.Equal(t, uuid.Nil, got.GroupID)
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		err := s.UpdateDeviceGroup(ctx, uuid.New(), g1.ID)
+		assert.True(t, errors.Is(err, ErrNotFound))
+	})
+}
+
+func TestListAllWebPushSubscriptions(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	u1 := seedUser(t, ctx, s)
+	u2 := seedUser(t, ctx, s)
+
+	sub1 := &WebPushSubscription{Endpoint: "https://push.example.com/u1", UserID: u1.ID, P256dh: "key1", Auth: "auth1"}
+	sub2 := &WebPushSubscription{Endpoint: "https://push.example.com/u2", UserID: u2.ID, P256dh: "key2", Auth: "auth2"}
+	require.NoError(t, s.UpsertWebPushSubscription(ctx, sub1))
+	require.NoError(t, s.UpsertWebPushSubscription(ctx, sub2))
+
+	all, err := s.ListAllWebPushSubscriptions(ctx)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, len(all), 2)
+
+	endpoints := make(map[string]bool)
+	for _, s := range all {
+		endpoints[s.Endpoint] = true
+	}
+	assert.True(t, endpoints[sub1.Endpoint])
+	assert.True(t, endpoints[sub2.Endpoint])
+}
+
 func TestWALMode(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "wal.db")
