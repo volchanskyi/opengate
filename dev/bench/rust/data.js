@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775935100708,
+  "lastUpdate": 1775936193125,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10559,6 +10559,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.88240235927791,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "02b1710b4b649b987800341fec40c3504d4c5fa7",
+          "message": "docs(claude): require one-shot SonarCloud fixes with three-endpoint fetch\n\nEncode the workflow lesson from the last two quality-gate rounds: every\nSonarCloud failure must be diagnosed by querying issues + hotspots +\nproject_status in parallel (they return disjoint data), and the diff\nmust be grepped for analogous patterns the project has fixed before\n(fmt.Sprintf on SQL, strings.Join on WHERE clauses, duplicated\nliterals) — not just the specific lines the scanner flagged. Also\nbans quiet suppression via ignore rules, NOSONAR, or //nolint without\nexplicit user approval.",
+          "timestamp": "2026-04-11T12:34:56-07:00",
+          "tree_id": "347c0d65f93ec19e038a9732e29463519ae6c5fd",
+          "url": "https://github.com/volchanskyi/opengate/commit/02b1710b4b649b987800341fec40c3504d4c5fa7"
+        },
+        "date": 1775936193071,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.346187881159636,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.535140344976785,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 735.9232230207865,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 328.2420775050702,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.858746148790612,
             "unit": "ns/iter"
           }
         ]
