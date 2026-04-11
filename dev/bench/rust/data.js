@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775899799873,
+  "lastUpdate": 1775900378526,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10265,6 +10265,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.06060538966101,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "44adffe8460cf13b0c7f33412e9796646f5c28d0",
+          "message": "refactor(db): build device-log query from SQL constants to clear SonarCloud hotspot\n\nThe previous QueryDeviceLogs implementation concatenated a dynamic WHERE\nclause into the final query string, which SonarCloud flagged as security\nhotspot go:S2077 (\"Formatting SQL queries is security-sensitive\"). The\nconcatenation was actually safe — only named columns were joined, every\nuser value went through placeholders — but shifting those lines into the\nnew-code period triggered the 100%-reviewed quality gate.\n\nReplace the dynamic builder with two compile-time SQL constants that\ncarry every filter as a `? = '' OR …` sentinel, so the full query text\nis static and Sonar's taint analysis is satisfied. Severity-based level\nfiltering (WARN matches WARN+ERROR) is preserved via the same CASE\nexpression, now embedded in the shared filter clause constant.\n\nExisting tests (filter_by_level, filter_by_level_severity_based,\ncombined_filters, filter_by_keyword, filter_by_time_range, pagination,\nno_entries_for_device) all still pass.",
+          "timestamp": "2026-04-11T02:38:01-07:00",
+          "tree_id": "9360b52d3b5da9721b8439499fc6f99ba0775b27",
+          "url": "https://github.com/volchanskyi/opengate/commit/44adffe8460cf13b0c7f33412e9796646f5c28d0"
+        },
+        "date": 1775900378475,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.22412917987164,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.65492791680361,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 727.5385827194814,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 326.61879747549676,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.371851162565328,
             "unit": "ns/iter"
           }
         ]
