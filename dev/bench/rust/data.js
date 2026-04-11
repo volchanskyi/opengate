@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775934265104,
+  "lastUpdate": 1775935100708,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10510,6 +10510,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.884562307060822,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b7bfe72f76a707d591acd7d73a3810013343cf43",
+          "message": "refactor(db): inline postgres device-log SQL and drop dynamic-schema test setup\n\nTwo SonarCloud go:S2077 hotspots remained on the dev branch:\n\n1. PostgresStore.QueryDeviceLogs built its WHERE clause with\n   fmt.Sprintf/strings.Join. Rewrite it to mirror the sqlite.go fix\n   (commit d076c54) — one static SQL literal per query with\n   `$n = '' OR ...` sentinel clauses guarding every optional filter.\n   Level filtering stays severity-based to match mesh-agent/src/logs.rs.\n\n2. newPostgresTestStore created a per-test schema via\n   `CREATE SCHEMA <uuid>` / `DROP SCHEMA <uuid> CASCADE`. Postgres\n   cannot parameterize identifiers, so the concatenation will always\n   trip the hotspot rule. Replace it with a single shared store,\n   seeded once via sync.Once, that resets state between tests with a\n   static-literal TRUNCATE ... RESTART IDENTITY CASCADE followed by a\n   re-seed of the built-in Administrators security group.\n\nTests in this file do not call t.Parallel(), so sequential reuse of\nthe shared store is safe. All 12 TestPostgres* functions (with ~50\nsub-tests) pass against a local postgres:16-alpine container.",
+          "timestamp": "2026-04-11T12:16:40-07:00",
+          "tree_id": "15a42c6cef72ebfa7c0040f11d82f000d46b2107",
+          "url": "https://github.com/volchanskyi/opengate/commit/b7bfe72f76a707d591acd7d73a3810013343cf43"
+        },
+        "date": 1775935100643,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.198897068716352,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.010802864001484,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.2705547402032,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 326.0934544725391,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.88240235927791,
             "unit": "ns/iter"
           }
         ]
