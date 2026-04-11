@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775878556786,
+  "lastUpdate": 1775879055992,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10118,6 +10118,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.01535958112088,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "5f12663e68418c324ffdc297099aeb6e18c61ff8",
+          "message": "fix(ci): parse Rust coverage % from lcov.info, not stdout\n\nThe previous implementation captured `cargo llvm-cov nextest --lcov\n--output-path` stdout and ran grep against it, but with --lcov set,\ncargo-llvm-cov only writes the LCOV report to the file and does not\nemit the text summary table, so PCT came out empty and the Rust\nbadge rendered as plain \"%\".\n\nSwitch to parsing lcov.info directly: sum LF (lines found) and LH\n(lines hit) across all SF sections and compute LH/LF*100. Verified\nlocally against agent/lcov.info — yields 86.3% line coverage.",
+          "timestamp": "2026-04-10T20:42:42-07:00",
+          "tree_id": "d632c5d8adeb619abed867f582f04342d4005019",
+          "url": "https://github.com/volchanskyi/opengate/commit/5f12663e68418c324ffdc297099aeb6e18c61ff8"
+        },
+        "date": 1775879055936,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.358172578606887,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.51572538621533,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 731.7073320113178,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 331.5118301925652,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.90133221930473,
             "unit": "ns/iter"
           }
         ]
