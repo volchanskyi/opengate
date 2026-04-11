@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775898029478,
+  "lastUpdate": 1775899799873,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10216,6 +10216,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.967793789274072,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "18b8fa7f2a218d129c0223683555c295c02dc5ce",
+          "message": "fix(device-logs): severity-based level filter + clear stale logs on device nav\n\n- SQL level filter was exact-match (level = ?), so selecting WARN hid ERROR\n  rows — diverging from the agent-side severity semantics in\n  mesh-agent/src/logs.rs. Replaced with a CASE-based severity comparison\n  (>= threshold) and added a sqlite_test case covering WARN → WARN+ERROR.\n\n- device-store.fetchDevice now clears selectedDevice/hardware/logs at the\n  top of the call, matching the pattern fetchHardware already uses. Fixes\n  stale logs from a previously viewed device leaking into DeviceLogs until\n  the user manually refetches.",
+          "timestamp": "2026-04-11T02:28:23-07:00",
+          "tree_id": "fe7553aa0eff43582c79f24004ee40603a2ba88b",
+          "url": "https://github.com/volchanskyi/opengate/commit/18b8fa7f2a218d129c0223683555c295c02dc5ce"
+        },
+        "date": 1775899799821,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.332075817985793,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.502674861305408,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 727.2206070733372,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 333.7521917173801,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.06060538966101,
             "unit": "ns/iter"
           }
         ]
