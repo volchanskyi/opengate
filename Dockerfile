@@ -16,7 +16,11 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /meshserver ./cmd/meshs
 
 # ---- Stage 3: Final image ----
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata \
+# Pull latest security fixes for base-image packages before installing extras,
+# so Trivy doesn't flag HIGH CVEs in libcrypto3/libssl3 etc. that are already
+# patched in the 3.20 repo.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache ca-certificates tzdata \
     && addgroup -S opengate && adduser -S opengate -G opengate \
     && mkdir -p /data && chown opengate:opengate /data
 COPY --from=server-build /meshserver /usr/local/bin/meshserver
