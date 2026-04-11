@@ -33,9 +33,9 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 
 ## Tests (all must pass)
 
-7. `cd server && go test -race -timeout 5m ./...` — Go tests (unit + integration, race detector)
+7. `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` — Go unit tests with coverage (also run `go test -race -timeout 5m ./tests/...` for integration tests)
 8. `cd agent && cargo test --workspace` — Rust tests (all crates)
-9. `cd web && npx vitest run` — Web tests
+9. `cd web && npx vitest run --coverage` — Web tests with coverage
 
 ## E2E tests (all must pass)
 
@@ -45,22 +45,44 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 
 11. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
 
+## Coverage (all must meet 80% threshold)
+
+12. **Go coverage** — Run `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` then filter and check:
+    ```
+    grep -v -E '/(testutil|metrics|mps/wsman)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
+    go tool cover -func=coverage-prod.out | grep total
+    ```
+    Total must be >= 80%.
+
+13. **Web coverage** — Run `cd web && npx vitest run --coverage` then check:
+    ```
+    node -e "const s=require('./coverage/coverage-summary.json');const l=s.total.lines.pct;console.log('Web line coverage: '+l+'%');process.exit(l<80?1:0)"
+    ```
+    Lines must be >= 80%.
+
+14. **Rust coverage** — Run locally:
+    ```
+    cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
+      --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)'
+    ```
+    Requires `cargo-llvm-cov` and `cargo-nextest` (`cargo install cargo-llvm-cov cargo-nextest`). Must be >= 80%.
+
 ## Benchmarks (all must run without errors)
 
-12. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-13. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+15. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+16. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ## Documentation (mandatory on every commit)
 
-14. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-15. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
+17. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+18. **GitHub Wiki** — Update the relevant wiki pages to reflect all changes. The wiki is the primary reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Add new pages or sections as needed when introducing new features, APIs, or architectural changes.
 
 ## Gate Criteria
 
 Do NOT commit if:
 - Any lint fails
 - Any test fails (unit, integration, or E2E)
-- New code coverage is below 80% or overall coverage below 70%
+- Go, Web, or Rust overall coverage is below 80% (steps 12-14)
 - Any benchmark errors out
 - Any security audit fails (high+ severity vulnerabilities)
 - Documentation is stale

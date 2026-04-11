@@ -34,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      coverage: ${{ steps.coverage.outputs.percentage }}
     defaults:
       run:
         working-directory: agent
@@ -79,10 +81,15 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate Rust coverage
+        id: coverage
         run: |
-          cargo llvm-cov nextest --workspace --lcov --output-path lcov.info \
+          OUTPUT=$(cargo llvm-cov nextest --workspace --lcov --output-path lcov.info \
             --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)' \
-            --fail-under-lines 80
+            --fail-under-lines 80 2>&1)
+          echo "$OUTPUT"
+          PCT=$(echo "$OUTPUT" | grep -oP '[\d.]+(?=% )' | tail -1)
+          echo "Rust coverage: $PCT%"
+          echo "percentage=$PCT" >> "$GITHUB_OUTPUT"
       - name: Upload Rust coverage
         uses: actions/upload-artifact@v7
         with:
@@ -164,7 +171,7 @@ jobs:
           echo "Unit test coverage: $TOTAL%"
           go tool cover -func=coverage-prod.out
           echo "percentage=$TOTAL" >> "$GITHUB_OUTPUT"
-          THRESHOLD=70
+          THRESHOLD=80
           if [ "$(echo "$TOTAL < $THRESHOLD" | bc)" -eq 1 ]; then
             echo "::error::Coverage $TOTAL% is below minimum threshold of $THRESHOLD%"
             exit 1
@@ -310,6 +317,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      coverage: ${{ steps.coverage.outputs.percentage }}
     defaults:
       run:
         working-directory: web
@@ -342,6 +351,17 @@ jobs:
             fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + '\n');
           "
           exit $EXIT_CODE
+      - name: Enforce coverage threshold
+        id: coverage
+        run: |
+          LINES=$(node -e "const s=require('./coverage/coverage-summary.json');console.log(s.total.lines.pct)")
+          echo "Web line coverage: $LINES%"
+          echo "percentage=$LINES" >> "$GITHUB_OUTPUT"
+          THRESHOLD=80
+          if [ "$(echo "$LINES < $THRESHOLD" | bc)" -eq 1 ]; then
+            echo "::error::Web coverage $LINES% is below minimum threshold of $THRESHOLD%"
+            exit 1
+          fi
       - name: Upload Web coverage
         uses: actions/upload-artifact@v7
         with:
@@ -912,7 +932,31 @@ jobs:
           message: ${{ needs.go-unit.outputs.coverage }}%
           valColorRange: ${{ needs.go-unit.outputs.coverage }}
           minColorRange: 75
-          maxColorRange: 85
+          maxColorRange: 90
+      - name: Update Rust coverage badge
+        if: github.ref == 'refs/heads/dev'
+        uses: schneegans/dynamic-badges-action@v1.8.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: cf505c74b56eab52c9497af517b53222
+          filename: opengate-rust-coverage.json
+          label: Rust Agent Coverage
+          message: ${{ needs.rust-test.outputs.coverage }}%
+          valColorRange: ${{ needs.rust-test.outputs.coverage }}
+          minColorRange: 75
+          maxColorRange: 90
+      - name: Update Web coverage badge
+        if: github.ref == 'refs/heads/dev'
+        uses: schneegans/dynamic-badges-action@v1.8.0
+        with:
+          auth: ${{ secrets.GIST_SECRET }}
+          gistID: cf505c74b56eab52c9497af517b53222
+          filename: opengate-web-coverage.json
+          label: Web Client Coverage
+          message: ${{ needs.web-unit.outputs.coverage }}%
+          valColorRange: ${{ needs.web-unit.outputs.coverage }}
+          minColorRange: 75
+          maxColorRange: 90
 
   auto-tag:
     name: Auto-tag release

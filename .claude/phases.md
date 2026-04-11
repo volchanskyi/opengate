@@ -39,6 +39,7 @@
 | SonarCloud Quality Gates | SonarCloud scanning, 3-language coverage, SARIF export, merge gating | — | [sonarcloud-quality-gates.md](plans/archive/sonarcloud-quality-gates.md) |
 | Dev Workflow Phase 3 | `/observe` skill — PromQL, LogQL, container health, WSL agent diagnostics, investigation playbooks | — | [developer-workflow-enhancement.md](plans/archive/developer-workflow-enhancement.md) |
 | Device Logs | On-demand log retrieval via QUIC control path, DB caching, REST API, React UI with filtering/pagination | — | [device-logs-feature.md](plans/device-logs-feature.md) |
+| Coverage 80% + Quality Gates | Go/Web coverage to 80%, CI thresholds, precommit enforcement, 3-language coverage badges, SonarCloud hard-fail | — | [coverage-80-flip-gates.md](plans/coverage-80-flip-gates.md) |
 
 ---
 
