@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775877352286,
+  "lastUpdate": 1775878556786,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10069,6 +10069,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.867494304554402,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "3d248e60a15fa8412b0f2d79fbfd2538bbaca049",
+          "message": "fix(docker): apk upgrade to patch HIGH libcrypto3 CVE-2026-28390\n\nTrivy image scan on the last build-and-push run flagged libcrypto3\n3.3.6-r0 (HIGH, CVE-2026-28390 — OpenSSL NULL pointer DoS) which\nis already fixed in 3.3.7-r0 in the Alpine 3.20 repo. Add\n`apk upgrade --no-cache` before installing ca-certificates/tzdata\nso the final image picks up all patched base packages.",
+          "timestamp": "2026-04-10T20:34:20-07:00",
+          "tree_id": "24dadf4e48d4b29c927bd6e71b6e651408cda843",
+          "url": "https://github.com/volchanskyi/opengate/commit/3d248e60a15fa8412b0f2d79fbfd2538bbaca049"
+        },
+        "date": 1775878556724,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.33825988769455,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.333691489074173,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 728.1103837333645,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 330.6198316254213,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.01535958112088,
             "unit": "ns/iter"
           }
         ]
