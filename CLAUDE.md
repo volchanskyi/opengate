@@ -71,6 +71,26 @@ Test Both Scenarios: positive cases (expected behavior) and negative cases (erro
 ## Post-Commit Refactoring
 **MANDATORY** — After all pre-commit checks pass, run `/refactor`. No exceptions.
 
+## SonarCloud Workflow
+**MANDATORY** — When a SonarCloud quality-gate failure lands on `dev`, fix **all** findings in **one** commit. Never push → wait → fix-one → push-again — each round trip wastes a CI cycle and fragments git history. SonarCloud has no local runner in this repo, so you must audit holistically before pushing.
+
+### Fetch everything, not just issues
+On the **first** failure, query all three SonarCloud endpoints in parallel. They return disjoint data:
+- `GET /api/issues/search?componentKeys=volchanskyi_opengate&branch=dev&resolved=false&inNewCodePeriod=true&ps=100` — code-smell / bug / vulnerability **issues**
+- `GET /api/hotspots/search?projectKey=volchanskyi_opengate&branch=dev&status=TO_REVIEW&inNewCodePeriod=true&ps=100` — **security hotspots** (separate endpoint, separate data)
+- `GET /api/qualitygates/project_status?projectKey=volchanskyi_opengate&branch=dev` — which gate **conditions** failed (hotspot-review %, coverage, duplication, ratings)
+
+The issues endpoint returning `total: 0` does **not** mean the gate is green. Hotspots and coverage live elsewhere. Always pull all three before deciding what to fix.
+
+### Audit the diff for analogous patterns
+Before pushing, grep the diff for patterns the project has fixed before. `git log --oneline --grep=SonarCloud --grep=sonar -i` shows past fixes — when a new file is added alongside an existing fixed file (e.g. `postgres.go` next to `sqlite.go`), the new file **will** re-introduce the same rule violations unless you search for them. Concrete patterns to grep on any new Go DB file:
+- `fmt\.Sprintf.*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP)` — `go:S2077` dynamic SQL hotspot
+- `strings\.Join.*(WHERE|AND|OR)` — same hotspot, different shape
+- 3+ identical string literals in one file — `go:S1192` duplicated literals
+
+### No suppression without approval
+Do **not** add `sonar.issue.ignore.multicriteria` entries, `// NOSONAR` comments, or `//nolint` escape hatches to clear the gate unless the user explicitly approves. Restructure the code so Sonar's pattern matcher sees static SQL / deduplicated literals / etc. The existing fixes in `sqlite.go` and `postgres.go` are reference patterns — copy them, don't bypass them.
+
 ## Commands
 - `make build` — build all components
 - `make test` — run all tests
