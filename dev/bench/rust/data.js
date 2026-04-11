@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775901160948,
+  "lastUpdate": 1775902321777,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10363,6 +10363,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.939746547049687,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "4df3df830d23a5fee81d5e3f10b4244b977cfeaf",
+          "message": "feat(db): add PostgreSQL backend alongside SQLite (Phase 13a PR-1/2)\n\nIntroduces a parallel PostgreSQL 17 store implementation sharing the\nexisting db.Store contract, with backend selection at server startup via\nDATABASE_URL (or -database-url). SQLite remains the default fallback so\nall current dev and test workflows keep working unchanged.\n\nBackend\n- New PostgresStore using pgx/v5/stdlib for database/sql compatibility,\n  with golang-migrate loading migrations from an embedded iofs FS under\n  server/internal/db/migrations/postgres/.\n- Full Store interface implementation using native Postgres types:\n  UUID and BIGINT GENERATED ALWAYS AS IDENTITY for keys, TIMESTAMPTZ\n  for timestamps, JSONB for hardware/capability payloads, and ON\n  CONFLICT ... DO UPDATE / DO NOTHING for upserts.\n- Size() returns pg_database_size(current_database()) for the\n  opengate_db_size_bytes metric; SQLite keeps its PRAGMA-based\n  computation, both behind a new DBSizer interface so metrics code is\n  backend-agnostic.\n- SQLite's embed.FS and runMigrations helper renamed to sqliteMigrationsFS\n  and runSQLiteMigrations so the two backends can coexist in the same\n  package without name collisions.\n\nmain.go\n- Adds -database-url flag and falls back to the DATABASE_URL env var.\n  When set, opens a PostgresStore (30s connect timeout); otherwise opens\n  the SQLite store at data-dir/opengate.db. A small dbStore interface\n  (db.Store + Size) lets both types flow through the rest of main\n  without reflection or type switches. Emits \"database opened\" with\n  backend=postgres|sqlite for visibility.\n\nTests\n- server/internal/db/postgres_test.go mirrors the SQLite suite for the\n  full Store contract: users, groups, devices, agent sessions, audit\n  events, web-push subs, AMT devices, enrollment tokens, hardware\n  inventory, device logs, update jobs, security groups + membership,\n  last-admin protection, cascade-on-user-delete, and pg_database_size.\n- Tests are gated on POSTGRES_TEST_URL; when unset they skip (so\n  existing `go test ./...` runs keep passing locally without Postgres).\n- Each test creates a unique schema via search_path and drops it in\n  t.Cleanup for parallel-safe isolation against a single PG instance.\n\nCI\n- go-unit job now spins up a postgres:17-alpine service container with\n  a pg_isready healthcheck and exports POSTGRES_TEST_URL pointing at\n  it, so the new Postgres tests run alongside the SQLite suite on every\n  push. Coverage stays above the 80% gate with CI exclusions.\n\nDocs\n- README: db/ line now mentions both backends, integration-tests line\n  covers SQLite/PostgreSQL, and the \"Running the server\" section shows\n  a DATABASE_URL example next to the default SQLite invocation.\n- .claude/plans/phase-13a-postgres-migration.md tracks the six-PR plan\n  (PR-1 and PR-2 are landing together here because the coverage-80 gate\n  makes stub methods non-viable).\n\nThis is the foundation for migrating staging and production to\nPostgreSQL in a fresh-start cutover; subsequent PRs add the dual-backend\ntest matrix, deploy infrastructure, cutover, and SQLite removal.",
+          "timestamp": "2026-04-11T03:08:56-07:00",
+          "tree_id": "b5d08b9ae7599ce0a2126b3ed3ae52c4f04047e8",
+          "url": "https://github.com/volchanskyi/opengate/commit/4df3df830d23a5fee81d5e3f10b4244b977cfeaf"
+        },
+        "date": 1775902321717,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.36874646429841,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.432416216593662,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 735.4063778968651,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 332.2910184851259,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.843513193732548,
             "unit": "ns/iter"
           }
         ]
