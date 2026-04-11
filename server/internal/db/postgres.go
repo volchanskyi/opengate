@@ -784,38 +784,53 @@ func (s *PostgresStore) UpsertDeviceLogs(ctx context.Context, deviceID DeviceID,
 }
 
 // QueryDeviceLogs returns filtered, paginated log entries and a total count.
+//
+// Both queries are inline string literals so Sonar's go:S2077 analyzer
+// recognizes them as static SQL (any const-time concatenation or
+// fmt.Sprintf still trips the hotspot rule). Every optional filter is
+// guarded by a `$n = ” OR ...` sentinel — no dynamic concatenation,
+// parameterized throughout. Level filtering is severity-based
+// (WARN matches WARN+ERROR) to mirror mesh-agent/src/logs.rs semantics.
+// Mirrors SQLiteStore.QueryDeviceLogs (see sqlite.go) byte-for-byte
+// except for the $n placeholder syntax.
 func (s *PostgresStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error) {
-	conditions := []string{"device_id = $1"}
-	args := []any{deviceID}
-	argN := 2
-
-	if filter.Level != "" {
-		conditions = append(conditions, fmt.Sprintf("level = $%d", argN))
-		args = append(args, filter.Level)
-		argN++
-	}
-	if filter.From != "" {
-		conditions = append(conditions, fmt.Sprintf("timestamp >= $%d", argN))
-		args = append(args, filter.From)
-		argN++
-	}
-	if filter.To != "" {
-		conditions = append(conditions, fmt.Sprintf("timestamp <= $%d", argN))
-		args = append(args, filter.To)
-		argN++
-	}
+	searchPattern := ""
 	if filter.Search != "" {
-		conditions = append(conditions, fmt.Sprintf("message LIKE $%d", argN))
-		args = append(args, "%"+filter.Search+"%")
-		argN++
+		searchPattern = "%" + filter.Search + "%"
 	}
 
-	where := strings.Join(conditions, " AND ")
+	filterArgs := []any{
+		deviceID,
+		filter.Level,
+		filter.From,
+		filter.To,
+		filter.Search, searchPattern,
+	}
 
 	// Count total matching entries.
 	var total int
-	countQuery := "SELECT COUNT(*) FROM device_logs WHERE " + where
-	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM device_logs
+		WHERE device_id = $1
+		  AND ($2 = '' OR (CASE level
+		        WHEN 'TRACE' THEN 0
+		        WHEN 'DEBUG' THEN 1
+		        WHEN 'INFO'  THEN 2
+		        WHEN 'WARN'  THEN 3
+		        WHEN 'ERROR' THEN 4
+		        ELSE -1
+		      END) >= (CASE $2
+		        WHEN 'TRACE' THEN 0
+		        WHEN 'DEBUG' THEN 1
+		        WHEN 'INFO'  THEN 2
+		        WHEN 'WARN'  THEN 3
+		        WHEN 'ERROR' THEN 4
+		        ELSE -1
+		      END))
+		  AND ($3 = '' OR timestamp >= $3)
+		  AND ($4 = '' OR timestamp <= $4)
+		  AND ($5 = '' OR message LIKE $6)`,
+		filterArgs...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count logs: %w", err)
 	}
 
@@ -825,12 +840,31 @@ func (s *PostgresStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, 
 		limit = 100
 	}
 
-	dataQuery := fmt.Sprintf(
-		"SELECT id, device_id, timestamp, level, target, message, fetched_at FROM device_logs WHERE %s ORDER BY timestamp DESC LIMIT $%d OFFSET $%d",
-		where, argN, argN+1)
-	dataArgs := append(args, limit, filter.Offset) //nolint:gocritic
-
-	rows, err := s.db.QueryContext(ctx, dataQuery, dataArgs...)
+	dataArgs := append(filterArgs, limit, filter.Offset) //nolint:gocritic
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, device_id, timestamp, level, target, message, fetched_at FROM device_logs
+		WHERE device_id = $1
+		  AND ($2 = '' OR (CASE level
+		        WHEN 'TRACE' THEN 0
+		        WHEN 'DEBUG' THEN 1
+		        WHEN 'INFO'  THEN 2
+		        WHEN 'WARN'  THEN 3
+		        WHEN 'ERROR' THEN 4
+		        ELSE -1
+		      END) >= (CASE $2
+		        WHEN 'TRACE' THEN 0
+		        WHEN 'DEBUG' THEN 1
+		        WHEN 'INFO'  THEN 2
+		        WHEN 'WARN'  THEN 3
+		        WHEN 'ERROR' THEN 4
+		        ELSE -1
+		      END))
+		  AND ($3 = '' OR timestamp >= $3)
+		  AND ($4 = '' OR timestamp <= $4)
+		  AND ($5 = '' OR message LIKE $6)
+		ORDER BY timestamp DESC
+		LIMIT $7 OFFSET $8`,
+		dataArgs...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query logs: %w", err)
 	}

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,10 +33,48 @@ const (
 	pgTestVersionV200  = "v2.0.0"
 )
 
-// newPostgresTestStore creates a fresh isolated Postgres schema for one test
-// and returns a store backed by it. The schema is created with a unique name,
-// set as the search_path, and dropped in t.Cleanup. This isolates each test
-// from siblings without needing to drop/recreate the whole database.
+// Shared Postgres store across all tests in this file. Using a single
+// long-lived store (rather than a per-test schema) lets us reset state via
+// static-literal TRUNCATE + seed statements — dynamic DDL like
+// `CREATE SCHEMA <name>` trips SonarCloud's go:S2077 hotspot rule and has
+// no way to be parameterized in Postgres (identifiers cannot use $n binds).
+//
+// Tests in this file do not call t.Parallel(), so sequential reuse is safe.
+var (
+	pgTestStoreOnce sync.Once
+	pgTestStore     *PostgresStore
+	pgTestStoreErr  error
+)
+
+// resetPGSQL truncates every user table and re-seeds the Administrators
+// security group (normally inserted by migration 001_initial.up.sql). The
+// statement is a single static literal so Sonar's go:S2077 analyzer
+// recognizes it as safe static SQL.
+const resetPGSQL = `
+TRUNCATE TABLE
+	device_logs,
+	device_hardware,
+	device_updates,
+	security_group_members,
+	security_groups,
+	enrollment_tokens,
+	amt_devices,
+	audit_events,
+	web_push_subscriptions,
+	agent_sessions,
+	devices,
+	groups_,
+	users
+RESTART IDENTITY CASCADE;
+
+INSERT INTO security_groups (id, name, description, is_system)
+VALUES ('00000000-0000-0000-0000-000000000001', 'Administrators', 'Full system access', TRUE)
+ON CONFLICT DO NOTHING;
+`
+
+// newPostgresTestStore returns a shared PostgresStore with all user tables
+// truncated and the built-in Administrators security group re-seeded, giving
+// each test function the same clean slate as a fresh migration run.
 //
 // The env var POSTGRES_TEST_URL is mandatory; tests skip when it is unset.
 func newPostgresTestStore(t *testing.T) *PostgresStore {
@@ -47,43 +85,20 @@ func newPostgresTestStore(t *testing.T) *PostgresStore {
 		t.Skipf("%s not set; skipping Postgres tests", postgresTestURLEnv)
 	}
 
-	// Unique schema name per test (first 8 chars of a UUID, lowercased).
-	schema := "t_" + strings.ReplaceAll(uuid.New().String()[:8], "-", "")
+	pgTestStoreOnce.Do(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		pgTestStore, pgTestStoreErr = NewPostgresStore(ctx, baseURL)
+	})
+	require.NoError(t, pgTestStoreErr)
+	require.NotNil(t, pgTestStore)
 
-	// Append search_path to URL so migrations + queries land in the new schema.
-	// Handle both forms: "...?sslmode=disable" and "...?" already present.
-	sep := "?"
-	if strings.Contains(baseURL, "?") {
-		sep = "&"
-	}
-	url := baseURL + sep + "search_path=" + schema
-
-	// First connect to the base URL (default schema) to create the isolated schema.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	_, err := pgTestStore.db.ExecContext(ctx, resetPGSQL)
+	require.NoError(t, err, "reset postgres test state")
 
-	setup, err := NewPostgresStore(ctx, baseURL)
-	require.NoError(t, err)
-	_, err = setup.db.ExecContext(ctx, "CREATE SCHEMA "+schema)
-	require.NoError(t, err)
-	// golang-migrate stores its state in schema_migrations in the current
-	// search_path, so setting it here lets the second NewPostgresStore migrate
-	// into the isolated schema instead of the default one.
-	require.NoError(t, setup.Close())
-
-	// Now open a second connection pinned to the new schema and run migrations there.
-	store, err := NewPostgresStore(ctx, url)
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		// Clean up: drop the whole schema cascade-style.
-		ctxCleanup, cancelCleanup := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancelCleanup()
-		_, _ = store.db.ExecContext(ctxCleanup, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE", schema))
-		_ = store.Close()
-	})
-
-	return store
+	return pgTestStore
 }
 
 // seedUserPG inserts a user into the given Postgres store and returns it.
