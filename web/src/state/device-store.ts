@@ -59,6 +59,9 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   fetchDevice: async (id) => {
+    // Reset per-device fields so stale data from a previously viewed device
+    // does not leak into this one while we wait for the fetch to complete.
+    set({ selectedDevice: null, hardware: null, logs: null });
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/{id}', { params: { path: { id } } }),
     );
