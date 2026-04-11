@@ -11,7 +11,7 @@ Remote device management platform.
 - **Server** (Go) — central hub with QUIC + WebSocket + REST API
 - **Web** (React/TypeScript) — browser-based management UI
 
-> See the [Wiki](https://github.com/volchanskyi/opengate/wiki) for architecture, wire protocol, CI pipeline, and other detailed documentation.
+> See [`docs/`](./docs/) for architecture, wire protocol, CI pipeline, and other detailed documentation. Start at [`docs/Home.md`](./docs/Home.md).
 >
 > [API Reference](https://volchanskyi.github.io/opengate/docs/api/) — interactive OpenAPI documentation (Scalar)
 

@@ -48,7 +48,6 @@
       "Bash(go vet:*)",
       "Bash(go test:*)",
       "Bash(npx vitest:*)",
-      "Read(//tmp/opengate-wiki/**)",
       "Bash(git remote:*)",
       "Bash(sudo apt-get:*)",
       "Bash(pip install:*)",
@@ -82,8 +81,6 @@
       "WebFetch(domain:meshcentral.com)",
       "WebFetch(domain:docs.netbird.io)"
     ],
-    "additionalDirectories": [
-      "/tmp/opengate-wiki"
-    ]
+    "additionalDirectories": []
   }
 }
