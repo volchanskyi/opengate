@@ -11,7 +11,7 @@ Remote device management platform.
 - **Server** (Go) — central hub with QUIC + WebSocket + REST API
 - **Web** (React/TypeScript) — browser-based management UI
 
-> See the [Wiki](https://github.com/volchanskyi/opengate/wiki) for architecture, wire protocol, CI pipeline, and other detailed documentation.
+> See [`docs/`](./docs/) for architecture, wire protocol, CI pipeline, and other detailed documentation. Start at [`docs/Home.md`](./docs/Home.md).
 >
 > [API Reference](https://volchanskyi.github.io/opengate/docs/api/) — interactive OpenAPI documentation (Scalar)
 
@@ -31,11 +31,16 @@ go build -o meshserver ./cmd/meshserver
 
 # JWT_SECRET is required — pass via flag or env var
 # OPENGATE_GITHUB_REPO enables auto-sync of agent manifests from GitHub Releases
+# DATABASE_URL (or -database-url) selects PostgreSQL; omit to use the SQLite fallback under -data-dir
 JWT_SECRET=changeme-must-be-at-least-32chars OPENGATE_GITHUB_REPO=volchanskyi/opengate ./meshserver \
   -listen :8080 \
   -quic-listen :9090 \
   -mps-listen :4433 \
   -data-dir ./data
+
+# PostgreSQL example (used by staging/production):
+DATABASE_URL=postgres://opengate:opengate@localhost:5432/opengate?sslmode=disable \
+JWT_SECRET=changeme-must-be-at-least-32chars ./meshserver -listen :8080
 ```
 
 Or run via Docker (multi-arch images published to GHCR on every push to `main`):
@@ -72,7 +77,7 @@ server/                      Go module
 │   ├── api/                 HTTP REST handlers (oapi-codegen strict server, chi v5)
 │   ├── auth/                JWT + bcrypt authentication
 │   ├── cert/                CA management, mTLS certificate signing (ECDSA P-256, RSA 2048 for MPS)
-│   ├── db/                  SQLite store, migrations (golang-migrate)
+│   ├── db/                  SQLite + PostgreSQL stores, migrations (golang-migrate)
 │   ├── mps/                 Intel AMT Management Presence Server (CIRA/APF over TLS)
 │   ├── protocol/            Go-side wire protocol codec + golden file verification
 │   ├── notifications/       Web Push notifications (VAPID, webpush-go), Notifier interface
@@ -83,7 +88,7 @@ server/                      Go module
 │   ├── clientapi/           Client-facing API helpers
 │   ├── multiserver/         Cross-server routing types
 │   └── testutil/            Shared test helpers (excluded from coverage metrics)
-├── tests/integration/       Integration test suite (real QUIC + SQLite)
+├── tests/integration/       Integration test suite (real QUIC + SQLite/PostgreSQL)
 api/openapi.yaml             OpenAPI 3.0.3 spec (single source of truth)
 docs/adr/                    Architecture Decision Records
 docs/api/                    Scalar API reference viewer

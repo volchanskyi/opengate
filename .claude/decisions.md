@@ -1,9 +1,11 @@
 # Architecture Decision Records
 
 <!-- Last updated: 2026-04-11 -->
-<!-- Compact index — full ADR text lives in the wiki: -->
-<!-- https://github.com/volchanskyi/opengate/wiki/Architecture-Decision-Records -->
-<!-- Add a new row here AND a full section in the wiki page for each new ADR. -->
+<!-- Compact index. Full ADR text lives in /docs: -->
+<!--   - ADR-001 through ADR-012: docs/Architecture-Decision-Records.md (frozen historical log) -->
+<!--   - ADR-013 onward:          docs/adr/ADR-NNN-title.md (one immutable file per decision) -->
+<!-- ADRs are immutable — never edit in place. If a decision changes, add a new ADR that supersedes the old one. -->
+<!-- See docs/README.md for the full convention. -->
 
 | ADR | Decision | Phase | Status |
 |-----|----------|-------|--------|
@@ -18,4 +20,5 @@
 | 009 | Cosign keyless signing for container images (GitHub OIDC) | CD-E | Accepted |
 | 010 | Separate `device_hardware` table for on-demand hardware inventory; `RestartAgent`/`RequestHardwareReport`/`HardwareReport` control messages | 12+ | Accepted |
 | 011 | On-demand device logs via control path (`RequestDeviceLogs`/`DeviceLogsResponse`/`DeviceLogsError`), individual rows in `device_logs` table with 5-min cache TTL, SQL-level filtering | — | Accepted |
-| 012 | SonarCloud quality gate as a hard merge block (coverage, code-smell, duplication, security hotspots) + SARIF export to GitHub Code Scanning | — | Accepted |
+| 012 | SonarCloud quality gate as hard merge block — Clean-as-You-Code model, coverage/ratings/hotspots enforced on new code | — | Accepted |
+| 013 | Docs live in-repo under `/docs`; wiki deprecated; link-over-paraphrase; ADRs immutable (supersede instead of edit) | — | Accepted |

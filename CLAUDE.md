@@ -6,14 +6,14 @@
 
 - [`.claude/phases.md`](.claude/phases.md) — implementation phases (completed / in-progress / planned)
 - [`.claude/techdebt.md`](.claude/techdebt.md) — known tech debt by severity
-- [`.claude/decisions.md`](.claude/decisions.md) — ADR index (full text in [wiki](https://github.com/volchanskyi/opengate/wiki/Architecture-Decision-Records))
+- [`.claude/decisions.md`](.claude/decisions.md) — ADR index (full ADR files in [`docs/adr/`](docs/adr/))
 
-**[Wiki](https://github.com/volchanskyi/opengate/wiki)** — The canonical developer documentation for the project. Covers architecture, API reference, wire protocol, platform abstraction, database, testing, CI/CD pipeline, continuous deployment, container images, monitoring, infrastructure, agent updates, security, and ADRs. Consult the wiki when you need context on how a system works before making changes. The wiki repo is cloned locally at `/home/ivan/opengate.wiki/` (push to `master` branch).
+**[`docs/`](docs/)** — The canonical developer documentation for the project. Covers architecture, API reference, wire protocol, platform abstraction, database, testing, CI/CD pipeline, continuous deployment, container images, monitoring, infrastructure, agent updates, security, and ADRs. Start at [`docs/Home.md`](docs/Home.md). **Read [`docs/README.md`](docs/README.md) before editing any docs** — it defines the two non-negotiable conventions: (1) **link, don't paraphrase** — do not copy numbers, versions, flags, or paths into prose, link to the source; (2) **ADRs are immutable** — superseded ADRs get a new file, never an in-place edit. The previous GitHub wiki is deprecated.
 
 **After completing any significant work**, update the relevant files:
 - Mark phases complete / update in-progress status in `phases.md`
 - Add or resolve debt items in `techdebt.md`
-- Record new architectural decisions in `decisions.md` (index row) AND the [wiki ADR page](https://github.com/volchanskyi/opengate/wiki/Architecture-Decision-Records) (full text)
+- Record new architectural decisions as a new immutable file in [`docs/adr/`](docs/adr/) AND add an index row in `decisions.md`. Never edit an accepted ADR in place — supersede it with a new ADR.
 
 **All agent plans** must be created in **this repo's** `.claude/plans/` directory (i.e. `/home/ivan/opengate/.claude/plans/`), **not** the global `~/.claude/plans/`. Use a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names. If plan mode suggests a path under `~/.claude/plans/`, ignore it and use the project-local path instead. Completed plans are archived to `.claude/plans/archive/`.
 
