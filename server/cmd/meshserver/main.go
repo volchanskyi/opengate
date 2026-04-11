@@ -26,11 +26,20 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
+// dbStore is the narrow interface main.go depends on: anything that implements
+// the full db.Store, reports its size to metrics, and can be closed on shutdown.
+// Both *db.SQLiteStore and *db.PostgresStore satisfy it.
+type dbStore interface {
+	db.Store
+	Size(ctx context.Context) (int64, error)
+}
+
 func main() {
 	listen := flag.String("listen", ":8080", "HTTP listen address")
 	quicListen := flag.String("quic-listen", ":9090", "QUIC listen address for agent connections")
 	mpsListen := flag.String("mps-listen", ":4433", "MPS TLS listen address for Intel AMT CIRA connections")
 	dataDir := flag.String("data-dir", "./data", "directory for database and certificates")
+	databaseURL := flag.String("database-url", "", "PostgreSQL connection URL (or DATABASE_URL env); when unset, SQLite is used")
 	jwtSecret := flag.String("jwt-secret", "", "JWT signing secret (or JWT_SECRET env)")
 	vapidContact := flag.String("vapid-contact", "", "VAPID contact email for web push (optional)")
 	webDir := flag.String("web-dir", "", "directory containing SPA static assets (optional)")
@@ -62,12 +71,38 @@ func main() {
 		os.Exit(1)
 	}
 
-	store, err := db.NewSQLiteStore(filepath.Join(*dataDir, "opengate.db"))
-	if err != nil {
-		logger.Error("open database", "error", err)
-		os.Exit(1)
+	// Backend selector: PostgreSQL when DATABASE_URL is set (flag or env),
+	// otherwise fall back to SQLite at dataDir/opengate.db.
+	pgURL := *databaseURL
+	if pgURL == "" {
+		pgURL = os.Getenv("DATABASE_URL")
+	}
+
+	var (
+		store  dbStore
+		dbKind string
+	)
+	if pgURL != "" {
+		pgCtx, pgCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		pgStore, err := db.NewPostgresStore(pgCtx, pgURL)
+		pgCancel()
+		if err != nil {
+			logger.Error("open postgres database", "error", err)
+			os.Exit(1)
+		}
+		store = pgStore
+		dbKind = "postgres"
+	} else {
+		sqliteStore, err := db.NewSQLiteStore(filepath.Join(*dataDir, "opengate.db"))
+		if err != nil {
+			logger.Error("open sqlite database", "error", err)
+			os.Exit(1)
+		}
+		store = sqliteStore
+		dbKind = "sqlite"
 	}
 	defer store.Close()
+	logger.Info("database opened", "backend", dbKind)
 
 	// Reset stale device statuses from previous run.
 	if err := store.ResetAllDeviceStatuses(context.Background()); err != nil {
@@ -167,7 +202,7 @@ func main() {
 		SignalingSuccesses:   sigTracker.SuccessCount,
 		SignalingFailures:    sigTracker.FailureCount,
 	}, 15*time.Second)
-	go appmetrics.StartDBSizeUpdater(ctx, appMetrics, store.DB(), logger, 60*time.Second)
+	go appmetrics.StartDBSizeUpdater(ctx, appMetrics, store, logger, 60*time.Second)
 
 	// Periodically sync agent manifests from GitHub releases (default: every hour).
 	if githubRepo != "" {
