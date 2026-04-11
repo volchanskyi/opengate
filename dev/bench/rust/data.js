@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775902321777,
+  "lastUpdate": 1775933450597,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10412,6 +10412,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.843513193732548,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "86e384a4c8ef9cbfddefd3d266ac8acc1a8da849",
+          "message": "docs: move wiki into repo, deprecate GitHub wiki, add drift-prevention\n\nADR-013. Move developer documentation from the separate opengate.wiki\nrepo into /docs in the main repo, to prevent the repeated drift incidents\nthat plagued the split-repo setup (70%/80% coverage threshold, SARIF\nremoval still described in wiki for weeks after commit 9236826, in-place\nADR-012 edits).\n\nThree linked changes, adopted together:\n\n1. /docs becomes the canonical docs location. All 15 wiki pages are\n   relocated under /docs with [[PageName]] markup converted to standard\n   relative markdown links. The GitHub wiki is emptied in a separate\n   commit on the wiki repo.\n\n2. Link-over-paraphrase convention (docs/README.md). Prose must not copy\n   numbers, versions, flags, or file paths — it must link to the source\n   of truth. Test: \"if the underlying code changes, would I need to come\n   back and edit this sentence?\"\n\n3. ADRs are immutable. Once accepted, ADRs are never edited in place.\n   Policy changes get a new superseding ADR. docs/Architecture-\n   Decision-Records.md is frozen as the historical log (ADR-001..012);\n   ADR-013+ live as per-file immutable records under docs/adr/.\n\nEnforcement: new /wiki-audit skill at .claude/skills/wiki-audit/ greps\nthe docs tree for drift-prone patterns (percentages, version pins, paths,\nconfig flags, port numbers, SonarCloud/SARIF claims) and verifies each\nhit against the source of truth. Auto-fixes unambiguous cases; flags\nthe rest. ADR drift is flagged, never auto-fixed.\n\nAlso cleans up stale wiki references in CLAUDE.md, README.md, the\nprecommit skill, and .claude/settings.json.",
+          "timestamp": "2026-04-11T11:49:16-07:00",
+          "tree_id": "25b63b3eff4635faec2b7b5030217a18169ae6c4",
+          "url": "https://github.com/volchanskyi/opengate/commit/86e384a4c8ef9cbfddefd3d266ac8acc1a8da849"
+        },
+        "date": 1775933450541,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 22.137879303014397,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.83686475218245,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 776.3160944731052,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 291.97911983584277,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.551278747416244,
             "unit": "ns/iter"
           }
         ]
