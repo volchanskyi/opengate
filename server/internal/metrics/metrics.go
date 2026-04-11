@@ -5,7 +5,6 @@ package metrics
 
 import (
 	"context"
-	"database/sql"
 	"log/slog"
 	"time"
 
@@ -102,7 +101,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		DBSizeBytes: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "opengate",
 			Name:      "db_size_bytes",
-			Help:      "SQLite database file size in bytes.",
+			Help:      "Database size in bytes (SQLite file size or Postgres pg_database_size).",
 		}),
 	}
 
@@ -173,25 +172,25 @@ func StartGaugeUpdater(ctx context.Context, m *Metrics, src GaugeSource, interva
 	}
 }
 
-// StartDBSizeUpdater periodically queries the SQLite database size and updates
-// the db_size_bytes gauge. It stops when the context is cancelled.
-func StartDBSizeUpdater(ctx context.Context, m *Metrics, rawDB *sql.DB, logger *slog.Logger, interval time.Duration) {
+// DBSizer returns the current on-disk database size in bytes.
+// Implementations should be backend-specific (SQLite PRAGMA or Postgres pg_database_size).
+type DBSizer interface {
+	Size(ctx context.Context) (int64, error)
+}
+
+// StartDBSizeUpdater periodically queries the database size via the provided
+// sizer and updates the db_size_bytes gauge. It stops when the context is cancelled.
+func StartDBSizeUpdater(ctx context.Context, m *Metrics, sizer DBSizer, logger *slog.Logger, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	update := func() {
-		var pageCount, pageSize int64
-		row := rawDB.QueryRowContext(ctx, "PRAGMA page_count")
-		if err := row.Scan(&pageCount); err != nil {
-			logger.Warn("metrics: failed to query page_count", "error", err)
+		size, err := sizer.Size(ctx)
+		if err != nil {
+			logger.Warn("metrics: failed to query database size", "error", err)
 			return
 		}
-		row = rawDB.QueryRowContext(ctx, "PRAGMA page_size")
-		if err := row.Scan(&pageSize); err != nil {
-			logger.Warn("metrics: failed to query page_size", "error", err)
-			return
-		}
-		m.DBSizeBytes.Set(float64(pageCount * pageSize))
+		m.DBSizeBytes.Set(float64(size))
 	}
 
 	update()

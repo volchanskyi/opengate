@@ -19,7 +19,7 @@ import (
 )
 
 //go:embed migrations/*.sql
-var migrationsFS embed.FS
+var sqliteMigrationsFS embed.FS
 
 // SQLiteStore implements Store using SQLite.
 type SQLiteStore struct {
@@ -34,7 +34,7 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	}
 	db.SetMaxOpenConns(1) // SQLite only supports one writer
 
-	if err := runMigrations(db); err != nil {
+	if err := runSQLiteMigrations(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrations: %w", err)
 	}
@@ -42,8 +42,8 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	return &SQLiteStore{db: db}, nil
 }
 
-func runMigrations(db *sql.DB) error {
-	sourceDriver, err := iofs.New(migrationsFS, "migrations")
+func runSQLiteMigrations(db *sql.DB) error {
+	sourceDriver, err := iofs.New(sqliteMigrationsFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("migration source: %w", err)
 	}
@@ -93,6 +93,19 @@ func (s *SQLiteStore) Close() error {
 // DB returns the underlying *sql.DB for direct queries (e.g. PRAGMA for metrics).
 func (s *SQLiteStore) DB() *sql.DB {
 	return s.db
+}
+
+// Size returns the current database file size in bytes, computed as
+// page_count * page_size (SQLite equivalent of on-disk file size).
+func (s *SQLiteStore) Size(ctx context.Context) (int64, error) {
+	var pageCount, pageSize int64
+	if err := s.db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
+		return 0, fmt.Errorf("query page_count: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize); err != nil {
+		return 0, fmt.Errorf("query page_size: %w", err)
+	}
+	return pageCount * pageSize, nil
 }
 
 // scanner abstracts *sql.Row and *sql.Rows for shared scan functions.
