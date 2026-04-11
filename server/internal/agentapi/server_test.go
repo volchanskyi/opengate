@@ -1,6 +1,7 @@
 package agentapi
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"testing"
@@ -15,24 +16,30 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-func TestAgentServer_ConnectedAgentCount_ZeroAtStart(t *testing.T) {
+// newTestAgentServer builds an AgentServer wired up with a temp cert manager,
+// in-memory store, noop notifier, and a default relay — everything callers need
+// to exercise AgentServer methods without QUIC listeners.
+func newTestAgentServer(t *testing.T) *AgentServer {
+	t.Helper()
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
+	return NewAgentServer(
+		cm,
+		testutil.NewTestStore(t),
+		relay.NewRelay(slog.Default()),
+		&notifications.NoopNotifier{},
+		"",
+		testLogger(),
+	)
+}
 
-	store := testutil.NewTestStore(t)
-	r := relay.NewRelay(slog.Default())
-
-	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", testLogger())
+func TestAgentServer_ConnectedAgentCount_ZeroAtStart(t *testing.T) {
+	srv := newTestAgentServer(t)
 	assert.Equal(t, 0, srv.ConnectedAgentCount())
 }
 
 func TestAgentServer_ReconnectRaceCondition(t *testing.T) {
-	cm, err := cert.NewManager(t.TempDir())
-	require.NoError(t, err)
-
-	store := testutil.NewTestStore(t)
-	r := relay.NewRelay(slog.Default())
-	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", testLogger())
+	srv := newTestAgentServer(t)
 
 	deviceID := protocol.DeviceID(uuid.New())
 
@@ -62,14 +69,50 @@ func TestAgentServer_ReconnectRaceCondition(t *testing.T) {
 	assert.Nil(t, srv.GetAgent(deviceID))
 }
 
+func TestAgentServer_ListConnectedAgents(t *testing.T) {
+	srv := newTestAgentServer(t)
+
+	// Empty at start
+	assert.Empty(t, srv.ListConnectedAgents())
+
+	// Add two connections
+	d1, d2 := uuid.New(), uuid.New()
+	srv.conns.Store(d1, &AgentConn{DeviceID: d1})
+	srv.conns.Store(d2, &AgentConn{DeviceID: d2})
+
+	agents := srv.ListConnectedAgents()
+	assert.Len(t, agents, 2)
+}
+
+func TestAgentServer_DeregisterAgent(t *testing.T) {
+	srv := newTestAgentServer(t)
+
+	t.Run("device not connected", func(t *testing.T) {
+		// Should not panic when agent is offline
+		srv.DeregisterAgent(context.Background(), uuid.New())
+	})
+
+	t.Run("device connected", func(t *testing.T) {
+		deviceID := uuid.New()
+		var buf bytes.Buffer
+		ac := &AgentConn{
+			DeviceID: deviceID,
+			stream:   &buf,
+			codec:    &protocol.Codec{},
+			logger:   testLogger(),
+		}
+		srv.conns.Store(deviceID, ac)
+
+		srv.DeregisterAgent(context.Background(), deviceID)
+
+		// Should be tombstoned
+		_, ok := srv.tombstones.Load(deviceID)
+		assert.True(t, ok, "device should be tombstoned")
+	})
+}
+
 func TestAgentServer_StopsOnContextCancel(t *testing.T) {
-	cm, err := cert.NewManager(t.TempDir())
-	require.NoError(t, err)
-
-	store := testutil.NewTestStore(t)
-	r := relay.NewRelay(slog.Default())
-
-	srv := NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", testLogger())
+	srv := newTestAgentServer(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -81,7 +124,7 @@ func TestAgentServer_StopsOnContextCancel(t *testing.T) {
 	// Give it a moment to start
 	cancel()
 
-	err = <-errCh
+	err := <-errCh
 	// Should return nil or context.Canceled
 	if err != nil {
 		assert.ErrorIs(t, err, context.Canceled)

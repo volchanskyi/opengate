@@ -21,6 +21,43 @@ func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
+// newTestAgentConn creates an AgentConn backed by an in-memory buffer for testing.
+// Returns the conn and the buffer so callers can read back what was written.
+func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store *db.SQLiteStore) (*AgentConn, *bytes.Buffer) {
+	t.Helper()
+	var buf bytes.Buffer
+	ac := &AgentConn{
+		DeviceID: deviceID,
+		stream:   &buf,
+		codec:    &protocol.Codec{},
+		store:    store,
+		logger:   testLogger(),
+	}
+	return ac, &buf
+}
+
+// writeControlMsg encodes a control message and writes it as a framed payload into buf.
+func writeControlMsg(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer, msg *protocol.ControlMessage) {
+	t.Helper()
+	payload, err := codec.EncodeControl(msg)
+	require.NoError(t, err)
+	require.NoError(t, codec.WriteFrame(buf, protocol.FrameControl, payload))
+}
+
+func TestNewAgentConn(t *testing.T) {
+	store := testutil.NewTestStore(t)
+	deviceID := uuid.New()
+	groupID := uuid.New()
+	var buf bytes.Buffer
+	logger := testLogger()
+
+	ac := NewAgentConn(deviceID, groupID, &buf, store, logger)
+	assert.Equal(t, deviceID, ac.DeviceID)
+	assert.Equal(t, groupID, ac.GroupID)
+	assert.NotNil(t, ac.codec)
+	assert.NotNil(t, ac.stream)
+}
+
 func TestAgentConn_HandleRegister(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := context.Background()
@@ -108,16 +145,7 @@ func TestAgentConn_HandleHeartbeat(t *testing.T) {
 }
 
 func TestAgentConn_SendSessionRequest(t *testing.T) {
-	codec := &protocol.Codec{}
-	var buf bytes.Buffer
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &buf,
-		codec:    codec,
-		store:    nil,
-		logger:   testLogger(),
-	}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
 	token := protocol.GenerateSessionToken()
 	perms := protocol.Permissions{
@@ -128,12 +156,11 @@ func TestAgentConn_SendSessionRequest(t *testing.T) {
 	err := ac.SendSessionRequest(context.Background(), token, "wss://relay/test", perms)
 	require.NoError(t, err)
 
-	// Decode what was written
-	frameType, payload, err := codec.ReadFrame(&buf)
+	frameType, payload, err := ac.codec.ReadFrame(buf)
 	require.NoError(t, err)
 	assert.Equal(t, byte(protocol.FrameControl), frameType)
 
-	decoded, err := codec.DecodeControl(payload)
+	decoded, err := ac.codec.DecodeControl(payload)
 	require.NoError(t, err)
 	assert.Equal(t, protocol.MsgSessionRequest, decoded.Type)
 	assert.Equal(t, token, decoded.Token)
@@ -144,65 +171,38 @@ func TestAgentConn_SendSessionRequest(t *testing.T) {
 }
 
 func TestAgentConn_SendRestartAgent(t *testing.T) {
-	codec := &protocol.Codec{}
-	var buf bytes.Buffer
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &buf,
-		codec:    codec,
-		store:    nil,
-		logger:   testLogger(),
-	}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
 	err := ac.SendRestartAgent(context.Background(), "restart requested from web UI")
 	require.NoError(t, err)
 
-	frameType, payload, err := codec.ReadFrame(&buf)
+	frameType, payload, err := ac.codec.ReadFrame(buf)
 	require.NoError(t, err)
 	assert.Equal(t, byte(protocol.FrameControl), frameType)
 
-	decoded, err := codec.DecodeControl(payload)
+	decoded, err := ac.codec.DecodeControl(payload)
 	require.NoError(t, err)
 	assert.Equal(t, protocol.MsgRestartAgent, decoded.Type)
 	assert.Equal(t, "restart requested from web UI", decoded.Reason)
 }
 
 func TestAgentConn_SendRequestHardwareReport(t *testing.T) {
-	codec := &protocol.Codec{}
-	var buf bytes.Buffer
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &buf,
-		codec:    codec,
-		store:    nil,
-		logger:   testLogger(),
-	}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
 	err := ac.SendRequestHardwareReport(context.Background())
 	require.NoError(t, err)
 
-	frameType, payload, err := codec.ReadFrame(&buf)
+	frameType, payload, err := ac.codec.ReadFrame(buf)
 	require.NoError(t, err)
 	assert.Equal(t, byte(protocol.FrameControl), frameType)
 
-	decoded, err := codec.DecodeControl(payload)
+	decoded, err := ac.codec.DecodeControl(payload)
 	require.NoError(t, err)
 	assert.Equal(t, protocol.MsgRequestHardwareReport, decoded.Type)
 }
 
 func TestAgentConn_SendRequestDeviceLogs(t *testing.T) {
-	codec := &protocol.Codec{}
-	var buf bytes.Buffer
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &buf,
-		codec:    codec,
-		store:    nil,
-		logger:   testLogger(),
-	}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
 	filter := db.LogFilter{
 		Level:  "ERROR",
@@ -216,11 +216,11 @@ func TestAgentConn_SendRequestDeviceLogs(t *testing.T) {
 	err := ac.SendRequestDeviceLogs(context.Background(), filter)
 	require.NoError(t, err)
 
-	frameType, payload, err := codec.ReadFrame(&buf)
+	frameType, payload, err := ac.codec.ReadFrame(buf)
 	require.NoError(t, err)
 	assert.Equal(t, byte(protocol.FrameControl), frameType)
 
-	decoded, err := codec.DecodeControl(payload)
+	decoded, err := ac.codec.DecodeControl(payload)
 	require.NoError(t, err)
 	assert.Equal(t, protocol.MsgRequestDeviceLogs, decoded.Type)
 	assert.Equal(t, "ERROR", decoded.LogLevel)
@@ -276,55 +276,23 @@ func TestAgentConn_HandleDeviceLogsResponse(t *testing.T) {
 }
 
 func TestAgentConn_HandleDeviceLogsError(t *testing.T) {
-	codec := &protocol.Codec{}
-
-	msg := &protocol.ControlMessage{
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
+	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type:     protocol.MsgDeviceLogsError,
 		AckError: "permission denied",
-	}
-	payload, err := codec.EncodeControl(msg)
-	require.NoError(t, err)
+	})
 
-	var frameBuf bytes.Buffer
-	err = codec.WriteFrame(&frameBuf, protocol.FrameControl, payload)
-	require.NoError(t, err)
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &frameBuf,
-		codec:    codec,
-		store:    nil,
-		logger:   testLogger(),
-	}
-
-	err = ac.handleControl(context.Background())
-	require.NoError(t, err)
+	require.NoError(t, ac.handleControl(context.Background()))
 }
 
 func TestAgentConn_HandleHardwareReportError(t *testing.T) {
-	codec := &protocol.Codec{}
-
-	msg := &protocol.ControlMessage{
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
+	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type:     protocol.MsgHardwareReportError,
 		AckError: "not supported",
-	}
-	payload, err := codec.EncodeControl(msg)
-	require.NoError(t, err)
+	})
 
-	var frameBuf bytes.Buffer
-	err = codec.WriteFrame(&frameBuf, protocol.FrameControl, payload)
-	require.NoError(t, err)
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &frameBuf,
-		codec:    codec,
-		store:    nil,
-		logger:   testLogger(),
-	}
-
-	err = ac.handleControl(context.Background())
-	require.NoError(t, err)
+	require.NoError(t, ac.handleControl(context.Background()))
 }
 
 func TestAgentConn_HandleHardwareReport(t *testing.T) {
@@ -420,25 +388,16 @@ func TestAgentConn_HandleRegister_NormalizesOS(t *testing.T) {
 }
 
 func TestAgentConn_SendAgentUpdate(t *testing.T) {
-	codec := &protocol.Codec{}
-	var buf bytes.Buffer
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &buf,
-		codec:    codec,
-		store:    nil,
-		logger:   testLogger(),
-	}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
 	err := ac.SendAgentUpdate(context.Background(), "0.3.0", "https://example.com/agent", "sha256hash", "sig123")
 	require.NoError(t, err)
 
-	frameType, payload, err := codec.ReadFrame(&buf)
+	frameType, payload, err := ac.codec.ReadFrame(buf)
 	require.NoError(t, err)
 	assert.Equal(t, byte(protocol.FrameControl), frameType)
 
-	decoded, err := codec.DecodeControl(payload)
+	decoded, err := ac.codec.DecodeControl(payload)
 	require.NoError(t, err)
 	assert.Equal(t, protocol.MsgAgentUpdate, decoded.Type)
 	assert.Equal(t, "0.3.0", decoded.Version)
@@ -448,25 +407,16 @@ func TestAgentConn_SendAgentUpdate(t *testing.T) {
 }
 
 func TestAgentConn_SendAgentDeregistered(t *testing.T) {
-	codec := &protocol.Codec{}
-	var buf bytes.Buffer
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &buf,
-		codec:    codec,
-		store:    nil,
-		logger:   testLogger(),
-	}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
 	err := ac.SendAgentDeregistered(context.Background(), "device deleted")
 	require.NoError(t, err)
 
-	frameType, payload, err := codec.ReadFrame(&buf)
+	frameType, payload, err := ac.codec.ReadFrame(buf)
 	require.NoError(t, err)
 	assert.Equal(t, byte(protocol.FrameControl), frameType)
 
-	decoded, err := codec.DecodeControl(payload)
+	decoded, err := ac.codec.DecodeControl(payload)
 	require.NoError(t, err)
 	assert.Equal(t, protocol.MsgAgentDeregistered, decoded.Type)
 	assert.Equal(t, "device deleted", decoded.Reason)
@@ -474,8 +424,7 @@ func TestAgentConn_SendAgentDeregistered(t *testing.T) {
 
 func TestAgentConn_Close(t *testing.T) {
 	t.Run("stream without closer", func(t *testing.T) {
-		var buf bytes.Buffer
-		ac := &AgentConn{stream: &buf, logger: testLogger()}
+		ac, _ := newTestAgentConn(t, uuid.New(), nil)
 		assert.NoError(t, ac.Close())
 	})
 }
@@ -548,89 +497,40 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 }
 
 func TestAgentConn_HandleSessionAcceptReject(t *testing.T) {
-	codec := &protocol.Codec{}
-
 	t.Run("session accept", func(t *testing.T) {
-		msg := &protocol.ControlMessage{
+		ac, buf := newTestAgentConn(t, uuid.New(), nil)
+		writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 			Type:  protocol.MsgSessionAccept,
 			Token: protocol.GenerateSessionToken(),
-		}
-		payload, err := codec.EncodeControl(msg)
-		require.NoError(t, err)
-
-		var frameBuf bytes.Buffer
-		require.NoError(t, codec.WriteFrame(&frameBuf, protocol.FrameControl, payload))
-
-		ac := &AgentConn{
-			DeviceID: uuid.New(),
-			stream:   &frameBuf,
-			codec:    codec,
-			logger:   testLogger(),
-		}
+		})
 		require.NoError(t, ac.handleControl(context.Background()))
 	})
 
 	t.Run("session reject", func(t *testing.T) {
-		msg := &protocol.ControlMessage{
+		ac, buf := newTestAgentConn(t, uuid.New(), nil)
+		writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 			Type:   protocol.MsgSessionReject,
 			Token:  protocol.GenerateSessionToken(),
 			Reason: "not supported",
-		}
-		payload, err := codec.EncodeControl(msg)
-		require.NoError(t, err)
-
-		var frameBuf bytes.Buffer
-		require.NoError(t, codec.WriteFrame(&frameBuf, protocol.FrameControl, payload))
-
-		ac := &AgentConn{
-			DeviceID: uuid.New(),
-			stream:   &frameBuf,
-			codec:    codec,
-			logger:   testLogger(),
-		}
+		})
 		require.NoError(t, ac.handleControl(context.Background()))
 	})
 }
 
 func TestAgentConn_HandlePingFrame(t *testing.T) {
-	codec := &protocol.Codec{}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
+	require.NoError(t, ac.codec.WriteFrame(buf, protocol.FramePing, nil))
 
-	var frameBuf bytes.Buffer
-	require.NoError(t, codec.WriteFrame(&frameBuf, protocol.FramePing, nil))
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &frameBuf,
-		codec:    codec,
-		logger:   testLogger(),
-	}
-
-	err := ac.handleControl(context.Background())
-	require.NoError(t, err)
+	require.NoError(t, ac.handleControl(context.Background()))
 }
 
 func TestAgentConn_HandleUnknownMessage(t *testing.T) {
-	codec := &protocol.Codec{}
-
-	msg := &protocol.ControlMessage{
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
+	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type: protocol.MsgAgentUpdate,
-	}
-	payload, err := codec.EncodeControl(msg)
-	require.NoError(t, err)
+	})
 
-	var frameBuf bytes.Buffer
-	err = codec.WriteFrame(&frameBuf, protocol.FrameControl, payload)
-	require.NoError(t, err)
-
-	ac := &AgentConn{
-		DeviceID: uuid.New(),
-		stream:   &frameBuf,
-		codec:    codec,
-		store:    nil,
-		logger:   testLogger(),
-	}
-
-	err = ac.handleControl(context.Background())
+	err := ac.handleControl(context.Background())
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, ErrUnexpectedMessage))
 }
