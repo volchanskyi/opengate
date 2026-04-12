@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775972240454,
+  "lastUpdate": 1776020212458,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10902,6 +10902,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.61480659985787,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b3bbcb1d29d88ad43b3b3f1e42288c95d629cb59",
+          "message": "fix(deploy): save previous tag before overwriting .env for rollback\n\nThe CD workflow overwrites .env with `cat >` before calling deploy.sh,\nso deploy.sh always saw CURRENT_TAG == TAG and never saved .previous-tag.\nMove the save step into cd.yml before the env file write, ensuring\nrollback.sh always has a valid tag to restore on failure.",
+          "timestamp": "2026-04-12T11:55:24-07:00",
+          "tree_id": "0c8ec22eb6fd4d4dbcc64e878e2c9acd784be77b",
+          "url": "https://github.com/volchanskyi/opengate/commit/b3bbcb1d29d88ad43b3b3f1e42288c95d629cb59"
+        },
+        "date": 1776020212402,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.478432636967998,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.592063645584094,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 780.101047647501,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 296.42783429198454,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.565216108516957,
             "unit": "ns/iter"
           }
         ]
