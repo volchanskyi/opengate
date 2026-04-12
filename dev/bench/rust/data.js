@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776020212458,
+  "lastUpdate": 1776020574450,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10951,6 +10951,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.565216108516957,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "664f74102ae18224011abb395ad0dae095385d43",
+          "message": "feat(deploy): staging + production cutover preparation (Phase 13a PR-5)\n\nMark Phase 13a as in-progress in phases.md, fix stale \"SQLite DB\"\nlegend in the DB Performance Grafana dashboard, and document the\nPostgres rollback path in rollback.sh. No SQLite-specific deploy\nsteps remain in the CD workflow or deploy scripts — both environments\nare ready to run against PostgreSQL.",
+          "timestamp": "2026-04-12T12:01:09-07:00",
+          "tree_id": "20cb4c6bcba0938e2516c98286664fab5f86c7f8",
+          "url": "https://github.com/volchanskyi/opengate/commit/664f74102ae18224011abb395ad0dae095385d43"
+        },
+        "date": 1776020574388,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.340463793521458,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.42878415894143,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 749.1768067985851,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 328.6373835726333,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.873935108483188,
             "unit": "ns/iter"
           }
         ]
