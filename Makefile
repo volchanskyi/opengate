@@ -1,4 +1,4 @@
-.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic
+.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick
 
 build:
 	cd agent && cargo build --workspace
@@ -84,6 +84,32 @@ load-test:
 
 load-test-quic:
 	cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
+
+sonar-coverage:
+	cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
+	cd agent && cargo llvm-cov nextest --workspace --lcov --output-path lcov.info \
+		--ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)'
+	cd web && npx vitest run --coverage
+
+sonar: sonar-coverage
+	@test -n "$$SONAR_TOKEN" || { echo "ERROR: SONAR_TOKEN not set. Export it or add to .env"; exit 1; }
+	docker run --rm \
+		-e SONAR_TOKEN="$$SONAR_TOKEN" \
+		-v "$$(pwd):/usr/src" \
+		-w /usr/src \
+		sonarsource/sonar-scanner-cli:latest \
+		-Dsonar.qualitygate.wait=true \
+		-Dsonar.branch.name=dev
+
+sonar-quick:
+	@test -n "$$SONAR_TOKEN" || { echo "ERROR: SONAR_TOKEN not set. Export it or add to .env"; exit 1; }
+	docker run --rm \
+		-e SONAR_TOKEN="$$SONAR_TOKEN" \
+		-v "$$(pwd):/usr/src" \
+		-w /usr/src \
+		sonarsource/sonar-scanner-cli:latest \
+		-Dsonar.qualitygate.wait=true \
+		-Dsonar.branch.name=dev
 
 clean:
 	cd agent && cargo clean
