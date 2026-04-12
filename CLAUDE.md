@@ -72,7 +72,10 @@ Test Both Scenarios: positive cases (expected behavior) and negative cases (erro
 **MANDATORY** — After all pre-commit checks pass, run `/refactor`. No exceptions.
 
 ## SonarCloud Workflow
-**MANDATORY** — When a SonarCloud quality-gate failure lands on `dev`, fix **all** findings in **one** commit. Never push → wait → fix-one → push-again — each round trip wastes a CI cycle and fragments git history. SonarCloud has no local runner in this repo, so you must audit holistically before pushing.
+**MANDATORY** — When a SonarCloud quality-gate failure lands on `dev`, fix **all** findings in **one** commit. Never push → wait → fix-one → push-again — each round trip wastes a CI cycle and fragments git history.
+
+### Local SonarCloud scan
+Run `make sonar` (full scan with coverage) or `make sonar-quick` (code-quality only, no coverage generation) before pushing to catch issues locally. Requires Docker and `SONAR_TOKEN` set in the environment or in `.env` (gitignored). Generate a User Token at sonarcloud.io/account/security scoped to the `volchanskyi` organization.
 
 ### Fetch everything, not just issues
 On the **first** failure, query all three SonarCloud endpoints in parallel. They return disjoint data:
@@ -97,5 +100,8 @@ Do **not** add `sonar.issue.ignore.multicriteria` entries, `// NOSONAR` comments
 - `make lint` — clippy + go vet + eslint + actionlint
 - `make golden` — cross-language compatibility check
 - `make e2e` — run Playwright end-to-end tests
+- `make sonar` — full local SonarCloud scan (generates coverage + runs scanner via Docker)
+- `make sonar-quick` — code-quality-only SonarCloud scan (no coverage generation)
+- `make sonar-coverage` — generate all coverage files for SonarCloud
 - `cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go` — regenerate Go API from OpenAPI spec
 - `cd web && npm run generate:api` — regenerate TypeScript types from OpenAPI spec

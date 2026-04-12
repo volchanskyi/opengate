@@ -67,15 +67,19 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
     ```
     Requires `cargo-llvm-cov` and `cargo-nextest` (`cargo install cargo-llvm-cov cargo-nextest`). Must be >= 80%.
 
+## SonarCloud local scan (run if SONAR_TOKEN available)
+
+15. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (in environment or `.env`). **Skip if token not configured** — this step is best-effort since not all environments will have the token.
+
 ## Benchmarks (all must run without errors)
 
-15. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-16. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+16. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+17. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ## Documentation (mandatory on every commit)
 
-17. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-18. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
+18. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+19. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
 
 ## Gate Criteria
 
@@ -83,6 +87,7 @@ Do NOT commit if:
 - Any lint fails
 - Any test fails (unit, integration, or E2E)
 - Go, Web, or Rust overall coverage is below 80% (steps 12-14)
+- SonarCloud quality gate fails (step 15, if token configured)
 - Any benchmark errors out
 - Any security audit fails (high+ severity vulnerabilities)
 - Documentation is stale
