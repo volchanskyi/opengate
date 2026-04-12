@@ -159,6 +159,9 @@ jobs:
           VAPID_CONTACT: ${{ secrets.DEPLOY_STAGING_VAPID_CONTACT }}
           POSTGRES_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
         run: |
+          ssh deploy-target "grep -oP '^IMAGE_TAG=\K.*' ${{ env.DEPLOY_DIR }}/.env.staging 2>/dev/null \
+            > ${{ env.DEPLOY_DIR }}/.previous-tag-staging || true"
+
           printf '%s\n' \
             "IMAGE_TAG=${{ env.IMAGE_TAG }}" \
             "JWT_SECRET=${JWT_SECRET}" \
@@ -338,6 +341,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
         run: |
+          ssh deploy-target "grep -oP '^IMAGE_TAG=\K.*' ${{ env.DEPLOY_DIR }}/.env 2>/dev/null \
+            > ${{ env.DEPLOY_DIR }}/.previous-tag || true"
+
           printf '%s\n' \
             "IMAGE_TAG=${{ env.IMAGE_TAG }}" \
             "JWT_SECRET=${JWT_SECRET}" \
