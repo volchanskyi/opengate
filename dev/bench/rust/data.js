@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775965403346,
+  "lastUpdate": 1775965609100,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10657,6 +10657,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.063652299898184,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9665a957c8c9f49843a51cf4f9a6160ff09697fd",
+          "message": "refactor(db): replace append-alias with explicit copy to remove nolint\n\nEliminate //nolint:gocritic (appendAssign) in both postgres.go and\nsqlite.go QueryDeviceLogs by building dataArgs via make+copy instead\nof appending to the filterArgs slice. Prevents accidental aliasing.",
+          "timestamp": "2026-04-11T20:45:09-07:00",
+          "tree_id": "0abc0a57ac38918de9a4bfb2bd9013fbd3596c7d",
+          "url": "https://github.com/volchanskyi/opengate/commit/9665a957c8c9f49843a51cf4f9a6160ff09697fd"
+        },
+        "date": 1775965609046,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.026555661582623,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.02055471274197,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 696.3085987036106,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 314.32969659839614,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.356933476984455,
             "unit": "ns/iter"
           }
         ]
