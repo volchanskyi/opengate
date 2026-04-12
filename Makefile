@@ -34,7 +34,8 @@ lint: lint-deploy
 	actionlint
 
 DEPLOY_DUMMY_ENV := JWT_SECRET=dummy AMT_USER=admin AMT_PASS=dummy \
-	VAPID_CONTACT=dummy IMAGE_TAG=latest DOMAIN=example.com
+	VAPID_CONTACT=dummy IMAGE_TAG=latest DOMAIN=example.com \
+	POSTGRES_PASSWORD=dummy
 
 lint-deploy:
 	@command -v yamllint >/dev/null 2>&1 || { echo "ERROR: yamllint not found. Install with: pip install yamllint"; exit 1; }
@@ -45,7 +46,7 @@ lint-deploy:
 	@command -v tflint >/dev/null 2>&1 || { echo "ERROR: tflint not found. Install from: https://github.com/terraform-linters/tflint"; exit 1; }
 	tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact
 	cd deploy && $(DEPLOY_DUMMY_ENV) docker compose config --quiet
-	cd deploy && $(DEPLOY_DUMMY_ENV) STAGING_JWT_SECRET=dummy \
+	cd deploy && $(DEPLOY_DUMMY_ENV) STAGING_JWT_SECRET=dummy STAGING_POSTGRES_PASSWORD=dummy \
 	  docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet
 	cd deploy && docker compose -f docker-compose.test.yml config --quiet
 	@command -v caddy >/dev/null 2>&1 || { echo "ERROR: caddy not found. Install from: https://caddyserver.com/docs/install"; exit 1; }

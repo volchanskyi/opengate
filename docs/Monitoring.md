@@ -2,51 +2,60 @@
 
 ## Overview
 
-OpenGate uses a fully self-hosted observability stack deployed alongside the application on the same VPS. Total resource usage: ~405 MB RAM (3.3% of 12 GB), ~3 GB disk.
+OpenGate uses a fully self-hosted observability stack deployed alongside the application on the same VPS. Total resource usage: ~425 MB RAM (3.5% of 12 GB), ~3 GB disk.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  VPS (ARM64, 12 GB RAM, 50 GB disk)                             │
-│                                                                 │
-│  ┌──────────────┐    scrape /metrics    ┌───────────────────┐   │
-│  │ OpenGate     │◄─────────────────────│ VictoriaMetrics   │   │
-│  │ Server :8080 │   every 15s           │ :8428             │   │
-│  └──────┬───────┘                       │ (metrics DB)      │   │
-│         │ stdout logs                   └────────┬──────────┘   │
-│         ▼                                        │              │
-│  ┌──────────────┐    push logs    ┌─────────┐    │ query        │
-│  │ Docker       │◄───────────────│Promtail │    │              │
-│  │ /var/lib/    │  (reads JSON   │(log      │    │              │
-│  │ docker/      │   container    │ shipper) │    │              │
-│  │ containers/  │   logs)        └────┬─────┘    │              │
-│  └──────────────┘                     │          │              │
-│                                       │ push     │              │
-│  ┌──────────────┐    scrape :9100     ▼          ▼              │
-│  │ Node         │◄──────────────┐ ┌─────────┐ ┌────────────┐   │
-│  │ Exporter     │  (VM scrapes) │ │  Loki   │ │  Grafana   │   │
-│  │ (host        │               │ │  :3100  │ │  :3000     │   │
-│  │  metrics)    │               │ │ (log DB)│ │ (dashboard │   │
-│  └──────────────┘               │ └────┬────┘ │  + alerts) │   │
-│                                 │      │      └─────┬──────┘   │
-│                                 │      │ query      │          │
-│                                 │      └────────────┘          │
-│                                 │               │              │
-│  ┌──────────────┐               │               │ alert        │
-│  │ Uptime Kuma  │               │               ▼              │
-│  │ :3001        │               │        ┌─────────────┐       │
-│  │ (status page)│               │        │ Telegram    │       │
-│  └──────────────┘               │        │ Bot API     │       │
-│                                 │        └─────────────┘       │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  VPS (ARM64, 12 GB RAM, 50 GB disk)                                  │
+│                                                                      │
+│  ┌──────────────┐    scrape /metrics    ┌───────────────────┐        │
+│  │ OpenGate     │◄─────────────────────│ VictoriaMetrics   │        │
+│  │ Server :8080 │   every 15s           │ :8428             │        │
+│  └──────┬───────┘                       │ (metrics DB)      │        │
+│         │ stdout logs                   └──┬──────┬─────────┘        │
+│         ▼                                  │      │                  │
+│  ┌──────────────┐    push logs    ┌────────┘      │ query            │
+│  │ Docker       │◄───────────────│Promtail │      │                  │
+│  │ /var/lib/    │  (reads JSON   │(log      │     │                  │
+│  │ docker/      │   container    │ shipper) │     │                  │
+│  │ containers/  │   logs)        └────┬─────┘     │                  │
+│  └──────────────┘                     │           │                  │
+│                                       │ push      │                  │
+│  ┌──────────────┐    scrape :9100     ▼           ▼                  │
+│  │ Node         │◄──────────────┐ ┌─────────┐ ┌────────────┐        │
+│  │ Exporter     │  (VM scrapes) │ │  Loki   │ │  Grafana   │        │
+│  │ (host        │               │ │  :3100  │ │  :3000     │        │
+│  │  metrics)    │               │ │ (log DB)│ │ (dashboard │        │
+│  └──────────────┘               │ └────┬────┘ │  + alerts) │        │
+│                                 │      │      └─────┬──────┘        │
+│  ┌──────────────┐  scrape :9187 │      │ query      │               │
+│  │ Postgres     │◄──────────────┘      └────────────┘               │
+│  │ Exporter     │                                   │               │
+│  │ :9187        │                                   │ alert          │
+│  └──────┬───────┘                                   ▼               │
+│         │ SQL queries                        ┌─────────────┐        │
+│         ▼                                    │ Telegram    │        │
+│  ┌──────────────┐                            │ Bot API     │        │
+│  │ PostgreSQL   │                            └─────────────┘        │
+│  │ :5432        │                                                    │
+│  └──────────────┘                                                    │
+│                                                                      │
+│  ┌──────────────┐                                                    │
+│  │ Uptime Kuma  │                                                    │
+│  │ :3001        │                                                    │
+│  │ (status page)│                                                    │
+│  └──────────────┘                                                    │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
 
 | Flow | From | To | Protocol |
 |------|------|----|----------|
-| Metrics collection | VictoriaMetrics | OpenGate Server, Node Exporter | HTTP scrape (pull, every 15s) |
+| Metrics collection | VictoriaMetrics | OpenGate Server, Node Exporter, Postgres Exporter | HTTP scrape (pull, every 15s) |
+| Postgres metrics | Postgres Exporter | PostgreSQL | SQL queries over app network |
 | Log collection | Promtail | Loki | HTTP push |
 | Dashboard queries | Grafana | VictoriaMetrics | PromQL over HTTP |
 | Log queries | Grafana | Loki | LogQL over HTTP |
@@ -58,7 +67,7 @@ OpenGate uses a fully self-hosted observability stack deployed alongside the app
 Two Docker networks isolate traffic:
 
 - **`monitoring`** (bridge) — all 6 monitoring containers communicate here
-- **`app`** (`opengate_default`, external) — only VictoriaMetrics and Uptime Kuma join this network so they can reach the OpenGate server container by name (`opengate-server:8080`)
+- **`app`** (`opengate_default`, external) — VictoriaMetrics, Postgres Exporter, and Uptime Kuma join this network so they can reach the OpenGate server and postgres containers by name
 
 Grafana does not need the app network — it only talks to VictoriaMetrics and Loki, both on the monitoring network.
 
@@ -70,6 +79,7 @@ Grafana does not need the app network — it only talks to VictoriaMetrics and L
 | Grafana OSS | `grafana/grafana-oss:11.6.0` | ~120 MB | Dashboards, unified alerting |
 | Loki | `grafana/loki:3.5.0` | ~100 MB | Log aggregation (LogQL) |
 | Promtail | `grafana/promtail:3.5.0` | ~40 MB | Docker log collection → Loki |
+| Postgres Exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | ~20 MB | PostgreSQL metrics (connections, transactions, cache hit ratio) |
 | Node Exporter | `prom/node-exporter:v1.9.1` | ~15 MB | Host system metrics (CPU, RAM, disk, network) |
 | Uptime Kuma | `louislam/uptime-kuma:1` | ~60 MB | Uptime monitoring, public status page |
 
@@ -83,18 +93,21 @@ All monitoring containers have memory and CPU limits:
 | Grafana | 256 MB | 0.5 |
 | Loki | 256 MB | 0.5 |
 | Promtail | 128 MB | 0.25 |
+| Postgres Exporter | 64 MB | 0.25 |
 | Node Exporter | 64 MB | 0.25 |
 | Uptime Kuma | 256 MB | 0.25 |
 
 ### Component Details
 
-**VictoriaMetrics** (:8428) — Time-series metrics database. Pulls (scrapes) numeric metrics from two targets every 15s: OpenGate server at `:8080/metrics` (HTTP rates, latencies, connected agents, relay sessions, DB stats, Go runtime) and Node Exporter at `:9100` (host CPU, memory, disk, network). Also scrapes itself every 30s for self-monitoring. 30-day retention.
+**VictoriaMetrics** (:8428) — Time-series metrics database. Pulls (scrapes) numeric metrics from three targets every 15s: OpenGate server at `:8080/metrics` (HTTP rates, latencies, connected agents, relay sessions, DB stats, Go runtime), Node Exporter at `:9100` (host CPU, memory, disk, network), and Postgres Exporter at `:9187` (connections, transactions, cache hit ratio, database size). Also scrapes itself every 30s for self-monitoring. 30-day retention.
 
-**Grafana** (:3000) — Visualization and alerting engine. Queries VictoriaMetrics (PromQL) and Loki (LogQL) to render two provisioned dashboards (OpenGate Overview and DB Performance). Runs 6 alert rules evaluated every 1m against VictoriaMetrics data. Sends alert notifications to Telegram. Accessed via SSH tunnel only (localhost-bound, no Caddy proxy).
+**Grafana** (:3000) — Visualization and alerting engine. Queries VictoriaMetrics (PromQL) and Loki (LogQL) to render three provisioned dashboards (OpenGate Overview, DB Performance, and PostgreSQL). Runs 6 alert rules evaluated every 1m against VictoriaMetrics data. Sends alert notifications to Telegram. Accessed via SSH tunnel only (localhost-bound, no Caddy proxy).
 
 **Loki** (:3100) — Log aggregation database. Receives log streams pushed by Promtail and stores them with 14-day retention. Grafana queries Loki to display and search container logs. Uses TSDB schema (v13) with filesystem storage.
 
 **Promtail** — Log shipper (no exposed port). Reads Docker container logs from `/var/lib/docker/containers/` via Docker socket service discovery. Filters to only `opengate-*` containers, parses JSON log fields (level, msg, component), and pushes structured log streams to Loki. Ingestion limit: 4 MB/s, burst 8 MB/s.
+
+**Postgres Exporter** (:9187) — PostgreSQL metrics exporter. Connects to the OpenGate Postgres instance via `DATA_SOURCE_NAME` and exposes database metrics at `:9187/metrics` for VictoriaMetrics to scrape. Provides connection counts, transaction rates, tuple operations, cache hit ratios, and database size. Joins the app network to reach the postgres container.
 
 **Node Exporter** (:9100) — Host metrics exporter. Reads from `/proc`, `/sys`, and `/` (mounted read-only) and exposes OS-level metrics at `:9100/metrics` for VictoriaMetrics to scrape. Provides data for the disk usage and memory usage alert rules.
 
@@ -129,6 +142,7 @@ The monitoring compose connects to the app's Docker network (`opengate_default`)
 | Uptime Kuma status page | Public at `https://status.{domain}` | 443 |
 | VictoriaMetrics | Internal Docker network only | 8428 |
 | Loki | Internal Docker network only | 3100 |
+| Postgres Exporter | Internal Docker network only | 9187 |
 | Node Exporter | Internal Docker network only | 9100 |
 
 No new ports are opened in the OCI security list or UFW. All monitoring UIs are localhost-only via SSH tunnel.
@@ -153,7 +167,7 @@ The server exposes a `/metrics` endpoint on port `:8080` (same router as the RES
 | `opengate_signaling_upgrades_total` | Counter | `result` | Signaling tracker |
 | `opengate_db_query_duration_seconds` | Histogram | `operation` | InstrumentedStore |
 | `opengate_db_queries_total` | Counter | `operation`, `status` | InstrumentedStore |
-| `opengate_db_size_bytes` | Gauge | — | SQLite PRAGMA |
+| `opengate_db_size_bytes` | Gauge | — | Database size query |
 | Go runtime (`go_goroutines`, `go_memstats_*`, etc.) | Various | — | Go collector |
 | Process (`process_cpu_seconds_total`, `process_open_fds`) | Various | — | Process collector |
 
@@ -171,6 +185,7 @@ Dashboards are provisioned as code from `deploy/grafana/provisioning/dashboards/
 |-----------|-----|---------|
 | OpenGate Overview | `opengate-overview` | HTTP rate/latency, connected agents, relay sessions, MPS devices, signaling, goroutines, memory, DB size |
 | DB Performance | `opengate-db-perf` | Query rate by operation, error rate, p50/p95/p99 duration, slowest operations, DB size trend |
+| PostgreSQL | `opengate-postgres` | Postgres up, database size, active connections, uptime, TPS (commits/rollbacks), tuple operations, cache hit ratio, connections by state |
 
 ## Alerting
 
@@ -224,7 +239,8 @@ deploy/
         ├── dashboards/
         │   ├── dashboards.yml       # Dashboard provider config
         │   ├── opengate-overview.json
-        │   └── db-performance.json
+        │   ├── db-performance.json
+        │   └── postgres.json
         └── alerting/
             ├── alert-rules.yml
             ├── contact-points.yml
@@ -236,6 +252,7 @@ deploy/
 | Secret | Location | How to Obtain |
 |--------|----------|---------------|
 | `GF_SECURITY_ADMIN_PASSWORD` | `.env.monitoring` on VPS | Choose a password |
+| `POSTGRES_PASSWORD` | `.env.monitoring` on VPS | Must match the main stack's `POSTGRES_PASSWORD` |
 | `TELEGRAM_BOT_TOKEN` | `.env.monitoring` on VPS + GitHub Secret | Create bot via @BotFather on Telegram |
 | `TELEGRAM_CHAT_ID` | `.env.monitoring` on VPS + GitHub Secret | Send message to bot, call `getUpdates` API |
 
