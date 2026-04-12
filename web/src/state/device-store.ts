@@ -23,6 +23,7 @@ interface DeviceState {
   fetchGroups: () => Promise<void>;
   fetchDevices: (groupId?: string) => Promise<void>;
   fetchDevice: (id: string) => Promise<void>;
+  refreshDevice: (id: string) => Promise<void>;
   selectGroup: (id: string | null) => void;
   createGroup: (name: string) => Promise<void>;
   deleteGroup: (id: string) => Promise<void>;
@@ -64,6 +65,13 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     set({ selectedDevice: null, hardware: null, logs: null });
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/{id}', { params: { path: { id } } }),
+    );
+    if (res.ok) set({ selectedDevice: res.data });
+  },
+
+  refreshDevice: async (id) => {
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/devices/{id}', { params: { path: { id } } }), false,
     );
     if (res.ok) set({ selectedDevice: res.data });
   },

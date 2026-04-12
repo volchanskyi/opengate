@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useUpdateStore } from '../../state/update-store';
+import { useToastStore } from '../../state/toast-store';
 import { isTokenExpired, isTokenExhausted } from '../../lib/token-status';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
@@ -10,14 +11,38 @@ export function AgentUpdates() {
   const fetchEnrollmentTokens = useUpdateStore((s) => s.fetchEnrollmentTokens);
   const createEnrollmentToken = useUpdateStore((s) => s.createEnrollmentToken);
   const deleteEnrollmentToken = useUpdateStore((s) => s.deleteEnrollmentToken);
+  const cleanupInactiveTokens = useUpdateStore((s) => s.cleanupInactiveTokens);
+  const addToast = useToastStore((s) => s.addToast);
 
   const [showTokenForm, setShowTokenForm] = useState(false);
   const [tokenForm, setTokenForm] = useState({ label: '', max_uses: 0, expires_in_hours: 24 });
   const [revealedTokens, setRevealedTokens] = useState<Set<string>>(new Set());
+  const [confirmCleanup, setConfirmCleanup] = useState(false);
+  const [cleaningUp, setCleaningUp] = useState(false);
+
+  const inactiveCount = enrollmentTokens.filter(
+    (t) => isTokenExpired(t.expires_at) || isTokenExhausted(t.max_uses, t.use_count),
+  ).length;
 
   useEffect(() => {
     fireAndForget(fetchEnrollmentTokens());
   }, [fetchEnrollmentTokens]);
+
+  let cleanupButtonLabel = `Cleanup Tokens (${inactiveCount})`;
+  if (cleaningUp) cleanupButtonLabel = 'Cleaning...';
+  else if (confirmCleanup) cleanupButtonLabel = `Confirm (${inactiveCount})`;
+
+  const handleCleanup = async () => {
+    if (!confirmCleanup) {
+      setConfirmCleanup(true);
+      return;
+    }
+    setCleaningUp(true);
+    const count = await cleanupInactiveTokens();
+    addToast(`Removed ${count} inactive token${count !== 1 ? 's' : ''}`, 'success');
+    setCleaningUp(false);
+    setConfirmCleanup(false);
+  };
 
   const handleCreateToken = async (e: React.SyntheticEvent) => {
     e.preventDefault();
@@ -58,12 +83,23 @@ export function AgentUpdates() {
       <section>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-lg font-semibold">Enrollment Tokens</h3>
-          <button
-            onClick={() => setShowTokenForm(!showTokenForm)}
-            className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm"
-          >
-            Create Token
-          </button>
+          <div className="flex items-center gap-2">
+            {inactiveCount > 0 && (
+              <button
+                onClick={() => { fireAndForget(handleCleanup()); }}
+                disabled={cleaningUp}
+                className="px-3 py-1 bg-red-600 hover:bg-red-500 disabled:opacity-50 rounded text-sm"
+              >
+                {cleanupButtonLabel}
+              </button>
+            )}
+            <button
+              onClick={() => setShowTokenForm(!showTokenForm)}
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-sm"
+            >
+              Create Token
+            </button>
+          </div>
         </div>
 
         {showTokenForm && (

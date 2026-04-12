@@ -40,6 +40,7 @@ export function DeviceDetail() {
   const restartAgent = useDeviceStore((s) => s.restartAgent);
   const hardware = useDeviceStore((s) => s.hardware);
   const fetchHardware = useDeviceStore((s) => s.fetchHardware);
+  const refreshDevice = useDeviceStore((s) => s.refreshDevice);
   const upgradeAgent = useDeviceStore((s) => s.upgradeAgent);
   const manifests = useUpdateStore((s) => s.manifests);
   const fetchManifests = useUpdateStore((s) => s.fetchManifests);
@@ -62,11 +63,12 @@ export function DeviceDetail() {
   }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchManifests]);
 
   // Poll device data every 30s so agent_version and status stay in sync.
+  // Uses refreshDevice (not fetchDevice) to preserve hardware/logs state.
   useEffect(() => {
     if (!id) return;
-    const interval = setInterval(() => { fireAndForget(fetchDevice(id)); }, 30_000);
+    const interval = setInterval(() => { fireAndForget(refreshDevice(id)); }, 30_000);
     return () => clearInterval(interval);
-  }, [id, fetchDevice]);
+  }, [id, refreshDevice]);
 
   const amtDevice = device ? amtDevices.find((a) => a.hostname === device.hostname) : undefined;
 

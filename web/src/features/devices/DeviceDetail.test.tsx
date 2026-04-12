@@ -55,6 +55,7 @@ describe('DeviceDetail', () => {
       groups: [],
       selectedGroupId: null,
       fetchDevice: vi.fn(),
+      refreshDevice: vi.fn(),
       fetchGroups: vi.fn(),
       deleteDevice: vi.fn(),
       upgradeAgent: vi.fn().mockResolvedValue(true),
@@ -124,17 +125,17 @@ describe('DeviceDetail', () => {
   });
 
   it('polls device data every 30 seconds', () => {
-    const fetchDeviceFn = vi.fn();
-    useDeviceStore.setState({ fetchDevice: fetchDeviceFn });
+    const refreshDeviceFn = vi.fn();
+    useDeviceStore.setState({ refreshDevice: refreshDeviceFn });
     renderDetail();
 
-    expect(fetchDeviceFn).toHaveBeenCalledTimes(1);
+    expect(refreshDeviceFn).toHaveBeenCalledTimes(0);
 
     vi.advanceTimersByTime(30_000);
-    expect(fetchDeviceFn).toHaveBeenCalledTimes(2);
+    expect(refreshDeviceFn).toHaveBeenCalledTimes(1);
 
     vi.advanceTimersByTime(30_000);
-    expect(fetchDeviceFn).toHaveBeenCalledTimes(3);
+    expect(refreshDeviceFn).toHaveBeenCalledTimes(2);
   });
 
   it('shows error toast when session creation fails', async () => {
