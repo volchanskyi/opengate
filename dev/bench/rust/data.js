@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775969784433,
+  "lastUpdate": 1775971504536,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10755,6 +10755,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.774834289788103,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "0baeba634ad68dfbfc72c15911b9b3e9cdad7601",
+          "message": "feat(web): fix polling state reset, add token cleanup, improve dashboard tiles\n\n- Add refreshDevice() to device store for background polling without\n  wiping logs/hardware state (fixes data loss on 30s poll cycle)\n- Add bulk cleanup button for expired/exhausted enrollment tokens\n  with two-click confirmation and toast feedback\n- Make Total Devices tile clickable (links to /devices), remove\n  redundant View All Devices button, add colored tile accents",
+          "timestamp": "2026-04-11T22:23:17-07:00",
+          "tree_id": "0037244d49f82e038401f398136c5402edb955df",
+          "url": "https://github.com/volchanskyi/opengate/commit/0baeba634ad68dfbfc72c15911b9b3e9cdad7601"
+        },
+        "date": 1775971504491,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.348163222145743,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.37988799326739,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 729.4658127046155,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 323.51869834576956,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.100136590743123,
             "unit": "ns/iter"
           }
         ]
