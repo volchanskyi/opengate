@@ -164,6 +164,26 @@ The three rating conditions (Reliability / Security / Maintainability = A) impli
 
 Gate enforcement is done with `-Dsonar.qualitygate.wait=true` on the scan action — the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. A failed `sonarcloud` job blocks the auto-merge to `main`. SonarCloud.io itself is the authoritative console for findings; there is no SARIF export or duplication into the GitHub Code Scanning tab (a previous SARIF upload step was removed in commit [9236826](https://github.com/volchanskyi/opengate/commit/9236826) because dismissed-fingerprint matching kept new alerts invisible).
 
+### Local SonarCloud Analysis
+
+The same SonarCloud scan that runs in CI can be executed locally using the `sonarsource/sonar-scanner-cli` Docker image. This catches code smells, bugs, security hotspots, duplication, and coverage gate failures before pushing.
+
+**Prerequisites:**
+- Docker running
+- `SONAR_TOKEN` — a SonarCloud User Token scoped to the `volchanskyi` organization. Generate one at sonarcloud.io/account/security. Set it via environment variable or in `.env` at the repo root (gitignored).
+
+**Makefile targets:**
+
+| Target | What it does | When to use |
+|--------|-------------|-------------|
+| `make sonar` | Generates all 3 coverage files, then runs the scanner | Before pushing — full CI parity |
+| `make sonar-quick` | Runs the scanner without regenerating coverage | Quick check for code quality issues only |
+| `make sonar-coverage` | Generates coverage files without running the scanner | When you only need coverage reports |
+
+All targets reuse the existing `sonar-project.properties` configuration. The scanner runs with `-Dsonar.qualitygate.wait=true` and `-Dsonar.branch.name=dev`, matching CI behavior. Results appear on the SonarCloud dashboard under the `dev` branch analysis.
+
+**Note:** The first run pulls the `sonarsource/sonar-scanner-cli` Docker image (~600 MB). Subsequent runs use the cached image. An active internet connection is required since the analysis runs against SonarCloud (not a local SonarQube instance).
+
 ## Failure Notifications
 
 The `notify-failure` job runs when any upstream job fails on `push`, `schedule`, or `workflow_dispatch` events (PR failures are excluded — those are expected WIP). It uses the `gh` CLI (no third-party actions) to create GitHub Issues with enough detail to triage without opening the Actions tab.
