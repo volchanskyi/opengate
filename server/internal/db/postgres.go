@@ -788,11 +788,11 @@ func (s *PostgresStore) UpsertDeviceLogs(ctx context.Context, deviceID DeviceID,
 // Both queries are inline string literals so Sonar's go:S2077 analyzer
 // recognizes them as static SQL (any const-time concatenation or
 // fmt.Sprintf still trips the hotspot rule). Every optional filter is
-// guarded by a `$n = ” OR ...` sentinel — no dynamic concatenation,
+// guarded by a `$N = '' OR ...` sentinel — no dynamic concatenation,
 // parameterized throughout. Level filtering is severity-based
 // (WARN matches WARN+ERROR) to mirror mesh-agent/src/logs.rs semantics.
 // Mirrors SQLiteStore.QueryDeviceLogs (see sqlite.go) byte-for-byte
-// except for the $n placeholder syntax.
+// except for the $N placeholder syntax.
 func (s *PostgresStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error) {
 	searchPattern := ""
 	if filter.Search != "" {
@@ -840,7 +840,10 @@ func (s *PostgresStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, 
 		limit = 100
 	}
 
-	dataArgs := append(filterArgs, limit, filter.Offset) //nolint:gocritic
+	dataArgs := make([]any, len(filterArgs)+2)
+	copy(dataArgs, filterArgs)
+	dataArgs[len(filterArgs)] = limit
+	dataArgs[len(filterArgs)+1] = filter.Offset
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, device_id, timestamp, level, target, message, fetched_at FROM device_logs
 		WHERE device_id = $1

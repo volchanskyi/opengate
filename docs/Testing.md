@@ -2,6 +2,26 @@
 
 The project follows a strict test-first approach. All logic is covered before shipping, the Go test runner always uses `-race`, and every test gets its own ephemeral database — no shared state between test cases.
 
+### Dual-Backend Database Tests
+
+The `db.Store` contract is verified against both SQLite and PostgreSQL using a factory pattern in `server/internal/db/store_test.go`. Each shared test runs once per backend via `storeFactories`:
+
+- **SQLite** — ephemeral temp-dir database per test (always runs)
+- **PostgreSQL** — shared store with per-test `TRUNCATE ... CASCADE` isolation (runs when `POSTGRES_TEST_URL` is set)
+
+SQLite-specific tests (corrupt UUID/timestamp scanning, WAL mode, DB accessor) live in `sqlite_only_test.go`. To run both backends locally:
+
+```bash
+# Start a test Postgres instance
+docker run -d --rm --name opengate-pg-test \
+  -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate \
+  -p 55432:5432 postgres:17-alpine
+
+# Run with both backends
+POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:55432/opengate?sslmode=disable" \
+  go test -race -timeout 5m ./internal/db/...
+```
+
 ## Test Layers
 
 ```
