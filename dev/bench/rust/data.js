@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775971504536,
+  "lastUpdate": 1775971565647,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10804,6 +10804,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.100136590743123,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "68b9c161a76d8f002e4922872a7669f56910d9b2",
+          "message": "fix(ci): add POSTGRES_PASSWORD to Docker Compose validation env\n\nThe postgres-backup service requires POSTGRES_PASSWORD, which was\nmissing from the Config Lint job's env block after the Phase 13a\nPostgreSQL migration added the backup service.",
+          "timestamp": "2026-04-11T22:24:21-07:00",
+          "tree_id": "2f7066ce02290c6905f265166981879b1621a428",
+          "url": "https://github.com/volchanskyi/opengate/commit/68b9c161a76d8f002e4922872a7669f56910d9b2"
+        },
+        "date": 1775971565592,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.340101785085542,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.88121114899033,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 591.6278705303558,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 307.7536977313524,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.348264291511622,
             "unit": "ns/iter"
           }
         ]
