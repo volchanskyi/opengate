@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775965609100,
+  "lastUpdate": 1775969784433,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10706,6 +10706,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.356933476984455,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "2c8c214c7a6223168b8e269b17f885893b865664",
+          "message": "feat(deploy): add PostgreSQL service, backups, and monitoring (Phase 13a PR-4)\n\nAdd PostgreSQL 17, daily pg_dump backup sidecar, and Postgres Exporter\nto the production and staging Docker Compose stacks. Update the CD\nworkflow to inject POSTGRES_PASSWORD secrets and copy init.sql. Add a\nprovisioned Grafana dashboard for PostgreSQL metrics (connections, TPS,\ncache hit ratio, tuple operations). Update deploy validation, monitoring\ndocs, and infrastructure docs to reflect the new services.",
+          "timestamp": "2026-04-11T21:54:39-07:00",
+          "tree_id": "dd1b4fa8d103f2be3e634cfdddc19d35ebf0c16f",
+          "url": "https://github.com/volchanskyi/opengate/commit/2c8c214c7a6223168b8e269b17f885893b865664"
+        },
+        "date": 1775969784374,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.244757735244523,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.865325091026737,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 598.4639315774144,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 302.8397316435353,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.774834289788103,
             "unit": "ns/iter"
           }
         ]
