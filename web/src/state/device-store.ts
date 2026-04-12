@@ -35,6 +35,20 @@ interface DeviceState {
   upgradeAgent: (deviceId: string, version: string, os: string, arch: string) => Promise<boolean>;
 }
 
+async function retryHardwareFetch(set: (partial: Partial<DeviceState>) => void, id: string) {
+  try {
+    const retry = await apiAction(set, () =>
+      api.GET('/api/v1/devices/{id}/hardware', { params: { path: { id } } }), false,
+    );
+    if (retry.ok) set({ hardware: retry.data });
+  } catch (err) {
+    useToastStore.getState().addToast(
+      `Failed to refresh hardware: ${err instanceof Error ? err.message : String(err)}`,
+      'error',
+    );
+  }
+}
+
 export const useDeviceStore = create<DeviceState>((set, get) => ({
   devices: [],
   groups: [],
@@ -145,23 +159,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       set({ hardware: res.data });
     } else {
       // 202 (report requested) or 404 — retry once after 2s in case the agent responds
-      setTimeout(() => {
-        fireAndForget((async () => {
-          try {
-            const retry = await apiAction(set, () =>
-              api.GET('/api/v1/devices/{id}/hardware', {
-                params: { path: { id } },
-              }), false,
-            );
-            if (retry.ok) set({ hardware: retry.data });
-          } catch (err) {
-            useToastStore.getState().addToast(
-              `Failed to refresh hardware: ${err instanceof Error ? err.message : String(err)}`,
-              'error',
-            );
-          }
-        })());
-      }, 2000);
+      setTimeout(() => { fireAndForget(retryHardwareFetch(set, id)); }, 2000);
     }
   },
 

@@ -4,6 +4,16 @@ import { useToastStore } from '../../state/toast-store';
 import { isTokenExpired, isTokenExhausted } from '../../lib/token-status';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
+function TokenStatusBadge({ expiresAt, maxUses, useCount }: { readonly expiresAt: string; readonly maxUses: number; readonly useCount: number }) {
+  if (isTokenExpired(expiresAt)) {
+    return <span className="px-1.5 py-0.5 bg-red-900/50 text-red-400 rounded text-xs">Expired</span>;
+  }
+  if (isTokenExhausted(maxUses, useCount)) {
+    return <span className="px-1.5 py-0.5 bg-yellow-900/50 text-yellow-400 rounded text-xs">Exhausted</span>;
+  }
+  return <span className="px-1.5 py-0.5 bg-green-900/50 text-green-400 rounded text-xs">Active</span>;
+}
+
 export function AgentUpdates() {
   const enrollmentTokens = useUpdateStore((s) => s.enrollmentTokens);
   const isLoading = useUpdateStore((s) => s.isLoading);
@@ -33,15 +43,16 @@ export function AgentUpdates() {
   else if (confirmCleanup) cleanupButtonLabel = `Confirm (${inactiveCount})`;
 
   const handleCleanup = async () => {
-    if (!confirmCleanup) {
+    if (confirmCleanup) {
+      setCleaningUp(true);
+      const count = await cleanupInactiveTokens();
+      const suffix = count === 1 ? '' : 's';
+      addToast(`Removed ${count} inactive token${suffix}`, 'success');
+      setCleaningUp(false);
+      setConfirmCleanup(false);
+    } else {
       setConfirmCleanup(true);
-      return;
     }
-    setCleaningUp(true);
-    const count = await cleanupInactiveTokens();
-    addToast(`Removed ${count} inactive token${count !== 1 ? 's' : ''}`, 'success');
-    setCleaningUp(false);
-    setConfirmCleanup(false);
   };
 
   const handleCreateToken = async (e: React.SyntheticEvent) => {
@@ -164,13 +175,7 @@ export function AgentUpdates() {
                 <tr key={t.id} className="border-b border-gray-800">
                   <td className="py-2">{t.label || '\u2014'}</td>
                   <td className="py-2">
-                    {isTokenExpired(t.expires_at) ? (
-                      <span className="px-1.5 py-0.5 bg-red-900/50 text-red-400 rounded text-xs">Expired</span>
-                    ) : isTokenExhausted(t.max_uses, t.use_count) ? (
-                      <span className="px-1.5 py-0.5 bg-yellow-900/50 text-yellow-400 rounded text-xs">Exhausted</span>
-                    ) : (
-                      <span className="px-1.5 py-0.5 bg-green-900/50 text-green-400 rounded text-xs">Active</span>
-                    )}
+                    <TokenStatusBadge expiresAt={t.expires_at} maxUses={t.max_uses} useCount={t.use_count} />
                   </td>
                   <td className="py-2 font-mono text-xs">
                     <button onClick={() => toggleReveal(t.id)} className="text-gray-300 hover:text-white">

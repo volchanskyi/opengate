@@ -119,4 +119,48 @@ describe('update store', () => {
 
     expect(useUpdateStore.getState().error).toBe('not found');
   });
+
+  it('cleanupInactiveTokens deletes expired and exhausted tokens', async () => {
+    const expiredToken = { ...fakeToken, id: 'expired1', expires_at: '2020-01-01T00:00:00Z', use_count: 0, max_uses: 5 };
+    const exhaustedToken = { ...fakeToken, id: 'exhausted1', expires_at: '2099-01-01T00:00:00Z', use_count: 5, max_uses: 5 };
+    const activeToken = { ...fakeToken, id: 'active1', expires_at: '2099-01-01T00:00:00Z', use_count: 1, max_uses: 5 };
+
+    useUpdateStore.setState({ enrollmentTokens: [expiredToken, exhaustedToken, activeToken] });
+    mockDelete.mockResolvedValue({ error: undefined });
+    mockGet.mockResolvedValueOnce({ data: [activeToken], error: undefined });
+
+    const count = await useUpdateStore.getState().cleanupInactiveTokens();
+
+    expect(count).toBe(2);
+    expect(mockDelete).toHaveBeenCalledTimes(2);
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/enrollment-tokens/{id}', { params: { path: { id: 'expired1' } } });
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/enrollment-tokens/{id}', { params: { path: { id: 'exhausted1' } } });
+    expect(useUpdateStore.getState().enrollmentTokens).toEqual([activeToken]);
+  });
+
+  it('cleanupInactiveTokens returns 0 when all tokens are active', async () => {
+    const activeToken = { ...fakeToken, id: 'active1', expires_at: '2099-01-01T00:00:00Z', use_count: 0, max_uses: 5 };
+    useUpdateStore.setState({ enrollmentTokens: [activeToken] });
+    mockGet.mockResolvedValueOnce({ data: [activeToken], error: undefined });
+
+    const count = await useUpdateStore.getState().cleanupInactiveTokens();
+
+    expect(count).toBe(0);
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('cleanupInactiveTokens counts only successful deletions', async () => {
+    const expiredToken1 = { ...fakeToken, id: 'e1', expires_at: '2020-01-01T00:00:00Z' };
+    const expiredToken2 = { ...fakeToken, id: 'e2', expires_at: '2020-01-01T00:00:00Z' };
+
+    useUpdateStore.setState({ enrollmentTokens: [expiredToken1, expiredToken2] });
+    mockDelete
+      .mockResolvedValueOnce({ error: undefined })
+      .mockResolvedValueOnce({ error: { error: 'server error' } });
+    mockGet.mockResolvedValueOnce({ data: [expiredToken2], error: undefined });
+
+    const count = await useUpdateStore.getState().cleanupInactiveTokens();
+
+    expect(count).toBe(1);
+  });
 });
