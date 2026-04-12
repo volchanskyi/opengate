@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775936193125,
+  "lastUpdate": 1775965403346,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10608,6 +10608,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.858746148790612,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "7a867fdb2b53c1729e35e97279b69ec2d4b4f70f",
+          "message": "test(db): unify dual-backend test suite and fix SonarCloud hotspots\n\nReplace separate sqlite_test.go and postgres_test.go with a shared\nstore_test.go that runs every Store contract test against both backends\nvia a factory pattern. SQLite-specific tests (corrupt data scanning,\nWAL mode, DB accessor) extracted to sqlite_only_test.go.\n\nKey changes:\n- Refactor postgres.go QueryDeviceLogs to fully static SQL with\n  sentinel guards ($N = '' OR ...) eliminating go:S2077 hotspots\n- Replace per-test dynamic schema creation with fixed opengate_test\n  schema + TRUNCATE CASCADE isolation (eliminates test-file hotspots)\n- All 23 shared tests run against both SQLite and Postgres when\n  POSTGRES_TEST_URL is set; Postgres gracefully skipped otherwise",
+          "timestamp": "2026-04-11T20:41:48-07:00",
+          "tree_id": "afafe2b467d7599c655e4a90eb9f1c942e21e10f",
+          "url": "https://github.com/volchanskyi/opengate/commit/7a867fdb2b53c1729e35e97279b69ec2d4b4f70f"
+        },
+        "date": 1775965403289,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.163025873314965,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.356391787227412,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 727.7400206907918,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 325.5705615248173,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.063652299898184,
             "unit": "ns/iter"
           }
         ]
