@@ -116,7 +116,7 @@ jobs:
       - name: Copy deploy files to VPS
         run: |
           # Copy scripts
-          ssh deploy-target "mkdir -p ${{ env.DEPLOY_DIR }}/scripts ${{ env.DEPLOY_DIR }}/caddy"
+          ssh deploy-target "mkdir -p ${{ env.DEPLOY_DIR }}/scripts ${{ env.DEPLOY_DIR }}/caddy ${{ env.DEPLOY_DIR }}/postgres"
           scp deploy/scripts/*.sh deploy-target:${{ env.DEPLOY_DIR }}/scripts/
           ssh deploy-target "chmod +x ${{ env.DEPLOY_DIR }}/scripts/*.sh"
 
@@ -127,6 +127,9 @@ jobs:
           # Copy Caddy configs
           scp deploy/caddy/Caddyfile deploy-target:${{ env.DEPLOY_DIR }}/caddy/
           scp deploy/caddy/Caddyfile.staging deploy-target:${{ env.DEPLOY_DIR }}/caddy/
+
+          # Copy Postgres init script
+          scp deploy/postgres/init.sql deploy-target:${{ env.DEPLOY_DIR }}/postgres/
 
           # Copy monitoring configs
           scp deploy/docker-compose.monitoring.yml deploy-target:${{ env.DEPLOY_DIR }}/
@@ -154,11 +157,14 @@ jobs:
           AMT_PASS: ${{ secrets.DEPLOY_STAGING_AMT_PASS }}
           DOMAIN: ${{ secrets.DEPLOY_STAGING_DOMAIN }}
           VAPID_CONTACT: ${{ secrets.DEPLOY_STAGING_VAPID_CONTACT }}
+          POSTGRES_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
         run: |
           printf '%s\n' \
             "IMAGE_TAG=${{ env.IMAGE_TAG }}" \
             "JWT_SECRET=${JWT_SECRET}" \
             "STAGING_JWT_SECRET=${JWT_SECRET}" \
+            "STAGING_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
+            "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
             "AMT_USER=admin" \
             "AMT_PASS=${AMT_PASS}" \
             "VAPID_CONTACT=${VAPID_CONTACT}" \
@@ -176,16 +182,16 @@ jobs:
 
       - name: Reset staging DB for E2E (fresh user state)
         run: |
-          ssh deploy-target "docker exec opengate-server-staging rm -f /data/opengate.db"
-          ssh deploy-target "docker restart opengate-server-staging"
-          # Wait for server to become healthy after restart
-          for _ in $(seq 1 30); do
-            if ssh deploy-target "curl -sf http://127.0.0.1:18080/api/v1/health" >/dev/null 2>&1; then
-              echo "Server healthy after restart"
-              break
-            fi
-            sleep 2
-          done
+          # Truncate all application tables and re-seed the Administrators group.
+          ssh deploy-target "docker exec opengate-postgres-staging psql -U opengate -d opengate -c \"
+            TRUNCATE TABLE
+              security_group_members, device_logs, device_hardware, device_updates,
+              enrollment_tokens, amt_devices, audit_events, web_push_subscriptions,
+              agent_sessions, devices, groups_, security_groups, users
+            RESTART IDENTITY CASCADE;
+            INSERT INTO security_groups (id, name, description, is_system)
+            VALUES ('00000000-0000-0000-0000-000000000001', 'Administrators', 'Full system access', TRUE)
+            ON CONFLICT (id) DO NOTHING;\""
 
       - name: Open SSH tunnel for Playwright
         run: |
@@ -291,12 +297,15 @@ jobs:
 
       - name: Copy deploy files to VPS
         run: |
-          ssh deploy-target "mkdir -p ${{ env.DEPLOY_DIR }}/scripts ${{ env.DEPLOY_DIR }}/caddy"
+          ssh deploy-target "mkdir -p ${{ env.DEPLOY_DIR }}/scripts ${{ env.DEPLOY_DIR }}/caddy ${{ env.DEPLOY_DIR }}/postgres"
           scp deploy/scripts/*.sh deploy-target:${{ env.DEPLOY_DIR }}/scripts/
           ssh deploy-target "chmod +x ${{ env.DEPLOY_DIR }}/scripts/*.sh"
 
           scp deploy/docker-compose.yml deploy-target:${{ env.DEPLOY_DIR }}/
           scp deploy/caddy/Caddyfile deploy-target:${{ env.DEPLOY_DIR }}/caddy/
+
+          # Copy Postgres init script
+          scp deploy/postgres/init.sql deploy-target:${{ env.DEPLOY_DIR }}/postgres/
 
           # Copy monitoring configs
           scp deploy/docker-compose.monitoring.yml deploy-target:${{ env.DEPLOY_DIR }}/
@@ -324,6 +333,7 @@ jobs:
           AMT_PASS: ${{ secrets.DEPLOY_AMT_PASS }}
           DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
           VAPID_CONTACT: ${{ secrets.DEPLOY_VAPID_CONTACT }}
+          POSTGRES_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_PASSWORD }}
           GF_ADMIN_PASSWORD: ${{ secrets.DEPLOY_GF_ADMIN_PASSWORD }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
@@ -331,6 +341,7 @@ jobs:
           printf '%s\n' \
             "IMAGE_TAG=${{ env.IMAGE_TAG }}" \
             "JWT_SECRET=${JWT_SECRET}" \
+            "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
             "AMT_USER=admin" \
             "AMT_PASS=${AMT_PASS}" \
             "VAPID_CONTACT=${VAPID_CONTACT}" \
@@ -341,6 +352,7 @@ jobs:
 
           printf '%s\n' \
             "GF_SECURITY_ADMIN_PASSWORD=${GF_ADMIN_PASSWORD}" \
+            "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" \
             "TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}" \
             "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}" \
             | ssh deploy-target "cat > ${{ env.DEPLOY_DIR }}/.env.monitoring && chmod 600 ${{ env.DEPLOY_DIR }}/.env.monitoring"

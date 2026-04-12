@@ -15,7 +15,7 @@ vi.mock('../lib/api', () => ({
   },
 }));
 
-const mockHardware = { cpu_model: 'Intel', cpu_cores: 4, ram_total_mb: 8192, disk_free_mb: 100, disk_total_mb: 500, updated_at: '', network_interfaces: [] };
+const mockHardware = { device_id: 'd1', cpu_model: 'Intel', cpu_cores: 4, ram_total_mb: 8192, disk_free_mb: 100, disk_total_mb: 500, updated_at: '', network_interfaces: [] };
 
 describe('device store', () => {
   beforeEach(() => {
@@ -383,5 +383,39 @@ describe('device store', () => {
       }),
     }));
     vi.useRealTimers();
+  });
+
+  it('refreshDevice updates selectedDevice without clearing hardware or logs', async () => {
+    const existingHardware = mockHardware;
+    const existingLogs = { entries: [], total: 0, has_more: false };
+    useDeviceStore.setState({
+      selectedDevice: { id: 'd1', group_id: 'g1', hostname: 'old', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      hardware: existingHardware,
+      logs: existingLogs,
+    });
+
+    mockGet.mockResolvedValueOnce({
+      data: { id: 'd1', group_id: 'g1', hostname: 'updated', os: 'linux', agent_version: '1.0.1', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      error: undefined,
+    });
+
+    await useDeviceStore.getState().refreshDevice('d1');
+
+    expect(useDeviceStore.getState().selectedDevice?.hostname).toBe('updated');
+    expect(useDeviceStore.getState().selectedDevice?.agent_version).toBe('1.0.1');
+    expect(useDeviceStore.getState().hardware).toEqual(existingHardware);
+    expect(useDeviceStore.getState().logs).toEqual(existingLogs);
+  });
+
+  it('refreshDevice does not set isLoading', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: { id: 'd1', hostname: 'host1', os: 'linux', agent_version: '', status: 'online' },
+      error: undefined,
+    });
+
+    const promise = useDeviceStore.getState().refreshDevice('d1');
+    expect(useDeviceStore.getState().isLoading).toBe(false);
+    await promise;
+    expect(useDeviceStore.getState().isLoading).toBe(false);
   });
 });

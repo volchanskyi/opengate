@@ -44,6 +44,15 @@ fi
 set_env_var IMAGE_TAG "$TAG" "$LOCAL_ENV_FILE"
 log "Set IMAGE_TAG=$TAG in $LOCAL_ENV_FILE"
 
+# --- Ensure POSTGRES_PASSWORD is set ------------------------------------------
+
+PG_VAR="POSTGRES_PASSWORD"
+[[ "$MODE" == "staging" ]] && PG_VAR="STAGING_POSTGRES_PASSWORD"
+
+if ! grep -q "^${PG_VAR}=" "$LOCAL_ENV_FILE" 2>/dev/null; then
+  fail "${PG_VAR} missing from $LOCAL_ENV_FILE — add it before deploying"
+fi
+
 # --- Pull and deploy ----------------------------------------------------------
 
 redeploy "$MODE"

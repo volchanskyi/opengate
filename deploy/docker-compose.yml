@@ -1,10 +1,61 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: opengate-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=opengate
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - POSTGRES_DB=opengate
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opengate -d opengate"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 128M
+
+  postgres-backup:
+    image: prodrigestivill/postgres-backup-local:17
+    container_name: opengate-postgres-backup
+    restart: unless-stopped
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_DB=opengate
+      - POSTGRES_USER=opengate
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      - SCHEDULE=@daily
+      - BACKUP_KEEP_DAYS=7
+      - HEALTHCHECK_PORT=8008
+    volumes:
+      - postgres-backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.25'
+        reservations:
+          memory: 32M
+
   server:
     image: ghcr.io/volchanskyi/opengate-server:${IMAGE_TAG:-latest}
     container_name: opengate-server
     restart: unless-stopped
     environment:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
+      - DATABASE_URL=postgres://opengate:${POSTGRES_PASSWORD}@postgres:5432/opengate?sslmode=disable
       - OPENGATE_GITHUB_REPO=${OPENGATE_GITHUB_REPO:-}
       - OPENGATE_QUIC_HOST=${OPENGATE_QUIC_HOST:-}
     command:
@@ -23,7 +74,7 @@ services:
       - "-vapid-contact"
       - "${VAPID_CONTACT:-}"
     volumes:
-      - server-data:/data
+      - server-data:/data    # TLS certs + VAPID keys (DB is now in postgres-data)
     expose:
       - "8080"
     ports:
@@ -35,6 +86,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    depends_on:
+      postgres:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -85,6 +139,10 @@ services:
           memory: 64M
 
 volumes:
+  postgres-data:
+    driver: local
+  postgres-backups:
+    driver: local
   server-data:
     driver: local
   caddy-data:

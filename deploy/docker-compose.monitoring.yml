@@ -97,6 +97,23 @@ services:
         reservations:
           memory: 32M
 
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: opengate-postgres-exporter
+    restart: unless-stopped
+    environment:
+      - DATA_SOURCE_NAME=postgresql://opengate:${POSTGRES_PASSWORD}@opengate-postgres:5432/opengate?sslmode=disable
+    networks:
+      - monitoring
+      - app
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.25'
+        reservations:
+          memory: 16M
+
   node-exporter:
     image: prom/node-exporter:v1.9.1
     container_name: opengate-node-exporter

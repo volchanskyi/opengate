@@ -11,6 +11,85 @@ import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
+type AMTDevice = components['schemas']['AMTDevice'];
+
+interface AmtSectionProps {
+  readonly amtDevice: AMTDevice | undefined;
+  readonly confirmPowerAction: PowerAction | null;
+  readonly showAmtInstructions: boolean;
+  readonly onPowerAction: (action: PowerAction) => void;
+  readonly onToggleInstructions: () => void;
+}
+
+function AmtSection({ amtDevice, confirmPowerAction, showAmtInstructions, onPowerAction, onToggleInstructions }: AmtSectionProps) {
+  if (amtDevice) {
+    return (
+      <div>
+        <h3 className="text-sm font-semibold text-gray-300 mb-2">AMT Power Actions</h3>
+        <p className="text-xs text-gray-500 mb-2">
+          AMT Status: <span className={amtDevice.status === 'online' ? 'text-green-400' : 'text-red-400'}>{amtDevice.status === 'online' ? 'Online' : 'Offline'}</span>
+          {amtDevice.model && <> &middot; {amtDevice.model}</>}
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          <button type="button" onClick={() => { fireAndForget(onPowerAction('power_on')); }} className="px-3 py-1 bg-green-700 hover:bg-green-600 rounded text-xs">
+            Power On
+          </button>
+          <button type="button" onClick={() => { fireAndForget(onPowerAction('soft_off')); }} className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-xs">
+            Soft Off
+          </button>
+          <button type="button" onClick={() => { fireAndForget(onPowerAction('power_cycle')); }} className="px-3 py-1 bg-orange-700 hover:bg-orange-600 rounded text-xs">
+            {confirmPowerAction === 'power_cycle' ? 'Confirm Cycle' : 'Power Cycle'}
+          </button>
+          <button type="button" onClick={() => { fireAndForget(onPowerAction('hard_reset')); }} className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded text-xs">
+            {confirmPowerAction === 'hard_reset' ? 'Confirm Reset' : 'Hard Reset'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggleInstructions}
+        className="text-sm font-semibold text-gray-300 flex items-center gap-2"
+      >
+        <span className={`text-xs transition-transform ${showAmtInstructions ? 'rotate-90' : ''}`}>&#9654;</span>
+        {' '}Intel AMT Setup
+      </button>
+      {showAmtInstructions && (
+        <div className="mt-2 bg-gray-900 border border-gray-700 rounded-lg p-4 text-sm text-gray-400 space-y-3">
+          <p>
+            Intel AMT (Active Management Technology) enables out-of-band power management
+            for supported hardware. To enable AMT for this device:
+          </p>
+          <ol className="list-decimal list-inside space-y-2">
+            <li>
+              <strong className="text-gray-300">Enable AMT in BIOS</strong> — Enter the BIOS/UEFI
+              setup (usually F2/Del at boot) and enable Intel AMT / ME (Management Engine).
+            </li>
+            <li>
+              <strong className="text-gray-300">Configure MEBx</strong> — Press Ctrl+P at boot to
+              enter MEBx. Set a strong password and configure the network settings (DHCP or static IP).
+            </li>
+            <li>
+              <strong className="text-gray-300">Enable remote access</strong> — In MEBx, enable
+              &quot;Remote Setup And Configuration&quot; and ensure the AMT network interface is active.
+            </li>
+            <li>
+              <strong className="text-gray-300">Verify connectivity</strong> — The device will
+              automatically register with the MPS server once AMT is configured and the network is
+              reachable. Power actions will appear here once connected.
+            </li>
+          </ol>
+          <p className="text-xs text-gray-500">
+            Requires Intel vPro-compatible hardware with AMT firmware. Not all Intel processors support AMT.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -40,6 +119,7 @@ export function DeviceDetail() {
   const restartAgent = useDeviceStore((s) => s.restartAgent);
   const hardware = useDeviceStore((s) => s.hardware);
   const fetchHardware = useDeviceStore((s) => s.fetchHardware);
+  const refreshDevice = useDeviceStore((s) => s.refreshDevice);
   const upgradeAgent = useDeviceStore((s) => s.upgradeAgent);
   const manifests = useUpdateStore((s) => s.manifests);
   const fetchManifests = useUpdateStore((s) => s.fetchManifests);
@@ -62,11 +142,12 @@ export function DeviceDetail() {
   }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchManifests]);
 
   // Poll device data every 30s so agent_version and status stay in sync.
+  // Uses refreshDevice (not fetchDevice) to preserve hardware/logs state.
   useEffect(() => {
     if (!id) return;
-    const interval = setInterval(() => { fireAndForget(fetchDevice(id)); }, 30_000);
+    const interval = setInterval(() => { fireAndForget(refreshDevice(id)); }, 30_000);
     return () => clearInterval(interval);
-  }, [id, fetchDevice]);
+  }, [id, refreshDevice]);
 
   const amtDevice = device ? amtDevices.find((a) => a.hostname === device.hostname) : undefined;
 
@@ -168,6 +249,10 @@ export function DeviceDetail() {
     setIsUpgrading(false);
   };
 
+  let restartButtonLabel = 'Restart Agent';
+  if (isRestarting) restartButtonLabel = 'Restarting...';
+  else if (confirmRestart) restartButtonLabel = `Confirm (${sessions.length} active)`;
+
   return (
     <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
       {/* Device Detail Card */}
@@ -191,11 +276,7 @@ export function DeviceDetail() {
               disabled={device.status !== 'online' || isRestarting}
               className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-700 rounded text-xs font-medium disabled:opacity-50"
             >
-              {isRestarting
-                ? 'Restarting...'
-                : confirmRestart
-                  ? `Confirm (${sessions.length} active)`
-                  : 'Restart Agent'}
+              {restartButtonLabel}
             </button>
             {latestManifest && !isUpToDate && (
               <button
@@ -284,72 +365,13 @@ export function DeviceDetail() {
           </div>
         )}
 
-        {amtDevice ? (
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-2">AMT Power Actions</h3>
-            <p className="text-xs text-gray-500 mb-2">
-              AMT Status: <span className={amtDevice.status === 'online' ? 'text-green-400' : 'text-red-400'}>{amtDevice.status === 'online' ? 'Online' : 'Offline'}</span>
-              {amtDevice.model && <> &middot; {amtDevice.model}</>}
-            </p>
-            <div className="flex gap-2 flex-wrap">
-              <button type="button" onClick={() => { fireAndForget(handlePowerAction('power_on')); }} className="px-3 py-1 bg-green-700 hover:bg-green-600 rounded text-xs">
-                Power On
-              </button>
-              <button type="button" onClick={() => { fireAndForget(handlePowerAction('soft_off')); }} className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-xs">
-                Soft Off
-              </button>
-              <button type="button" onClick={() => { fireAndForget(handlePowerAction('power_cycle')); }} className="px-3 py-1 bg-orange-700 hover:bg-orange-600 rounded text-xs">
-                {confirmPowerAction === 'power_cycle' ? 'Confirm Cycle' : 'Power Cycle'}
-              </button>
-              <button type="button" onClick={() => { fireAndForget(handlePowerAction('hard_reset')); }} className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded text-xs">
-                {confirmPowerAction === 'hard_reset' ? 'Confirm Reset' : 'Hard Reset'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowAmtInstructions(!showAmtInstructions)}
-              className="text-sm font-semibold text-gray-300 flex items-center gap-2"
-            >
-              <span className={`text-xs transition-transform ${showAmtInstructions ? 'rotate-90' : ''}`}>
-                &#9654;
-              </span>
-              Intel AMT Setup
-            </button>
-            {showAmtInstructions && (
-              <div className="mt-2 bg-gray-900 border border-gray-700 rounded-lg p-4 text-sm text-gray-400 space-y-3">
-                <p>
-                  Intel AMT (Active Management Technology) enables out-of-band power management
-                  for supported hardware. To enable AMT for this device:
-                </p>
-                <ol className="list-decimal list-inside space-y-2">
-                  <li>
-                    <strong className="text-gray-300">Enable AMT in BIOS</strong> — Enter the BIOS/UEFI
-                    setup (usually F2/Del at boot) and enable Intel AMT / ME (Management Engine).
-                  </li>
-                  <li>
-                    <strong className="text-gray-300">Configure MEBx</strong> — Press Ctrl+P at boot to
-                    enter MEBx. Set a strong password and configure the network settings (DHCP or static IP).
-                  </li>
-                  <li>
-                    <strong className="text-gray-300">Enable remote access</strong> — In MEBx, enable
-                    &quot;Remote Setup And Configuration&quot; and ensure the AMT network interface is active.
-                  </li>
-                  <li>
-                    <strong className="text-gray-300">Verify connectivity</strong> — The device will
-                    automatically register with the MPS server once AMT is configured and the network is
-                    reachable. Power actions will appear here once connected.
-                  </li>
-                </ol>
-                <p className="text-xs text-gray-500">
-                  Requires Intel vPro-compatible hardware with AMT firmware. Not all Intel processors support AMT.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
+        <AmtSection
+          amtDevice={amtDevice}
+          confirmPowerAction={confirmPowerAction}
+          showAmtInstructions={showAmtInstructions}
+          onPowerAction={(action) => { fireAndForget(handlePowerAction(action)); }}
+          onToggleInstructions={() => setShowAmtInstructions(!showAmtInstructions)}
+        />
 
         <div>
           <div className="flex items-center justify-between mb-2">

@@ -7,10 +7,26 @@
 # and block the production deployment.
 
 services:
+  postgres:
+    container_name: opengate-postgres-staging
+    environment:
+      - POSTGRES_PASSWORD=${STAGING_POSTGRES_PASSWORD:?STAGING_POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-staging-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  postgres-backup:
+    container_name: opengate-postgres-backup-staging
+    environment:
+      - POSTGRES_PASSWORD=${STAGING_POSTGRES_PASSWORD:?STAGING_POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-staging-backups:/backups
+
   server:
     container_name: opengate-server-staging
     environment:
       - JWT_SECRET=${STAGING_JWT_SECRET:?STAGING_JWT_SECRET is required}
+      - DATABASE_URL=postgres://opengate:${STAGING_POSTGRES_PASSWORD}@postgres:5432/opengate?sslmode=disable
     ports: !override
       - "19090:9090/udp"
       - "14433:4433"
@@ -26,3 +42,9 @@ services:
       - "18443:443/udp"
     volumes:
       - ./caddy/Caddyfile.staging:/etc/caddy/Caddyfile:ro
+
+volumes:
+  postgres-staging-data:
+    driver: local
+  postgres-staging-backups:
+    driver: local

@@ -65,7 +65,9 @@ docker compose up -d
 ```
 
 Services:
-- **server** — OpenGate Go server (GHCR image), exposes ports 9090/UDP (QUIC) and 4433 (MPS) directly
+- **postgres** — PostgreSQL 17 (Alpine), internal-only, health-checked via `pg_isready`. The server connects via `DATABASE_URL` over the Docker bridge network (`sslmode=disable` — same-host traffic).
+- **postgres-backup** — Daily `pg_dump` sidecar (`prodrigestivill/postgres-backup-local`), 7-day local retention in a `postgres-backups` volume.
+- **server** — OpenGate Go server (GHCR image), depends on `postgres` (waits for healthy), exposes ports 9090/UDP (QUIC) and 4433 (MPS) directly
 - **web-init** — One-shot init container that copies web assets from the server image into a shared `web-assets` volume (runs once per deploy, `restart: "no"`)
 - **caddy** — Reverse proxy + SPA file server on ports 80/443, auto-TLS via Let's Encrypt, HTTP/3
 
@@ -75,6 +77,8 @@ All production containers have memory and CPU limits to prevent runaway processe
 
 | Container | Memory Limit | CPU Limit |
 |-----------|-------------|-----------|
+| postgres | 512 MB | 1.0 |
+| postgres-backup | 64 MB | 0.25 |
 | server | 512 MB | 1.0 |
 | caddy | 256 MB | 0.5 |
 | web-init | 128 MB | — |
@@ -107,11 +111,15 @@ How staging and production coexist on one VPS
   │       └── Caddyfile.staging   ← staging (HTTP only)
   │
   ├── Docker project: "opengate" (production)
-  │   ├── opengate-server     → port 8080 (internal)
+  │   ├── opengate-postgres   → port 5432 (internal)
+  │   ├── opengate-postgres-backup → daily pg_dump, 7-day retention
+  │   ├── opengate-server     → port 8080 (internal), depends_on postgres
   │   ├── opengate-web-init   → copies /srv/web to shared volume (exits)
   │   └── opengate-caddy      → ports 80, 443
   │
   └── Docker project: "opengate-staging" (staging)
+      ├── opengate-postgres-staging → port 5432 (internal, separate volume)
+      ├── opengate-postgres-backup-staging → daily pg_dump
       ├── opengate-server-staging  → port 8080 (internal)
       ├── opengate-web-init-staging → copies /srv/web to shared volume (exits)
       └── opengate-caddy-staging   → ports 18080, 18443
@@ -175,6 +183,7 @@ No secrets are committed to the repository. All sensitive values are injected at
 | `AMT_USER` | `.env` or GitHub Secrets | Server (Intel AMT WSMAN) |
 | `AMT_PASS` | `.env` or GitHub Secrets | Server (Intel AMT WSMAN) |
 | `VAPID_CONTACT` | `.env` or GitHub Secrets | Server (Web Push, RFC 8292) |
+| `POSTGRES_PASSWORD` | `.env` or GitHub Secrets | PostgreSQL, Server (DATABASE_URL), Postgres Exporter |
 | `DOMAIN` | `.env` | Caddy (auto-TLS domain) |
 | `OPENGATE_QUIC_HOST` | `.env` | Server (QUIC advertised hostname in install.sh / agent enrollment response) |
 | `tenancy_ocid` | `terraform.tfvars` | Terraform (OCI provider) |
@@ -193,10 +202,12 @@ The following secrets should be configured in GitHub repository settings (`Setti
 | `DEPLOY_AMT_PASS` | Intel AMT WSMAN password |
 | `DEPLOY_VAPID_CONTACT` | Web Push contact email |
 | `DEPLOY_DOMAIN` | Caddy auto-TLS domain |
+| `DEPLOY_POSTGRES_PASSWORD` | Production PostgreSQL password |
 | `DEPLOY_STAGING_JWT_SECRET` | Staging JWT signing key |
 | `DEPLOY_STAGING_AMT_PASS` | Staging Intel AMT password |
 | `DEPLOY_STAGING_VAPID_CONTACT` | Staging Web Push contact |
 | `DEPLOY_STAGING_DOMAIN` | Staging domain (`localhost`) |
+| `DEPLOY_STAGING_POSTGRES_PASSWORD` | Staging PostgreSQL password |
 | `DEPLOY_HOST` | VPS public IP or hostname |
 | `DEPLOY_SSH_PRIVATE_KEY` | SSH key for deploying to VPS |
 | `OCI_TENANCY_OCID` | Oracle Cloud tenancy OCID |
