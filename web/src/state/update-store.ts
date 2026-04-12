@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../lib/api';
 import { apiAction } from './api-action';
+import { isTokenExpired, isTokenExhausted } from '../lib/token-status';
 import type { components } from '../types/api';
 
 type AgentManifest = components['schemas']['AgentManifest'];
@@ -15,6 +16,7 @@ interface UpdateState {
   fetchEnrollmentTokens: () => Promise<void>;
   createEnrollmentToken: (body: components['schemas']['CreateEnrollmentTokenRequest']) => Promise<void>;
   deleteEnrollmentToken: (id: string) => Promise<void>;
+  cleanupInactiveTokens: () => Promise<number>;
 }
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({
@@ -45,5 +47,21 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       api.DELETE('/api/v1/enrollment-tokens/{id}', { params: { path: { id } } }), false,
     );
     if (res.ok) await get().fetchEnrollmentTokens();
+  },
+
+  cleanupInactiveTokens: async () => {
+    const { enrollmentTokens } = get();
+    const inactive = enrollmentTokens.filter(
+      (t) => isTokenExpired(t.expires_at) || isTokenExhausted(t.max_uses, t.use_count),
+    );
+    let deleted = 0;
+    for (const t of inactive) {
+      const res = await apiAction(set, () =>
+        api.DELETE('/api/v1/enrollment-tokens/{id}', { params: { path: { id: t.id } } }), false,
+      );
+      if (res.ok) deleted++;
+    }
+    await get().fetchEnrollmentTokens();
+    return deleted;
   },
 }));

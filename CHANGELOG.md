@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.23.0] - 2026-04-12
+
+### Added
+- **web:** fix polling state reset, add token cleanup, improve dashboard tiles
+- **deploy:** add PostgreSQL service, backups, and monitoring (Phase 13a PR-4)
+
+### Fixed
+- **web:** resolve SonarCloud issues and improve new-code coverage
+- **ci:** add POSTGRES_PASSWORD to Docker Compose validation env
+
 ## [v0.22.0] - 2026-04-11
 
 ### Added

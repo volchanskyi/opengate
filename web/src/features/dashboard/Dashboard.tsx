@@ -5,13 +5,30 @@ import { useAuthStore } from '../../state/auth-store';
 import { useAdminStore } from '../../state/admin-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
-function StatCard({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+interface StatCardProps {
+  readonly label: string;
+  readonly value: number | string;
+  readonly to?: string;
+  readonly colorClasses?: string;
+}
+
+function StatCard({ label, value, to, colorClasses = '' }: StatCardProps) {
+  const base = `bg-gray-800 border border-gray-700 rounded-lg p-4 ${colorClasses}`;
+  const content = (
+    <>
       <p className="text-sm text-gray-400">{label}</p>
       <p className="text-2xl font-bold mt-1">{value}</p>
-    </div>
+    </>
   );
+
+  if (to) {
+    return (
+      <Link to={to} className={`${base} hover:bg-gray-700 transition-colors block`}>
+        {content}
+      </Link>
+    );
+  }
+  return <div className={base}>{content}</div>;
 }
 
 export function Dashboard() {
@@ -44,16 +61,17 @@ export function Dashboard() {
       <h2 className="text-xl font-bold">Dashboard</h2>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Devices" value={devices.length} />
-        <StatCard label="Online" value={onlineCount} />
-        <StatCard label="Device Groups" value={groups.length} />
-        <StatCard label="Offline" value={devices.length - onlineCount} />
+        <StatCard label="Total Devices" value={devices.length} to="/devices"
+          colorClasses="border-l-4 border-l-blue-500 bg-blue-900/10" />
+        <StatCard label="Online" value={onlineCount}
+          colorClasses="border-l-4 border-l-green-500 bg-green-900/10" />
+        <StatCard label="Device Groups" value={groups.length}
+          colorClasses="border-l-4 border-l-indigo-500 bg-indigo-900/10" />
+        <StatCard label="Offline" value={devices.length - onlineCount}
+          colorClasses="border-l-4 border-l-amber-500 bg-amber-900/10" />
       </div>
 
       <div className="flex gap-3">
-        <Link to="/devices" className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm">
-          View All Devices
-        </Link>
         <Link to="/setup" className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm">
           Add Device
         </Link>

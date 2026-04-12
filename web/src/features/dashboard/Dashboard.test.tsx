@@ -77,4 +77,27 @@ describe('Dashboard', () => {
     vi.advanceTimersByTime(15_000);
     expect(fetchDevicesFn).toHaveBeenCalledTimes(3);
   });
+
+  it('Total Devices tile links to /devices', () => {
+    renderDashboard();
+    const totalDevicesLink = screen.getByText('Total Devices').closest('a');
+    expect(totalDevicesLink).toBeInTheDocument();
+    expect(totalDevicesLink).toHaveAttribute('href', '/devices');
+  });
+
+  it('non-linked tiles are not clickable', () => {
+    renderDashboard();
+    const onlineTile = screen.getByText('Online').closest('a');
+    expect(onlineTile).toBeNull();
+  });
+
+  it('does not render View All Devices button', () => {
+    renderDashboard();
+    expect(screen.queryByText('View All Devices')).not.toBeInTheDocument();
+  });
+
+  it('renders Add Device link', () => {
+    renderDashboard();
+    expect(screen.getByText('Add Device')).toBeInTheDocument();
+  });
 });

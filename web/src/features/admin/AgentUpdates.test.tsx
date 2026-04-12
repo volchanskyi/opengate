@@ -129,4 +129,44 @@ describe('AgentUpdates', () => {
     await userEvent.click(screen.getByText(fakeToken.token));
     expect(screen.getByText(/abcdef12\.\.\.7890/)).toBeInTheDocument();
   });
+
+  it('does not show cleanup button when all tokens are active', () => {
+    render(<AgentUpdates />);
+    expect(screen.queryByText(/Cleanup Tokens/)).not.toBeInTheDocument();
+  });
+
+  it('shows cleanup button with count when inactive tokens exist', () => {
+    const expiredToken = { ...fakeToken, id: 'e1', expires_at: '2020-01-01T00:00:00Z' };
+    useUpdateStore.setState({ enrollmentTokens: [fakeToken, expiredToken] });
+    render(<AgentUpdates />);
+    expect(screen.getByText('Cleanup Tokens (1)')).toBeInTheDocument();
+  });
+
+  it('cleanup button requires confirmation', async () => {
+    const expiredToken = { ...fakeToken, id: 'e1', expires_at: '2020-01-01T00:00:00Z' };
+    const cleanupFn = vi.fn().mockResolvedValue(1);
+    useUpdateStore.setState({
+      enrollmentTokens: [fakeToken, expiredToken],
+      cleanupInactiveTokens: cleanupFn,
+    });
+    render(<AgentUpdates />);
+
+    const btn = screen.getByText('Cleanup Tokens (1)');
+    await userEvent.click(btn);
+    expect(screen.getByText('Confirm (1)')).toBeInTheDocument();
+    expect(cleanupFn).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByText('Confirm (1)'));
+    expect(cleanupFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows token status badges correctly', () => {
+    const expiredToken = { ...fakeToken, id: 'e1', expires_at: '2020-01-01T00:00:00Z' };
+    const exhaustedToken = { ...fakeToken, id: 'e2', expires_at: '2099-01-01T00:00:00Z', use_count: 10, max_uses: 10 };
+    useUpdateStore.setState({ enrollmentTokens: [fakeToken, expiredToken, exhaustedToken] });
+    render(<AgentUpdates />);
+    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.getByText('Expired')).toBeInTheDocument();
+    expect(screen.getByText('Exhausted')).toBeInTheDocument();
+  });
 });

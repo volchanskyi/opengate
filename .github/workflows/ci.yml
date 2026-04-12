@@ -629,6 +629,8 @@ jobs:
           IMAGE_TAG: latest
           DOMAIN: example.com
           STAGING_JWT_SECRET: ci-dummy
+          POSTGRES_PASSWORD: ci-dummy
+          STAGING_POSTGRES_PASSWORD: ci-dummy
         run: |
           docker compose config --quiet
           docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet
