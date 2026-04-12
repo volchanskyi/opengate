@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776020574450,
+  "lastUpdate": 1776030631110,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11000,6 +11000,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.873935108483188,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "a3093b38ae25f6628b531b38601afd11bdbf71fb",
+          "message": "feat(dx): add local SonarCloud analysis via Docker\n\nEnable running the same SonarCloud scan locally before pushing to catch\ncode smells, bugs, security hotspots, and coverage gate failures early.\nAdds make sonar, make sonar-quick, and make sonar-coverage targets using\nthe sonarsource/sonar-scanner-cli Docker image. Integrates into the\n/precommit skill as a best-effort step when SONAR_TOKEN is configured.",
+          "timestamp": "2026-04-12T14:48:48-07:00",
+          "tree_id": "8f2b983b2a0277b3f98d194c95e14581ceb63882",
+          "url": "https://github.com/volchanskyi/opengate/commit/a3093b38ae25f6628b531b38601afd11bdbf71fb"
+        },
+        "date": 1776030631054,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.131204583213393,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.463730075620678,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 754.6460730054691,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 294.1408887721781,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.625659026560925,
             "unit": "ns/iter"
           }
         ]
