@@ -840,7 +840,10 @@ func (s *PostgresStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, 
 		limit = 100
 	}
 
-	dataArgs := append(filterArgs, limit, filter.Offset) //nolint:gocritic
+	dataArgs := make([]any, len(filterArgs)+2)
+	copy(dataArgs, filterArgs)
+	dataArgs[len(filterArgs)] = limit
+	dataArgs[len(filterArgs)+1] = filter.Offset
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, device_id, timestamp, level, target, message, fetched_at FROM device_logs
 		WHERE device_id = $1
