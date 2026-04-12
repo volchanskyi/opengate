@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.23.0] - 2026-04-12
+
+### Added
+- **web:** fix polling state reset, add token cleanup, improve dashboard tiles
+- **deploy:** add PostgreSQL service, backups, and monitoring (Phase 13a PR-4)
+
+### Fixed
+- **web:** resolve SonarCloud issues and improve new-code coverage
+- **ci:** add POSTGRES_PASSWORD to Docker Compose validation env
+
+## [v0.22.0] - 2026-04-11
+
+### Added
+- **db:** add PostgreSQL backend alongside SQLite (Phase 13a PR-1/2)
+
+### Changed
+- **db:** inline postgres device-log SQL and drop dynamic-schema test setup
+- **db:** extract duplicated test literals in postgres_test to clear SonarCloud
+
+## [v0.21.9] - 2026-04-11
+
+### Fixed
+- **device-logs:** severity-based level filter + clear stale logs on device nav
+
+### Changed
+- **db:** inline device-log SQL literals so SonarCloud scanner accepts them
+- **db:** build device-log query from SQL constants to clear SonarCloud hotspot
+
 ## [v0.21.8] - 2026-04-11
 
 ### Fixed
