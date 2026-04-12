@@ -3,6 +3,13 @@
 # Runs on the VPS via SSH from the CD workflow or manually.
 #
 # Usage: rollback.sh [--mode <staging|production>]
+#
+# Database rollback note (Phase 13a):
+# This script reverts the server image tag. Postgres data persists across
+# rollbacks in the postgres-data volume — the new image will reconnect to
+# the same database. If a rollback to pre-Postgres is needed, also remove
+# DATABASE_URL from .env so the server falls back to SQLite, and the
+# preserved server-data volume still has the old opengate.db file.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -96,7 +96,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "targets": [
-        { "expr": "opengate_db_size_bytes", "legendFormat": "SQLite DB" }
+        { "expr": "opengate_db_size_bytes", "legendFormat": "DB size" }
       ],
       "fieldConfig": {
         "defaults": {

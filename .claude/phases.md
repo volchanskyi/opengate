@@ -1,6 +1,6 @@
 # Implementation Phases
 
-<!-- Last updated: 2026-04-11 -->
+<!-- Last updated: 2026-04-12 -->
 <!-- Update this file after completing or starting any significant phase of work. -->
 
 ## Completed
@@ -43,11 +43,19 @@
 
 ---
 
+## In Progress
+
+| Phase | Summary | Plan |
+|-------|---------|------|
+| Phase 13a: PostgreSQL Migration | Fresh-start cutover from SQLite to PostgreSQL 17 (pgx/v5 stdlib), Docker Compose service, pg_dump backups, postgres_exporter monitoring | [phase-13a-postgres-migration.md](plans/phase-13a-postgres-migration.md) |
+
+---
+
 ## Planned
 
 | Phase | Summary | Priority | Notes |
 |-------|---------|----------|-------|
-| Phase 13: Multiserver & Scaling | PostgreSQL backend (pgx/v5), cross-server routing, relay pool, Kubernetes | High | Next major milestone |
+| Phase 13b: Multiserver & Scaling | Cross-server routing, relay pool, Kubernetes | High | Deferred from Phase 13 until after 13a |
 | Phase 15: Advanced Features | MFA/TOTP, API keys, Prometheus metrics, session recordings, group permissions CRUD | Low | |
 | CD Phase E (remaining) | Secrets management, network policies | Deprioritized | Cosign + Trivy already done |
 | CD Phase G: Testing & Retention | Testing strategy, release notes, 20-day retention policy | Low | |

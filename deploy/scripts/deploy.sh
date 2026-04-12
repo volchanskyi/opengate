@@ -28,18 +28,11 @@ validate_mode "$MODE"
 
 log "Deploying OpenGate ($MODE) with image tag: $TAG"
 
-# --- Save previous tag (for rollback) -----------------------------------------
+# --- Update image tag in .env -------------------------------------------------
+# Note: previous tag is saved by the CD workflow BEFORE overwriting the .env
+# file, so rollback.sh can restore it. See cd.yml "Deploy staging/production".
 
 LOCAL_ENV_FILE=$(env_file "$MODE")
-LOCAL_PREV_TAG_FILE=$(prev_tag_file "$MODE")
-
-CURRENT_TAG=$(grep -oP '^IMAGE_TAG=\K.*' "$LOCAL_ENV_FILE" 2>/dev/null || echo "")
-if [[ -n "$CURRENT_TAG" && "$CURRENT_TAG" != "$TAG" ]]; then
-  echo "$CURRENT_TAG" > "$LOCAL_PREV_TAG_FILE"
-  log "Saved previous tag '$CURRENT_TAG' to $LOCAL_PREV_TAG_FILE"
-fi
-
-# --- Update image tag in .env -------------------------------------------------
 
 set_env_var IMAGE_TAG "$TAG" "$LOCAL_ENV_FILE"
 log "Set IMAGE_TAG=$TAG in $LOCAL_ENV_FILE"
