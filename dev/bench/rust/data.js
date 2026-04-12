@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1775971565647,
+  "lastUpdate": 1775972240454,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -10853,6 +10853,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.348264291511622,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f02593eb417a8fd64ccf837fb0d3fa5ffa00e7c5",
+          "message": "fix(web): resolve SonarCloud issues and improve new-code coverage\n\n- S7735: flip negated condition in handleCleanup (AgentUpdates)\n- S3358: extract TokenStatusBadge and restartButtonLabel to eliminate\n  nested ternaries (AgentUpdates, DeviceDetail)\n- S2004: extract retryHardwareFetch helper to reduce nesting depth\n  (device-store)\n- S3776: extract AmtSection component to reduce DeviceDetail cognitive\n  complexity below threshold\n- S6772: fix ambiguous spacing around AMT arrow entity\n- Add tests for cleanupInactiveTokens, refreshDevice, dashboard tiles,\n  cleanup button, and token status badges",
+          "timestamp": "2026-04-11T22:35:44-07:00",
+          "tree_id": "e1a478f0d3adce5348557ffb06c9e13c520feed4",
+          "url": "https://github.com/volchanskyi/opengate/commit/f02593eb417a8fd64ccf837fb0d3fa5ffa00e7c5"
+        },
+        "date": 1775972240397,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.40621701493073,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.612272044152345,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 754.2202313577203,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 295.13507242415415,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.61480659985787,
             "unit": "ns/iter"
           }
         ]
