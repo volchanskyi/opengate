@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776275347493,
+  "lastUpdate": 1776277368151,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11098,6 +11098,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.867284519446912,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "aaae2dce93df5fa97ebe1b3bcfacacfd3ae05a2a",
+          "message": "fix(deps): bump rustls-webpki to 0.103.12 to patch RUSTSEC-2026-0098/0099\n\nCI Security Audit job flagged 2 vulnerabilities in transitive\nrustls-webpki 0.103.10: name constraints incorrectly accepted for URI\nnames and wildcard certificates. Bumped via cargo update.\n\nAlso adds cargo audit to the /precommit skill so RustSec advisories are\ncaught locally instead of slipping through to CI.",
+          "timestamp": "2026-04-15T11:20:40-07:00",
+          "tree_id": "ed91dafd5877a7cde3c083e6502b42462e0dd00b",
+          "url": "https://github.com/volchanskyi/opengate/commit/aaae2dce93df5fa97ebe1b3bcfacacfd3ae05a2a"
+        },
+        "date": 1776277368094,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.291034495526546,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.51154386791454,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 732.8262372946098,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 324.7427798693477,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.113849814857286,
             "unit": "ns/iter"
           }
         ]
