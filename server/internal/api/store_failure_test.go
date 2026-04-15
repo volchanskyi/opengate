@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,12 +16,13 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/relay"
 )
 
-const testEmailErr = "err@example.com"
-
 // TestHandlerStoreFailures verifies that every handler returns 500 when the store is unavailable.
 func TestHandlerStoreFailures(t *testing.T) {
-	dir := t.TempDir()
-	store, err := db.NewSQLiteStore(filepath.Join(dir, "test.db"))
+	pgURL := os.Getenv("POSTGRES_TEST_URL")
+	if pgURL == "" {
+		t.Skip("POSTGRES_TEST_URL not set; skipping Postgres tests")
+	}
+	store, err := db.NewPostgresStore(t.Context(), pgURL)
 	require.NoError(t, err)
 
 	cfg := &auth.JWTConfig{
@@ -33,13 +33,14 @@ func TestHandlerStoreFailures(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	// Seed a user for auth before closing the store.
+	email := "err-" + uuid.New().String()[:8] + "@example.com"
 	hash, err := auth.HashPassword("password123")
 	require.NoError(t, err)
 	userID := uuid.New()
 	require.NoError(t, store.UpsertUser(t.Context(), &db.User{
-		ID: userID, Email: testEmailErr, PasswordHash: hash,
+		ID: userID, Email: email, PasswordHash: hash,
 	}))
-	token, err := cfg.GenerateToken(userID, testEmailErr, true)
+	token, err := cfg.GenerateToken(userID, email, true)
 	require.NoError(t, err)
 
 	srv := NewServer(ServerConfig{
@@ -64,7 +65,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 		status int
 	}{
 		{"register store error", http.MethodPost, testPathRegister, map[string]string{"email": "x@x.com", "password": "password1"}, http.StatusInternalServerError},
-		{"login store error", http.MethodPost, testPathLogin, map[string]string{"email": testEmailErr, "password": "password123"}, http.StatusInternalServerError},
+		{"login store error", http.MethodPost, testPathLogin, map[string]string{"email": email, "password": "password123"}, http.StatusInternalServerError},
 		{"list devices store error", http.MethodGet, testPathDevices + "?group_id=" + groupID.String(), nil, http.StatusInternalServerError},
 		{"get device store error", http.MethodGet, testPathDevicesS + deviceID.String(), nil, http.StatusInternalServerError},
 		{"delete device store error", http.MethodDelete, testPathDevicesS + deviceID.String(), nil, http.StatusInternalServerError},

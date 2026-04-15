@@ -1,6 +1,6 @@
 # Implementation Phases
 
-<!-- Last updated: 2026-04-12 -->
+<!-- Last updated: 2026-04-14 -->
 <!-- Update this file after completing or starting any significant phase of work. -->
 
 ## Completed
@@ -40,14 +40,13 @@
 | Dev Workflow Phase 3 | `/observe` skill — PromQL, LogQL, container health, WSL agent diagnostics, investigation playbooks | — | [developer-workflow-enhancement.md](plans/archive/developer-workflow-enhancement.md) |
 | Device Logs | On-demand log retrieval via QUIC control path, DB caching, REST API, React UI with filtering/pagination | — | [device-logs-feature.md](plans/archive/device-logs-feature.md) |
 | Coverage 80% + Quality Gates | Go/Web coverage to 80%, CI thresholds, precommit enforcement, 3-language coverage badges, SonarCloud hard-fail | — | [coverage-80-flip-gates.md](plans/archive/coverage-80-flip-gates.md) |
+| Phase 13a: PostgreSQL Migration | Fresh-start cutover from SQLite to PostgreSQL 17 (pgx/v5 stdlib), native types (TIMESTAMPTZ/UUID/JSONB), colocated Docker service, pg_dump backups, postgres_exporter monitoring | v0.24.0 | [phase-13a-postgres-migration.md](plans/archive/phase-13a-postgres-migration.md) |
 
 ---
 
 ## In Progress
 
-| Phase | Summary | Plan |
-|-------|---------|------|
-| Phase 13a: PostgreSQL Migration | Fresh-start cutover from SQLite to PostgreSQL 17 (pgx/v5 stdlib), Docker Compose service, pg_dump backups, postgres_exporter monitoring | [phase-13a-postgres-migration.md](plans/phase-13a-postgres-migration.md) |
+_None currently._
 
 ---
 

@@ -3,8 +3,8 @@ package db
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,14 +14,17 @@ const (
 	benchGroup = "bench-group"
 )
 
-func newBenchStore(b *testing.B) *SQLiteStore {
+func newBenchStore(b *testing.B) Store {
 	b.Helper()
-	store, err := NewSQLiteStore(filepath.Join(b.TempDir(), "bench.db"))
-	if err != nil {
+	if pgTestDB == nil {
+		b.Skipf("%s not set; skipping Postgres benchmarks", postgresTestURLEnv)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := truncatePostgresTestDB(ctx, pgTestDB); err != nil {
 		b.Fatal(err)
 	}
-	b.Cleanup(func() { store.Close() })
-	return store
+	return pgTestDB
 }
 
 func BenchmarkStore_UpsertDevice(b *testing.B) {

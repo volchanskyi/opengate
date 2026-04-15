@@ -101,7 +101,7 @@ docs/
 ├── API-Reference.md                    REST API tour
 ├── Wire-Protocol.md                    Frame format, MessagePack, golden files
 ├── Platform-Abstraction.md             Agent platform traits
-├── Database.md                         SQLite schema, migrations
+├── Database.md                         PostgreSQL schema, migrations, backups
 ├── Testing.md                          Test layers, tooling
 ├── CI-Pipeline.md                      GitHub Actions pipeline
 ├── Continuous-Deployment.md            CD flow and rollback

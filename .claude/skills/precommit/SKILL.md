@@ -44,23 +44,24 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 ## Security audit (must pass)
 
 11. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
+12. `cd agent && cargo audit` — Rust dependency vulnerability scan (mirrors CI Security Audit job). Install once with `cargo install cargo-audit@0.22.1`. Vulnerabilities fail the gate; warnings (unmaintained/unsound/yanked) are advisory.
 
 ## Coverage (all must meet 80% threshold)
 
-12. **Go coverage** — Run `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` then filter and check:
+13. **Go coverage** — Run `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` then filter and check:
     ```
     grep -v -E '/(testutil|metrics|mps/wsman)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
     go tool cover -func=coverage-prod.out | grep total
     ```
     Total must be >= 80%.
 
-13. **Web coverage** — Run `cd web && npx vitest run --coverage` then check:
+14. **Web coverage** — Run `cd web && npx vitest run --coverage` then check:
     ```
     node -e "const s=require('./coverage/coverage-summary.json');const l=s.total.lines.pct;console.log('Web line coverage: '+l+'%');process.exit(l<80?1:0)"
     ```
     Lines must be >= 80%.
 
-14. **Rust coverage** — Run locally:
+15. **Rust coverage** — Run locally:
     ```
     cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
       --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)'
@@ -69,25 +70,25 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 
 ## SonarCloud local scan (run if SONAR_TOKEN available)
 
-15. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (in environment or `.env`). **Skip if token not configured** — this step is best-effort since not all environments will have the token.
+16. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (in environment or `.env`). **Skip if token not configured** — this step is best-effort since not all environments will have the token.
 
 ## Benchmarks (all must run without errors)
 
-16. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-17. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+17. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+18. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ## Documentation (mandatory on every commit)
 
-18. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-19. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
+19. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+20. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
 
 ## Gate Criteria
 
 Do NOT commit if:
 - Any lint fails
 - Any test fails (unit, integration, or E2E)
-- Go, Web, or Rust overall coverage is below 80% (steps 12-14)
-- SonarCloud quality gate fails (step 15, if token configured)
+- Go, Web, or Rust overall coverage is below 80% (steps 13-15)
+- SonarCloud quality gate fails (step 16, if token configured)
 - Any benchmark errors out
-- Any security audit fails (high+ severity vulnerabilities)
+- Any security audit fails (high+ severity vulnerabilities — npm or cargo)
 - Documentation is stale

@@ -4,12 +4,11 @@
 #
 # Usage: rollback.sh [--mode <staging|production>]
 #
-# Database rollback note (Phase 13a):
+# Database rollback note:
 # This script reverts the server image tag. Postgres data persists across
 # rollbacks in the postgres-data volume — the new image will reconnect to
-# the same database. If a rollback to pre-Postgres is needed, also remove
-# DATABASE_URL from .env so the server falls back to SQLite, and the
-# preserved server-data volume still has the old opengate.db file.
+# the same database. Postgres is the only supported backend; earlier
+# SQLite-era images are not compatible with current deploy configs.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

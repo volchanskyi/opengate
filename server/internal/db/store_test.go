@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -30,21 +29,8 @@ type storeFactory struct {
 }
 
 // storeFactories are the backends every shared test runs against.
-// Postgres is skipped automatically when POSTGRES_TEST_URL is unset.
 var storeFactories = []storeFactory{
-	{name: "sqlite", new: newSQLiteTestStore},
 	{name: "postgres", new: newPostgresTestStore},
-}
-
-// --- SQLite factory ---
-
-// newSQLiteTestStore creates a fresh temp-dir SQLite store for a single test.
-func newSQLiteTestStore(t *testing.T) Store {
-	t.Helper()
-	store, err := NewSQLiteStore(filepath.Join(t.TempDir(), "test.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Close() })
-	return store
 }
 
 // --- Postgres factory (shared store + per-test TRUNCATE) ---
@@ -1579,4 +1565,32 @@ func TestStoreSize(t *testing.T) {
 			assert.Greater(t, size, int64(0))
 		})
 	}
+}
+
+// TestPostgresStoreDB exercises the DB() accessor used by metrics and test
+// helpers to reach the underlying *sql.DB.
+func TestPostgresStoreDB(t *testing.T) {
+	s := newPostgresTestStore(t).(*PostgresStore)
+	pool := s.DB()
+	require.NotNil(t, pool)
+	require.NoError(t, pool.PingContext(context.Background()))
+}
+
+// TestNewPostgresStoreErrors covers the failure branches of NewPostgresStore:
+// malformed URL (open fails), and unreachable server (ping fails).
+func TestNewPostgresStoreErrors(t *testing.T) {
+	t.Run("malformed url", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_, err := NewPostgresStore(ctx, "://not-a-url")
+		require.Error(t, err)
+	})
+
+	t.Run("unreachable host", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		// 192.0.2.0/24 is TEST-NET-1 — never routable. Ping will fail fast via context.
+		_, err := NewPostgresStore(ctx, "postgres://u:p@192.0.2.1:5432/db?sslmode=disable&connect_timeout=1")
+		require.Error(t, err)
+	})
 }

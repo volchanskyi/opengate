@@ -31,7 +31,7 @@ Multi-stage build in the repository root (`/Dockerfile`):
 | `server-build` | `golang:1.26-alpine` | Download Go modules, compile `meshserver` binary (`CGO_ENABLED=0`) |
 | Final | `alpine:3.20` | Minimal runtime with the binary and web assets |
 
-The Go binary uses `modernc.org/sqlite` (pure Go), so `CGO_ENABLED=0` produces a fully static binary.
+The Go binary uses `jackc/pgx/v5` (pure Go), so `CGO_ENABLED=0` produces a fully static binary.
 
 ### Final image contents
 
@@ -58,7 +58,7 @@ meshserver -listen :8080 -quic-listen :9090 -mps-listen :4433 -data-dir /data -w
 ```
 
 **Volumes:**
-- `/data` — persistent storage for SQLite database (`opengate.db`) and CA certificates (`ca.crt`, `ca.key`). Auto-created on first startup.
+- `/data` — persistent storage for the self-signed CA (`ca.crt`, `ca.key`) and VAPID Web Push keys (`vapid.json`). Auto-created on first startup. The database itself lives in the separate `postgres-data` volume owned by the `postgres` service (see [Database](Database.md)).
 
 ### Running locally
 

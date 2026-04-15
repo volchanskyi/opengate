@@ -167,7 +167,7 @@ The MPS certificate uses RSA 2048 because Intel AMT firmware does not support EC
 | `golang-jwt/v5` | JWT authentication |
 | `golang-migrate/v4` | Database migrations |
 | `quic-go` v0.59 | QUIC transport for agent connections |
-| `modernc.org/sqlite` | Pure-Go SQLite driver (no CGO) |
+| `jackc/pgx/v5` | Pure-Go PostgreSQL driver (stdlib adapter used by `database/sql`) |
 | `vmihailenco/msgpack/v5` | MessagePack codec |
 
 ### Rust (Agent)

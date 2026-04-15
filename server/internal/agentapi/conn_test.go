@@ -23,7 +23,7 @@ func testLogger() *slog.Logger {
 
 // newTestAgentConn creates an AgentConn backed by an in-memory buffer for testing.
 // Returns the conn and the buffer so callers can read back what was written.
-func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store *db.SQLiteStore) (*AgentConn, *bytes.Buffer) {
+func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store db.Store) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
 	ac := &AgentConn{

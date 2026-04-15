@@ -1,6 +1,6 @@
 # Tech Debt Register
 
-<!-- Last updated: 2026-04-10 -->
+<!-- Last updated: 2026-04-14 -->
 <!-- Update this file whenever tech debt is identified, reduced, or resolved. -->
 <!-- Severity: 🔴 Critical | 🟠 High | 🟡 Medium | 🟢 Low -->
 
@@ -59,13 +59,6 @@ _None currently._
 - **Impact**: Windows agent is non-functional for real deployments.
 - **Fix**: Implement real Windows platform traits (ScreenCapture via DXGI, InputInjector via SendInput, ServiceLifecycle via SCM) as a future phase.
 - **Identified**: Phase 5
-
-### SQLite Single-Connection Constraint
-- **Files**: `server/internal/db/`
-- **Issue**: `MaxOpenConns(1)` forced by modernc.org/sqlite (pure Go) — single writer at a time. WAL mode helps reads but writes serialize.
-- **Impact**: Limits write throughput; becomes a bottleneck under high concurrency. Already planned to replace with PostgreSQL in Phase 13.
-- **Fix**: Phase 13 — PostgreSQL migration via pgx/v5.
-- **Identified**: Phase 2
 
 ### Golden File Tests Are One-Directional
 - **Files**: `testdata/golden/`, `server/internal/protocol/`

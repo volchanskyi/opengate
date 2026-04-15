@@ -1,39 +1,42 @@
 # Database
 
-## Engines
+OpenGate uses PostgreSQL 17 as its single storage backend behind the
+[`db.Store` interface](../server/internal/db/store.go). The server requires
+the `DATABASE_URL` env var (or `-database-url` flag) at startup and exits
+fast if it is unset. See [ADR-014](adr/ADR-014-postgres-migration.md) for
+the rationale behind the PostgreSQL choice and the supersession of ADR-003.
 
-OpenGate supports two backends behind the same `db.Store` interface. The server selects at startup based on the `DATABASE_URL` env var (or `-database-url` flag):
+## Driver & connection pool
 
-- **PostgreSQL 17** — preferred for staging and production deployments.
-- **SQLite (modernc.org/sqlite)** — fallback for local development and single-node installs; used automatically when `DATABASE_URL` is unset.
+| Setting | Value | Source |
+|---------|-------|--------|
+| Driver | `github.com/jackc/pgx/v5/stdlib` | [`postgres.go`](../server/internal/db/postgres.go) |
+| Pool impl | `database/sql` adapter over pgx | [`postgres.go`](../server/internal/db/postgres.go) |
+| Migrations | `golang-migrate` with `database/pgx/v5` source | [`postgres.go`](../server/internal/db/postgres.go), [`migrations/`](../server/internal/db/migrations/) |
+| Max open conns / idle / lifetime | Set inside `NewPostgresStore` | [`postgres.go`](../server/internal/db/postgres.go) |
+| Size metric | `pg_database_size(current_database())` | [`postgres.go`](../server/internal/db/postgres.go) `Size()` |
 
-Both backends ship their own migration set under `server/internal/db/migrations/{sqlite,postgres}` and are tested against the full `db.Store` contract.
+The size value feeds the `opengate_db_size_bytes` Prometheus gauge (see
+[Monitoring-and-Observability](Monitoring-and-Observability.md)).
 
-### PostgreSQL
+## Schema types
 
-| Setting | Value | Rationale |
-|---------|-------|-----------|
-| Driver | `github.com/jackc/pgx/v5/stdlib` | `database/sql` adapter over pgx |
-| Migrations | `golang-migrate` with `database/pgx/v5` | iofs-embedded SQL under `migrations/postgres` |
-| ID columns | `BIGINT GENERATED ALWAYS AS IDENTITY` / `UUID` | Native Postgres identity + UUID types |
-| Timestamps | `TIMESTAMPTZ` | Time-zone aware; `CURRENT_TIMESTAMP` defaults |
-| JSON columns | `JSONB` | Indexable binary JSON for hardware/capability payloads |
-| Upserts | `ON CONFLICT ... DO UPDATE` / `DO NOTHING` | Matches SQLite semantics where needed |
-| Size metric | `pg_database_size(current_database())` | Exposed via `opengate_db_size_bytes` gauge |
+Native Postgres types throughout — no TEXT/INTEGER shims.
 
-### SQLite
-
-| Setting | Value | Rationale |
-|---------|-------|-----------|
-| Journal mode | WAL | Concurrent reads during writes |
-| `MaxOpenConns` | 1 | SQLite single-writer constraint |
-| `foreign_keys` | ON | Enforced via pragma on every connection |
-| Driver | `modernc.org/sqlite` | Pure Go, no CGO required |
-| Size metric | `PRAGMA page_count * PRAGMA page_size` | Exposed via `opengate_db_size_bytes` gauge |
+| Column kind | Type |
+|-------------|------|
+| Primary keys (generated) | `BIGINT GENERATED ALWAYS AS IDENTITY` |
+| Entity IDs (assigned by app) | `UUID` |
+| Timestamps | `TIMESTAMPTZ`, `NOT NULL DEFAULT NOW()` where applicable |
+| Booleans | `BOOLEAN` |
+| JSON columns | `JSONB` |
+| Upsert semantics | `ON CONFLICT ... DO UPDATE` / `DO NOTHING` |
 
 ## Schema
 
-Fifteen tables managed by `golang-migrate`:
+Thirteen tables managed by `golang-migrate`. The current schema is a single
+flat migration ([`001_initial.up.sql`](../server/internal/db/migrations/001_initial.up.sql))
+produced by Phase 13a's fresh-start cutover from SQLite.
 
 ```
 ┌─────────────────────┐       ┌─────────────────────┐
@@ -53,7 +56,7 @@ Fifteen tables managed by `golang-migrate`:
 │─────────────────────│   │   │ group_id FK (nullable)│
 │ token         PK    │   │   │ hostname            │
 │ device_id     FK    │───┤   │ os                  │
-│ user_id       FK    │───┤   │ capabilities (JSON) │
+│ user_id       FK    │───┤   │ capabilities (JSONB)│
 │ created_at          │   │   │ status              │
 └─────────────────────┘   │   │ last_seen           │
                           │   │ created_at          │
@@ -64,7 +67,7 @@ Fifteen tables managed by `golang-migrate`:
 │─────────────────────│   │   ┌─────────────────────┐
 │ endpoint      PK    │   │   │    audit_events      │
 │ user_id       FK    │───┘   │─────────────────────│
-│ p256dh              │       │ id        PK (auto)  │
+│ p256dh              │       │ id        PK (identity)│
 │ auth                │       │ user_id              │
 └─────────────────────┘       │ action               │
                               │ target               │
@@ -86,20 +89,25 @@ Fifteen tables managed by `golang-migrate`:
 └─────────────────────────┘
 ```
 
+Note: the groups table is named `groups_` (trailing underscore) to avoid
+collision with the Postgres `GROUP` reserved word. All column lists,
+indexes, and the Administrators seed row live in
+[`001_initial.up.sql`](../server/internal/db/migrations/001_initial.up.sql).
+
 ### Enrollment Tokens Table
 
 The `enrollment_tokens` table tracks tokens used for agent CSR enrollment:
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | TEXT PK | UUID |
+| `id` | UUID PK | Identifier |
 | `token` | TEXT UQ | The enrollment token string |
 | `label` | TEXT | Human-readable label |
-| `created_by` | TEXT FK | References `users(id)` |
+| `created_by` | UUID FK | References `users(id)` |
 | `max_uses` | INTEGER | Maximum allowed enrollments (0 = unlimited) |
 | `use_count` | INTEGER | Current enrollment count |
-| `expires_at` | TEXT | ISO 8601 expiration timestamp |
-| `created_at` | TEXT | ISO 8601 creation timestamp |
+| `expires_at` | TIMESTAMPTZ | Expiration timestamp |
+| `created_at` | TIMESTAMPTZ | Creation timestamp |
 
 ### Device Updates Table
 
@@ -107,19 +115,25 @@ The `device_updates` table tracks OTA update push/ack status per device:
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | INTEGER PK | Auto-increment |
-| `device_id` | TEXT FK | References `devices(id)`, CASCADE delete |
+| `id` | BIGINT PK | Identity column |
+| `device_id` | UUID FK | References `devices(id)`, CASCADE delete |
 | `version` | TEXT | Target version string |
 | `status` | TEXT | `pending`, `success`, or `failed` |
 | `error` | TEXT | Error message (empty on success) |
-| `pushed_at` | TEXT | ISO 8601 timestamp when update was pushed |
-| `acked_at` | TEXT | ISO 8601 timestamp when agent acknowledged (nullable) |
+| `pushed_at` | TIMESTAMPTZ | When the update was pushed |
+| `acked_at` | TIMESTAMPTZ | When the agent acknowledged (nullable) |
 
 Indexed on `device_id` and `version` for fast lookups.
 
-The `devices.capabilities` column stores a JSON array of capability strings (e.g., `'["Terminal","FileManager","RemoteDesktop"]'`). Capabilities are reported by the agent during registration and persisted via `UpsertDevice`. The web client uses this field to determine which session tabs to show.
+The `devices.capabilities` column stores a JSONB array of capability strings
+(e.g., `'["Terminal","FileManager","RemoteDesktop"]'`). Capabilities are
+reported by the agent during registration and persisted via `UpsertDevice`.
+The web client uses this field to determine which session tabs to show.
 
-The `devices.group_id` foreign key is nullable with `ON DELETE SET NULL` — deleting a group ungroups its devices (sets `group_id` to NULL). Newly enrolled devices start with `group_id = NULL` until assigned to a group. The `agent_sessions.device_id` foreign key cascades on delete.
+The `devices.group_id` foreign key is nullable with `ON DELETE SET NULL` —
+deleting a group ungroups its devices (sets `group_id` to NULL). Newly
+enrolled devices start with `group_id = NULL` until assigned to a group.
+The `agent_sessions.device_id` foreign key cascades on delete.
 
 ### Store Methods (Device)
 
@@ -129,7 +143,11 @@ The `devices.group_id` foreign key is nullable with `ON DELETE SET NULL` — del
 
 ### Security Groups
 
-The `security_groups` and `security_group_members` tables implement role-based access control. A well-known "Administrators" group (UUID `00000000-0000-0000-0000-000000000001`) is seeded on migration and cannot be deleted (`is_system = 1`). Group membership is a many-to-many join via `security_group_members`.
+The `security_groups` and `security_group_members` tables implement
+role-based access control. A well-known "Administrators" group (UUID
+`00000000-0000-0000-0000-000000000001`) is seeded on migration and cannot
+be deleted (`is_system = TRUE`). Group membership is a many-to-many join
+via `security_group_members`.
 
 Key behaviors:
 - Adding/removing a member of the Administrators group automatically syncs the `users.is_admin` boolean via `syncIsAdmin()` for backward compatibility
@@ -143,12 +161,12 @@ The `amt_devices` table tracks Intel AMT devices connected via CIRA, independent
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `uuid` | TEXT PK | AMT device UUID (from ProtocolVersion message) |
+| `uuid` | UUID PK | AMT device UUID (from ProtocolVersion message) |
 | `hostname` | TEXT | Device hostname |
 | `model` | TEXT | Hardware model string |
 | `firmware` | TEXT | AMT firmware version |
 | `status` | TEXT | `online` / `offline` |
-| `last_seen` | TEXT | ISO 8601 timestamp of last activity |
+| `last_seen` | TIMESTAMPTZ | Last activity timestamp |
 
 The upsert logic preserves existing non-empty fields (hostname, model, firmware) when the new value is empty, allowing incremental enrichment of device metadata.
 
@@ -158,14 +176,14 @@ The `device_hardware` table stores on-demand hardware inventory collected from a
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `device_id` | TEXT PK | References `devices(id)`, CASCADE delete |
+| `device_id` | UUID PK | References `devices(id)`, CASCADE delete |
 | `cpu_model` | TEXT | CPU model string |
 | `cpu_cores` | INTEGER | Number of CPU cores |
-| `ram_total_mb` | INTEGER | Total RAM in MB |
-| `disk_total_mb` | INTEGER | Total disk in MB |
-| `disk_free_mb` | INTEGER | Free disk in MB |
-| `network_interfaces` | TEXT | JSON array of network interfaces (name, mac, ipv4, ipv6) |
-| `updated_at` | TEXT | ISO 8601 timestamp of last update |
+| `ram_total_mb` | BIGINT | Total RAM in MB |
+| `disk_total_mb` | BIGINT | Total disk in MB |
+| `disk_free_mb` | BIGINT | Free disk in MB |
+| `network_interfaces` | JSONB | Array of network interfaces (name, mac, ipv4, ipv6) |
+| `updated_at` | TIMESTAMPTZ | Last update timestamp |
 
 Hardware data is collected on demand via `RequestHardwareReport` control message and upserted via `UpsertDeviceHardware`. Retrieved via `GetDeviceHardware`.
 
@@ -175,13 +193,13 @@ The `device_logs` table caches log entries retrieved on demand from agents via t
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `id` | INTEGER PK | Auto-increment |
-| `device_id` | TEXT FK | References `devices(id)`, CASCADE delete |
-| `timestamp` | TEXT | ISO 8601 timestamp of the log line |
+| `id` | BIGINT PK | Identity column |
+| `device_id` | UUID FK | References `devices(id)`, CASCADE delete |
+| `timestamp` | TEXT | Raw timestamp string as emitted by the agent |
 | `level` | TEXT | Log level (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`) |
 | `target` | TEXT | Tracing target / module path (default `''`) |
 | `message` | TEXT | Log message body (default `''`) |
-| `fetched_at` | TEXT | ISO 8601 timestamp when the row was cached (default `datetime('now')`) |
+| `fetched_at` | TIMESTAMPTZ | When the row was cached (default `NOW()`) |
 
 Indexes: `device_id`, `(device_id, level)`, `(device_id, timestamp)`.
 
@@ -197,45 +215,47 @@ The 5-minute TTL avoids repeated round-trips to the agent. When `HasRecentLogs` 
 
 ## Migrations
 
-Migrations live in `server/internal/db/migrations/` and use `golang-migrate`:
+Migrations live in [`server/internal/db/migrations/`](../server/internal/db/migrations/)
+and use `golang-migrate`. The Phase 13a cutover consolidated the prior
+eleven SQLite migrations into a single flat Postgres-native migration:
 
-```
-server/internal/db/migrations/
-├── 001_initial.up.sql       # Core tables (users, groups, devices, sessions, push, audit)
-├── 001_initial.down.sql
-├── 002_amt_devices.up.sql   # Intel AMT device tracking
-├── 002_amt_devices.down.sql
-├── 003_agent_version.up.sql     # Add agent_version column to devices
-├── 003_agent_version.down.sql
-├── 004_enrollment_tokens.up.sql # CSR enrollment token management
-├── 004_enrollment_tokens.down.sql
-├── 005_security_groups.up.sql   # Security groups + membership (RBAC)
-├── 005_security_groups.down.sql
-├── 006_nullable_device_group.up.sql   # Nullable device group_id (SET NULL on group delete)
-├── 006_nullable_device_group.down.sql
-├── 007_device_updates.up.sql   # OTA update tracking (push/ack status per device)
-├── 007_device_updates.down.sql
-├── 008_device_capabilities.up.sql  # Add capabilities JSON column to devices
-├── 008_device_capabilities.down.sql
-├── 009_hardware_info.up.sql         # Device hardware inventory table
-├── 009_hardware_info.down.sql
-├── 010_device_logs.up.sql       # On-demand device log cache
-├── 010_device_logs.down.sql
-├── 011_normalize_os.up.sql      # Normalize devices.os to {linux,windows,darwin}; add os_display for raw value
-└── 011_normalize_os.down.sql
-```
+- [`001_initial.up.sql`](../server/internal/db/migrations/001_initial.up.sql)
+  creates every table, index, and the Administrators seed row in one pass.
+- [`001_initial.down.sql`](../server/internal/db/migrations/001_initial.down.sql)
+  drops them in FK-safe order.
 
-On first startup, the server creates the SQLite database under the configured `data-dir` and runs all pending migrations.
+On first startup, `NewPostgresStore` opens a connection, runs migrations,
+and the server is ready. Schema changes made after Phase 13a land as new
+sequentially numbered `.up.sql` / `.down.sql` pairs in the same directory.
 
-## Data Directory
+## Backups
 
-The `-data-dir` flag (default: `./data`) holds:
+Daily `pg_dump` backups run inside the `postgres-backup` sidecar defined in
+[`deploy/docker-compose.yml`](../deploy/docker-compose.yml). Output is
+written to the `postgres-backups` Docker volume, with 7-day local
+retention. Off-host replication (e.g. to OCI Object Storage via rclone) is
+tracked as a follow-up and is not configured by default. See
+[Infrastructure](Infrastructure.md) for VPS placement details.
+
+## Data directory
+
+The `-data-dir` flag (default: `./data`) no longer stores the database. It
+holds just the TLS/VAPID material that still lives on disk:
 
 ```
 data/
-├── opengate.db      # SQLite database
-├── ca.crt           # Self-signed ECDSA P-256 CA certificate
-└── ca.key           # CA private key
+├── ca.crt      # Self-signed ECDSA P-256 CA certificate
+├── ca.key      # CA private key
+└── vapid.json  # VAPID keypair for Web Push
 ```
 
-Both the database and CA are created automatically on first startup.
+The database itself lives in the `postgres-data` Docker volume
+(`/var/lib/postgresql/data` inside the postgres container).
+
+## Transport security inside Docker
+
+The connection string in deploy configs uses `sslmode=disable` because all
+server ↔ postgres traffic stays on the internal Docker bridge network.
+Postgres is not exposed to the host or the public internet. If Postgres is
+ever moved off-host, switch to `sslmode=verify-full` and provision TLS
+material on both sides.

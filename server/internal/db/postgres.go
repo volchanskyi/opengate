@@ -18,8 +18,13 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib" // register pgx driver with database/sql
 )
 
-//go:embed migrations/postgres/*.sql
-var postgresMigrationsFS embed.FS
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
+
+// scanner abstracts *sql.Row and *sql.Rows so scan helpers work with both.
+type scanner interface {
+	Scan(dest ...any) error
+}
 
 // PostgresStore implements Store using PostgreSQL via the pgx/v5 stdlib driver.
 type PostgresStore struct {
@@ -55,7 +60,7 @@ func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, 
 }
 
 func runPostgresMigrations(db *sql.DB) error {
-	sourceDriver, err := iofs.New(postgresMigrationsFS, "migrations/postgres")
+	sourceDriver, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("migration source: %w", err)
 	}
@@ -112,8 +117,6 @@ func (s *PostgresStore) execAndCheckAffected(ctx context.Context, query string, 
 }
 
 // queryListPG runs a SELECT and scans all rows using the provided scan function.
-// Kept package-private and parallel to the SQLite helper so that shared scan
-// functions can be reused for whichever store runs them.
 func queryListPG[T any](ctx context.Context, db *sql.DB, scan func(scanner) (*T, error), query string, args ...any) ([]*T, error) {
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -791,8 +794,7 @@ func (s *PostgresStore) UpsertDeviceLogs(ctx context.Context, deviceID DeviceID,
 // guarded by a `$N = '' OR ...` sentinel — no dynamic concatenation,
 // parameterized throughout. Level filtering is severity-based
 // (WARN matches WARN+ERROR) to mirror mesh-agent/src/logs.rs semantics.
-// Mirrors SQLiteStore.QueryDeviceLogs (see sqlite.go) byte-for-byte
-// except for the $N placeholder syntax.
+// All filter clauses use positional $N parameters.
 func (s *PostgresStore) QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error) {
 	searchPattern := ""
 	if filter.Search != "" {
