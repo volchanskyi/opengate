@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776030631110,
+  "lastUpdate": 1776275347493,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11049,6 +11049,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.625659026560925,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "20fd266c6cfc57e73806ab1ca4cc49c47c202e40",
+          "message": "feat(db): remove SQLite backend after Postgres cutover (Phase 13a PR-6)\n\nCompletes Phase 13a by dropping the SQLite backend, collapsing the dual-\nbackend abstraction, and moving the store to a Postgres-native\nimplementation.\n\n- Remove server/internal/db/sqlite.go and sqlite_only_test.go\n- Flatten 11 SQLite migrations + the postgres/ branch into a single\n  001_initial.up.sql with native TIMESTAMPTZ / UUID / JSONB types\n- Make DATABASE_URL mandatory in meshserver (no filesystem fallback)\n- Drop modernc.org/sqlite from go.mod; pgx/v5/stdlib is the only driver\n- Update store_test.go and testutil to target a pinned opengate_test\n  schema with TRUNCATE ... CASCADE between tests\n- Add Postgres service to the go-bench CI job and deploy/docker-\n  compose.test.yml so E2E and benches run against real Postgres 17\n- Record ADR-014 (supersedes ADR-003) and mark Phase 13a complete in\n  .claude/phases.md; remove the \"SQLite single-connection\" tech-debt row\n- Refresh docs/ (Database, Testing, Architecture, Container-Images,\n  Security-and-Dependencies, Home, README, Agent-Updates) for Postgres-\n  only operation per link-over-paraphrase convention",
+          "timestamp": "2026-04-15T10:46:47-07:00",
+          "tree_id": "73c1d75c0b77fa92435d0c8213e924925801f41a",
+          "url": "https://github.com/volchanskyi/opengate/commit/20fd266c6cfc57e73806ab1ca4cc49c47c202e40"
+        },
+        "date": 1776275347438,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.403358822443053,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.742918350734477,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 731.7045623888689,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 295.4025129489952,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.867284519446912,
             "unit": "ns/iter"
           }
         ]
