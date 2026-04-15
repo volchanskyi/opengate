@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -30,8 +29,11 @@ func TestHealthHandler(t *testing.T) {
 	})
 
 	t.Run("returns 503 when database is unreachable", func(t *testing.T) {
-		dir := t.TempDir()
-		store, err := db.NewSQLiteStore(filepath.Join(dir, "health.db"))
+		pgURL := os.Getenv("POSTGRES_TEST_URL")
+		if pgURL == "" {
+			t.Skip("POSTGRES_TEST_URL not set")
+		}
+		store, err := db.NewPostgresStore(t.Context(), pgURL)
 		require.NoError(t, err)
 		cfg := &auth.JWTConfig{Secret: "test-secret-key-at-least-32-bytes!", Issuer: "test", Duration: 15 * time.Minute}
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))

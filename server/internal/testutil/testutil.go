@@ -4,7 +4,10 @@ package testutil
 
 import (
 	"context"
-	"path/filepath"
+	"fmt"
+	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,14 +18,112 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// NewTestStore creates a temporary SQLite store backed by a t.TempDir() database
-// and registers a cleanup that closes it when the test ends.
+const postgresTestURLEnv = "POSTGRES_TEST_URL"
+
+// pgOnce ensures the shared Postgres test store is provisioned at most once.
+var pgOnce sync.Once
+
+// pgTestDB is the shared Postgres store for all external test packages.
+var pgTestDB *db.PostgresStore
+
+// pgSetupErr captures any error from the one-time setup.
+var pgSetupErr error
+
+// pgSchemaName is a per-process unique schema to avoid races between parallel
+// test binaries (go test runs packages concurrently).
+var pgSchemaName string
+
+
+// initPostgresTestDB provisions the shared Postgres test store in its own
+// per-process schema so parallel package test binaries don't interfere.
+func initPostgresTestDB(baseURL string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Use a short random suffix to isolate from parallel test binaries.
+	pgSchemaName = "ogt_" + uuid.New().String()[:8]
+
+	setup, err := db.NewPostgresStore(ctx, baseURL)
+	if err != nil {
+		return fmt.Errorf("open base url: %w", err)
+	}
+	// Schema name is generated in-process (not user input). Using string
+	// concatenation for DDL is safe here — it never touches external input.
+	if _, err := setup.DB().ExecContext(ctx, `CREATE SCHEMA `+pgSchemaName); err != nil {
+		_ = setup.Close()
+		return fmt.Errorf("create schema: %w", err)
+	}
+	_ = setup.Close()
+
+	sep := "?"
+	if strings.Contains(baseURL, "?") {
+		sep = "&"
+	}
+	testURL := baseURL + sep + "search_path=" + pgSchemaName
+	store, err := db.NewPostgresStore(ctx, testURL)
+	if err != nil {
+		return fmt.Errorf("open test url: %w", err)
+	}
+	pgTestDB = store
+	return nil
+}
+
+// truncateTestDB wipes all rows and re-seeds the Administrators group inside a
+// single transaction to avoid races with concurrent test packages.
+func truncateTestDB(ctx context.Context) error {
+	tx, err := pgTestDB.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck // rollback on commit is no-op
+	if _, err := tx.ExecContext(ctx, `
+		TRUNCATE TABLE
+			security_group_members,
+			device_logs,
+			device_hardware,
+			device_updates,
+			enrollment_tokens,
+			amt_devices,
+			audit_events,
+			web_push_subscriptions,
+			agent_sessions,
+			devices,
+			groups_,
+			security_groups,
+			users
+		RESTART IDENTITY CASCADE`); err != nil {
+		return fmt.Errorf("truncate tables: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO security_groups (id, name, description, is_system)
+		VALUES ('00000000-0000-0000-0000-000000000001', 'Administrators', 'Full system access', TRUE)`); err != nil {
+		return fmt.Errorf("seed administrators group: %w", err)
+	}
+	return tx.Commit()
+}
+
+// NewTestStore returns a Postgres-backed store for testing. The store is shared
+// across all tests in the same package run — each call TRUNCATEs all tables to
+// isolate state. Tests that use this helper must NOT call t.Parallel().
+//
+// Requires POSTGRES_TEST_URL to be set; skips the test otherwise.
 func NewTestStore(t testing.TB) db.Store {
 	t.Helper()
-	store, err := db.NewSQLiteStore(filepath.Join(t.TempDir(), "test.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { store.Close() })
-	return store
+
+	baseURL := os.Getenv(postgresTestURLEnv)
+	if baseURL == "" {
+		t.Skipf("%s not set; skipping Postgres tests", postgresTestURLEnv)
+	}
+
+	pgOnce.Do(func() {
+		pgSetupErr = initPostgresTestDB(baseURL)
+	})
+	require.NoError(t, pgSetupErr, "postgres test setup")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, truncateTestDB(ctx))
+	return pgTestDB
 }
 
 // SeedUser inserts a minimal user into the store and returns it.
@@ -110,4 +211,3 @@ func SeedAMTDevice(t testing.TB, ctx context.Context, s db.Store) *db.AMTDevice 
 	require.NoError(t, s.UpsertAMTDevice(ctx, d))
 	return d
 }
-

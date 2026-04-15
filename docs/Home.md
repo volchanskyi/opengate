@@ -14,7 +14,7 @@ Developer documentation for the OpenGate remote device management platform.
 | [API Reference](./API-Reference.md) | REST API endpoints, OpenAPI spec, code generation, authentication |
 | [Wire Protocol](./Wire-Protocol.md) | MessagePack framing, handshake sequence, golden file testing |
 | [Platform Abstraction](./Platform-Abstraction.md) | OS-specific traits for capture, input, and service lifecycle |
-| [Database](./Database.md) | SQLite schema, WAL mode, migrations |
+| [Database](./Database.md) | PostgreSQL schema, driver, migrations, backups |
 | [Testing](./Testing.md) | Test layers, running tests, benchmarks |
 | [CI Pipeline](./CI-Pipeline.md) | Workflows, job graph, branch protection, auto-merge |
 | [Continuous Deployment](./Continuous-Deployment.md) | CD pipeline, staging/production deploys, smoke tests, rollback |

@@ -71,7 +71,7 @@ func testJWTConfig() *auth.JWTConfig {
 	}
 }
 
-// newTestServer creates a Server backed by a temporary SQLite store and a test JWTConfig.
+// newTestServer creates a Server backed by a Postgres test store and a test JWTConfig.
 func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
@@ -92,7 +92,14 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 // newTestServerWithAgents creates a Server with a custom AgentGetter and relay.
 func newTestServerWithAgents(t *testing.T, agents AgentGetter, r *relay.Relay) (*Server, *auth.JWTConfig) {
 	t.Helper()
-	store := testutil.NewTestStore(t)
+	return newTestServerWithStoreAndAgents(t, testutil.NewTestStore(t), agents, r)
+}
+
+// newTestServerWithStoreAndAgents creates a Server with an existing store, custom
+// AgentGetter and relay. Use this when the caller has already obtained a store
+// and seeded data — it avoids a redundant TRUNCATE.
+func newTestServerWithStoreAndAgents(t *testing.T, store db.Store, agents AgentGetter, r *relay.Relay) (*Server, *auth.JWTConfig) {
+	t.Helper()
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{

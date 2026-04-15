@@ -23,7 +23,7 @@ OpenGate is a three-component platform for remote device management:
                                   │   └─────┬─────┘  └──────┬─────┘  │
                                   │         │               │        │
                                   │   ┌─────▼───────────────▼──────┐ │
-                                  │   │    SQLite (WAL mode)       │ │
+                                  │   │  PostgreSQL 17 (pgx/v5)    │ │
                                   │   └────────────────────────────┘ │
                                   └──────────────────────────────────┘
 ```
@@ -78,7 +78,7 @@ The `mesh-agent` binary (`agent/crates/mesh-agent/src/main.rs`) is the entry poi
 
 ### Web → Server (HTTP + JWT)
 
-Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed and stored in SQLite. The REST API is defined by an OpenAPI 3.0.3 spec (`api/openapi.yaml`) and served by an `oapi-codegen` strict server on a chi v5 router. The same spec generates TypeScript types for the web client via `openapi-typescript` + `openapi-fetch`. See [[API Reference]] for endpoint details.
+Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed and stored in PostgreSQL. The REST API is defined by an OpenAPI 3.0.3 spec (`api/openapi.yaml`) and served by an `oapi-codegen` strict server on a chi v5 router. The same spec generates TypeScript types for the web client via `openapi-typescript` + `openapi-fetch`. See [[API Reference]] for endpoint details.
 
 ## Data Flow
 
@@ -86,7 +86,7 @@ Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed 
                     ┌─────────────────────────────────────────────┐
                     │               Server                        │
                     │                                             │
- Agent ──QUIC──►  AgentAPI  ──►  SQLite  ◄──  REST API  ◄──HTTP── Web
+ Agent ──QUIC──►  AgentAPI  ──►  Postgres ◄──  REST API  ◄──HTTP── Web
                     │               │                             │
                     │           migrations                        │
                     │           (golang-migrate)                  │
@@ -95,7 +95,7 @@ Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed 
 
 - **AgentAPI** handles QUIC connections: handshake, registration, heartbeat, disconnect
 - **REST API** serves device/group/user management and authentication endpoints
-- **SQLite** (WAL mode, single writer) is the shared persistence layer
+- **PostgreSQL 17** (via `pgx/v5` stdlib adapter) is the shared persistence layer — see [Database](Database.md) and [ADR-014](adr/ADR-014-postgres-migration.md)
 - **Multiserver** (`server/internal/multiserver/`) is a stub package for Phase 13 — peer server discovery and agent routing across multiple instances (not yet implemented)
 
 ## WebSocket Relay

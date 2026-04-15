@@ -7,7 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"path/filepath"
+	"os"
 	"testing"
 	"time"
 
@@ -22,15 +22,19 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newTestServer(t *testing.T) (*Server, *db.SQLiteStore) {
+func newTestServer(t *testing.T) (*Server, db.Store) {
 	t.Helper()
-	dir := t.TempDir()
-	cm, err := cert.NewManager(dir)
-	require.NoError(t, err)
 
-	store, err := db.NewSQLiteStore(filepath.Join(dir, "test.db"))
+	pgURL := os.Getenv("POSTGRES_TEST_URL")
+	if pgURL == "" {
+		t.Skip("POSTGRES_TEST_URL not set; skipping Postgres tests")
+	}
+	store, err := db.NewPostgresStore(t.Context(), pgURL)
 	require.NoError(t, err)
 	t.Cleanup(func() { store.Close() })
+
+	cm, err := cert.NewManager(t.TempDir())
+	require.NoError(t, err)
 
 	logger := discardLogger()
 	srv := NewServer(cm, store, logger)
