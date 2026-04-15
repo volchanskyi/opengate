@@ -32,7 +32,7 @@ This page contains the full text of all Architecture Decision Records (ADRs) for
 
 ## ADR-003: SQLite + WAL Mode via Pure Go Driver
 
-**Status**: Accepted | **Phase**: 2
+**Status**: Superseded by [ADR-014](adr/ADR-014-postgres-migration.md) | **Phase**: 2
 
 **Decision**: `modernc.org/sqlite` (pure Go, no CGo), WAL mode, `foreign_keys` pragma, `MaxOpenConns(1)`.
 

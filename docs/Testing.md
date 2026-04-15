@@ -1,24 +1,21 @@
 # Testing
 
-The project follows a strict test-first approach. All logic is covered before shipping, the Go test runner always uses `-race`, and every test gets its own ephemeral database — no shared state between test cases.
+The project follows a strict test-first approach. All logic is covered before shipping, the Go test runner always uses `-race`, and every `db.Store` test wipes its state before running — no shared state between test cases.
 
-### Dual-Backend Database Tests
+### Database Tests
 
-The `db.Store` contract is verified against both SQLite and PostgreSQL using a factory pattern in `server/internal/db/store_test.go`. Each shared test runs once per backend via `storeFactories`:
+`db.Store` contract tests run against a real PostgreSQL 17 service container. The shared tests in [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) use a factory pattern and `storeFactories` table; per-test isolation is via `TRUNCATE ... CASCADE` on the pinned `opengate_test` schema. Tests are skipped when `POSTGRES_TEST_URL` is unset (so `go test ./internal/db/...` without a local Postgres exits cleanly).
 
-- **SQLite** — ephemeral temp-dir database per test (always runs)
-- **PostgreSQL** — shared store with per-test `TRUNCATE ... CASCADE` isolation (runs when `POSTGRES_TEST_URL` is set)
-
-SQLite-specific tests (corrupt UUID/timestamp scanning, WAL mode, DB accessor) live in `sqlite_only_test.go`. To run both backends locally:
+To run the DB tests locally:
 
 ```bash
 # Start a test Postgres instance
 docker run -d --rm --name opengate-pg-test \
-  -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate \
+  -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
   -p 55432:5432 postgres:17-alpine
 
-# Run with both backends
-POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:55432/opengate?sslmode=disable" \
+# Run with the Postgres URL set
+POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:55432/opengate_test?sslmode=disable" \
   go test -race -timeout 5m ./internal/db/...
 ```
 
@@ -36,7 +33,7 @@ POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:55432/opengate?sslmode
 │  Rust generates binary fixtures  →  Go verifies bit-identical       │
 ├─────────────────────────────────────────────────────────────────────┤
 │                        Integration                                  │
-│  HTTP round-trips + real QUIC + live SQLite (in-process server)     │
+│  HTTP round-trips + real QUIC + live Postgres (in-process server)   │
 ├────────────────────────────────┬────────────────────────────────────┤
 │         Unit (Go)              │           Unit (Rust)              │
 │  auth, DB, cert, API,          │  protocol codec, platform traits,  │
@@ -55,7 +52,7 @@ POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:55432/opengate?sslmode
 |-------|-------|----------|
 | **Unit (Go)** | `testing` + testify | `server/internal/*/` |
 | **Unit (Rust)** | `#[test]` + proptest | `agent/crates/*/` |
-| **Integration** | `httptest` + real QUIC + live SQLite | `server/tests/integration/` |
+| **Integration** | `httptest` + real QUIC + live Postgres | `server/tests/integration/` |
 | **Golden** | Rust generates → Go verifies | `testdata/golden/` |
 | **Web Unit** | Vitest + React Testing Library | `web/src/**/*.test.{ts,tsx}` |
 | **Web Integration** | Vitest + React Testing Library | `web/tests/integration/**/*.test.tsx` |
@@ -156,7 +153,7 @@ cd agent && cargo bench -p mesh-protocol
 
 ## End-to-End Tests (Playwright)
 
-E2E tests run Playwright against a real server instance via `deploy/docker-compose.test.yml`. The test environment uses a single server container built from source with tmpfs storage.
+E2E tests run Playwright against a real server instance via `deploy/docker-compose.test.yml`. The test environment uses a server container (built from source) plus a Postgres 17 container — both back their state with tmpfs, so teardown is instant.
 
 ### Test suites
 

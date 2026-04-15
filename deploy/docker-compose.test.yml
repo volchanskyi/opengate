@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: opengate-test-postgres
+    environment:
+      - POSTGRES_USER=opengate
+      - POSTGRES_PASSWORD=e2e-test-password
+      - POSTGRES_DB=opengate
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opengate -d opengate"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   server:
     build:
       context: ..
@@ -7,6 +23,7 @@ services:
     environment:
       - JWT_SECRET=e2e-test-secret-minimum-32-bytes!
       - OPENGATE_TEST_MODE=true
+      - DATABASE_URL=postgres://opengate:e2e-test-password@postgres:5432/opengate?sslmode=disable
     command: ["-listen", ":8080", "-data-dir", "/data", "-web-dir", "/srv/web"]
     ports:
       - "8080:8080"
@@ -18,3 +35,6 @@ services:
       start_period: 10s
     tmpfs:
       - /data:mode=1777
+    depends_on:
+      postgres:
+        condition: service_healthy

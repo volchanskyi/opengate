@@ -45,7 +45,7 @@ Admin UI                    Server                           Agent
 | **GitHub sync** | `server/internal/updater/github.go` | Periodic sync from GitHub Releases (hourly) |
 | **REST API** | `server/internal/api/handlers_updates.go` | List/publish/push manifests, query update status |
 | **QUIC handler** | `server/internal/agentapi/conn.go` | Send `AgentUpdate`, handle `AgentUpdateAck` |
-| **DB tracking** | `server/internal/db/sqlite.go` | `device_updates` table (pending/success/failed) |
+| **DB tracking** | `server/internal/db/postgres.go` | `device_updates` table (pending/success/failed) |
 
 ### Agent Side
 

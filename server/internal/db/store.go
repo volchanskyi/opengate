@@ -1,5 +1,4 @@
-// Package db provides the database abstraction layer with SQLite and
-// PostgreSQL implementations.
+// Package db provides the database abstraction layer backed by PostgreSQL.
 package db
 
 import (

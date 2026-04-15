@@ -366,7 +366,7 @@ func TestSessionLifecycle_ConcurrentSessions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Connect 3 agents — each with its own group to eliminate shared-row
-	// SQLite contention that caused the flaky FOREIGN KEY failures.
+	// contention that caused the flaky FOREIGN KEY failures.
 	type agentInfo struct {
 		stream   io.ReadWriter
 		deviceID uuid.UUID

@@ -94,9 +94,7 @@ func TestCreateSession(t *testing.T) {
 			},
 		}
 
-		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
-		// Re-use the same store
-		srv.store = store
+		srv, cfg := newTestServerWithStoreAndAgents(t, store, lookup, relay.NewRelay(slog.Default()))
 
 		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
 		require.NoError(t, err)
@@ -160,8 +158,7 @@ func TestCreateSession(t *testing.T) {
 					agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 				}
 
-				srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
-				srv.store = store
+				srv, cfg := newTestServerWithStoreAndAgents(t, store, lookup, relay.NewRelay(slog.Default()))
 
 				jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
 				require.NoError(t, err)
@@ -201,8 +198,7 @@ func TestCreateSession(t *testing.T) {
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 		}
 
-		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
-		srv.store = store
+		srv, cfg := newTestServerWithStoreAndAgents(t, store, lookup, relay.NewRelay(slog.Default()))
 
 		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
 		require.NoError(t, err)
@@ -240,8 +236,7 @@ func TestCreateSession(t *testing.T) {
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 		}
 
-		srv, cfg := newTestServerWithAgents(t, lookup, relay.NewRelay(slog.Default()))
-		srv.store = store
+		srv, cfg := newTestServerWithStoreAndAgents(t, store, lookup, relay.NewRelay(slog.Default()))
 
 		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
 		require.NoError(t, err)

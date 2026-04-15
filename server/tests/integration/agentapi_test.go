@@ -128,7 +128,7 @@ func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stre
 
 	// Pre-seed the device in the DB BEFORE connecting so the server can
 	// find its group during accept(). Previously this happened after the
-	// handshake, causing races with concurrent connections on SQLite.
+	// handshake, causing races with concurrent connections.
 	seedDevice := &db.Device{
 		ID:       deviceID,
 		GroupID:  groupID,

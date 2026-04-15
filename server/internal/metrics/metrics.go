@@ -101,7 +101,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		DBSizeBytes: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "opengate",
 			Name:      "db_size_bytes",
-			Help:      "Database size in bytes (SQLite file size or Postgres pg_database_size).",
+			Help:      "Database size in bytes (pg_database_size).",
 		}),
 	}
 
@@ -173,7 +173,7 @@ func StartGaugeUpdater(ctx context.Context, m *Metrics, src GaugeSource, interva
 }
 
 // DBSizer returns the current on-disk database size in bytes.
-// Implementations should be backend-specific (SQLite PRAGMA or Postgres pg_database_size).
+// Implementations use Postgres pg_database_size.
 type DBSizer interface {
 	Size(ctx context.Context) (int64, error)
 }

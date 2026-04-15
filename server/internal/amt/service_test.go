@@ -4,15 +4,13 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/cert"
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/mps"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
 func discardLogger() *slog.Logger {
@@ -21,13 +19,10 @@ func discardLogger() *slog.Logger {
 
 func newTestService(t *testing.T) *Service {
 	t.Helper()
-	dir := t.TempDir()
-	cm, err := cert.NewManager(dir)
-	require.NoError(t, err)
+	store := testutil.NewTestStore(t)
 
-	store, err := db.NewSQLiteStore(filepath.Join(dir, "test.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { store.Close() })
+	cm, err := cert.NewManager(t.TempDir())
+	assert.NoError(t, err)
 
 	logger := discardLogger()
 	mpsSrv := mps.NewServer(cm, store, logger)
