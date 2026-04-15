@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776277368151,
+  "lastUpdate": 1776279260049,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11147,6 +11147,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.113849814857286,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "82cf1e5b1f99dc4c62792a9893340d6f2249c66a",
+          "message": "chore(hooks): add SessionStart hook to warn when local dev is behind origin\n\nRepo-shared hook (committed via .claude/settings.json) that fetches origin/dev\nand injects a warning into Claude's context when local HEAD is behind, listing\nthe unpulled commits. Silent when up-to-date or offline. Uses python3 for JSON\noutput to avoid a jq dependency.",
+          "timestamp": "2026-04-15T11:48:39-07:00",
+          "tree_id": "2e5b544503ac6a4869aaca7fd5371064f41d6b00",
+          "url": "https://github.com/volchanskyi/opengate/commit/82cf1e5b1f99dc4c62792a9893340d6f2249c66a"
+        },
+        "date": 1776279259991,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.469728340028446,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.615857279015554,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 727.3097857235027,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 304.7835034920317,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.911547361563667,
             "unit": "ns/iter"
           }
         ]
