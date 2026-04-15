@@ -82,5 +82,18 @@
       "WebFetch(domain:docs.netbird.io)"
     ],
     "additionalDirectories": []
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session-start-fetch.sh",
+            "timeout": 8
+          }
+        ]
+      }
+    ]
   }
 }
