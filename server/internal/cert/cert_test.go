@@ -107,7 +107,7 @@ func TestNewManager(t *testing.T) {
 		_, err := NewManager(dir)
 		require.NoError(t, err)
 		require.NoError(t, os.Chmod(filepath.Join(dir, caCertFile), 0000))
-		t.Cleanup(func() { os.Chmod(filepath.Join(dir, caCertFile), 0644) })
+		t.Cleanup(func() { os.Chmod(filepath.Join(dir, caCertFile), 0600) })
 
 		_, err = NewManager(dir)
 		assert.Error(t, err)
@@ -126,8 +126,8 @@ func TestNewManager(t *testing.T) {
 
 	t.Run("fails to write to read-only dir", func(t *testing.T) {
 		dir := t.TempDir()
-		require.NoError(t, os.Chmod(dir, 0555))
-		t.Cleanup(func() { os.Chmod(dir, 0755) })
+		require.NoError(t, os.Chmod(dir, 0500))
+		t.Cleanup(func() { os.Chmod(dir, 0700) })
 
 		_, err := NewManager(dir)
 		assert.Error(t, err)
