@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776279260049,
+  "lastUpdate": 1776360041155,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11196,6 +11196,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.911547361563667,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "856bf912ba1b8c1688f4651f59daaa339ad2bbf7",
+          "message": "chore(precommit): make Postgres and SONAR_TOKEN mandatory prerequisites\n\nSilent skips were masking real gaps: without POSTGRES_TEST_URL the\nPostgres-dependent Go tests skipped, dropping coverage and excluding\nPostgres code paths from the local SonarCloud scan. Without SONAR_TOKEN\nthe sonar step bypassed the gate entirely. Both now FAIL the precommit\nwith a clear alert instead of skipping. Also documents the WSL2 + VPN\nPMTUD blackhole that breaks the scanner image pull.",
+          "timestamp": "2026-04-16T10:18:22-07:00",
+          "tree_id": "49d7f3908c3f6162d8da59db2d2e56ab2a3087c7",
+          "url": "https://github.com/volchanskyi/opengate/commit/856bf912ba1b8c1688f4651f59daaa339ad2bbf7"
+        },
+        "date": 1776360041097,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.533139482422627,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.790069902013876,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.8541975355455,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 290.338963361527,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.065285301932057,
             "unit": "ns/iter"
           }
         ]
