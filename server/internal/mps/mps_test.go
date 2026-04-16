@@ -1,6 +1,7 @@
 package mps
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -246,7 +247,7 @@ func TestMPSChannelOpenClose(t *testing.T) {
 
 	// Send a channel open from "AMT device" side.
 	chOpenPayload := encodeAPFString("forwarded-tcpip")
-	chOpenPayload = append(chOpenPayload, encodeUint32(7)...)     // sender channel
+	chOpenPayload = append(chOpenPayload, encodeUint32(7)...)      // sender channel
 	chOpenPayload = append(chOpenPayload, encodeUint32(0x4000)...) // window
 	chOpenPayload = append(chOpenPayload, encodeUint32(0x4000)...) // max packet
 	// Add connected address and origin for "forwarded-tcpip"
@@ -359,9 +360,9 @@ func TestChannelDataSendsWindowAdjust(t *testing.T) {
 
 	// Open a channel from AMT side.
 	chOpenPayload := encodeAPFString("forwarded-tcpip")
-	chOpenPayload = append(chOpenPayload, encodeUint32(7)...)         // sender channel
-	chOpenPayload = append(chOpenPayload, encodeUint32(0x8000)...)    // window 32K
-	chOpenPayload = append(chOpenPayload, encodeUint32(0x8000)...)    // max packet
+	chOpenPayload = append(chOpenPayload, encodeUint32(7)...)      // sender channel
+	chOpenPayload = append(chOpenPayload, encodeUint32(0x8000)...) // window 32K
+	chOpenPayload = append(chOpenPayload, encodeUint32(0x8000)...) // max packet
 	chOpenPayload = append(chOpenPayload, encodeAPFString("1.2.3.4")...)
 	chOpenPayload = append(chOpenPayload, encodeUint32(16992)...)
 	chOpenPayload = append(chOpenPayload, encodeAPFString("0.0.0.0")...)
@@ -400,9 +401,9 @@ func TestChannelWindowAdjIncrementsSendWindow(t *testing.T) {
 
 	// Open a channel from AMT side with window=1024.
 	chOpenPayload := encodeAPFString("forwarded-tcpip")
-	chOpenPayload = append(chOpenPayload, encodeUint32(5)...)       // sender channel
-	chOpenPayload = append(chOpenPayload, encodeUint32(1024)...)    // small window
-	chOpenPayload = append(chOpenPayload, encodeUint32(0x8000)...)  // max packet
+	chOpenPayload = append(chOpenPayload, encodeUint32(5)...)      // sender channel
+	chOpenPayload = append(chOpenPayload, encodeUint32(1024)...)   // small window
+	chOpenPayload = append(chOpenPayload, encodeUint32(0x8000)...) // max packet
 	chOpenPayload = append(chOpenPayload, encodeAPFString("1.2.3.4")...)
 	chOpenPayload = append(chOpenPayload, encodeUint32(16992)...)
 	chOpenPayload = append(chOpenPayload, encodeAPFString("0.0.0.0")...)
@@ -484,4 +485,94 @@ func toIntelGUID(u uuid.UUID) [16]byte {
 	raw[6], raw[7] = u[7], u[6]
 	copy(raw[8:], u[8:16])
 	return raw
+}
+
+func TestConnNetConn(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = server.Close()
+	})
+
+	c := &Conn{netConn: server}
+	assert.Same(t, server, c.NetConn())
+}
+
+func TestChannelSetOnData(t *testing.T) {
+	ch := &Channel{}
+	assert.Nil(t, ch.OnData)
+
+	var got []byte
+	ch.SetOnData(func(b []byte) { got = b })
+	require.NotNil(t, ch.OnData)
+
+	ch.OnData([]byte("hello"))
+	assert.Equal(t, []byte("hello"), got)
+
+	// Overwrite with nil should also be allowed.
+	ch.SetOnData(nil)
+	assert.Nil(t, ch.OnData)
+}
+
+func TestWriteChannelOpenDirect(t *testing.T) {
+	var buf bytes.Buffer
+	const senderCh uint32 = 42
+	const addr = "10.0.0.1"
+	const port uint16 = 16992
+
+	require.NoError(t, writeChannelOpenDirect(&buf, senderCh, addr, port))
+
+	out := buf.Bytes()
+	require.NotEmpty(t, out)
+	assert.Equal(t, APFChannelOpen, out[0])
+
+	// type string
+	typeLen := binary.BigEndian.Uint32(out[1:5])
+	assert.Equal(t, uint32(len("direct-tcpip")), typeLen)
+	off := 5 + int(typeLen)
+	assert.Equal(t, "direct-tcpip", string(out[5:off]))
+
+	// sender channel
+	assert.Equal(t, senderCh, binary.BigEndian.Uint32(out[off:off+4]))
+	off += 4
+
+	// window + max packet
+	assert.Equal(t, DefaultWindowSize, binary.BigEndian.Uint32(out[off:off+4]))
+	off += 4
+	assert.Equal(t, DefaultMaxPacketSize, binary.BigEndian.Uint32(out[off:off+4]))
+	off += 4
+
+	// connected address
+	addrLen := binary.BigEndian.Uint32(out[off : off+4])
+	off += 4
+	assert.Equal(t, uint32(len(addr)), addrLen)
+	assert.Equal(t, addr, string(out[off:off+int(addrLen)]))
+	off += int(addrLen)
+
+	// connected port
+	assert.Equal(t, uint32(port), binary.BigEndian.Uint32(out[off:off+4]))
+	off += 4
+
+	// origin address "0.0.0.0"
+	origLen := binary.BigEndian.Uint32(out[off : off+4])
+	off += 4
+	assert.Equal(t, uint32(len("0.0.0.0")), origLen)
+	assert.Equal(t, "0.0.0.0", string(out[off:off+int(origLen)]))
+	off += int(origLen)
+
+	// origin port = 0
+	assert.Equal(t, uint32(0), binary.BigEndian.Uint32(out[off:off+4]))
+	off += 4
+
+	assert.Equal(t, len(out), off)
+}
+
+// errWriter always fails, to exercise the error branch in writeChannelOpenDirect.
+type errWriter struct{}
+
+func (errWriter) Write(_ []byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestWriteChannelOpenDirectWriteError(t *testing.T) {
+	err := writeChannelOpenDirect(errWriter{}, 1, "host", 80)
+	assert.ErrorIs(t, err, io.ErrClosedPipe)
 }
