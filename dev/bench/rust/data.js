@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776364619136,
+  "lastUpdate": 1776364765071,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11294,6 +11294,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.841375738051386,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "26f676dbfb08804df45eb3da736fe66238bf6b22",
+          "message": "fix(deps): bump rand to 0.9.3 to patch RUSTSEC-2026-0097\n\nCloses Dependabot alert #17 (GHSA-cq8v-f236-94qc). rand is a transitive\ndep via webrtc, quinn-proto, tungstenite, plus dev-deps mockito/proptest;\nno source code references it directly. Lockfile-only update; cargo audit\nno longer reports the advisory and the workspace builds and tests clean.",
+          "timestamp": "2026-04-16T11:37:26-07:00",
+          "tree_id": "7ca4095fab6f5a379e66e47d538266a84fd3f78c",
+          "url": "https://github.com/volchanskyi/opengate/commit/26f676dbfb08804df45eb3da736fe66238bf6b22"
+        },
+        "date": 1776364765026,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.267509855702468,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.48536870128005,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 736.7300847145988,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 307.45770255577565,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.945279562630425,
             "unit": "ns/iter"
           }
         ]
