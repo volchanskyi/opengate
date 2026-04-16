@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776360041155,
+  "lastUpdate": 1776364619136,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11245,6 +11245,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.065285301932057,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "229e9f305268f608929fc618a7ea4db890bc93cd",
+          "message": "fix(cert): tighten test-fixture file perms to satisfy go:S2612\n\nCloses SonarCloud alerts #171/#172/#173. The test setup/cleanup chmod\ncalls were granting group/other read or read+execute on tmp dirs and\ncert files, which Sonar flags as loose POSIX permissions even though\nt.TempDir() is process-isolated and auto-removed. Owner-only perms\npreserve test semantics — the negative tests still verify that\nNewManager fails on unreadable files and non-writable dirs — and match\nthe existing unflagged pattern at line 121 (0600).",
+          "timestamp": "2026-04-16T11:35:09-07:00",
+          "tree_id": "1d973999b164b8603000a1c446d96d154409f321",
+          "url": "https://github.com/volchanskyi/opengate/commit/229e9f305268f608929fc618a7ea4db890bc93cd"
+        },
+        "date": 1776364619074,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.36278192706715,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.511832390858757,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 772.9329140275756,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.1131317081172,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.841375738051386,
             "unit": "ns/iter"
           }
         ]
