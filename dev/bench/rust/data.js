@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776364765071,
+  "lastUpdate": 1776380936524,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11343,6 +11343,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.945279562630425,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f238097e8cdc3f712fe7f3467c0b8477c886bf7e",
+          "message": "test(mps): add tests for NetConn, SetOnData, writeChannelOpenDirect\n\nRestores Go coverage above the 80% gate after it regressed to 79.9%\non dev. Exercises three 0%-covered functions in server/internal/mps/mps.go\nwith focused unit tests — no production changes.",
+          "timestamp": "2026-04-16T16:07:21-07:00",
+          "tree_id": "5ec955d9684ef143c683a350d66504cd61403a03",
+          "url": "https://github.com/volchanskyi/opengate/commit/f238097e8cdc3f712fe7f3467c0b8477c886bf7e"
+        },
+        "date": 1776380936477,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.263937237351456,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.56712650381071,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 735.7439730987629,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 313.45696426263953,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.07338709822631,
             "unit": "ns/iter"
           }
         ]
