@@ -9,6 +9,22 @@ description: |
 
 Run ALL lints, ALL tests, test coverage, and ALL benchmarks. No exceptions. All tests MUST pass regardless of having pre-existing issues or being flaky.
 
+## Prerequisites (verify before running any step)
+
+Both prerequisites are MANDATORY. If either is missing, FAIL the precommit run immediately with a clear alert — do not skip steps that depend on them.
+
+- **Postgres reachable on `localhost:5432`** with `POSTGRES_TEST_URL` exported. Without this, every Postgres-dependent Go test skips silently (see [server/internal/mps/mps_test.go:28-30](../../../server/internal/mps/mps_test.go#L28-L30), [server/internal/api/store_failure_test.go:21-23](../../../server/internal/api/store_failure_test.go#L21-L23), [server/internal/api/health_handler_test.go:32-34](../../../server/internal/api/health_handler_test.go#L32-L34)), step 13 coverage falls below 80%, and the resulting `server/coverage.out` excludes Postgres code paths — so the local SonarCloud scan in step 16 cannot evaluate Postgres-related code. To start a disposable instance matching CI ([.github/workflows/ci.yml:142-156](../../../.github/workflows/ci.yml#L142-L156)):
+  ```bash
+  docker run -d --name og-precommit-pg --rm \
+    -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+    -p 5432:5432 postgres:17-alpine
+  until docker exec og-precommit-pg pg_isready -U opengate -d opengate_test >/dev/null 2>&1; do sleep 1; done
+  export POSTGRES_TEST_URL='postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable'
+  ```
+  Stop with `docker stop og-precommit-pg` after the run.
+
+- **`SONAR_TOKEN` exported** (from environment or `.env` via `set -a; . ./.env; set +a`). Verify with `[ -n "$SONAR_TOKEN" ] && echo ok || echo MISSING`. A missing or invalid token is a setup defect, not a reason to bypass the SonarCloud gate.
+
 ## Lints (all must pass)
 
 These lints mirror the CI config-lint job exactly. Every check that runs in CI MUST also run locally.
@@ -68,9 +84,9 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
     ```
     Requires `cargo-llvm-cov` and `cargo-nextest` (`cargo install cargo-llvm-cov cargo-nextest`). Must be >= 80%.
 
-## SonarCloud local scan (run if SONAR_TOKEN available)
+## SonarCloud local scan (mandatory)
 
-16. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (in environment or `.env`). **Skip if token not configured** — this step is best-effort since not all environments will have the token.
+16. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (verified in the Prerequisites section above). The scan must include Postgres-related code paths — guaranteed by the Postgres prerequisite, which lets step 13 produce coverage that exercises `server/internal/db/postgres.go`, `server/internal/mps/`, and other Postgres-dependent packages. **If `SONAR_TOKEN` is missing, invalid, or the scanner reports an authentication failure, FAIL the precommit and alert the user — do NOT skip.** A missing token usually means `.env` was not sourced or the token entry was deleted; surface the issue rather than silently bypassing the gate. **If the scanner image pull from Docker Hub fails with `unexpected EOF` while the host is on a VPN**, this is the known PMTUD blackhole — alert the user to either disconnect the VPN or lower WSL2 MTU (`sudo ip link set dev eth0 mtu 1380`) before retrying.
 
 ## Benchmarks (all must run without errors)
 
@@ -88,7 +104,7 @@ Do NOT commit if:
 - Any lint fails
 - Any test fails (unit, integration, or E2E)
 - Go, Web, or Rust overall coverage is below 80% (steps 13-15)
-- SonarCloud quality gate fails (step 16, if token configured)
+- SonarCloud quality gate fails (step 16) — including when `SONAR_TOKEN` is missing/invalid or the scanner cannot reach SonarCloud
 - Any benchmark errors out
 - Any security audit fails (high+ severity vulnerabilities — npm or cargo)
 - Documentation is stale
