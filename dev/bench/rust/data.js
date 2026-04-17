@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776406524128,
+  "lastUpdate": 1776406589691,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11441,6 +11441,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.98036654272309,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b44256ffb963b811f0e16032c30c7c7dbd04550b",
+          "message": "chore(precommit): add govulncheck step to security audit\n\nInserts govulncheck as step 11 in the local precommit skill to mirror the\nCI Security Audit job, and updates the gate criteria to fail on any\ngovulncheck finding. Renumbers subsequent steps and cross-references.",
+          "timestamp": "2026-04-16T23:14:43-07:00",
+          "tree_id": "a341de7eb567494279f0d3ae710d45683b667502",
+          "url": "https://github.com/volchanskyi/opengate/commit/b44256ffb963b811f0e16032c30c7c7dbd04550b"
+        },
+        "date": 1776406589634,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.084495613345524,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.834083072719945,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 740.4495880332083,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.7434991371831,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.091945662222578,
             "unit": "ns/iter"
           }
         ]
