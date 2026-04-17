@@ -59,25 +59,26 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 
 ## Security audit (must pass)
 
-11. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
-12. `cd agent && cargo audit` — Rust dependency vulnerability scan (mirrors CI Security Audit job). Install once with `cargo install cargo-audit@0.22.1`. Vulnerabilities fail the gate; warnings (unmaintained/unsound/yanked) are advisory.
+11. `cd server && govulncheck ./...` — Go vulnerability scan (mirrors CI Security Audit job). Install once with `go install golang.org/x/vuln/cmd/govulncheck@v1.1.4`. Any reported vulnerability fails the gate.
+12. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
+13. `cd agent && cargo audit` — Rust dependency vulnerability scan (mirrors CI Security Audit job). Install once with `cargo install cargo-audit@0.22.1`. Vulnerabilities fail the gate; warnings (unmaintained/unsound/yanked) are advisory.
 
 ## Coverage (all must meet 80% threshold)
 
-13. **Go coverage** — Run `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` then filter and check:
+14. **Go coverage** — Run `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` then filter and check:
     ```
     grep -v -E '/(testutil|metrics|mps/wsman)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
     go tool cover -func=coverage-prod.out | grep total
     ```
     Total must be >= 80%.
 
-14. **Web coverage** — Run `cd web && npx vitest run --coverage` then check:
+15. **Web coverage** — Run `cd web && npx vitest run --coverage` then check:
     ```
     node -e "const s=require('./coverage/coverage-summary.json');const l=s.total.lines.pct;console.log('Web line coverage: '+l+'%');process.exit(l<80?1:0)"
     ```
     Lines must be >= 80%.
 
-15. **Rust coverage** — Run locally:
+16. **Rust coverage** — Run locally:
     ```
     cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
       --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)'
@@ -86,25 +87,25 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 
 ## SonarCloud local scan (mandatory)
 
-16. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (verified in the Prerequisites section above). The scan must include Postgres-related code paths — guaranteed by the Postgres prerequisite, which lets step 13 produce coverage that exercises `server/internal/db/postgres.go`, `server/internal/mps/`, and other Postgres-dependent packages. **If `SONAR_TOKEN` is missing, invalid, or the scanner reports an authentication failure, FAIL the precommit and alert the user — do NOT skip.** A missing token usually means `.env` was not sourced or the token entry was deleted; surface the issue rather than silently bypassing the gate. **If the scanner image pull from Docker Hub fails with `unexpected EOF` while the host is on a VPN**, this is the known PMTUD blackhole — alert the user to either disconnect the VPN or lower WSL2 MTU (`sudo ip link set dev eth0 mtu 1380`) before retrying.
+17. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (verified in the Prerequisites section above). The scan must include Postgres-related code paths — guaranteed by the Postgres prerequisite, which lets step 14 produce coverage that exercises `server/internal/db/postgres.go`, `server/internal/mps/`, and other Postgres-dependent packages. **If `SONAR_TOKEN` is missing, invalid, or the scanner reports an authentication failure, FAIL the precommit and alert the user — do NOT skip.** A missing token usually means `.env` was not sourced or the token entry was deleted; surface the issue rather than silently bypassing the gate. **If the scanner image pull from Docker Hub fails with `unexpected EOF` while the host is on a VPN**, this is the known PMTUD blackhole — alert the user to either disconnect the VPN or lower WSL2 MTU (`sudo ip link set dev eth0 mtu 1380`) before retrying.
 
 ## Benchmarks (all must run without errors)
 
-17. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-18. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+18. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+19. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ## Documentation (mandatory on every commit)
 
-19. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-20. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
+20. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+21. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
 
 ## Gate Criteria
 
 Do NOT commit if:
 - Any lint fails
 - Any test fails (unit, integration, or E2E)
-- Go, Web, or Rust overall coverage is below 80% (steps 13-15)
-- SonarCloud quality gate fails (step 16) — including when `SONAR_TOKEN` is missing/invalid or the scanner cannot reach SonarCloud
+- Go, Web, or Rust overall coverage is below 80% (steps 14-16)
+- SonarCloud quality gate fails (step 17) — including when `SONAR_TOKEN` is missing/invalid or the scanner cannot reach SonarCloud
 - Any benchmark errors out
-- Any security audit fails (high+ severity vulnerabilities — npm or cargo)
+- Any security audit fails (any govulncheck finding, or high+ severity vulnerabilities — npm or cargo)
 - Documentation is stale
