@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776380936524,
+  "lastUpdate": 1776406524128,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11392,6 +11392,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.07338709822631,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "a42a12a74669e0bac5352ac51569131460c2c162",
+          "message": "chore(tests-audit): add skill and phased coverage improvement plans\n\nAdds a reusable tests-audit skill that codifies CI-first audit discipline\n(read the workflow before source, verify every negative claim with grep,\ncompute Rust∩Go intersection for goldens) and three phased improvement\nplans covering targeted gaps, coverage depth, and structural hardening.",
+          "timestamp": "2026-04-16T23:13:13-07:00",
+          "tree_id": "91e72881ba1b331337a0662a3f469bc38ad8610b",
+          "url": "https://github.com/volchanskyi/opengate/commit/a42a12a74669e0bac5352ac51569131460c2c162"
+        },
+        "date": 1776406524068,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.241799618371903,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.60210386296974,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 758.7035027986789,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 325.9690692480883,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.98036654272309,
             "unit": "ns/iter"
           }
         ]
