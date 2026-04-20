@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -135,6 +134,19 @@ func queryListPG[T any](ctx context.Context, db *sql.DB, scan func(scanner) (*T,
 	return items, rows.Err()
 }
 
+// queryOnePG runs a SELECT that returns a single row and maps sql.ErrNoRows to
+// ErrNotFound so callers don't need to repeat the check.
+func queryOnePG[T any](ctx context.Context, db *sql.DB, scan func(scanner) (*T, error), query string, args ...any) (*T, error) {
+	item, err := scan(db.QueryRowContext(ctx, query, args...))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
 // --- Devices ---
 
 // scanDevicePG mirrors scanDeviceFrom but consumes native Postgres types
@@ -191,14 +203,9 @@ func (s *PostgresStore) UpsertDevice(ctx context.Context, d *Device) error {
 }
 
 func (s *PostgresStore) GetDevice(ctx context.Context, id DeviceID) (*Device, error) {
-	row := s.db.QueryRowContext(ctx,
+	return queryOnePG(ctx, s.db, scanDevicePG,
 		`SELECT id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at FROM devices WHERE id = $1`,
 		id)
-	d, err := scanDevicePG(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return d, err
 }
 
 func (s *PostgresStore) ListDevices(ctx context.Context, groupID GroupID) ([]*Device, error) {
@@ -269,14 +276,9 @@ func (s *PostgresStore) CreateGroup(ctx context.Context, g *Group) error {
 }
 
 func (s *PostgresStore) GetGroup(ctx context.Context, id GroupID) (*Group, error) {
-	row := s.db.QueryRowContext(ctx,
+	return queryOnePG(ctx, s.db, scanGroupPG,
 		`SELECT id, name, owner_id, created_at, updated_at FROM groups_ WHERE id = $1`,
 		id)
-	g, err := scanGroupPG(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return g, err
 }
 
 func (s *PostgresStore) ListGroups(ctx context.Context, ownerID UserID) ([]*Group, error) {
@@ -314,25 +316,15 @@ func (s *PostgresStore) UpsertUser(ctx context.Context, u *User) error {
 }
 
 func (s *PostgresStore) GetUser(ctx context.Context, id UserID) (*User, error) {
-	row := s.db.QueryRowContext(ctx,
+	return queryOnePG(ctx, s.db, scanUserPG,
 		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users WHERE id = $1`,
 		id)
-	u, err := scanUserPG(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return u, err
 }
 
 func (s *PostgresStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
-	row := s.db.QueryRowContext(ctx,
+	return queryOnePG(ctx, s.db, scanUserPG,
 		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users WHERE email = $1`,
 		email)
-	u, err := scanUserPG(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return u, err
 }
 
 func (s *PostgresStore) ListUsers(ctx context.Context) ([]*User, error) {
@@ -362,14 +354,9 @@ func (s *PostgresStore) CreateAgentSession(ctx context.Context, as *AgentSession
 }
 
 func (s *PostgresStore) GetAgentSession(ctx context.Context, token string) (*AgentSession, error) {
-	row := s.db.QueryRowContext(ctx,
+	return queryOnePG(ctx, s.db, scanAgentSessionPG,
 		`SELECT token, device_id, user_id, created_at FROM agent_sessions WHERE token = $1`,
 		token)
-	as, err := scanAgentSessionPG(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return as, err
 }
 
 func (s *PostgresStore) DeleteAgentSession(ctx context.Context, token string) error {
@@ -438,36 +425,20 @@ func (s *PostgresStore) WriteAuditEvent(ctx context.Context, event *AuditEvent) 
 }
 
 func (s *PostgresStore) QueryAuditLog(ctx context.Context, q AuditQuery) ([]*AuditEvent, error) {
-	var where []string
-	var args []any
-	argN := 1
+	// Sentinel-parameter pattern: always pass every filter so the query is a
+	// single static literal (avoids go:S2077 dynamic-SQL hotspot).
+	var userID any
 	if q.UserID != nil {
-		where = append(where, fmt.Sprintf("user_id = $%d", argN))
-		args = append(args, *q.UserID)
-		argN++
-	}
-	if q.Action != "" {
-		where = append(where, fmt.Sprintf("action = $%d", argN))
-		args = append(args, q.Action)
-		argN++
+		userID = *q.UserID
 	}
 
-	query := `SELECT id, user_id, action, target, details, created_at FROM audit_events`
-	if len(where) > 0 {
-		query += " WHERE " + strings.Join(where, " AND ")
-	}
-	query += ` ORDER BY created_at DESC, id DESC`
-	if q.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT $%d", argN)
-		args = append(args, q.Limit)
-		argN++
-	}
-	if q.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET $%d", argN)
-		args = append(args, q.Offset)
-	}
-
-	return queryListPG(ctx, s.db, scanAuditEventPG, query, args...)
+	return queryListPG(ctx, s.db, scanAuditEventPG,
+		`SELECT id, user_id, action, target, details, created_at FROM audit_events
+		 WHERE ($1::uuid IS NULL OR user_id = $1)
+		   AND ($2 = '' OR action = $2)
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT NULLIF($3, 0) OFFSET $4`,
+		userID, q.Action, q.Limit, q.Offset)
 }
 
 // --- AMT Devices ---
@@ -495,14 +466,9 @@ func (s *PostgresStore) UpsertAMTDevice(ctx context.Context, d *AMTDevice) error
 }
 
 func (s *PostgresStore) GetAMTDevice(ctx context.Context, id uuid.UUID) (*AMTDevice, error) {
-	row := s.db.QueryRowContext(ctx,
+	return queryOnePG(ctx, s.db, scanAMTDevicePG,
 		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices WHERE uuid = $1`,
 		id)
-	d, err := scanAMTDevicePG(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return d, err
 }
 
 func (s *PostgresStore) ListAMTDevices(ctx context.Context) ([]*AMTDevice, error) {
@@ -535,14 +501,9 @@ func (s *PostgresStore) CreateEnrollmentToken(ctx context.Context, t *Enrollment
 }
 
 func (s *PostgresStore) GetEnrollmentTokenByToken(ctx context.Context, token string) (*EnrollmentToken, error) {
-	row := s.db.QueryRowContext(ctx,
+	return queryOnePG(ctx, s.db, scanEnrollmentTokenPG,
 		`SELECT id, token, label, created_by, max_uses, use_count, expires_at, created_at
 		 FROM enrollment_tokens WHERE token = $1`, token)
-	t, err := scanEnrollmentTokenPG(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return t, err
 }
 
 func (s *PostgresStore) ListEnrollmentTokens(ctx context.Context, createdBy UserID) ([]*EnrollmentToken, error) {
@@ -600,6 +561,23 @@ func (s *PostgresStore) ListDeviceUpdatesByVersion(ctx context.Context, version 
 
 // --- Device Hardware ---
 
+func scanDeviceHardwarePG(sc scanner) (*DeviceHardware, error) {
+	var hw DeviceHardware
+	var niJSON []byte
+	if err := sc.Scan(&hw.DeviceID, &hw.CPUModel, &hw.CPUCores,
+		&hw.RAMTotalMB, &hw.DiskTotalMB, &hw.DiskFreeMB,
+		&niJSON, &hw.UpdatedAt); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(niJSON, &hw.NetworkInterfaces); err != nil {
+		return nil, fmt.Errorf("unmarshal network interfaces: %w", err)
+	}
+	if hw.NetworkInterfaces == nil {
+		hw.NetworkInterfaces = []NetworkInterfaceInfo{}
+	}
+	return &hw, nil
+}
+
 // UpsertDeviceHardware inserts or updates hardware inventory for a device.
 func (s *PostgresStore) UpsertDeviceHardware(ctx context.Context, hw *DeviceHardware) error {
 	niJSON, err := json.Marshal(hw.NetworkInterfaces)
@@ -625,30 +603,9 @@ func (s *PostgresStore) UpsertDeviceHardware(ctx context.Context, hw *DeviceHard
 
 // GetDeviceHardware returns the hardware inventory for a device.
 func (s *PostgresStore) GetDeviceHardware(ctx context.Context, deviceID DeviceID) (*DeviceHardware, error) {
-	row := s.db.QueryRowContext(ctx,
+	return queryOnePG(ctx, s.db, scanDeviceHardwarePG,
 		`SELECT device_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces, updated_at
 		 FROM device_hardware WHERE device_id = $1`, deviceID)
-
-	var hw DeviceHardware
-	var niJSON []byte
-	err := row.Scan(&hw.DeviceID, &hw.CPUModel, &hw.CPUCores,
-		&hw.RAMTotalMB, &hw.DiskTotalMB, &hw.DiskFreeMB,
-		&niJSON, &hw.UpdatedAt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-
-	if err := json.Unmarshal(niJSON, &hw.NetworkInterfaces); err != nil {
-		return nil, fmt.Errorf("unmarshal network interfaces: %w", err)
-	}
-	if hw.NetworkInterfaces == nil {
-		hw.NetworkInterfaces = []NetworkInterfaceInfo{}
-	}
-
-	return &hw, nil
 }
 
 // --- Security Groups ---
@@ -670,14 +627,9 @@ func (s *PostgresStore) CreateSecurityGroup(ctx context.Context, g *SecurityGrou
 }
 
 func (s *PostgresStore) GetSecurityGroup(ctx context.Context, id SecurityGroupID) (*SecurityGroup, error) {
-	row := s.db.QueryRowContext(ctx,
+	return queryOnePG(ctx, s.db, scanSecurityGroupPG,
 		`SELECT id, name, description, is_system, created_at, updated_at FROM security_groups WHERE id = $1`,
 		id)
-	g, err := scanSecurityGroupPG(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return g, err
 }
 
 func (s *PostgresStore) ListSecurityGroups(ctx context.Context) ([]*SecurityGroup, error) {
@@ -768,7 +720,7 @@ func (s *PostgresStore) UpsertDeviceLogs(ctx context.Context, deviceID DeviceID,
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback() //nolint:errcheck
+	defer tx.Rollback() //nolint:errcheck // harmless after Commit; returns sql.ErrTxDone
 
 	// Delete existing logs for this device.
 	if _, err := tx.ExecContext(ctx, `DELETE FROM device_logs WHERE device_id = $1`, deviceID); err != nil {
