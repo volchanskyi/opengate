@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776406589691,
+  "lastUpdate": 1776644424486,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11490,6 +11490,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.091945662222578,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "c8b5c5d16011a024b058ad9537074f4944663ca9",
+          "message": "chore(plans): archive completed plans\n\n- security-alerts-cleanup (commits 229e9f3, 26f676d)\n- local-sonarcloud-analysis (commit a3093b3)\n- performance-benchmarks (bench_test.go + criterion benches landed)\n- ui-improvements-logs-tokens-tiles (refreshDevice + cleanupInactiveTokens landed)",
+          "timestamp": "2026-04-19T17:18:35-07:00",
+          "tree_id": "1146dcc57ee187f342a82f08a8e3c2a789ac4c2d",
+          "url": "https://github.com/volchanskyi/opengate/commit/c8b5c5d16011a024b058ad9537074f4944663ca9"
+        },
+        "date": 1776644424428,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.259024750919732,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.537433711064317,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 738.1818478125055,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 319.7505324168029,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.92623603304595,
             "unit": "ns/iter"
           }
         ]
