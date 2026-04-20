@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776646201667,
+  "lastUpdate": 1776648743116,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11588,6 +11588,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.0930224132125,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "6d1379b0e0f3af411293c8620d873ef546a5584c",
+          "message": "fix(deps): bump pgx/v5 to 5.9.2 to patch CVE-2026-33816\n\nCritical memory-safety vulnerability (GHSA-9jj7-4m8r-rfcm) in\ngithub.com/jackc/pgx/v5 < 5.9.0. Patched by upgrading to 5.9.2.\nCloses Dependabot alert #18.",
+          "timestamp": "2026-04-19T18:30:43-07:00",
+          "tree_id": "c6132a8e6caf531ac12fd4f24e91d1cb7a7aa877",
+          "url": "https://github.com/volchanskyi/opengate/commit/6d1379b0e0f3af411293c8620d873ef546a5584c"
+        },
+        "date": 1776648743059,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.363161021690185,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.49264553920989,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 781.4678343735407,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.13550703892327,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.94202235989145,
             "unit": "ns/iter"
           }
         ]
