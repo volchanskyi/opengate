@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776644424486,
+  "lastUpdate": 1776646201667,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11539,6 +11539,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.92623603304595,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f3698191de4d988c4b004d18f3bbc637d72eb2fe",
+          "message": "refactor(db): DRY single-row queries and eliminate dynamic SQL in audit log\n\nExtract queryOnePG generic helper to deduplicate sql.ErrNoRows→ErrNotFound\nacross all 9 Get* methods. Add scanDeviceHardwarePG for consistency with\nevery other entity's scan pattern. Convert QueryAuditLog from dynamic SQL\n(fmt.Sprintf + strings.Join) to a single static query using sentinel\nparameters ($1::uuid IS NULL, NULLIF for LIMIT), eliminating go:S2077 risk.\nRemove unused strings import and add justification to nolint:errcheck.",
+          "timestamp": "2026-04-19T17:48:14-07:00",
+          "tree_id": "2920ecf02e9a6674ce1bbbf0a1729084341c4a22",
+          "url": "https://github.com/volchanskyi/opengate/commit/f3698191de4d988c4b004d18f3bbc637d72eb2fe"
+        },
+        "date": 1776646201609,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.27442750679117,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.552989757918862,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 734.2151110216032,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 322.921785234625,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.0930224132125,
             "unit": "ns/iter"
           }
         ]
