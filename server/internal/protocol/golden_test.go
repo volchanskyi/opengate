@@ -75,6 +75,20 @@ func TestGoldenFrameWireFormat(t *testing.T) {
 		{"RequestDeviceLogs", "control_request_device_logs.bin", FrameControl},
 		{"DeviceLogsResponse", "control_device_logs_response.bin", FrameControl},
 		{"DeviceLogsError", "control_device_logs_error.bin", FrameControl},
+		{"SessionAccept", "control_session_accept.bin", FrameControl},
+		{"SessionReject", "control_session_reject.bin", FrameControl},
+		{"SessionRequest", "control_session_request.bin", FrameControl},
+		{"AgentUpdate", "control_agent_update.bin", FrameControl},
+		{"FileListRequest", "control_file_list_request.bin", FrameControl},
+		{"FileListResponse", "control_file_list_response.bin", FrameControl},
+		{"FileListError", "control_file_list_error.bin", FrameControl},
+		{"FileDownloadRequest", "control_file_download_request.bin", FrameControl},
+		{"FileUploadRequest", "control_file_upload_request.bin", FrameControl},
+		{"ChatMessage", "control_chat_message.bin", FrameControl},
+		{"AgentRegisterEmptyCaps", "control_agent_register_empty_capabilities.bin", FrameControl},
+		{"AgentRegisterUTF8", "control_agent_register_utf8.bin", FrameControl},
+		{"HardwareReportLargeSize", "control_hardware_report_large_size.bin", FrameControl},
+		{"ChatMessageForwardCompat", "control_chat_message_forward_compat.bin", FrameControl},
 	}
 
 	codec := &Codec{}
@@ -368,4 +382,172 @@ func TestGoldenDesktopFrameJpeg(t *testing.T) {
 	assert.Equal(t, uint16(1080), frame.Height)
 	assert.Equal(t, EncodingJpeg, frame.Encoding)
 	assert.Equal(t, []byte{0xFF, 0xD8, 0xFF, 0xE0}, frame.Data)
+}
+
+// Fixed session token used by cross-boundary Rust goldens (see
+// agent/crates/mesh-protocol/tests/golden_test.rs::GOLDEN_SESSION_TOKEN).
+const goldenSessionToken = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
+
+func decodeControlFrame(t *testing.T, file string) *ControlMessage {
+	t.Helper()
+	data := readGolden(t, file)
+	codec := &Codec{}
+	reader := bytes.NewReader(data)
+	frameType, payload, err := codec.ReadFrame(reader)
+	require.NoError(t, err)
+	assert.Equal(t, FrameControl, frameType)
+
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	return msg
+}
+
+func TestGoldenControlSessionAccept(t *testing.T) {
+	msg := decodeControlFrame(t, "control_session_accept.bin")
+	assert.Equal(t, MsgSessionAccept, msg.Type)
+	assert.Equal(t, SessionToken(goldenSessionToken), msg.Token)
+	assert.Equal(t, "wss://relay.example.com/relay", msg.RelayURL)
+}
+
+func TestGoldenControlSessionReject(t *testing.T) {
+	msg := decodeControlFrame(t, "control_session_reject.bin")
+	assert.Equal(t, MsgSessionReject, msg.Type)
+	assert.Equal(t, SessionToken(goldenSessionToken), msg.Token)
+	assert.Equal(t, "agent is busy", msg.Reason)
+}
+
+func TestGoldenControlSessionRequest(t *testing.T) {
+	msg := decodeControlFrame(t, "control_session_request.bin")
+	assert.Equal(t, MsgSessionRequest, msg.Type)
+	assert.Equal(t, SessionToken(goldenSessionToken), msg.Token)
+	assert.Equal(t, "wss://relay.example.com/relay", msg.RelayURL)
+	require.NotNil(t, msg.Permissions)
+	assert.True(t, msg.Permissions.Desktop)
+	assert.True(t, msg.Permissions.Terminal)
+	assert.True(t, msg.Permissions.FileRead)
+	assert.False(t, msg.Permissions.FileWrite)
+	assert.True(t, msg.Permissions.Input)
+}
+
+func TestGoldenControlAgentUpdate(t *testing.T) {
+	msg := decodeControlFrame(t, "control_agent_update.bin")
+	assert.Equal(t, MsgAgentUpdate, msg.Type)
+	assert.Equal(t, "1.2.3", msg.Version)
+	assert.Equal(t, "https://updates.example.com/agent-1.2.3-linux-amd64", msg.URL)
+	assert.Equal(t, 64, len(msg.SHA256))
+	assert.Equal(t, 128, len(msg.Signature))
+}
+
+func TestGoldenControlFileListRequest(t *testing.T) {
+	msg := decodeControlFrame(t, "control_file_list_request.bin")
+	assert.Equal(t, MsgFileListRequest, msg.Type)
+	assert.Equal(t, "/home/ivan", msg.Path)
+}
+
+func TestGoldenControlFileListResponse(t *testing.T) {
+	msg := decodeControlFrame(t, "control_file_list_response.bin")
+	assert.Equal(t, MsgFileListResponse, msg.Type)
+	assert.Equal(t, "/home/ivan", msg.Path)
+	require.Len(t, msg.Entries, 2)
+	assert.Equal(t, "documents", msg.Entries[0].Name)
+	assert.True(t, msg.Entries[0].IsDir)
+	assert.Equal(t, uint64(0), msg.Entries[0].Size)
+	assert.Equal(t, int64(1_700_000_000), msg.Entries[0].Modified)
+	assert.Equal(t, "notes.txt", msg.Entries[1].Name)
+	assert.False(t, msg.Entries[1].IsDir)
+	assert.Equal(t, uint64(2048), msg.Entries[1].Size)
+	assert.Equal(t, int64(1_700_000_100), msg.Entries[1].Modified)
+}
+
+func TestGoldenControlFileListError(t *testing.T) {
+	msg := decodeControlFrame(t, "control_file_list_error.bin")
+	assert.Equal(t, MsgFileListError, msg.Type)
+	assert.Equal(t, "/root/secret", msg.Path)
+	// The Rust FileListError uses `error`; Go's msgpack tag on AckError
+	// also binds to `error`, which is how HardwareReportError decodes too.
+	assert.Equal(t, "permission denied", msg.AckError)
+}
+
+func TestGoldenControlFileDownloadRequest(t *testing.T) {
+	msg := decodeControlFrame(t, "control_file_download_request.bin")
+	assert.Equal(t, MsgFileDownloadRequest, msg.Type)
+	assert.Equal(t, "/home/ivan/notes.txt", msg.Path)
+}
+
+func TestGoldenControlFileUploadRequest(t *testing.T) {
+	msg := decodeControlFrame(t, "control_file_upload_request.bin")
+	assert.Equal(t, MsgFileUploadRequest, msg.Type)
+	assert.Equal(t, "/home/ivan/uploads/archive.tar", msg.Path)
+	assert.Equal(t, uint64(10_485_760), msg.TotalSize)
+}
+
+func TestGoldenControlChatMessage(t *testing.T) {
+	msg := decodeControlFrame(t, "control_chat_message.bin")
+	assert.Equal(t, MsgChatMessage, msg.Type)
+	assert.Equal(t, "hello from the operator", msg.Text)
+	assert.Equal(t, "operator@example.com", msg.Sender)
+}
+
+// --- Edge-case verifiers ---
+
+func TestGoldenControlAgentRegisterEmptyCapabilities(t *testing.T) {
+	msg := decodeControlFrame(t, "control_agent_register_empty_capabilities.bin")
+	assert.Equal(t, MsgAgentRegister, msg.Type)
+	assert.Equal(t, "headless-ci-runner", msg.Hostname)
+	assert.Equal(t, "linux", msg.OS)
+	assert.Equal(t, "aarch64", msg.Arch)
+	assert.Equal(t, "0.1.0", msg.Version)
+	assert.Empty(t, msg.Capabilities, "empty Vec must decode to empty/nil slice, not produce an error")
+}
+
+func TestGoldenControlAgentRegisterUTF8(t *testing.T) {
+	msg := decodeControlFrame(t, "control_agent_register_utf8.bin")
+	assert.Equal(t, MsgAgentRegister, msg.Type)
+	// Emoji + CJK must round-trip bit-for-bit through msgpack.
+	assert.Equal(t, "ラップトップ-🖥️-办公室", msg.Hostname)
+	assert.Equal(t, "macos", msg.OS)
+	assert.Equal(t, "aarch64", msg.Arch)
+	assert.Equal(t, "0.1.0-αβγ", msg.Version)
+	require.Len(t, msg.Capabilities, 1)
+	assert.Equal(t, CapRemoteDesktop, msg.Capabilities[0])
+}
+
+func TestGoldenControlHardwareReportLargeSize(t *testing.T) {
+	data := readGolden(t, "control_hardware_report_large_size.bin")
+	// Frame length high bytes must be non-zero — proves the 4-byte BE header
+	// is actually exercised, not just the low byte.
+	require.Greater(t, len(data), 65_536,
+		"large_size golden must exceed 64 KiB to exercise BE length high bytes")
+
+	msg := decodeControlFrame(t, "control_hardware_report_large_size.bin")
+	assert.Equal(t, MsgHardwareReport, msg.Type)
+	assert.Equal(t, "AMD EPYC 7763 64-Core Processor", msg.CPUModel)
+	assert.Equal(t, uint32(128), msg.CPUCores)
+	assert.Equal(t, uint64(524_288), msg.RAMTotalMB)
+	assert.Equal(t, uint64(8_388_608), msg.DiskTotalMB)
+	assert.Equal(t, uint64(4_194_304), msg.DiskFreeMB)
+	require.Len(t, msg.NetworkInterfaces, 2000)
+	assert.Equal(t, "veth0000", msg.NetworkInterfaces[0].Name)
+	assert.Equal(t, "veth1999", msg.NetworkInterfaces[1999].Name)
+}
+
+func TestGoldenControlChatMessageForwardCompat(t *testing.T) {
+	// Forward-compatibility: the payload contains two msgpack keys
+	// (future_field, future_number) that Go's ControlMessage struct does not
+	// declare. They must be silently ignored — the known fields decode unchanged.
+	msg := decodeControlFrame(t, "control_chat_message_forward_compat.bin")
+	assert.Equal(t, MsgChatMessage, msg.Type)
+	assert.Equal(t, "hello from the future", msg.Text)
+	assert.Equal(t, "operator@example.com", msg.Sender)
+}
+
+func TestGoldenFrameControlLELength(t *testing.T) {
+	// Negative test: length field encoded little-endian instead of big-endian.
+	// BE interpretation inflates the declared length past MaxFrameSize, so
+	// ReadFrame must return an error rather than hang or over-read.
+	data := readGolden(t, "frame_control_le_length.bin")
+	codec := &Codec{}
+	_, _, err := codec.ReadFrame(bytes.NewReader(data))
+	require.Error(t, err, "LE-encoded length must be rejected by the BE-parsing decoder")
+	assert.ErrorIs(t, err, ErrFrameTooLarge)
 }
