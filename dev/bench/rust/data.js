@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776648743116,
+  "lastUpdate": 1776798263049,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11637,6 +11637,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.94202235989145,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "783e584c8ceae0f05fcf909ff8ac0672c99edae3",
+          "message": "test: phase A — targeted golden + E2E gap-closers\n\nAdds 15 new golden files (10 cross-boundary ControlMessage variants + 5 edge cases)\nand 2 Playwright specs to close gaps that CI would not otherwise catch.\n\nCross-boundary goldens (Rust encode → Go decode, full struct fidelity):\nSessionAccept, SessionReject, SessionRequest, AgentUpdate, FileListRequest,\nFileListResponse, FileListError, FileDownloadRequest, FileUploadRequest,\nChatMessage.\n\nEdge-case goldens:\n- empty capabilities (optional-field-absent)\n- multi-byte UTF-8 hostname/version (emoji + CJK)\n- >64 KiB hardware report (exercises BE length high bytes)\n- forward-compat ChatMessage with unknown keys (must decode unchanged)\n- little-endian frame length (negative test — must return ErrFrameTooLarge)\n\nE2E specs: web/e2e/device-logs.spec.ts and web/e2e/capability-tabs.spec.ts\nexercise Device Logs pagination/filtering and SessionView tab filtering by\nagent capabilities.\n\nPlan archived; tech debt entry added for four Rust ControlMessage stub variants\n(RequestUpdate, UpdateCheckResponse, RequestChatToken, ChatTokenResponse) that\nhave no Go counterparts and were excluded from this phase by design.",
+          "timestamp": "2026-04-21T12:02:31-07:00",
+          "tree_id": "d6c021e6a1880813b79d450e4c42a3b306f8a8bf",
+          "url": "https://github.com/volchanskyi/opengate/commit/783e584c8ceae0f05fcf909ff8ac0672c99edae3"
+        },
+        "date": 1776798262992,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 24.927378587037964,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.55565459673145,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 749.4453439565015,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 311.03364403620856,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.054007157599248,
             "unit": "ns/iter"
           }
         ]
