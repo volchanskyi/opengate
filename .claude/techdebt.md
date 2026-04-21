@@ -1,6 +1,6 @@
 # Tech Debt Register
 
-<!-- Last updated: 2026-04-14 -->
+<!-- Last updated: 2026-04-21 -->
 <!-- Update this file whenever tech debt is identified, reduced, or resolved. -->
 <!-- Severity: 🔴 Critical | 🟠 High | 🟡 Medium | 🟢 Low -->
 
@@ -66,3 +66,10 @@ _None currently._
 - **Impact**: A Go encoding change could silently break Rust deserialization.
 - **Fix**: Add reverse golden tests (Go generates, Rust verifies) as part of a future protocol maintenance task.
 - **Identified**: Phase 1
+
+### Rust ControlMessage Stub Variants With No Go Counterparts
+- **Files**: `agent/crates/mesh-protocol/src/control.rs`
+- **Issue**: Four `ControlMessage` variants are stubs with no corresponding Go `ControlMessageType` constants and no production callers on either side: `RequestUpdate`, `UpdateCheckResponse`, `RequestChatToken`, `ChatTokenResponse`. They were declared during earlier design iterations but never wired up end-to-end, so the Go decoder would reject them and the Rust encoder is unused.
+- **Impact**: Dead variants in the protocol surface increase cognitive load and invite drift. Covered by Phase A golden-file audit — excluded from the new goldens precisely because they are non-goal. If a future feature resurrects any of them, the Go side must add a matching constant, decoder arm, and golden before the Rust encoder is turned on.
+- **Fix**: Either (a) delete the unused variants when confident no imminent feature needs them, or (b) finish wiring each one to a Go decoder arm + golden test as part of the feature that actually needs it. Do **not** re-add to the Rust encoder without also closing the Go side.
+- **Identified**: 2026-04-21 (Phase A test-coverage audit)
