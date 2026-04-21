@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776798263049,
+  "lastUpdate": 1776805177152,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11686,6 +11686,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.054007157599248,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b9b816d30376f5ea512737bde35126e6983c77fa",
+          "message": "ci: bound Caddy install + add job timeouts to stop hour-long hangs\n\nFixes the root cause of a Config Lint job that ran 1h49m on run 24741011723\nbefore manual cancellation. The curl in the Install Caddy step had no\ntimeout, no --fail, and no retries, so when caddyserver.com/api/download\nstalled it hung until the user killed the run (and would otherwise have sat\nfor up to 6h, the default GitHub Actions job limit).\n\nThree layers of defense, because the bug surfaced through all three:\n\n1. Replace the live build-on-demand endpoint\n   (caddyserver.com/api/download) with the static, CDN-backed GitHub\n   Release tarball at a pinned version (v2.11.2). Download into a tempdir,\n   extract, then sudo install — so a partial/failed download cannot leave a\n   corrupt /usr/local/bin/caddy behind.\n\n2. Bound the curl itself: --fail --retry 3 --retry-delay 5\n   --connect-timeout 10 --max-time 60. Any single attempt fails in ≤60s,\n   transient errors retry, and HTTP 5xx no longer saves an error page as\n   the binary.\n\n3. Add timeout-minutes on every job (20 for normal jobs, 40 for E2E which\n   spins the docker-compose.test.yml stack). The previous default was\n   GitHub's implicit 6-hour cap, which turned any future network hang into\n   a multi-hour runner burn.",
+          "timestamp": "2026-04-21T13:57:53-07:00",
+          "tree_id": "b42210e0e644fcf0a837e4dbd03b863879af4869",
+          "url": "https://github.com/volchanskyi/opengate/commit/b9b816d30376f5ea512737bde35126e6983c77fa"
+        },
+        "date": 1776805177092,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.24745718315579,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.503353690125522,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 734.4384255942205,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 315.133635124391,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.93502710746292,
             "unit": "ns/iter"
           }
         ]
