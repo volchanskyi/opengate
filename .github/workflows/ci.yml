@@ -13,6 +13,7 @@ jobs:
   rust-lint:
     name: Rust Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -32,6 +33,7 @@ jobs:
   rust-test:
     name: Rust Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     outputs:
@@ -105,6 +107,7 @@ jobs:
   go-lint:
     name: Go Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -131,6 +134,7 @@ jobs:
   go-unit:
     name: Go Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     outputs:
@@ -207,6 +211,7 @@ jobs:
   go-integration:
     name: Go Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -242,6 +247,7 @@ jobs:
   go-bench:
     name: Go Benchmarks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -280,6 +286,7 @@ jobs:
   rust-bench:
     name: Rust Benchmarks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -312,6 +319,7 @@ jobs:
     name: Golden File Verification
     needs: [rust-test]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -334,6 +342,7 @@ jobs:
   web-lint:
     name: Web Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -352,6 +361,7 @@ jobs:
   web-unit:
     name: Web Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     outputs:
@@ -410,6 +420,7 @@ jobs:
   web-integration:
     name: Web Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -450,6 +461,7 @@ jobs:
   web-bundle-size:
     name: Bundle Size Check
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -506,6 +518,7 @@ jobs:
       - config-lint
       - web-bundle-size
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:
@@ -581,6 +594,7 @@ jobs:
     needs: [web-unit]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: gh-pages-deploy
       cancel-in-progress: false
@@ -608,6 +622,7 @@ jobs:
   config-lint:
     name: Config Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -653,10 +668,24 @@ jobs:
           docker compose -f docker-compose.test.yml config --quiet
 
       # Caddyfile validation
+      #
+      # Install from GitHub Releases (static, CDN-backed) rather than the
+      # caddyserver.com/api/download build-on-demand endpoint, which has stalled
+      # job runs for hours when unreachable. curl is bounded with explicit
+      # timeouts + retries + --fail so any transient failure surfaces fast
+      # instead of hanging the runner.
       - name: Install Caddy
+        env:
+          CADDY_VERSION: "2.11.2"
         run: |
-          curl -sL "https://caddyserver.com/api/download?os=linux&arch=amd64" -o /usr/local/bin/caddy
-          chmod +x /usr/local/bin/caddy
+          set -euo pipefail
+          url="https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
+          tmp="$(mktemp -d)"
+          curl --fail --retry 3 --retry-delay 5 --connect-timeout 10 --max-time 60 \
+            -sSL "$url" -o "$tmp/caddy.tar.gz"
+          tar -xzf "$tmp/caddy.tar.gz" -C "$tmp" caddy
+          sudo install -m 0755 "$tmp/caddy" /usr/local/bin/caddy
+          caddy version
       - name: Validate Caddyfiles
         run: |
           caddy fmt --diff deploy/caddy/Caddyfile
@@ -689,6 +718,7 @@ jobs:
   codeql-go:
     name: CodeQL Go
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
@@ -710,6 +740,7 @@ jobs:
   codeql-js:
     name: CodeQL TypeScript
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
@@ -726,6 +757,7 @@ jobs:
   codeql-rust:
     name: CodeQL Rust
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
@@ -744,6 +776,7 @@ jobs:
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -772,6 +805,7 @@ jobs:
   sonarcloud:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     needs: [go-unit, rust-test, web-unit]
@@ -808,6 +842,7 @@ jobs:
     needs: [go-bench, rust-bench]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: gh-pages-deploy
       cancel-in-progress: false
@@ -858,6 +893,7 @@ jobs:
     needs: [e2e, web-bundle-size]
     if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: gh-pages-deploy
       cancel-in-progress: false
@@ -934,6 +970,7 @@ jobs:
       - web-bundle-size
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/dependabot-dev')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       merged: ${{ steps.merge.outputs.merged }}
     permissions:
@@ -1002,6 +1039,7 @@ jobs:
     needs: [merge-to-main]
     if: needs.merge-to-main.outputs.merged == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: auto-tag
       cancel-in-progress: false
@@ -1158,6 +1196,7 @@ jobs:
     needs: [merge-to-main, auto-tag]
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/dependabot-dev') && needs.merge-to-main.outputs.merged == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -1216,6 +1255,7 @@ jobs:
       failure()
       && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       issues: write
