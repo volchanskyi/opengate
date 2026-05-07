@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778131848888,
+  "lastUpdate": 1778138613558,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11833,6 +11833,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.18374587733334,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b734b17f0533021d1bd185833cbb4b114ea76e3e",
+          "message": "chore(tooling): add structural-testing make targets and devDeps (PR 1)\n\nWire up developer-facing tooling for the structural-testing rollout\n(plan: .claude/plans/enhance-audit-skills-with-structural-testing.md):\n\n- Makefile targets: mutate{,-rust,-go,-web}, taint-go, taint-web, dead-code\n- web devDeps: @stryker-mutator/{core,typescript-checker,vitest-runner},\n  eslint-plugin-security, eslint-plugin-no-unsanitized, ts-prune\n- web/stryker.config.json — vitest runner, threshold deferred to PR 9\n- web/eslint.security.config.js — separate config so security plugins\n  are runnable without registering them in the main eslint.config.js\n  (folded into the main config in PR 5 of the rollout)\n- server/.gosec.json — placeholder; rule tuning lands in PR 4\n\nNo CI gates added; targets fail loudly when their tools are missing\nwith install-instructions to keep parity with the existing lint-deploy\npattern. README.md and CLAUDE.md command lists updated to match.",
+          "timestamp": "2026-05-07T00:21:51-07:00",
+          "tree_id": "f1656bc7383fcb054e7dea1313f2a840f7028278",
+          "url": "https://github.com/volchanskyi/opengate/commit/b734b17f0533021d1bd185833cbb4b114ea76e3e"
+        },
+        "date": 1778138613498,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.242403946451436,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.533095456201533,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 734.719716618063,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.657905439931,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.01946089863798,
             "unit": "ns/iter"
           }
         ]
