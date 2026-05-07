@@ -15,7 +15,7 @@ function notifyWebRTCFallback(reason: string): void {
 }
 
 /** Signaling state for the relay-to-WebRTC upgrade. */
-export type SignalingState = 'relay-only' | 'upgrading' | 'webrtc' | 'fallback';
+type SignalingState = 'relay-only' | 'upgrading' | 'webrtc' | 'fallback';
 
 interface ConnectionStore {
   state: ConnectionState;

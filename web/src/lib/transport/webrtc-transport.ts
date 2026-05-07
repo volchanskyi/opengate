@@ -11,7 +11,7 @@ import type { ControlMessage, FileFrame } from '../protocol/types';
 import type { TransportEvents } from './ws-transport';
 
 /** WebRTC upgrade lifecycle state. */
-export type WebRTCState = 'idle' | 'offering' | 'answering' | 'connecting' | 'connected' | 'failed';
+type WebRTCState = 'idle' | 'offering' | 'answering' | 'connecting' | 'connected' | 'failed';
 
 /** ICE server configuration for RTCPeerConnection. */
 export interface RTCConfig {

@@ -25,13 +25,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
-// dbStore is the narrow interface main.go depends on: anything that implements
-// the full db.Store, reports its size to metrics, and can be closed on shutdown.
-type dbStore interface {
-	db.Store
-	Size(ctx context.Context) (int64, error)
-}
-
 func main() {
 	listen := flag.String("listen", ":8080", "HTTP listen address")
 	quicListen := flag.String("quic-listen", ":9090", "QUIC listen address for agent connections")
