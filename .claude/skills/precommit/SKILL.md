@@ -2,16 +2,28 @@
 name: precommit
 description: |
   Run all mandatory pre-commit checks: lints, tests, benchmarks, coverage, and documentation.
-  Use before every commit. Blocks commit if any check fails.
+  Use before EVERY commit, including docs-only and CI-only commits. Blocks commit if any check fails.
 ---
 
 # Pre-Commit Checklist
 
 Run ALL lints, ALL tests, test coverage, and ALL benchmarks. No exceptions. All tests MUST pass regardless of having pre-existing issues or being flaky.
 
+## Scope: every commit, no exemptions
+
+This checklist runs on **every** commit on `dev`, regardless of what the diff touches. There is no "docs-only" or "CI-only" or "trivial change" exemption. Reasoning:
+
+- **Security audits read lockfiles, not the diff.** `cargo audit`, `govulncheck`, and `npm audit` evaluate `agent/Cargo.lock`, `server/go.sum`, and `web/package-lock.json` against the current advisory database. A new advisory published yesterday will fail the gate today even if today's commit only edits a Markdown file. Skipping the audit on a docs commit means the next push (any push) inherits a CI failure that had nothing to do with its changes — exactly the failure mode that produced RUSTSEC-2026-0104 on `dev`.
+- **Lockfiles, CI workflows, and config files all gate on the full repo state.** A workflow edit can break `actionlint`; a `deploy/` tweak can fail `make lint-deploy`; a doc edit that touches a code-fenced command can break `/wiki-audit`. None of these are detectable by inspecting only the changed file.
+- **Skipping selectively is how gates rot.** Once "docs are exempt" is acceptable, "small CI tweaks are exempt" follows, then "obvious one-liners," and the gate stops being a gate.
+
+If a step is genuinely irrelevant to the change (e.g. running Rust benchmarks for a typo fix in `README.md`), it still runs — the cost of running it is far smaller than the cost of one missed regression. The only acceptable reason to skip a step is a tooling outage that prevents the step from running at all, and in that case the precommit FAILS and the user is alerted; it does not silently pass.
+
 ## Prerequisites (verify before running any step)
 
-Both prerequisites are MANDATORY. If either is missing, FAIL the precommit run immediately with a clear alert — do not skip steps that depend on them.
+All prerequisites are MANDATORY. If any is missing, FAIL the precommit run immediately with a clear alert — do not skip steps that depend on them.
+
+- **No conflicting Go install at `$HOME/go`.** Run `[ -d "$HOME/go/src/net" ] || [ -f "$HOME/go/VERSION" ] && echo CONFLICT || echo ok` — if it prints `CONFLICT`, a Go installation has been extracted into `$HOME/go`. That directory is the default `GOPATH` when `GOPATH` is unset, so the Go toolchain ends up searching stdlib in two places and `govulncheck` fails with "redeclared in this block" build errors against `$HOME/go/src/net/*.go`. Fix by removing the manual install (`rm -rf $HOME/go`), keeping a snap or apt-managed `go` binary on PATH, and ensuring `~/.bashrc` exports `GOPATH=$HOME/go-workspace` (or any path that is **not** a Go install root).
 
 - **Postgres reachable on `localhost:5432`** with `POSTGRES_TEST_URL` exported. Without this, every Postgres-dependent Go test skips silently (see [server/internal/mps/mps_test.go:28-30](../../../server/internal/mps/mps_test.go#L28-L30), [server/internal/api/store_failure_test.go:21-23](../../../server/internal/api/store_failure_test.go#L21-L23), [server/internal/api/health_handler_test.go:32-34](../../../server/internal/api/health_handler_test.go#L32-L34)), step 13 coverage falls below 80%, and the resulting `server/coverage.out` excludes Postgres code paths — so the local SonarCloud scan in step 16 cannot evaluate Postgres-related code. To start a disposable instance matching CI ([.github/workflows/ci.yml:142-156](../../../.github/workflows/ci.yml#L142-L156)):
   ```bash
