@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { ChatMessageFields } from '../lib/protocol/types';
 
-export interface ChatMessage extends ChatMessageFields {
+interface ChatMessage extends ChatMessageFields {
   id: string;
 }
 

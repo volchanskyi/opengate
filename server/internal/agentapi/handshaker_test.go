@@ -3,15 +3,9 @@ package agentapi
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/sha512"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"errors"
 	"io"
-	"math/big"
 	"net"
 	"testing"
 	"time"
@@ -24,35 +18,6 @@ import (
 )
 
 const testHost = "test-host"
-
-// generateAgentCert creates a test agent cert signed by the given CA.
-func generateAgentCert(t *testing.T, cm *cert.Manager, deviceID string) (certDER []byte, key *ecdsa.PrivateKey) {
-	t.Helper()
-	agentKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	require.NoError(t, err)
-
-	now := time.Now()
-	template := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: deviceID},
-		NotBefore:    now.Add(-5 * time.Minute),
-		NotAfter:     now.Add(365 * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-	}
-
-	der, err := x509.CreateCertificate(rand.Reader, template, cm.CACert(), &agentKey.PublicKey, cm.CACert().PublicKey.(*ecdsa.PrivateKey))
-	// CACert().PublicKey is the public key — need the CA private key.
-	// Use cert.Manager.SignAgent instead.
-	_ = der
-
-	tlsCert, err := cm.SignAgent(deviceID, testHost)
-	require.NoError(t, err)
-	return tlsCert.Certificate[0], nil
-}
 
 func TestHandshaker_FullExchange(t *testing.T) {
 	cm, err := cert.NewManager(t.TempDir())

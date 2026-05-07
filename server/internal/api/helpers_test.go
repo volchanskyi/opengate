@@ -89,12 +89,6 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	return srv, cfg
 }
 
-// newTestServerWithAgents creates a Server with a custom AgentGetter and relay.
-func newTestServerWithAgents(t *testing.T, agents AgentGetter, r *relay.Relay) (*Server, *auth.JWTConfig) {
-	t.Helper()
-	return newTestServerWithStoreAndAgents(t, testutil.NewTestStore(t), agents, r)
-}
-
 // newTestServerWithStoreAndAgents creates a Server with an existing store, custom
 // AgentGetter and relay. Use this when the caller has already obtained a store
 // and seeded data — it avoids a redundant TRUNCATE.
