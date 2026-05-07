@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778139312246,
+  "lastUpdate": 1778181205344,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11931,6 +11931,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.00326401237231,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "8dd846dee58ab2b55ece35d07331642ffc112ecb",
+          "message": "chore: clean dead-code baseline across Rust/Go/TS (PR 3)\n\nStructural-testing rollout PR 3 — make `make dead-code` green so PR 9\ncan hard-gate clippy `-W dead_code`, staticcheck U1000, and ts-prune.\n\nGo (4 staticcheck U1000 findings → 0):\n- Remove orphan `dbStore` interface in cmd/meshserver/main.go (the\n  concrete *PostgresStore is used directly).\n- Remove unused test helpers `generateAgentCert` (handshaker_test.go)\n  and `newTestServerWithAgents` (helpers_test.go), plus now-unused\n  imports in handshaker_test.go.\n- Remove shadowed `result` struct inside loadtest main; the package-\n  level `agentResult` is the canonical type.\n\nTypeScript (11 ts-prune lines → 0):\n- Drop `export` on module-private types in chat-store, connection-\n  store, toast-store, and webrtc-transport — they were never imported\n  externally; consumers receive inferred types via store getters.\n- Mark `Permissions` and `FrameEncoding` in lib/protocol/types.ts with\n  `// ts-prune-ignore-next-line` — they compose into ControlMessage /\n  DesktopFrame and are part of the public protocol surface.\n- Delete src/test/test-utils.tsx (`renderWithRouter` was shadowed by a\n  local helper in SessionView.test.tsx and never adopted).\n- Fix Makefile dead-code target: scan via tsconfig.app.json (project\n  references make the default tsconfig.json see no files) and ignore\n  generated src/types/api.d.ts.\n\nRust: clippy `-W dead_code` already clean; no changes.",
+          "timestamp": "2026-05-07T12:11:19-07:00",
+          "tree_id": "097aaa6bd5ecc4721b49736e110eee49c7cf3d0d",
+          "url": "https://github.com/volchanskyi/opengate/commit/8dd846dee58ab2b55ece35d07331642ffc112ecb"
+        },
+        "date": 1778181205282,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.152406805116467,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.341426498183242,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 740.3868002304179,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.22054234574676,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.930121697419278,
             "unit": "ns/iter"
           }
         ]
