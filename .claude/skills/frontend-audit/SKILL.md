@@ -23,9 +23,89 @@ Systematically audit every component, store, transport layer, build configuratio
 
 ---
 
-### 1. Cross-Site Scripting (XSS) Prevention (OWASP A03)
+### 1. DOM taint paths — source → sink data flow
 
-#### 1a. Unsafe HTML rendering
+Section 2 ("Cross-Site Scripting") below enumerates the XSS *sinks*. This section enumerates the *flow* from untrusted **DOM sources** to those sinks, plus the static analysis (`eslint-plugin-security`, `eslint-plugin-no-unsanitized`) that catches them. A grep-based audit catches obvious offenders; a taint trace catches the long-distance ones (server response → store → memoized selector → JSX prop → `dangerouslySetInnerHTML`).
+
+For every finding in this section, report **both** the source and the sink (e.g. "device hostname from `/api/v1/devices` → `useDeviceStore` → `DeviceList.tsx:42` → `<div dangerouslySetInnerHTML={{__html: device.hostname}} />`"). A finding without a trace is a guess.
+
+#### 1a. Sources (untrusted input boundaries)
+
+| Source | Examples in this codebase |
+|--------|---------------------------|
+| Server response body | `openapi-fetch` calls in `web/src/lib/api/`, fields surfaced via Zustand stores |
+| URL query string | `useSearchParams`, `URLSearchParams`, `window.location.search` parsing |
+| URL path parameters | React Router `useParams` — device ID, group ID, session token |
+| `localStorage` / `sessionStorage` | `web/src/state/auth-store.ts` token; any persisted store state |
+| `window.postMessage` | cross-origin messaging (rare here, but verify if added) |
+| WebSocket text frames | text-typed payloads from server or relayed-from-agent (binary frames are typed and out of scope) |
+| WebRTC data channels | `RTCDataChannel` `onmessage` payloads from agent |
+| MessagePack-decoded control frames | fields decoded from binary protocol — already typed, but values are still untrusted |
+| File names from File-Manager listings | agent-supplied paths surfaced in UI components |
+| `notification.data` from service worker push | server-controlled, but if any agent-controlled string passes through |
+
+#### 1b. Sinks (DOM operations that act on tainted values)
+
+| Sink | What to grep | ESLint rule |
+|------|--------------|-------------|
+| `dangerouslySetInnerHTML` | literal substring, anywhere in `web/src/` | **`no-unsanitized/property`** |
+| `.innerHTML`, `.outerHTML`, `.insertAdjacentHTML` | imperative DOM writes | **`no-unsanitized/property`** / **`no-unsanitized/method`** |
+| `document.write`, `document.writeln` | any occurrence | **`no-unsanitized/method`** |
+| `eval`, `new Function`, `setTimeout(string, …)`, `setInterval(string, …)` | string-as-code | **`security/detect-eval-with-expression`**, **`security/detect-non-literal-fs-filename`** |
+| `<a href={…}>`, `<form action={…}>` | unverified URI scheme — `javascript:` or `data:` injection | (manual; validate scheme) |
+| `<img src={…}>`, `<iframe src={…}>`, `<script src={…}>` | unverified URL → loads attacker-controlled content | (manual; reject `data:` and unknown origins) |
+| `window.location = …`, `location.href = …` | open redirect | **`security/detect-non-literal-regexp`** (adjacent), manual scheme check |
+| `new RegExp(taintedString)` | ReDoS; also accidental matchers | **`security/detect-non-literal-regexp`** |
+| `obj[taintedKey]` for known-prototype-pollutable objects | object-injection / prototype pollution | **`security/detect-object-injection`** |
+| Service-worker `notification.data` used in `event.notification.actions` URLs | open redirect via push payload | (manual) |
+
+#### 1c. Static analysis: ESLint security plugins
+
+**Floor (must run, must be clean):**
+
+```bash
+make taint-web    # eslint with eslint-plugin-security + eslint-plugin-no-unsanitized
+```
+
+PR 1 wires this through `web/eslint.security.config.js` (separate config so the rules do not yet fail `npm run lint`). PR 5 of the structural-testing rollout folds the plugins into the main `eslint.config.js` at `error` severity. Pre-PR 5, treat every `make taint-web` finding as if it were a CI failure — fix or document a trace before commit.
+
+Rule IDs to call out by name in the audit report:
+- `no-unsanitized/property` — DOM property writes (`innerHTML`, `outerHTML`, `dangerouslySetInnerHTML`)
+- `no-unsanitized/method` — DOM method calls (`document.write`, `insertAdjacentHTML`)
+- `security/detect-eval-with-expression` — `eval` / `Function` constructor
+- `security/detect-object-injection` — `obj[var]` patterns
+- `security/detect-non-literal-regexp` — RegExp built from variables
+- `security/detect-unsafe-regex` — catastrophic-backtracking patterns
+- `security/detect-buffer-noassert` — Node Buffer reads without bounds (rare in browser code)
+
+**Ceiling (manual trace, required for any prop or store value rendered as HTML or used as a URL):**
+
+For every component that renders a string, walk the call graph from the source (API response, URL param, store) to the sink (JSX, attribute, eval-style API). Document the trace inline. If the trace passes through a sanitizer (DOMPurify, allowlist) but the sanitizer is incomplete (e.g. allows `data:image/svg+xml,…` which can carry `<script>`), flag the sanitizer — not the sink.
+
+#### 1d. CodeQL js-queries (defense in depth)
+
+If CodeQL is configured for the repo, run the `js/xss`, `js/dom-injection`, `js/unsafe-jquery-plugin`, and `js/code-injection` queries. CodeQL produces inter-procedural traces that ESLint plugins miss because they only see one file at a time. Findings are auxiliary evidence, not gating.
+
+#### 1e. Source-to-sink red flags specific to this codebase
+
+- **Device hostname / OS string** — agent-supplied, surfaced in `DeviceList`, `DeviceDetail`. Trace into every JSX render.
+- **Group description / name** — user-supplied, server-validated, surfaced in sidebar + admin. Verify no `dangerouslySetInnerHTML` on the path.
+- **Audit log `details` field** — JSON object, sometimes contains agent-supplied strings. Verify renderers do not use `.innerHTML`.
+- **File-Manager basenames** — agent-supplied, displayed verbatim. Verify no path-as-URL conversion for download links without scheme allowlist.
+- **Session / device-log filter UI** — query parameters reflected back into the URL. Verify `encodeURIComponent` everywhere.
+
+#### 1f. Severity rubric
+
+- **CRITICAL** — taint reaches `dangerouslySetInnerHTML`, `eval`, or `new Function` without sanitization.
+- **HIGH** — taint reaches `<a href>` / `<iframe src>` without scheme validation, or service-worker push handler builds a URL from notification data.
+- **MEDIUM** — taint reaches a `RegExp` constructor or object-key access pattern that the security plugins flag.
+- **LOW** — `console.log` / `console.warn` of tainted strings (developer-facing, not exploitable).
+
+---
+
+### 2. Cross-Site Scripting (XSS) Prevention (OWASP A03)
+
+#### 2a. Unsafe HTML rendering
 
 Scan ALL `.tsx` and `.ts` files under `web/src/` for dangerous patterns:
 
@@ -37,7 +117,7 @@ ANY occurrence is **CRITICAL** unless the content is provably static or sanitize
 - Replace with React JSX (preferred — React escapes by default)
 - Add `dompurify` sanitization: `DOMPurify.sanitize(html)` before rendering
 
-#### 1b. URL-based XSS vectors
+#### 2b. URL-based XSS vectors
 
 Scan for `href`, `src`, and `window.location` assignments that accept user input:
 
@@ -51,7 +131,7 @@ Verify:
 - All dynamic URLs are validated against an allowlist of schemes (`https:`, `wss:`)
 - `window.open()` targets are validated — never pass user-controlled URLs without scheme validation
 
-#### 1c. DOM-based XSS
+#### 2c. DOM-based XSS
 
 Search for direct DOM manipulation that bypasses React's virtual DOM:
 
@@ -61,7 +141,7 @@ grep -rn 'document\.getElementById\|document\.querySelector\|document\.createEle
 
 Direct DOM writes with user-controlled content are **HIGH**. Acceptable: library integrations (xterm.js, canvas) that handle their own escaping.
 
-#### 1d. Template literal injection
+#### 2d. Template literal injection
 
 Search for template literals that build HTML strings:
 
@@ -71,7 +151,7 @@ grep -rn '`.*<.*>.*\$\{' web/src/ --include='*.ts' --include='*.tsx' | grep -v '
 
 Any template literal that builds HTML from user input is **HIGH** — replace with React JSX.
 
-#### 1e. React-specific escaping verification
+#### 2e. React-specific escaping verification
 
 Verify that React's default escaping is not bypassed:
 - No `dangerouslySetInnerHTML` (check 1a)
@@ -80,9 +160,9 @@ Verify that React's default escaping is not bypassed:
 
 ---
 
-### 2. Secure Data Storage & Sessions
+### 3. Secure Data Storage & Sessions
 
-#### 2a. Token storage mechanism
+#### 3a. Token storage mechanism
 
 Locate all token storage operations:
 
@@ -96,7 +176,7 @@ Audit each occurrence:
 - Verify NO API keys, secrets, or credentials are stored in `localStorage` or `sessionStorage`
 - If `indexedDB` is used, verify no sensitive data is stored unencrypted
 
-#### 2b. Token lifecycle
+#### 3b. Token lifecycle
 
 Verify the auth token lifecycle in `web/src/state/auth-store.ts`:
 - Token is set ONLY on successful login/register response
@@ -105,14 +185,14 @@ Verify the auth token lifecycle in `web/src/state/auth-store.ts`:
 - Token is NOT logged anywhere (console.log, slog, error messages)
 - Token is NOT included in error reports or analytics payloads
 
-#### 2c. Sensitive data in component state
+#### 3c. Sensitive data in component state
 
 Scan all Zustand stores (`web/src/state/*.ts`) for sensitive data retention:
 - Password fields are NOT stored in state after form submission
 - Sensitive API responses are cleared when no longer needed
 - No store persists sensitive data to `localStorage` via Zustand middleware
 
-#### 2d. Memory cleanup
+#### 3d. Memory cleanup
 
 Verify sensitive data is cleaned up:
 - Password input values cleared after auth requests
@@ -122,9 +202,9 @@ Verify sensitive data is cleaned up:
 
 ---
 
-### 3. Secure Communication & Transport
+### 4. Secure Communication & Transport
 
-#### 3a. HTTPS enforcement
+#### 4a. HTTPS enforcement
 
 Verify all API and WebSocket connections use secure protocols:
 
@@ -137,7 +217,7 @@ Any hardcoded `http://` or `ws://` URL targeting production is **CRITICAL**. Ver
 - WebSocket connections construct `wss://` from the current page protocol
 - WebRTC ICE server URLs use `turns:` for TURN over TLS when applicable
 
-#### 3b. WebSocket authentication
+#### 4b. WebSocket authentication
 
 Audit `web/src/lib/transport/ws-transport.ts`:
 - Authentication token is transmitted securely during WebSocket upgrade
@@ -145,7 +225,7 @@ Audit `web/src/lib/transport/ws-transport.ts`:
 - Prefer: upgrade to protocol-level auth (subprotocol header or first-message auth) to avoid token in URL
 - Token is NOT included in WebSocket frame payloads after initial handshake
 
-#### 3c. WebRTC security
+#### 4c. WebRTC security
 
 Audit `web/src/lib/transport/` for WebRTC usage:
 - ICE candidates are exchanged only via authenticated signaling channel
@@ -153,7 +233,7 @@ Audit `web/src/lib/transport/` for WebRTC usage:
 - No STUN/TURN credentials hardcoded in source (should come from server)
 - Data channel configuration does not disable encryption
 
-#### 3d. Binary protocol security
+#### 4d. Binary protocol security
 
 Audit `web/src/lib/protocol/codec.ts` and `web/src/lib/protocol/types.ts`:
 - Frame size validation: reject frames exceeding `MAX_FRAME_SIZE` before allocating buffers
@@ -164,9 +244,9 @@ Audit `web/src/lib/protocol/codec.ts` and `web/src/lib/protocol/types.ts`:
 
 ---
 
-### 4. Content Security Policy (CSP) & Security Headers
+### 5. Content Security Policy (CSP) & Security Headers
 
-#### 4a. CSP meta tag or header
+#### 5a. CSP meta tag or header
 
 Check if CSP is configured in the frontend:
 
@@ -189,7 +269,7 @@ If no CSP exists anywhere, flag as **HIGH** and add a meta tag to `web/index.htm
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:; img-src 'self' data: blob:; worker-src 'self'; frame-ancestors 'none';">
 ```
 
-#### 4b. Additional security headers verification
+#### 5b. Additional security headers verification
 
 If headers are set by the reverse proxy, verify these exist in the Caddyfile. If the app can run without a proxy, add them via Vite dev server config or a middleware:
 
@@ -201,7 +281,7 @@ If headers are set by the reverse proxy, verify these exist in the Caddyfile. If
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` | Restrict browser APIs |
 | `Strict-Transport-Security` | `max-age=63072000; includeSubDomains` | Force HTTPS |
 
-#### 4c. Subresource Integrity (SRI)
+#### 5c. Subresource Integrity (SRI)
 
 Check if any external resources are loaded via CDN (script tags, link tags):
 
@@ -213,9 +293,9 @@ Any external resource without `integrity="sha384-..."` and `crossorigin="anonymo
 
 ---
 
-### 5. Cross-Site Request Forgery (CSRF) Protection
+### 6. Cross-Site Request Forgery (CSRF) Protection
 
-#### 5a. Authentication mechanism review
+#### 6a. Authentication mechanism review
 
 Verify the app uses Bearer token authentication (not cookies):
 
@@ -228,7 +308,7 @@ If Bearer tokens via `Authorization` header are used (not cookies), CSRF is inhe
 - No `credentials: 'include'` on fetch requests (same reason)
 - API calls use `Authorization: Bearer` header, not cookie-based auth
 
-#### 5b. State-changing GET requests
+#### 6b. State-changing GET requests
 
 Verify no GET request triggers a state mutation (create, update, delete):
 
@@ -240,9 +320,9 @@ All state-changing operations MUST use POST, PUT, PATCH, or DELETE. A GET that m
 
 ---
 
-### 6. Dependency Security
+### 7. Dependency Security
 
-#### 6a. Known vulnerabilities
+#### 7a. Known vulnerabilities
 
 Run the dependency audit:
 
@@ -255,7 +335,7 @@ Flag any HIGH or CRITICAL vulnerability. For each:
 - If no fix exists, assess if the vulnerable code path is reachable
 - Document accepted risks for unfixable vulnerabilities
 
-#### 6b. Outdated dependencies
+#### 7b. Outdated dependencies
 
 Check for significantly outdated packages:
 
@@ -265,7 +345,7 @@ cd web && npm outdated 2>&1 | head -30
 
 Flag any dependency more than 1 major version behind. Security patches often only apply to the latest major version.
 
-#### 6c. Unnecessary dependencies
+#### 7c. Unnecessary dependencies
 
 Verify no unused dependencies exist:
 
@@ -275,7 +355,7 @@ cd web && npx depcheck --ignores='@types/*,@testing-library/*,@vitest/*,tailwind
 
 Unused dependencies increase attack surface. Remove any that are not imported.
 
-#### 6d. Supply chain safety
+#### 7d. Supply chain safety
 
 Verify `package-lock.json` exists and is committed to version control:
 
@@ -287,9 +367,9 @@ If missing, `npm install` resolves versions non-deterministically, risking suppl
 
 ---
 
-### 7. Secure Error Handling
+### 8. Secure Error Handling
 
-#### 7a. Error information leakage
+#### 8a. Error information leakage
 
 Scan for error displays that might expose internals:
 
@@ -313,7 +393,7 @@ grep -rn 'console\.log' web/src/ --include='*.ts' --include='*.tsx' | grep -v 'n
 - Verify no `console.log(token)`, `console.log(password)`, or `console.log(response)` where the response may contain sensitive data — flag as **MEDIUM**
 - `console.warn`/`console.error` in WebRTC/transport code is acceptable if no tokens or PII are included
 
-#### 7b. React error boundaries
+#### 8b. React error boundaries
 
 Check if error boundaries exist to prevent white-screen crashes:
 
@@ -323,7 +403,7 @@ grep -rn 'ErrorBoundary\|componentDidCatch\|getDerivedStateFromError' web/src/ -
 
 A missing error boundary is **MEDIUM** — an unhandled error in any component crashes the entire app, potentially exposing the last rendered state or leaving the user stranded.
 
-#### 7c. Unhandled promise rejections
+#### 8c. Unhandled promise rejections
 
 Verify async operations have proper error handling:
 
@@ -333,7 +413,7 @@ grep -rn '\.then(\|await ' web/src/ --include='*.ts' --include='*.tsx' | grep -v
 
 Unhandled rejections can leak error details to the console. All async operations should use try/catch or `.catch()`.
 
-#### 7d. Frontend error observability
+#### 8d. Frontend error observability
 
 Check if production errors are reported beyond browser DevTools — operators have no visibility into frontend crashes unless errors are sent to the server for Loki ingestion.
 
@@ -374,9 +454,9 @@ If error reporting exists, verify it follows these safety rules:
 
 ---
 
-### 8. Input Validation & Sanitization
+### 9. Input Validation & Sanitization
 
-#### 8a. Form input validation
+#### 9a. Form input validation
 
 For every form in `web/src/features/`:
 - Login form: email format validation, password length limits
@@ -390,7 +470,7 @@ Verify:
 - Email inputs use `type="email"` for basic browser validation
 - Password inputs use `type="password"` with `autocomplete="current-password"` or `autocomplete="new-password"`
 
-#### 8b. File upload validation
+#### 9b. File upload validation
 
 If file upload exists, verify:
 - File type validation (MIME type AND extension)
@@ -398,7 +478,7 @@ If file upload exists, verify:
 - File name sanitization (no path traversal characters: `../`, `\`, null bytes)
 - Uploaded files are NOT rendered as HTML (prevent stored XSS via SVG/HTML uploads)
 
-#### 8c. Search and filter inputs
+#### 9c. Search and filter inputs
 
 Verify search/filter fields do not inject into:
 - URL query parameters without encoding (`encodeURIComponent`)
@@ -407,9 +487,9 @@ Verify search/filter fields do not inject into:
 
 ---
 
-### 9. Third-Party Integration Security
+### 10. Third-Party Integration Security
 
-#### 9a. Service Worker security
+#### 10a. Service Worker security
 
 Audit `web/public/sw.js`:
 - Service worker scope is restricted to the app origin
@@ -419,7 +499,7 @@ Audit `web/public/sw.js`:
 - Cache strategy does not cache sensitive API responses (auth tokens, user data)
 - Service worker updates properly (`skipWaiting` + cache purge)
 
-#### 9b. xterm.js security
+#### 10b. xterm.js security
 
 Audit terminal component usage:
 - Terminal input is sent as binary protocol frames, not interpreted as HTML
@@ -427,7 +507,7 @@ Audit terminal component usage:
 - No terminal escape sequence injection from server to client that could execute JS
 - Clipboard operations (`navigator.clipboard`) require user gesture
 
-#### 9c. Canvas/WebGL security
+#### 10c. Canvas/WebGL security
 
 If remote desktop uses canvas rendering:
 - Canvas `toDataURL()` or `toBlob()` output is not sent to third parties
@@ -440,9 +520,9 @@ If remote desktop uses canvas rendering:
 
 ---
 
-### 10. Bundle Size & Code Splitting
+### 11. Bundle Size & Code Splitting
 
-#### 10a. Bundle analysis
+#### 11a. Bundle analysis
 
 Run the production build and analyze output:
 
@@ -455,7 +535,7 @@ Check total bundle size. Thresholds:
 - Main CSS bundle > 50 KB (gzipped): **MEDIUM** — check for unused styles
 - Any single chunk > 500 KB (gzipped): **HIGH** — split further
 
-#### 10b. Route-based code splitting
+#### 11b. Route-based code splitting
 
 Check if routes use lazy loading:
 
@@ -478,7 +558,7 @@ Priority routes to split (by payload size and access frequency):
 
 Keep synchronous: Login, Register, Layout (needed on first load).
 
-#### 10c. Tree shaking verification
+#### 11c. Tree shaking verification
 
 Verify Vite's tree shaking is effective:
 - No barrel exports (`index.ts` re-exporting everything) that defeat tree shaking
@@ -491,7 +571,7 @@ Check for barrel files:
 find web/src -name 'index.ts' -o -name 'index.tsx' | head -20
 ```
 
-#### 10d. Dynamic imports for heavy libraries
+#### 11d. Dynamic imports for heavy libraries
 
 Check if large libraries are dynamically imported:
 
@@ -506,9 +586,9 @@ Libraries used only in specific routes should be dynamically imported:
 
 ---
 
-### 11. Asset Optimization
+### 12. Asset Optimization
 
-#### 11a. Image format and optimization
+#### 12a. Image format and optimization
 
 Scan for image assets:
 
@@ -522,7 +602,7 @@ For each image:
 - Verify `loading="lazy"` on below-the-fold `<img>` tags
 - Verify `width` and `height` attributes are set (prevents CLS)
 
-#### 11b. Font optimization
+#### 12b. Font optimization
 
 Check for custom font loading:
 
@@ -538,9 +618,9 @@ If custom fonts are used:
 
 ---
 
-### 12. Critical Rendering Path
+### 13. Critical Rendering Path
 
-#### 12a. Script loading strategy
+#### 13a. Script loading strategy
 
 Check `web/index.html` for script loading:
 
@@ -553,7 +633,7 @@ Verify:
 - No render-blocking scripts in `<head>` without `async` or `defer`
 - Critical CSS is inlined or loaded with high priority
 
-#### 12b. Resource hints
+#### 13b. Resource hints
 
 Check for preload/prefetch directives:
 
@@ -566,7 +646,7 @@ Recommended resource hints:
 - `<link rel="preload" as="font">` for critical fonts
 - Vite handles CSS/JS preloading automatically for production builds
 
-#### 12c. CSS delivery
+#### 13c. CSS delivery
 
 Verify Tailwind CSS delivery is optimized:
 - Tailwind's JIT compiler generates only used classes (verify via build output size)
@@ -575,9 +655,9 @@ Verify Tailwind CSS delivery is optimized:
 
 ---
 
-### 13. React Rendering Performance
+### 14. React Rendering Performance
 
-#### 13a. Unnecessary re-renders
+#### 14a. Unnecessary re-renders
 
 Scan Zustand store usage for common anti-patterns:
 
@@ -594,7 +674,7 @@ const store = useDeviceStore();
 const devices = useDeviceStore((s) => s.devices);
 ```
 
-#### 13b. Expensive computations in render
+#### 14b. Expensive computations in render
 
 Search for computations that should be memoized:
 
@@ -609,7 +689,7 @@ For each, check if:
 
 Flag large unmemorized computations as **MEDIUM**.
 
-#### 13c. Event handler creation in render
+#### 14c. Event handler creation in render
 
 Search for inline arrow functions in JSX that create new references each render:
 
@@ -619,7 +699,7 @@ Common patterns that cause unnecessary child re-renders when passed as props:
 
 This is **LOW** unless measured to cause visible jank (>50ms render time).
 
-#### 13d. Component key usage
+#### 14d. Component key usage
 
 Verify list rendering uses stable, unique keys:
 
@@ -634,9 +714,9 @@ Check that:
 
 ---
 
-### 14. List Virtualization & Large Dataset Handling
+### 15. List Virtualization & Large Dataset Handling
 
-#### 14a. Large list rendering
+#### 15a. Large list rendering
 
 Identify components that render potentially large lists:
 - Device list (could grow to hundreds)
@@ -651,7 +731,7 @@ For each list, check:
 
 Recommendation: use `@tanstack/react-virtual` or `react-window` for lists exceeding 100 items.
 
-#### 14b. Table rendering efficiency
+#### 15b. Table rendering efficiency
 
 For table components (audit log, user list, device list):
 - Verify pagination is enforced (max page size <= 200)
@@ -660,9 +740,9 @@ For table components (audit log, user list, device list):
 
 ---
 
-### 15. Network & Caching Efficiency
+### 16. Network & Caching Efficiency
 
-#### 15a. API request deduplication
+#### 16a. API request deduplication
 
 Check for duplicate API calls on mount:
 
@@ -675,7 +755,7 @@ Verify:
 - Navigation between routes doesn't refetch unchanged data
 - Polling intervals (if any) are cleaned up on unmount
 
-#### 15b. HTTP caching headers
+#### 16b. HTTP caching headers
 
 Verify the server/proxy sets appropriate caching headers:
 - Static assets (JS, CSS, images with hash): `Cache-Control: public, max-age=31536000, immutable`
@@ -684,7 +764,7 @@ Verify the server/proxy sets appropriate caching headers:
 
 Vite adds content hashes to asset filenames by default — verify this is not disabled in `vite.config.ts`.
 
-#### 15c. WebSocket connection management
+#### 16c. WebSocket connection management
 
 Audit WebSocket lifecycle:
 - Only one WebSocket connection per session (no duplicate connections)
@@ -693,7 +773,7 @@ Audit WebSocket lifecycle:
 - Ping/pong keeps connection alive (check interval)
 - No unnecessary re-subscriptions on re-renders
 
-#### 15d. Service Worker caching strategy
+#### 16d. Service Worker caching strategy
 
 Audit `web/public/sw.js` caching behavior:
 - Navigation requests: network-only (correct for SPA)
@@ -703,9 +783,9 @@ Audit `web/public/sw.js` caching behavior:
 
 ---
 
-### 16. Web Vitals & Core Metrics
+### 17. Web Vitals & Core Metrics
 
-#### 16a. Largest Contentful Paint (LCP)
+#### 17a. Largest Contentful Paint (LCP)
 
 Check for LCP bottlenecks:
 - Is the main content rendered server-side or does it require JS hydration?
@@ -713,7 +793,7 @@ Check for LCP bottlenecks:
 - Is the initial HTML response fast (no blocking API calls before render)?
 - Does the login page render immediately or wait for auth check?
 
-#### 16b. Interaction to Next Paint (INP)
+#### 17b. Interaction to Next Paint (INP)
 
 Check for interaction responsiveness:
 - Click handlers that trigger expensive synchronous operations
@@ -721,7 +801,7 @@ Check for interaction responsiveness:
 - Modal/dialog open/close transitions that cause layout recalculation
 - Large state updates that trigger cascading re-renders
 
-#### 16c. Cumulative Layout Shift (CLS)
+#### 17c. Cumulative Layout Shift (CLS)
 
 Check for layout instability:
 - Images without explicit dimensions (`width`/`height`)
@@ -737,9 +817,9 @@ Images/media without dimensions are **MEDIUM** CLS risk.
 
 ---
 
-### 17. Accessibility (a11y) Baseline
+### 18. Accessibility (a11y) Baseline
 
-#### 17a. Semantic HTML
+#### 18a. Semantic HTML
 
 Verify core semantic elements are used:
 - Navigation uses `<nav>`, not `<div>`
@@ -754,7 +834,7 @@ grep -rn 'onClick.*<div\|onClick.*<span' web/src/ --include='*.tsx' | grep -v '_
 
 Clickable `<div>` or `<span>` without `role="button"` and keyboard handlers is **MEDIUM**.
 
-#### 17b. Keyboard navigation
+#### 18b. Keyboard navigation
 
 Verify:
 - All interactive elements are focusable (`tabIndex` where needed)
@@ -763,7 +843,7 @@ Verify:
 - Tab order follows visual layout (no unexpected jumps)
 - No keyboard traps (can always tab away from an element)
 
-#### 17c. ARIA attributes
+#### 18c. ARIA attributes
 
 Verify:
 - Form inputs have associated `<label>` elements or `aria-label`
@@ -772,7 +852,7 @@ Verify:
 - Dynamic content updates use `aria-live` regions for screen readers
 - Icons used as buttons have `aria-label` (not just visual meaning)
 
-#### 17d. Color contrast and visibility
+#### 18d. Color contrast and visibility
 
 Verify:
 - Text meets WCAG 2.1 AA contrast ratios (4.5:1 for normal text, 3:1 for large text)
@@ -782,9 +862,9 @@ Verify:
 
 ---
 
-### 18. TypeScript Strict Mode Compliance
+### 19. TypeScript Strict Mode Compliance
 
-#### 18a. Strict mode verification
+#### 19a. Strict mode verification
 
 Verify `web/tsconfig.json` has `"strict": true` enabled. Check sub-options:
 
@@ -794,7 +874,7 @@ grep -n 'strict\|noImplicitAny\|strictNullChecks\|strictFunctionTypes' web/tscon
 
 If `strict` is not `true`, flag as **HIGH** — type safety prevents entire categories of bugs.
 
-#### 18b. Type safety violations
+#### 19b. Type safety violations
 
 Search for type safety escapes:
 
@@ -807,7 +887,7 @@ Each `any` usage is a potential security and correctness risk:
 - `any` in internal utilities: **MEDIUM**
 - `any` in type assertions (`as any`): **MEDIUM** (usually papering over a real bug)
 
-#### 18c. Non-null assertions
+#### 19c. Non-null assertions
 
 Search for non-null assertions that could cause runtime errors:
 
@@ -827,24 +907,25 @@ After completing all checks, print a table:
 +----------+-------+-----------------------------------------------------------+--------+
 | Section  | Count | Finding                                                   | Status |
 +----------+-------+-----------------------------------------------------------+--------+
-| 1  XSS   |   0   | No unsafe rendering, URL injection, or DOM manipulation   | PASS   |
-| 2  Store  |   0   | Token lifecycle secure, no sensitive data retained        | PASS   |
-| 3  Comms  |   0   | HTTPS enforced, WS auth secure, protocol validated        | PASS   |
-| 4  CSP    |   0   | CSP and security headers configured                      | PASS   |
-| 5  CSRF   |   0   | Bearer auth used, no cookie-based auth                    | PASS   |
-| 6  Deps   |   0   | No known vulnerabilities, deps current                    | PASS   |
-| 7  Errors |   0   | No info leakage, boundaries present, errors observable    | PASS   |
-| 8  Input  |   0   | Forms validated, file uploads sanitized                   | PASS   |
-| 9  3rdPty |   0   | Service worker safe, xterm safe, no external scripts      | PASS   |
-| 10 Bundle |   0   | Code splitting, tree shaking, bundle size within limits   | PASS   |
-| 11 Assets |   0   | Images optimized, fonts loaded efficiently                | PASS   |
-| 12 CRP    |   0   | No render-blocking resources, resource hints present      | PASS   |
-| 13 React  |   0   | No unnecessary re-renders, selectors used properly        | PASS   |
-| 14 Lists  |   0   | Large lists virtualized or paginated                      | PASS   |
-| 15 Net    |   0   | API calls deduplicated, caching configured                | PASS   |
-| 16 Vitals |   0   | LCP, INP, CLS within acceptable thresholds                | PASS   |
-| 17 a11y   |   0   | Semantic HTML, keyboard nav, ARIA, contrast               | PASS   |
-| 18 TS     |   0   | Strict mode, no `any`, proper null handling               | PASS   |
+| 1  Taint  |   0   | DOM source→sink traces clean, ESLint security rules pass  | PASS   |
+| 2  XSS    |   0   | No unsafe rendering, URL injection, or DOM manipulation   | PASS   |
+| 3  Store  |   0   | Token lifecycle secure, no sensitive data retained        | PASS   |
+| 4  Comms  |   0   | HTTPS enforced, WS auth secure, protocol validated        | PASS   |
+| 5  CSP    |   0   | CSP and security headers configured                       | PASS   |
+| 6  CSRF   |   0   | Bearer auth used, no cookie-based auth                    | PASS   |
+| 7  Deps   |   0   | No known vulnerabilities, deps current                    | PASS   |
+| 8  Errors |   0   | No info leakage, boundaries present, errors observable    | PASS   |
+| 9  Input  |   0   | Forms validated, file uploads sanitized                   | PASS   |
+| 10 3rdPty |   0   | Service worker safe, xterm safe, no external scripts      | PASS   |
+| 11 Bundle |   0   | Code splitting, tree shaking, bundle size within limits   | PASS   |
+| 12 Assets |   0   | Images optimized, fonts loaded efficiently                | PASS   |
+| 13 CRP    |   0   | No render-blocking resources, resource hints present      | PASS   |
+| 14 React  |   0   | No unnecessary re-renders, selectors used properly        | PASS   |
+| 15 Lists  |   0   | Large lists virtualized or paginated                      | PASS   |
+| 16 Net    |   0   | API calls deduplicated, caching configured                | PASS   |
+| 17 Vitals |   0   | LCP, INP, CLS within acceptable thresholds                | PASS   |
+| 18 a11y   |   0   | Semantic HTML, keyboard nav, ARIA, contrast               | PASS   |
+| 19 TS     |   0   | Strict mode, no `any`, proper null handling               | PASS   |
 +----------+-------+-----------------------------------------------------------+--------+
 ```
 

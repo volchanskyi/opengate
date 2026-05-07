@@ -322,7 +322,75 @@ grep -rn 'tracing_subscriber' agent/crates/ --include='*.rs'
 
 ---
 
-## 11. Summary report
+## 11. Sensitive-value flow trace
+
+Section 1 catches secrets *at rest* in the git index. This section catches secrets *in motion* — every layer between definition site and process argv/log line where a sensitive value transits, with a sanitization checkpoint at each boundary.
+
+For every flagged sensitive value (every entry where `sensitive = true` in Terraform; every `${VAR}` in compose interpolation; every `secrets.NAME` in a workflow), produce a **trace** through the layers below. A finding without a trace is a guess.
+
+### 11a. The seven-layer trace
+
+Trace each sensitive value through these layers in order. Stop at any layer that obviously sanitizes (e.g. `secret/****` masking) or terminates the flow.
+
+1. **Definition site** — Terraform variable, GitHub secret, OCI Vault entry, or `.env`/`.env.example`. Confirm `sensitive = true` (TF) or that the secret name is not literal in the workflow.
+2. **`*.tfvars` / GitHub Action env mapping** — value is read here. Verify the file is gitignored or scoped to a runner.
+3. **Cloud-init / user-data template** — many secrets reach the host via `templatefile()` rendering. Verify template output is not echoed to the runner log (`cat`/`echo` of rendered content is a leak).
+4. **systemd unit / Docker Compose env** — value lands in `Environment=` directives or `${VAR}` interpolation. Verify the unit file lives under `/etc/systemd/system/` with mode `0600`, or the compose file uses `${VAR}` (never literal).
+5. **Process argv** — `ps -ef` exposes the full command line of every running process to any local user. Sensitive values **must not** appear as CLI flags (`--password=…`); they must be passed via env vars or stdin.
+6. **Application log line** — every log call site in the binary. If a sensitive field name (`token`, `password`, `secret`, `key`) appears as a structured-log argument, it must use a redactor (`RedactToken`, masking helper, or `***` substitution).
+7. **External egress** — Promtail/Loki, Telegram alert payloads, GitHub status comments, error tracking webhooks. Confirm the value is masked before crossing the trust boundary.
+
+For each sensitive value, record the trace in the audit report:
+
+```
+JWT_SECRET:
+  L1 deploy/.env (gitignored) → ✓
+  L2 docker-compose.yml ${JWT_SECRET:?} → ✓
+  L3 (no cloud-init exposure) → ✓
+  L4 server container env JWT_SECRET → ✓
+  L5 process argv: meshserver -listen :8080 (no flag) → ✓
+  L6 server/cmd/meshserver/main.go: never logged → ✓
+  L7 Promtail config excludes JWT-token regex → ✓
+```
+
+### 11b. Static patterns to grep
+
+Run these to detect leaks at each layer. Each should return zero hits in production code.
+
+```bash
+# L3 — cloud-init template echoes secret value
+grep -rnE 'echo|printf|cat|tee' deploy/cloud-init.yaml deploy/scripts/ 2>/dev/null
+
+# L5 — sensitive flag patterns
+grep -rnE -- '--(password|secret|token|key|jwt)=' deploy/ server/cmd/ 2>/dev/null
+
+# L6 — sensitive identifiers in log call sites
+grep -rnE 'slog\.[A-Z][a-z]+\([^)]*"(password|secret|token|jwt|api_?key)"' server/ --include='*.go' | grep -v '_test\.go\|RedactToken'
+grep -rnE 'tracing::(info|warn|error|debug)!.*"(password|secret|token|jwt|api_?key)"' agent/ --include='*.rs' | grep -v 'redact\|test'
+
+# L7 — alerting payloads constructed from full env
+grep -rnE 'env\.\.\.|os\.Environ\(\)|format!.*\$\{' deploy/ server/ agent/ 2>/dev/null
+```
+
+### 11c. Trace-specific red flags in this codebase
+
+- **`POSTGRES_PASSWORD`** — passes through compose interpolation; should never appear in agent logs or in Promtail-shipped server logs.
+- **`SONAR_TOKEN`** — appears on the `docker run` command line of `make sonar-quick` (visible to any local user via `ps -ef`). Acceptable for a local make target; flag if it ever moves to a server-side process.
+- **`VAPID_PRIVATE_KEY`** — generated into `${dataDir}/vapid.json`. Verify never logged at startup; only the *public* key is exposed via `/api/v1/push/vapid-key`.
+- **`AMT_PASS`** — server-side credential for MPS. Check `server/internal/mps/` for any `slog` field carrying it, and that the digest-auth flow does not echo it on failure.
+- **Agent enrollment token** — agent-side persistent secret. Must be redacted in agent logs (`tracing::info!("enrolled with token={}", token)` is a finding).
+- **`OCI_*` and `*_OCID`** — reveal account / network topology. Flag any GitHub Action that prints a secret named like this without `::add-mask::`.
+
+### 11d. Severity rubric
+
+- **CRITICAL** — sensitive value reaches an external sink (log shipper, alerting payload, GitHub status comment) without redaction.
+- **HIGH** — sensitive value appears in process argv, in cloud-init runner output, or in any log line that ships to Promtail.
+- **MEDIUM** — sensitive value is read into a struct field that is later JSON-serialized as part of an internal-only response and the field has no `json:"-"` tag.
+- **LOW** — sensitive value passes through a layer where masking is documented as best practice but not strictly required (e.g. systemd journal that is already access-restricted).
+
+---
+
+## 12. Summary report
 
 After completing all checks, print a table:
 
@@ -335,6 +403,7 @@ After completing all checks, print a table:
 | ...      |  ...  | ...                                            | ...    |
 | 9        |   0   | No PII in logs, test data fake, no error leaks | PASS   |
 | 10       |   0   | Log infra: Promtail, Loki, access, completeness| PASS   |
+| 11       |   0   | Sensitive-value flow trace clean, no L5/L6 leaks | PASS  |
 +----------+-------+------------------------------------------------+--------+
 ```
 
