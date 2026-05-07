@@ -1,4 +1,5 @@
-.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick
+.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick \
+	mutate mutate-rust mutate-go mutate-web taint-go taint-web dead-code
 
 build:
 	cd agent && cargo build --workspace
@@ -115,3 +116,36 @@ clean:
 	cd agent && cargo clean
 	cd server && rm -rf bin/
 	cd web && rm -rf dist/ node_modules/.cache
+
+# ----------------------------------------------------------------------------
+# Structural-testing tooling (developer-facing; CI gates land in PR 9).
+# ----------------------------------------------------------------------------
+
+# Mutation testing — surfaces test-suite quality (surviving mutants = test gaps).
+mutate: mutate-rust mutate-go mutate-web
+
+mutate-rust:
+	@command -v cargo-mutants >/dev/null 2>&1 || { echo "ERROR: cargo-mutants not found. Install with: cargo install cargo-mutants"; exit 1; }
+	cd agent && cargo mutants --workspace --no-shuffle
+
+mutate-go:
+	@command -v gremlins >/dev/null 2>&1 || { echo "ERROR: gremlins not found. Install with: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest"; exit 1; }
+	cd server && gremlins unleash ./...
+
+mutate-web:
+	cd web && npx stryker run
+
+# Static taint linting — catches data-flow paths from sources to sinks.
+taint-go:
+	@command -v gosec >/dev/null 2>&1 || { echo "ERROR: gosec not found. Install with: go install github.com/securego/gosec/v2/cmd/gosec@latest"; exit 1; }
+	cd server && gosec -conf .gosec.json ./...
+
+taint-web:
+	cd web && npx eslint --config eslint.security.config.js src/
+
+# Dead-code & unused-symbol sweep across all three languages.
+dead-code:
+	@command -v staticcheck >/dev/null 2>&1 || { echo "ERROR: staticcheck not found. Install with: go install honnef.co/go/tools/cmd/staticcheck@latest"; exit 1; }
+	cd agent && cargo clippy --workspace --all-targets -- -W dead_code
+	cd server && staticcheck -checks U1000 ./...
+	cd web && npx ts-prune

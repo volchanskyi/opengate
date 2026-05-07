@@ -1,6 +1,6 @@
 # Implementation Phases
 
-<!-- Last updated: 2026-04-21 -->
+<!-- Last updated: 2026-05-06 -->
 <!-- Update this file after completing or starting any significant phase of work. -->
 
 ## Completed
@@ -42,6 +42,7 @@
 | Coverage 80% + Quality Gates | Go/Web coverage to 80%, CI thresholds, precommit enforcement, 3-language coverage badges, SonarCloud hard-fail | — | [coverage-80-flip-gates.md](plans/archive/coverage-80-flip-gates.md) |
 | Phase 13a: PostgreSQL Migration | Fresh-start cutover from SQLite to PostgreSQL 17 (pgx/v5 stdlib), native types (TIMESTAMPTZ/UUID/JSONB), colocated Docker service, pg_dump backups, postgres_exporter monitoring | v0.24.0 | [phase-13a-postgres-migration.md](plans/archive/phase-13a-postgres-migration.md) |
 | Test Coverage Phase A: Targeted Gap-Closers | 10 cross-boundary ControlMessage goldens (session/file/chat/agent_update), 5 edge-case goldens (empty/UTF-8/>64KiB/forward-compat/LE-length negative), Device Logs and capability-tabs E2E specs | — | [tests-coverage-phase-a-targeted-gaps.md](plans/archive/tests-coverage-phase-a-targeted-gaps.md) |
+| Structural Testing PR 1: Tooling install | Makefile targets (`mutate`, `taint-go/web`, `dead-code`), web devDeps (stryker, eslint-plugin-security/no-unsanitized, ts-prune), `web/stryker.config.json`, `web/eslint.security.config.js`, `server/.gosec.json`. Developer-facing only; no CI gates | — | [enhance-audit-skills-with-structural-testing.md](plans/enhance-audit-skills-with-structural-testing.md) |
 
 ---
 
