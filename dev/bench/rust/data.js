@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778119199458,
+  "lastUpdate": 1778131848888,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11784,6 +11784,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.907388963217436,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9ae06d287391419adbad0d7ffb0a5f9bc9cbbb1b",
+          "message": "chore(skill): enforce precommit on every commit + add Go-install guard\n\n- Document that the precommit gate runs on docs- and CI-only commits\n  too, not just product-code changes. Lockfile audits would have\n  caught RUSTSEC-2026-0104 locally if the gate had run on the\n  preceding doc commits instead of being skipped as \"irrelevant.\"\n- Add a prerequisite that fails fast when $HOME/go is a Go install\n  (default GOPATH collision that breaks govulncheck with stdlib\n  redeclaration errors).",
+          "timestamp": "2026-05-06T22:28:15-07:00",
+          "tree_id": "e62d37f6a812deb1a86f7bd345ecaa7b9209cc7d",
+          "url": "https://github.com/volchanskyi/opengate/commit/9ae06d287391419adbad0d7ffb0a5f9bc9cbbb1b"
+        },
+        "date": 1778131848831,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.189222675406423,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.369492929084284,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 743.8338384966756,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 314.9904154255322,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.18374587733334,
             "unit": "ns/iter"
           }
         ]
