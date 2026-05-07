@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1776805177152,
+  "lastUpdate": 1778119199458,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11735,6 +11735,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.93502710746292,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "7700b9dfdfe7b7b08e67b44913e3a7578179cfe0",
+          "message": "docs: plan structural-testing enhancements for audit/test skills\n\nStages 9 PRs that introduce mutation testing (cargo-mutants, gremlins-rs,\nstryker), static taint linting (gosec, eslint-plugin-security,\neslint-plugin-no-unsanitized), and dead-code sweeps. Each cleanup PR lands\ngreen under existing gates; final PR flips hard gates on once the tree is\nclean. Skips /wiki-audit, /observe, and built-in skills with no SKILL.md.",
+          "timestamp": "2026-05-06T18:57:32-07:00",
+          "tree_id": "7ae5fcd3dafc48b106e280303be1a92b12e29884",
+          "url": "https://github.com/volchanskyi/opengate/commit/7700b9dfdfe7b7b08e67b44913e3a7578179cfe0"
+        },
+        "date": 1778119199400,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.478992200941843,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.61079681761703,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 759.314094153178,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 291.8547555223537,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.907388963217436,
             "unit": "ns/iter"
           }
         ]
