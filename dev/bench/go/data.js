@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778138612559,
+  "lastUpdate": 1778139311253,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -101782,6 +101782,390 @@ window.BENCHMARK_DATA = {
             "value": 0,
             "unit": "allocs/op",
             "extra": "375377277 times\n4 procs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f937abef3597757e1c585cc7e1cee7964b92103c",
+          "message": "docs(skills): add structural-testing concepts to audit/test skills (PR 2)\n\nPatch each editable skill prompt to consume the tooling shipped in PR 1\n(plan: .claude/plans/enhance-audit-skills-with-structural-testing.md):\n\n- precommit: new lint steps for `make taint-go && make taint-web` and\n  `make dead-code`; new step 19 \"Mutation diff gate\" between coverage\n  and SonarCloud; full numeric renumbering downstream and gate-criteria\n  refresh.\n- tests-audit: new Section 0.5 \"Mutation analysis\" covering tooling,\n  carve-outs, mutant-killing-test guidance, severity rubric, and the\n  pre/post-PR-9 gating timeline.\n- backend-audit: new Section 3 \"Taint paths\" enumerating Go sources\n  (HTTP body / query / headers / env / agent-written DB rows), sinks\n  (SQL / os.exec / io.Copy / response / log args) with gosec rule IDs;\n  every other section renumbered, summary table updated.\n- frontend-audit: new Section 1 \"DOM taint paths\" enumerating browser\n  sources (server response / URL / storage / postMessage / WS / WebRTC)\n  and sinks (innerHTML / dangerouslySetInnerHTML / eval / etc.) with\n  ESLint security rule IDs; every other section renumbered, summary\n  table updated.\n- infra-audit: new Section 11 \"Sensitive-value flow trace\" with the\n  seven-layer model (definition → tfvars → cloud-init → systemd →\n  argv → log → external sink); summary section bumped to 12.\n- refactor: new \"Slice before you cut\" step (call slice + test slice\n  as the per-step verification gate) and new \"Dead-code & unreachable-\n  branch sweep\" step that consumes `make dead-code`.\n- admin-infra-oci (user-scope, edited at ~/.claude/skills/...; not in\n  this repo): new \"Post-deployment control-flow validation\" section\n  documenting decision branches that fire during `terraform apply`\n  (AD selection, capacity retry, region failover, etc.) and the\n  verification checklist.\n\nCI gates remain unchanged; the gating step lands in PR 9 of the\nrollout. phases.md updated.",
+          "timestamp": "2026-05-07T00:32:26-07:00",
+          "tree_id": "067ed703edaaa4243d69775cd40440f8d2306d34",
+          "url": "https://github.com/volchanskyi/opengate/commit/f937abef3597757e1c585cc7e1cee7964b92103c"
+        },
+        "date": 1778139309226,
+        "tool": "go",
+        "benches": [
+          {
+            "name": "BenchmarkHandshaker_PerformHandshake (github.com/volchanskyi/opengate/server/internal/agentapi)",
+            "value": 15135,
+            "unit": "ns/op\t    5464 B/op\t      63 allocs/op",
+            "extra": "79502 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkHandshaker_PerformHandshake (github.com/volchanskyi/opengate/server/internal/agentapi) - ns/op",
+            "value": 15135,
+            "unit": "ns/op",
+            "extra": "79502 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkHandshaker_PerformHandshake (github.com/volchanskyi/opengate/server/internal/agentapi) - B/op",
+            "value": 5464,
+            "unit": "B/op",
+            "extra": "79502 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkHandshaker_PerformHandshake (github.com/volchanskyi/opengate/server/internal/agentapi) - allocs/op",
+            "value": 63,
+            "unit": "allocs/op",
+            "extra": "79502 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkManager_SignAgent (github.com/volchanskyi/opengate/server/internal/cert)",
+            "value": 167293,
+            "unit": "ns/op\t   16836 B/op\t     291 allocs/op",
+            "extra": "7070 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkManager_SignAgent (github.com/volchanskyi/opengate/server/internal/cert) - ns/op",
+            "value": 167293,
+            "unit": "ns/op",
+            "extra": "7070 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkManager_SignAgent (github.com/volchanskyi/opengate/server/internal/cert) - B/op",
+            "value": 16836,
+            "unit": "B/op",
+            "extra": "7070 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkManager_SignAgent (github.com/volchanskyi/opengate/server/internal/cert) - allocs/op",
+            "value": 291,
+            "unit": "allocs/op",
+            "extra": "7070 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkManager_SignServer (github.com/volchanskyi/opengate/server/internal/cert)",
+            "value": 176407,
+            "unit": "ns/op\t   17188 B/op\t     300 allocs/op",
+            "extra": "6724 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkManager_SignServer (github.com/volchanskyi/opengate/server/internal/cert) - ns/op",
+            "value": 176407,
+            "unit": "ns/op",
+            "extra": "6724 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkManager_SignServer (github.com/volchanskyi/opengate/server/internal/cert) - B/op",
+            "value": 17188,
+            "unit": "B/op",
+            "extra": "6724 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkManager_SignServer (github.com/volchanskyi/opengate/server/internal/cert) - allocs/op",
+            "value": 300,
+            "unit": "allocs/op",
+            "extra": "6724 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager_Generate (github.com/volchanskyi/opengate/server/internal/cert)",
+            "value": 311436,
+            "unit": "ns/op\t   27871 B/op\t     402 allocs/op",
+            "extra": "3942 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager_Generate (github.com/volchanskyi/opengate/server/internal/cert) - ns/op",
+            "value": 311436,
+            "unit": "ns/op",
+            "extra": "3942 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager_Generate (github.com/volchanskyi/opengate/server/internal/cert) - B/op",
+            "value": 27871,
+            "unit": "B/op",
+            "extra": "3942 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager_Generate (github.com/volchanskyi/opengate/server/internal/cert) - allocs/op",
+            "value": 402,
+            "unit": "allocs/op",
+            "extra": "3942 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager_Load (github.com/volchanskyi/opengate/server/internal/cert)",
+            "value": 51498,
+            "unit": "ns/op\t    7624 B/op\t      86 allocs/op",
+            "extra": "23358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager_Load (github.com/volchanskyi/opengate/server/internal/cert) - ns/op",
+            "value": 51498,
+            "unit": "ns/op",
+            "extra": "23358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager_Load (github.com/volchanskyi/opengate/server/internal/cert) - B/op",
+            "value": 7624,
+            "unit": "B/op",
+            "extra": "23358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewManager_Load (github.com/volchanskyi/opengate/server/internal/cert) - allocs/op",
+            "value": 86,
+            "unit": "allocs/op",
+            "extra": "23358 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_UpsertDevice (github.com/volchanskyi/opengate/server/internal/db)",
+            "value": 705177,
+            "unit": "ns/op\t    2071 B/op\t      54 allocs/op",
+            "extra": "3388 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_UpsertDevice (github.com/volchanskyi/opengate/server/internal/db) - ns/op",
+            "value": 705177,
+            "unit": "ns/op",
+            "extra": "3388 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_UpsertDevice (github.com/volchanskyi/opengate/server/internal/db) - B/op",
+            "value": 2071,
+            "unit": "B/op",
+            "extra": "3388 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_UpsertDevice (github.com/volchanskyi/opengate/server/internal/db) - allocs/op",
+            "value": 54,
+            "unit": "allocs/op",
+            "extra": "3388 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_GetDevice (github.com/volchanskyi/opengate/server/internal/db)",
+            "value": 199765,
+            "unit": "ns/op\t    3225 B/op\t      81 allocs/op",
+            "extra": "5829 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_GetDevice (github.com/volchanskyi/opengate/server/internal/db) - ns/op",
+            "value": 199765,
+            "unit": "ns/op",
+            "extra": "5829 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_GetDevice (github.com/volchanskyi/opengate/server/internal/db) - B/op",
+            "value": 3225,
+            "unit": "B/op",
+            "extra": "5829 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_GetDevice (github.com/volchanskyi/opengate/server/internal/db) - allocs/op",
+            "value": 81,
+            "unit": "allocs/op",
+            "extra": "5829 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_ListDevices (github.com/volchanskyi/opengate/server/internal/db)",
+            "value": 322615,
+            "unit": "ns/op\t   48875 B/op\t    1211 allocs/op",
+            "extra": "3717 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_ListDevices (github.com/volchanskyi/opengate/server/internal/db) - ns/op",
+            "value": 322615,
+            "unit": "ns/op",
+            "extra": "3717 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_ListDevices (github.com/volchanskyi/opengate/server/internal/db) - B/op",
+            "value": 48875,
+            "unit": "B/op",
+            "extra": "3717 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_ListDevices (github.com/volchanskyi/opengate/server/internal/db) - allocs/op",
+            "value": 1211,
+            "unit": "allocs/op",
+            "extra": "3717 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_SetDeviceStatus (github.com/volchanskyi/opengate/server/internal/db)",
+            "value": 303464,
+            "unit": "ns/op\t     824 B/op\t      26 allocs/op",
+            "extra": "3880 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_SetDeviceStatus (github.com/volchanskyi/opengate/server/internal/db) - ns/op",
+            "value": 303464,
+            "unit": "ns/op",
+            "extra": "3880 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_SetDeviceStatus (github.com/volchanskyi/opengate/server/internal/db) - B/op",
+            "value": 824,
+            "unit": "B/op",
+            "extra": "3880 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkStore_SetDeviceStatus (github.com/volchanskyi/opengate/server/internal/db) - allocs/op",
+            "value": 26,
+            "unit": "allocs/op",
+            "extra": "3880 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_WriteFrame (github.com/volchanskyi/opengate/server/internal/protocol)",
+            "value": 33.16,
+            "unit": "ns/op\t       5 B/op\t       1 allocs/op",
+            "extra": "36188041 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_WriteFrame (github.com/volchanskyi/opengate/server/internal/protocol) - ns/op",
+            "value": 33.16,
+            "unit": "ns/op",
+            "extra": "36188041 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_WriteFrame (github.com/volchanskyi/opengate/server/internal/protocol) - B/op",
+            "value": 5,
+            "unit": "B/op",
+            "extra": "36188041 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_WriteFrame (github.com/volchanskyi/opengate/server/internal/protocol) - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "36188041 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_ReadFrame (github.com/volchanskyi/opengate/server/internal/protocol)",
+            "value": 270.3,
+            "unit": "ns/op\t    1080 B/op\t       4 allocs/op",
+            "extra": "4435794 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_ReadFrame (github.com/volchanskyi/opengate/server/internal/protocol) - ns/op",
+            "value": 270.3,
+            "unit": "ns/op",
+            "extra": "4435794 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_ReadFrame (github.com/volchanskyi/opengate/server/internal/protocol) - B/op",
+            "value": 1080,
+            "unit": "B/op",
+            "extra": "4435794 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_ReadFrame (github.com/volchanskyi/opengate/server/internal/protocol) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "4435794 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_EncodeControl (github.com/volchanskyi/opengate/server/internal/protocol)",
+            "value": 2511,
+            "unit": "ns/op\t    1176 B/op\t      45 allocs/op",
+            "extra": "432142 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_EncodeControl (github.com/volchanskyi/opengate/server/internal/protocol) - ns/op",
+            "value": 2511,
+            "unit": "ns/op",
+            "extra": "432142 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_EncodeControl (github.com/volchanskyi/opengate/server/internal/protocol) - B/op",
+            "value": 1176,
+            "unit": "B/op",
+            "extra": "432142 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_EncodeControl (github.com/volchanskyi/opengate/server/internal/protocol) - allocs/op",
+            "value": 45,
+            "unit": "allocs/op",
+            "extra": "432142 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_DecodeControl (github.com/volchanskyi/opengate/server/internal/protocol)",
+            "value": 1200,
+            "unit": "ns/op\t     952 B/op\t      15 allocs/op",
+            "extra": "966577 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_DecodeControl (github.com/volchanskyi/opengate/server/internal/protocol) - ns/op",
+            "value": 1200,
+            "unit": "ns/op",
+            "extra": "966577 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_DecodeControl (github.com/volchanskyi/opengate/server/internal/protocol) - B/op",
+            "value": 952,
+            "unit": "B/op",
+            "extra": "966577 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkCodec_DecodeControl (github.com/volchanskyi/opengate/server/internal/protocol) - allocs/op",
+            "value": 15,
+            "unit": "allocs/op",
+            "extra": "966577 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeServerHello (github.com/volchanskyi/opengate/server/internal/protocol)",
+            "value": 0.3547,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeServerHello (github.com/volchanskyi/opengate/server/internal/protocol) - ns/op",
+            "value": 0.3547,
+            "unit": "ns/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeServerHello (github.com/volchanskyi/opengate/server/internal/protocol) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncodeServerHello (github.com/volchanskyi/opengate/server/internal/protocol) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeServerHello (github.com/volchanskyi/opengate/server/internal/protocol)",
+            "value": 3.537,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "339143140 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeServerHello (github.com/volchanskyi/opengate/server/internal/protocol) - ns/op",
+            "value": 3.537,
+            "unit": "ns/op",
+            "extra": "339143140 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeServerHello (github.com/volchanskyi/opengate/server/internal/protocol) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "339143140 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecodeServerHello (github.com/volchanskyi/opengate/server/internal/protocol) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "339143140 times\n4 procs"
           }
         ]
       }
