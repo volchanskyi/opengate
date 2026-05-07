@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778138613558,
+  "lastUpdate": 1778139312246,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11882,6 +11882,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.01946089863798,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f937abef3597757e1c585cc7e1cee7964b92103c",
+          "message": "docs(skills): add structural-testing concepts to audit/test skills (PR 2)\n\nPatch each editable skill prompt to consume the tooling shipped in PR 1\n(plan: .claude/plans/enhance-audit-skills-with-structural-testing.md):\n\n- precommit: new lint steps for `make taint-go && make taint-web` and\n  `make dead-code`; new step 19 \"Mutation diff gate\" between coverage\n  and SonarCloud; full numeric renumbering downstream and gate-criteria\n  refresh.\n- tests-audit: new Section 0.5 \"Mutation analysis\" covering tooling,\n  carve-outs, mutant-killing-test guidance, severity rubric, and the\n  pre/post-PR-9 gating timeline.\n- backend-audit: new Section 3 \"Taint paths\" enumerating Go sources\n  (HTTP body / query / headers / env / agent-written DB rows), sinks\n  (SQL / os.exec / io.Copy / response / log args) with gosec rule IDs;\n  every other section renumbered, summary table updated.\n- frontend-audit: new Section 1 \"DOM taint paths\" enumerating browser\n  sources (server response / URL / storage / postMessage / WS / WebRTC)\n  and sinks (innerHTML / dangerouslySetInnerHTML / eval / etc.) with\n  ESLint security rule IDs; every other section renumbered, summary\n  table updated.\n- infra-audit: new Section 11 \"Sensitive-value flow trace\" with the\n  seven-layer model (definition → tfvars → cloud-init → systemd →\n  argv → log → external sink); summary section bumped to 12.\n- refactor: new \"Slice before you cut\" step (call slice + test slice\n  as the per-step verification gate) and new \"Dead-code & unreachable-\n  branch sweep\" step that consumes `make dead-code`.\n- admin-infra-oci (user-scope, edited at ~/.claude/skills/...; not in\n  this repo): new \"Post-deployment control-flow validation\" section\n  documenting decision branches that fire during `terraform apply`\n  (AD selection, capacity retry, region failover, etc.) and the\n  verification checklist.\n\nCI gates remain unchanged; the gating step lands in PR 9 of the\nrollout. phases.md updated.",
+          "timestamp": "2026-05-07T00:32:26-07:00",
+          "tree_id": "067ed703edaaa4243d69775cd40440f8d2306d34",
+          "url": "https://github.com/volchanskyi/opengate/commit/f937abef3597757e1c585cc7e1cee7964b92103c"
+        },
+        "date": 1778139312187,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.58847383625279,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.518148699207277,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 735.0491258981252,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.59591528908805,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.00326401237231,
             "unit": "ns/iter"
           }
         ]
