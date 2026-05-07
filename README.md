@@ -116,4 +116,8 @@ make lint-deploy        # Validate deploy configs (Terraform, Compose, Caddy, YA
 make e2e                # End-to-end Playwright tests via docker-compose.test.yml
 make load-test          # k6 HTTP/WS load tests against localhost:8080
 make load-test-quic     # Go QUIC load harness (100 concurrent agents)
+make mutate             # Mutation tests across Rust + Go + web (cargo-mutants, gremlins, stryker)
+make taint-go           # Static taint linting (gosec) for Go
+make taint-web          # Static taint linting (eslint-plugin-security + no-unsanitized) for web
+make dead-code          # Dead-code sweep (clippy -W dead_code, staticcheck U1000, ts-prune)
 ```

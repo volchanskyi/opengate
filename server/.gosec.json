@@ -1,0 +1,8 @@
+{
+  "_comment": "Placeholder gosec config for `make taint-go`. Exclusions and rule tuning land in PR 4 alongside the baseline cleanup. PR 1 ships defaults only.",
+  "global": {
+    "audit": "enabled",
+    "nosec": "false",
+    "exclude-generated": "true"
+  }
+}

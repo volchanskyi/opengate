@@ -103,5 +103,8 @@ Do **not** add `sonar.issue.ignore.multicriteria` entries, `// NOSONAR` comments
 - `make sonar` — full local SonarCloud scan (generates coverage + runs scanner via Docker)
 - `make sonar-quick` — code-quality-only SonarCloud scan (no coverage generation)
 - `make sonar-coverage` — generate all coverage files for SonarCloud
+- `make mutate` (and `mutate-rust`/`mutate-go`/`mutate-web`) — mutation tests across all three languages (cargo-mutants / gremlins / stryker). Developer-facing; CI gate lands in PR 9 of the structural-testing rollout
+- `make taint-go` / `make taint-web` — static taint linting (gosec; eslint-plugin-security + eslint-plugin-no-unsanitized via `web/eslint.security.config.js`)
+- `make dead-code` — dead-code sweep (clippy `-W dead_code`, staticcheck `U1000`, ts-prune)
 - `cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go` — regenerate Go API from OpenAPI spec
 - `cd web && npm run generate:api` — regenerate TypeScript types from OpenAPI spec
