@@ -10,6 +10,7 @@ export const FRAME_PONG = 0x06;
 export const MAX_FRAME_SIZE = 16 * 1024 * 1024;
 
 /** Permissions granted for a session. */
+// ts-prune-ignore-next-line — composed into ControlMessage; part of public protocol surface
 export interface Permissions {
   desktop: boolean;
   terminal: boolean;
@@ -19,6 +20,7 @@ export interface Permissions {
 }
 
 /** Encoding format for desktop frame data. */
+// ts-prune-ignore-next-line — composed into DesktopFrame; part of public protocol surface
 export type FrameEncoding = 'Raw' | 'Zlib' | 'Zstd' | 'H264Idr' | 'H264Delta' | 'Jpeg';
 
 /** A desktop video frame. */

@@ -148,4 +148,4 @@ dead-code:
 	@command -v staticcheck >/dev/null 2>&1 || { echo "ERROR: staticcheck not found. Install with: go install honnef.co/go/tools/cmd/staticcheck@latest"; exit 1; }
 	cd agent && cargo clippy --workspace --all-targets -- -W dead_code
 	cd server && staticcheck -checks U1000 ./...
-	cd web && npx ts-prune
+	cd web && npx ts-prune -p tsconfig.app.json -i 'src/types/api\.d\.ts'
