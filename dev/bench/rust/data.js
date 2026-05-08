@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778181205344,
+  "lastUpdate": 1778199694158,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -11980,6 +11980,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.930121697419278,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "85bcd763a5a164bfedba295282eab9efc9e595fd",
+          "message": "chore(security): clean gosec baseline on Go server (PR 4)\n\nCleared 56 gosec findings across the server tree to unblock the structural-\ntesting CI gate landing in PR 9. Also fixed `.gosec.json` — the original\naudit-mode config was reporting findings even after `// #nosec` suppression.\n\n- G104 (32 unhandled errors): explicit `_ =` discard or `// #nosec` on\n  best-effort phase transitions, websocket/QUIC close paths, and fire-and-\n  forget notifier calls. Notify multi-line statements refactored to\n  single-line discards via local event vars.\n- G115 (8 integer overflows): added `clampNonNegativeUint32` and\n  `clampInt64` helpers in agentapi/conn.go for log-filter offsets/limits\n  and uint64→int64 hardware metrics; added `maxAPFPayload` (16 MiB) bound\n  to APF channel-data; bounded APF string lengths via existing\n  `maxAPFStringLen`; annotated MaxFrameSize-bounded conversion in\n  protocol/codec.go.\n- G304 (5 file inclusions): wrapped operator-supplied paths\n  (cert/cert.go, notifications/vapid.go, updater/{manifest,signing}.go)\n  with `filepath.Clean` and `// #nosec` justifying the operator-controlled\n  source.\n- G117 (2 secret-pattern fields): justified `// #nosec` for VAPID and\n  update-signing private-key fields, since they intentionally persist to\n  0600-mode files under {dataDir}.\n- G301 (2): `os.MkdirAll` permissions 0755 → 0750\n  (cmd/meshserver/main.go, updater/manifest.go).\n- G306 (2): `os.WriteFile` permissions 0644 → 0600\n  (cert/cert.go ca.crt, updater/manifest.go).\n- G401/G501 (2): converted `//nolint:gosec` → `// #nosec G401/G501` for\n  the RFC-7616 HTTP Digest auth MD5 in mps/wsman/digest.go (mandated by\n  spec; not used for password storage).\n\n`.gosec.json`: dropped `audit: enabled` and `nosec: false` — the former\ncaused suppressed findings to still be reported; the latter combined with\naudit-mode broke `// #nosec` recognition. Default config now honors\nannotations as expected.\n\nVerified: `gosec ./...` reports 0 issues, `go test -race ./...` passes.",
+          "timestamp": "2026-05-07T17:19:32-07:00",
+          "tree_id": "e77c8804ef2703a552837711e0c49eb8e4e52f25",
+          "url": "https://github.com/volchanskyi/opengate/commit/85bcd763a5a164bfedba295282eab9efc9e595fd"
+        },
+        "date": 1778199694094,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.238362142025291,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.83716373168483,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 607.5481081085022,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.63809213201546,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.800503803345105,
             "unit": "ns/iter"
           }
         ]
