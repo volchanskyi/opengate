@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778199965247,
+  "lastUpdate": 1778200343463,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12078,6 +12078,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.904657036858378,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "419ae5a38504e097451c7928d22a2a282e0aa063",
+          "message": "fix(deps): bump Go toolchain to 1.26.3 and golang.org/x/net to 0.53.0\n\ngovulncheck on dev failed after PR 5 with four findings, all in\ndependencies / Go stdlib that were already on `dev` before this rollout\nbut were re-flagged by today's advisory database:\n\n- GO-2026-4986 / GO-2026-4977: net/mail quadratic concat in\n  consumeComment / consumePhrase (path: api.Server.Register →\n  mail.ParseAddress)\n- GO-2026-4971: net Dial NUL byte panic on Windows (paths through\n  postgres + QUIC + MPS listeners)\n- GO-2026-4918: HTTP/2 SETTINGS_MAX_FRAME_SIZE infinite-loop in\n  net/http and golang.org/x/net (path: updater.SyncFromGitHub →\n  http.Client.Do); fixed in golang.org/x/net@v0.53.0 and Go 1.26.3\n\nPinned `toolchain go1.26.3` in `server/go.mod` so CI's `go-version: '1.26'`\nresolves to a patched runtime. Bumped `golang.org/x/net` v0.51.0 → v0.53.0\n(also pulls crypto v0.50.0, sys v0.43.0, text v0.36.0).",
+          "timestamp": "2026-05-07T17:30:27-07:00",
+          "tree_id": "6adf1be715c370589669d9ca83f59be0f2fc2911",
+          "url": "https://github.com/volchanskyi/opengate/commit/419ae5a38504e097451c7928d22a2a282e0aa063"
+        },
+        "date": 1778200343415,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 14.316701606217393,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 21.3744961510413,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 595.4964007907338,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 238.80367478702013,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 21.649932103038353,
             "unit": "ns/iter"
           }
         ]
