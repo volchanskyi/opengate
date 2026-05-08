@@ -36,21 +36,17 @@ export const useFileStore = create<FileState>((set) => ({
     set((state) => ({ downloads: { ...state.downloads, [name]: progress } })),
 
   clearDownload: (name) =>
-    set((state) => {
-      const rest = { ...state.downloads };
-      delete rest[name];
-      return { downloads: rest };
-    }),
+    set((state) => ({
+      downloads: Object.fromEntries(Object.entries(state.downloads).filter(([k]) => k !== name)),
+    })),
 
   setUploadProgress: (name, progress) =>
     set((state) => ({ uploads: { ...state.uploads, [name]: progress } })),
 
   clearUpload: (name) =>
-    set((state) => {
-      const rest = { ...state.uploads };
-      delete rest[name];
-      return { uploads: rest };
-    }),
+    set((state) => ({
+      uploads: Object.fromEntries(Object.entries(state.uploads).filter(([k]) => k !== name)),
+    })),
 
   setError: (error) => set({ error }),
   setLoading: (isLoading) => set({ isLoading }),
