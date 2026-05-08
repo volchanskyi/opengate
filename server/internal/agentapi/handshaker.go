@@ -40,7 +40,7 @@ func (h *Handshaker) PerformHandshake(ctx context.Context, stream io.ReadWriter,
 	// Apply deadline from context if the stream supports it.
 	if deadline, ok := ctx.Deadline(); ok {
 		if conn, ok := stream.(net.Conn); ok {
-			conn.SetDeadline(deadline)
+			_ = conn.SetDeadline(deadline)
 		}
 	}
 

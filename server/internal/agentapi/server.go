@@ -195,12 +195,13 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname string) {
 	s.conns.Store(ac.DeviceID, ac)
 	s.count.Add(1)
-	_ = s.notifier.Notify(ctx, notifications.Event{
+	onlineEvt := notifications.Event{
 		Type:           notifications.EventDeviceOnline,
 		DeviceID:       ac.DeviceID,
 		DeviceHostname: hostname,
 		Timestamp:      time.Now(),
-	})
+	}
+	_ = s.notifier.Notify(ctx, onlineEvt) // fire-and-forget
 }
 
 // unregisterConn marks the device offline (if still owned by this connection)
@@ -213,17 +214,18 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 		if err := s.store.SetDeviceStatus(offlineCtx, ac.DeviceID, db.StatusOffline); err != nil {
 			logger.Error("set device offline", "error", err)
 		}
-		_ = s.notifier.Notify(offlineCtx, notifications.Event{
+		offlineEvt := notifications.Event{
 			Type:           notifications.EventDeviceOffline,
 			DeviceID:       ac.DeviceID,
 			DeviceHostname: hostname,
 			Timestamp:      time.Now(),
-		})
+		}
+		_ = s.notifier.Notify(offlineCtx, offlineEvt) // fire-and-forget
 	} else {
 		logger.Info("skipping offline transition, newer connection exists")
 	}
-	stream.Close()
-	conn.CloseWithError(0, "bye")
+	_ = stream.Close()
+	_ = conn.CloseWithError(0, "bye")
 	logger.Info("agent disconnected")
 }
 
@@ -246,7 +248,7 @@ func (s *AgentServer) openControlStream(ctx context.Context, conn *quic.Conn, lo
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
 		logger.Error("open control stream", "error", err)
-		conn.CloseWithError(1, "stream open failed")
+		_ = conn.CloseWithError(1, "stream open failed")
 		return nil, err
 	}
 	return stream, nil
@@ -267,7 +269,7 @@ func (s *AgentServer) performHandshake(ctx context.Context, conn *quic.Conn, str
 	result, err := handshaker.PerformHandshake(hsCtx, stream, peerCerts)
 	if err != nil {
 		logger.Error("handshake failed", "error", err)
-		conn.CloseWithError(2, "handshake failed")
+		_ = conn.CloseWithError(2, "handshake failed")
 		return nil, err
 	}
 	return result, nil
@@ -290,8 +292,8 @@ func (s *AgentServer) rejectIfTombstoned(stream *quic.Stream, conn *quic.Conn, d
 	} else if err := codec.WriteFrame(stream, protocol.FrameControl, payload); err != nil {
 		logger.Warn("write tombstone deregister frame", "error", err)
 	}
-	stream.Close()
-	conn.CloseWithError(3, "device deregistered")
+	_ = stream.Close()
+	_ = conn.CloseWithError(3, "device deregistered")
 	return true
 }
 

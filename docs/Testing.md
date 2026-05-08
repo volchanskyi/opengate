@@ -107,6 +107,20 @@ cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
   --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)'
 ```
 
+### Mutation testing
+
+Coverage % asserts which lines executed; mutation score asserts which lines
+were *meaningfully* tested. Run `make mutate` to drive cargo-mutants (Rust),
+gremlins (Go), and stryker (Web). Carve-outs are in
+[agent/.cargo/mutants.toml](../agent/.cargo/mutants.toml) — currently
+exclude platform shims, the agent binary entry point, and the SELinux
+restorecon match guards in update.rs.
+
+Rust runs need `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden` so golden file
+tests resolve fixtures inside cargo-mutants' temp tree. The `mutate-rust`
+make target sets this automatically. CI hard gates land with PR 9 of the
+structural-testing rollout.
+
 ## Frontend Performance
 
 ### Bundle Size Monitoring

@@ -33,7 +33,7 @@ func NewManifestStore(dataDir string) *ManifestStore {
 
 // Put writes a manifest for the given OS/arch combination.
 func (s *ManifestStore) Put(_ context.Context, m *Manifest) error {
-	if err := os.MkdirAll(s.dir, 0755); err != nil {
+	if err := os.MkdirAll(s.dir, 0o750); err != nil {
 		return fmt.Errorf("create manifest dir: %w", err)
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
@@ -44,7 +44,7 @@ func (s *ManifestStore) Put(_ context.Context, m *Manifest) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return fmt.Errorf("write manifest: %w", err)
 	}
 	return nil
@@ -56,6 +56,7 @@ func (s *ManifestStore) Get(_ context.Context, osName, arch string) (*Manifest, 
 	if err != nil {
 		return nil, err
 	}
+	// #nosec G304 -- path is validated by safePath() to stay within s.dir.
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil

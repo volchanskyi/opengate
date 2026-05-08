@@ -682,6 +682,276 @@ mod tests {
         }
     }
 
+    type TestTerminalHandle = (
+        TerminalHandle,
+        mpsc::Receiver<Vec<u8>>,
+        mpsc::Receiver<(u16, u16)>,
+        Arc<std::sync::atomic::AtomicBool>,
+    );
+
+    /// Helper: build a TerminalHandle backed by test channels we can observe.
+    fn new_test_terminal_handle() -> TestTerminalHandle {
+        let (stdin_tx, stdin_rx) = mpsc::channel(8);
+        let (resize_tx, resize_rx) = mpsc::channel(8);
+        let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handle = TerminalHandle::new(stdin_tx, resize_tx, shutdown.clone());
+        (handle, stdin_rx, resize_rx, shutdown)
+    }
+
+    /// Pin handle_frame's `Frame::Terminal` match arm: when a terminal is
+    /// active, the inbound bytes must be forwarded to its stdin channel.
+    /// Mutating away the Terminal arm would silently drop browser keystrokes.
+    #[tokio::test]
+    async fn handle_frame_terminal_forwards_bytes_when_session_active() {
+        let handler = new_handler(all_perms());
+        let injector = NullInput;
+        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+        let (term, mut stdin_rx, _resize_rx, _shutdown) = new_test_terminal_handle();
+
+        handler
+            .handle_frame(
+                Frame::Terminal(TerminalFrame {
+                    data: b"ls -la\n".to_vec(),
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                Some(&term),
+                &webrtc_pc,
+            )
+            .await;
+
+        let bytes = stdin_rx
+            .try_recv()
+            .expect("terminal stdin must receive bytes");
+        assert_eq!(bytes, b"ls -la\n");
+    }
+
+    /// Pin handle_control's `ControlMessage::MouseClick` match arm and the
+    /// handle_mouse_click body. Mutating either away would skip the dispatch
+    /// or skip the inject calls entirely.
+    #[tokio::test]
+    async fn handle_control_mouse_click_dispatches_move_and_button() {
+        let handler = new_handler(all_perms());
+        let (injector, calls) = RecordingInjector::new();
+        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::MouseClick {
+                    button: MouseButton::Left,
+                    pressed: true,
+                    x: 50,
+                    y: 60,
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                None,
+                &webrtc_pc,
+            )
+            .await;
+
+        let recorded = calls.lock().unwrap();
+        assert_eq!(
+            *recorded,
+            vec![
+                "mouse_move:50,60".to_string(),
+                "mouse_button:Left:true".to_string()
+            ]
+        );
+    }
+
+    /// Pin handle_control's `ControlMessage::KeyPress` arm and handle_key_press
+    /// body. Must dispatch to injector AND (when terminal active and pressed)
+    /// to the terminal stdin.
+    #[tokio::test]
+    async fn handle_control_key_press_dispatches_to_injector_and_terminal() {
+        let handler = new_handler(all_perms());
+        let (injector, calls) = RecordingInjector::new();
+        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+        let (term, mut stdin_rx, _resize_rx, _shutdown) = new_test_terminal_handle();
+
+        // KeyPress with pressed=true should hit both injector and terminal.
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::KeyPress {
+                    key: mesh_protocol::KeyCode::KeyA,
+                    pressed: true,
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                Some(&term),
+                &webrtc_pc,
+            )
+            .await;
+
+        let recorded = calls.lock().unwrap();
+        assert_eq!(*recorded, vec!["key:KeyA:true".to_string()]);
+        drop(recorded);
+
+        // Terminal must also receive the byte.
+        let bytes = stdin_rx
+            .try_recv()
+            .expect("terminal must receive byte for pressed key");
+        assert_eq!(bytes, b"a");
+    }
+
+    /// Pin handle_control's `ControlMessage::TerminalResize` arm: must call
+    /// resize on the terminal handle.
+    #[tokio::test]
+    async fn handle_control_terminal_resize_forwards_dimensions() {
+        let handler = new_handler(all_perms());
+        let injector = NullInput;
+        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+        let (term, _stdin_rx, mut resize_rx, _shutdown) = new_test_terminal_handle();
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::TerminalResize {
+                    cols: 132,
+                    rows: 50,
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                Some(&term),
+                &webrtc_pc,
+            )
+            .await;
+
+        let (cols, rows) = resize_rx
+            .try_recv()
+            .expect("resize channel must receive dimensions");
+        assert_eq!((cols, rows), (132, 50));
+    }
+
+    /// Pin handle_control's `ControlMessage::FileDownloadRequest` arm and the
+    /// handle_file_download body: must spawn a background task that streams
+    /// data to the frame channel.
+    #[tokio::test]
+    async fn handle_control_file_download_streams_to_frame_channel() {
+        let handler = new_handler(all_perms());
+        let injector = NullInput;
+        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("test.txt");
+        std::fs::write(&file_path, b"download payload").unwrap();
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::FileDownloadRequest {
+                    path: file_path.to_string_lossy().into_owned(),
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                None,
+                &webrtc_pc,
+            )
+            .await;
+
+        // Background task is spawned — give it a moment to send.
+        let data = tokio::time::timeout(std::time::Duration::from_secs(2), frame_rx.recv())
+            .await
+            .expect("download task must send within timeout")
+            .expect("download task must produce a frame");
+        let frame = decode_frame(&data);
+        match frame {
+            Frame::FileTransfer(ff) => {
+                assert_eq!(ff.data, b"download payload");
+                assert_eq!(ff.total_size, b"download payload".len() as u64);
+            }
+            other => panic!("expected FileTransfer, got {other:?}"),
+        }
+    }
+
+    /// Pin handle_control's `ControlMessage::FileUploadRequest` arm: even
+    /// though upload is not yet implemented, the arm must exist so the
+    /// message is acknowledged silently (no panic, no rogue frame emission).
+    #[tokio::test]
+    async fn handle_control_file_upload_request_is_silently_acknowledged() {
+        let handler = new_handler(all_perms());
+        let injector = NullInput;
+        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::FileUploadRequest {
+                    path: "/tmp/x".to_string(),
+                    total_size: 1024,
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                None,
+                &webrtc_pc,
+            )
+            .await;
+
+        // No frame should be emitted.
+        assert!(matches!(
+            frame_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
+    /// Pin `ControlMessage::IceCandidate` and `ControlMessage::SwitchAck` arms
+    /// when there is no active WebRTC peer connection. Both must early-return
+    /// without panicking, and must not emit any frames.
+    #[tokio::test]
+    async fn handle_control_ice_and_switch_ack_no_op_without_peer() {
+        let handler = new_handler(all_perms());
+        let injector = NullInput;
+        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::IceCandidate {
+                    candidate: "candidate:1 1 UDP".to_string(),
+                    mid: "0".to_string(),
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                None,
+                &webrtc_pc,
+            )
+            .await;
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::SwitchAck),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                None,
+                &webrtc_pc,
+            )
+            .await;
+
+        assert!(matches!(
+            frame_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
     #[tokio::test]
     async fn test_send_frame_closed_channel() {
         let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(1);

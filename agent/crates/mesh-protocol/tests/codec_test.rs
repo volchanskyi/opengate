@@ -285,6 +285,148 @@ fn test_frame_decode_unknown_type() {
 }
 
 #[test]
+fn test_max_frame_size_is_16mib() {
+    // Pins the constant; replace * with + would yield 16+1024+1024 = 2064.
+    assert_eq!(MAX_FRAME_SIZE, 16 * 1024 * 1024);
+    assert_eq!(MAX_FRAME_SIZE, 16_777_216);
+}
+
+#[test]
+fn test_decode_single_byte_ping_returns_ping() {
+    // Pins FRAME_PING match arm in Frame::decode.
+    let (frame, consumed) = Frame::decode(&[0x05]).expect("decode ping");
+    assert_eq!(frame, Frame::Ping);
+    assert_eq!(consumed, 1);
+}
+
+#[test]
+fn test_decode_single_byte_pong_returns_pong() {
+    // Pins FRAME_PONG match arm in Frame::decode.
+    let (frame, consumed) = Frame::decode(&[0x06]).expect("decode pong");
+    assert_eq!(frame, Frame::Pong);
+    assert_eq!(consumed, 1);
+}
+
+#[test]
+fn test_decode_minimum_header_length_succeeds_with_empty_payload() {
+    // A 5-byte header (type + length=0) is the boundary for the `data.len() < 5`
+    // check. Replacing `<` with `<=` would reject this valid frame.
+    let frame = Frame::Control(ControlMessage::RelayReady);
+    let encoded = frame.encode().unwrap();
+    assert!(encoded.len() >= 5);
+    let (_, consumed) = Frame::decode(&encoded).expect("decode 5+ byte frame");
+    assert_eq!(consumed, encoded.len());
+}
+
+#[test]
+fn test_decode_partial_header_reports_correct_needed_bytes() {
+    // Tests `needed: 5 - data.len()`. Mutating `-` to `+` would report
+    // 5 + data.len() (e.g. 5+3=8 instead of 5-3=2).
+    if let Err(ProtocolError::IncompleteFrame { needed }) = Frame::decode(&[0x01, 0x00, 0x00]) {
+        assert_eq!(needed, 2, "needed must be 5 - 3 = 2");
+    } else {
+        panic!("expected IncompleteFrame");
+    }
+}
+
+#[test]
+fn test_decode_partial_payload_reports_correct_needed_bytes() {
+    // Type=Control, length=10, but payload only 3 bytes.
+    // total = 5 + 10 = 15; data.len() = 5 + 3 = 8; needed = 15 - 8 = 7.
+    let mut data = vec![0x01, 0x00, 0x00, 0x00, 0x0A]; // header: control, length=10
+    data.extend_from_slice(&[0x01, 0x02, 0x03]); // 3 bytes of payload
+    if let Err(ProtocolError::IncompleteFrame { needed }) = Frame::decode(&data) {
+        assert_eq!(needed, 7, "needed must be (5+10) - (5+3) = 7");
+    } else {
+        panic!("expected IncompleteFrame");
+    }
+}
+
+#[test]
+fn test_decode_rejects_length_above_max_frame_size() {
+    // length = MAX_FRAME_SIZE + 1 must error; mutating `>` to `>=` would
+    // accept exactly MAX_FRAME_SIZE; mutating to `==` would accept anything else.
+    let too_big = (MAX_FRAME_SIZE + 1) as u32;
+    let mut data = vec![0x01];
+    data.extend_from_slice(&too_big.to_be_bytes());
+    match Frame::decode(&data) {
+        Err(ProtocolError::FrameTooLarge { size, max }) => {
+            assert_eq!(size, MAX_FRAME_SIZE + 1);
+            assert_eq!(max, MAX_FRAME_SIZE);
+        }
+        other => panic!("expected FrameTooLarge, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_decode_accepts_length_equal_to_max_frame_size_header() {
+    // length = MAX_FRAME_SIZE must NOT error from the >MAX check.
+    // We don't have to provide the full payload; we just verify the
+    // size check itself doesn't reject this boundary value.
+    let exact = MAX_FRAME_SIZE as u32;
+    let mut data = vec![0x01];
+    data.extend_from_slice(&exact.to_be_bytes());
+    // Will fail with IncompleteFrame (because we didn't supply payload),
+    // but must NOT fail with FrameTooLarge.
+    match Frame::decode(&data) {
+        Err(ProtocolError::IncompleteFrame { .. }) => {}
+        other => panic!("expected IncompleteFrame, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_encode_frame_rejects_payload_above_max_frame_size() {
+    // Build an oversized payload via Frame::Terminal (raw bytes). Mutating
+    // the `>` in encode_frame to `>=` would reject exactly MAX_FRAME_SIZE.
+    // Use a payload large enough to exceed MAX after MessagePack overhead.
+    let frame = Frame::Terminal(TerminalFrame {
+        data: vec![0u8; MAX_FRAME_SIZE + 1],
+    });
+    match frame.encode() {
+        Err(ProtocolError::FrameTooLarge { .. }) => {}
+        other => panic!("expected FrameTooLarge, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_handshake_agent_proof_decode_minimum_payload() {
+    // AgentProof requires payload.len() >= 16 (UUID). Mutating `<` to `<=`
+    // would also reject exactly 16 bytes; `<` to `==` would accept smaller.
+    let id = uuid::Uuid::new_v4();
+    let mut data = vec![0x13];
+    data.extend_from_slice(id.as_bytes());
+    // Exactly 16-byte payload (no signature) — must succeed with empty sig.
+    let decoded = HandshakeMessage::decode_binary(&data).expect("16-byte payload should decode");
+    match decoded {
+        HandshakeMessage::AgentProof {
+            signature,
+            device_id,
+        } => {
+            assert_eq!(device_id, DeviceId(id));
+            assert!(signature.is_empty());
+        }
+        other => panic!("expected AgentProof, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_handshake_agent_proof_decode_rejects_short_payload() {
+    // 15-byte payload must error (boundary just below the >= 16 check).
+    let data = vec![
+        0x13, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff,
+    ];
+    // data.len() = 16 but payload.len() = 15 → must fail.
+    match HandshakeMessage::decode_binary(&data) {
+        Err(ProtocolError::InvalidHandshake(_)) => {}
+        other => panic!(
+            "expected InvalidHandshake for short payload, got {:?}",
+            other
+        ),
+    }
+}
+
+#[test]
 fn test_codec_never_panics_on_arbitrary_bytes() {
     // Quick manual fuzz with known problematic patterns
     let test_cases: Vec<Vec<u8>> = vec![

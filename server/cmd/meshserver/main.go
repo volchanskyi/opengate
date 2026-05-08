@@ -57,7 +57,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := os.MkdirAll(*dataDir, 0755); err != nil {
+	if err := os.MkdirAll(*dataDir, 0750); err != nil {
 		logger.Error("create data dir", "error", err)
 		os.Exit(1)
 	}

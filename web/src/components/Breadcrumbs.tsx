@@ -17,14 +17,14 @@ export function Breadcrumbs() {
   const crumbs: Crumb[] = [];
   let path = '';
 
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]!;
+  segments.forEach((seg, i, arr) => {
     path += `/${seg}`;
-    const isLast = i === segments.length - 1;
+    const isLast = i === arr.length - 1;
+    const next = arr.at(i + 1);
 
-    if (seg === 'devices' && !segments[i + 1]) {
+    if (seg === 'devices' && !next) {
       crumbs.push(isLast ? { label: 'Devices' } : { label: 'Devices', to: '/devices' });
-    } else if (seg === 'devices' && segments[i + 1]) {
+    } else if (seg === 'devices' && next) {
       crumbs.push({ label: 'Devices', to: '/devices' });
     } else if (seg === params.id && crumbs.some((c) => c.label === 'Devices')) {
       const label = device?.hostname ?? seg;
@@ -50,7 +50,7 @@ export function Breadcrumbs() {
     } else if (seg === 'profile') {
       crumbs.push({ label: 'Profile' });
     }
-  }
+  });
 
   if (crumbs.length === 0) return null;
 

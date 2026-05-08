@@ -113,5 +113,5 @@ func (c *Client) doHTTP(cc *ChannelConn, soapAction string, body []byte, authHea
 
 // closeChannel sends a channel close and ignores errors (best effort).
 func (c *Client) closeChannel(ch *mps.Channel) {
-	mps.WriteChannelClose(c.conn.NetConn(), ch.RemoteID) //nolint:errcheck
+	_ = mps.WriteChannelClose(c.conn.NetConn(), ch.RemoteID)
 }

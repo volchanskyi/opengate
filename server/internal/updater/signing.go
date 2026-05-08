@@ -26,8 +26,9 @@ type SigningKeys struct {
 // LoadOrGenerateSigningKeys loads existing Ed25519 keys from {dataDir}/update-signing.json,
 // or generates a new keypair and persists it on first run.
 func LoadOrGenerateSigningKeys(dataDir string) (*SigningKeys, error) {
-	path := filepath.Join(dataDir, "update-signing.json")
+	path := filepath.Clean(filepath.Join(dataDir, "update-signing.json"))
 
+	// #nosec G304 -- path is derived from operator-supplied dataDir, not user input.
 	data, err := os.ReadFile(path)
 	if err == nil {
 		var kf signingKeyFile
@@ -60,11 +61,12 @@ func LoadOrGenerateSigningKeys(dataDir string) (*SigningKeys, error) {
 		PrivateKey: hex.EncodeToString(priv),
 		PublicKey:  hex.EncodeToString(pub),
 	}
+	// #nosec G117 -- signing private key is intentionally persisted; the file is written 0600 under {dataDir}.
 	jsonData, err := json.MarshalIndent(kf, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal signing keys: %w", err)
 	}
-	if err := os.WriteFile(path, jsonData, 0600); err != nil {
+	if err := os.WriteFile(path, jsonData, 0o600); err != nil {
 		return nil, fmt.Errorf("write update-signing.json: %w", err)
 	}
 
