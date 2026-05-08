@@ -72,7 +72,9 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 	// Send SessionRequest to agent — clean up orphaned session on failure
 	if err := agentConn.SendSessionRequest(ctx, token, relayURL, perms); err != nil {
 		s.logger.Error("send session request to agent", "error", err, "device_id", deviceID)
-		_ = s.store.DeleteAgentSession(ctx, string(token))
+		if delErr := s.store.DeleteAgentSession(ctx, string(token)); delErr != nil {
+			s.logger.Warn("orphan session cleanup failed", "token_prefix", protocol.RedactToken(string(token)), "error", delErr)
+		}
 		return CreateSession409JSONResponse{Error: "agent communication failed"}, nil
 	}
 
@@ -84,12 +86,13 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 	}
 
 	s.auditLog(userID, "session.create", deviceID.String(), "")
-	_ = s.notifier.Notify(ctx, notifications.Event{
-		Type:     notifications.EventSessionStarted,
-		DeviceID: deviceID,
-		UserID:   userID,
+	startedEvt := notifications.Event{
+		Type:      notifications.EventSessionStarted,
+		DeviceID:  deviceID,
+		UserID:    userID,
 		Timestamp: time.Now(),
-	})
+	}
+	_ = s.notifier.Notify(ctx, startedEvt) // fire-and-forget
 
 	return CreateSession201JSONResponse{
 		Token:      string(token),
@@ -145,11 +148,12 @@ func (s *Server) DeleteSession(ctx context.Context, request DeleteSessionRequest
 	}
 
 	s.auditLog(ContextUserID(ctx), "session.delete", protocol.RedactToken(request.Token), "")
-	_ = s.notifier.Notify(ctx, notifications.Event{
+	endedEvt := notifications.Event{
 		Type:      notifications.EventSessionEnded,
 		UserID:    ContextUserID(ctx),
 		Timestamp: time.Now(),
-	})
+	}
+	_ = s.notifier.Notify(ctx, endedEvt) // fire-and-forget
 
 	return DeleteSession204Response{}, nil
 }

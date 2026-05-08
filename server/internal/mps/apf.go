@@ -61,6 +61,10 @@ const (
 // maxAPFStringLen is the maximum allowed length for APF length-prefixed strings.
 const maxAPFStringLen = 256
 
+// maxAPFPayload bounds APF channel-data payload length to fit in the uint32 length field.
+// 16 MiB is well above the 32 KiB DefaultMaxPacketSize and well below math.MaxUint32.
+const maxAPFPayload = 16 * 1024 * 1024
+
 // ErrMessageTooShort is returned when a message is shorter than expected.
 var ErrMessageTooShort = errors.New("apf: message too short")
 
@@ -297,10 +301,13 @@ func WriteChannelOpenConfirm(w io.Writer, recipientCh, senderCh, windowSz, maxPa
 
 // WriteChannelData writes channel data.
 func WriteChannelData(w io.Writer, recipientCh uint32, data []byte) error {
+	if len(data) > maxAPFPayload {
+		return fmt.Errorf("apf: channel data too large: %d bytes (max %d)", len(data), maxAPFPayload)
+	}
 	buf := make([]byte, 9+len(data))
 	buf[0] = APFChannelData
 	binary.BigEndian.PutUint32(buf[1:], recipientCh)
-	binary.BigEndian.PutUint32(buf[5:], uint32(len(data)))
+	binary.BigEndian.PutUint32(buf[5:], uint32(len(data))) // #nosec G115 -- bounded above by maxAPFPayload.
 	copy(buf[9:], data)
 	_, err := w.Write(buf)
 	return err
@@ -625,9 +632,12 @@ func readProtocolVersion(r io.Reader) ([]byte, error) {
 }
 
 func writeStringMsg(w io.Writer, msgType uint8, s string) error {
+	if len(s) > maxAPFStringLen {
+		return fmt.Errorf("apf: string too long: %d bytes (max %d)", len(s), maxAPFStringLen)
+	}
 	buf := make([]byte, 1+4+len(s))
 	buf[0] = msgType
-	binary.BigEndian.PutUint32(buf[1:], uint32(len(s)))
+	binary.BigEndian.PutUint32(buf[1:], uint32(len(s))) // #nosec G115 -- bounded above by maxAPFStringLen.
 	copy(buf[5:], s)
 	_, err := w.Write(buf)
 	return err

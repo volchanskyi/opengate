@@ -42,6 +42,6 @@ func (cc *ChannelConn) Feed(data []byte) {
 
 // Close closes both ends of the pipe.
 func (cc *ChannelConn) Close() error {
-	cc.pw.Close()
+	_ = cc.pw.Close()
 	return cc.pr.Close()
 }

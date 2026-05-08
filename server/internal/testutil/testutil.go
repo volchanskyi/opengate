@@ -50,10 +50,10 @@ func initPostgresTestDB(baseURL string) error {
 	// Schema name is generated in-process (not user input). Using string
 	// concatenation for DDL is safe here — it never touches external input.
 	if _, err := setup.DB().ExecContext(ctx, `CREATE SCHEMA `+pgSchemaName); err != nil {
-		_ = setup.Close()
+		_ = setup.Close() // #nosec G104 -- best-effort cleanup on error path.
 		return fmt.Errorf("create schema: %w", err)
 	}
-	_ = setup.Close()
+	_ = setup.Close() // #nosec G104 -- best-effort cleanup; setup is only used for schema bootstrap.
 
 	sep := "?"
 	if strings.Contains(baseURL, "?") {

@@ -46,7 +46,11 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 	}
 
 	// Check for duplicate email to prevent account enumeration.
-	if existing, _ := s.store.GetUserByEmail(ctx, email); existing != nil {
+	existing, lookupErr := s.store.GetUserByEmail(ctx, email)
+	if lookupErr != nil && !errors.Is(lookupErr, db.ErrNotFound) {
+		return nil, lookupErr
+	}
+	if existing != nil {
 		return Register400JSONResponse{Error: "registration failed"}, nil
 	}
 
@@ -57,10 +61,15 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 	// Auto-promote the first registered user to administrator.
 	users, err := s.store.ListUsers(ctx)
 	if err == nil && len(users) == 1 {
-		_ = s.store.AddSecurityGroupMember(ctx, db.AdminGroupID, user.ID)
+		if addErr := s.store.AddSecurityGroupMember(ctx, db.AdminGroupID, user.ID); addErr != nil {
+			s.logger.Warn("auto-promote first user to admin failed", "user_id", user.ID, "error", addErr)
+		}
 	}
 
-	isAdmin, _ := s.store.IsUserInSecurityGroup(ctx, user.ID, db.AdminGroupID)
+	isAdmin, adminErr := s.store.IsUserInSecurityGroup(ctx, user.ID, db.AdminGroupID)
+	if adminErr != nil {
+		s.logger.Warn("admin lookup failed", "user_id", user.ID, "error", adminErr)
+	}
 	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin)
 	if err != nil {
 		return nil, err
@@ -90,7 +99,10 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		return Login401JSONResponse{Error: "invalid credentials"}, nil
 	}
 
-	isAdmin, _ := s.store.IsUserInSecurityGroup(ctx, user.ID, db.AdminGroupID)
+	isAdmin, adminErr := s.store.IsUserInSecurityGroup(ctx, user.ID, db.AdminGroupID)
+	if adminErr != nil {
+		s.logger.Warn("admin lookup failed", "user_id", user.ID, "error", adminErr)
+	}
 	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin)
 	if err != nil {
 		return nil, err

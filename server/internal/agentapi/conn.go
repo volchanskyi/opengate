@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/db"
@@ -103,15 +104,37 @@ func (a *AgentConn) SendRequestHardwareReport(ctx context.Context) error {
 
 // SendRequestDeviceLogs asks the agent to collect and send filtered log entries.
 func (a *AgentConn) SendRequestDeviceLogs(ctx context.Context, filter db.LogFilter) error {
+	offset := clampNonNegativeUint32(filter.Offset)
+	limit := clampNonNegativeUint32(filter.Limit)
 	return a.sendControl(&protocol.ControlMessage{
 		Type:      protocol.MsgRequestDeviceLogs,
 		LogLevel:  filter.Level,
 		TimeFrom:  filter.From,
 		TimeTo:    filter.To,
 		Search:    filter.Search,
-		LogOffset: uint32(filter.Offset),
-		LogLimit:  uint32(filter.Limit),
+		LogOffset: offset,
+		LogLimit:  limit,
 	})
+}
+
+// clampNonNegativeUint32 narrows a non-negative int to uint32, clamping any
+// value outside [0, math.MaxUint32] to the boundary. Negative values become 0.
+func clampNonNegativeUint32(v int) uint32 {
+	if v <= 0 {
+		return 0
+	}
+	if uint64(v) > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(v)
+}
+
+// clampInt64 narrows uint64 to int64, capping at math.MaxInt64 to avoid sign flip.
+func clampInt64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
 }
 
 // Close closes the agent connection.
@@ -199,10 +222,10 @@ func (a *AgentConn) handleHardwareReport(ctx context.Context, msg *protocol.Cont
 	hw := &db.DeviceHardware{
 		DeviceID:          a.DeviceID,
 		CPUModel:          msg.CPUModel,
-		CPUCores:          int(msg.CPUCores),
-		RAMTotalMB:        int64(msg.RAMTotalMB),
-		DiskTotalMB:       int64(msg.DiskTotalMB),
-		DiskFreeMB:        int64(msg.DiskFreeMB),
+		CPUCores:          int(msg.CPUCores), // uint32 -> int: always fits on supported (64-bit) platforms.
+		RAMTotalMB:        clampInt64(msg.RAMTotalMB),
+		DiskTotalMB:       clampInt64(msg.DiskTotalMB),
+		DiskFreeMB:        clampInt64(msg.DiskFreeMB),
 		NetworkInterfaces: nis,
 	}
 	if err := a.store.UpsertDeviceHardware(ctx, hw); err != nil {

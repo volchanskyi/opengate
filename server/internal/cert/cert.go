@@ -289,10 +289,10 @@ func generateManager(dataDir string) (*Manager, error) {
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	if err := os.WriteFile(filepath.Join(dataDir, "ca.crt"), certPEM, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "ca.crt"), certPEM, 0o600); err != nil {
 		return nil, fmt.Errorf("write CA cert: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(dataDir, "ca.key"), keyPEM, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dataDir, "ca.key"), keyPEM, 0o600); err != nil {
 		return nil, fmt.Errorf("write CA key: %w", err)
 	}
 
@@ -300,11 +300,13 @@ func generateManager(dataDir string) (*Manager, error) {
 }
 
 func loadManager(certPath, keyPath string) (*Manager, error) {
-	certPEM, err := os.ReadFile(certPath)
+	// #nosec G304 -- certPath/keyPath are operator-supplied filesystem paths under {dataDir}, not user input.
+	certPEM, err := os.ReadFile(filepath.Clean(certPath))
 	if err != nil {
 		return nil, fmt.Errorf("read CA cert: %w", err)
 	}
-	keyPEM, err := os.ReadFile(keyPath)
+	// #nosec G304 -- certPath/keyPath are operator-supplied filesystem paths under {dataDir}, not user input.
+	keyPEM, err := os.ReadFile(filepath.Clean(keyPath))
 	if err != nil {
 		return nil, fmt.Errorf("read CA key: %w", err)
 	}

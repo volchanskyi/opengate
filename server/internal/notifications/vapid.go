@@ -19,8 +19,9 @@ type vapidKeys struct {
 // LoadOrGenerateVAPID loads an existing VAPID key pair from {dataDir}/vapid.json,
 // or generates a new ECDSA P-256 key pair and writes it on first run.
 func LoadOrGenerateVAPID(dataDir string) (privateKey, publicKey string, err error) {
-	path := filepath.Join(dataDir, "vapid.json")
+	path := filepath.Clean(filepath.Join(dataDir, "vapid.json"))
 
+	// #nosec G304 -- path is derived from operator-supplied dataDir, not user input.
 	data, err := os.ReadFile(path)
 	if err == nil {
 		var keys vapidKeys
@@ -53,11 +54,12 @@ func LoadOrGenerateVAPID(dataDir string) (privateKey, publicKey string, err erro
 	publicKey = base64.RawURLEncoding.EncodeToString(pubBytes)
 
 	keys := vapidKeys{PrivateKey: privateKey, PublicKey: publicKey}
+	// #nosec G117 -- VAPID private key is intentionally persisted; the file is written 0600 under {dataDir}.
 	jsonData, err := json.MarshalIndent(keys, "", "  ")
 	if err != nil {
 		return "", "", fmt.Errorf("marshal vapid keys: %w", err)
 	}
-	if err := os.WriteFile(path, jsonData, 0600); err != nil {
+	if err := os.WriteFile(path, jsonData, 0o600); err != nil {
 		return "", "", fmt.Errorf("write vapid.json: %w", err)
 	}
 
