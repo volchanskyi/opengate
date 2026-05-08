@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778200343463,
+  "lastUpdate": 1778224331190,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12127,6 +12127,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 21.649932103038353,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "fa4c94c9b9176ef08396fedf8a9561109d124e44",
+          "message": "test(agent): close mutation-test gaps to lift score 46% → 76.6% (PR 6)\n\ncargo-mutants baseline showed 152 of 329 mutateable lines caught (46.2%).\nThis PR closes 100 surviving mutants by adding focused unit tests across\n11 files, taking the score above the 70% target.\n\nCoverage % asserts which lines executed; mutation score asserts which\nlines were *meaningfully* tested. Surviving mutants are concrete test\ngaps with concrete fixes — write a test that fails when the mutation\nis applied.\n\nHighlights:\n\n- terminal_handle.rs: exhaustive `key_to_bytes` table covering every\n  KeyCode → bytes mapping (kills 64 match-arm mutants in one test).\n- codec.rs / handshake.rs: boundary tests for MAX_FRAME_SIZE, decode\n  `needed` arithmetic, single-byte ping/pong arms, and AgentProof\n  minimum-payload length check.\n- logs.rs: level_severity table, parse_log_line timestamp validation\n  (length and 'T' separator), matches_filter time boundary inclusivity,\n  discover_log_files truncation behavior at MAX_LOG_FILES.\n- identity.rs: partial-state regeneration (any one of three identity\n  files missing must trigger generate, not load).\n- file_ops.rs: absolute byte-count assertion that pins\n  CHUNK_SIZE = 256 KiB (prevents the `* → +` mutant from passing).\n- connection.rs: AsyncControlStream's read/read_exact/write_all\n  actually reach the underlying stream; reconnect_with_backoff doesn't\n  sleep after the last attempt.\n- terminal.rs: pty_reader_loop and stdin_writer_loop tested directly\n  with std::io::Cursor / std::io::repeat / capturing writer stubs;\n  `pty_reader_loop` and `stdin_writer_loop` made `pub(crate)` for test\n  reach.\n- session/handler.rs: match-arm dispatch coverage for MouseClick,\n  KeyPress, TerminalResize, FileDownloadRequest, FileUploadRequest,\n  IceCandidate, SwitchAck.\n- session/relay.rs: capture_loop's consecutive-error counting and\n  threshold; ws_writer_loop is now generic over `Sink<Message>` so a\n  CaptureSink stub can drive it from tests.\n- webrtc.rs: store_channel_by_label routes \"control\"/\"desktop\"/\"bulk\"\n  into distinct slots and rejects unknown labels.\n\nCarve-outs (`agent/.cargo/mutants.toml`):\n  * `platform-linux/**`, `platform-windows/**` — no in-tree harness\n    for Wayland/X11/Windows shims.\n  * `mesh-agent/src/main.rs` — async-loop and process-lifecycle wiring\n    is exercised only by E2E.\n  * `restore_selinux_context` — match guards on a privileged subprocess.\n\nTooling:\n  * Added `OPENGATE_GOLDEN_DIR` env-var override in\n    `mesh-protocol/tests/golden_test.rs` so the golden fixture path\n    resolves inside cargo-mutants' temp tree (which doesn't include\n    the workspace-external `<repo>/testdata/`).\n  * Updated `make mutate-rust` to export `OPENGATE_GOLDEN_DIR=$(CURDIR)/testdata/golden`.\n  * Documented the run flow in `docs/Testing.md`.\n  * Ignored `agent/mutants.out*` directories.",
+          "timestamp": "2026-05-08T00:10:19-07:00",
+          "tree_id": "f89b63dc34e73cec8354a1da66fa4e069debfb95",
+          "url": "https://github.com/volchanskyi/opengate/commit/fa4c94c9b9176ef08396fedf8a9561109d124e44"
+        },
+        "date": 1778224331137,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.09931252652306,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.536697993827012,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 738.1592033425743,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.7573143152447,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.924504665378464,
             "unit": "ns/iter"
           }
         ]
