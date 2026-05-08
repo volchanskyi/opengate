@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778199694158,
+  "lastUpdate": 1778199965247,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12029,6 +12029,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.800503803345105,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "16274f36906396e5b5891dd47b93708b4edcf7a3",
+          "message": "chore(security): register web ESLint security plugins + clean baseline (PR 5)\n\nPromotes `eslint-plugin-security` and `eslint-plugin-no-unsanitized` into\nthe main `eslint.config.js` at error severity (previously they were only\nreachable via the side-channel `eslint.security.config.js` from PR 1).\n\nCleared the 8 baseline `security/detect-object-injection` findings — all\nfalse positives on bracket access — by refactoring to patterns the rule\ndoes not flag, rather than blanket-suppressing:\n\n- StatusBadge / SessionToolbar: typed Record lookups → exhaustive switch.\n- Breadcrumbs: indexed for-loop → forEach with `arr.at()`.\n- NotificationCenter: index-write loop → `Uint8Array.from`.\n- DeviceDetail.formatBytes: bounded index with `Math.min` + `arr.at()`.\n- file-store.clearDownload/clearUpload: `delete rest[key]` →\n  `Object.fromEntries(Object.entries().filter())` (also avoids the\n  delete-on-fresh-shallow-copy idiom Zustand stores rarely need).\n\nAlso added `coverage/` and `reports/` to globalIgnores so generated\nartefacts no longer surface stale lint warnings.\n\nVerified: `npm run lint` clean, `npx eslint --config eslint.security.config.js src/` clean,\n435 web tests pass, `tsc --noEmit` clean.",
+          "timestamp": "2026-05-07T17:24:14-07:00",
+          "tree_id": "e2f25f0465a98b284129ee984eb8d0f55f9f5cbe",
+          "url": "https://github.com/volchanskyi/opengate/commit/16274f36906396e5b5891dd47b93708b4edcf7a3"
+        },
+        "date": 1778199965198,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.356394569586158,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.795761638636105,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 607.6815021261717,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.61117713907055,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.904657036858378,
             "unit": "ns/iter"
           }
         ]
