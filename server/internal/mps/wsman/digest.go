@@ -3,7 +3,8 @@
 package wsman
 
 import (
-	"crypto/md5"  //nolint:gosec // Digest auth requires MD5 per RFC 2617
+	// #nosec G501 -- HTTP Digest Auth (RFC 2617 / RFC 7616) mandates MD5; not used for password storage.
+	"crypto/md5"
 	"crypto/rand"
 	"fmt"
 	"strings"
@@ -67,7 +68,8 @@ func computeResponse(ha1, nonce, nc, cnonce, qop, ha2 string) string {
 // MD5 is mandated by the HTTP Digest Authentication protocol (RFC 2617 / RFC 7616).
 // This is not used for password storage or any other security-sensitive purpose.
 func md5Hash(s string) string {
-	h := md5.Sum([]byte(s)) //nolint:gosec // MD5 required by HTTP Digest Auth spec (RFC 7616)
+	// #nosec G401 -- MD5 required by HTTP Digest Auth spec (RFC 7616); not used for password storage.
+	h := md5.Sum([]byte(s))
 	return fmt.Sprintf("%x", h)
 }
 

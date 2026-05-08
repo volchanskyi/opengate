@@ -47,7 +47,8 @@ func (t *Tracker) RecordAck(token string) bool {
 	}
 	complete := state.RecordAck()
 	if complete {
-		_ = state.Transition(PhaseConnected)
+		// Phase transition is best-effort; an invalid-transition error here is non-fatal.
+		_ = state.Transition(PhaseConnected) // #nosec G104
 		t.successCount.Add(1)
 	}
 	return complete
@@ -60,7 +61,7 @@ func (t *Tracker) RecordFailure(token string) {
 	if state == nil {
 		return
 	}
-	_ = state.Transition(PhaseFailed)
+	_ = state.Transition(PhaseFailed) // #nosec G104 -- best-effort; invalid-transition error is non-fatal.
 	t.failureCount.Add(1)
 }
 

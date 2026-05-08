@@ -154,8 +154,8 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 	var closeOnce sync.Once
 	closeBoth := func() {
 		closeOnce.Do(func() {
-			s.agent.Close()
-			s.browser.Close()
+			_ = s.agent.Close()
+			_ = s.browser.Close()
 		})
 	}
 

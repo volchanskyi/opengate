@@ -87,7 +87,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	// Close listener when context is done.
 	go func() {
 		<-ctx.Done()
-		ln.Close()
+		_ = ln.Close()
 	}()
 
 	for {
@@ -481,6 +481,7 @@ func (s *Server) handleChannelData(mc *Conn, payload []byte) error {
 		ch.mu.Lock()
 		ch.recvConsumed = 0
 		ch.mu.Unlock()
+		// #nosec G115 -- consumed is bounded above by DefaultWindowSize (uint32).
 		if err := WriteChannelWindowAdj(mc.netConn, ch.RemoteID, uint32(consumed)); err != nil {
 			return fmt.Errorf("write window adjust: %w", err)
 		}
@@ -504,7 +505,7 @@ func (s *Server) handleChannelClose(mc *Conn, localCh uint32) error {
 
 	ch.mu.Lock()
 	if ch.fwd != nil {
-		ch.fwd.Close()
+		_ = ch.fwd.Close()
 	}
 	ch.mu.Unlock()
 
@@ -638,6 +639,7 @@ func writeChannelOpenDirect(w io.Writer, senderCh uint32, addr string, port uint
 	off := 0
 	buf[off] = APFChannelOpen
 	off++
+	// #nosec G115 -- chType is a fixed literal "direct-tcpip" (12 bytes).
 	binary.BigEndian.PutUint32(buf[off:], uint32(len(chType)))
 	off += 4
 	copy(buf[off:], chType)
@@ -661,8 +663,11 @@ func writeChannelOpenDirect(w io.Writer, senderCh uint32, addr string, port uint
 }
 
 func encodeAPFString(s string) []byte {
+	if len(s) > maxAPFStringLen {
+		s = s[:maxAPFStringLen]
+	}
 	buf := make([]byte, 4+len(s))
-	binary.BigEndian.PutUint32(buf, uint32(len(s)))
+	binary.BigEndian.PutUint32(buf, uint32(len(s))) // #nosec G115 -- bounded above by maxAPFStringLen.
 	copy(buf[4:], s)
 	return buf
 }

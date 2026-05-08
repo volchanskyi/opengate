@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.26.4] - 2026-05-08
+
+### Fixed
+- **deps:** bump Go toolchain to 1.26.3 and golang.org/x/net to 0.53.0
+
 ## [v0.26.3] - 2026-05-07
 
 ### Fixed

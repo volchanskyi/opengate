@@ -126,7 +126,7 @@ mutate: mutate-rust mutate-go mutate-web
 
 mutate-rust:
 	@command -v cargo-mutants >/dev/null 2>&1 || { echo "ERROR: cargo-mutants not found. Install with: cargo install cargo-mutants"; exit 1; }
-	cd agent && cargo mutants --workspace --no-shuffle
+	cd agent && OPENGATE_GOLDEN_DIR=$(CURDIR)/testdata/golden cargo mutants --workspace --no-shuffle
 
 mutate-go:
 	@command -v gremlins >/dev/null 2>&1 || { echo "ERROR: gremlins not found. Install with: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest"; exit 1; }
