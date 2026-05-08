@@ -4,19 +4,14 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::stream::SplitSink;
 use futures_util::SinkExt;
 use mesh_protocol::{DesktopFrame, Frame, FrameEncoding};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::MaybeTlsStream;
 use tracing::{debug, warn};
 
 use crate::platform::ScreenCapture;
 use crate::session_error::SessionError;
-
-pub(crate) type WsStream =
-    tokio_tungstenite::WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Build relay URL with ?side=agent query parameter.
 pub(crate) fn build_relay_url(relay_url: &str) -> Result<String, SessionError> {
@@ -27,11 +22,18 @@ pub(crate) fn build_relay_url(relay_url: &str) -> Result<String, SessionError> {
 }
 
 /// WebSocket writer loop: sends encoded frames from the channel.
-pub(crate) async fn ws_writer_loop(
-    mut ws_tx: SplitSink<WsStream, Message>,
+///
+/// Generic over the sink so tests can substitute an in-memory Sink without
+/// constructing a real WebSocket stream. The production callsite passes the
+/// `SplitSink` half of `tokio_tungstenite`'s `WebSocketStream`.
+pub(crate) async fn ws_writer_loop<S>(
+    mut ws_tx: S,
     mut frame_rx: mpsc::Receiver<Vec<u8>>,
     running: Arc<AtomicBool>,
-) {
+) where
+    S: futures_util::Sink<Message> + Unpin,
+    S::Error: std::fmt::Display,
+{
     while let Some(data) = frame_rx.recv().await {
         if !running.load(Ordering::Relaxed) {
             break;
@@ -184,6 +186,148 @@ mod tests {
         assert!(jpeg.len() >= 2);
         assert_eq!(jpeg[0], 0xFF);
         assert_eq!(jpeg[1], 0xD8);
+    }
+
+    /// Pin capture_loop's consecutive-error counting AND the
+    /// `>= MAX_CONSECUTIVE_CAPTURE_ERRORS` exit condition. Mutating
+    /// `+=` to `-=` or `*=` makes the counter never reach the threshold;
+    /// mutating `>=` to `<` exits on the first error.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn capture_loop_exits_after_max_consecutive_errors() {
+        use crate::platform::{CaptureError, RawFrame, ScreenCapture};
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        struct CountingErrorCapture {
+            calls: Arc<AtomicU32>,
+        }
+        #[async_trait::async_trait]
+        impl ScreenCapture for CountingErrorCapture {
+            async fn next_frame(&mut self) -> Result<RawFrame, CaptureError> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Err(CaptureError::NoDisplay)
+            }
+            fn resolution(&self) -> (u32, u32) {
+                (0, 0)
+            }
+        }
+
+        let calls = Arc::new(AtomicU32::new(0));
+        let mut capture = CountingErrorCapture {
+            calls: calls.clone(),
+        };
+        let (tx, _rx) = mpsc::channel::<Vec<u8>>(8);
+        let running = Arc::new(AtomicBool::new(true));
+
+        // Outer timeout guards against `+=`-mutated counters that never
+        // reach the threshold.
+        let r = running.clone();
+        let result =
+            tokio::time::timeout(Duration::from_secs(3), capture_loop(&mut capture, tx, r)).await;
+
+        // Force the loop to stop in case of hang.
+        running.store(false, Ordering::Relaxed);
+
+        assert!(
+            result.is_ok(),
+            "capture_loop should exit after {} consecutive errors, but it hung",
+            MAX_CONSECUTIVE_CAPTURE_ERRORS
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            MAX_CONSECUTIVE_CAPTURE_ERRORS,
+            "capture_loop must call next_frame exactly {} times before exiting",
+            MAX_CONSECUTIVE_CAPTURE_ERRORS
+        );
+    }
+
+    /// Pin capture_loop's `running` flag check: setting running=false must
+    /// halt the loop on the next iteration. Replacing the function body
+    /// with `()` would skip the work entirely (loop never runs).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn capture_loop_honors_running_flag_for_clean_shutdown() {
+        use crate::platform::NullCapture;
+
+        let mut capture = NullCapture;
+        let (tx, _rx) = mpsc::channel::<Vec<u8>>(8);
+        let running = Arc::new(AtomicBool::new(false)); // pre-set false
+
+        // With running=false from the start, NullCapture's next_frame should
+        // never be called and the loop should exit immediately.
+        let elapsed = std::time::Instant::now();
+        capture_loop(&mut capture, tx, running).await;
+        assert!(
+            elapsed.elapsed() < Duration::from_millis(500),
+            "capture_loop must exit promptly when running=false from start"
+        );
+    }
+
+    /// Pin ws_writer_loop: bytes from the channel must reach the WebSocket sink.
+    /// Use a forwarding sink so we can observe what was written. Mutating the
+    /// function body to `()` or `delete !` (in `if !running { break }`) breaks
+    /// either the forwarding or the shutdown semantics.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ws_writer_loop_forwards_bytes_and_honors_running_flag() {
+        use std::sync::Mutex as StdMutex;
+
+        // A trivial Sink that captures all messages it receives.
+        struct CaptureSink {
+            messages: Arc<StdMutex<Vec<Message>>>,
+        }
+        impl futures_util::Sink<Message> for CaptureSink {
+            type Error = tokio_tungstenite::tungstenite::Error;
+            fn poll_ready(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Result<(), Self::Error>> {
+                std::task::Poll::Ready(Ok(()))
+            }
+            fn start_send(
+                self: std::pin::Pin<&mut Self>,
+                item: Message,
+            ) -> Result<(), Self::Error> {
+                self.messages.lock().unwrap().push(item);
+                Ok(())
+            }
+            fn poll_flush(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Result<(), Self::Error>> {
+                std::task::Poll::Ready(Ok(()))
+            }
+            fn poll_close(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Result<(), Self::Error>> {
+                std::task::Poll::Ready(Ok(()))
+            }
+        }
+
+        let messages = Arc::new(StdMutex::new(Vec::<Message>::new()));
+        let sink = CaptureSink {
+            messages: messages.clone(),
+        };
+        let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(4);
+        let running = Arc::new(AtomicBool::new(true));
+
+        let r = running.clone();
+        let writer = tokio::spawn(async move {
+            ws_writer_loop(sink, frame_rx, r).await;
+        });
+
+        frame_tx.send(b"hello".to_vec()).await.unwrap();
+        frame_tx.send(b"world".to_vec()).await.unwrap();
+        // Trigger shutdown: drop sender.
+        drop(frame_tx);
+        writer.await.unwrap();
+
+        let captured = messages.lock().unwrap();
+        assert_eq!(captured.len(), 2);
+        let extract = |m: &Message| match m {
+            Message::Binary(b) => b.to_vec(),
+            other => panic!("expected Binary, got {other:?}"),
+        };
+        assert_eq!(extract(&captured[0]), b"hello");
+        assert_eq!(extract(&captured[1]), b"world");
     }
 
     #[test]

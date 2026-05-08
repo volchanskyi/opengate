@@ -102,7 +102,7 @@ impl TerminalSession {
 }
 
 /// Read PTY output and send encoded terminal frames.
-fn pty_reader_loop(
+pub(crate) fn pty_reader_loop(
     mut reader: Box<dyn Read + Send>,
     frame_tx: mpsc::Sender<Vec<u8>>,
     running: Arc<AtomicBool>,
@@ -134,7 +134,7 @@ fn pty_reader_loop(
 }
 
 /// Write data from the stdin channel to the PTY master writer.
-fn stdin_writer_loop(
+pub(crate) fn stdin_writer_loop(
     mut writer: Box<dyn Write + Send>,
     mut rx: mpsc::Receiver<Vec<u8>>,
     shutdown: Arc<AtomicBool>,
@@ -210,5 +210,160 @@ mod tests {
     fn test_spawn_terminal_custom_size() {
         let term = TerminalSession::spawn(120, 40);
         assert!(term.is_ok());
+    }
+
+    // --- Mutation-test gap closers (pty_reader_loop / stdin_writer_loop) ---
+
+    /// Pin pty_reader_loop's Ok(0) match arm: when the underlying reader
+    /// reports EOF, the loop must break (not loop forever). Mutating away
+    /// the Ok(0) arm or replacing the function body would leak this thread.
+    #[test]
+    fn pty_reader_loop_breaks_on_eof() {
+        let reader: Box<dyn Read + Send> = Box::new(std::io::Cursor::new(b"hello"));
+        let (frame_tx, mut frame_rx) = mpsc::channel(8);
+        let running = Arc::new(AtomicBool::new(true));
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        // Run the loop directly on this thread; Cursor reaches EOF after 5 bytes.
+        pty_reader_loop(reader, frame_tx, running, shutdown);
+
+        // Exactly one frame should have been sent.
+        let data = frame_rx.try_recv().expect("expected one frame");
+        let (frame, _) = mesh_protocol::Frame::decode(&data).unwrap();
+        match frame {
+            mesh_protocol::Frame::Terminal(tf) => assert_eq!(tf.data, b"hello"),
+            other => panic!("expected Terminal frame, got {other:?}"),
+        }
+        assert!(matches!(
+            frame_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Disconnected | mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
+    /// Pin pty_reader_loop's `if !running || shutdown { break }` guard:
+    /// `shutdown == true` alone must terminate the loop. Mutating `||` to
+    /// `&&` would require BOTH `!running` AND `shutdown` to be true,
+    /// preventing shutdown when running stays true.
+    #[test]
+    fn pty_reader_loop_breaks_when_shutdown_alone_set() {
+        // Provide infinite data so EOF is not the exit condition.
+        let reader: Box<dyn Read + Send> = Box::new(std::io::repeat(0xAB).take(1_000_000));
+        let (frame_tx, _frame_rx) = mpsc::channel(64);
+        let running = Arc::new(AtomicBool::new(true));
+        let shutdown = Arc::new(AtomicBool::new(true)); // pre-set shutdown
+
+        let r = running.clone();
+        let s = shutdown.clone();
+        let handle = std::thread::spawn(move || {
+            pty_reader_loop(reader, frame_tx, r, s);
+        });
+        // Must return promptly because shutdown is already set.
+        handle
+            .join()
+            .expect("pty_reader_loop must terminate when shutdown is set");
+    }
+
+    /// Pin pty_reader_loop's `if !running || shutdown` guard with the
+    /// mirror condition: `running == false` alone must terminate.
+    #[test]
+    fn pty_reader_loop_breaks_when_running_false_alone() {
+        let reader: Box<dyn Read + Send> = Box::new(std::io::repeat(0x42).take(1_000_000));
+        let (frame_tx, _frame_rx) = mpsc::channel(64);
+        let running = Arc::new(AtomicBool::new(false)); // pre-set running=false
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let handle = std::thread::spawn(move || {
+            pty_reader_loop(reader, frame_tx, running, shutdown);
+        });
+        handle
+            .join()
+            .expect("pty_reader_loop must terminate when running is false");
+    }
+
+    /// Pin pty_reader_loop's Err(e) arm: an IO error must terminate the loop.
+    /// Mutating the Err arm away would either loop forever on errors or panic.
+    #[test]
+    fn pty_reader_loop_breaks_on_io_error() {
+        struct ErrReader;
+        impl Read for ErrReader {
+            fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("simulated PTY error"))
+            }
+        }
+        let reader: Box<dyn Read + Send> = Box::new(ErrReader);
+        let (frame_tx, mut frame_rx) = mpsc::channel(8);
+        let running = Arc::new(AtomicBool::new(true));
+        let shutdown = Arc::new(AtomicBool::new(false));
+        pty_reader_loop(reader, frame_tx, running, shutdown);
+        assert!(matches!(
+            frame_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Disconnected | mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
+    /// Pin stdin_writer_loop: bytes from the channel must reach the writer
+    /// in order. Replacing the body with `()` would silently drop input.
+    #[test]
+    fn stdin_writer_loop_writes_to_underlying_writer() {
+        // The trait object owns the writer; we sample writes via Arc<Mutex<Vec<u8>>>.
+        let captured = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        struct CapturingWriter(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl Write for CapturingWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let writer: Box<dyn Write + Send> = Box::new(CapturingWriter(captured.clone()));
+        let (tx, rx) = mpsc::channel::<Vec<u8>>(4);
+        let shutdown = Arc::new(AtomicBool::new(false));
+
+        let handle = std::thread::spawn(move || {
+            stdin_writer_loop(writer, rx, shutdown);
+        });
+        // Send two payloads then close the channel.
+        tx.blocking_send(b"abc".to_vec()).unwrap();
+        tx.blocking_send(b"def".to_vec()).unwrap();
+        drop(tx);
+        handle.join().unwrap();
+
+        let data = captured.lock().unwrap();
+        assert_eq!(*data, b"abcdef");
+    }
+
+    /// Pin stdin_writer_loop's shutdown gate: when the shutdown flag is set,
+    /// pending writes must NOT be flushed to the writer.
+    #[test]
+    fn stdin_writer_loop_respects_shutdown_flag() {
+        let captured = Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        struct CapturingWriter(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl Write for CapturingWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let writer: Box<dyn Write + Send> = Box::new(CapturingWriter(captured.clone()));
+        let (tx, rx) = mpsc::channel::<Vec<u8>>(4);
+        let shutdown = Arc::new(AtomicBool::new(true)); // pre-set shutdown
+
+        let handle = std::thread::spawn(move || {
+            stdin_writer_loop(writer, rx, shutdown);
+        });
+        tx.blocking_send(b"should-not-write".to_vec()).unwrap();
+        drop(tx);
+        handle.join().unwrap();
+
+        let data = captured.lock().unwrap();
+        assert!(
+            data.is_empty(),
+            "writer must not receive bytes after shutdown is set"
+        );
     }
 }
