@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778224331190,
+  "lastUpdate": 1778286556617,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12176,6 +12176,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.924504665378464,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "3c21941da6d4b31927e29c0a97e913366e09dcaf",
+          "message": "test(server): close mutation-test gaps to lift score 73.4% → 77.9% (PR 7)\n\ngremlins baseline (Postgres test DB up + carve-outs for openapi_gen,\ncmd-meshserver, loadtest, testutil): 567 K / 68 L / 7 T / 140 NC / 782\ntotal = 73.4% caught.  After: 602 K / 33 L / 7 T / 140 NC = **77.9%**.\nTest efficacy 89.3% → 94.8%.  35 LIVED mutants killed across 9 files.\n\nNew / expanded tests:\n* internal/cert: TestCertValidityPeriods pins NotBefore skew and\n  NotAfter duration on every cert kind (CA / Agent / Server / MPS /\n  AgentCSR), killing all 10 ARITHMETIC_BASE mutants on\n  5*time.Minute / 365*24*time.Hour / 10*365*24*time.Hour.\n* internal/relay: TestRelay_CopyMessages_LogsExactCount captures slog\n  output via a custom Handler and asserts msgs_copied == n on the\n  read-error log, killing the count++ INCREMENT_DECREMENT mutant.\n* internal/api/metrics_test.go (new): TestServer_MetricsWiring sets\n  MetricsRegistry + Metrics on a real server, then checks /metrics\n  serves Prometheus output AND a request series exists for GET — kills\n  both !=nil checks at api.go:131,139.\n* internal/agentapi: TestClampNonNegativeUint32_Boundaries and\n  TestClampInt64_Boundaries pin clamp behavior at 0, 1, MaxUint32 and\n  MaxInt64 boundaries.\n* internal/agentapi: TestAgentConn_HandleAgentUpdateAck now asserts\n  the persisted DeviceUpdate row matches the ack outcome — kills the\n  msg.Success != nil mutation that would silently mis-persist.\n* internal/mps/apf_boundary_test.go (new): 10-sub-test battery.\n  - TestAPFRead_StringLenBoundaries hits strLen == maxAPFStringLen and\n    maxAPFStringLen+1 across 6 read points (service, user-auth, global\n    request, forward addr, channel-open type, channel-open extra addr).\n  - TestParseGlobalRequest_OffsetBoundary and\n    TestParseChannelOpen_OffsetBoundary use exact-fit data to pin\n    `>=`/`>` length checks.\n  - TestParseChannelData_LenBoundary uses error-message inspection\n    (data payload vs bare ErrMessageTooShort) to distinguish original\n    from `<=` mutation at exact boundary.\n  - TestWriteChannelData_PayloadCap and TestReadChannelData_LenCap\n    pin maxAPFPayload and 1MiB safety caps.\n  - TestWriteStringMsg_LenCap, TestReadGlobalRequest_NameDispatch,\n    TestReadChannelOpen_TypeDispatch, TestReadString_OffsetBoundary.\n* internal/api: TestDeviceLogsToAPI/exact_page_boundary_is_no-more\n  pins Offset+Limit == total no-more (kills `<` → `<=`).\n* internal/api: TestGetInstallScript/no_prefix_when_nothing_to_inject\n  exercises the empty-context branch (kills `len(prefix) > 0` → `>=`).\n* internal/protocol: TestMaxFrameSizeValue pins the 16*1024*1024 value\n  literally (kills ARITHMETIC_BASE on the constant itself).\n* internal/notifications: TestLoadOrGenerateVAPID_PrivateKeyExactly32Bytes\n  decodes the persisted key 10× to surface rare D.Bytes() < 32 cases\n  and assert the padding loop produces exactly 32 bytes (kills `<` →\n  `>` in vapid.go:48).\n\nTooling:\n* server/.gremlins.yaml — exclude-files carve-outs (openapi_gen.go,\n  cmd/meshserver/main.go, tests/loadtest/main.go, internal/testutil/).\n* Makefile mutate-go: warn when POSTGRES_TEST_URL is unset (otherwise\n  ~290 mutants drop to NOT COVERED because api/db tests skip).",
+          "timestamp": "2026-05-08T17:27:11-07:00",
+          "tree_id": "185b765d78e80768ef3b0537f9cb611cd8946e5c",
+          "url": "https://github.com/volchanskyi/opengate/commit/3c21941da6d4b31927e29c0a97e913366e09dcaf"
+        },
+        "date": 1778286556565,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.371613245686953,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 20.09966358836841,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 598.4616673319792,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 311.15408299325355,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.268995527763327,
             "unit": "ns/iter"
           }
         ]
