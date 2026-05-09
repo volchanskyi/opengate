@@ -263,3 +263,14 @@ func TestRedactToken(t *testing.T) {
 		})
 	}
 }
+
+// TestMaxFrameSizeValue pins the literal value of MaxFrameSize. Without
+// this assertion, ARITHMETIC_BASE mutations on `16 * 1024 * 1024` survive
+// because callers that compute thresholds relative to the constant itself
+// (e.g. `> MaxFrameSize`) still pass under any non-zero value.
+func TestMaxFrameSizeValue(t *testing.T) {
+	const want = 16 * 1024 * 1024
+	if MaxFrameSize != want {
+		t.Fatalf("MaxFrameSize = %d, want %d (16 MiB)", MaxFrameSize, want)
+	}
+}

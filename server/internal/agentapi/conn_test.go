@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"os"
 	"testing"
 	"time"
@@ -42,6 +43,31 @@ func writeControlMsg(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer, msg
 	payload, err := codec.EncodeControl(msg)
 	require.NoError(t, err)
 	require.NoError(t, codec.WriteFrame(buf, protocol.FrameControl, payload))
+}
+
+// TestClampNonNegativeUint32_Boundaries pins behavior at the [0, MaxUint32]
+// edges so CONDITIONALS_BOUNDARY mutants on conn.go:123 (`v <= 0`) and
+// conn.go:126 (`uint64(v) > math.MaxUint32`) cannot survive.
+func TestClampNonNegativeUint32_Boundaries(t *testing.T) {
+	assert.Equal(t, uint32(0), clampNonNegativeUint32(-1))
+	assert.Equal(t, uint32(0), clampNonNegativeUint32(0))
+	assert.Equal(t, uint32(1), clampNonNegativeUint32(1))
+	assert.Equal(t, uint32(math.MaxUint32), clampNonNegativeUint32(int(math.MaxUint32)))
+	// Above MaxUint32 must clamp.
+	if math.MaxInt > math.MaxUint32 {
+		assert.Equal(t, uint32(math.MaxUint32), clampNonNegativeUint32(int(math.MaxUint32)+1))
+	}
+}
+
+// TestClampInt64_Boundaries pins behavior at math.MaxInt64 so the
+// CONDITIONALS_BOUNDARY mutant on conn.go:134 (`v > math.MaxInt64`)
+// cannot survive.
+func TestClampInt64_Boundaries(t *testing.T) {
+	assert.Equal(t, int64(0), clampInt64(0))
+	assert.Equal(t, int64(1), clampInt64(1))
+	assert.Equal(t, int64(math.MaxInt64), clampInt64(math.MaxInt64))
+	// One past MaxInt64 must clamp, not wrap.
+	assert.Equal(t, int64(math.MaxInt64), clampInt64(uint64(math.MaxInt64)+1))
 }
 
 func TestNewAgentConn(t *testing.T) {
@@ -446,7 +472,21 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 
 	codec := &protocol.Codec{}
 
-	t.Run("success ack", func(t *testing.T) {
+	// findUpdate returns the latest DeviceUpdate record for (device, version).
+	findUpdate := func(t *testing.T) *db.DeviceUpdate {
+		t.Helper()
+		ups, err := store.ListDeviceUpdatesByVersion(ctx, "0.5.0")
+		require.NoError(t, err)
+		for _, u := range ups {
+			if u.DeviceID == device.ID {
+				return u
+			}
+		}
+		t.Fatalf("no update record for %s @ 0.5.0", device.ID)
+		return nil
+	}
+
+	t.Run("success ack persists Success status", func(t *testing.T) {
 		success := true
 		msg := &protocol.ControlMessage{
 			Type:    protocol.MsgAgentUpdateAck,
@@ -468,9 +508,16 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 			logger:   testLogger(),
 		}
 		require.NoError(t, ac.handleControl(ctx))
+
+		// Pin the success path: status must be Success. Without this assertion
+		// CONDITIONALS_NEGATION on `msg.Success != nil` survives because
+		// handleControl returns nil regardless of the persisted outcome.
+		got := findUpdate(t)
+		assert.Equal(t, db.UpdateStatusSuccess, got.Status,
+			"success=true ack must persist UpdateStatusSuccess")
 	})
 
-	t.Run("failure ack", func(t *testing.T) {
+	t.Run("failure ack persists Failed status", func(t *testing.T) {
 		success := false
 		msg := &protocol.ControlMessage{
 			Type:     protocol.MsgAgentUpdateAck,
@@ -493,6 +540,11 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 			logger:   testLogger(),
 		}
 		require.NoError(t, ac.handleControl(ctx))
+
+		got := findUpdate(t)
+		assert.Equal(t, db.UpdateStatusFailed, got.Status,
+			"success=false ack must persist UpdateStatusFailed")
+		assert.Equal(t, "checksum mismatch", got.Error)
 	})
 }
 

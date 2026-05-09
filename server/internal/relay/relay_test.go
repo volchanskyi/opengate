@@ -247,6 +247,81 @@ func TestRelay_Pipe_SurvivesRegisterContextCancel(t *testing.T) {
 	assert.Equal(t, 1, r.ActiveSessionCount(), "session should still be active")
 }
 
+// captureHandler is a slog.Handler that records all attrs of every log record.
+type captureHandler struct {
+	mu      sync.Mutex
+	records []map[string]any
+}
+
+func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+func (h *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler          { return h }
+func (h *captureHandler) WithGroup(_ string) slog.Handler               { return h }
+func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
+	rec := map[string]any{"msg": r.Message}
+	r.Attrs(func(a slog.Attr) bool {
+		rec[a.Key] = a.Value.Any()
+		return true
+	})
+	h.mu.Lock()
+	h.records = append(h.records, rec)
+	h.mu.Unlock()
+	return nil
+}
+func (h *captureHandler) findFirst(msg string) map[string]any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, r := range h.records {
+		if r["msg"] == msg {
+			return r
+		}
+	}
+	return nil
+}
+
+// TestRelay_CopyMessages_LogsExactCount pins the msgs_copied attribute on
+// the read-error log. Without this, the INCREMENT_DECREMENT mutation on
+// `count++` (relay.go:144) survives because count is observable only via logs.
+func TestRelay_CopyMessages_LogsExactCount(t *testing.T) {
+	cap := &captureHandler{}
+	r := NewRelay(slog.New(cap))
+	token := protocol.GenerateSessionToken()
+	ctx := context.Background()
+
+	agentLocal, agentRelay := newMockConnPair(t)
+	browserLocal, browserRelay := newMockConnPair(t)
+
+	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
+	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
+
+	const n = 7
+	for i := range n {
+		require.NoError(t, agentLocal.WriteMessage([]byte{byte(i)}))
+	}
+	for range n {
+		_, err := browserLocal.ReadMessage()
+		require.NoError(t, err)
+	}
+
+	// Trigger a read error on the agent→browser direction by closing the
+	// agent's write side — the copyMessages loop logs msgs_copied=n.
+	agentLocal.Close()
+
+	require.Eventually(t, func() bool {
+		return cap.findFirst("relay read error") != nil
+	}, time.Second, 10*time.Millisecond, "expected read-error log emitted")
+
+	rec := cap.findFirst("relay read error")
+	require.NotNil(t, rec)
+	got, ok := rec["msgs_copied"].(int64)
+	if !ok {
+		// slog stores ints as int64 via Value.Any(); cover both shapes.
+		gotInt, isInt := rec["msgs_copied"].(int)
+		require.True(t, isInt, "msgs_copied not an int (got %T)", rec["msgs_copied"])
+		got = int64(gotInt)
+	}
+	assert.Equal(t, int64(n), got, "expected %d messages logged as msgs_copied", n)
+}
+
 func TestRelay_ConnectionClose(t *testing.T) {
 	r := NewRelay(slog.Default())
 	token := protocol.GenerateSessionToken()
