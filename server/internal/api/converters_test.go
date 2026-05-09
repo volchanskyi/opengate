@@ -177,6 +177,12 @@ func TestDeviceLogsToAPI(t *testing.T) {
 		result := deviceLogsToAPI(entries, 2, db.LogFilter{Offset: 0, Limit: 5})
 		assert.False(t, result.HasMore)
 	})
+
+	// Pin the Offset+Limit == total boundary so the `<` cannot mutate to `<=`.
+	t.Run("exact page boundary is no-more", func(t *testing.T) {
+		result := deviceLogsToAPI(entries, 2, db.LogFilter{Offset: 0, Limit: 2})
+		assert.False(t, result.HasMore, "Offset+Limit == total must mean no more pages")
+	})
 }
 
 func TestMapSlice(t *testing.T) {

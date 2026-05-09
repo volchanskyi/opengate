@@ -1,0 +1,14 @@
+# Gremlins mutation-testing config for the Go server.
+#
+# Carve-outs:
+#  - openapi_gen.go: generated code; mutants here are noise.
+#  - cmd/meshserver/main.go and tests/loadtest/main.go: entry-point binaries
+#    with no unit tests by design.
+#  - internal/testutil/: shared test helpers; mutating tests' own scaffolding
+#    produces meaningless results.
+unleash:
+  exclude-files:
+    - "openapi_gen\\.go"
+    - "cmd/meshserver/main\\.go"
+    - "tests/loadtest/main\\.go"
+    - "internal/testutil/"
