@@ -130,7 +130,12 @@ mutate-rust:
 
 mutate-go:
 	@command -v gremlins >/dev/null 2>&1 || { echo "ERROR: gremlins not found. Install with: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest"; exit 1; }
-	cd server && gremlins unleash ./...
+	@if [ -z "$$POSTGRES_TEST_URL" ]; then \
+	  echo "WARNING: POSTGRES_TEST_URL not set; api/db tests will skip and many mutants will be NOT COVERED."; \
+	  echo "         Start a test Postgres (see .github/workflows/ci.yml) and set:"; \
+	  echo "         export POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\""; \
+	fi
+	cd server && gremlins unleash .
 
 mutate-web:
 	cd web && npx stryker run

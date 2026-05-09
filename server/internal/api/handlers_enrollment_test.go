@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -502,5 +503,24 @@ func TestGetInstallScript(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.NotContains(t, w.Body.String(), `export OPENGATE_GITHUB_REPO=`)
+	})
+
+	// Pin the `len(prefix) > 0` boundary at handlers_install.go:43. When
+	// neither serverURL nor githubRepo can be determined, no header is
+	// prepended. Without this, CONDITIONALS_BOUNDARY mutating `>` → `>=`
+	// survives.
+	t.Run("no prefix when nothing to inject", func(t *testing.T) {
+		srv, _ := newTestServerWithCert(t)
+		// Bypass the chi middleware (which sets Host on the request), and
+		// call the handler directly with a bare context — no http.Request
+		// is in the context, so the URL detection branch is skipped.
+		resp, err := srv.GetInstallScript(t.Context(), GetInstallScriptRequestObject{})
+		require.NoError(t, err)
+		ok, isOK := resp.(GetInstallScript200TextxShellscriptResponse)
+		require.True(t, isOK)
+		buf, err := io.ReadAll(ok.Body)
+		require.NoError(t, err)
+		assert.NotContains(t, string(buf), "# Injected by server",
+			"empty prefix must not produce an injected-by-server header")
 	})
 }
