@@ -695,7 +695,7 @@ jobs:
 
       # IaC security scan
       - name: Trivy config scan
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: deploy/
@@ -703,7 +703,7 @@ jobs:
           exit-code: 1
           trivyignores: .trivyignore
       - name: Trivy Dockerfile scan
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: Dockerfile
@@ -833,7 +833,7 @@ jobs:
           path: agent/
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
-        uses: SonarSource/sonarqube-scan-action@v7
+        uses: SonarSource/sonarqube-scan-action@v8
         with:
           args: -Dsonar.qualitygate.wait=true
 
