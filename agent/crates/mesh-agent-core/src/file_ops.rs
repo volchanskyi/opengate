@@ -253,6 +253,33 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
+    /// Pin CHUNK_SIZE = 256 * 1024 (262144). Mutating `*` to `+` would yield
+    /// 256 + 1024 = 1280, causing a 300_000-byte file to fragment into ~235
+    /// frames instead of 2.
+    #[tokio::test]
+    async fn stream_download_chunk_size_is_256_kib_not_256_plus_1024() {
+        let dir = tempfile::tempdir().unwrap();
+        let file_path = dir.path().join("absolute_size.bin");
+        // 300 KiB — well above 256 KiB but well below 2*256 KiB.
+        std::fs::write(&file_path, vec![0xCDu8; 300_000]).unwrap();
+
+        let handler = FileOpsHandler::new(true, false);
+        let (tx, mut rx) = mpsc::channel(512);
+        handler
+            .stream_download(file_path.to_str().unwrap(), &tx)
+            .await
+            .unwrap();
+
+        let mut frames = 0;
+        while rx.try_recv().is_ok() {
+            frames += 1;
+        }
+        assert_eq!(
+            frames, 2,
+            "300 KiB must split into exactly 2 chunks (CHUNK_SIZE=256 KiB)"
+        );
+    }
+
     #[tokio::test]
     async fn test_stream_download_chunked() {
         let dir = tempfile::tempdir().unwrap();

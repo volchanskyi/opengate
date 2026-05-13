@@ -56,13 +56,6 @@ func main() {
 	fmt.Printf("Starting QUIC load test: %d agents → %s\n", *agents, *addr)
 	start := time.Now()
 
-	type result struct {
-		connectDur   time.Duration
-		handshakeDur time.Duration
-		registerDur  time.Duration
-		err          error
-	}
-
 	results := make([]agentResult, *agents)
 	var wg sync.WaitGroup
 

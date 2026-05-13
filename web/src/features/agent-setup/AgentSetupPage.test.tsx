@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useUpdateStore } from '../../state/update-store';
@@ -182,6 +182,70 @@ describe('AgentSetupPage', () => {
       max_uses: 0,
       expires_in_hours: 24,
     });
+  });
+
+  it('passes the typed-in label, max_uses, and expires_in_hours through to createEnrollmentToken', async () => {
+    render(<AgentSetupPage />);
+    await userEvent.click(screen.getByText('New Token'));
+
+    const labelInput = screen.getByLabelText('Label') as HTMLInputElement;
+    await userEvent.type(labelInput, 'My Label');
+
+    // For type=number inputs, use fireEvent.change to set the value directly
+    // (userEvent.clear leaves behind whatever was prefilled by HTML number stepping).
+    const maxUsesInput = screen.getByLabelText(/Max uses/) as HTMLInputElement;
+    fireEvent.change(maxUsesInput, { target: { value: '5' } });
+
+    const expiresInput = screen.getByLabelText(/Expires in/) as HTMLInputElement;
+    fireEvent.change(expiresInput, { target: { value: '48' } });
+
+    await userEvent.click(screen.getByText('Create'));
+
+    // Pin all three numeric / string fields — kills:
+    // - ArrowFunction `() => undefined` mutants on the onChange handlers
+    //   (they would prevent any of these fields from updating).
+    // - LogicalOperator `||` → `&&` mutants on parseInt fallbacks.
+    expect(noopCreate).toHaveBeenCalledWith({
+      label: 'My Label',
+      max_uses: 5,
+      expires_in_hours: 48,
+    });
+  });
+
+  it('hides token form after successful create (and no orphan label remains)', async () => {
+    render(<AgentSetupPage />);
+    await userEvent.click(screen.getByText('New Token'));
+    expect(screen.getByLabelText('Label')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('Create'));
+
+    // The form must hide (showTokenForm=false) and label/maxUses/expires must
+    // reset — kills `setShowTokenForm(false)` → `setShowTokenForm(true)` mutant
+    // and `setTokenLabel('')` → `setTokenLabel("Stryker was here!")` mutant.
+    expect(screen.queryByLabelText('Label')).not.toBeInTheDocument();
+
+    // Re-open the form and confirm fields are reset to defaults (empty / 0 / 24).
+    await userEvent.click(screen.getByText('New Token'));
+    expect((screen.getByLabelText('Label') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText(/Max uses/) as HTMLInputElement).value).toBe('0');
+    expect((screen.getByLabelText(/Expires in/) as HTMLInputElement).value).toBe('24');
+  });
+
+  it('renders Untitled when label is empty (kills `t.label || "Untitled"` survival)', () => {
+    useUpdateStore.setState({
+      enrollmentTokens: [{ ...fakeToken, label: '' }],
+    });
+    render(<AgentSetupPage />);
+    expect(screen.getByText('Untitled')).toBeInTheDocument();
+  });
+
+  it('does not show Active badge for an inactive (expired || exhausted) token', () => {
+    useUpdateStore.setState({ enrollmentTokens: [expiredToken] });
+    render(<AgentSetupPage />);
+    // Pin: only expired tokens are inactive — kills `expired || exhausted` →
+    // `expired && exhausted` mutant (which would render Active for an expired
+    // but not exhausted token).
+    expect(screen.queryByText('Active')).toBeNull();
   });
 
   it('calls deleteEnrollmentToken when delete is clicked', async () => {

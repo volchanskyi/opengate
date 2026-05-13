@@ -8,6 +8,11 @@ use serde::Serialize;
 use std::path::PathBuf;
 
 fn golden_dir() -> PathBuf {
+    // OPENGATE_GOLDEN_DIR overrides the default lookup for environments where
+    // the workspace tree is copied without `testdata/` (e.g. cargo-mutants).
+    if let Ok(dir) = std::env::var("OPENGATE_GOLDEN_DIR") {
+        return PathBuf::from(dir);
+    }
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("../../../testdata/golden");
     path

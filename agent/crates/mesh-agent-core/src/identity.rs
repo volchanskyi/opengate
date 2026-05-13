@@ -246,6 +246,45 @@ mod tests {
         assert_eq!(saved, fake_cert);
     }
 
+    /// Pin both `&&` operators in load_or_create's three-file existence check.
+    /// If any single file is missing, we must re-generate the full identity
+    /// (and a new device UUID is chosen). Mutating any `&&` to `||` would
+    /// instead fall through to `load`, which fails with a missing-file error.
+    #[test]
+    fn load_or_create_regenerates_when_any_file_is_missing() {
+        // Helper: create a partial state with only `present` files written, then
+        // assert load_or_create succeeds (regenerated, not failed-load).
+        for which_present in ["id", "cert", "key", "id+cert", "id+key", "cert+key"] {
+            let dir = tempfile::tempdir().unwrap();
+            if which_present.contains("id") {
+                std::fs::write(
+                    dir.path().join(DEVICE_ID_FILE),
+                    uuid::Uuid::new_v4().to_string(),
+                )
+                .unwrap();
+            }
+            if which_present.contains("cert") {
+                std::fs::write(dir.path().join(CERT_FILE), b"junk-not-a-real-cert").unwrap();
+            }
+            if which_present.contains("key") {
+                std::fs::write(dir.path().join(KEY_FILE), b"junk-not-a-real-key").unwrap();
+            }
+
+            let identity = AgentIdentity::load_or_create(dir.path()).unwrap_or_else(|e| {
+                panic!("load_or_create with only [{which_present}] present must regenerate: {e}")
+            });
+            // After regeneration, all three files must be present and the
+            // identity is freshly generated (cert is a valid DER SEQUENCE).
+            assert!(dir.path().join(DEVICE_ID_FILE).exists());
+            assert!(dir.path().join(CERT_FILE).exists());
+            assert!(dir.path().join(KEY_FILE).exists());
+            assert_eq!(
+                identity.cert_der[0], 0x30,
+                "regenerated cert must be valid DER (which={which_present})"
+            );
+        }
+    }
+
     #[test]
     fn test_pending_then_load_after_signing() {
         let dir = tempfile::tempdir().unwrap();

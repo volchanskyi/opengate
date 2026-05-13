@@ -182,7 +182,7 @@ impl AgentPeerConnection {
         }));
     }
 
-    async fn store_channel_by_label(
+    pub(crate) async fn store_channel_by_label(
         label: &str,
         d: &Arc<RTCDataChannel>,
         cc: &Arc<Mutex<Option<Arc<RTCDataChannel>>>>,
@@ -382,5 +382,58 @@ mod tests {
     fn test_ice_servers_from_strings_empty() {
         let servers = ice_servers_from_strings(vec![]);
         assert!(servers.is_empty());
+    }
+
+    /// Pin store_channel_by_label match arms. Each label routes to a
+    /// distinct slot; an unknown label returns false. Mutating any arm
+    /// (or the bool return) breaks WebRTC channel routing.
+    #[tokio::test]
+    async fn store_channel_by_label_routes_each_label_to_correct_slot() {
+        // Build a real RTCDataChannel via a throwaway PeerConnection. We only
+        // need an Arc<RTCDataChannel> to put into the slots; the channel itself
+        // is never opened.
+        let api = APIBuilder::new()
+            .with_media_engine(MediaEngine::default())
+            .build();
+        let pc = api
+            .new_peer_connection(RTCConfiguration::default())
+            .await
+            .unwrap();
+        let dc = pc.create_data_channel("placeholder", None).await.unwrap();
+
+        let cc: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
+        let dch: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
+        let bc: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
+
+        // "control" routes to cc.
+        assert!(AgentPeerConnection::store_channel_by_label("control", &dc, &cc, &dch, &bc).await);
+        assert!(cc.lock().await.is_some());
+        assert!(dch.lock().await.is_none());
+        assert!(bc.lock().await.is_none());
+
+        // "desktop" routes to dch.
+        assert!(AgentPeerConnection::store_channel_by_label("desktop", &dc, &cc, &dch, &bc).await);
+        assert!(dch.lock().await.is_some());
+        assert!(bc.lock().await.is_none());
+
+        // "bulk" routes to bc.
+        assert!(AgentPeerConnection::store_channel_by_label("bulk", &dc, &cc, &dch, &bc).await);
+        assert!(bc.lock().await.is_some());
+
+        // Unknown label returns false; previously-set slots remain.
+        let cc2: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
+        let dch2: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
+        let bc2: Arc<Mutex<Option<Arc<RTCDataChannel>>>> = Arc::new(Mutex::new(None));
+        assert!(
+            !AgentPeerConnection::store_channel_by_label("unknown-label", &dc, &cc2, &dch2, &bc2)
+                .await
+        );
+        assert!(cc2.lock().await.is_none());
+        assert!(dch2.lock().await.is_none());
+        assert!(bc2.lock().await.is_none());
+
+        if let Err(e) = pc.close().await {
+            eprintln!("test cleanup: pc.close failed: {e}");
+        }
     }
 }

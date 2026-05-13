@@ -20,7 +20,7 @@ func rejectWebSocket(w http.ResponseWriter, r *http.Request, reason string) {
 	if err != nil {
 		return
 	}
-	c.Close(websocket.StatusPolicyViolation, reason)
+	_ = c.Close(websocket.StatusPolicyViolation, reason)
 }
 
 // ensureBrowserAuth ensures the browser side has an Authorization header,
@@ -76,7 +76,7 @@ func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn r
 
 	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {
 		s.logger.Error("relay register failed", "error", err, "token_prefix", tp)
-		wsConn.Close(websocket.StatusInternalError, "relay error")
+		_ = wsConn.Close(websocket.StatusInternalError, "relay error")
 		return
 	}
 

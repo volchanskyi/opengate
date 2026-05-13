@@ -72,7 +72,7 @@ func (p *PushNotifier) Notify(ctx context.Context, event Event) error {
 			p.logger.Warn("push notification failed", "endpoint", sub.Endpoint, "error", err)
 			continue
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		// 410 Gone means the subscription is stale — remove it.
 		if resp.StatusCode == http.StatusGone {

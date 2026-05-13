@@ -87,6 +87,82 @@ A test for `handlers_install.go` may live inside `handlers_enrollment_test.go` o
 
 ---
 
+## Section 0.5 — Mutation analysis (test-suite quality)
+
+Coverage % asserts which lines executed. **Mutation testing asserts which lines were *meaningfully* tested** — for each line, the tool flips an operator (`==`→`!=`), changes a constant, or removes a statement and re-runs the suite. If no test fails, the mutant survived: that line is covered but not verified. Surviving mutants are first-class findings, on equal footing with missing E2E specs and missing goldens.
+
+### 0.5a. Run the language-appropriate mutator
+
+Tools are wired into the Makefile (PR 1 of the structural-testing rollout):
+
+```bash
+make mutate-rust   # cargo-mutants on agent/ workspace
+make mutate-go     # gremlins unleash on server/
+make mutate-web    # stryker on web/
+make mutate        # all three
+```
+
+Tool install (one-time):
+
+```bash
+cargo install cargo-mutants
+go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+# stryker resolves via npx — no global install
+```
+
+### 0.5b. Read the report by surviving-mutant location, not score
+
+Mutation score is a single number; surviving mutants are a *list*. For each, the report names the file, line, and the surviving mutation (`replaced == with !=`, `removed call to log_error`, etc.). Group survivors by package to see which areas of the code have the weakest tests:
+
+```bash
+# cargo-mutants writes mutants.out/outcomes.json
+jq -r '.outcomes[] | select(.scenario.kind == "Mutant" and .summary == "MissedMutant") | "\(.scenario.mutant.source_file)\t\(.scenario.mutant.function.function_name)"' agent/mutants.out/outcomes.json | sort | uniq -c | sort -rn | head -20
+
+# gremlins prints lived/killed counts per file in stdout
+make mutate-go 2>&1 | grep -E 'LIVED|KILLED|file:'
+
+# stryker writes reports/mutation/mutation.html — open in a browser, sort by survivors
+```
+
+A package with three surviving mutants in different functions is a stronger finding than one with thirty all in the same logger wrapper.
+
+### 0.5c. Distinguish *real gaps* from *unmutateable code*
+
+Some mutants survive because the line genuinely cannot be tested without restructuring (FFI shims, platform glue, `unsafe` blocks, log-only branches, infrastructure error paths). These are not test gaps — they are tool false positives. Document them in the per-language carve-out file rather than chasing them:
+
+- **Rust:** `agent/cargo-mutants.toml` — `exclude_globs` and `exclude_re`
+- **Go:** `server/.gremlins.yaml` — `exclude` rules
+- **Web:** `web/stryker.config.json` — `mutate` exclusions
+
+A carve-out is acceptable only with a one-line justification next to the entry. "Platform shim, no test harness" is fine; an empty `exclude` is not.
+
+### 0.5d. Write a mutant-killing test, not a coverage-chasing test
+
+For each genuine survivor, the fix is a test that distinguishes the original code from the mutant. **Bad fix** — assert on a side effect that both pass: that just raises the coverage number without killing the mutant. **Good fix** — assert on the precise output the mutator changed: a return value, a logged field, a state transition. After writing, re-run `make mutate-{lang}` on the touched file to confirm the mutant is now killed.
+
+### 0.5e. Cross-reference with coverage
+
+A line with high mutation score but low coverage is a paradox — investigate it. Usually it means either (a) the coverage tool is double-counting via shared helpers, or (b) the mutator is not exercising that line at all (a separate carve-out concern). Either way, treat the discrepancy as a finding.
+
+A line with high coverage but low mutation score is the **most common shape of a real gap** — the test calls the function but never asserts on what it returns. These are the highest-value findings the audit can produce.
+
+### 0.5f. Severity rubric for mutation findings
+
+- **HIGH** — surviving mutants in: auth/JWT validation, ownership checks, SQL parameter binding, certificate verification, session token handling, signature verification.
+- **MEDIUM** — surviving mutants in: business-logic branches (state machines, retry logic, rate-limit decisions), public API handlers without negative-path coverage.
+- **LOW** — surviving mutants in: error formatting, debug logging, metric emission, cosmetic defaults.
+
+Coverage % becomes a sanity check: any package with <60% line coverage AND any survivors is automatically **HIGH** regardless of where the survivors land — the test base is too thin to trust the mutation report at all.
+
+### 0.5g. CI gating timeline
+
+- **Today (pre-PR 9 of structural-testing rollout):** `make mutate` is advisory. Findings appear in this audit's report; they do not block CI.
+- **From PR 9 onwards:** `mutation-testing` job is a hard gate on `merge-to-main.needs[]`. New survivors block the merge.
+
+While advisory, this audit's job is to surface every survivor and propose a kill. Once the gate flips, this section becomes a regression-prevention check (compare current survivor list to the previous baseline).
+
+---
+
 ## Section 1 — Go Integration Test Audit
 
 ### 1a. Inventory integration tests

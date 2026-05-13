@@ -1,0 +1,25 @@
+# cargo-mutants configuration for the agent workspace.
+#
+# Run `make mutate-rust` from the repo root, or `cargo mutants --workspace`
+# from `agent/` with the env var `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden`
+# set so golden file tests resolve their fixtures inside the temp tree.
+#
+# exclude_globs carves out genuinely-untestable code:
+#   * platform shims (Wayland/X11/Windows/macOS bridges with no in-tree harness)
+#   * the agent binary entry point (`mesh-agent/src/main.rs`) — async wiring
+#     and process lifecycle exercised only by E2E
+#   * SELinux restorecon match guards in `update.rs` — depend on a privileged
+#     subprocess (system integration, not unit-testable)
+
+exclude_globs = [
+    "crates/platform-linux/**",
+    "crates/platform-windows/**",
+    "crates/mesh-agent/src/main.rs",
+]
+
+# Skip `restore_selinux_context` — the only mutants here are guards on
+# `restorecon` exit status / error kinds, which require a real privileged
+# subprocess to test. Verified manually on Fedora during the migration.
+exclude_re = [
+    "restore_selinux_context",
+]

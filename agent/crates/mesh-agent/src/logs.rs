@@ -560,4 +560,213 @@ mod tests {
         assert!(result.entries.is_empty());
         assert_eq!(result.total_count, 0);
     }
+
+    // --- Mutation-test gap closers ---
+
+    /// Pin every level_severity match arm: deleting any arm fails one row.
+    #[test]
+    fn level_severity_table() {
+        assert_eq!(level_severity("TRACE"), Some(0));
+        assert_eq!(level_severity("DEBUG"), Some(1));
+        assert_eq!(level_severity("INFO"), Some(2));
+        assert_eq!(level_severity("WARN"), Some(3));
+        assert_eq!(level_severity("ERROR"), Some(4));
+        assert_eq!(level_severity("UNKNOWN"), None);
+    }
+
+    /// `INFO` filter must reject `TRACE` and `DEBUG` entries, proving the
+    /// TRACE/DEBUG arms exist (they're below INFO in severity ordering).
+    #[test]
+    fn collect_filters_below_info_keeps_trace_and_debug_arms_alive() {
+        let dir = TempDir::new().unwrap();
+        write_log_file(
+            dir.path(),
+            "agent.log.2026-04-01",
+            "2026-04-01T12:00:00.000000Z  TRACE mesh_agent: trace line\n\
+             2026-04-01T12:00:01.000000Z  DEBUG mesh_agent: debug line\n\
+             2026-04-01T12:00:02.000000Z  INFO mesh_agent: info line\n",
+        );
+        let collector = LogCollector::new(dir.path().to_path_buf());
+        let filter = LogFilter {
+            level: Some("INFO".to_string()),
+            ..default_filter()
+        };
+        let result = collector.collect(&filter).unwrap();
+        // Only INFO survives (TRACE and DEBUG must severity-rank below).
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].level, "INFO");
+    }
+
+    /// Pin `lines_scanned += 1`. With `*=`, scanning > 0 lines after the
+    /// initial 0 stays at 0 forever and the scan budget never trips, so a
+    /// huge file would parse all entries instead of capping. Use a count
+    /// just below MAX_SCAN_LINES so the *= mutation produces visibly
+    /// different output (every line returned vs only the budgeted count).
+    #[test]
+    fn collect_counts_lines_with_addition_not_multiplication() {
+        let dir = TempDir::new().unwrap();
+        let mut content = String::new();
+        // Write MAX_SCAN_LINES + 50 entries; with `+=` only MAX get scanned.
+        // With `*=` the counter stays at 0 and ALL 10050 get scanned.
+        for i in 0..(MAX_SCAN_LINES + 50) {
+            content.push_str(&format!(
+                "2026-04-01T{:02}:{:02}:{:02}.{:06}Z  INFO mesh_agent: line {}\n",
+                (i / 3600) % 24,
+                (i / 60) % 60,
+                i % 60,
+                i,
+                i
+            ));
+        }
+        write_log_file(dir.path(), "agent.log.2026-04-01", &content);
+        let collector = LogCollector::new(dir.path().to_path_buf());
+        let result = collector
+            .collect(&LogFilter {
+                limit: 100_000,
+                ..default_filter()
+            })
+            .unwrap();
+        assert!(
+            result.total_count <= MAX_SCAN_LINES as u32,
+            "scan budget should cap total_count at {} (got {})",
+            MAX_SCAN_LINES,
+            result.total_count
+        );
+    }
+
+    /// Pin parse_log_line timestamp validation: timestamp shorter than 20
+    /// chars OR missing 'T' must fail to parse.
+    #[test]
+    fn parse_log_line_rejects_short_or_t_less_timestamp() {
+        // 19 chars (one short of 20) — must fail.
+        assert!(
+            parse_log_line("2026-04-01T12:34:5  INFO m: msg").is_none(),
+            "<20 char timestamp must fail"
+        );
+        // 20+ chars but no 'T' — must fail. Use spaces inside but no 'T' on year.
+        assert!(
+            parse_log_line("2026X04X01X12:34:56  INFO m: msg").is_none(),
+            "missing 'T' must fail"
+        );
+        // 20 chars with 'T' — must succeed.
+        let valid = parse_log_line("2026-04-01T12:34:56Z  INFO m: msg");
+        assert!(valid.is_some(), "20-char timestamp with 'T' must succeed");
+    }
+
+    /// Pin parse_log_line uses `||` not `&&` — the timestamp test
+    /// `len < 20 || !contains('T')` rejects EITHER condition.
+    /// With `&&`, only timestamps that are BOTH short AND missing 'T'
+    /// would be rejected — so a long-but-T-less timestamp would slip in.
+    #[test]
+    fn parse_log_line_validates_both_length_and_t_separator() {
+        // Long enough (>20) but no 'T': must still fail with `||`.
+        assert!(
+            parse_log_line("2026/04/01 12:34:56.789012  INFO m: msg").is_none(),
+            "long timestamp without 'T' must fail"
+        );
+    }
+
+    /// Pin `entry.timestamp < from` boundary: filter `time_from` is
+    /// inclusive on equality. With `<=`, an entry exactly at `from`
+    /// would be filtered out; with `==`, only entries equal to from
+    /// would be filtered.
+    #[test]
+    fn matches_filter_time_from_is_inclusive_on_boundary() {
+        let entry = LogEntry {
+            timestamp: "2026-04-01T12:00:00.000000Z".to_string(),
+            level: "INFO".to_string(),
+            target: "m".to_string(),
+            message: "x".to_string(),
+        };
+        // from == entry timestamp: must keep (boundary inclusive).
+        let filter = LogFilter {
+            time_from: Some("2026-04-01T12:00:00.000000Z".to_string()),
+            ..default_filter()
+        };
+        assert!(matches_filter(&entry, &filter), "from == entry must keep");
+
+        // from > entry timestamp: must drop.
+        let filter = LogFilter {
+            time_from: Some("2026-04-01T13:00:00.000000Z".to_string()),
+            ..default_filter()
+        };
+        assert!(!matches_filter(&entry, &filter), "from > entry must drop");
+    }
+
+    /// Pin `entry.timestamp > to` boundary: `time_to` is inclusive on
+    /// equality. With `>=`, an entry exactly at `to` would be filtered out.
+    #[test]
+    fn matches_filter_time_to_is_inclusive_on_boundary() {
+        let entry = LogEntry {
+            timestamp: "2026-04-01T12:00:00.000000Z".to_string(),
+            level: "INFO".to_string(),
+            target: "m".to_string(),
+            message: "x".to_string(),
+        };
+        // to == entry timestamp: must keep.
+        let filter = LogFilter {
+            time_to: Some("2026-04-01T12:00:00.000000Z".to_string()),
+            ..default_filter()
+        };
+        assert!(matches_filter(&entry, &filter), "to == entry must keep");
+
+        // to < entry timestamp: must drop.
+        let filter = LogFilter {
+            time_to: Some("2026-04-01T11:00:00.000000Z".to_string()),
+            ..default_filter()
+        };
+        assert!(!matches_filter(&entry, &filter), "to < entry must drop");
+    }
+
+    /// Pin `discover_log_files` truncation: when files.len() > MAX_LOG_FILES,
+    /// keep ONLY the most recent MAX_LOG_FILES. Mutating `>` to `==` would
+    /// only truncate at exactly N+1; mutating `-` to `+` would request a
+    /// split point past the end and panic.
+    #[test]
+    fn discover_log_files_caps_at_max_log_files() {
+        let dir = TempDir::new().unwrap();
+        // Create MAX_LOG_FILES + 3 files with ascending names.
+        for i in 0..(MAX_LOG_FILES + 3) {
+            write_log_file(
+                dir.path(),
+                &format!("agent.log.2026-{:02}-{:02}", (i / 28) + 1, (i % 28) + 1),
+                &format!(
+                    "2026-04-01T12:00:00.{:06}Z  INFO mesh_agent: file {}\n",
+                    i, i
+                ),
+            );
+        }
+        let collector = LogCollector::new(dir.path().to_path_buf());
+        let result = collector.collect(&default_filter()).unwrap();
+        // Each file has one entry; we must read exactly MAX_LOG_FILES files.
+        assert_eq!(
+            result.total_count as usize, MAX_LOG_FILES,
+            "discover_log_files must cap at {}",
+            MAX_LOG_FILES
+        );
+    }
+
+    /// Pin the boundary case where exactly MAX_LOG_FILES exist — mutating
+    /// `>` to `>=` would trigger truncation at the boundary and reduce the
+    /// kept count below MAX_LOG_FILES.
+    #[test]
+    fn discover_log_files_keeps_all_when_at_exactly_max() {
+        let dir = TempDir::new().unwrap();
+        for i in 0..MAX_LOG_FILES {
+            write_log_file(
+                dir.path(),
+                &format!("agent.log.2026-{:02}-{:02}", (i / 28) + 1, (i % 28) + 1),
+                &format!(
+                    "2026-04-01T12:00:00.{:06}Z  INFO mesh_agent: file {}\n",
+                    i, i
+                ),
+            );
+        }
+        let collector = LogCollector::new(dir.path().to_path_buf());
+        let result = collector.collect(&default_filter()).unwrap();
+        assert_eq!(
+            result.total_count as usize, MAX_LOG_FILES,
+            "all files at boundary must be kept"
+        );
+    }
 }

@@ -129,9 +129,75 @@ Verify:
 
 ---
 
-## 3. Input Validation (OWASP A03 / CWE-20)
+## 3. Taint paths — source → sink data flow
 
-### 3a. Request body validation
+Section 2 enumerates *injection sinks*. This section enumerates the *flow* from untrusted **sources** to those sinks, plus the static analysis that catches them. Treating each handler in isolation misses cross-function taint (request body → DTO → service → repository → SQL); requiring an explicit source-to-sink trace catches it.
+
+For every finding in this section, report **both** the source and the sink (e.g. "query param `?filter` → `r.URL.Query().Get` → `repo.SearchAudit` → `db.Query(\"SELECT … WHERE \" + filter, …)`"). A finding without a trace is a guess.
+
+### 3a. Sources (untrusted input boundaries)
+
+| Source | Examples in this codebase |
+|--------|---------------------------|
+| HTTP request body | JSON deserialization in `*Handler` functions in `server/internal/api/handlers_*.go` |
+| Query parameters | `r.URL.Query().Get(...)` — pagination, filters, `?auth=` token passthrough |
+| Headers | `Authorization`, `Content-Type`, `X-Forwarded-For` — anywhere `r.Header.Get(...)` is called |
+| URL path parameters | `chi.URLParam(r, "id")` — device ID, group ID, session token, user ID |
+| Environment variables | `os.Getenv` for runtime config (e.g. `JWT_SECRET`, `DATABASE_URL`) — trusted at startup, but check no env value reaches a sink unsanitized |
+| Externally-written DB rows | Records inserted by the agent (hardware inventory, hostname, OS string, log lines) — server reads these and may render or log them |
+| MessagePack frames over QUIC/WS | `protocol.DecodeControl` and friends — agent-controlled content reaching server-side state machines |
+| Filenames in upload streams | File-Manager paths — taint from agent or browser-supplied basename |
+
+### 3b. Sinks (operations that act on tainted values)
+
+| Sink | What to grep | gosec rule |
+|------|--------------|-----------|
+| SQL query construction | `db\.(Exec|Query|QueryRow)` with `fmt.Sprintf` / `+` / `strings.Builder` building the SQL string | **G201** SQL string formatting, **G202** SQL string concatenation |
+| `os/exec` | `exec.Command`, `exec.CommandContext`, `syscall.Exec*` | **G204** subprocess with variable |
+| File system writes / reads | `os.OpenFile`, `os.Create`, `io.Copy(dst, src)` where `dst` is filesystem and the path is tainted | **G304** file path provided as taint |
+| HTTP response body | `w.Write`, `fmt.Fprint*` — for unsanitized strings being reflected back to the client (XSS) |
+| Log fields | `slog.Info("...", "field", taintedValue)` — tainted multi-line content can forge log lines (see Section 6.5 log injection) |
+| URL/redirect target | `http.Redirect(w, r, taintedURL, ...)` — open redirect |
+| TLS / cert handling | manual cert parsing on tainted PEM bytes (e.g. enrollment) | **G601** implicit memory aliasing in range loops |
+| Hardcoded credentials | string literals that match credential patterns (caught at definition, not flow) | **G101** hardcoded credentials |
+
+### 3c. Static analysis: gosec is the floor, manual trace is the ceiling
+
+**Floor (must run, must be clean):**
+
+```bash
+make taint-go    # gosec ./... with the rule set in server/.gosec.json
+```
+
+Treat every gosec finding as a HIGH unless a trace shows the source is provably trusted (literal, env-only, or compile-time constant). Pre-PR 9, this is advisory; from PR 9 onwards it is a hard CI gate. Documenting findings as "won't fix" requires an explicit `// #nosec G<rule>` annotation with a justification — never with bare suppression.
+
+**Ceiling (manual trace, required for any non-trivial handler):**
+
+For every endpoint handler, walk the call graph from the source (request) to every sink (DB, exec, log, response). Document the trace inline in the audit report. If the trace passes through a layer that *should* sanitize (validator, ORM, allowlist) but does not, that layer is the finding — not the sink.
+
+### 3d. CodeQL go-queries (defense in depth)
+
+If CodeQL is configured for the repo, run the `go/sql-injection`, `go/command-injection`, `go/path-injection`, and `go/log-injection` queries. CodeQL produces inter-procedural traces that gosec misses. Findings are auxiliary evidence, not gating.
+
+### 3e. Source-to-sink red flags specific to this codebase
+
+- **Audit log filtering** — `server/internal/api/handlers_audit.go` accepts `?actor`, `?event`, `?since`, `?until`. Trace each into the audit-log query builder.
+- **Device-logs filter** — `server/internal/api/handlers_devicelogs.go` accepts `?level`, `?since`, `?limit`. Trace into the postgres query.
+- **MPS digest auth** — `server/internal/mps/wsman/digest.go` parses agent-supplied digest fields. Verify each reaches a constant-time comparison, not string concat into a query.
+- **Hardware inventory** — agent posts `device_hardware.network_interfaces` JSON. Server stores in JSONB and renders in admin UI. Verify no path interprets the JSON as HTML.
+
+### 3f. Severity rubric
+
+- **CRITICAL** — taint reaches SQL/exec/file sink without traversing any sanitizer or parameter binding.
+- **HIGH** — taint reaches a sink via a sanitizer that is incomplete (e.g. allowlist that misses ` `, regex anchored on the wrong end).
+- **MEDIUM** — taint reaches a log/response sink where it can leak adjacent data or forge log lines.
+- **LOW** — gosec finds a pattern in test code or build-only code that does not run in production.
+
+---
+
+## 4. Input Validation (OWASP A03 / CWE-20)
+
+### 4a. Request body validation
 
 For EVERY handler that accepts a request body, verify validation exists for:
 
@@ -150,7 +216,7 @@ For EVERY handler that accepts a request body, verify validation exists for:
 
 Check the OpenAPI spec (`api/openapi.yaml`) for `minLength`, `maxLength`, `pattern`, `minimum`, `maximum` constraints. If missing, add them to the spec AND regenerate the server code, or add manual validation in handlers.
 
-### 3b. Request size limits
+### 4b. Request size limits
 
 Verify the HTTP server enforces a maximum request body size:
 
@@ -160,21 +226,21 @@ http.MaxBytesReader(w, r.Body, maxBytes)
 
 Or via middleware. If missing, add a body size limit (recommended: 1 MB for API, 10 MB for file uploads).
 
-### 3c. Header validation
+### 4c. Header validation
 
 Check that:
 - `Content-Type` is validated (only `application/json` accepted for API endpoints)
 - `Authorization` header format is strictly validated (must be `Bearer <token>`)
 - No user-controlled headers are reflected in responses (header injection)
 
-### 3d. Path parameter validation
+### 4d. Path parameter validation
 
 All path parameters (device ID, group ID, user ID, session token) MUST be validated:
 - UUIDs: validate format before database lookup
 - Session tokens: validate hex format and length (64 chars)
 - Reject early with 400 for malformed parameters — do NOT pass to database
 
-### 3e. Query parameter validation
+### 4e. Query parameter validation
 
 All query parameters (limit, offset, filter, action) MUST be validated:
 - Numeric params: parse as integer, validate range
@@ -183,9 +249,9 @@ All query parameters (limit, offset, filter, action) MUST be validated:
 
 ---
 
-## 4. Authentication Security (OWASP A07)
+## 5. Authentication Security (OWASP A07)
 
-### 4a. Password policy
+### 5a. Password policy
 
 Verify the registration and password change endpoints enforce:
 - Minimum length: 8 characters (NIST SP 800-63B)
@@ -194,7 +260,7 @@ Verify the registration and password change endpoints enforce:
 
 If the minimum length is < 8 or there is no maximum length check, fix it in the handler.
 
-### 4b. JWT security
+### 5b. JWT security
 
 Verify:
 - Signing algorithm is explicitly checked during validation (prevent `alg: none` attack)
@@ -204,7 +270,7 @@ Verify:
 - Secret key is NOT hardcoded (comes from env var or flag)
 - Tokens are NOT logged at any log level
 
-### 4c. Brute-force protection
+### 5c. Brute-force protection
 
 Check for rate limiting on:
 - `POST /api/v1/auth/login` — limit failed attempts per IP and per email
@@ -216,13 +282,13 @@ If no rate limiting exists, implement it using a middleware (e.g., `golang.org/x
 - 5 registration attempts per hour per IP
 - Log all failed authentication attempts with IP and email
 
-### 4d. Account enumeration
+### 5d. Account enumeration
 
 Check that login and registration responses do NOT reveal whether an email exists:
 - Login failure: "invalid credentials" (NOT "user not found" or "wrong password")
 - Registration: if email already exists, return generic error (NOT "email already registered")
 
-### 4e. Session management
+### 5e. Session management
 
 - Session tokens must be cryptographically random (>= 32 bytes)
 - Session tokens must expire (check if there's a TTL or cleanup mechanism)
@@ -230,9 +296,9 @@ Check that login and registration responses do NOT reveal whether an email exist
 
 ---
 
-## 5. Sensitive Data Exposure (OWASP A02)
+## 6. Sensitive Data Exposure (OWASP A02)
 
-### 5a. Response field filtering
+### 6a. Response field filtering
 
 For EVERY API response type, verify sensitive fields are excluded:
 
@@ -246,7 +312,7 @@ For EVERY API response type, verify sensitive fields are excluded:
 
 Check `server/internal/api/converters.go` — every `*ToAPI()` function must explicitly map only safe fields. Never use `*` or reflect-based copying.
 
-### 5b. Error message sanitization
+### 6b. Error message sanitization
 
 For EVERY error response path, verify:
 - Internal errors (database failures, I/O errors) return a generic message: `"internal error"`
@@ -262,7 +328,7 @@ grep -rn 'err\.Error()' server/internal/api/ --include='*.go' | grep -v '_test.g
 
 Any `err.Error()` that reaches the client is a potential information leak — replace with a safe message. Log the full error server-side at ERROR level.
 
-### 5c. Logging hygiene — sensitive data
+### 6c. Logging hygiene — sensitive data
 
 Verify that logs (via `slog`) NEVER contain:
 - Passwords (plaintext or hashed)
@@ -286,7 +352,7 @@ grep -rn 'token' server/internal/api/ server/internal/agentapi/ server/internal/
 
 Every token in a log statement that does NOT use `RedactToken` is **HIGH**.
 
-### 5d. Security event logging
+### 6d. Security event logging
 
 Verify these security events ARE logged. For each event, check both slog output (for Loki/Promtail ingestion) and `auditLog()` (for the persistent audit trail in `audit_events` table). Both are required for security-critical events.
 
@@ -326,7 +392,7 @@ For every missing event, the fix must include:
 
 Severity: **HIGH** for missing failed login logging (enables undetected brute force), **MEDIUM** for others.
 
-### 5e. Log injection prevention (CWE-117)
+### 6e. Log injection prevention (CWE-117)
 
 User-controlled strings passed as slog field values can embed malicious content. While Go's `slog.JSONHandler` auto-escapes newlines and quotes (preventing classic log injection), verify the following:
 
@@ -352,7 +418,7 @@ Check that `RequestLogger` middleware in `server/internal/api/middleware.go` log
 
 Severity: **MEDIUM** with JSON handler (partial mitigation), **HIGH** with text handler.
 
-### 5f. Request correlation
+### 6f. Request correlation
 
 Every log message within a request lifecycle must include a correlation ID so operators can trace multi-step flows through Loki.
 
@@ -395,7 +461,7 @@ Severity: **HIGH** — without correlation, multi-request security incidents (br
 
 Fix pattern: add `"request_id", middleware.GetReqID(r.Context())` to `RequestLogger`, error handlers, and security event logs. For `auditLog`, pass request context values (not the full context) so the write outlives the request but retains correlation.
 
-### 5g. Log level discipline
+### 6g. Log level discipline
 
 Verify log levels match the operational severity of the event. Misclassified levels cause operators to miss important signals or drown in noise.
 
@@ -422,7 +488,7 @@ grep -rn 'slog\.Debug\|\.logger\.Debug\|\.Debug(' server/internal/api/ --include
 
 Known issue: `server/internal/api/middleware.go` logs response write failures at `slog.Debug` — this should be `slog.Warn` since it indicates a client disconnect or network problem that may correlate with other issues. Severity: **MEDIUM**.
 
-### 5h. Audit trail reliability
+### 6h. Audit trail reliability
 
 The `auditLog()` function in `server/internal/api/api.go` uses a fire-and-forget pattern. Verify the implementation is robust:
 
@@ -447,7 +513,7 @@ Verify:
 
 Fix pattern: replace `go func()` with a buffered channel + single writer goroutine, OR document accepted risk with a comment explaining the trade-off.
 
-### 5i. Rust agent logging standards
+### 6i. Rust agent logging standards
 
 The Rust agent is part of the backend system and its logs may feed into the same Loki pipeline. Verify logging hygiene in the agent codebase.
 
@@ -491,9 +557,9 @@ grep -rn 'EnvFilter\|env_filter\|RUST_LOG' agent/crates/ --include='*.rs'
 
 ---
 
-## 6. Security Misconfiguration (OWASP A05)
+## 7. Security Misconfiguration (OWASP A05)
 
-### 6a. HTTP security headers
+### 7a. HTTP security headers
 
 Check if the server sets these headers (either directly or via reverse proxy):
 
@@ -509,7 +575,7 @@ Check if the server sets these headers (either directly or via reverse proxy):
 
 If headers are set by the reverse proxy (Caddy), verify the Caddyfile. If the app is ever run without a proxy, add a middleware.
 
-### 6b. CORS configuration
+### 7b. CORS configuration
 
 If the API serves cross-origin requests (browser clients on different domains):
 - Define an explicit CORS policy using `chi/cors` middleware
@@ -521,7 +587,7 @@ If the API serves cross-origin requests (browser clients on different domains):
 
 If the API is same-origin only (served behind reverse proxy), verify no wildcard CORS headers exist.
 
-### 6c. Server information leakage
+### 7c. Server information leakage
 
 Verify:
 - HTTP `Server` header is stripped or set to a generic value (Caddy strips it with `-Server`)
@@ -535,7 +601,7 @@ Search for debug/diagnostic registrations:
 grep -rn 'pprof\|debug\|expvar' server/ --include='*.go' | grep -v '_test.go'
 ```
 
-### 6d. Default credentials and configurations
+### 7d. Default credentials and configurations
 
 Verify:
 - No default JWT secret (fail startup if not set)
@@ -544,7 +610,7 @@ Verify:
 - `.env.example` uses obviously fake values (`changeme`, etc.)
 - Database uses secure defaults (WAL mode, foreign keys, busy timeout)
 
-### 6e. TLS configuration
+### 7e. TLS configuration
 
 If the server handles TLS directly (MPS, QUIC):
 - Minimum TLS version: 1.2 for MPS (AMT compatibility), 1.3 for QUIC
@@ -553,9 +619,9 @@ If the server handles TLS directly (MPS, QUIC):
 
 ---
 
-## 7. Cross-Site Scripting — Backend Prevention (OWASP A03)
+## 8. Cross-Site Scripting — Backend Prevention (OWASP A03)
 
-### 7a. Stored XSS vectors
+### 8a. Stored XSS vectors
 
 Identify every field that stores user-generated text and is later rendered in a browser:
 
@@ -569,7 +635,7 @@ Identify every field that stores user-generated text and is later rendered in a 
 | Group.Description | groups table | Web UI group details | HIGH if unescaped |
 | AuditEvent.Details | audit_log table | Admin audit panel | HIGH if unescaped |
 
-### 7b. Backend sanitization
+### 8b. Backend sanitization
 
 For each field above, verify at the INPUT stage (handler or database layer):
 - HTML entities are escaped OR the field is validated against a strict pattern
@@ -578,22 +644,22 @@ For each field above, verify at the INPUT stage (handler or database layer):
 
 Recommended: validate with a strict regex allowlist (alphanumeric + limited punctuation) rather than trying to blocklist dangerous patterns.
 
-### 7c. Output encoding
+### 8c. Output encoding
 
 Verify API responses set `Content-Type: application/json` — JSON encoding by Go's `encoding/json` automatically escapes `<`, `>`, `&` in string values. Verify this is not overridden.
 
 ---
 
-## 8. Insecure Deserialization (OWASP A08)
+## 9. Insecure Deserialization (OWASP A08)
 
-### 8a. JSON deserialization
+### 9a. JSON deserialization
 
 Go's `encoding/json` is safe against RCE-style deserialization attacks. However, verify:
 - No `json.Unmarshal` into `interface{}` or `map[string]interface{}` with user input
 - Decoded structs use typed fields (not `json.RawMessage` passed to unsafe operations)
 - Unknown fields are ignored (default Go behavior — acceptable)
 
-### 8b. MessagePack deserialization
+### 9b. MessagePack deserialization
 
 Check `server/internal/protocol/codec.go`:
 - Frame size is bounded before reading (prevent memory exhaustion)
@@ -601,7 +667,7 @@ Check `server/internal/protocol/codec.go`:
 - String fields have length limits enforced after decode
 - Nested structures have depth limits
 
-### 8c. WebSocket message handling
+### 9c. WebSocket message handling
 
 Check `server/internal/api/wsconn.go` and relay code:
 - Message size limits enforced
@@ -610,29 +676,29 @@ Check `server/internal/api/wsconn.go` and relay code:
 
 ---
 
-## 9. Rate Limiting and DoS Protection (OWASP A05)
+## 10. Rate Limiting and DoS Protection (OWASP A05)
 
-### 9a. Authentication endpoints
+### 10a. Authentication endpoints
 
 Add rate limiting to:
 - `POST /api/v1/auth/login` — 10/min per IP, 5/min per email
 - `POST /api/v1/auth/register` — 5/hour per IP
 
-### 9b. Resource-intensive endpoints
+### 10b. Resource-intensive endpoints
 
 Add rate limiting to:
 - `GET /api/v1/audit` — 30/min per user (large query potential)
 - `POST /api/v1/sessions` — 10/min per user (creates relay sessions)
 - WebSocket upgrades — 30/min per IP
 
-### 9c. Request body size
+### 10c. Request body size
 
 Enforce maximum body sizes:
 - API endpoints: 1 MB
 - File upload endpoints: configurable (e.g., 100 MB)
 - WebSocket messages: existing frame size limits (check `MaxFrameSize`)
 
-### 9d. Pagination limits
+### 10d. Pagination limits
 
 Verify ALL list endpoints enforce:
 - Maximum `limit` parameter (e.g., 200)
@@ -641,9 +707,9 @@ Verify ALL list endpoints enforce:
 
 ---
 
-## 10. Dependency and Configuration Security (OWASP A06)
+## 11. Dependency and Configuration Security (OWASP A06)
 
-### 10a. Known vulnerabilities
+### 11a. Known vulnerabilities
 
 Run vulnerability scanners:
 
@@ -655,7 +721,7 @@ cd web && npm audit --audit-level=high
 
 Flag any HIGH or CRITICAL vulnerabilities.
 
-### 10b. Outdated dependencies
+### 11b. Outdated dependencies
 
 Check for significantly outdated dependencies:
 
@@ -665,7 +731,7 @@ cd server && go list -m -u all 2>/dev/null | grep '\[' | head -20
 
 Flag any dependency more than 2 major versions behind.
 
-### 10c. Unnecessary dependencies
+### 11c. Unnecessary dependencies
 
 Look for imported but unused packages, especially security-sensitive ones:
 - Debug or profiling packages in production code
@@ -673,9 +739,9 @@ Look for imported but unused packages, especially security-sensitive ones:
 
 ---
 
-## 11. WebSocket and Real-Time Security
+## 12. WebSocket and Real-Time Security
 
-### 11a. WebSocket authentication
+### 12a. WebSocket authentication
 
 Verify:
 - Browser-side WebSocket connections require JWT authentication
@@ -683,14 +749,14 @@ Verify:
 - Token is validated BEFORE upgrading the connection (not after)
 - Expired or invalid tokens result in connection rejection (not silent acceptance)
 
-### 11b. WebSocket origin validation
+### 12b. WebSocket origin validation
 
 Check `websocket.Accept` options:
 - `InsecureSkipVerify` should be `false` in production
 - If `true`, document why and add compensating controls (token auth)
 - NEVER allow unauthenticated WebSocket connections from any origin
 
-### 11c. Relay isolation
+### 12c. Relay isolation
 
 Verify:
 - Each relay session is isolated (one browser ↔ one agent)
@@ -700,7 +766,7 @@ Verify:
 
 ---
 
-## 12. Summary Report
+## 13. Summary Report
 
 After completing all checks, print a table:
 
@@ -710,17 +776,18 @@ After completing all checks, print a table:
 +----------+-------+-----------------------------------------------------------+--------+
 | 1 IDOR   |   0   | All endpoints verify resource ownership                   | PASS   |
 | 2 SQLi   |   0   | All queries use parameterized statements                  | PASS   |
-| 3 Input  |   0   | All inputs validated (type, format, length)               | PASS   |
-| 4 Auth   |   0   | Password policy, JWT, brute-force, enumeration            | PASS   |
-| 5 Data   |   0   | Response filtering, error sanitization, logging hygiene,  | PASS   |
+| 3 Taint  |   0   | gosec clean, source→sink traces documented per handler    | PASS   |
+| 4 Input  |   0   | All inputs validated (type, format, length)               | PASS   |
+| 5 Auth   |   0   | Password policy, JWT, brute-force, enumeration            | PASS   |
+| 6 Data   |   0   | Response filtering, error sanitization, logging hygiene,  | PASS   |
 |          |       | injection prevention, request correlation, log levels,    |        |
 |          |       | audit trail reliability, Rust agent logging standards     |        |
-| 6 Config |   0   | Headers, CORS, TLS, no debug endpoints                   | PASS   |
-| 7 XSS    |   0   | User-generated fields sanitized on input                  | PASS   |
-| 8 Deser  |   0   | Frame sizes bounded, types validated                      | PASS   |
-| 9 DoS    |   0   | Rate limiting, body size, pagination limits               | PASS   |
-| 10 Deps  |   0   | No known vulnerabilities, deps current                    | PASS   |
-| 11 WS    |   0   | Auth before upgrade, origin check, relay isolation        | PASS   |
+| 7 Config |   0   | Headers, CORS, TLS, no debug endpoints                   | PASS   |
+| 8 XSS    |   0   | User-generated fields sanitized on input                  | PASS   |
+| 9 Deser  |   0   | Frame sizes bounded, types validated                      | PASS   |
+| 10 DoS   |   0   | Rate limiting, body size, pagination limits               | PASS   |
+| 11 Deps  |   0   | No known vulnerabilities, deps current                    | PASS   |
+| 12 WS    |   0   | Auth before upgrade, origin check, relay isolation        | PASS   |
 +----------+-------+-----------------------------------------------------------+--------+
 ```
 

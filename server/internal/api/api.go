@@ -188,8 +188,9 @@ func (s *Server) routes() {
 					http.NotFound(w, r)
 					return
 				}
+				// #nosec G304 -- cleanPath is validated above to stay under s.webDir.
 				if f, err := os.Open(cleanPath); err == nil {
-					f.Close()
+					_ = f.Close()
 					fileServer.ServeHTTP(w, r)
 					return
 				}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -366,6 +367,80 @@ func TestSignAgentCSR(t *testing.T) {
 		leaf2, _ := x509.ParseCertificate(cert2DER)
 		assert.NotEqual(t, leaf1.SerialNumber, leaf2.SerialNumber)
 	})
+}
+
+// TestCertValidityPeriods pins NotBefore (skew before signing time) and
+// NotAfter (duration after signing time) on every cert kind. Without these
+// assertions, ARITHMETIC_BASE mutations on the time-constant expressions
+// (5*time.Minute, 365*24*time.Hour, 10*365*24*time.Hour) survive.
+func TestCertValidityPeriods(t *testing.T) {
+	dir := t.TempDir()
+
+	before := time.Now()
+	m, err := NewManager(dir)
+	require.NoError(t, err)
+	after := time.Now()
+
+	// assertValidity: NotBefore ≈ signTime - skew, NotAfter ≈ signTime + duration.
+	// `before`/`after` bracket the signing call so we tolerate the wall-clock
+	// drift across that window plus 1s slack.
+	assertValidity := func(t *testing.T, label string, leaf *x509.Certificate, skew, duration time.Duration) {
+		t.Helper()
+		minNB := before.Add(-skew - time.Second)
+		maxNB := after.Add(-skew + time.Second)
+		assert.Falsef(t, leaf.NotBefore.Before(minNB), "%s NotBefore=%s before earliest=%s", label, leaf.NotBefore, minNB)
+		assert.Falsef(t, leaf.NotBefore.After(maxNB), "%s NotBefore=%s after latest=%s", label, leaf.NotBefore, maxNB)
+
+		minNA := before.Add(duration - time.Second)
+		maxNA := after.Add(duration + time.Second)
+		assert.Falsef(t, leaf.NotAfter.Before(minNA), "%s NotAfter=%s before earliest=%s", label, leaf.NotAfter, minNA)
+		assert.Falsef(t, leaf.NotAfter.After(maxNA), "%s NotAfter=%s after latest=%s", label, leaf.NotAfter, maxNA)
+	}
+
+	// CA: skew=5min, duration=10y. Pinning duration kills the `10*365*24*Hour` mutants.
+	assertValidity(t, "CA", m.CACert(), 5*time.Minute, 10*365*24*time.Hour)
+
+	beforeSign := time.Now()
+	agentCert, err := m.SignAgent("device-validity", "host.local")
+	require.NoError(t, err)
+	afterSign := time.Now()
+	agentLeaf, err := x509.ParseCertificate(agentCert.Certificate[0])
+	require.NoError(t, err)
+	before, after = beforeSign, afterSign
+	assertValidity(t, "Agent", agentLeaf, 5*time.Minute, 365*24*time.Hour)
+
+	beforeSign = time.Now()
+	serverCert, err := m.SignServer()
+	require.NoError(t, err)
+	afterSign = time.Now()
+	serverLeaf, err := x509.ParseCertificate(serverCert.Certificate[0])
+	require.NoError(t, err)
+	before, after = beforeSign, afterSign
+	assertValidity(t, "Server", serverLeaf, 5*time.Minute, 365*24*time.Hour)
+
+	beforeSign = time.Now()
+	mpsCert, err := m.SignMPS()
+	require.NoError(t, err)
+	afterSign = time.Now()
+	mpsLeaf, err := x509.ParseCertificate(mpsCert.Certificate[0])
+	require.NoError(t, err)
+	before, after = beforeSign, afterSign
+	assertValidity(t, "MPS", mpsLeaf, 5*time.Minute, 365*24*time.Hour)
+
+	// SignAgentCSR path
+	csrKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	csrTmpl := &x509.CertificateRequest{Subject: pkix.Name{CommonName: "csr-validity"}}
+	csrDER, err := x509.CreateCertificateRequest(rand.Reader, csrTmpl, csrKey)
+	require.NoError(t, err)
+	beforeSign = time.Now()
+	csrCertDER, err := m.SignAgentCSR(csrDER)
+	require.NoError(t, err)
+	afterSign = time.Now()
+	csrLeaf, err := x509.ParseCertificate(csrCertDER)
+	require.NoError(t, err)
+	before, after = beforeSign, afterSign
+	assertValidity(t, "AgentCSR", csrLeaf, 5*time.Minute, 365*24*time.Hour)
 }
 
 func TestAgentTLSConfig(t *testing.T) {

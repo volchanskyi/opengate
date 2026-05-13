@@ -91,6 +91,7 @@ func (c *Codec) WriteFrame(w io.Writer, frameType byte, payload []byte) error {
 	}
 
 	header := [5]byte{frameType}
+	// #nosec G115 -- len(payload) is bounded above by MaxFrameSize (well below math.MaxUint32).
 	binary.BigEndian.PutUint32(header[1:], uint32(len(payload)))
 	if _, err := w.Write(header[:]); err != nil {
 		return err

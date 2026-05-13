@@ -399,6 +399,104 @@ mod tests {
         send_handle.await.unwrap();
     }
 
+    /// Pin `attempt < max_attempts` boundary in reconnect_with_backoff: a
+    /// single-attempt run that fails must NOT sleep before returning.
+    /// Mutating `<` to `<=` or `==` would sleep at least 1s on the last attempt,
+    /// blowing this elapsed-time budget.
+    #[tokio::test]
+    async fn reconnect_backoff_does_not_sleep_after_last_attempt() {
+        let start = std::time::Instant::now();
+        let result: Result<u32, _> =
+            reconnect_with_backoff(|| async { Err::<u32, String>("fail".to_string()) }, 1).await;
+        let elapsed = start.elapsed();
+        assert!(result.is_err());
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "single-attempt failure must return quickly (no trailing sleep), got {elapsed:?}"
+        );
+    }
+
+    /// Pin AsyncControlStream::write_all: must actually push bytes to the
+    /// underlying stream. Mutating to `Ok(())` would silently drop the write.
+    #[tokio::test]
+    async fn async_control_stream_write_all_actually_writes() {
+        let (client, mut server) = tokio::io::duplex(64);
+        let mut acs = AsyncControlStream::new(client);
+        let payload = b"hello-wire";
+        ControlStream::write_all(&mut acs, payload).await.unwrap();
+
+        let mut buf = vec![0u8; payload.len()];
+        AsyncReadExt::read_exact(&mut server, &mut buf)
+            .await
+            .unwrap();
+        assert_eq!(buf, payload, "bytes must reach the peer");
+    }
+
+    /// Pin AsyncControlStream::read_exact: must read exactly the requested
+    /// length. Mutating to `Ok(())` would leave the buffer untouched.
+    #[tokio::test]
+    async fn async_control_stream_read_exact_actually_reads() {
+        let (client, mut server) = tokio::io::duplex(64);
+        let mut acs = AsyncControlStream::new(client);
+        let writer = tokio::spawn(async move {
+            AsyncWriteExt::write_all(&mut server, b"abcdef")
+                .await
+                .unwrap();
+        });
+        let mut buf = [0u8; 6];
+        ControlStream::read_exact(&mut acs, &mut buf).await.unwrap();
+        assert_eq!(&buf, b"abcdef");
+        writer.await.unwrap();
+    }
+
+    /// Pin AsyncControlStream::read: must return the actual byte count,
+    /// not a constant. Mutating to `Ok(0)` would simulate EOF and break
+    /// callers that loop until n == 0; mutating to `Ok(1)` would lie about
+    /// the length and corrupt downstream parsing.
+    #[tokio::test]
+    async fn async_control_stream_read_returns_actual_byte_count() {
+        let (client, mut server) = tokio::io::duplex(64);
+        let mut acs = AsyncControlStream::new(client);
+        let writer = tokio::spawn(async move {
+            AsyncWriteExt::write_all(&mut server, b"three")
+                .await
+                .unwrap();
+        });
+        let mut buf = [0u8; 16];
+        let n = ControlStream::read(&mut acs, &mut buf).await.unwrap();
+        assert_eq!(n, 5, "read must report exactly 5 bytes for 'three'");
+        assert_eq!(&buf[..n], b"three");
+        writer.await.unwrap();
+    }
+
+    /// Pin `payload_len > MAX_FRAME_SIZE` in receive_control: a payload at
+    /// EXACTLY MAX_FRAME_SIZE must NOT be rejected (mutating `>` to `>=`
+    /// would reject it; `>` to `==` would only reject the exact value).
+    /// We use just-above-MAX to verify rejection still works.
+    #[tokio::test]
+    async fn receive_control_rejects_payload_above_max_frame_size() {
+        let (client, mut server) = tokio::io::duplex(8192);
+        let mut conn = AgentConnection::new(client, test_config());
+
+        // Header: type=Control, length=MAX_FRAME_SIZE+1 (no payload follows).
+        let too_big = (codec::MAX_FRAME_SIZE as u32) + 1;
+        tokio::spawn(async move {
+            AsyncWriteExt::write_all(&mut server, &[FRAME_CONTROL])
+                .await
+                .unwrap();
+            AsyncWriteExt::write_all(&mut server, &too_big.to_be_bytes())
+                .await
+                .unwrap();
+        });
+
+        match conn.receive_control().await {
+            Err(ConnectionError::Protocol(mesh_protocol::ProtocolError::FrameTooLarge {
+                ..
+            })) => {}
+            other => panic!("expected FrameTooLarge, got {:?}", other),
+        }
+    }
+
     #[tokio::test]
     async fn test_reconnect_backoff_all_failures() {
         let result: Result<u32, _> = reconnect_with_backoff(

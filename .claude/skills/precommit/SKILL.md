@@ -45,7 +45,9 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 2. `cd server && go vet ./...` — Go vet
 3. `cd web && npx eslint .` — Web ESLint
 4. `~/go/bin/actionlint` — GitHub Actions workflow lint (ALWAYS run locally, no exceptions). Runs with `shellcheck` and `pyflakes` for full parity with CI (both are installed locally).
-5. `make lint-deploy` — Deploy config validation (yamllint, terraform, tflint, compose, caddy, trivy, integration tests). Fails loudly if any tool is missing — all are required for CI parity:
+5. `make taint-go && make taint-web` — Static taint linting (gosec for Go, eslint-plugin-security + eslint-plugin-no-unsanitized for web). Surfaces source→sink data-flow issues that grep-based audits miss. CI hard-gates land in PR 9 of the structural-testing rollout; until then this is the early-warning system — every finding here predicts a future CI failure.
+6. `make dead-code` — Dead-code & unused-symbol sweep (clippy `-W dead_code`, staticcheck `U1000`, ts-prune). Findings here are a leading indicator of churn during the PR 3 baseline cleanup. Surface them locally so the cleanup PR does not balloon mid-flight.
+7. `make lint-deploy` — Deploy config validation (yamllint, terraform, tflint, compose, caddy, trivy, integration tests). Fails loudly if any tool is missing — all are required for CI parity:
    - `yamllint -c .yamllint.yml deploy/` — YAML lint on deploy configs
    - `terraform -chdir=deploy/terraform fmt -check -recursive` — Terraform format check
    - `terraform -chdir=deploy/terraform init -backend=false && terraform -chdir=deploy/terraform validate` — Terraform validation
@@ -57,67 +59,74 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 
 ## Codegen sync (must pass)
 
-6. `PATH="$HOME/go/bin:$PATH" make verify-codegen` — Verify OpenAPI generated code is in sync. This MUST actually run (not skip). If it prints "SKIP", install the tool first: `go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0`. A "SKIP" is a FAILURE — do not proceed to commit.
+8. `PATH="$HOME/go/bin:$PATH" make verify-codegen` — Verify OpenAPI generated code is in sync. This MUST actually run (not skip). If it prints "SKIP", install the tool first: `go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0`. A "SKIP" is a FAILURE — do not proceed to commit.
 
 ## Tests (all must pass)
 
-7. `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` — Go unit tests with coverage (also run `go test -race -timeout 5m ./tests/...` for integration tests)
-8. `cd agent && cargo test --workspace` — Rust tests (all crates)
-9. `cd web && npx vitest run --coverage` — Web tests with coverage
+9. `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` — Go unit tests with coverage (also run `go test -race -timeout 5m ./tests/...` for integration tests)
+10. `cd agent && cargo test --workspace` — Rust tests (all crates)
+11. `cd web && npx vitest run --coverage` — Web tests with coverage
 
 ## E2E tests (all must pass)
 
-10. `make e2e` — Playwright E2E tests (spins up docker-compose.test.yml, runs all specs, tears down). Requires Docker running.
+12. `make e2e` — Playwright E2E tests (spins up docker-compose.test.yml, runs all specs, tears down). Requires Docker running.
 
 ## Security audit (must pass)
 
-11. `cd server && govulncheck ./...` — Go vulnerability scan (mirrors CI Security Audit job). Install once with `go install golang.org/x/vuln/cmd/govulncheck@v1.1.4`. Any reported vulnerability fails the gate.
-12. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
-13. `cd agent && cargo audit` — Rust dependency vulnerability scan (mirrors CI Security Audit job). Install once with `cargo install cargo-audit@0.22.1`. Vulnerabilities fail the gate; warnings (unmaintained/unsound/yanked) are advisory.
+13. `cd server && govulncheck ./...` — Go vulnerability scan (mirrors CI Security Audit job). Install once with `go install golang.org/x/vuln/cmd/govulncheck@v1.1.4`. Any reported vulnerability fails the gate.
+14. `cd web && npm audit --audit-level=high` — npm dependency vulnerability scan
+15. `cd agent && cargo audit` — Rust dependency vulnerability scan (mirrors CI Security Audit job). Install once with `cargo install cargo-audit@0.22.1`. Vulnerabilities fail the gate; warnings (unmaintained/unsound/yanked) are advisory.
 
 ## Coverage (all must meet 80% threshold)
 
-14. **Go coverage** — Run `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` then filter and check:
+16. **Go coverage** — Run `cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...` then filter and check:
     ```
     grep -v -E '/(testutil|metrics|mps/wsman)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
     go tool cover -func=coverage-prod.out | grep total
     ```
     Total must be >= 80%.
 
-15. **Web coverage** — Run `cd web && npx vitest run --coverage` then check:
+17. **Web coverage** — Run `cd web && npx vitest run --coverage` then check:
     ```
     node -e "const s=require('./coverage/coverage-summary.json');const l=s.total.lines.pct;console.log('Web line coverage: '+l+'%');process.exit(l<80?1:0)"
     ```
     Lines must be >= 80%.
 
-16. **Rust coverage** — Run locally:
+18. **Rust coverage** — Run locally:
     ```
     cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
       --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)'
     ```
     Requires `cargo-llvm-cov` and `cargo-nextest` (`cargo install cargo-llvm-cov cargo-nextest`). Must be >= 80%.
 
+## Mutation diff gate (advisory until PR 9)
+
+19. `make mutate` — Mutation testing across all three languages (cargo-mutants, gremlins, stryker). Coverage % asserts which lines executed; mutation score asserts which lines were *meaningfully* tested. A surviving mutant is a test gap with a concrete fix (write a test that kills it). Required tools: `cargo install cargo-mutants`, `go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`. Web stryker resolves via npx.
+    - **Today (pre-PR 9):** advisory — record the surviving-mutant count locally and flag any *new* survivors introduced by this commit. Do NOT block on absolute count; that gate lands in PR 9 with full-tree thresholds.
+    - **From PR 9 onwards:** full-tree thresholds enforced in CI (`mutation-testing` job, `merge-to-main.needs[]`). The local run becomes a strict mirror — any drop from baseline blocks the commit.
+
 ## SonarCloud local scan (mandatory)
 
-17. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (verified in the Prerequisites section above). The scan must include Postgres-related code paths — guaranteed by the Postgres prerequisite, which lets step 14 produce coverage that exercises `server/internal/db/postgres.go`, `server/internal/mps/`, and other Postgres-dependent packages. **If `SONAR_TOKEN` is missing, invalid, or the scanner reports an authentication failure, FAIL the precommit and alert the user — do NOT skip.** A missing token usually means `.env` was not sourced or the token entry was deleted; surface the issue rather than silently bypassing the gate. **If the scanner image pull from Docker Hub fails with `unexpected EOF` while the host is on a VPN**, this is the known PMTUD blackhole — alert the user to either disconnect the VPN or lower WSL2 MTU (`sudo ip link set dev eth0 mtu 1380`) before retrying.
+20. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (verified in the Prerequisites section above). The scan must include Postgres-related code paths — guaranteed by the Postgres prerequisite, which lets step 16 produce coverage that exercises `server/internal/db/postgres.go`, `server/internal/mps/`, and other Postgres-dependent packages. **If `SONAR_TOKEN` is missing, invalid, or the scanner reports an authentication failure, FAIL the precommit and alert the user — do NOT skip.** A missing token usually means `.env` was not sourced or the token entry was deleted; surface the issue rather than silently bypassing the gate. **If the scanner image pull from Docker Hub fails with `unexpected EOF` while the host is on a VPN**, this is the known PMTUD blackhole — alert the user to either disconnect the VPN or lower WSL2 MTU (`sudo ip link set dev eth0 mtu 1380`) before retrying.
 
 ## Benchmarks (all must run without errors)
 
-18. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-19. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+21. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+22. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ## Documentation (mandatory on every commit)
 
-20. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-21. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
+23. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+24. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
 
 ## Gate Criteria
 
 Do NOT commit if:
-- Any lint fails
+- Any lint fails (steps 1–7, including new taint and dead-code surveys)
 - Any test fails (unit, integration, or E2E)
-- Go, Web, or Rust overall coverage is below 80% (steps 14-16)
-- SonarCloud quality gate fails (step 17) — including when `SONAR_TOKEN` is missing/invalid or the scanner cannot reach SonarCloud
+- Go, Web, or Rust overall coverage is below 80% (steps 16-18)
+- Mutation diff gate (step 19) — advisory pre-PR 9, blocking from PR 9 onwards
+- SonarCloud quality gate fails (step 20) — including when `SONAR_TOKEN` is missing/invalid or the scanner cannot reach SonarCloud
 - Any benchmark errors out
 - Any security audit fails (any govulncheck finding, or high+ severity vulnerabilities — npm or cargo)
 - Documentation is stale

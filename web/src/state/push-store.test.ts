@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { usePushStore } from './push-store';
 
 const mockGet = vi.fn();
@@ -71,5 +71,80 @@ describe('push store', () => {
       body: { endpoint: 'https://push.example.com/sub' },
     });
     expect(usePushStore.getState().isSubscribed).toBe(false);
+  });
+
+  it('unsubscribe leaves isSubscribed alone on error', async () => {
+    usePushStore.setState({ isSubscribed: true });
+    mockDelete.mockResolvedValueOnce({ error: { error: 'forbidden' } });
+
+    await usePushStore.getState().unsubscribe('https://push.example.com/sub');
+
+    // Kills `if (res.ok)` → `if (true)` mutant on the unsubscribe branch.
+    expect(usePushStore.getState().isSubscribed).toBe(true);
+  });
+
+  it('initial state', () => {
+    const fresh = usePushStore.getState();
+    expect(fresh.vapidKey).toBeNull();
+    expect(fresh.isSubscribed).toBe(false);
+    expect(fresh.error).toBeNull();
+  });
+
+  describe('syncSubscriptionStatus capability gate', () => {
+    const origNavigator = globalThis.navigator;
+    const origPushManager = (globalThis as { PushManager?: unknown }).PushManager;
+
+    afterEach(() => {
+      Object.defineProperty(globalThis, 'navigator', { value: origNavigator, configurable: true });
+      if (origPushManager === undefined) {
+        delete (globalThis as { PushManager?: unknown }).PushManager;
+      } else {
+        (globalThis as { PushManager?: unknown }).PushManager = origPushManager;
+      }
+    });
+
+    it('returns early without throwing when serviceWorker missing', async () => {
+      Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true });
+      // PushManager presence does not matter — sync must short-circuit.
+      await expect(usePushStore.getState().syncSubscriptionStatus()).resolves.toBeUndefined();
+      expect(usePushStore.getState().isSubscribed).toBe(false);
+    });
+
+    it('returns early without throwing when PushManager missing', async () => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { serviceWorker: { ready: Promise.resolve({ pushManager: { getSubscription: () => null } }) } },
+        configurable: true,
+      });
+      delete (globalThis as { PushManager?: unknown }).PushManager;
+      await expect(usePushStore.getState().syncSubscriptionStatus()).resolves.toBeUndefined();
+      expect(usePushStore.getState().isSubscribed).toBe(false);
+    });
+
+    it('updates isSubscribed=true when an existing subscription is returned', async () => {
+      const fakeSub = { endpoint: 'x' };
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          serviceWorker: { ready: Promise.resolve({ pushManager: { getSubscription: async () => fakeSub } }) },
+        },
+        configurable: true,
+      });
+      (globalThis as { PushManager?: unknown }).PushManager = function () {};
+      await usePushStore.getState().syncSubscriptionStatus();
+      // Pins set({ isSubscribed: !!sub }) — kills `!sub` and `set({})` mutants.
+      expect(usePushStore.getState().isSubscribed).toBe(true);
+    });
+
+    it('updates isSubscribed=false when no subscription exists', async () => {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: {
+          serviceWorker: { ready: Promise.resolve({ pushManager: { getSubscription: async () => null } }) },
+        },
+        configurable: true,
+      });
+      (globalThis as { PushManager?: unknown }).PushManager = function () {};
+      usePushStore.setState({ isSubscribed: true });
+      await usePushStore.getState().syncSubscriptionStatus();
+      expect(usePushStore.getState().isSubscribed).toBe(false);
+    });
   });
 });
