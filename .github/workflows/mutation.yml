@@ -129,7 +129,7 @@ jobs:
       # -- Upload artifacts (HTML reports + JSON outputs, 90d retention) ----
       - name: Upload mutation artifacts (${{ matrix.language }})
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutation-${{ matrix.language }}
           retention-days: 90
@@ -158,7 +158,7 @@ jobs:
           fetch-depth: 0  # need git log for previous commits during rotation
 
       - name: Download all matrix artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: mutation-*
