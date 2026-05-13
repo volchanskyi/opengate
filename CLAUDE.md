@@ -13,9 +13,9 @@
 **After completing any significant work**, update the relevant files:
 - Mark phases complete / update in-progress status in `phases.md`
 - Add or resolve debt items in `techdebt.md`
-- Record new architectural decisions as a new immutable file in [`docs/adr/`](docs/adr/) AND add an index row in `decisions.md`. Never edit an accepted ADR in place — supersede it with a new ADR.
+- Record new architectural decisions as a new immutable file in [`docs/adr/`](docs/adr/) AND add an index row in `decisions.md`. Never edit an accepted ADR in place — supersede it with a new ADR. Enforced by `.claude/hooks/pretooluse-write-guard.sh` (PR 2 of `claude-hooks-port-mandatory-directives`). No bypass.
 
-**All agent plans** must be created in **this repo's** `.claude/plans/` directory (i.e. `/home/ivan/opengate/.claude/plans/`), **not** the global `~/.claude/plans/`. Use a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names. If plan mode suggests a path under `~/.claude/plans/`, ignore it and use the project-local path instead. Completed plans are archived to `.claude/plans/archive/`.
+**All agent plans** must be created in **this repo's** `.claude/plans/` directory (i.e. `/home/ivan/opengate/.claude/plans/`), **not** the global `~/.claude/plans/`. Use a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names. If plan mode suggests a path under `~/.claude/plans/`, ignore it and use the project-local path instead. Completed plans are archived to `.claude/plans/archive/`. Enforced by `.claude/hooks/pretooluse-write-guard.sh` (PR 2). No bypass.
 
 **Plans vs memory** — Plans and memory serve different purposes. Never confuse them:
 - **Plans** (`.claude/plans/`) — implementation details, steps, and task breakdowns. Always a `.md` file in this directory.
@@ -30,14 +30,20 @@
 - Commit and push to `dev` only: `git push origin dev`
 - **Never commit or push directly to `main`** — `main` receives code exclusively via the automated `merge-to-main` CI job after all checks pass on `dev`
 
+Enforced by `.claude/hooks/pretooluse-git-commit-guard.sh` and `.claude/hooks/pretooluse-git-push-guard.sh` (PR 2). No bypass.
+
 ## Git Identity
 **MANDATORY** — Every commit must be authored by Ivan Volchanskyi. No co-authors, no Co-Authored-By trailers.
 - `git config user.name "Ivan Volchanskyi"`
 - `git config user.email "ivan.volchanskyi@gmail.com"`
 
+Enforced by `.claude/hooks/pretooluse-git-commit-guard.sh` (PR 2). No bypass.
+
 ## TDD Mandate
 Write failing tests FIRST. Then implement. Then refactor. No exceptions.
 Test Both Scenarios: positive cases (expected behavior) and negative cases (error handling)
+
+Enforced by `.claude/hooks/pretooluse-tdd-gate.sh` and `.claude/hooks/pretooluse-bash-source-write-guard.sh` (PR 2): the first `Write`/`Edit`/`MultiEdit` of a source file on a branch is blocked until at least one test-file change exists on that branch (committed, staged, unstaged, or untracked). `.claude/hooks/pretooluse-git-commit-guard.sh` enforces the same check as a defense-in-depth backup at commit time. Classifier: [scripts/tdd-check.sh](scripts/tdd-check.sh). No bypass.
 
 ## Rust Conventions
 - `thiserror` for library crate errors, `anyhow` for binary crates only
@@ -68,8 +74,12 @@ Test Both Scenarios: positive cases (expected behavior) and negative cases (erro
 ## Pre-Commit Checklist
 **MANDATORY** — Run `/precommit` before EVERY commit. No exceptions.
 
+Enforced by `.claude/hooks/pretooluse-git-commit-guard.sh` (PR 2) via the marker file `.claude/.markers/precommit.head` (= `git write-tree` at the time `/precommit` last passed). The hook blocks `git commit` when the marker is missing or stale. Re-staging invalidates the marker — re-run `/precommit`. No bypass.
+
 ## Post-Commit Refactoring
 **MANDATORY** — After all pre-commit checks pass, run `/refactor`. No exceptions.
+
+Enforced by `.claude/hooks/pretooluse-git-push-guard.sh` (PR 2) via the marker file `.claude/.markers/refactor.head` (= `git rev-parse HEAD` after `/refactor` finishes). The hook blocks `git push` when commits since `origin/dev` touch source files unless this marker equals HEAD. Doc-only pushes are exempt. No bypass.
 
 ## SonarCloud Workflow
 **MANDATORY** — When a SonarCloud quality-gate failure lands on `dev`, fix **all** findings in **one** commit. Never push → wait → fix-one → push-again — each round trip wastes a CI cycle and fragments git history.
@@ -93,6 +103,8 @@ Before pushing, grep the diff for patterns the project has fixed before. `git lo
 
 ### No suppression without approval
 Do **not** add `sonar.issue.ignore.multicriteria` entries, `// NOSONAR` comments, or `//nolint` escape hatches to clear the gate unless the user explicitly approves. Restructure the code so Sonar's pattern matcher sees static SQL / deduplicated literals / etc. The existing fixes in `sqlite.go` and `postgres.go` are reference patterns — copy them, don't bypass them.
+
+Enforced by `.claude/hooks/pretooluse-write-guard.sh` (PR 2): any `Write`/`Edit`/`MultiEdit` whose new content contains `NOSONAR`, `//nolint`, `nolint:`, `sonar.issue.ignore.multicriteria`, or `eslint-disable*` is blocked. No bypass — restructure the code instead.
 
 ## Commands
 - `make build` — build all components
