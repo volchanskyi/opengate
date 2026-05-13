@@ -186,6 +186,7 @@ Dashboards are provisioned as code from `deploy/grafana/provisioning/dashboards/
 | OpenGate Overview | `opengate-overview` | HTTP rate/latency, connected agents, relay sessions, MPS devices, signaling, goroutines, memory, DB size |
 | DB Performance | `opengate-db-perf` | Query rate by operation, error rate, p50/p95/p99 duration, slowest operations, DB size trend |
 | PostgreSQL | `opengate-postgres` | Postgres up, database size, active connections, uptime, TPS (commits/rollbacks), tuple operations, cache hit ratio, connections by state |
+| Mutation Testing Trend | `opengate-mutation-trend` | Per-language (Rust/Go/Web) mutation score over time, latest-score stat panels, surviving and no-coverage mutant counts. Source: Loki log lines pushed by the nightly [mutation.yml workflow](../.github/workflows/mutation.yml). Loki retains 14 days; the canonical 90-day history lives in [docs/mutation-history.jsonl](mutation-history.jsonl) |
 
 ## Alerting
 
@@ -210,6 +211,10 @@ In addition to Grafana alerting, VictoriaMetrics evaluates its own alerting rule
 | HighP95Latency | p95 request latency above threshold | Warning |
 
 **Contact points and notification policies** are configured manually via the Grafana UI (Alerting → Contact points, Alerting → Notification policies). File-based provisioning of the Telegram contact point is blocked by [Grafana bug #69950](https://github.com/grafana/grafana/issues/69950): numeric Telegram chat IDs are unmarshaled as JSON numbers instead of strings, causing Grafana to crash on startup. The provisioning files (`contact-points.yml`, `notification-policies.yml`) are intentionally left empty with comments explaining this.
+
+### Mutation-test regression alerts
+
+The nightly [`mutation.yml`](../.github/workflows/mutation.yml) workflow does not route through Grafana — it calls the Telegram Bot API directly using the same `DEPLOY_TELEGRAM_BOT_TOKEN` / `DEPLOY_TELEGRAM_CHAT_ID` secrets that Grafana uses. Triggers and thresholds are documented in [Testing.md](Testing.md#mutation-testing-trend-pr-9).
 
 ## Data Retention
 
