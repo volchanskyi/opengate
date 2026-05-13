@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778712457370,
+  "lastUpdate": 1778715211114,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12519,6 +12519,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.90691781718812,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ad35be893a660ceaccf2115603dc5306ee85f87e",
+          "message": "test(server): cover WSMAN IO surface and shrink coverage exclusions (Phase B / B3)\n\nWSMAN client's IO methods (Do, RequestPowerStateChange, GetDeviceInfo,\nGetPowerState) were previously at 0% coverage because they depend on a\nconcrete *mps.Conn that's hard to fake. The CI coverage gate carved\nmps/wsman out entirely, and so did SonarCloud — a regression in the\nWSMAN protocol could pass both gates silently. This was the\n\"SonarCloud Coverage Exclusions Need Integration Tests\" tech-debt\nitem.\n\nThis commit:\n\n- Introduces a minimal MPSConn interface in wsman/client.go and\n  switches Client.conn to it. *mps.Conn satisfies the interface\n  unchanged, so all production call sites continue to compile and run\n  without modification. The interface is a one-method seam for tests,\n  not a refactor of business logic.\n\n- Adds wsman/client_wire_test.go: an in-package wire-level harness\n  that drives Do() and the three operation methods through real bytes.\n  A fake MPSConn over net.Pipe lets the test goroutine read APF\n  ChannelData frames, accumulate the HTTP request (waiting for full\n  Content-Length bytes to avoid the headers/body deadlock), and\n  deliver the response via ch.OnData — exactly mirroring what the\n  production mps message loop does on incoming ChannelData.\n\n- Covers the scenarios listed in the Phase B plan: anonymous happy\n  path, digest auth retry, non-Digest 401 challenge rejection, 500\n  on the retried call, malformed HTTP response, OpenChannel failure,\n  RequestPowerStateChange action wiring, GetDeviceInfo field parsing\n  (and graceful handling of unparseable envelopes), GetPowerState\n  EnabledState parsing (and the non-numeric error path), and empty\n  SOAP body.\n\n- Extends digest_test.go with a non-Digest challenge rejection, a\n  malformed-pair tolerance check on parseChallenge, and randomHex\n  length/uniqueness coverage.\n\nResult: wsman package coverage rose from 49.7% to 95.0%. Per-file:\nclient.go 95.2%, operations.go 92.3%, digest.go 96.7%, xml.go 100%,\nchannel_conn.go 100% — all comfortably above the project's 80% gate.\n\nWith the IO surface now covered, the carve-outs are retired:\n\n- .github/workflows/ci.yml: remove mps/wsman from the Go-coverage\n  filter regex. Overall Go coverage rises 81.2% → 82.0% as a result.\n- sonar-project.properties: remove the three wsman/*.go entries from\n  sonar.coverage.exclusions.\n\nDocs updated:\n\n- .claude/techdebt.md notes WSMAN as the first exclusion retired\n  via this pattern; the entry stays open for the other IO-only files\n  still excluded.\n- docs/Testing.md and docs/CI-Pipeline.md drop mps/wsman from their\n  enumerated exclusion lists.",
+          "timestamp": "2026-05-13T16:31:02-07:00",
+          "tree_id": "3d11d4884816fc03544daba4b6fb92f5eaf6a9e0",
+          "url": "https://github.com/volchanskyi/opengate/commit/ad35be893a660ceaccf2115603dc5306ee85f87e"
+        },
+        "date": 1778715211061,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.118355698568795,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.515843643155353,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 758.0089214046042,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 292.76541998535254,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 28.224320955879953,
             "unit": "ns/iter"
           }
         ]
