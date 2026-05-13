@@ -86,20 +86,17 @@ Same as PR 6 for `gremlins unleash` on server. Target ≥70% mutation score.
 
 Same for `stryker run` on web. Target ≥70% mutation score (`thresholds.break: 70` configured but not yet enforced in CI until PR 9).
 
-### PR 9 — Enable hard gates in CI
+### PR 9 — Mutation testing as observability (superseded design)
 
-This is the small flip-the-switch PR. By this point the tree is clean against every new gate.
-- [.github/workflows/ci.yml](.github/workflows/ci.yml):
-  - **New job `mutation-testing`** (matrix rust/go/ts), `timeout-minutes: 30`, runs `make mutate-{rust,go,web}` with full-tree thresholds. **Added to `merge-to-main.needs[]`.**
-  - **`go-lint`**: append `gosec ./...` as a hard step (no `continue-on-error`).
-  - **`web-lint`**: no workflow change; ESLint plugins are already enforced via `eslint.config.js` from PR 5.
-  - Update [.claude/skills/precommit/SKILL.md](.claude/skills/precommit/SKILL.md) note to mark CI gates as live.
-- [Makefile](Makefile): no change (targets already exist from PR 1).
-- Verification:
-  - Push a deliberate `==`→`!=` mutation in a feature branch, observe `mutation-testing` fail and block `merge-to-main`. Revert.
-  - Push `eval(userInput)` somewhere; observe `web-lint` fail. Revert.
-  - Push a plaintext password in Go; observe `go-lint` fail via gosec. Revert.
-  - Confirm a clean push to dev passes all gates and reaches staging within baseline wall-clock + 30 min (the new mutation job's budget).
+> **Superseded.** The original "enable hard gates" design was reconsidered before implementation. Adding the mutation matrix to `merge-to-main.needs[]` would have tripled CI wall-clock from 6-8 min to 25-30 min for a leading-indicator signal that doesn't belong on the critical path. The redesigned PR 9 treats mutation score as observability data with regression alerts — not as a build gate.
+>
+> The detailed redesign lives in [`pr9-mutation-testing-as-observability.md`](pr9-mutation-testing-as-observability.md). Summary:
+>
+> - New `.github/workflows/mutation.yml` runs nightly at 03:00 UTC on a matrix `[rust, go, web]`; not wired into `merge-to-main`.
+> - Per-run canonical row appended to `docs/mutation-history.jsonl` (rolling 90-day window).
+> - Same row pushed to Loki via the existing deploy SSH tunnel + monitoring docker network; visualised in Grafana via a new "Mutation Testing Trend" dashboard.
+> - Telegram alert on regression: drop >2pp from previous successful run **OR** absolute score <70%. Workflow exits red on regression so the GitHub Actions history reflects the dip.
+> - `go-lint` gosec wiring was already absorbed into PR 4; ESLint security plugins already in PR 5. PR 9 simplifies to just the new async workflow.
 
 ## Verification (cross-cutting)
 

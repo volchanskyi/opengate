@@ -29,8 +29,11 @@
     "!src/features/remote-desktop/input-handler.ts",
     "!src/state/connection-store.ts"
   ],
-  "reporters": ["html", "clear-text", "progress"],
+  "reporters": ["html", "clear-text", "progress", "json"],
   "htmlReporter": {
     "fileName": "reports/mutation/mutation.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
   }
 }
