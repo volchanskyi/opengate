@@ -71,15 +71,19 @@ async function stubCommonRoutes(page: AuthedPage, id: string, status: "online" |
   );
 }
 
+async function stubSessionCreate(page: AuthedPage) {
+  await page.route("**/api/v1/sessions", (route: Route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    return ok(route, { token: SESSION_TOKEN, relay_url: RELAY_URL });
+  });
+}
+
 test.describe("Session terminal flow", () => {
   test("Start Session on online device opens SessionView with Terminal active", async ({
     authedPage,
   }) => {
     await stubCommonRoutes(authedPage, DEVICE_ID_ONLINE, "online");
-    await authedPage.route("**/api/v1/sessions", (route: Route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      return ok(route, { token: SESSION_TOKEN, relay_url: RELAY_URL });
-    });
+    await stubSessionCreate(authedPage);
     // Swallow the relay WebSocket — never deliver frames; the connection
     // overlay will remain visible because the transport never reaches
     // 'connected'. That's fine: this test asserts the *flow*, not state.
@@ -105,10 +109,7 @@ test.describe("Session terminal flow", () => {
     authedPage,
   }) => {
     await stubCommonRoutes(authedPage, DEVICE_ID_ONLINE, "online");
-    await authedPage.route("**/api/v1/sessions", (route: Route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      return ok(route, { token: SESSION_TOKEN, relay_url: RELAY_URL });
-    });
+    await stubSessionCreate(authedPage);
 
     let observedUrl: string | null = null;
     await authedPage.routeWebSocket(
@@ -130,10 +131,7 @@ test.describe("Session terminal flow", () => {
 
   test("Disconnect button returns to /devices", async ({ authedPage }) => {
     await stubCommonRoutes(authedPage, DEVICE_ID_ONLINE, "online");
-    await authedPage.route("**/api/v1/sessions", (route: Route) => {
-      if (route.request().method() !== "POST") return route.fallback();
-      return ok(route, { token: SESSION_TOKEN, relay_url: RELAY_URL });
-    });
+    await stubSessionCreate(authedPage);
     await authedPage.routeWebSocket(RELAY_URL, () => {
       /* no-op */
     });
