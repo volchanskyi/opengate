@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778644791377,
+  "lastUpdate": 1778693644190,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12274,6 +12274,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.85953494887878,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "3c4167435014a84bbfe6cd89e41850678466e5fb",
+          "message": "chore(hooks): foundation for porting CLAUDE.md mandatory directives to deterministic hooks (PR 1)\n\nLays the groundwork for the PR 2 hook scripts that will enforce\nCLAUDE.md MANDATORY blocks (TDD, /precommit before commit, /refactor\nbefore push, identity, dev-only branching, ADR immutability, plans-dir,\nSonarCloud suppression). Per user direction, the enforcement model has\nno bypass mechanism — settings.json edits are the only way to change it.\n\nScope of PR 1 (no behavior change yet — hooks activate in PR 2):\n\n- scripts/tdd-check.sh: shared classifier with two subcommands —\n  `is-source <path>` (Go/Rust/TS/JS, excluding *_test, *_spec, /tests/,\n  /test/, /__tests__/, /e2e/, openapi_gen.go, *_gen.go, *.pb.go) and\n  `has-test-change` (committed-on-branch + staged + unstaged + untracked\n  paths matching the test glob set, vs origin/dev merge-base with fallback\n  chain).\n- scripts/tests/tdd-check.test.sh: 24 plain-bash unit tests covering both\n  subcommands, shellcheck clean. No bats dependency.\n- .claude/conventions.md: promotes 8 project-relevant feedback memories\n  out of ~/.claude/projects/-home-ivan-opengate/memory/ into a committed\n  file (make-e2e, no-silent-skip, precommit-per-pr, zero-manual-install,\n  /docs-update-per-phase, plans-location, numbered-list editing protocol,\n  no-backup-script scope rule) so fresh agents see them.\n- .claude/.markers/.gitkeep + .gitignore entries to host the PR 2 hook\n  marker files (precommit.head, refactor.head) as local-only state.\n- CLAUDE.md: each MANDATORY block gains \"Enforced by .claude/hooks/X.sh\n  (PR 2). No bypass.\" pointers so the directive and its enforcement live\n  next to each other.\n- .claude/phases.md: Completed row recording PR 1.\n\nPlan: .claude/plans/claude-hooks-port-mandatory-directives.md.\n\n/precommit results: all gates green. Coverage Go 81.2%, Web 87.33%,\nRust 91.71%. SonarCloud quality gate PASSED. Mutation (advisory): Rust\n270 caught / 50 missed (84.4% of viable, consistent with PR 6 baseline);\ngremlins 61 killed / 0 lived / 100% efficacy; stryker completed without\nnew survivors. No source-language files changed in this PR.",
+          "timestamp": "2026-05-13T10:31:52-07:00",
+          "tree_id": "047d73d9233e8ae70eecf76b6acb4c092658941a",
+          "url": "https://github.com/volchanskyi/opengate/commit/3c4167435014a84bbfe6cd89e41850678466e5fb"
+        },
+        "date": 1778693644134,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 21.57602744491161,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.479396221019638,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 736.4611934097952,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.25239852487766,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.963858083569058,
             "unit": "ns/iter"
           }
         ]
