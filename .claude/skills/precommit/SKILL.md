@@ -25,7 +25,7 @@ All prerequisites are MANDATORY. If any is missing, FAIL the precommit run immed
 
 - **No conflicting Go install at `$HOME/go`.** Run `[ -d "$HOME/go/src/net" ] || [ -f "$HOME/go/VERSION" ] && echo CONFLICT || echo ok` — if it prints `CONFLICT`, a Go installation has been extracted into `$HOME/go`. That directory is the default `GOPATH` when `GOPATH` is unset, so the Go toolchain ends up searching stdlib in two places and `govulncheck` fails with "redeclared in this block" build errors against `$HOME/go/src/net/*.go`. Fix by removing the manual install (`rm -rf $HOME/go`), keeping a snap or apt-managed `go` binary on PATH, and ensuring `~/.bashrc` exports `GOPATH=$HOME/go-workspace` (or any path that is **not** a Go install root).
 
-- **Postgres reachable on `localhost:5432`** with `POSTGRES_TEST_URL` exported. Without this, every Postgres-dependent Go test skips silently (see [server/internal/mps/mps_test.go:28-30](../../../server/internal/mps/mps_test.go#L28-L30), [server/internal/api/store_failure_test.go:21-23](../../../server/internal/api/store_failure_test.go#L21-L23), [server/internal/api/health_handler_test.go:32-34](../../../server/internal/api/health_handler_test.go#L32-L34)), step 13 coverage falls below 80%, and the resulting `server/coverage.out` excludes Postgres code paths — so the local SonarCloud scan in step 16 cannot evaluate Postgres-related code. To start a disposable instance matching CI ([.github/workflows/ci.yml:142-156](../../../.github/workflows/ci.yml#L142-L156)):
+- **Postgres reachable on `localhost:5432`** with `POSTGRES_TEST_URL` exported. Without this, every Postgres-dependent Go test skips silently (see [server/internal/mps/mps_test.go:28-30](../../../server/internal/mps/mps_test.go#L28-L30), [server/internal/api/store_failure_test.go:21-23](../../../server/internal/api/store_failure_test.go#L21-L23), [server/internal/api/health_handler_test.go:32-34](../../../server/internal/api/health_handler_test.go#L32-L34)), the step 16 coverage gate falls below 80%, and the resulting `server/coverage.out` excludes Postgres code paths — so the local SonarCloud scan in step 19 cannot evaluate Postgres-related code. To start a disposable instance matching CI ([.github/workflows/ci.yml:142-156](../../../.github/workflows/ci.yml#L142-L156)):
   ```bash
   docker run -d --name og-precommit-pg --rm \
     -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
@@ -99,25 +99,28 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
     ```
     Requires `cargo-llvm-cov` and `cargo-nextest` (`cargo install cargo-llvm-cov cargo-nextest`). Must be >= 80%.
 
-## Mutation diff gate (advisory until PR 9)
-
-19. `make mutate` — Mutation testing across all three languages (cargo-mutants, gremlins, stryker). Coverage % asserts which lines executed; mutation score asserts which lines were *meaningfully* tested. A surviving mutant is a test gap with a concrete fix (write a test that kills it). Required tools: `cargo install cargo-mutants`, `go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`. Web stryker resolves via npx.
-    - **Today (pre-PR 9):** advisory — record the surviving-mutant count locally and flag any *new* survivors introduced by this commit. Do NOT block on absolute count; that gate lands in PR 9 with full-tree thresholds.
-    - **From PR 9 onwards:** full-tree thresholds enforced in CI (`mutation-testing` job, `merge-to-main.needs[]`). The local run becomes a strict mirror — any drop from baseline blocks the commit.
-
 ## SonarCloud local scan (mandatory)
 
-20. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (verified in the Prerequisites section above). The scan must include Postgres-related code paths — guaranteed by the Postgres prerequisite, which lets step 16 produce coverage that exercises `server/internal/db/postgres.go`, `server/internal/mps/`, and other Postgres-dependent packages. **If `SONAR_TOKEN` is missing, invalid, or the scanner reports an authentication failure, FAIL the precommit and alert the user — do NOT skip.** A missing token usually means `.env` was not sourced or the token entry was deleted; surface the issue rather than silently bypassing the gate. **If the scanner image pull from Docker Hub fails with `unexpected EOF` while the host is on a VPN**, this is the known PMTUD blackhole — alert the user to either disconnect the VPN or lower WSL2 MTU (`sudo ip link set dev eth0 mtu 1380`) before retrying.
+19. `make sonar-quick` — Run SonarCloud analysis locally via Docker. Catches code smells, bugs, security hotspots, and duplication that CI would flag. Requires Docker running and `SONAR_TOKEN` set (verified in the Prerequisites section above). The scan must include Postgres-related code paths — guaranteed by the Postgres prerequisite, which lets step 16 produce coverage that exercises `server/internal/db/postgres.go`, `server/internal/mps/`, and other Postgres-dependent packages. **If `SONAR_TOKEN` is missing, invalid, or the scanner reports an authentication failure, FAIL the precommit and alert the user — do NOT skip.** A missing token usually means `.env` was not sourced or the token entry was deleted; surface the issue rather than silently bypassing the gate. **If the scanner image pull from Docker Hub fails with `unexpected EOF` while the host is on a VPN**, this is the known PMTUD blackhole — alert the user to either disconnect the VPN or lower WSL2 MTU (`sudo ip link set dev eth0 mtu 1380`) before retrying.
 
 ## Benchmarks (all must run without errors)
 
-21. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
-22. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
+20. `cd server && go test -bench=. -benchmem -run='^$' ./internal/...` — Go benchmarks
+21. `cd agent && cargo bench -p mesh-protocol` — Rust benchmarks
 
 ## Documentation (mandatory on every commit)
 
-23. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
-24. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
+22. **`README.md`** (root) — If the commit changes anything covered by existing README sections (commands, setup, architecture, etc.), update those sections to stay accurate. Do NOT add new sections.
+23. **`/docs`** — Update the relevant pages under [`docs/`](../../../docs/) to reflect all changes. `/docs` is the canonical reference for senior engineers — it must be comprehensive, accurate, and always in sync with the codebase. Follow the link-over-paraphrase and ADR-immutability conventions in [`docs/README.md`](../../../docs/README.md). Run `/wiki-audit` if the commit touches CI, deploy configs, version pins, or anything a doc page might reference by literal value. New architectural decisions go in [`docs/adr/`](../../../docs/adr/) as a new file — never by editing an accepted ADR in place.
+
+## Mutation testing (not part of /precommit)
+
+`make mutate-{rust,go,web}` (and the umbrella `make mutate`) are **developer-only** commands. Use them when working on test-gap closure (PR 6/7/8 of the structural-testing rollout established baselines per language). They are **not** part of /precommit because:
+
+- The PR 9 design ([phases.md](../../phases.md) row "Structural Testing PR 9: Mutation testing as observability") ships mutation testing as a **nightly scheduled workflow** (`.github/workflows/mutation.yml` at 03:00 UTC, **not** in `merge-to-main.needs[]`), with Loki/Grafana trend tracking and Telegram regression alerts. The local mutation step is **not** a commit-time gate and never became one.
+- Running the full mutation tree (rust ~25 min + go ~5 min + web ~16 min ≈ 45 min) on every commit, including docs-only commits, is uneconomical and provides no signal not already captured by the nightly job.
+
+If you suspect a specific commit may regress a mutation score, run the affected language's `make mutate-<lang>` ad-hoc and inspect the Grafana `opengate-mutation-trend` dashboard for context.
 
 ## Gate Criteria
 
@@ -125,8 +128,7 @@ Do NOT commit if:
 - Any lint fails (steps 1–7, including new taint and dead-code surveys)
 - Any test fails (unit, integration, or E2E)
 - Go, Web, or Rust overall coverage is below 80% (steps 16-18)
-- Mutation diff gate (step 19) — advisory pre-PR 9, blocking from PR 9 onwards
-- SonarCloud quality gate fails (step 20) — including when `SONAR_TOKEN` is missing/invalid or the scanner cannot reach SonarCloud
+- SonarCloud quality gate fails (step 19) — including when `SONAR_TOKEN` is missing/invalid or the scanner cannot reach SonarCloud
 - Any benchmark errors out
 - Any security audit fails (any govulncheck finding, or high+ severity vulnerabilities — npm or cargo)
 - Documentation is stale
