@@ -93,9 +93,9 @@ cd web && npx vitest run
 All three languages enforce **80% minimum line coverage** both in CI and locally (via `/precommit`):
 
 ```bash
-# Go — coverage with exclusions (testutil, metrics, mps/wsman, openapi_gen)
+# Go — coverage with exclusions (testutil, metrics, openapi_gen)
 cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
-grep -v -E '/(testutil|metrics|mps/wsman)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
+grep -v -E '/(testutil|metrics)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
 go tool cover -func=coverage-prod.out | grep total
 
 # Web — Vitest v8 coverage, check summary JSON

@@ -127,7 +127,7 @@ All three language test jobs enforce an **80% minimum coverage** threshold — t
 
 | Language | Tool | Threshold | Exclusions | Output | Artifact |
 |----------|------|-----------|------------|--------|----------|
-| Go | `go test -coverprofile` | 80% line | `testutil/`, `metrics/`, `mps/wsman/`, `openapi_gen.go` | `server/coverage.out` | `go-coverage` |
+| Go | `go test -coverprofile` | 80% line | `testutil/`, `metrics/`, `openapi_gen.go` | `server/coverage.out` | `go-coverage` |
 | Rust | `cargo-llvm-cov` | 80% line | `main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/` | `agent/lcov.info` | `rust-coverage` |
 | TypeScript | `@vitest/coverage-v8` | 80% line | — | `web/coverage/lcov.info` | `web-coverage` |
 

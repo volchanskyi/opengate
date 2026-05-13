@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,16 +17,25 @@ import (
 // amtWSManPort is the default WSMAN HTTP port on AMT devices.
 const amtWSManPort = 16992
 
+// MPSConn is the minimal subset of mps.Conn the WSMAN client depends on.
+// Defining it here keeps the package decoupled from the concrete *mps.Conn
+// type so the client can be unit-tested with a fake. *mps.Conn satisfies
+// this interface; no production caller needs to change.
+type MPSConn interface {
+	OpenChannel(targetAddr string, targetPort uint16) (*mps.Channel, error)
+	NetConn() net.Conn
+}
+
 // Client sends WSMAN requests over an APF channel to an AMT device.
 type Client struct {
-	conn   *mps.Conn
+	conn   MPSConn
 	auth   DigestAuth
 	mu     sync.Mutex // one WSMAN request at a time per connection
 	logger *slog.Logger
 }
 
 // NewClient creates a WSMAN client for the given MPS connection.
-func NewClient(conn *mps.Conn, username, password string, logger *slog.Logger) *Client {
+func NewClient(conn MPSConn, username, password string, logger *slog.Logger) *Client {
 	return &Client{
 		conn:   conn,
 		auth:   DigestAuth{Username: username, Password: password},
