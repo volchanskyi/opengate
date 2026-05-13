@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778710669958,
+  "lastUpdate": 1778712457370,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12470,6 +12470,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.927610400317167,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "0b9f8457eedc338f3f414fab7f44e289e6d84038",
+          "message": "refactor(web): use Buffer.set instead of Buffer.from().copy() in file-manager spec\n\nBuffer extends Uint8Array, so the temporary Buffer.from(payload) wrapper\nis unnecessary — write payload directly into the frame envelope.",
+          "timestamp": "2026-05-13T15:45:35-07:00",
+          "tree_id": "1b13302ce7eae892ee96785914e8b4e1d3eb2686",
+          "url": "https://github.com/volchanskyi/opengate/commit/0b9f8457eedc338f3f414fab7f44e289e6d84038"
+        },
+        "date": 1778712457316,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 20.60991992256697,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.769780318477206,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 763.5180107863869,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 322.8515645967728,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.90691781718812,
             "unit": "ns/iter"
           }
         ]
