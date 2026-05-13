@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778696760306,
+  "lastUpdate": 1778710669958,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12421,6 +12421,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.962855589238387,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "8691de909063a36d62ec519b10c13701cf6165f6",
+          "message": "refactor(web): extract stubSessionCreate helper in session-terminal spec\n\nThree tests duplicated the same POST /api/v1/sessions route handler\nverbatim; consolidate into a single helper. No behavior change — all\nfour specs still pass.",
+          "timestamp": "2026-05-13T15:14:49-07:00",
+          "tree_id": "c6d65fde3da920823567f4ce17991ce21c1a792f",
+          "url": "https://github.com/volchanskyi/opengate/commit/8691de909063a36d62ec519b10c13701cf6165f6"
+        },
+        "date": 1778710669902,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.34630839827127,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.419094826712254,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 733.7683311089647,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 323.0833169886588,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.927610400317167,
             "unit": "ns/iter"
           }
         ]
