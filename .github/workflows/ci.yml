@@ -189,9 +189,10 @@ jobs:
       - name: Enforce coverage threshold
         id: coverage
         run: |
-          # Exclude test scaffolding, generated code, infrastructure exposition,
-          # and IO-only WSMAN client (covered by integration tests).
-          grep -v -E '/(testutil|metrics|mps/wsman)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
+          # Exclude test scaffolding, generated code, and infrastructure
+          # exposition. WSMAN's IO surface is now covered by in-package wire
+          # tests (Phase B / B3) and no longer needs an exclusion carve-out.
+          grep -v -E '/(testutil|metrics)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
           TOTAL=$(go tool cover -func=coverage-prod.out | grep total | awk '{print $3}' | tr -d '%')
           echo "Unit test coverage: $TOTAL%"
           go tool cover -func=coverage-prod.out

@@ -48,9 +48,10 @@ _None currently._
 
 ### SonarCloud Coverage Exclusions Need Integration Tests
 - **Files**: `sonar-project.properties`, plus all files listed in `sonar.coverage.exclusions`
-- **Issue**: Several production files are excluded from SonarCloud coverage analysis because they contain hardware-interaction, IO/transport, or bootstrap code that can't be unit-tested. Current exclusions include WSMAN protocol files (`digest.go`, `operations.go`, `client.go`), agent session/relay modules, MPS connection handling, and UI components with complex side effects.
-- **Impact**: Excluded code paths could regress without detection. Unit-testable helpers extracted from these files (e.g. `parseEnabledState`, `extractXMLField`) are at 100%, but the surrounding client methods remain at 0%.
-- **Fix**: Incrementally add integration tests, mock-based tests, or narrow the exclusion scope as testing infrastructure matures. Prioritize files with business logic over pure IO wrappers. Review exclusion list each quarter — remove entries when coverage improves.
+- **Issue**: Several production files are excluded from SonarCloud coverage analysis because they contain hardware-interaction, IO/transport, or bootstrap code that can't be unit-tested. Remaining exclusions include agent session/relay modules, MPS connection handling (`mps.go`), agentapi server, and UI components with complex side effects.
+- **Impact**: Excluded code paths could regress without detection.
+- **Progress**: Phase B / B3 (2026-05-13) retired the WSMAN carve-out: `client.go`, `operations.go`, `digest.go` are now exercised by `wsman/client_wire_test.go` and hit 85–100% per file. The pattern (extract a minimal interface for the IO dependency, fake it with `net.Pipe` for wire-level tests) is reusable for the remaining IO-only entries.
+- **Fix**: Incrementally apply the same pattern to the remaining exclusions, prioritizing files with business logic over pure IO wrappers. Review exclusion list each quarter — remove entries when coverage improves.
 - **Identified**: 2026-04-10
 
 ### Platform-Windows Stubs Are Cfg-Gated Only
