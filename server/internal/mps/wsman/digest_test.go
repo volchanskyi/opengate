@@ -73,3 +73,35 @@ func TestAuthorize(t *testing.T) {
 	assert.Contains(t, authz, `qop=auth`)
 	assert.Contains(t, authz, "response=")
 }
+
+func TestAuthorizeRejectsNonDigestChallenge(t *testing.T) {
+	da := &DigestAuth{Username: "admin", Password: "x"}
+	_, err := da.Authorize("POST", "/wsman", `Basic realm="x"`)
+	assert.Error(t, err)
+}
+
+func TestParseChallengeSkipsMalformedPair(t *testing.T) {
+	// A token without "=" must be silently skipped, not abort the parse.
+	got, err := parseChallenge(`Digest realm="r", invalidtoken, nonce="n"`)
+	require.NoError(t, err)
+	assert.Equal(t, "r", got["realm"])
+	assert.Equal(t, "n", got["nonce"])
+	_, hasInvalid := got["invalidtoken"]
+	assert.False(t, hasInvalid)
+}
+
+func TestRandomHexLength(t *testing.T) {
+	// Each byte renders as two hex chars; an 8-byte buffer must produce 16 chars.
+	assert.Len(t, randomHex(8), 16)
+	assert.Len(t, randomHex(0), 0)
+	assert.Len(t, randomHex(1), 2)
+}
+
+func TestRandomHexUnique(t *testing.T) {
+	// crypto/rand should not collide for non-trivial sizes.
+	seen := make(map[string]struct{}, 32)
+	for range 32 {
+		seen[randomHex(8)] = struct{}{}
+	}
+	assert.Len(t, seen, 32)
+}
