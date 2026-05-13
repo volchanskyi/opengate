@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778696280837,
+  "lastUpdate": 1778696760306,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12372,6 +12372,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.9717254043945,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "4fa2272423c0ae2062197448f759af858b0ad88e",
+          "message": "chore(skills): drop stale mutation gate from /precommit; archive 3 implemented plans\n\nTwo cleanups bundled (text-only, no source changes):\n\n1. /precommit SKILL.md step 19 (\"Mutation diff gate, advisory until PR 9\")\n   was stale. PR 9 shipped as nightly observability\n   (.github/workflows/mutation.yml at 03:00 UTC + Loki/Grafana trend +\n   Telegram regression alert), explicitly NOT in merge-to-main.needs[].\n   The original \"from PR 9 onwards, full-tree thresholds blocking in CI\"\n   text never came true. Running ~45 min of `make mutate` on every\n   commit (including docs-only) provides no signal not already captured\n   by the nightly job. Step 19 deleted; subsequent steps renumbered\n   20-24 → 19-23. Stale \"step 13 coverage\" / \"step 16 SonarCloud\" prose\n   in the Prerequisites section fixed to \"step 16\" / \"step 19\". Gate\n   Criteria mutation bullet removed. Added a \"Mutation testing (not\n   part of /precommit)\" subsection pointing developers at the per-\n   language `make mutate-{rust,go,web}` commands and the Grafana\n   trend dashboard for ad-hoc analysis.\n\n2. Three plan files moved to .claude/plans/archive/ since their phases\n   are all in the phases.md Completed table:\n   - claude-hooks-port-mandatory-directives.md (Claude Hooks PR 1 + 2)\n   - enhance-audit-skills-with-structural-testing.md (Structural\n     Testing PR 1–9)\n   - pr9-mutation-testing-as-observability.md (Structural Testing PR 9)\n\n   phases.md link targets updated to plans/archive/<name>.md. Four plans\n   remain in plans/: quic-stream-ownership-fix.md (deferred —\n   waiting for quic-go update), terraform-test-and-remote-state.md\n   (pending), tests-coverage-phase-b-coverage-depth.md (pending),\n   tests-coverage-phase-c-structural-hardening.md (pending).\n\n/precommit skipped per user direction since no source-language code\nchanges — markdown + file renames only.",
+          "timestamp": "2026-05-13T11:23:55-07:00",
+          "tree_id": "9b17196cb7b47cda8a94621be1ba9ed03641147b",
+          "url": "https://github.com/volchanskyi/opengate/commit/4fa2272423c0ae2062197448f759af858b0ad88e"
+        },
+        "date": 1778696760252,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.31422213297772,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.528448059228626,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 745.0513201388261,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 325.2780915000291,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.962855589238387,
             "unit": "ns/iter"
           }
         ]
