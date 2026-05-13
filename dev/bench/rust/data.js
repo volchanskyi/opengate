@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778286556617,
+  "lastUpdate": 1778644791377,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12225,6 +12225,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.268995527763327,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e03c95bf735851e408b38a6d6a62a35355583c3e",
+          "message": "test(web): close mutation-test gaps to lift score 52.8% → 71.0% (PR 8)\n\nstryker baseline (3327 mutants, 62 files, no carve-outs):\n1097 K / 110 T / 686 surv / 392 NC / 1042 errors = 52.82% total /\n63.76% covered → **70.96% total / 77.11% covered** (1244 K / 90 T /\n396 surv / 150 NC / 851 errors). Target ≥70% met across 4 iterative\ntest-and-config rounds (52.82 → 61.67 → 66.22 → 67.76 → 70.96).\n\nCarve-outs in web/stryker.config.json (analogous to PR 6 platform\nshims — code requiring browser APIs that jsdom doesn't simulate, or\ndeclarative config where mutants don't represent real bugs):\n\n  * src/main.tsx — bootstrap\n  * src/router.tsx — declarative route table; StringLiteral mutants\n    on path strings aren't real bugs\n  * src/features/terminal/use-terminal.ts — xterm hook\n  * src/features/remote-desktop/use-remote-desktop.ts — WebRTC + Worker\n  * src/features/remote-desktop/input-handler.ts — DOM event →\n    wire-protocol shim\n  * src/state/connection-store.ts — WebRTC signaling handlers\n    (handleSignalingMessage WebRTCAnswer/IceCandidate/SwitchAck\n    branches require RTCPeerConnection)\n\nignoreStatic: true (Stryker recommended; 278 module-level mutants\nwould consume ~76% of test time).\n\nTest additions / strengthening across 19 files (470 → 512 tests):\n\n  * NEW src/state/api-action.test.ts — pins loading=true/false paths\n    and initial-state literals (kills all 8 surv on apiAction).\n  * State stores admin/session/push/amt/device/file/toast — assert\n    exact set() call shapes, both branches of if (res.ok), ring-buffer\n    slice ordering, initial-state pins.\n  * Breadcrumbs — per-route href + label + parent-link assertions\n    across /sessions/:token, /users/:id, /audit/:x, /updates/:x,\n    /devices/:id.\n  * DeviceList — debounced filter case-insensitivity, OS-match arm,\n    Upgrade-All button count, success/error toast levels.\n  * DeviceCard — timeAgo boundary table at exactly 60s, 60min, 24h.\n  * Dashboard — admin vs non-admin fetchAuditEvents, slice(0,10) cap,\n    Recent Activity hidden when no events.\n  * AgentSetupPage / EnrollmentTokenForm — typed-in label/max_uses/\n    expires_in_hours, form reset on submit, expired-vs-active badge.\n  * AuditLog — limit:50/offset:0 fetch payload, filter-typing adds\n    action key, Next pagination advances by limit.\n  * SessionToolbar — per-state color class + Unknown default branch.\n  * GroupSidebar — trim newName, whitespace-only short-circuit,\n    two-click confirm-delete flow.\n  * codec — MAX_FRAME_SIZE boundary > not >=, padStart(2, '0') hex pad.\n\nAlso: add reports/ and .stryker-tmp/ to web/.gitignore.",
+          "timestamp": "2026-05-12T20:58:07-07:00",
+          "tree_id": "23c82676d470879dadbeab3d12342872e7a49677",
+          "url": "https://github.com/volchanskyi/opengate/commit/e03c95bf735851e408b38a6d6a62a35355583c3e"
+        },
+        "date": 1778644791319,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.090146578750545,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.470008109113532,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 766.2853738900028,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 296.60859471016323,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.85953494887878,
             "unit": "ns/iter"
           }
         ]
