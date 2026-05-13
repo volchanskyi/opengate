@@ -99,6 +99,25 @@ describe('decodeFrame', () => {
     expect(() => decodeFrame(data)).toThrow(/frame too large/);
   });
 
+  it('accepts a header that declares exactly MAX_FRAME_SIZE bytes', () => {
+    // Boundary: the limit is `length > MAX_FRAME_SIZE`, so length === MAX_FRAME_SIZE
+    // must NOT throw "frame too large". Constructing the full payload would
+    // allocate ~10MB; instead we let it fail later with "incomplete frame:"
+    // — that proves the size check accepted the boundary.
+    const data = new Uint8Array(5);
+    data[0] = 0x01;
+    const view = new DataView(data.buffer);
+    view.setUint32(1, MAX_FRAME_SIZE, false);
+    // Should NOT throw "frame too large" — kills the `>` → `>=` boundary mutant.
+    expect(() => decodeFrame(data)).toThrow(/incomplete frame/);
+  });
+
+  it('error message on unknown frame type is hex-padded with leading zero', () => {
+    // typeByte = 0x07 → "07" via padStart(2, '0'). Mutating the pad-char to ""
+    // would yield "7" instead. Pin the exact string.
+    expect(() => decodeFrame(new Uint8Array([0x07]))).toThrow('unknown frame type: 0x07');
+  });
+
   it('rejects incomplete payload', () => {
     const data = new Uint8Array(5);
     data[0] = 0x01;

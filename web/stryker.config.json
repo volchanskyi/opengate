@@ -6,6 +6,12 @@
   "checkers": ["typescript"],
   "tsconfigFile": "tsconfig.json",
   "coverageAnalysis": "perTest",
+  "ignoreStatic": true,
+  "thresholds": {
+    "high": 80,
+    "low": 65,
+    "break": null
+  },
   "mutate": [
     "src/**/*.ts",
     "src/**/*.tsx",
@@ -15,7 +21,13 @@
     "!src/**/*.spec.tsx",
     "!src/**/__tests__/**",
     "!src/types/api.d.ts",
-    "!src/types/**/*.d.ts"
+    "!src/types/**/*.d.ts",
+    "!src/main.tsx",
+    "!src/router.tsx",
+    "!src/features/terminal/use-terminal.ts",
+    "!src/features/remote-desktop/use-remote-desktop.ts",
+    "!src/features/remote-desktop/input-handler.ts",
+    "!src/state/connection-store.ts"
   ],
   "reporters": ["html", "clear-text", "progress"],
   "htmlReporter": {

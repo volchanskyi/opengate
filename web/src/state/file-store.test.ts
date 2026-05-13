@@ -20,7 +20,10 @@ describe('file-store', () => {
     expect(state.isLoading).toBe(false);
   });
 
-  it('setEntries updates entries and path', () => {
+  it('setEntries updates entries and path AND clears isLoading', () => {
+    // Seed isLoading true to prove the call resets it. Kills BooleanLiteral
+    // mutant on `isLoading: false` inside setEntries.
+    useFileStore.setState({ isLoading: true });
     const { setEntries } = useFileStore.getState();
     const entries = [
       { name: 'docs', is_dir: true, size: 0, modified: 1000 },
@@ -31,6 +34,7 @@ describe('file-store', () => {
     const state = useFileStore.getState();
     expect(state.currentPath).toBe('/home');
     expect(state.entries).toEqual(entries);
+    expect(state.isLoading).toBe(false);
   });
 
   it('setDownloadProgress tracks download progress', () => {
@@ -42,11 +46,15 @@ describe('file-store', () => {
     expect(useFileStore.getState().downloads['file.txt']).toBe(1.0);
   });
 
-  it('clearDownload removes download entry', () => {
+  it('clearDownload removes only the named entry, leaving siblings intact', () => {
     const { setDownloadProgress, clearDownload } = useFileStore.getState();
     setDownloadProgress('file.txt', 0.5);
+    setDownloadProgress('other.txt', 0.9);
     clearDownload('file.txt');
+    // Pin both: target removed, sibling preserved — kills `filter(() => false)`
+    // and `filter(() => undefined)` mutants which would either keep or drop both.
     expect(useFileStore.getState().downloads['file.txt']).toBeUndefined();
+    expect(useFileStore.getState().downloads['other.txt']).toBe(0.9);
   });
 
   it('setUploadProgress tracks upload progress', () => {
@@ -55,11 +63,13 @@ describe('file-store', () => {
     expect(useFileStore.getState().uploads['upload.bin']).toBe(0.75);
   });
 
-  it('clearUpload removes upload entry', () => {
+  it('clearUpload removes only the named entry, leaving siblings intact', () => {
     const { setUploadProgress, clearUpload } = useFileStore.getState();
     setUploadProgress('upload.bin', 0.5);
+    setUploadProgress('other.bin', 0.25);
     clearUpload('upload.bin');
     expect(useFileStore.getState().uploads['upload.bin']).toBeUndefined();
+    expect(useFileStore.getState().uploads['other.bin']).toBe(0.25);
   });
 
   it('setError sets error state', () => {
