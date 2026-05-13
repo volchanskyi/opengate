@@ -41,7 +41,7 @@ function encodeControlFrame(message: object): Buffer {
   const buf = Buffer.alloc(5 + payload.length);
   buf[0] = FRAME_CONTROL;
   buf.writeUInt32BE(payload.length, 1);
-  Buffer.from(payload).copy(buf, 5);
+  buf.set(payload, 5);
   return buf;
 }
 
