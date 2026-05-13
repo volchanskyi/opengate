@@ -130,3 +130,18 @@ Do NOT commit if:
 - Any benchmark errors out
 - Any security audit fails (any govulncheck finding, or high+ severity vulnerabilities — npm or cargo)
 - Documentation is stale
+
+## Marker file (mandatory final step)
+
+After every gate above passes, run this from the repo root as the absolute last step before returning control to the user:
+
+    mkdir -p .claude/.markers
+    git write-tree > .claude/.markers/precommit.head
+
+`.claude/hooks/pretooluse-git-commit-guard.sh` (Claude Hooks PR 2) reads this file and blocks every `git commit` whose `git write-tree` does not match the marker. Re-staging any file invalidates the marker — re-run `/precommit`. **There is NO bypass** — the only way to change enforcement is editing `.claude/settings.json`.
+
+If ANY gate above failed, do NOT write the marker. The marker is the proof that the full gauntlet passed.
+
+## TDD interaction
+
+`.claude/hooks/pretooluse-tdd-gate.sh` blocks the first `Write/Edit/MultiEdit` of a source-language file on a branch with no test changes, well before `/precommit` runs. `/precommit` no longer needs an explicit TDD-presence check; the hook fired earlier. As a defensive sanity check, alert the user if `scripts/tdd-check.sh has-test-change` is false while the branch diff contains source-language changes — that indicates a hook misconfiguration, not a missed test, and the user should investigate the hook chain.

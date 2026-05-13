@@ -53,3 +53,14 @@ In addition to application code, refactor infrastructure configs under `deploy/`
 - **Monitoring** (`deploy/victoriametrics/`, `deploy/grafana/`, `deploy/loki/`, `deploy/promtail/`) — stale scrape targets, orphaned alert rules, dashboard panels referencing removed metrics
 
 Validate changes with `make lint-deploy && actionlint`.
+
+## Marker file (mandatory final step)
+
+After completing the refactor and confirming tests still pass, run from the repo root:
+
+    mkdir -p .claude/.markers
+    git rev-parse HEAD > .claude/.markers/refactor.head
+
+`.claude/hooks/pretooluse-git-push-guard.sh` (Claude Hooks PR 2) reads this file and blocks `git push` when commits since `origin/dev` touch source files unless the marker equals current HEAD. Doc-only / CI-only branches are exempted automatically (the hook checks file extensions). **There is NO bypass** — the only way to change enforcement is editing `.claude/settings.json`.
+
+If the refactor introduced a follow-up commit, re-run this step so the marker tracks the latest HEAD.
