@@ -74,4 +74,58 @@ describe('GroupSidebar', () => {
     render(<GroupSidebar />);
     expect(screen.getByText('No groups yet')).toBeInTheDocument();
   });
+
+  it('calls createGroup with trimmed name on form submit, then clears input and hides form', async () => {
+    const user = userEvent.setup();
+    const createGroupFn = vi.fn().mockResolvedValue(undefined);
+    useDeviceStore.setState({ createGroup: createGroupFn });
+
+    render(<GroupSidebar />);
+    await user.click(screen.getByText('+ New'));
+
+    const input = screen.getByPlaceholderText('Group name') as HTMLInputElement;
+    // Whitespace padding around 'New Group' — kills `newName.trim()` →
+    // `newName` (no trim) mutant.
+    await user.type(input, '  New Group  ');
+    await user.click(screen.getByText('Add'));
+
+    expect(createGroupFn).toHaveBeenCalledWith('New Group');
+    // Input is cleared — kills `setNewName('')` → `'Stryker was here!'` mutant.
+    // Form is hidden — kills `setShowForm(false)` → `setShowForm(true)` mutant.
+    expect(screen.queryByPlaceholderText('Group name')).toBeNull();
+  });
+
+  it('does NOT call createGroup when name is whitespace-only', async () => {
+    const user = userEvent.setup();
+    const createGroupFn = vi.fn();
+    useDeviceStore.setState({ createGroup: createGroupFn });
+
+    render(<GroupSidebar />);
+    await user.click(screen.getByText('+ New'));
+    const input = screen.getByPlaceholderText('Group name');
+    await user.type(input, '   ');
+    await user.click(screen.getByText('Add'));
+
+    // Kills `if (!newName.trim()) return;` → `if (false) return;` and
+    // `if (newName.trim()) return;` mutants — only whitespace must short-circuit.
+    expect(createGroupFn).not.toHaveBeenCalled();
+  });
+
+  it('first delete click shows Confirm, second click actually deletes', async () => {
+    const user = userEvent.setup();
+    const deleteGroupFn = vi.fn().mockResolvedValue(undefined);
+    useDeviceStore.setState({ deleteGroup: deleteGroupFn });
+
+    render(<GroupSidebar />);
+    const deleteButtons = screen.getAllByText('x');
+
+    // First click → Confirm shown.
+    await user.click(deleteButtons[0]!);
+    expect(screen.getByText('Confirm?')).toBeInTheDocument();
+    expect(deleteGroupFn).not.toHaveBeenCalled();
+
+    // Second click on same button → actual delete called.
+    await user.click(screen.getByText('Confirm?'));
+    expect(deleteGroupFn).toHaveBeenCalledWith('g1');
+  });
 });

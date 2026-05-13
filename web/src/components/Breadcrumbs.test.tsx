@@ -23,29 +23,122 @@ describe('Breadcrumbs', () => {
     expect(container.querySelector('nav')).toBeNull();
   });
 
-  it('renders devices breadcrumb', () => {
+  it('renders devices breadcrumb at /devices (last segment, no link)', () => {
     renderAt('/devices');
     expect(screen.getByText('Dashboard')).toBeInTheDocument();
-    expect(screen.getByText('Devices')).toBeInTheDocument();
+    // The Devices crumb is last → rendered as a span (no link).
+    const devicesText = screen.getByText('Devices');
+    expect(devicesText.tagName).toBe('SPAN');
   });
 
-  it('renders settings breadcrumb', () => {
+  it('renders settings breadcrumb at /settings (last segment, no link)', () => {
     renderAt('/settings');
-    expect(screen.getByText('Settings')).toBeInTheDocument();
+    const node = screen.getByText('Settings');
+    expect(node.tagName).toBe('SPAN');
   });
 
-  it('renders setup breadcrumb', () => {
+  it('renders setup breadcrumb at /setup', () => {
     renderAt('/setup');
     expect(screen.getByText('Add Device')).toBeInTheDocument();
   });
 
-  it('renders profile breadcrumb', () => {
+  it('renders profile breadcrumb at /profile', () => {
     renderAt('/profile');
     expect(screen.getByText('Profile')).toBeInTheDocument();
   });
 
-  it('renders audit breadcrumb', () => {
+  it('renders audit breadcrumb at /audit (last)', () => {
     renderAt('/audit');
-    expect(screen.getByText('Audit Log')).toBeInTheDocument();
+    const node = screen.getByText('Audit Log');
+    expect(node.tagName).toBe('SPAN');
+  });
+
+  // Two-segment paths exercise the !isLast branch and pin the link href.
+  it('renders /audit/foo with Audit Log linked to /audit', () => {
+    renderAt('/audit/foo');
+    const link = screen.getByText('Audit Log');
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('/audit');
+  });
+
+  it('renders /users/u1 with Users linked to /users', () => {
+    renderAt('/users/u1');
+    const link = screen.getByText('Users');
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('/users');
+  });
+
+  it('renders /updates/x with Agent Settings linked to /updates', () => {
+    renderAt('/updates/x');
+    const link = screen.getByText('Agent Settings');
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('/updates');
+  });
+
+  it('renders /sessions/abc as Session label (params.token branch)', () => {
+    // The Sessions list page is not a real route; this hits both the 'sessions'
+    // segment with a `next` (non-last) and the params.token segment.
+    const router = createMemoryRouter(
+      [{ path: 'sessions/:token', element: <Breadcrumbs /> }],
+      { initialEntries: ['/sessions/abc'] },
+    );
+    render(<RouterProvider router={router} />);
+    // 'sessions' (not last) → Sessions linked
+    const sessionsLink = screen.getByText('Sessions');
+    expect(sessionsLink.tagName).toBe('A');
+    expect(sessionsLink.getAttribute('href')).toBe('/sessions');
+    // 'abc' === params.token → Session label
+    expect(screen.getByText('Session')).toBeInTheDocument();
+  });
+
+  it('renders /sessions as last segment with Session label', () => {
+    renderAt('/sessions');
+    expect(screen.getByText('Session')).toBeInTheDocument();
+  });
+
+  it('renders /permissions with Permissions label', () => {
+    renderAt('/permissions');
+    expect(screen.getByText('Permissions')).toBeInTheDocument();
+  });
+
+  it('skips security segment and shows next-level label', () => {
+    renderAt('/security/groups');
+    // 'security' is intentionally skipped — only the next segment renders.
+    // 'groups' is not in the recognized list, so nothing else shows.
+    // Just confirm no 'security' label leaked in.
+    expect(screen.queryByText('security')).toBeNull();
+  });
+
+  it('renders empty when no recognized segments', () => {
+    const { container } = renderAt('/totally-unknown');
+    // No recognized segments → null (kills the empty-crumbs return-null path).
+    expect(container.querySelector('nav')).toBeNull();
+  });
+
+  it('renders /devices/<id> with hostname when selectedDevice is loaded', () => {
+    useDeviceStore.setState({
+      selectedDevice: { id: 'd1', group_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+    });
+    const router = createMemoryRouter(
+      [{ path: 'devices/:id', element: <Breadcrumbs /> }],
+      { initialEntries: ['/devices/d1'] },
+    );
+    render(<RouterProvider router={router} />);
+    // Devices segment is non-last → link to /devices.
+    const devicesLink = screen.getByText('Devices');
+    expect(devicesLink.tagName).toBe('A');
+    expect(devicesLink.getAttribute('href')).toBe('/devices');
+    // Device id segment shows hostname.
+    expect(screen.getByText('web-01')).toBeInTheDocument();
+  });
+
+  it('renders /devices/<id> with raw id when no selectedDevice', () => {
+    useDeviceStore.setState({ selectedDevice: null });
+    const router = createMemoryRouter(
+      [{ path: 'devices/:id', element: <Breadcrumbs /> }],
+      { initialEntries: ['/devices/raw-id'] },
+    );
+    render(<RouterProvider router={router} />);
+    expect(screen.getByText('raw-id')).toBeInTheDocument();
   });
 });

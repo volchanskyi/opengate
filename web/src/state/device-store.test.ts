@@ -33,6 +33,98 @@ describe('device store', () => {
     });
   });
 
+  // Helper: subscribe to the store across the awaited promise and capture the
+  // peak value of isLoading. Silent mutation calls (apiAction(..., false)) MUST
+  // never flip isLoading=true. This kills the BooleanLiteral `false`→`true`
+  // mutants on every apiAction silent-mode call site.
+  async function captureIsLoading(action: () => Promise<unknown>): Promise<{ peak: boolean }> {
+    let peak = false;
+    const unsub = useDeviceStore.subscribe((s) => {
+      if (s.isLoading) peak = true;
+    });
+    try {
+      await action();
+    } finally {
+      unsub();
+    }
+    return { peak };
+  }
+
+  it('silent operations never toggle isLoading', async () => {
+    // createGroup, deleteGroup, deleteDevice, updateDeviceGroup, restartAgent,
+    // fetchHardware, upgradeAgent, refreshDevice — all pass `loading: false`.
+    // Any mutant flipping that to `true` would briefly set isLoading=true.
+    mockPost.mockResolvedValue({ data: { id: 'g2', name: 'g', owner_id: 'u1', created_at: '', updated_at: '' }, error: undefined });
+    mockDelete.mockResolvedValue({ error: undefined });
+    mockPatch.mockResolvedValue({ data: { id: 'd1' }, error: undefined });
+    mockGet.mockResolvedValue({ data: { id: 'd1' }, error: undefined });
+
+    const peaks: boolean[] = [];
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().createGroup('g'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().deleteGroup('g1'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().deleteDevice('d1'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().updateDeviceGroup('d1', 'g2'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().restartAgent('d1'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().refreshDevice('d1'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().upgradeAgent('d1', '2.0', 'linux', 'amd64'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().fetchHardware('d1'))).peak);
+
+    // All silent operations must keep isLoading false throughout — kills every
+    // `false` → `true` mutant on the apiAction `loading` argument.
+    expect(peaks.every((p) => p === false)).toBe(true);
+  });
+
+  it('fetchHardware clears hardware synchronously before awaiting', async () => {
+    useDeviceStore.setState({ hardware: mockHardware });
+    mockGet.mockResolvedValueOnce({ data: mockHardware, error: undefined });
+
+    const promise = useDeviceStore.getState().fetchHardware('d1');
+    // Synchronous reset BEFORE await — kills `set({})` mutant on hardware:null.
+    expect(useDeviceStore.getState().hardware).toBeNull();
+    await promise;
+  });
+
+  it('fetchLogs adds refresh=true only when explicitly requested', async () => {
+    // No-refresh path: the query object must NOT contain `refresh`.
+    mockGet.mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
+    await useDeviceStore.getState().fetchLogs('d1', { level: 'INFO' });
+    expect(mockGet).toHaveBeenLastCalledWith('/api/v1/devices/{id}/logs', {
+      params: { path: { id: 'd1' }, query: { level: 'INFO' } },
+    });
+  });
+
+  it('fetchLogs does NOT set logs when status is 404', async () => {
+    // Kills `if (response.status === 200 && data)` → `if (true && data)` mutant.
+    mockGet.mockResolvedValueOnce({ data: { entries: [{ a: 1 }] }, response: { status: 404 } });
+    await useDeviceStore.getState().fetchLogs('d1');
+    expect(useDeviceStore.getState().logs).toBeNull();
+  });
+
+  it('fetchLogs does NOT set logs when data is missing even on 200', async () => {
+    // Kills `if (response.status === 200 && data)` → `if (response.status === 200 || data)` mutant
+    // when data=undefined.
+    mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 200 } });
+    await useDeviceStore.getState().fetchLogs('d1');
+    expect(useDeviceStore.getState().logs).toBeNull();
+    expect(useDeviceStore.getState().logsLoading).toBe(false);
+  });
+
+  it('fetchHardware retry catch block fires toast for non-Error rejections', async () => {
+    // Kills BlockStatement / StringLiteral mutants on the catch{} body of
+    // retryHardwareFetch (covers the toast literal interpolation).
+    vi.useFakeTimers();
+    mockGet
+      .mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } })
+      .mockRejectedValueOnce({ weird: 'object' });
+
+    await useDeviceStore.getState().fetchHardware('d1');
+    vi.advanceTimersByTime(2500);
+    await vi.runAllTimersAsync();
+
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it('fetchGroups populates groups', async () => {
     mockGet.mockResolvedValueOnce({
       data: [{ id: 'g1', name: 'Group 1' }],
@@ -74,7 +166,7 @@ describe('device store', () => {
     });
   });
 
-  it('createGroup appends to list', async () => {
+  it('createGroup appends to list and sends body name', async () => {
     useDeviceStore.setState({ groups: [{ id: 'g1', name: 'Existing', owner_id: 'u1', created_at: '', updated_at: '' }] });
     mockPost.mockResolvedValueOnce({
       data: { id: 'g2', name: 'New Group', owner_id: 'u1', created_at: '', updated_at: '' },
@@ -85,9 +177,20 @@ describe('device store', () => {
 
     expect(useDeviceStore.getState().groups).toHaveLength(2);
     expect(useDeviceStore.getState().groups[1]?.name).toBe('New Group');
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/groups', { body: { name: 'New Group' } });
   });
 
-  it('deleteGroup removes from list', async () => {
+  it('createGroup does NOT mutate list on error', async () => {
+    useDeviceStore.setState({ groups: [{ id: 'g1', name: 'Existing', owner_id: 'u1', created_at: '', updated_at: '' }] });
+    mockPost.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
+
+    await useDeviceStore.getState().createGroup('New Group');
+
+    // Kills `if (res.ok)` → `if (true)` mutant on createGroup.
+    expect(useDeviceStore.getState().groups).toHaveLength(1);
+  });
+
+  it('deleteGroup removes from list and clears selection if active', async () => {
     useDeviceStore.setState({
       groups: [
         { id: 'g1', name: 'A', owner_id: 'u1', created_at: '', updated_at: '' },
@@ -102,6 +205,41 @@ describe('device store', () => {
     expect(useDeviceStore.getState().groups).toHaveLength(1);
     expect(useDeviceStore.getState().groups[0]?.id).toBe('g2');
     expect(useDeviceStore.getState().selectedGroupId).toBeNull();
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/groups/{id}', {
+      params: { path: { id: 'g1' } },
+    });
+  });
+
+  it('deleteGroup keeps selection when removing a different group', async () => {
+    useDeviceStore.setState({
+      groups: [
+        { id: 'g1', name: 'A', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'B', owner_id: 'u1', created_at: '', updated_at: '' },
+      ],
+      selectedGroupId: 'g2',
+    });
+    mockDelete.mockResolvedValueOnce({ error: undefined });
+
+    await useDeviceStore.getState().deleteGroup('g1');
+
+    // Kills `selectedGroupId === id ? null : state.selectedGroupId` → `true ? null : ...` mutant.
+    expect(useDeviceStore.getState().selectedGroupId).toBe('g2');
+  });
+
+  it('deleteGroup leaves list and selection alone on error', async () => {
+    useDeviceStore.setState({
+      groups: [
+        { id: 'g1', name: 'A', owner_id: 'u1', created_at: '', updated_at: '' },
+      ],
+      selectedGroupId: 'g1',
+    });
+    mockDelete.mockResolvedValueOnce({ error: { error: 'forbidden' } });
+
+    await useDeviceStore.getState().deleteGroup('g1');
+
+    // Kills `if (res.ok)` → `if (true)` mutant on deleteGroup.
+    expect(useDeviceStore.getState().groups).toHaveLength(1);
+    expect(useDeviceStore.getState().selectedGroupId).toBe('g1');
   });
 
   it('fetchGroups error sets error state', async () => {
@@ -115,13 +253,27 @@ describe('device store', () => {
     expect(useDeviceStore.getState().error).toBe('unauthorized');
   });
 
-  it('fetchDevice populates selectedDevice', async () => {
+  it('fetchDevice populates selectedDevice and resets stale per-device fields synchronously', async () => {
+    // Seed stale state from a previously viewed device — fetchDevice must clear
+    // these synchronously before awaiting, so the mutation `set({})` (no fields)
+    // is killed.
+    useDeviceStore.setState({
+      selectedDevice: { id: 'old', group_id: 'g1', hostname: 'old', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      hardware: mockHardware,
+      logs: { entries: [], total: 0, has_more: false },
+    });
+
     mockGet.mockResolvedValueOnce({
       data: { id: 'd1', hostname: 'host1', os: 'linux', agent_version: '', status: 'online' },
       error: undefined,
     });
 
-    await useDeviceStore.getState().fetchDevice('d1');
+    const promise = useDeviceStore.getState().fetchDevice('d1');
+    // Synchronous reset BEFORE await resolves.
+    expect(useDeviceStore.getState().selectedDevice).toBeNull();
+    expect(useDeviceStore.getState().hardware).toBeNull();
+    expect(useDeviceStore.getState().logs).toBeNull();
+    await promise;
 
     expect(useDeviceStore.getState().selectedDevice?.hostname).toBe('host1');
   });
@@ -139,6 +291,23 @@ describe('device store', () => {
 
     expect(useDeviceStore.getState().devices).toHaveLength(1);
     expect(useDeviceStore.getState().devices[0]?.id).toBe('d2');
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/devices/{id}', {
+      params: { path: { id: 'd1' } },
+    });
+  });
+
+  it('deleteDevice does NOT mutate list on error', async () => {
+    useDeviceStore.setState({
+      devices: [
+        { id: 'd1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      ],
+    });
+    mockDelete.mockResolvedValueOnce({ error: { error: 'forbidden' } });
+
+    await useDeviceStore.getState().deleteDevice('d1');
+
+    // Kills `if (res.ok)` → `if (true)` mutant on deleteDevice.
+    expect(useDeviceStore.getState().devices).toHaveLength(1);
   });
 
   it('fetchLogs sets logs on 200 response', async () => {
@@ -291,20 +460,30 @@ describe('device store', () => {
     vi.useRealTimers();
   });
 
-  it('restartAgent returns true on success', async () => {
+  it('restartAgent returns true on success and posts the literal reason', async () => {
     mockPost.mockResolvedValueOnce({ data: {}, error: undefined, ok: true, response: { ok: true } });
 
     const ok = await useDeviceStore.getState().restartAgent('d1');
 
     expect(ok).toBe(true);
+    // Pin both path and the literal reason — kills StringLiteral / ObjectLiteral mutants
+    // on the body and `body: {}` mutant.
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/devices/{id}/restart', {
+      params: { path: { id: 'd1' } },
+      body: { reason: 'restart requested from web UI' },
+    });
   });
 
-  it('updateDeviceGroup returns true on success', async () => {
+  it('updateDeviceGroup returns true on success and sends body group_id', async () => {
     mockPatch.mockResolvedValueOnce({ data: {}, error: undefined });
 
     const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
 
     expect(ok).toBe(true);
+    expect(mockPatch).toHaveBeenCalledWith('/api/v1/devices/{id}', {
+      params: { path: { id: 'd1' } },
+      body: { group_id: 'g2' },
+    });
   });
 
   it('updateDeviceGroup returns false on error', async () => {

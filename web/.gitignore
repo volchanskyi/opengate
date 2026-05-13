@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Stryker mutation testing outputs
+.stryker-tmp/
+reports/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

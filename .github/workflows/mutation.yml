@@ -1,0 +1,307 @@
+name: Mutation Testing
+
+# Mutation testing as observability, not as a CI gate.
+# Plan: .claude/plans/pr9-mutation-testing-as-observability.md
+#
+# Runs nightly. Does NOT block merges or deploys.
+# On regression (drop >2pp from previous successful run OR absolute score <70%):
+#   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
+#   - Workflow exits red (audit trail)
+# All scores are appended to docs/mutation-history.jsonl (rolling 90 days) and
+# pushed to Loki for the "Mutation Testing Trend" Grafana dashboard.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # nightly 03:00 UTC (between load-test Sun 02:00 and sync-from-main daily 04:00)
+  workflow_dispatch:
+
+concurrency:
+  group: mutation-testing
+  cancel-in-progress: false
+
+# Default to read-only at the workflow level. The `publish` job overrides to
+# `contents: write` so it can commit docs/mutation-history.jsonl. Per
+# githubactions:S8233 (least-privilege workflow permissions).
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: stable
+  GO_VERSION: '1.26'
+  NODE_VERSION: '24'
+  CARGO_MUTANTS_VERSION: 27.0.0  # pin for reproducible mutation runs (latest as of PR 9 land)
+
+jobs:
+  # -----------------------------------------------------------------------------
+  # Per-language mutation runs in parallel. fail-fast: false so one language
+  # failing does not cancel the others — we want partial visibility.
+  # -----------------------------------------------------------------------------
+  mutation:
+    name: Mutation (${{ matrix.language }})
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [rust, go, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      # Only the Go job needs Postgres; the service is cheap to start on all
+      # three runners (~5s) and keeps the matrix uniform.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: opengate
+          POSTGRES_PASSWORD: opengate
+          POSTGRES_DB: opengate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U opengate -d opengate_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+
+      # -- Rust --------------------------------------------------------------
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.language == 'rust'
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.language == 'rust'
+        with:
+          workspaces: agent
+          cache-on-failure: true
+      - name: Install cargo-mutants
+        if: matrix.language == 'rust'
+        run: cargo install --locked --version "${CARGO_MUTANTS_VERSION}" cargo-mutants
+      - name: Run cargo-mutants
+        if: matrix.language == 'rust'
+        env:
+          OPENGATE_GOLDEN_DIR: ${{ github.workspace }}/testdata/golden
+        # cargo-mutants writes outcomes.json to mutants.out/ automatically.
+        # --jobs 2 fits the ubuntu-latest 2-core runner; --no-shuffle for
+        # deterministic ordering when comparing runs.
+        run: |
+          cd agent
+          cargo mutants --workspace --no-shuffle --jobs 2 || EXIT=$?
+          # cargo-mutants exits non-zero when any mutant survives. For an
+          # observability workflow that is expected; capture and continue.
+          echo "cargo-mutants exit: ${EXIT:-0}"
+
+      # -- Go ----------------------------------------------------------------
+      - uses: actions/setup-go@v6
+        if: matrix.language == 'go'
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: server/go.sum
+      - name: Install gremlins
+        if: matrix.language == 'go'
+        run: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest
+      - name: Run gremlins
+        if: matrix.language == 'go'
+        env:
+          POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+        run: |
+          cd server
+          gremlins unleash --output mutation-report.json . || EXIT=$?
+          echo "gremlins exit: ${EXIT:-0}"
+
+      # -- Web ---------------------------------------------------------------
+      - uses: actions/setup-node@v6
+        if: matrix.language == 'web'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web deps
+        if: matrix.language == 'web'
+        run: cd web && npm ci
+      - name: Run stryker
+        if: matrix.language == 'web'
+        run: |
+          cd web
+          # Stryker exits 0 even with surviving mutants when thresholds.break
+          # is null (it is). JSON reporter writes to reports/mutation/mutation.json.
+          ./node_modules/.bin/stryker run
+
+      # -- Upload artifacts (HTML reports + JSON outputs, 90d retention) ----
+      - name: Upload mutation artifacts (${{ matrix.language }})
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-${{ matrix.language }}
+          retention-days: 90
+          if-no-files-found: warn
+          path: |
+            agent/mutants.out/
+            server/mutation-report.json
+            web/reports/mutation/
+
+  # -----------------------------------------------------------------------------
+  # Publish: aggregate all three matrix outputs, append to docs/mutation-history.jsonl,
+  # push to Loki, run regression check, alert via Telegram, fail red on regression.
+  # -----------------------------------------------------------------------------
+  publish:
+    name: Publish results + alert on regression
+    needs: mutation
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    environment: staging  # required to access OCI / SSH secrets, mirrors load-test.yml
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # need git log for previous commits during rotation
+
+      - name: Download all matrix artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: mutation-*
+          merge-multiple: false
+
+      - name: Place artifacts at canonical input paths
+        run: |
+          set -euo pipefail
+          # The artifact directory layout is artifacts/mutation-<lang>/...
+          # Move each into the path the summarize script expects.
+          if [ -d "artifacts/mutation-rust/agent/mutants.out" ]; then
+            mkdir -p agent
+            mv artifacts/mutation-rust/agent/mutants.out agent/mutants.out
+          fi
+          if [ -f "artifacts/mutation-go/server/mutation-report.json" ]; then
+            mkdir -p server
+            mv artifacts/mutation-go/server/mutation-report.json server/mutation-report.json
+          fi
+          if [ -d "artifacts/mutation-web/web/reports" ]; then
+            mkdir -p web/reports
+            mv artifacts/mutation-web/web/reports/mutation web/reports/mutation
+          fi
+          echo "--- placed artifacts ---"
+          ls -la agent/mutants.out/ server/ web/reports/mutation/ 2>&1 || true
+
+      - name: Summarize + regression check (canonical row to stdout)
+        id: summarize
+        env:
+          APPEND: '1'
+          GITHUB_SHA: ${{ github.sha }}
+        # Run the summarize script with APPEND=1 to commit the row to
+        # docs/mutation-history.jsonl (after rotating to 90 days). Capture the
+        # canonical row and any REGRESSION_ALERT lines for downstream steps.
+        # Script exits 1 on regression — we capture that but do NOT fail this
+        # step yet (the alert step needs to run). The final step re-applies
+        # the exit code so the workflow goes red.
+        run: |
+          set -euo pipefail
+          OUTPUT="$(./scripts/mutation-summarize.sh 2>&1)" && REGRESSION=0 || REGRESSION=1
+          echo "$OUTPUT"
+          echo "--- end ---"
+          echo "regression=$REGRESSION" >> "$GITHUB_OUTPUT"
+          # Extract the canonical row (last JSON line that begins with `{`)
+          CANONICAL_ROW="$(echo "$OUTPUT" | grep -E '^\{' | tail -n 1)"
+          echo "$CANONICAL_ROW" > canonical-row.json
+          # Extract Telegram-friendly text from REGRESSION_ALERT: lines
+          ALERT_TEXT="$(echo "$OUTPUT" | grep '^REGRESSION_ALERT:' | sed 's/^REGRESSION_ALERT://' || true)"
+          {
+            echo "alert_text<<EOF"
+            echo "$ALERT_TEXT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Commit JSONL row to dev
+        if: >-
+          github.ref == 'refs/heads/main'
+          || github.event_name == 'workflow_dispatch'
+          || github.event_name == 'schedule'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # The summarize script already appended (APPEND=1) and rotated the file.
+          git add docs/mutation-history.jsonl
+          if git diff --cached --quiet; then
+            echo "no JSONL changes to commit"
+          else
+            git commit -m "chore(mutation): nightly score snapshot [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME:-dev}"
+          fi
+
+      - name: OCI + SSH setup
+        id: infra
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: ./.github/actions/oci-ssh-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          deploy-host: ${{ secrets.DEPLOY_HOST }}
+          run-id: ${{ github.run_id }}
+
+      - name: Push to Loki
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: ./scripts/mutation-loki-push.sh canonical-row.json
+
+      - name: OCI + SSH teardown
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        uses: ./.github/actions/oci-ssh-teardown
+        with:
+          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
+          rule-id: ${{ steps.infra.outputs.rule-id }}
+
+      - name: Write GITHUB_STEP_SUMMARY
+        run: |
+          {
+            echo "# Mutation testing run"
+            echo ""
+            echo "Commit: \`${{ github.sha }}\`"
+            echo ""
+            echo "## Canonical row"
+            echo '```json'
+            python3 -m json.tool < canonical-row.json || cat canonical-row.json
+            echo '```'
+            echo ""
+            echo "## Per-language scores"
+            echo "| Lang | Killed | Survived | NoCov | Score |"
+            echo "|---|---|---|---|---|"
+            for L in rust go web; do
+              jq -r --arg l "$L" '
+                .scores[$l] as $r
+                | "| \($l) | \($r.killed) | \($r.survived) | \($r.no_coverage) | \($r.score_pct)% |"
+              ' canonical-row.json
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Telegram alert on regression
+        if: steps.summarize.outputs.regression == '1'
+        env:
+          BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          ALERT_TEXT: ${{ steps.summarize.outputs.alert_text }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
+            echo "telegram secrets not set; skipping alert"
+            exit 0
+          fi
+          MSG="$(printf '%s\n\nRun: %s\nTrend: %s/blob/main/docs/mutation-history.jsonl' \
+            "$ALERT_TEXT" "$RUN_URL" "${{ github.server_url }}/${{ github.repository }}")"
+          curl -sS --fail --max-time 30 \
+            -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT}" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "disable_web_page_preview=true"
+
+      - name: Fail workflow red on regression
+        if: steps.summarize.outputs.regression == '1'
+        run: |
+          echo "Regression detected — see Telegram alert and run summary above."
+          exit 1

@@ -111,15 +111,47 @@ cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
 
 Coverage % asserts which lines executed; mutation score asserts which lines
 were *meaningfully* tested. Run `make mutate` to drive cargo-mutants (Rust),
-gremlins (Go), and stryker (Web). Carve-outs are in
-[agent/.cargo/mutants.toml](../agent/.cargo/mutants.toml) — currently
-exclude platform shims, the agent binary entry point, and the SELinux
-restorecon match guards in update.rs.
+gremlins (Go), and stryker (Web).
+
+**Carve-outs** (genuinely unmutateable code, analogous to platform shims):
+- Rust: [agent/.cargo/mutants.toml](../agent/.cargo/mutants.toml) — platform
+  shims, agent binary entry point, SELinux restorecon match guards.
+- Go:   [server/.gremlins.yaml](../server/.gremlins.yaml) — `openapi_gen.go`,
+  `cmd/meshserver/main.go`, `tests/loadtest/main.go`, `internal/testutil/`.
+- Web:  [web/stryker.config.json](../web/stryker.config.json) — `main.tsx`,
+  `router.tsx`, `use-terminal.ts`, `use-remote-desktop.ts`,
+  `input-handler.ts`, `state/connection-store.ts` (WebRTC paths jsdom can't
+  simulate).
 
 Rust runs need `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden` so golden file
 tests resolve fixtures inside cargo-mutants' temp tree. The `mutate-rust`
-make target sets this automatically. CI hard gates land with PR 9 of the
-structural-testing rollout.
+make target sets this automatically.
+
+### Mutation testing trend (PR 9)
+
+Mutation tests do **not** gate merges or deploys. They run **nightly** via the
+[mutation.yml workflow](../.github/workflows/mutation.yml) at 03:00 UTC and
+emit a row per run to:
+
+- [`docs/mutation-history.jsonl`](mutation-history.jsonl) — canonical
+  append-only history (rolling 90-day window). Source of truth for trend.
+- Loki — pushed via the existing deploy SSH tunnel into the monitoring
+  docker network. Visualised in Grafana under the "Mutation Testing Trend"
+  dashboard (uid `opengate-mutation-trend`).
+
+**Regression alert rules** — fired when any language regresses on either
+condition:
+- absolute score drops below **70%**, or
+- score drops more than **2 percentage points** from the previous successful
+  run.
+
+On regression the workflow goes red ❌ in the GitHub Actions history and
+sends a Telegram alert via the existing `DEPLOY_TELEGRAM_BOT_TOKEN` /
+`DEPLOY_TELEGRAM_CHAT_ID` secrets. Nothing else blocks; `merge-to-main`
+remains independent.
+
+The full design rationale is in
+[`.claude/plans/pr9-mutation-testing-as-observability.md`](../.claude/plans/pr9-mutation-testing-as-observability.md).
 
 ## Frontend Performance
 

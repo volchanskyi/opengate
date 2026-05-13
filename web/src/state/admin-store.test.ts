@@ -42,6 +42,16 @@ describe('admin store', () => {
     });
   });
 
+  it('initial state is empty arrays + idle', () => {
+    // Pin initial state literal-by-literal so a mutant flipping `isLoading: false`
+    // to `isLoading: true` (or `users: []` to `users: undefined`) is killed.
+    const fresh = useAdminStore.getState();
+    expect(fresh.users).toEqual([]);
+    expect(fresh.auditEvents).toEqual([]);
+    expect(fresh.isLoading).toBe(false);
+    expect(fresh.error).toBeNull();
+  });
+
   it('fetchUsers populates users array', async () => {
     mockGet.mockResolvedValueOnce({ data: [fakeUser], error: undefined });
 
@@ -60,7 +70,7 @@ describe('admin store', () => {
     expect(useAdminStore.getState().users).toEqual([]);
   });
 
-  it('updateUser patches and refreshes users', async () => {
+  it('updateUser patches and refreshes users on success', async () => {
     mockPatch.mockResolvedValueOnce({ data: { ...fakeUser, display_name: 'Updated' }, error: undefined });
     mockGet.mockResolvedValueOnce({ data: [{ ...fakeUser, display_name: 'Updated' }], error: undefined });
 
@@ -70,9 +80,22 @@ describe('admin store', () => {
       params: { path: { id: 'u1' } },
       body: { display_name: 'Updated' },
     });
+    // Refresh GET must be called (kills `if (res.ok)` → `if (false)` mutant).
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/users');
+    expect(useAdminStore.getState().users).toEqual([{ ...fakeUser, display_name: 'Updated' }]);
   });
 
-  it('deleteUser removes and refreshes users', async () => {
+  it('updateUser does NOT refresh users on error', async () => {
+    mockPatch.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
+
+    await useAdminStore.getState().updateUser('u1', { display_name: 'Updated' });
+
+    // The refresh path runs only on res.ok — kills `if (res.ok)` → `if (true)` mutant.
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(useAdminStore.getState().error).toBe('forbidden');
+  });
+
+  it('deleteUser removes and refreshes users on success', async () => {
     mockDelete.mockResolvedValueOnce({ error: undefined });
     mockGet.mockResolvedValueOnce({ data: [], error: undefined });
 
@@ -81,6 +104,17 @@ describe('admin store', () => {
     expect(mockDelete).toHaveBeenCalledWith('/api/v1/users/{id}', {
       params: { path: { id: 'u1' } },
     });
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/users');
+    expect(useAdminStore.getState().users).toEqual([]);
+  });
+
+  it('deleteUser does NOT refresh users on error', async () => {
+    mockDelete.mockResolvedValueOnce({ error: { error: 'forbidden' } });
+
+    await useAdminStore.getState().deleteUser('u1');
+
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(useAdminStore.getState().error).toBe('forbidden');
   });
 
   it('fetchAuditEvents populates events', async () => {
