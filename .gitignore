@@ -72,3 +72,7 @@ server/coverage*.out
 
 # Python
 __pycache__/
+
+# Hook marker files — local state only (Claude Code hooks, PR 2)
+.claude/.markers/*
+!.claude/.markers/.gitkeep
