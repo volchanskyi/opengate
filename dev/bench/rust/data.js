@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778693644190,
+  "lastUpdate": 1778696280837,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12323,6 +12323,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.963858083569058,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9c71fbebe831e976ed2b3cf13fe106508f155a38",
+          "message": "feat(hooks): activate deterministic enforcement of CLAUDE.md MANDATORY blocks (Claude Hooks PR 2)\n\nSix new hooks under .claude/hooks/ enforce every MANDATORY directive\nin CLAUDE.md without any bypass mechanism. The only way to change\nenforcement is editing .claude/settings.json — itself a tracked,\nreviewable change.\n\nHooks (all fail-closed on internal error; none honor any env var):\n\n  pretooluse-tdd-gate.sh\n    Primary TDD enforcement. PreToolUse on Write|Edit|MultiEdit.\n    Blocks the first source-file edit on a branch with no test change.\n    Source/test classification + branch-test-change lookup live in\n    scripts/tdd-check.sh from PR 1.\n\n  pretooluse-bash-source-write-guard.sh\n    PreToolUse on Bash. Catches `echo > foo.go`, `sed -i ... .rs`,\n    `tee ... .tsx` against source paths inside the repo working tree.\n    Applies the same TDD gate as the Write/Edit hook.\n\n  pretooluse-git-commit-guard.sh\n    PreToolUse on Bash. Enforces (in order, no bypass): no Co-Authored-By\n    trailer, no --no-verify, identity = Ivan Volchanskyi\n    <ivan.volchanskyi@gmail.com>, branch != main, HEAD not behind\n    origin/dev, .claude/.markers/precommit.head == git write-tree,\n    TDD backup check (refuses source-only branch diffs).\n\n  pretooluse-git-push-guard.sh\n    PreToolUse on Bash. Enforces: no push/force-push to main, HEAD not\n    behind origin/dev, .claude/.markers/refactor.head == HEAD when\n    branch commits since origin/dev touch source files. Doc-only\n    pushes exempt.\n\n  pretooluse-write-guard.sh\n    PreToolUse on Write|Edit|MultiEdit. Blocks: writes under\n    ~/.claude/plans/, edits/overwrites of existing docs/adr/ADR-N*.md\n    files (new ADR files allowed), introduction of NOSONAR, //nolint,\n    nolint:, sonar.issue.ignore.multicriteria, or eslint-disable*\n    patterns in new content.\n\n  session-start-context-load.sh\n    Runs alongside the existing session-start-fetch.sh. Injects\n    additionalContext: TL;DR mandatory rules + the enforcing hook for\n    each, In Progress / Planned / last-10-Completed rows from\n    .claude/phases.md, Critical/High items from .claude/techdebt.md,\n    summary of any prior-session blocks.\n\nShared library .claude/hooks/lib/common.sh:\n  - parse_input_fields  read stdin JSON once, export dotted paths as\n                        HOOK_* env vars (python3-backed)\n  - block / warn        write to ${TMPDIR}/claude-${UID}/${SID}/blocks.log,\n                        print to stderr, exit 2 (block) / 0 (warn)\n  - fail-closed trap    any uncaught error → exit 2\n\nSkill markers:\n  /precommit appends `git write-tree > .claude/.markers/precommit.head`\n  as the absolute final step on success. /refactor appends\n  `git rev-parse HEAD > .claude/.markers/refactor.head` after tests stay\n  green. Markers are .gitignored (introduced in PR 1).\n\n.claude/settings.json:\n  Registers all hooks under SessionStart, PreToolUse Write|Edit|MultiEdit,\n  and PreToolUse Bash. Bundled with this commit is unrelated permission-\n  allowlist accretion from previous sessions that had been hanging around\n  in the working tree.\n\nTests:\n  scripts/tests/hooks.test.sh — 48 plain-bash unit tests exercising every\n  hook (block scenarios, allow scenarios, no-bypass verification on\n  OPENGATE_HOOK_BYPASS=*). Shellcheck clean. Runs in ~10s.\n\n/precommit: all gates green. Coverage Go 81.2%, Web 87.33%, Rust 91.71%.\nSonarCloud quality gate PASSED. E2E green. Mutation testing skipped per\nPR 9 design (nightly observability, not commit-time gate) — the\n/precommit SKILL.md step 19 text is stale and should be revised in a\nfollow-up.\n\nBootstrap note: the hooks are not active in this session (settings.json\nchanges load only at session start). The first NEW Claude Code session\nin this repo will load and enforce them.\n\nPlan: .claude/plans/claude-hooks-port-mandatory-directives.md.",
+          "timestamp": "2026-05-13T11:15:43-07:00",
+          "tree_id": "84ff94ada3a759b9fb802227d94a1af7ae1f795c",
+          "url": "https://github.com/volchanskyi/opengate/commit/9c71fbebe831e976ed2b3cf13fe106508f155a38"
+        },
+        "date": 1778696280780,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.307971332199205,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.57757756015752,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 737.0550926119296,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.4327582144583,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.9717254043945,
             "unit": "ns/iter"
           }
         ]
