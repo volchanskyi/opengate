@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778752604591,
+  "lastUpdate": 1778754857730,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12666,6 +12666,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.916672285408104,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "2304df0da2c84f07d2cd31bc6743ccec8cb4d25d",
+          "message": "ci(mutation): unblock nightly run — bump versions, suppress annotations, drop env gate\n\nThe 2026-05-14 nightly run surfaced four issues that made the workflow\nunreliable as an observability signal:\n\n- Rust cargo-mutants hit the 35min job timeout (~49 of 349 mutants done).\n  Bump timeout-minutes 35→60 and --jobs 2→4 to match ubuntu-latest 4-vCPU.\n- Stryker re-invokes vitest once per mutant; vitest's github-actions\n  reporter auto-loaded on GITHUB_ACTIONS=true and appended a Vitest Test\n  Report to GITHUB_STEP_SUMMARY each time, swamping the web job summary.\n  Unset GITHUB_ACTIONS on the stryker step to disable the auto-reporter.\n- The Annotations panel filled with per-surviving-mutant warnings from\n  cargo-mutants and \"Node.js 20 deprecated\" warnings from\n  actions/upload-artifact@v4. Pass --annotations none to cargo-mutants\n  and bump artifact actions to v7/v8 (matches ci.yml / cd.yml).\n- The publish job required manual approval because environment: staging\n  enforces required_reviewers, so the nightly run sat in \"Waiting on\n  review\" indefinitely. Drop the environment; all secrets the job uses\n  (OCI_*, DEPLOY_SSH_PRIVATE_KEY, DEPLOY_HOST, and now\n  DEPLOY_TELEGRAM_BOT_TOKEN / DEPLOY_TELEGRAM_CHAT_ID promoted to\n  repo-level) are accessible without it.",
+          "timestamp": "2026-05-14T03:31:59-07:00",
+          "tree_id": "602af08c419666b1689f3fb2cbb46dd84a92d71f",
+          "url": "https://github.com/volchanskyi/opengate/commit/2304df0da2c84f07d2cd31bc6743ccec8cb4d25d"
+        },
+        "date": 1778754857676,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.24643624766214,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.565585129488536,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 741.9678339643608,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 310.68124689008147,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.927478449430932,
             "unit": "ns/iter"
           }
         ]
