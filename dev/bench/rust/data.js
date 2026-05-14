@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778715211114,
+  "lastUpdate": 1778750933833,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12568,6 +12568,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 28.224320955879953,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e7805c3ecddbd0dd3d660c0792be9187ce944c52",
+          "message": "test(server): pin Postgres-native semantics in integration suite (Phase B / B4)\n\nThe Phase 13a SQLite → PostgreSQL 17 migration (ADR-014) introduced\ndriver-specific semantics that no existing test pinned. A pgx/v5\nupgrade or pool-config change could silently regress TIMESTAMPTZ\nnormalisation, JSONB round-trip fidelity, UUID validation at the\ndatabase boundary, or pool concurrency. This commit adds focused\nintegration tests against the production tables to guard against\nthose regressions.\n\nserver/tests/integration/postgres_native_test.go covers:\n\n- TIMESTAMPTZ: inserts a non-UTC-offset instant (UTC+05:30, with\n  sub-second precision) and asserts the round-tripped time equals\n  the original UTC instant at Postgres's microsecond resolution.\n  A regression that drops the offset or stores naive timestamps\n  would shift the instant.\n\n- JSONB: round-trips device_hardware.network_interfaces with a\n  mix of unicode names (\"测试-🌐\"), empty MAC strings, empty IPv4/\n  IPv6 slices, and multi-element IPv6 lists. Compared via JSONEq\n  to catch ordering or escape regressions that reflect.DeepEqual\n  would miss.\n\n- UUID rejection: six malformed forms (empty, too short, too long,\n  non-hex, missing dashes, garbage) all surface an error at the\n  database boundary without poisoning the connection pool — proved\n  by following a failed insert with a successful SELECT 1.\n\n- UUID case normalisation: all-lowercase, all-uppercase, mixed-case,\n  and dashless forms all round-trip to the same canonical byte\n  sequence.\n\n- Concurrent writes: 32 parallel UpsertDevice goroutines all\n  complete without pool, deadlock, or constraint errors, and every\n  row is visible after wg.Wait.\n\n- Prepared-statement cache: 200 sequential UpsertDevice executes\n  complete without \"prepared statement already exists\" errors,\n  smoke-testing the database/sql + pgx pool cache reuse.\n\nThe tests run inside the existing schema-isolated harness via\ntestutil.NewTestStore, so they're picked up automatically by\nmake test, the go-integration CI job, and /precommit's integration\nstep. No production code changes.\n\nResolves the \"Postgres-native behavior\" gap (item 3) listed in\n.claude/plans/tests-coverage-phase-b-coverage-depth.md.",
+          "timestamp": "2026-05-14T02:26:48-07:00",
+          "tree_id": "c9907a38d22baaeec23b45c1c075c3f67b3bffb1",
+          "url": "https://github.com/volchanskyi/opengate/commit/e7805c3ecddbd0dd3d660c0792be9187ce944c52"
+        },
+        "date": 1778750933779,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.25696971203577,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.533733312347657,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 735.6546476098567,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.1121545618501,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.981508813195106,
             "unit": "ns/iter"
           }
         ]
