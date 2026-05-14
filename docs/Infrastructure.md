@@ -73,6 +73,16 @@ Copy [`backend.tfbackend.example`](../deploy/terraform/backend.tfbackend.example
 
 Then run `terraform init -backend-config=backend.tfbackend` once — Terraform writes the resolved backend config into `.terraform/terraform.tfstate` (gitignored).
 
+#### Required env var on every terraform invocation
+
+The AWS SDK v2 that backs Terraform's `s3` backend defaults to a flexible-checksum body that uses streaming chunked encoding for `PutObject`. OCI Object Storage's S3-compat rejects it with `501 NotImplemented: AWS chunked encoding not supported`. Set this env var on every `terraform init`/`plan`/`apply` against the remote backend:
+
+```bash
+export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+```
+
+`backend "s3" { skip_s3_checksum = true }` in [`deploy/terraform/main.tf`](../deploy/terraform/main.tf) handles response-side checksum verification; this env var handles the request side. Both are needed. The `terraform-drift` workflow ([`.github/workflows/terraform-drift.yml`](../.github/workflows/terraform-drift.yml)) sets this env var on its `init` and `plan` steps automatically.
+
 #### Migrating an existing local state (one-time)
 
 If the working copy still has `terraform.tfstate` on disk, run:

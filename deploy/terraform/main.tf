@@ -30,6 +30,11 @@ terraform {
     skip_requesting_account_id  = true
     use_path_style              = true
 
+    # AWS SDK v2 defaults to a flexible-checksum + chunked-encoding upload that
+    # OCI S3-compat rejects with `501 NotImplemented: AWS chunked encoding not
+    # supported`. Skip it.
+    skip_s3_checksum = true
+
     # `endpoints.s3` and `shared_credentials_files` are supplied at init time via
     # `terraform init -backend-config=backend.tfbackend`. See backend.tfbackend.example.
   }
