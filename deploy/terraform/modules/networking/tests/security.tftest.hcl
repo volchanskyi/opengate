@@ -11,10 +11,15 @@ variables {
 run "ssh_must_not_be_open_to_world" {
   command = plan
 
+  # Filter via `for ... if` so r.tcp_options[0] is only accessed for rules that
+  # have a tcp_options block. Terraform 1.9's expression evaluator does not
+  # short-circuit `&&`, so guarding the index inside the value expression alone
+  # is not portable; the `if` clause is the load-bearing filter.
   assert {
     condition = alltrue([
       for r in oci_core_security_list.opengate.ingress_security_rules :
-      !(length(r.tcp_options) > 0 && r.tcp_options[0].min == 22 && r.source == "0.0.0.0/0")
+      !(r.tcp_options[0].min == 22 && r.source == "0.0.0.0/0")
+      if length(r.tcp_options) > 0
     ])
     error_message = "SSH port 22 must not be open to 0.0.0.0/0 — pin to operator CIDR via var.ssh_allowed_cidr"
   }
