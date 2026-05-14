@@ -43,7 +43,10 @@ jobs:
       matrix:
         language: [rust, go, web]
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    # Rust historically dominates (~349 mutants × ~13s each on 2 cores).
+    # 60min leaves headroom over the prior 35min ceiling that timed out on
+    # the 2026-05-14 run. Go and web finish in ~25min and share the matrix.
+    timeout-minutes: 60
     services:
       # Only the Go job needs Postgres; the service is cheap to start on all
       # three runners (~5s) and keeps the matrix uniform.
@@ -81,11 +84,16 @@ jobs:
         env:
           OPENGATE_GOLDEN_DIR: ${{ github.workspace }}/testdata/golden
         # cargo-mutants writes outcomes.json to mutants.out/ automatically.
-        # --jobs 2 fits the ubuntu-latest 2-core runner; --no-shuffle for
-        # deterministic ordering when comparing runs.
+        # --jobs 4 matches the ubuntu-latest 4-vCPU public-runner spec
+        # (https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners).
+        # --no-shuffle for deterministic ordering when comparing runs.
+        # --annotations none suppresses per-mutant GitHub Actions warning
+        # annotations — surviving mutants are observability signal in the
+        # JSONL trend / Loki dashboard, not actionable line-level warnings
+        # that should clutter the Annotations panel on every nightly run.
         run: |
           cd agent
-          cargo mutants --workspace --no-shuffle --jobs 2 || EXIT=$?
+          cargo mutants --workspace --no-shuffle --jobs 4 --annotations none || EXIT=$?
           # cargo-mutants exits non-zero when any mutant survives. For an
           # observability workflow that is expected; capture and continue.
           echo "cargo-mutants exit: ${EXIT:-0}"
@@ -120,6 +128,16 @@ jobs:
         run: cd web && npm ci
       - name: Run stryker
         if: matrix.language == 'web'
+        env:
+          # Stryker re-runs the full vitest suite once per mutant. Vitest's
+          # `github-actions` reporter auto-loads when GITHUB_ACTIONS=true and
+          # appends a Vitest Test Report to GITHUB_STEP_SUMMARY on every run,
+          # so the web job's summary grows to thousands of duplicated Vitest
+          # sections (the original bug report). Unsetting GITHUB_ACTIONS for
+          # this step disables Vitest's auto-reporter; the only stryker-internal
+          # GHA detection (the CIProvider) reads GITHUB_REPOSITORY/GITHUB_REF
+          # which remain set.
+          GITHUB_ACTIONS: ''
         run: |
           cd web
           # Stryker exits 0 even with surviving mutants when thresholds.break
@@ -129,7 +147,7 @@ jobs:
       # -- Upload artifacts (HTML reports + JSON outputs, 90d retention) ----
       - name: Upload mutation artifacts (${{ matrix.language }})
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mutation-${{ matrix.language }}
           retention-days: 90
@@ -151,14 +169,27 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-    environment: staging  # required to access OCI / SSH secrets, mirrors load-test.yml
+    # NOTE: deliberately NOT using `environment: staging`. The CD workflow's
+    # staging/production environments enforce required_reviewers, which gates
+    # CD deploys on a manual approval click. Mutation testing is observability
+    # that runs nightly and must complete unattended — gating it would leave
+    # the workflow stuck "Waiting on review" until someone approves. All
+    # secrets the publish job reads (OCI_*, DEPLOY_SSH_PRIVATE_KEY, DEPLOY_HOST)
+    # already exist as repo-level secrets, so they remain accessible without
+    # the environment. The Telegram alert secrets (DEPLOY_TELEGRAM_BOT_TOKEN /
+    # DEPLOY_TELEGRAM_CHAT_ID) currently live only in the `production`
+    # environment; the alert step degrades gracefully (skips with a log line)
+    # when they are unset, so removing the environment downgrades Telegram
+    # from "alert on regression" to "no alert" until the secrets are promoted
+    # to repo-level. The workflow still exits red on regression and pushes
+    # the row to Loki / mutation-history.jsonl, so the audit trail is intact.
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0  # need git log for previous commits during rotation
 
       - name: Download all matrix artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
           pattern: mutation-*
