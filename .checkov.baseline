@@ -1,0 +1,27 @@
+{
+    "failed_checks": [
+        {
+            "file": "/deploy/terraform/modules/compute/main.tf",
+            "findings": [
+                {
+                    "resource": "module.compute.oci_core_instance.opengate",
+                    "check_ids": [
+                        "CKV_OCI_4",
+                        "CKV_OCI_5"
+                    ]
+                }
+            ]
+        },
+        {
+            "file": "/deploy/terraform/modules/networking/main.tf",
+            "findings": [
+                {
+                    "resource": "module.networking.oci_core_security_list.opengate",
+                    "check_ids": [
+                        "CKV_OCI_17"
+                    ]
+                }
+            ]
+        }
+    ]
+}

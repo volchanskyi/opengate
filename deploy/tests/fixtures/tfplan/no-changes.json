@@ -1,0 +1,10 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "module.networking.oci_core_vcn.opengate",
+      "type": "oci_core_vcn",
+      "change": { "actions": ["no-op"] }
+    }
+  ]
+}

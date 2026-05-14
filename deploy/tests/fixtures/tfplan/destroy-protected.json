@@ -1,0 +1,15 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "module.networking.oci_core_security_list.opengate",
+      "type": "oci_core_security_list",
+      "change": { "actions": ["delete"] }
+    },
+    {
+      "address": "module.compute.oci_core_instance.opengate",
+      "type": "oci_core_instance",
+      "change": { "actions": ["create"] }
+    }
+  ]
+}
