@@ -1,5 +1,6 @@
 .PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick \
-	mutate mutate-rust mutate-go mutate-web taint-go taint-web dead-code
+	mutate mutate-rust mutate-go mutate-web taint-go taint-web dead-code \
+	terraform-test terraform-drift
 
 build:
 	cd agent && cargo build --workspace
@@ -46,6 +47,15 @@ lint-deploy:
 	terraform -chdir=deploy/terraform validate
 	@command -v tflint >/dev/null 2>&1 || { echo "ERROR: tflint not found. Install from: https://github.com/terraform-linters/tflint"; exit 1; }
 	tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact
+	@# Output-sensitivity grep — cheaper and more deterministic than asserting in tftest.
+	@# instance_id and cd_nsg_id contain OCIDs consumed via GitHub Secrets — they MUST
+	@# stay marked `sensitive = true` in deploy/terraform/outputs.tf so they never appear
+	@# in plan/apply logs.
+	@for out in instance_id cd_nsg_id; do \
+	  grep -A3 "output \"$$out\"" deploy/terraform/outputs.tf | grep -q "sensitive *= *true" \
+	    || { echo "ERROR: output \"$$out\" must have sensitive = true in deploy/terraform/outputs.tf"; exit 1; }; \
+	done
+	@$(MAKE) terraform-test
 	cd deploy && $(DEPLOY_DUMMY_ENV) docker compose config --quiet
 	cd deploy && $(DEPLOY_DUMMY_ENV) STAGING_JWT_SECRET=dummy STAGING_POSTGRES_PASSWORD=dummy \
 	  docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet
@@ -58,6 +68,23 @@ lint-deploy:
 	trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/ \
 	  && trivy config --severity HIGH,CRITICAL --exit-code 1 Dockerfile
 	bash deploy/tests/validate-configs.sh
+
+# Module-invariant assertions for the Terraform config (mock_provider, no OCI creds).
+# Each submodule and the root carry their own tftest suite; the umbrella target runs
+# all three. Requires terraform >= 1.7 for `expect_failures` against variable validation.
+terraform-test:
+	terraform -chdir=deploy/terraform/modules/networking init -backend=false -input=false >/dev/null
+	terraform -chdir=deploy/terraform/modules/networking test
+	terraform -chdir=deploy/terraform/modules/compute init -backend=false -input=false >/dev/null
+	terraform -chdir=deploy/terraform/modules/compute test
+	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null
+	terraform -chdir=deploy/terraform test
+
+# Local mirror of the .github/workflows/terraform-drift.yml plan step.
+# Uses the operator's local OCI creds (terraform.tfvars + ~/.oci/terraform-credentials)
+# and prints the refresh-only diff. Exit 2 = drift detected; exit 0 = clean.
+terraform-drift:
+	terraform -chdir=deploy/terraform plan -refresh-only -detailed-exitcode
 
 fmt:
 	cd agent && cargo fmt --all

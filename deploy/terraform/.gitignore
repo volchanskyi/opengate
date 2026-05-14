@@ -9,6 +9,10 @@ terraform.tfvars
 override.tf
 override.tf.json
 
+# Backend config — contains operator-specific OCI namespace in the S3 endpoint
+# and the path to S3-compat credentials. backend.tfbackend.example is committed.
+backend.tfbackend
+
 # Plan files may contain interpolated secret values
 tfplan
 *.tfplan

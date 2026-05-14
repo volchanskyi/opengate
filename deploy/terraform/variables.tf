@@ -45,6 +45,11 @@ variable "ssh_allowed_cidr" {
   description = "CIDR block allowed for SSH access (operator IP)"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = var.ssh_allowed_cidr != "0.0.0.0/0"
+    error_message = "ssh_allowed_cidr must be a specific operator CIDR, never 0.0.0.0/0."
+  }
 }
 
 variable "instance_shape" {

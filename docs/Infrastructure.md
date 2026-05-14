@@ -41,11 +41,145 @@ The Terraform configuration provisions:
 
 ```bash
 cd deploy/terraform
-cp terraform.tfvars.example terraform.tfvars  # fill in OCI credentials
-terraform init
+cp terraform.tfvars.example terraform.tfvars     # fill in OCI credentials
+cp backend.tfbackend.example backend.tfbackend   # fill in OCI namespace
+terraform init -backend-config=backend.tfbackend
 terraform plan    # review resources
 terraform apply   # provision
 ```
+
+### State Backend
+
+State lives in an OCI Object Storage bucket (`opengate-tfstate`) accessed through the S3-compatible API, **not** on the operator's laptop. This eliminates the laptop-SPOF and gives us versioned rollback for free.
+
+#### One-time bucket and IAM setup (operator)
+
+1. Create the bucket in the same region as the rest of the infrastructure (`us-sanjose-1`):
+   - **Versioning ON** — every tfstate write keeps a prior version for rollback.
+   - **Public access OFF** — bucket is private.
+2. Create a dedicated IAM user `tf-state-writer` whose only privilege is `manage object-family` on `opengate-tfstate`. This user is **distinct** from the OCI user the deploy pipeline runs as — least privilege, blast radius confined to the state file.
+3. Generate a Customer Secret Key for that user (Identity → Users → `tf-state-writer` → Customer Secret Keys). This yields an S3-compatible access key + secret pair.
+4. Save the pair locally as an AWS-style INI at `~/.oci/terraform-credentials` (file mode 0600, gitignored by `.gitignore` line 1 of the repo root):
+   ```ini
+   [default]
+   aws_access_key_id     = <S3-compat access key>
+   aws_secret_access_key = <S3-compat secret>
+   ```
+   Add the secret key to the operator's password manager as backup — OCI does not let you retrieve it after creation.
+
+#### Operator backend config
+
+Copy [`backend.tfbackend.example`](../deploy/terraform/backend.tfbackend.example) to `backend.tfbackend` (gitignored) and substitute the OCI namespace (find it with `oci os ns get --query data --raw-output`). The endpoint becomes `https://<namespace>.compat.objectstorage.us-sanjose-1.oraclecloud.com`.
+
+Then run `terraform init -backend-config=backend.tfbackend` once — Terraform writes the resolved backend config into `.terraform/terraform.tfstate` (gitignored).
+
+#### Required env var on every terraform invocation
+
+The AWS SDK v2 that backs Terraform's `s3` backend defaults to a flexible-checksum body that uses streaming chunked encoding for `PutObject`. OCI Object Storage's S3-compat rejects it with `501 NotImplemented: AWS chunked encoding not supported`. Set this env var on every `terraform init`/`plan`/`apply` against the remote backend:
+
+```bash
+export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+```
+
+`backend "s3" { skip_s3_checksum = true }` in [`deploy/terraform/main.tf`](../deploy/terraform/main.tf) handles response-side checksum verification; this env var handles the request side. Both are needed. The `terraform-drift` workflow ([`.github/workflows/terraform-drift.yml`](../.github/workflows/terraform-drift.yml)) sets this env var on its `init` and `plan` steps automatically.
+
+#### Migrating an existing local state (one-time)
+
+If the working copy still has `terraform.tfstate` on disk, run:
+
+```bash
+cd deploy/terraform
+terraform init -backend-config=backend.tfbackend -migrate-state   # copies local → bucket
+terraform state list                                              # verify list matches pre-migration
+terraform plan                                                    # must report no resource changes
+```
+
+Then move the local `terraform.tfstate*` to an offline encrypted backup and delete from the working tree. Keep the offline copy until at least one successful `plan`/`apply` cycle against the bucket confirms it works — that is the rollback path if the bucket is misconfigured.
+
+#### Locking caveat
+
+OCI Object Storage's S3 emulation has **no DynamoDB-equivalent locking primitive**, so Terraform cannot acquire a state lock the way it would against real S3. As long as OpenGate stays single-operator and applies are infrequent, this is acceptable. **Do not** run two simultaneous `apply`s against the same state — there is no protection from interleaved writes.
+
+#### Rollback (restore a prior tfstate)
+
+Bucket versioning is the rollback mechanism. To restore an earlier version of `terraform.tfstate`:
+
+```bash
+# List all versions of the state object
+oci os object list-object-versions --bucket-name opengate-tfstate --prefix terraform.tfstate
+
+# Download the version you want
+oci os object get --bucket-name opengate-tfstate \
+  --name terraform.tfstate \
+  --version-id <version-id> \
+  --file terraform.tfstate.restore
+
+# Push it back as the new current version
+oci os object put --bucket-name opengate-tfstate \
+  --name terraform.tfstate \
+  --file terraform.tfstate.restore --force
+```
+
+Always run `terraform plan` after a restore to confirm the chosen version still matches the live infrastructure.
+
+#### Credential rotation
+
+Generate a new Customer Secret Key for `tf-state-writer`, update `~/.oci/terraform-credentials`, then delete the old key from OCI Console. No Terraform code or state changes required.
+
+### Drift detection
+
+Out-of-band changes — operator clicks in the OCI Console, `cd.yml`'s runtime NSG mutations, manual security-list edits — silently desync the tfstate from reality. [`.github/workflows/terraform-drift.yml`](../.github/workflows/terraform-drift.yml) runs nightly at 03:00 UTC, executes `terraform plan -refresh-only -detailed-exitcode` against the remote backend, and alerts on any diff. Same audit pattern as [`.github/workflows/mutation.yml`](../.github/workflows/mutation.yml).
+
+Local mirror: `make terraform-drift` (uses the operator's local OCI creds).
+
+#### What happens on drift
+
+When `plan -refresh-only` returns exit code 2, the workflow:
+
+1. Generates a canonical drift summary via [`scripts/terraform-drift-summarize.sh`](../scripts/terraform-drift-summarize.sh) (`drift_count`, per-resource `address`/`actions`/`type`).
+2. Uploads `drift.txt` (raw plan output) + `drift.json` + `drift-summary.json` as a 30-day workflow artifact.
+3. Posts the truncated plan output to Telegram via the existing `DEPLOY_TELEGRAM_BOT_TOKEN`/`DEPLOY_TELEGRAM_CHAT_ID` secrets.
+4. Pushes the summary record to Loki on the production VPS via [`scripts/terraform-drift-loki-push.sh`](../scripts/terraform-drift-loki-push.sh) (stream label `{app="opengate", source="terraform-drift", env="ci"}`), reusing the SSH+docker pattern from `scripts/mutation-loki-push.sh`.
+5. Exits red for audit-trail visibility.
+
+There is **no auto-remediation**. Drift is investigated by the operator. If the legitimate cause was an operator-side action (e.g. a console click that should become Terraform code), the resolution is to update the config and `apply`; if it was an injection by `cd.yml`, see "Known interactions" below.
+
+#### IAM (one-time, operator)
+
+The workflow authenticates as a separate read-only IAM user `tf-drift-reader` — distinct from both `tf-state-writer` (T1) and the CD-deploy user. Provision via OCI Console or CLI:
+
+1. Create group `tf-drift-readers`.
+2. Create user `tf-drift-reader`; add to the group; generate an API signing key pair (save the fingerprint and `.pem`).
+3. Policies (least privilege):
+   - `Allow group tf-drift-readers to inspect all-resources in compartment opengate`
+   - `Allow group tf-drift-readers to read object-family in bucket opengate-tfstate`
+4. Add repo-level GitHub Secrets:
+   - `OCI_DRIFT_USER_OCID` — the user OCID
+   - `OCI_DRIFT_FINGERPRINT` — the API key fingerprint
+   - `OCI_DRIFT_PRIVATE_KEY` — the API private-key PEM contents (multiline secret)
+   - `OCI_TFSTATE_NAMESPACE` — the OCI Object Storage namespace used to construct the S3 endpoint
+   - `TFSTATE_S3_ACCESS_KEY` / `TFSTATE_S3_SECRET_KEY` — the S3-compat key pair for the `tf-state-writer` user from the State Backend section (the drift workflow only needs read, but reuses the existing pair)
+
+`OCI_TENANCY_OCID`, `OCI_REGION`, `OCI_USER_OCID`, `OCI_PRIVATE_KEY`, `OCI_FINGERPRINT`, `OCI_CD_NSG_ID`, `DEPLOY_SSH_PRIVATE_KEY`, `DEPLOY_HOST` are reused from the existing CD pipeline. The drift workflow uses `tf-drift-reader` for the OCI provider during `plan` and the existing CD user only for the firewall opener that brackets the Loki push (the drift user has no NSG-write permission, by design).
+
+Quarterly: audit that the `tf-drift-readers` policy document has not been broadened.
+
+#### Known interactions
+
+`.github/workflows/cd.yml` mutates the `cd_deploy` NSG's ingress rules at deploy time for just-in-time SSH (per the [stale NSG rule cleanup commit](https://github.com/volchanskyi/opengate/commit/bd80684)). If those mutations surface as drift every night, options:
+
+- (a) Add `ignore_changes = [ingress_security_rules]` on `oci_core_network_security_group.cd_deploy` in [`deploy/terraform/modules/networking/main.tf`](../deploy/terraform/modules/networking/main.tf) — loses tfstate tracking of those rules but stops alerting.
+- (b) Split the ingress rules into separate `oci_core_network_security_group_security_rule` resources and `ignore_changes` on those — preserves NSG-level tracking.
+
+Decide after one week of soak. If the cleanup composite always restores the NSG to a clean baseline at the end of each CD run, the drift workflow may stay quiet without either option.
+
+#### Grafana
+
+The Loki stream feeds the existing monitoring stack. Recommended panels (provisioned via [`deploy/grafana/`](../deploy/grafana/) if applicable, otherwise a one-shot dashboard JSON):
+
+- **Stat**: days since last drift event.
+- **Time series**: drift events per week (rolling 90-day window).
+- **Table**: most-recent drift summary — resource address, action, run ID, timestamp.
 
 ### Cloud-Init Bootstrap
 
@@ -216,6 +350,12 @@ The following secrets should be configured in GitHub repository settings (`Setti
 | `OCI_PRIVATE_KEY` | Oracle Cloud API private key (PEM contents) |
 | `OCI_REGION` | Oracle Cloud region identifier |
 | `OCI_CD_NSG_ID` | NSG OCID for just-in-time SSH firewall rules |
+| `OCI_TFSTATE_NAMESPACE` | OCI Object Storage namespace, used to construct the S3 endpoint for the remote tfstate backend (terraform-drift workflow) |
+| `TFSTATE_S3_ACCESS_KEY` | S3-compatible access key for the `tf-state-writer` user (terraform-drift workflow reads tfstate) |
+| `TFSTATE_S3_SECRET_KEY` | S3-compatible secret key paired with `TFSTATE_S3_ACCESS_KEY` |
+| `OCI_DRIFT_USER_OCID` | OCID of the read-only `tf-drift-reader` IAM user (terraform-drift workflow) |
+| `OCI_DRIFT_FINGERPRINT` | API key fingerprint for `tf-drift-reader` |
+| `OCI_DRIFT_PRIVATE_KEY` | API private key (PEM contents) for `tf-drift-reader` |
 
 ### Best Practices
 

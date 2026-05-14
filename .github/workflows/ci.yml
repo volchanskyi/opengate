@@ -636,8 +636,12 @@ jobs:
       - run: pip install --user yamllint
       - run: yamllint -c .yamllint.yml deploy/
 
-      # Terraform format + validate
+      # Terraform format + validate. Pin to 1.9.x — `expect_failures` for
+      # variable validation in `terraform test` requires 1.7+; pinning a known
+      # working line avoids surprise breaks when HashiCorp ships 2.x.
       - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.9.x
       - name: Terraform fmt
         run: terraform -chdir=deploy/terraform fmt -check -recursive
       - name: Terraform init
@@ -649,6 +653,18 @@ jobs:
       - uses: terraform-linters/setup-tflint@v6
       - run: tflint --init --chdir=deploy/terraform
       - run: tflint --chdir=deploy/terraform --format=compact
+
+      # Module-invariant tests (mock_provider, no OCI creds). Submodules and the
+      # root each carry their own tftest suite; one umbrella target runs all three.
+      # Also runs the output-sensitivity grep check.
+      - name: Terraform test (module invariants + sensitivity grep)
+        run: make terraform-test
+      - name: Output sensitivity grep
+        run: |
+          for out in instance_id cd_nsg_id; do
+            grep -A3 "output \"$out\"" deploy/terraform/outputs.tf | grep -q "sensitive *= *true" \
+              || { echo "::error::output \"$out\" must have sensitive = true in deploy/terraform/outputs.tf"; exit 1; }
+          done
 
       # Docker Compose validation
       - name: Validate Docker Compose
