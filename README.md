@@ -91,7 +91,7 @@ docs/adr/                    Architecture Decision Records
 docs/api/                    Scalar API reference viewer
 web/                         React + TypeScript (Vite, Tailwind, Zustand)
 deploy/                      Production deployment
-├── terraform/               OCI infrastructure (VCN, subnet, compute)
+├── terraform/               OCI infrastructure (root composition + networking/ + compute/ submodules, remote tfstate in OCI Object Storage)
 ├── caddy/                   Caddyfile (reverse proxy, SPA file serving, auto-TLS)
 ├── scripts/                 CD deploy, smoke-test, and rollback scripts
 ├── docker-compose.yml       Production stack (server + web-init + Caddy)
@@ -112,7 +112,9 @@ make test-rust          # Rust workspace
 make test-web           # React / TypeScript
 make test-coverage      # Go coverage report printed to stdout
 make golden             # Regenerate golden fixtures and verify cross-language compat
-make lint-deploy        # Validate deploy configs (Terraform, Compose, Caddy, YAML)
+make lint-deploy        # Validate deploy configs (Terraform, Compose, Caddy, YAML; runs terraform-test)
+make terraform-test     # Module-invariant assertions (mock_provider, no OCI creds)
+make terraform-drift    # Local refresh-only plan against the remote backend
 make e2e                # End-to-end Playwright tests via docker-compose.test.yml
 make load-test          # k6 HTTP/WS load tests against localhost:8080
 make load-test-quic     # Go QUIC load harness (100 concurrent agents)

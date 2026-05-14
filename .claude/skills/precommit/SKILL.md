@@ -52,6 +52,8 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
    - `terraform -chdir=deploy/terraform fmt -check -recursive` — Terraform format check
    - `terraform -chdir=deploy/terraform init -backend=false && terraform -chdir=deploy/terraform validate` — Terraform validation
    - `tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact` — Terraform linting
+   - Output-sensitivity grep — verifies `instance_id` and `cd_nsg_id` outputs in [deploy/terraform/outputs.tf](../../../deploy/terraform/outputs.tf) carry `sensitive = true`
+   - `make terraform-test` — module-invariant assertions for the decomposed config: security-list shape (no SSH to world, public TCP = {80, 443, 4433}, public UDP = {443, 9090}), Always Free A1.Flex shape + sizing limits, root composition (subnet ↔ networking security list, instance ↔ networking cd_deploy NSG), and the `var.ssh_allowed_cidr != 0.0.0.0/0` validation block. Runs against a mock provider — no OCI creds required.
    - `docker compose config --quiet` (production, staging, test) — Docker Compose validation
    - `caddy fmt --diff` + `caddy validate` on both Caddyfiles — Caddyfile validation
    - `trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/` + Dockerfile — IaC security scan

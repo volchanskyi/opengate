@@ -1,0 +1,13 @@
+# Operator-local backend configuration for `terraform init -backend-config=backend.tfbackend`.
+#
+# Copy to backend.tfbackend (gitignored) and fill in:
+#   - The OCI Object Storage namespace (from `oci os ns get --query data --raw-output`)
+#   - The path to the S3-compatible credentials file for the tf-state-writer user
+#     (Customer Secret Key — distinct from the CD deploy user)
+#
+# See docs/Infrastructure.md → "State backend" for the bucket / IAM setup.
+
+endpoints = {
+  s3 = "https://<namespace>.compat.objectstorage.us-sanjose-1.oraclecloud.com"
+}
+shared_credentials_files = ["~/.oci/terraform-credentials"]

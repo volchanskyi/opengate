@@ -98,7 +98,7 @@ The CI workflow contains **26 jobs** grouped by concern:
 | **Web** | `web-lint`, `web-unit`, `web-integration` | ESLint; unit/component tests (with v8 coverage) + Vite build; integration tests |
 | **Bundle Size** | `web-bundle-size` | `size-limit` gzip size check (JS ≤250KB, CSS ≤10KB, Total ≤260KB). Runs in parallel with other web jobs. |
 | **API Docs** | `deploy-api-docs` | Deploys OpenAPI spec + Scalar viewer to gh-pages (dev push only) |
-| **Config** | `config-lint` | actionlint, yamllint, `terraform fmt/validate`, tflint, `docker compose config`, `caddy fmt/validate`, Trivy IaC scan, cross-config integration tests |
+| **Config** | `config-lint` | actionlint, yamllint, `terraform fmt/validate`, tflint, `terraform test` (module invariants), output-sensitivity grep, `docker compose config`, `caddy fmt/validate`, Trivy IaC scan, cross-config integration tests |
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
 | **Security** | `security-audit` | govulncheck, cargo audit, npm audit |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
