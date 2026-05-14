@@ -47,8 +47,13 @@ These lints mirror the CI config-lint job exactly. Every check that runs in CI M
 4. `~/go/bin/actionlint` — GitHub Actions workflow lint (ALWAYS run locally, no exceptions). Runs with `shellcheck` and `pyflakes` for full parity with CI (both are installed locally).
 5. `make taint-go && make taint-web` — Static taint linting (gosec for Go, eslint-plugin-security + eslint-plugin-no-unsanitized for web). Surfaces source→sink data-flow issues that grep-based audits miss. CI hard-gates land in PR 9 of the structural-testing rollout; until then this is the early-warning system — every finding here predicts a future CI failure.
 6. `make dead-code` — Dead-code & unused-symbol sweep (clippy `-W dead_code`, staticcheck `U1000`, ts-prune). Findings here are a leading indicator of churn during the PR 3 baseline cleanup. Surface them locally so the cleanup PR does not balloon mid-flight.
+6.1. **L2: Secrets pre-commit guard** — `gitleaks protect --staged --config .gitleaks.toml --no-banner --redact` blocks committing a staged hunk that introduces a credential-shaped value. The full-history scan `make secrets-scan` is in step 7 (via `lint-deploy`); this earlier guard is the *pre-stage* trip wire. If a finding is a legitimate test fake, allowlist its path or its regex in [`.gitleaks.toml`](../../../.gitleaks.toml) (categorical — never per-fingerprint) and re-stage.
 7. `make lint-deploy` — Deploy config validation (yamllint, terraform, tflint, compose, caddy, trivy, integration tests). Fails loudly if any tool is missing — all are required for CI parity:
    - `yamllint -c .yamllint.yml deploy/` — YAML lint on deploy configs
+   - `make secrets-scan` — gitleaks full-history scan (L2 of the IaC pyramid)
+   - `make lint-dockerfile` — hadolint Dockerfile policy (L4 of the IaC pyramid)
+   - `make iac-policy` — Checkov scan across terraform, dockerfile, docker_compose, github_actions (L4)
+   - `make iac-policy-custom` — Conftest + Rego project-specific policies (L5)
    - `terraform -chdir=deploy/terraform fmt -check -recursive` — Terraform format check
    - `terraform -chdir=deploy/terraform init -backend=false && terraform -chdir=deploy/terraform validate` — Terraform validation
    - `tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact` — Terraform linting

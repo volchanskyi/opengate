@@ -1,0 +1,43 @@
+# Checkov configuration — built-in policy scanning across four IaC surfaces.
+# Reference: https://www.checkov.io/2.Basics/CLI%20Command%20Reference.html
+#
+# Framework choices (S2 of iac-security-testing-pyramid plan):
+#   - terraform        — *.tf files (deploy/terraform/**)
+#   - dockerfile       — repo-root Dockerfile (matches CI build image)
+#   - github_actions   — .github/workflows/*.yml
+#
+# `docker_compose` is *not* a Checkov framework in 3.x; that surface is
+# covered by `policy/docker_compose/images.rego` (Conftest, S3 of the plan).
+#
+# `secrets` framework is intentionally omitted: gitleaks owns L2
+# (see .gitleaks.toml and Security-and-Dependencies.md).
+#
+# `--framework` is restrictive in Checkov 3.x: any framework listed runs;
+# anything not listed is skipped entirely.
+
+framework:
+  - terraform
+  - dockerfile
+  - github_actions
+
+# Output: compact terminal table, exits non-zero on any failed check.
+compact: true
+quiet: true
+output: cli
+
+# Directories Checkov should never descend into. Don't include `policy/`
+# (that's Rego, not IaC) or `agent/`/`server/`/`web/` (application code, not
+# infrastructure-as-code).
+skip-path:
+  - '\.terraform/.*'
+  - 'node_modules/.*'
+  - 'agent/target/.*'
+  - 'server/coverage.*'
+  - 'web/coverage/.*'
+  - 'web/reports/.*'
+  - 'deploy/tests/fixtures/.*'   # gitleaks canary lives here; not real IaC
+
+# Baseline pins the *currently-accepted* set of findings; future runs fail
+# only on *new* findings. Each entry is reviewed before being added; see the
+# ADR for the triage convention.
+baseline: .checkov.baseline

@@ -126,6 +126,38 @@ Always run `terraform plan` after a restore to confirm the chosen version still 
 
 Generate a new Customer Secret Key for `tf-state-writer`, update `~/.oci/terraform-credentials`, then delete the old key from OCI Console. No Terraform code or state changes required.
 
+### Custom IaC policies
+
+Project-specific invariants (Always-Free shape, required tags, image pinning, action SHA-pinning) live in [`policy/`](../policy/) and are enforced via [Conftest](https://www.conftest.dev/) (OPA Rego). Run with `make iac-policy-custom`; full per-policy listing in the directory READMEs. The compute and tag rules ALSO run inside `terraform test` ([`modules/networking/tests/`](../deploy/terraform/modules/networking/tests/), [`modules/compute/tests/`](../deploy/terraform/modules/compute/tests/)) — overlap is deliberate per [ADR-015](adr/ADR-015-iac-defense-in-depth.md).
+
+The terraform Rego check requires a plan-file because conftest's HCL2 parser leaves `${var.X}` references unresolved. Operator runs:
+
+```bash
+terraform -chdir=deploy/terraform plan -out=/tmp/tfplan.binary
+terraform -chdir=deploy/terraform show -json /tmp/tfplan.binary > /tmp/tfplan.json
+make iac-policy-custom   # picks up /tmp/tfplan.json automatically
+```
+
+The compose and workflow Rego checks need no plan-file and run unconditionally in CI.
+
+### PR-time plan preview
+
+[`.github/workflows/iac-plan-preview.yml`](../.github/workflows/iac-plan-preview.yml) triggers on every PR that touches `deploy/terraform/**`. It runs `terraform plan` against the remote backend, posts a markdown summary as a sticky PR comment (updates in place across pushes), and **blocks merge** if the plan destroys a protected resource type:
+
+| Protected types (current set) |
+|---|
+| `oci_core_vcn` |
+| `oci_core_subnet` |
+| `oci_core_security_list` |
+| `oci_core_network_security_group` |
+| `oci_objectstorage_bucket` |
+
+The block is bypassed if the PR carries the label `iac:approve-destroy`. The bypass is auditable — the PR comment records that the override was active.
+
+Authentication: reuses the read-only `tf-drift-reader` IAM user provisioned for nightly drift detection (same `OCI_DRIFT_*` + `TFSTATE_S3_*` + `OCI_TFSTATE_NAMESPACE` secrets). No new IAM principal is created for plan preview — the permissions are identical (inspect + state read).
+
+The parser script [`deploy/scripts/parse-tfplan.sh`](../deploy/scripts/parse-tfplan.sh) is testable in isolation via `make test-parse-tfplan` (three canned fixtures cover the gate-decision matrix).
+
 ### Drift detection
 
 Out-of-band changes — operator clicks in the OCI Console, `cd.yml`'s runtime NSG mutations, manual security-list edits — silently desync the tfstate from reality. [`.github/workflows/terraform-drift.yml`](../.github/workflows/terraform-drift.yml) runs nightly at 03:00 UTC, executes `terraform plan -refresh-only -detailed-exitcode` against the remote backend, and alerts on any diff. Same audit pattern as [`.github/workflows/mutation.yml`](../.github/workflows/mutation.yml).

@@ -17,6 +17,14 @@ resource "oci_core_instance" "opengate" {
   display_name        = "opengate-server"
   shape               = var.instance_shape
 
+  # Required by policy/terraform/tags.rego (S3 of iac-security-testing-pyramid).
+  # Tag values are static today; broaden to networking submodule in a follow-up.
+  freeform_tags = {
+    env        = "prod"
+    component  = "server"
+    managed_by = "terraform"
+  }
+
   shape_config {
     ocpus         = var.instance_ocpus
     memory_in_gbs = var.instance_memory_gb
