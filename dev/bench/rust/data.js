@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778754857730,
+  "lastUpdate": 1778773131242,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12715,6 +12715,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.927478449430932,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e6c18d6916d9a52d1426204684bf45ce17c35232",
+          "message": "fix(deploy): OCI S3-compat — disable AWS-SDK-v2 chunked-encoding upload\n\nOCI Object Storage's S3-compat API rejects AWS SDK v2's default flexible-\nchecksum streaming upload with `501 NotImplemented: AWS chunked encoding not\nsupported`. Two changes are needed for terraform init/plan/apply against the\nremote backend to succeed:\n\n  - `backend \"s3\" { skip_s3_checksum = true }` in main.tf — disables the\n    response-side flexible-checksum verification that drives the SDK to\n    negotiate chunked encoding.\n  - `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` env var — disables the\n    request-body flexible-checksum on PutObject. Both are required; one\n    without the other still fails.\n\nThe terraform-drift workflow sets the env var on its `init` and `plan` steps.\nOperators running terraform locally must export it too — documented in the\n\"Required env var\" subsection added to docs/Infrastructure.md's State Backend\nsection.\n\nDiscovered during the production tfstate migration: init -migrate-state\nreturned `501 NotImplemented` until both knobs were set. CI is unaffected —\nci.yml's config-lint runs `init -backend=false` and never touches the S3\nendpoint.\n\nPlan: .claude/plans/archive/terraform-test-and-remote-state.md",
+          "timestamp": "2026-05-14T08:36:13-07:00",
+          "tree_id": "d6aacfb336272931b231eb02585d5bea22c8bf6b",
+          "url": "https://github.com/volchanskyi/opengate/commit/e6c18d6916d9a52d1426204684bf45ce17c35232"
+        },
+        "date": 1778773131186,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.279240554664163,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.577780195388257,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 734.6927196890579,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 318.16525679977406,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.926664467584683,
             "unit": "ns/iter"
           }
         ]
