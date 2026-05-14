@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778774757158,
+  "lastUpdate": 1778793027040,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12813,6 +12813,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.95028230072792,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f962b5a57caacae9c6dde82514bd3aad88287e24",
+          "message": "feat(deploy): IaC security testing pyramid — gitleaks + Checkov + Hadolint + Conftest + plan-preview\n\nAdds four scanner layers on top of the terraform foundation (T1–T4): L2\nsecrets, L4 built-in policy, L5 project-specific Rego, L6 PR-time plan\npreview. Each layer has its own configuration, its own gate location, and\nits own TDD fixture; together they form a 7-layer pyramid documented in\nADR-015 and Infrastructure.md.\n\nS1 — gitleaks (L2 secrets):\n  .gitleaks.toml extends defaults with categorical allowlists for example\n  templates, golden fixtures, vendored lockfiles, and *_test.{go,ts,tsx}/\n  *.spec.* files. No per-fingerprint suppressions. `make secrets-scan` runs\n  the full-history scan; `/precommit` skill step 6.1 adds the pre-stage\n  guard. CI's config-lint job installs gitleaks 8.21.2 and runs the gate.\n  TDD canary at deploy/tests/fixtures/leaked-secret.txt proves the wiring.\n\nS2 — Checkov (L4) + Hadolint (L4):\n  .checkov.yaml configures terraform/dockerfile/github_actions frameworks\n  (secrets framework intentionally omitted — owned by gitleaks; docker_compose\n  is not a Checkov framework, owned by Conftest in S3). .checkov.baseline\n  pins CKV_OCI_4/5 (require VPS rebuild) and CKV_OCI_17 (design choice —\n  stateful ingress required for return-traffic). Hadolint with inline\n  `# hadolint ignore=DL3018` for ca-certificates/tzdata (pinning those would\n  freeze a stale CA bundle and defeat the `apk upgrade` above). New ADR-015\n  records the Trivy-Checkov overlap as deliberate defense-in-depth and the\n  baseline-as-suppression model. Adds Dockerfile HEALTHCHECK using busybox\n  wget to clear CKV_DOCKER_2.\n\nS3 — Conftest + Rego (L5):\n  Four policy bundles in policy/, OPA 0.67 Rego v0 syntax:\n    - policy/terraform/compute.rego (4 Always-Free invariants)\n    - policy/terraform/tags.rego (env+component freeform_tags on the instance)\n    - policy/docker_compose/images.rego (deny `:latest` and no-tag; digest\n      pinning deferred until images are migrated to digest refs)\n    - policy/github_actions/pinning.rego (third-party `uses:` must be 40-char\n      SHA; allowlist for actions/github/oracle-actions/docker)\n  22 Rego unit tests across the 4 bundles, all green; `make iac-policy-custom`\n  runs conftest test against actual compose + workflow files. Terraform Rego\n  check requires a /tmp/tfplan.json plan-file (conftest's HCL2 parser leaves\n  ${var.X} unresolved) so it runs conditionally — operator-side only for now.\n  Added `freeform_tags = { env, component, managed_by }` to the compute\n  instance to satisfy tags.rego; networking submodule untagged for now\n  (broadens in a follow-up).\n\n  **SHA-pin sweep**: replaced 14 unique third-party action `uses:` references\n  across all .github/workflows/ and .github/actions/. Every pin includes a\n  trailing `# version` comment for human-readable provenance:\n    - Swatinem/rust-cache, dtolnay/rust-toolchain, hashicorp/setup-terraform,\n      raven-actions/actionlint, taiki-e/install-action (x2 refs),\n      terraform-linters/setup-tflint, SonarSource/sonarqube-scan-action,\n      anchore/sbom-action, aquasecurity/trivy-action, benchmark-action/...,\n      schneegans/dynamic-badges-action, sigstore/cosign-installer,\n      softprops/action-gh-release.\n\nS4 — PR-time plan preview (L6):\n  New .github/workflows/iac-plan-preview.yml: triggers on pull_request\n  touching deploy/terraform/**, reuses tf-drift-reader IAM (no new principal),\n  runs `terraform plan -out=plan.tfplan` against the remote backend, parses\n  via new deploy/scripts/parse-tfplan.sh, posts a sticky markdown PR comment\n  via actions/github-script (updates in place across pushes). Gates merge\n  on protected-resource destroy (vcn/subnet/security_list/nsg/objectstorage\n  _bucket) unless PR carries the `iac:approve-destroy` label. TDD via\n  `make test-parse-tfplan` exercises the 4-cell decision matrix against\n  3 canned plan fixtures.\n\nPyramid summary (defense-in-depth across L1–L7):\n  L1 — lints (terraform fmt/validate, tflint, yamllint, actionlint, …)\n  L2 — gitleaks\n  L3 — `terraform test` mock_provider invariants (T3)\n  L4 — Checkov + Hadolint + Trivy (overlap deliberate, ADR-015)\n  L5 — Conftest + Rego (project-specific invariants)\n  L6 — iac-plan-preview workflow (PR comment + destroy-blocklist)\n  L7 — terraform-drift workflow (T4, nightly refresh)\n\nCI runtime: config-lint grows by ~90s (gitleaks 3s + hadolint <1s + checkov\n~60s + conftest <5s + parse-tfplan-fixtures <1s).\n\nPlan: .claude/plans/archive/iac-security-testing-pyramid.md",
+          "timestamp": "2026-05-14T14:08:15-07:00",
+          "tree_id": "0c13ba44bae2d7a68f75bed3052416f0e92d6440",
+          "url": "https://github.com/volchanskyi/opengate/commit/f962b5a57caacae9c6dde82514bd3aad88287e24"
+        },
+        "date": 1778793026983,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.33698013418574,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.172933355696472,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 812.6200992533314,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 302.6261280265108,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.553342722503004,
             "unit": "ns/iter"
           }
         ]
