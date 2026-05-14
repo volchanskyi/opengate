@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778773131242,
+  "lastUpdate": 1778774757158,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12764,6 +12764,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.926664467584683,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "7c0aadd717121871fd268f1d172bd2489e5fef48",
+          "message": "fix(deploy): make ssh-not-world tftest portable to Terraform 1.9\n\nThe `for r in ... : !(length(r.tcp_options) > 0 && r.tcp_options[0].min == 22 ...)`\nexpression in modules/networking/tests/security.tftest.hcl evaluated cleanly\non Terraform 1.14 (short-circuit `&&`) but failed on the 1.9.x pinned in CI\nwith `Invalid index ... r.tcp_options is empty list of object`. 1.9's HCL\nevaluator does not short-circuit `&&`, so `r.tcp_options[0]` was accessed\neven when length(r.tcp_options) == 0 (the UDP ingress rules).\n\nMove the length guard into the `for ... if` clause so the value expression\nonly ever runs against rules that have a tcp_options block. Semantically\nidentical (rules with no tcp_options cannot be SSH on 0.0.0.0/0 anyway),\nversion-agnostic. Verified locally on Terraform 1.9.8 after upgrading via\ntfenv from the repo's deploy/terraform/.terraform-version pin.\n\nCI run that exposed this: github.com/volchanskyi/opengate/actions/runs/25869346184\n\nPlan: .claude/plans/archive/terraform-test-and-remote-state.md",
+          "timestamp": "2026-05-14T09:03:51-07:00",
+          "tree_id": "a6045ba13cafde58f05b51815b217b894cacac9a",
+          "url": "https://github.com/volchanskyi/opengate/commit/7c0aadd717121871fd268f1d172bd2489e5fef48"
+        },
+        "date": 1778774757111,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.29007632136323,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.50506162975768,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 736.1196430865991,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 313.20586313593014,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.95028230072792,
             "unit": "ns/iter"
           }
         ]
