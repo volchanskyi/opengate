@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.28.0] - 2026-05-14
+
+### Added
+- **deploy:** terraform — remote state + modules + tftest + drift
+
+### Fixed
+- **deploy:** make ssh-not-world tftest portable to Terraform 1.9
+- **deploy:** OCI S3-compat — disable AWS-SDK-v2 chunked-encoding upload
+
 ## [v0.27.0] - 2026-05-13
 
 ### Added
