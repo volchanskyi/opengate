@@ -23,3 +23,4 @@
 | 012 | SonarCloud quality gate as hard merge block — Clean-as-You-Code model, coverage/ratings/hotspots enforced on new code | — | Accepted |
 | 013 | Docs live in-repo under `/docs`; wiki deprecated; link-over-paraphrase; ADRs immutable (supersede instead of edit) | — | Accepted |
 | 014 | PostgreSQL 17 via `pgx/v5/stdlib`, colocated Docker container on OCI VPS, native types (`TIMESTAMPTZ`/`UUID`/`JSONB`), `pg_dump` backups, `postgres_exporter` metrics | 13a | Accepted (supersedes ADR-003) |
+| 015 | IaC defense-in-depth: Checkov (terraform/dockerfile/github_actions) + Hadolint + Trivy + gitleaks all run; `.checkov.baseline` is the single suppression surface, no inline `checkov:skip` permitted | S2 | Accepted |

@@ -1,0 +1,83 @@
+# Gitleaks configuration for the OpenGate repo.
+#
+# Used by:
+#   - `make secrets-scan` (full repo scan)
+#   - .github/workflows/ci.yml config-lint job (CI gate)
+#   - /precommit skill (pre-commit guard via `gitleaks protect --staged`)
+#
+# Reference: https://github.com/gitleaks/gitleaks
+#
+# We extend the upstream default rule set rather than redefining from scratch:
+# `useDefault = true` enables all built-in detectors (AWS, GCP, GitHub, Slack,
+# PEM keys, JWT, generic high-entropy strings, …). The [allowlist] section
+# below carves out paths/regex patterns that contain INTENTIONAL fake/test
+# values which would otherwise trip the default rules.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "OpenGate-wide allowlist: test fixtures, example placeholders, golden files."
+
+# Paths that are documentation, example templates, or deliberate negative
+# fixtures. Every entry here is audited — do not add a path without a comment
+# explaining why.
+paths = [
+  # Operator-facing example files — never contain real values, but the
+  # placeholder-shaped strings (`<namespace>`, `your-token`) are designed to
+  # trigger detection so operators notice they need to substitute them.
+  '''(^|/)\.env\.example$''',
+  '''(^|/)terraform\.tfvars\.example$''',
+  '''(^|/)backend\.tfbackend\.example$''',
+
+  # Wire-format golden fixtures — byte-exact reference outputs from the Rust
+  # generator. They contain msgpack-encoded protocol messages, not credentials,
+  # but their high-entropy payloads can shape-match generic detectors.
+  '''(^|/)testdata/golden/.*''',
+
+  # Deliberate-leak fixture used by the TDD test for the scanner itself.
+  # The token inside is a documented fake; the scanner is expected to flag
+  # any *new* leak, not this canary.
+  '''(^|/)deploy/tests/fixtures/leaked-secret\.txt$''',
+
+  # Test files commonly carry mock auth tokens, fake PEM blocks for parser
+  # tests, and synthetic API keys. Their entire purpose is to feed fake
+  # credential-shaped values to production code; the rules that fire are
+  # categorically false positives in this class. Real test files that LEAK
+  # real secrets are still detectable via the per-rule allowlists below.
+  '''(^|/)[^/]+_test\.go$''',
+  '''(^|/)[^/]+\.test\.(ts|tsx|js|jsx)$''',
+  '''(^|/)[^/]+\.spec\.(ts|tsx|js|jsx)$''',
+
+  # Vendored dependency lockfiles can contain checksum hashes that look like
+  # high-entropy secrets to generic detectors.
+  '''(^|/)Cargo\.lock$''',
+  '''(^|/)go\.sum$''',
+  '''(^|/)package-lock\.json$''',
+  '''(^|/)agent/.terraform.lock\.hcl$''',
+  '''(^|/)deploy/terraform/(modules/[^/]+/)?\.terraform\.lock\.hcl$''',
+]
+
+# Regex carve-outs for content that is allowed regardless of path.
+# Anchor each pattern carefully — these are LOAD-BEARING for the gate's
+# trust model.
+regexes = [
+  # Standard test/dummy AAAAAAAA OCIDs (OCI's literal "fake" identifier prefix
+  # used in tftest mock_provider blocks and CLAUDE.md examples).
+  '''ocid1\.[a-z]+\.oc1\.\.aaaaaaaa[a-z0-9]{20,80}''',
+  # `dummy` / `ci-dummy` / `e2e-test-password` literals — repo convention for
+  # placeholder values consumed by `docker compose config --quiet` smoke tests.
+  '''(JWT_SECRET|AMT_PASS|VAPID_CONTACT|POSTGRES_PASSWORD|STAGING_JWT_SECRET|STAGING_POSTGRES_PASSWORD)\s*=\s*(["']?)(dummy|ci-dummy|e2e-test-password)\b''',
+]
+
+# Per-rule allowlists — narrow tolerance for known false-positive sources.
+# Example: the documented OCI fingerprint hash format
+# `aa:bb:cc:...` in mock_provider tftest variables is structurally a hash but
+# carries no credential value.
+[[rules]]
+id = "generic-api-key"
+[rules.allowlist]
+regexes = [
+  # Tftest fake fingerprints (16 colon-separated hex pairs of `aa`/`bb`/`cc`/`dd`/`ee`/`ff`/`00`-`99`).
+  '''fingerprint\s*=\s*"([0-9a-f]{2}:){15}[0-9a-f]{2}"''',
+]

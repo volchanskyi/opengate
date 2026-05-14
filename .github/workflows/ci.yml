@@ -21,10 +21,10 @@ jobs:
         working-directory: agent
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: agent
       - run: cargo fmt --all -- --check
@@ -43,11 +43,11 @@ jobs:
         working-directory: agent
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@e1c4cd42111751368541a7cb5db3522bd1f846a4 # v2
         with:
           tool: cargo-nextest
       - name: Tests
@@ -81,7 +81,7 @@ jobs:
           path: testdata/golden/
           retention-days: 20
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@12ed20a2623efa905821036b9bae41ea21e1a490 # cargo-llvm-cov
       - name: Generate Rust coverage
         id: coverage
         run: |
@@ -295,8 +295,8 @@ jobs:
         working-directory: agent
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: agent
       - name: Run Rust benchmarks
@@ -628,9 +628,48 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # gitleaks scans git history
 
       # GitHub Actions workflow lint
-      - uses: raven-actions/actionlint@v2
+      - uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8 # v2
+
+      # L2 — Secrets scanning (S1 of iac-security-testing-pyramid plan).
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.21.2
+        run: |
+          set -euo pipefail
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --fail --retry 3 --retry-delay 5 --connect-timeout 10 --max-time 60 \
+            -sSL "$url" -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Run gitleaks
+        run: make secrets-scan
+
+      # L4 — Dockerfile policy (S2 of iac-security-testing-pyramid plan).
+      - name: Install hadolint
+        env:
+          HADOLINT_VERSION: 2.12.0
+        run: |
+          set -euo pipefail
+          url="https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-Linux-x86_64"
+          curl --fail --retry 3 --retry-delay 5 --connect-timeout 10 --max-time 60 \
+            -sSL "$url" -o /tmp/hadolint
+          chmod +x /tmp/hadolint
+          sudo install -m 0755 /tmp/hadolint /usr/local/bin/hadolint
+          hadolint --version
+      - name: Hadolint Dockerfile
+        run: make lint-dockerfile
+
+      # L4 — Built-in policy scanning across terraform/dockerfile/github_actions.
+      # Baseline at .checkov.baseline pins the currently-accepted findings; see ADR-015.
+      - name: Install checkov
+        run: pipx install checkov
+      - name: Run checkov
+        run: make iac-policy
 
       # YAML lint (deploy configs, cloud-init)
       - run: pip install --user yamllint
@@ -639,7 +678,7 @@ jobs:
       # Terraform format + validate. Pin to 1.9.x — `expect_failures` for
       # variable validation in `terraform test` requires 1.7+; pinning a known
       # working line avoids surprise breaks when HashiCorp ships 2.x.
-      - uses: hashicorp/setup-terraform@v4
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
           terraform_version: 1.9.x
       - name: Terraform fmt
@@ -650,7 +689,7 @@ jobs:
         run: terraform -chdir=deploy/terraform validate
 
       # Terraform linting
-      - uses: terraform-linters/setup-tflint@v6
+      - uses: terraform-linters/setup-tflint@b480b8fcdaa6f2c577f8e4fa799e89e756bb7c93 # v6
       - run: tflint --init --chdir=deploy/terraform
       - run: tflint --chdir=deploy/terraform --format=compact
 
@@ -712,7 +751,7 @@ jobs:
 
       # IaC security scan
       - name: Trivy config scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
           scan-ref: deploy/
@@ -720,7 +759,7 @@ jobs:
           exit-code: 1
           trivyignores: .trivyignore
       - name: Trivy Dockerfile scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: config
           scan-ref: Dockerfile
@@ -780,7 +819,7 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: github/codeql-action/init@v4
         with:
           languages: rust
@@ -802,7 +841,7 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -850,7 +889,7 @@ jobs:
           path: agent/
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
-        uses: SonarSource/sonarqube-scan-action@v8
+        uses: SonarSource/sonarqube-scan-action@59db25f34e16620e48ab4bb9e4a5dce155cb5432 # v8
         with:
           args: -Dsonar.qualitygate.wait=true
 
@@ -878,7 +917,7 @@ jobs:
           name: bench-rust
           path: .
       - name: Store Go benchmark result
-        uses: benchmark-action/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1
         with:
           tool: go
           output-file-path: bench-go.txt
@@ -890,7 +929,7 @@ jobs:
           comment-on-alert: true
           alert-comment-cc-users: '@volchanskyi'
       - name: Store Rust benchmark result
-        uses: benchmark-action/github-action-benchmark@v1
+        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1
         with:
           tool: customSmallerIsBetter
           output-file-path: bench-rust.json
@@ -1016,7 +1055,7 @@ jobs:
           echo "merged=true" >> "$GITHUB_OUTPUT"
       - name: Update coverage badge
         if: github.ref == 'refs/heads/dev'
-        uses: schneegans/dynamic-badges-action@v1.8.0
+        uses: schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: cf505c74b56eab52c9497af517b53222
@@ -1028,7 +1067,7 @@ jobs:
           maxColorRange: 90
       - name: Update Rust coverage badge
         if: github.ref == 'refs/heads/dev'
-        uses: schneegans/dynamic-badges-action@v1.8.0
+        uses: schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: cf505c74b56eab52c9497af517b53222
@@ -1040,7 +1079,7 @@ jobs:
           maxColorRange: 90
       - name: Update Web coverage badge
         if: github.ref == 'refs/heads/dev'
-        uses: schneegans/dynamic-badges-action@v1.8.0
+        uses: schneegans/dynamic-badges-action@0e50b8bad39e7e1afd3e4e9c2b7dd145fad07501 # v1.8.0
         with:
           auth: ${{ secrets.GIST_SECRET }}
           gistID: cf505c74b56eab52c9497af517b53222

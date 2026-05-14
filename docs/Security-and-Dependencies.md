@@ -32,6 +32,19 @@ Static analysis for Go, TypeScript, and Rust with `security-and-quality` queries
 - `cargo audit` (Rust) — checks against RustSec advisory database
 - `npm audit` (Web) — checks against the npm advisory database
 
+### Secrets scanning
+
+[gitleaks](https://github.com/gitleaks/gitleaks) runs against the **full git history** on every CI trigger via the `config-lint` job. Config lives in [`.gitleaks.toml`](../.gitleaks.toml); allowlists are categorical (paths/regexes), never per-fingerprint, so the gate stays meaningful as new commits land.
+
+Local invocations:
+
+| Where | Command | What |
+|---|---|---|
+| Full repo scan | `make secrets-scan` | History + working tree (mirrors CI exactly) |
+| Pre-commit guard | `gitleaks protect --staged --config .gitleaks.toml` | Scans only staged hunks — the trip wire in the [`/precommit` skill](../.claude/skills/precommit/SKILL.md) step 6.1 |
+
+Test fixtures with deliberate fake credentials (e.g. [`deploy/tests/fixtures/leaked-secret.txt`](../deploy/tests/fixtures/leaked-secret.txt)) prove the scanner's wiring without leaking real values: if the canary stops triggering, the scanner has regressed.
+
 ### Dependabot
 
 [Dependabot](../../.github/dependabot.yml) checks all four ecosystems (Go, Cargo, npm, GitHub Actions) daily. PRs target the `dependabot-dev` integration branch (not `dev` directly) to isolate dependency updates from feature development.
