@@ -28,6 +28,14 @@ _None currently._
 - **Fix**: Revert ownership once quic-go fixes mTLS `AcceptStream`. Detailed revert steps in [plans/quic-stream-ownership-fix.md](plans/quic-stream-ownership-fix.md).
 - **Identified**: Phase 4 (agent connections)
 
+### AgentConn.sendControl Lacks Write Mutex
+- **Severity**: Medium (race-prone under concurrent API requests to one agent)
+- **Files**: `server/internal/agentapi/conn.go` (`sendControl`)
+- **Issue**: `protocol.Codec.WriteFrame` writes the 5-byte header then the payload as two separate `quic.Stream.Write` calls. `quic.Stream.Write` is internally mutex-protected, but two concurrent goroutines calling `AgentConn.sendControl` can interleave their (header, payload) writes on the same stream, corrupting the frame envelope on the agent side.
+- **Impact**: Two simultaneous API requests targeting one agent (e.g. a Restart and a hardware-report fetch fired from the same UI session) can land corrupted bytes. The agent would log a decode error and exit its control loop, which the server then reconciles as a disconnect. Rare in practice today because the same-agent API request rate is low, but the failure mode is silent and racy.
+- **Fix**: Add `sync.Mutex` to `AgentConn` and lock around the `WriteFrame` call in `sendControl`. Then add the deferred Phase B / B5 case (`server/tests/integration/control_stream_faults_test.go`) for concurrent server-initiated sends — currently skipped because the test would expose this bug without the production fix.
+- **Identified**: 2026-05-14 (during Phase B / B5)
+
 ---
 
 ## 🟢 Low
