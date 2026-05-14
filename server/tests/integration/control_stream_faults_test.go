@@ -36,6 +36,22 @@ func waitForDeviceStatus(t *testing.T, store db.Store, deviceID protocol.DeviceI
 		"device %s never reached status %q", deviceID, want)
 }
 
+// setupOnlineAgent creates a test env, seeds a user + group, connects a
+// fake agent through the full handshake, and waits for the resulting
+// device row to flip to StatusOnline. Returns the env (for store / srv
+// access in tests), the agent-side QUIC stream (for fault injection), and
+// the device's UUID.
+func setupOnlineAgent(t *testing.T) (*agentTestEnv, *quic.Stream, protocol.DeviceID) {
+	t.Helper()
+	env := newAgentTestEnv(t)
+	ctx := context.Background()
+	user := testutil.SeedUser(t, ctx, env.store)
+	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	stream, deviceID := env.connectAgent(t, group.ID)
+	waitForDeviceStatus(t, env.store, deviceID, db.StatusOnline)
+	return env, stream, deviceID
+}
+
 // writeRawControlFrameHeader writes a FrameControl envelope claiming
 // payloadLen bytes will follow, without writing the payload. Useful for
 // partial-frame and corruption tests.
@@ -59,14 +75,7 @@ func writeCorruptedControlFrame(t *testing.T, stream *quic.Stream, garbage []byt
 }
 
 func TestControlStream_CorruptedMsgpackPayloadDisconnectsAgent(t *testing.T) {
-	env := newAgentTestEnv(t)
-	ctx := context.Background()
-
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
-
-	stream, deviceID := env.connectAgent(t, group.ID)
-	waitForDeviceStatus(t, env.store, deviceID, db.StatusOnline)
+	env, stream, deviceID := setupOnlineAgent(t)
 
 	// Garbage that the msgpack decoder cannot parse. 0xc1 is the reserved
 	// byte in MessagePack and is guaranteed to produce a decode error.
@@ -78,14 +87,7 @@ func TestControlStream_CorruptedMsgpackPayloadDisconnectsAgent(t *testing.T) {
 }
 
 func TestControlStream_PartialFrameThenCloseDisconnectsAgent(t *testing.T) {
-	env := newAgentTestEnv(t)
-	ctx := context.Background()
-
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
-
-	stream, deviceID := env.connectAgent(t, group.ID)
-	waitForDeviceStatus(t, env.store, deviceID, db.StatusOnline)
+	env, stream, deviceID := setupOnlineAgent(t)
 
 	// Announce a 256-byte payload, then send only 10 bytes and close.
 	// codec.ReadFrame must surface io.ErrUnexpectedEOF (or io.EOF after
@@ -99,14 +101,7 @@ func TestControlStream_PartialFrameThenCloseDisconnectsAgent(t *testing.T) {
 }
 
 func TestControlStream_SendAfterStreamCloseFailsAndReconciles(t *testing.T) {
-	env := newAgentTestEnv(t)
-	ctx := context.Background()
-
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
-
-	stream, deviceID := env.connectAgent(t, group.ID)
-	waitForDeviceStatus(t, env.store, deviceID, db.StatusOnline)
+	env, stream, deviceID := setupOnlineAgent(t)
 
 	// Resolve the AgentConn the API would use, then close the stream from
 	// the agent side. This simulates "handler tries to push a request,
@@ -128,7 +123,7 @@ func TestControlStream_SendAfterStreamCloseFailsAndReconciles(t *testing.T) {
 	// handlers turn that into a 5xx response, which is the correct
 	// observable behaviour. Errors include io.EOF, "stream reset",
 	// "connection closed" — we only assert non-nil.
-	err := ac.SendRequestHardwareReport(ctx)
+	err := ac.SendRequestHardwareReport(context.Background())
 	require.Error(t, err, "send on a closed stream must surface an error")
 	// Just for documentation: assert the error chain doesn't include a
 	// nil-pointer dereference or other unexpected wrap.
