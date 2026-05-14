@@ -44,9 +44,11 @@ COMPOSE_UDP_PORTS=$(grep -oP '^\s*- "(\d+):\d+/udp"' "$SCRIPT_DIR/docker-compose
 UFW_TCP_PORTS=$(grep -oP 'ufw allow (\d+)/tcp' "$SCRIPT_DIR/terraform/cloud-init.yaml" | grep -oP '\d+' | sort -u)
 UFW_UDP_PORTS=$(grep -oP 'ufw allow (\d+)/udp' "$SCRIPT_DIR/terraform/cloud-init.yaml" | grep -oP '\d+' | sort -u)
 
-# Extract ports from OCI security list ingress rules (protocol "6" = TCP, "17" = UDP)
-OCI_TCP_PORTS=$(grep -A3 'protocol.*=.*"6"' "$SCRIPT_DIR/terraform/main.tf" | grep -oP 'min\s*=\s*\K\d+' | sort -u)
-OCI_UDP_PORTS=$(grep -A3 'protocol.*=.*"17"' "$SCRIPT_DIR/terraform/main.tf" | grep -oP 'min\s*=\s*\K\d+' | sort -u)
+# Extract ports from OCI security list ingress rules (protocol "6" = TCP, "17" = UDP).
+# Scans the entire terraform tree because the security list lives in
+# modules/networking/ post-decomposition, while the root holds composition only.
+OCI_TCP_PORTS=$(grep -rh -A3 'protocol.*=.*"6"' "$SCRIPT_DIR/terraform/" --include='*.tf' --exclude-dir='.terraform' | grep -oP 'min\s*=\s*\K\d+' | sort -u)
+OCI_UDP_PORTS=$(grep -rh -A3 'protocol.*=.*"17"' "$SCRIPT_DIR/terraform/" --include='*.tf' --exclude-dir='.terraform' | grep -oP 'min\s*=\s*\K\d+' | sort -u)
 
 check_ports "TCP" "$COMPOSE_TCP_PORTS" "$UFW_TCP_PORTS" "$OCI_TCP_PORTS"
 check_ports "UDP" "$COMPOSE_UDP_PORTS" "$UFW_UDP_PORTS" "$OCI_UDP_PORTS"

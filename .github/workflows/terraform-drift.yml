@@ -1,0 +1,170 @@
+name: terraform-drift
+
+# Nightly drift detection — catches out-of-band changes to OCI resources
+# (operator clicks in the console, cd.yml runtime NSG mutations, manual
+# security-list edits) by running `terraform plan -refresh-only -detailed-exitcode`
+# against the remote backend.
+#
+# Plan: .claude/plans/terraform-test-and-remote-state.md (PR T4)
+# Same pattern as .github/workflows/mutation.yml — observability, not auto-remediation.
+#
+# Authentication: a separate read-only IAM user `tf-drift-reader` (inspect-only
+# on the compartment + read-only on the tfstate bucket). The new OCI_DRIFT_*
+# secrets gate this — distinct from the CD deploy user.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # nightly 03:00 UTC (same slot as mutation.yml; both are observability)
+  workflow_dispatch: {}
+
+concurrency:
+  group: terraform-drift
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TERRAFORM_VERSION: 1.9.x
+
+jobs:
+  drift:
+    name: Refresh-only plan + alert
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Write OCI provider API key
+        env:
+          OCI_DRIFT_PRIVATE_KEY: ${{ secrets.OCI_DRIFT_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s' "$OCI_DRIFT_PRIVATE_KEY" > ~/.oci/drift.pem
+          chmod 600 ~/.oci/drift.pem
+
+      - name: Write backend config
+        env:
+          OCI_TFSTATE_NAMESPACE: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+        run: |
+          # The S3 bucket lives in the same region as the rest of the infra;
+          # the endpoint is reconstructed from the OCI namespace + region.
+          # Credentials env vars (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)
+          # are passed at init/plan time below.
+          cat > /tmp/backend.tfbackend <<EOF
+          endpoints = {
+            s3 = "https://${OCI_TFSTATE_NAMESPACE}.compat.objectstorage.${OCI_REGION}.oraclecloud.com"
+          }
+          EOF
+
+      - name: Terraform init (S3 backend)
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
+        run: terraform -chdir=deploy/terraform init -backend-config=/tmp/backend.tfbackend -input=false
+
+      - name: Terraform plan (refresh-only, detailed exit)
+        id: plan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
+          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
+          TF_VAR_user_ocid: ${{ secrets.OCI_DRIFT_USER_OCID }}
+          TF_VAR_fingerprint: ${{ secrets.OCI_DRIFT_FINGERPRINT }}
+          TF_VAR_private_key_path: /home/runner/.oci/drift.pem
+          TF_VAR_region: ${{ secrets.OCI_REGION }}
+          # refresh-only does not compare config to state, but variables still
+          # have to satisfy their validation blocks. Any non-`0.0.0.0/0` CIDR
+          # satisfies the ssh_allowed_cidr validation.
+          TF_VAR_ssh_allowed_cidr: 203.0.113.0/24
+          TF_VAR_ssh_public_key_path: /dev/null
+        run: |
+          set +e
+          terraform -chdir=deploy/terraform plan \
+            -refresh-only -detailed-exitcode \
+            -out=drift.tfplan 2>&1 | tee drift.txt
+          ec=${PIPESTATUS[0]}
+          echo "exitcode=$ec" >> "$GITHUB_OUTPUT"
+          # 0 = no drift, 2 = drift, anything else = real error
+          if [ "$ec" != "0" ] && [ "$ec" != "2" ]; then exit "$ec"; fi
+
+      - name: Drift summary JSON
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          terraform -chdir=deploy/terraform show -json drift.tfplan > drift.json
+          ./scripts/terraform-drift-summarize.sh drift.json > drift-summary.json
+          cat drift-summary.json
+
+      - name: Upload drift artifacts
+        if: steps.plan.outputs.exitcode == '2'
+        uses: actions/upload-artifact@v7
+        with:
+          name: terraform-drift
+          path: |
+            drift.txt
+            drift.json
+            drift-summary.json
+          retention-days: 30
+
+      - name: Telegram alert
+        if: steps.plan.outputs.exitcode == '2'
+        env:
+          BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          RUN: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
+            echo "telegram secrets not set; skipping alert"
+            exit 0
+          fi
+          # Plan output can exceed Telegram's 4 KB limit. Truncate to 3500 chars;
+          # full output remains in the workflow artifacts (above).
+          MSG="$(head -c 3500 drift.txt)"
+          TEXT="$(printf '⚠️ Terraform drift detected on dev (run %s):\n\n%s\n\nRun: %s' \
+            "$RUN" "$MSG" "$RUN_URL")"
+          curl -sS --fail --max-time 30 \
+            -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT}" \
+            --data-urlencode "text=${TEXT}" \
+            --data-urlencode "disable_web_page_preview=true"
+
+      # SSH / Loki push uses the existing CD-user firewall opener composite —
+      # the tf-drift-reader user is read-only and cannot mutate the NSG.
+      - name: OCI + SSH setup
+        if: steps.plan.outputs.exitcode == '2'
+        id: infra
+        uses: ./.github/actions/oci-ssh-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          deploy-host: ${{ secrets.DEPLOY_HOST }}
+          run-id: ${{ github.run_id }}
+
+      - name: Loki push
+        if: steps.plan.outputs.exitcode == '2'
+        run: ./scripts/terraform-drift-loki-push.sh drift-summary.json
+
+      - name: OCI + SSH teardown
+        if: always() && steps.plan.outputs.exitcode == '2'
+        uses: ./.github/actions/oci-ssh-teardown
+        with:
+          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
+          rule-id: ${{ steps.infra.outputs.rule-id }}
+
+      - name: Fail workflow on drift (audit trail)
+        if: steps.plan.outputs.exitcode == '2'
+        run: |
+          echo "Drift detected — see Telegram alert and uploaded artifacts."
+          exit 1
