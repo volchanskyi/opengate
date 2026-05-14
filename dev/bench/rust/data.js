@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778750933833,
+  "lastUpdate": 1778752604591,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12617,6 +12617,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.981508813195106,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "33f1f5991f4a6279893f3df44333d2eea0b926d2",
+          "message": "refactor(server): extract setupOnlineAgent helper in control-stream tests\n\nAll three TestControlStream_* tests shared the same 6-line preamble\n(env, ctx, seed user, seed group, connect agent, wait online). Pull\nthat into setupOnlineAgent so each test body opens with its actual\nfault-injection scenario.",
+          "timestamp": "2026-05-14T02:54:57-07:00",
+          "tree_id": "326a6b1454a5b1faaa53c5e4d9035ad970e45d7e",
+          "url": "https://github.com/volchanskyi/opengate/commit/33f1f5991f4a6279893f3df44333d2eea0b926d2"
+        },
+        "date": 1778752604533,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.451771962513163,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.55304042021277,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 759.0790735243893,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.15111432608757,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.916672285408104,
             "unit": "ns/iter"
           }
         ]
