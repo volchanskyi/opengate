@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778868476165,
+  "lastUpdate": 1778869243293,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13058,6 +13058,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.603936937525773,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "0336364aab0db9cbc30a1c8f1b335a2c04d772e9",
+          "message": "fix(ci): drop e2e needs:[…] for parallel run; remove flaky admin-users visual baseline\n\n* `e2e` job in ci.yml no longer waits on the 11-job `needs:[…]` chain\n  (rust-lint, rust-test, go-lint, go-unit, go-integration, golden,\n  web-lint, web-unit, web-integration, config-lint, web-bundle-size).\n  E2E builds its own docker-compose stack and shares no artifacts with\n  those jobs, so it can run in parallel from the start of the workflow —\n  failures surface alongside unit failures instead of after them.\n* Remove the `admin user management` visual regression baseline. The\n  page renders per-user `created_at` / `last_seen` timestamps that drift\n  every run; CI saw a 15739-pixel (0.02 ratio) diff vs the local\n  baseline. The a11y spec still covers the page. Audit log was already\n  excluded for the same reason; visual-regression coverage is now 3\n  stable Chromium baselines (login / register / device-list-empty).",
+          "timestamp": "2026-05-15T11:18:57-07:00",
+          "tree_id": "87512c58e9bbe6cb8943c504747e5762d77c4858",
+          "url": "https://github.com/volchanskyi/opengate/commit/0336364aab0db9cbc30a1c8f1b335a2c04d772e9"
+        },
+        "date": 1778869243230,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.20841834216531,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.367059672090868,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 745.6937989273492,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 314.8588914258758,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 25.39299877277936,
             "unit": "ns/iter"
           }
         ]
