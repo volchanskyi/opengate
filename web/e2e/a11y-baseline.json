@@ -1,0 +1,17 @@
+{
+  "_comment": "Reviewer-facing mirror of WAIVED_RULES in e2e/a11y.spec.ts. Pre-existing WCAG 2.1 A/AA violations that are intentionally waived. Any other axe rule firing in the 5 covered pages (login, register, device list, admin user management, admin audit log) fails CI. Add a rule ID here AND in WAIVED_RULES (the spec is the runtime source of truth) with a short justification when widening the allowlist.",
+  "waivedRules": [
+    {
+      "id": "color-contrast",
+      "reason": "Form helper text and muted-grey informational copy have low contrast against the dark theme. Tracked for a design pass; not a runtime regression."
+    },
+    {
+      "id": "link-in-text-block",
+      "reason": "Inline links in body copy (e.g. login footer 'Register' link) lack non-color affordance. Same design-pass scope as color-contrast."
+    },
+    {
+      "id": "link-in-text-block-style",
+      "reason": "Stylistic distinction (underline) for inline links — paired with link-in-text-block above."
+    }
+  ]
+}

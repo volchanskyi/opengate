@@ -369,6 +369,17 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - name: Verify generated API types are in sync
+        # Mirrors the Go-side codegen drift check earlier in this workflow.
+        # Regenerate `src/types/api.d.ts` from the OpenAPI spec; if the diff
+        # is non-empty the developer forgot to run `npm run generate:api`
+        # after editing `api/openapi.yaml`.
+        run: |
+          npm run generate:api
+          if ! git diff --exit-code -- src/types/api.d.ts; then
+            echo "::error::src/types/api.d.ts is out of sync with api/openapi.yaml. Run \`cd web && npm run generate:api\` and commit."
+            exit 1
+          fi
 
   web-unit:
     name: Web Unit Tests
@@ -517,18 +528,11 @@ jobs:
 
   e2e:
     name: E2E Tests
-    needs:
-      - rust-lint
-      - rust-test
-      - go-lint
-      - go-unit
-      - go-integration
-      - golden
-      - web-lint
-      - web-unit
-      - web-integration
-      - config-lint
-      - web-bundle-size
+    # No `needs:` — E2E builds its own docker-compose test stack and shares
+    # no artifacts with the unit/integration jobs, so it can run in
+    # parallel from the start of the workflow. Failures here surface
+    # alongside the unit failures instead of after them, cutting the
+    # critical path roughly in half on PRs that touch web code.
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
