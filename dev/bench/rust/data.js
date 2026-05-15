@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778843862457,
+  "lastUpdate": 1778867544899,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12960,6 +12960,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.015647914646166,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "1564187db5b67bcb89883b3d73072da29ebc7a5b",
+          "message": "fix(ci): start Postgres after checkout; rebase JSONL push with retry\n\n* go-unit and go-bench jobs use `defaults.run.working-directory: server`,\n  so the previous Postgres-launch step (added in C3 commit d934b58) ran\n  with cwd=server before `actions/checkout@v6` had created that directory\n  — failing with `No such file or directory`. Move the docker run after\n  checkout and pin its `working-directory: .` so the cwd default does not\n  apply.\n* `mutation.yml` Commit JSONL step push was rejected when another branch\n  push (e.g. the recent C3 merge) landed during the matrix run. Wrap\n  push in a 3-attempt rebase loop so the nightly snapshot reconciles\n  cleanly instead of failing the workflow on a benign race.",
+          "timestamp": "2026-05-15T10:50:06-07:00",
+          "tree_id": "57ed07576222003dd112e619a865c3d17b2fa779",
+          "url": "https://github.com/volchanskyi/opengate/commit/1564187db5b67bcb89883b3d73072da29ebc7a5b"
+        },
+        "date": 1778867544838,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.142760156168944,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.473804252712934,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 782.761598946703,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 294.32311745271164,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.638411707323602,
             "unit": "ns/iter"
           }
         ]
