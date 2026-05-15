@@ -75,6 +75,7 @@ func writeCorruptedControlFrame(t *testing.T, stream *quic.Stream, garbage []byt
 }
 
 func TestControlStream_CorruptedMsgpackPayloadDisconnectsAgent(t *testing.T) {
+	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
 
 	// Garbage that the msgpack decoder cannot parse. 0xc1 is the reserved
@@ -87,6 +88,7 @@ func TestControlStream_CorruptedMsgpackPayloadDisconnectsAgent(t *testing.T) {
 }
 
 func TestControlStream_PartialFrameThenCloseDisconnectsAgent(t *testing.T) {
+	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
 
 	// Announce a 256-byte payload, then send only 10 bytes and close.
@@ -100,7 +102,48 @@ func TestControlStream_PartialFrameThenCloseDisconnectsAgent(t *testing.T) {
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOffline)
 }
 
+// TestControlStream_ConcurrentServerInitiatedSendsArriveDecodable was deferred
+// during Phase B / B5 because it exposed a race in AgentConn.sendControl: the
+// codec's WriteFrame issues a 5-byte header write followed by an N-byte
+// payload write, and two concurrent server-initiated sends could interleave
+// (header A, header B, payload A, payload B) — corrupting the envelope on the
+// agent side. Phase C / C3 closes the race by adding a write mutex inside
+// AgentConn; this test pins the contract so future refactors don't regress.
+func TestControlStream_ConcurrentServerInitiatedSendsArriveDecodable(t *testing.T) {
+	t.Parallel()
+	env, stream, deviceID := setupOnlineAgent(t)
+
+	ac := env.srv.GetAgent(deviceID)
+	require.NotNil(t, ac, "agent must be registered before issuing concurrent sends")
+
+	// Fire two server-initiated control sends concurrently. Without the
+	// write mutex, the (header, payload) pairs can interleave on the stream.
+	errCh := make(chan error, 2)
+	go func() { errCh <- ac.SendRequestHardwareReport(context.Background()) }()
+	go func() { errCh <- ac.SendRequestDeviceLogs(context.Background(), db.LogFilter{}) }()
+	for i := 0; i < 2; i++ {
+		require.NoError(t, <-errCh, "concurrent send %d returned an error", i)
+	}
+
+	// Read both frames from the agent side. Both must decode cleanly and
+	// each message type must appear exactly once.
+	codec := &protocol.Codec{}
+	seen := map[protocol.ControlMessageType]int{}
+	for i := 0; i < 2; i++ {
+		require.NoError(t, stream.SetReadDeadline(time.Now().Add(3*time.Second)))
+		frameType, payload, err := codec.ReadFrame(stream)
+		require.NoError(t, err, "frame %d ReadFrame failed (envelope corruption?)", i)
+		require.Equal(t, protocol.FrameControl, frameType, "frame %d wrong type", i)
+		msg, err := codec.DecodeControl(payload)
+		require.NoError(t, err, "frame %d DecodeControl failed (payload corruption?)", i)
+		seen[msg.Type]++
+	}
+	assert.Equal(t, 1, seen[protocol.MsgRequestHardwareReport], "RequestHardwareReport should appear exactly once")
+	assert.Equal(t, 1, seen[protocol.MsgRequestDeviceLogs], "RequestDeviceLogs should appear exactly once")
+}
+
 func TestControlStream_SendAfterStreamCloseFailsAndReconciles(t *testing.T) {
+	t.Parallel()
 	env, stream, deviceID := setupOnlineAgent(t)
 
 	// Resolve the AgentConn the API would use, then close the stream from

@@ -24,6 +24,7 @@ import (
 // CONDITIONALS_NEGATION mutants on those `!= nil` checks survive: API
 // tests that pass nil metrics never exercise the registered branch.
 func TestServer_MetricsWiring(t *testing.T) {
+	t.Parallel()
 	store := testutil.NewTestStore(t)
 	cfg := &auth.JWTConfig{
 		Secret:   "test-secret-key-at-least-32-bytes!",

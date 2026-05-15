@@ -13,6 +13,7 @@ import (
 )
 
 func TestAMTListDevicesEmpty(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -29,6 +30,7 @@ func TestAMTListDevicesEmpty(t *testing.T) {
 }
 
 func TestAMTListDevicesWithSeeded(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -61,6 +63,7 @@ func TestAMTListDevicesWithSeeded(t *testing.T) {
 }
 
 func TestAMTGetDeviceNotFound(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -73,6 +76,7 @@ func TestAMTGetDeviceNotFound(t *testing.T) {
 }
 
 func TestAMTPowerActionDeviceNotConnected(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 

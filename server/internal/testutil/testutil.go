@@ -4,6 +4,7 @@ package testutil
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	_ "github.com/jackc/pgx/v5/stdlib" // register pgx driver for admin connections
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
@@ -20,110 +22,153 @@ import (
 
 const postgresTestURLEnv = "POSTGRES_TEST_URL"
 
-// pgOnce ensures the shared Postgres test store is provisioned at most once.
-var pgOnce sync.Once
+// Per-test connection pool caps. Tight enough to let many parallel tests
+// share a single Postgres instance — combined with the maxLiveStores
+// semaphore below, peak transient connection use stays bounded.
+const (
+	testMaxOpenConns = 3
+	testMaxIdleConns = 1
 
-// pgTestDB is the shared Postgres store for all external test packages.
-var pgTestDB *db.PostgresStore
+	// maxLiveStores caps the number of NewTestStore-backed schemas that
+	// are alive at once IN A SINGLE TEST BINARY. The semaphore is per-
+	// process; `go test ./...` runs Postgres-using packages as separate
+	// binaries concurrently (default `-p` = GOMAXPROCS). Each slot's
+	// lifetime touches up to ~12 transient conns (test pool + migration
+	// advisory-lock + cleanup admin + lingering pg_stat_activity entries
+	// that take a few seconds to clear). With 16 slots × 2 packages ×
+	// ~12 ≈ 384 conns peak, callers should run Postgres with
+	// `max_connections=400` (see Makefile postgres-test-up target and
+	// `.github/workflows/ci.yml`).
+	maxLiveStores = 16
+)
 
-// pgSetupErr captures any error from the one-time setup.
-var pgSetupErr error
+// liveStoreSem throttles concurrent test-store lifetimes (acquire on
+// NewTestStore, release in t.Cleanup) so the working set fits inside
+// Postgres's max_connections budget. See maxLiveStores for the sizing.
+var liveStoreSem = make(chan struct{}, maxLiveStores)
 
-// pgSchemaName is a per-process unique schema to avoid races between parallel
-// test binaries (go test runs packages concurrently).
-var pgSchemaName string
+// openAdminSQL returns a single-connection sql.DB for short-lived schema
+// CREATE/DROP operations. Avoids the overhead of NewPostgresStore (which
+// would re-run migrations and open a 25-connection pool just to issue one
+// DDL statement).
+func openAdminSQL(ctx context.Context, url string) (*sql.DB, error) {
+	d, err := sql.Open("pgx", url)
+	if err != nil {
+		return nil, err
+	}
+	d.SetMaxOpenConns(1)
+	d.SetMaxIdleConns(1)
+	if err := d.PingContext(ctx); err != nil {
+		_ = d.Close()
+		return nil, err
+	}
+	return d, nil
+}
 
+var (
+	pgBaseURLOnce  sync.Once
+	pgBaseURL      string
+	pgBaseSetupErr error
+)
 
-// initPostgresTestDB provisions the shared Postgres test store in its own
-// per-process schema so parallel package test binaries don't interfere.
-func initPostgresTestDB(baseURL string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// initPostgresBaseURL caches the base test database URL after a one-time
+// connectivity check. Migrations are NOT run here — they are run per test
+// against each test's own schema. The base URL is used only for short-lived
+// CREATE/DROP SCHEMA operations via openAdminSQL.
+func initPostgresBaseURL() {
+	pgBaseURL = os.Getenv(postgresTestURLEnv)
+	if pgBaseURL == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
-	// Use a short random suffix to isolate from parallel test binaries.
-	pgSchemaName = "ogt_" + uuid.New().String()[:8]
-
-	setup, err := db.NewPostgresStore(ctx, baseURL)
+	d, err := openAdminSQL(ctx, pgBaseURL)
 	if err != nil {
-		return fmt.Errorf("open base url: %w", err)
+		pgBaseSetupErr = fmt.Errorf("base postgres ping: %w", err)
+		return
 	}
-	// Schema name is generated in-process (not user input). Using string
-	// concatenation for DDL is safe here — it never touches external input.
-	if _, err := setup.DB().ExecContext(ctx, `CREATE SCHEMA `+pgSchemaName); err != nil {
-		_ = setup.Close() // #nosec G104 -- best-effort cleanup on error path.
-		return fmt.Errorf("create schema: %w", err)
-	}
-	_ = setup.Close() // #nosec G104 -- best-effort cleanup; setup is only used for schema bootstrap.
-
-	sep := "?"
-	if strings.Contains(baseURL, "?") {
-		sep = "&"
-	}
-	testURL := baseURL + sep + "search_path=" + pgSchemaName
-	store, err := db.NewPostgresStore(ctx, testURL)
-	if err != nil {
-		return fmt.Errorf("open test url: %w", err)
-	}
-	pgTestDB = store
-	return nil
+	_ = d.Close()
 }
 
-// truncateTestDB wipes all rows and re-seeds the Administrators group inside a
-// single transaction to avoid races with concurrent test packages.
-func truncateTestDB(ctx context.Context) error {
-	tx, err := pgTestDB.DB().BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck // rollback on commit is no-op
-	if _, err := tx.ExecContext(ctx, `
-		TRUNCATE TABLE
-			security_group_members,
-			device_logs,
-			device_hardware,
-			device_updates,
-			enrollment_tokens,
-			amt_devices,
-			audit_events,
-			web_push_subscriptions,
-			agent_sessions,
-			devices,
-			groups_,
-			security_groups,
-			users
-		RESTART IDENTITY CASCADE`); err != nil {
-		return fmt.Errorf("truncate tables: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO security_groups (id, name, description, is_system)
-		VALUES ('00000000-0000-0000-0000-000000000001', 'Administrators', 'Full system access', TRUE)`); err != nil {
-		return fmt.Errorf("seed administrators group: %w", err)
-	}
-	return tx.Commit()
-}
-
-// NewTestStore returns a Postgres-backed store for testing. The store is shared
-// across all tests in the same package run — each call TRUNCATEs all tables to
-// isolate state. Tests that use this helper must NOT call t.Parallel().
+// NewTestStore returns a Postgres-backed store backed by a fresh per-test
+// schema. The schema is created on entry, migrations run against it, and
+// it is dropped on test cleanup. Each test gets full isolation, so tests
+// using this helper MAY call t.Parallel().
 //
 // Requires POSTGRES_TEST_URL to be set; skips the test otherwise.
 func NewTestStore(t testing.TB) db.Store {
 	t.Helper()
 
-	baseURL := os.Getenv(postgresTestURLEnv)
-	if baseURL == "" {
+	pgBaseURLOnce.Do(initPostgresBaseURL)
+	if pgBaseURL == "" {
 		t.Skipf("%s not set; skipping Postgres tests", postgresTestURLEnv)
 	}
+	require.NoError(t, pgBaseSetupErr, "postgres base setup")
 
-	pgOnce.Do(func() {
-		pgSetupErr = initPostgresTestDB(baseURL)
+	// Throttle concurrent live stores to stay under Postgres max_connections.
+	// Register the release via t.Cleanup IMMEDIATELY after acquiring — before
+	// any require.NoError calls — so a failure during setup still releases
+	// the slot. The cleanup also handles schema DROP; the schemaName is
+	// captured by reference and may still be "" if setup failed before
+	// CREATE SCHEMA, in which case the DROP is a no-op (IF EXISTS).
+	liveStoreSem <- struct{}{}
+	var (
+		schemaName string
+		store      *db.PostgresStore
+	)
+	t.Cleanup(func() {
+		if store != nil {
+			_ = store.Close()
+		}
+		if schemaName != "" {
+			cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancelCleanup()
+			if cleanupAdmin, err := openAdminSQL(cleanupCtx, pgBaseURL); err == nil {
+				if _, err := cleanupAdmin.ExecContext(cleanupCtx, `DROP SCHEMA IF EXISTS `+schemaName+` CASCADE`); err != nil {
+					t.Logf("drop schema %s: %v", schemaName, err)
+				}
+				_ = cleanupAdmin.Close()
+			} else {
+				t.Logf("postgres cleanup connect: %v", err)
+			}
+		}
+		<-liveStoreSem
 	})
-	require.NoError(t, pgSetupErr, "postgres test setup")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Per-test schema name. PostgreSQL identifiers are limited to 63 bytes;
+	// 16 hex chars after "ogt_" keeps us well under that and gives a
+	// collision-resistant unique name.
+	schemaName = "ogt_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:16]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	require.NoError(t, truncateTestDB(ctx))
-	return pgTestDB
+
+	// Step 1: create the schema using a single-connection admin sql.DB.
+	// Identifier is generated in-process (not external input) — safe to inline.
+	admin, err := openAdminSQL(ctx, pgBaseURL)
+	require.NoErrorf(t, err, "open admin sql for schema setup")
+	_, err = admin.ExecContext(ctx, `CREATE SCHEMA `+schemaName)
+	if err != nil {
+		_ = admin.Close()
+		require.NoErrorf(t, err, "create schema %s", schemaName)
+	}
+	_ = admin.Close()
+
+	// Step 2: open the test store with search_path scoped to the new schema
+	// so migrations run against an empty target and produce a fully seeded
+	// schema (incl. the Administrators row from migration 001).
+	sep := "?"
+	if strings.Contains(pgBaseURL, "?") {
+		sep = "&"
+	}
+	testURL := pgBaseURL + sep + "search_path=" + schemaName
+	store, err = db.NewPostgresStoreWithOptions(ctx, testURL, db.PostgresOptions{
+		MaxOpenConns: testMaxOpenConns,
+		MaxIdleConns: testMaxIdleConns,
+	})
+	require.NoErrorf(t, err, "open test store for schema %s", schemaName)
+
+	return store
 }
 
 // SeedUser inserts a minimal user into the store and returns it.

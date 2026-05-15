@@ -12,6 +12,7 @@ import (
 )
 
 func TestUserHandlers(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin@example.com", true)
 	regularUser, regularToken := seedTestUser(t, srv, cfg, "regular@example.com", false)

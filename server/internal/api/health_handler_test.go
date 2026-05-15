@@ -17,6 +17,7 @@ import (
 )
 
 func TestHealthHandler(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServer(t)
 
 	t.Run("returns ok when database is reachable", func(t *testing.T) {

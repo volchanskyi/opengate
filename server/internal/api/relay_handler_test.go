@@ -63,7 +63,19 @@ func dialWS(t *testing.T, ctx context.Context, serverURL, path string, headers h
 	return conn
 }
 
+// waitForRelayWired blocks until both agent and browser sides have registered
+// with the relay and piping has started. Replaces fixed `time.Sleep` waits.
+func waitForRelayWired(t *testing.T, ctx context.Context, srv *Server, token protocol.SessionToken) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		defer cancel()
+		return srv.relay.WaitForPeer(waitCtx, token) == nil
+	}, 3*time.Second, 25*time.Millisecond, "relay should wire both sides of session %s", token)
+}
+
 func TestRelayWebSocket(t *testing.T) {
+	t.Parallel()
 	t.Run("token_not_in_db", func(t *testing.T) {
 		ts, _, _ := newRelayTestServer(t)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -124,8 +136,8 @@ func TestRelayWebSocket(t *testing.T) {
 		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideBrowser, browserHeaders)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
-		// Wait for relay to start piping
-		time.Sleep(100 * time.Millisecond)
+		// Wait for relay pipe to start (both sides registered).
+		waitForRelayWired(t, ctx, srv, protocol.SessionToken(sess.Token))
 
 		// Agent sends "hello" → browser receives it
 		err = agentConn.Write(ctx, websocket.MessageBinary, []byte("hello"))
@@ -163,8 +175,8 @@ func TestRelayWebSocket(t *testing.T) {
 		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
 		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideBrowser, browserHeaders)
 
-		// Wait for relay to connect
-		time.Sleep(100 * time.Millisecond)
+		// Wait for relay pipe to start (both sides registered).
+		waitForRelayWired(t, ctx, srv, protocol.SessionToken(sess.Token))
 
 		// Disconnect agent
 		agentConn.Close(websocket.StatusNormalClosure, "bye")
@@ -197,7 +209,7 @@ func TestRelayWebSocket(t *testing.T) {
 		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+"?side=browser&auth="+jwtToken, nil)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
-		time.Sleep(100 * time.Millisecond)
+		waitForRelayWired(t, ctx, srv, protocol.SessionToken(sess.Token))
 
 		// Verify data flows
 		err = agentConn.Write(ctx, websocket.MessageBinary, []byte("from-agent"))

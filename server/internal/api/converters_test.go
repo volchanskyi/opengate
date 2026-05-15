@@ -12,6 +12,7 @@ import (
 )
 
 func TestIceServersToAPI(t *testing.T) {
+	t.Parallel()
 	t.Run("with credentials", func(t *testing.T) {
 		servers := []signaling.ICEServer{
 			{URLs: []string{"stun:stun.example.com"}, Username: "user1", Credential: "pass1"},
@@ -53,6 +54,7 @@ func TestIceServersToAPI(t *testing.T) {
 }
 
 func TestDerefStr(t *testing.T) {
+	t.Parallel()
 	t.Run("non-nil", func(t *testing.T) {
 		s := "hello"
 		assert.Equal(t, "hello", derefStr(&s))
@@ -64,6 +66,7 @@ func TestDerefStr(t *testing.T) {
 }
 
 func TestDerefInt(t *testing.T) {
+	t.Parallel()
 	t.Run("non-nil", func(t *testing.T) {
 		v := 42
 		assert.Equal(t, 42, derefInt(&v, 0))
@@ -75,6 +78,7 @@ func TestDerefInt(t *testing.T) {
 }
 
 func TestDerefBool(t *testing.T) {
+	t.Parallel()
 	t.Run("non-nil true", func(t *testing.T) {
 		v := true
 		assert.True(t, derefBool(&v))
@@ -91,6 +95,7 @@ func TestDerefBool(t *testing.T) {
 }
 
 func TestDeviceToAPI(t *testing.T) {
+	t.Parallel()
 	now := time.Now().UTC()
 	d := &db.Device{
 		ID:           uuid.New(),
@@ -120,6 +125,7 @@ func TestDeviceToAPI(t *testing.T) {
 }
 
 func TestPermissionsToProtocol(t *testing.T) {
+	t.Parallel()
 	t.Run("nil defaults to all true", func(t *testing.T) {
 		p := permissionsToProtocol(nil)
 		assert.True(t, p.Desktop)
@@ -143,6 +149,7 @@ func TestPermissionsToProtocol(t *testing.T) {
 }
 
 func TestManifestToAPI(t *testing.T) {
+	t.Parallel()
 	m := &updater.Manifest{
 		Version:   "1.0.0",
 		OS:        "linux",
@@ -161,6 +168,7 @@ func TestManifestToAPI(t *testing.T) {
 }
 
 func TestDeviceLogsToAPI(t *testing.T) {
+	t.Parallel()
 	entries := []db.DeviceLogEntry{
 		{Timestamp: "2026-01-01T00:00:00Z", Level: "INFO", Target: "agent", Message: "started"},
 		{Timestamp: "2026-01-01T00:01:00Z", Level: "WARN", Target: "agent", Message: "slow"},
@@ -186,6 +194,7 @@ func TestDeviceLogsToAPI(t *testing.T) {
 }
 
 func TestMapSlice(t *testing.T) {
+	t.Parallel()
 	input := []int{1, 2, 3}
 	result := mapSlice(input, func(i int) string {
 		return string(rune('a' + i - 1))

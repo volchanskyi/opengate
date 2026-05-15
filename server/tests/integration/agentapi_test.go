@@ -48,7 +48,9 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	listenDone := make(chan struct{})
 	go func() {
+		defer close(listenDone)
 		srv.ListenAndServe(ctx, "127.0.0.1:0")
 	}()
 
@@ -57,7 +59,12 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 
 	t.Cleanup(func() {
 		cancel()
-		time.Sleep(50 * time.Millisecond)
+		// Wait for the QUIC server goroutine to exit instead of a blind sleep.
+		select {
+		case <-listenDone:
+		case <-time.After(2 * time.Second):
+			t.Log("agent QUIC server did not exit within 2s of cancel")
+		}
 	})
 
 	return &agentTestEnv{
@@ -189,6 +196,7 @@ func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stre
 }
 
 func TestAgentConnect_RegistersDevice(t *testing.T) {
+	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
 
@@ -209,6 +217,7 @@ func TestAgentConnect_RegistersDevice(t *testing.T) {
 }
 
 func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
+	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
 
@@ -217,8 +226,11 @@ func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
 
 	stream, deviceID := env.connectAgent(t, group.ID)
 
-	// Wait for registration to complete
-	time.Sleep(100 * time.Millisecond)
+	// Wait for registration to complete.
+	require.Eventually(t, func() bool {
+		d, err := env.store.GetDevice(ctx, deviceID)
+		return err == nil && d.Status == db.StatusOnline
+	}, 3*time.Second, 50*time.Millisecond)
 
 	// Record current last_seen
 	device, err := env.store.GetDevice(ctx, deviceID)
@@ -252,6 +264,7 @@ func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
 }
 
 func TestAgentConnect_DisconnectSetsOffline(t *testing.T) {
+	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
 

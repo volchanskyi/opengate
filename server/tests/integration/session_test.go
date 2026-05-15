@@ -63,7 +63,9 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	listenDone := make(chan struct{})
 	go func() {
+		defer close(listenDone)
 		agentSrv.ListenAndServe(ctx, "127.0.0.1:0")
 	}()
 	agentAddr := agentSrv.Addr() // wait for QUIC to be ready
@@ -95,7 +97,12 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	t.Cleanup(func() {
 		ts.Close()
 		cancel()
-		time.Sleep(50 * time.Millisecond)
+		// Wait for the QUIC server goroutine to exit instead of a blind sleep.
+		select {
+		case <-listenDone:
+		case <-time.After(2 * time.Second):
+			t.Log("agent QUIC server did not exit within 2s of cancel")
+		}
 	})
 
 	return &sessionTestEnv{
@@ -201,6 +208,7 @@ func (e *sessionTestEnv) dialRelayWS(t *testing.T, ctx context.Context, token, s
 }
 
 func TestSessionLifecycle_CreateAndRelay(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -257,8 +265,8 @@ func TestSessionLifecycle_CreateAndRelay(t *testing.T) {
 	agentConn := env.dialRelayWS(t, wsCtx, result.Token, "agent", "")
 	defer agentConn.Close(websocket.StatusNormalClosure, "")
 
-	// Wait for relay to wire both sides
-	time.Sleep(200 * time.Millisecond)
+	// Wait for relay pipe to start (both sides registered).
+	waitForRelayWired(t, ctx, env.relay, protocol.SessionToken(result.Token))
 
 	// 7. Agent sends test payload → browser receives it
 	require.NoError(t, agentConn.Write(wsCtx, websocket.MessageBinary, []byte("agent-payload")))
@@ -278,6 +286,7 @@ func TestSessionLifecycle_CreateAndRelay(t *testing.T) {
 }
 
 func TestSessionLifecycle_AgentRejectsSession(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -311,12 +320,14 @@ func TestSessionLifecycle_AgentRejectsSession(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, rejectPayload))
 
-	// Relay should have no active sessions
-	time.Sleep(200 * time.Millisecond)
-	assert.Equal(t, 0, env.relay.ActiveSessionCount())
+	// Relay should have no active sessions once the reject lands.
+	require.Eventually(t, func() bool {
+		return env.relay.ActiveSessionCount() == 0
+	}, 2*time.Second, 25*time.Millisecond, "relay session count should drop to 0 after reject")
 }
 
 func TestSessionLifecycle_MultipleSessionsSameDevice(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -357,6 +368,7 @@ func TestSessionLifecycle_MultipleSessionsSameDevice(t *testing.T) {
 }
 
 func TestSessionLifecycle_ConcurrentSessions(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -424,7 +436,7 @@ func TestSessionLifecycle_ConcurrentSessions(t *testing.T) {
 			browserConn := env.dialRelayWS(t, wsCtx, token, "browser", jwtToken)
 			defer browserConn.Close(websocket.StatusNormalClosure, "")
 
-			time.Sleep(200 * time.Millisecond)
+			waitForRelayWired(t, wsCtx, env.relay, protocol.SessionToken(token))
 
 			payload := []byte("test-" + token[:8])
 			require.NoError(t, agentConn.Write(wsCtx, websocket.MessageBinary, payload))
@@ -437,6 +449,7 @@ func TestSessionLifecycle_ConcurrentSessions(t *testing.T) {
 }
 
 func TestSessionLifecycle_AgentDisconnectDuringSession(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -476,7 +489,7 @@ func TestSessionLifecycle_AgentDisconnectDuringSession(t *testing.T) {
 	browserConn := env.dialRelayWS(t, wsCtx, result.Token, "browser", jwtToken)
 	defer browserConn.Close(websocket.StatusNormalClosure, "")
 
-	time.Sleep(200 * time.Millisecond)
+	waitForRelayWired(t, ctx, env.relay, protocol.SessionToken(result.Token))
 
 	// Verify data flows
 	require.NoError(t, agentWSConn.Write(wsCtx, websocket.MessageBinary, []byte("pre-disconnect")))
@@ -500,6 +513,7 @@ func TestSessionLifecycle_AgentDisconnectDuringSession(t *testing.T) {
 }
 
 func TestSessionLifecycleSessionForOfflineDevice(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -529,6 +543,7 @@ func TestSessionLifecycleSessionForOfflineDevice(t *testing.T) {
 }
 
 func TestSessionLifecycleSessionForNonexistentDevice(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -556,6 +571,7 @@ func TestSessionLifecycleSessionForNonexistentDevice(t *testing.T) {
 }
 
 func TestSessionLifecycleDeleteNonexistentSession(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 

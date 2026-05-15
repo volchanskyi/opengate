@@ -26,6 +26,7 @@ const (
 )
 
 func TestCreateSession(t *testing.T) {
+	t.Parallel()
 	t.Run("unauthenticated", func(t *testing.T) {
 		srv, _ := newTestServer(t)
 		w := doRequest(srv, http.MethodPost, testPathSessions, "", map[string]string{
@@ -263,6 +264,7 @@ func TestCreateSession(t *testing.T) {
 }
 
 func TestListSessions(t *testing.T) {
+	t.Parallel()
 	t.Run("unauthenticated", func(t *testing.T) {
 		srv, _ := newTestServer(t)
 		w := doRequest(srv, http.MethodGet, testQueryDeviceID+uuid.New().String(), "", nil)
@@ -339,6 +341,7 @@ func TestListSessions(t *testing.T) {
 }
 
 func TestDeleteSession(t *testing.T) {
+	t.Parallel()
 	t.Run("unauthenticated", func(t *testing.T) {
 		srv, _ := newTestServer(t)
 		w := doRequest(srv, http.MethodDelete, testPathSessionsS + "sometoken", "", nil)

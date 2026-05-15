@@ -15,6 +15,7 @@ const (
 )
 
 func TestRegisterHandler(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServer(t)
 
 	t.Run("successful registration", func(t *testing.T) {
@@ -102,6 +103,7 @@ func TestRegisterHandler(t *testing.T) {
 }
 
 func TestLoginHandler(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	seedTestUser(t, srv, cfg, testLoginEmail, false)
 

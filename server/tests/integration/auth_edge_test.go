@@ -14,6 +14,7 @@ import (
 )
 
 func TestAuthExpiredJWTAllEndpoints(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 
 	// Register a real user so endpoints would succeed with a valid token
@@ -50,6 +51,7 @@ func TestAuthExpiredJWTAllEndpoints(t *testing.T) {
 }
 
 func TestAuthDeletedUser(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := context.Background()
 
@@ -74,6 +76,7 @@ func TestAuthDeletedUser(t *testing.T) {
 }
 
 func TestAuthMalformedJWT(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 
 	malformedTokens := []struct {
@@ -96,6 +99,7 @@ func TestAuthMalformedJWT(t *testing.T) {
 }
 
 func TestAuthWrongSecret(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 
 	// Generate a token with a different secret
@@ -113,6 +117,7 @@ func TestAuthWrongSecret(t *testing.T) {
 }
 
 func TestAuthDuplicateRegistration(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 
 	// Register first time — should succeed

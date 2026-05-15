@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/db"
@@ -32,6 +33,13 @@ type AgentConn struct {
 	codec  *protocol.Codec
 	store  db.Store
 	logger *slog.Logger
+
+	// writeMu serializes writes to stream. protocol.Codec.WriteFrame issues
+	// a 5-byte envelope write followed by an N-byte payload write; without
+	// this mutex two concurrent server-initiated sendControl calls could
+	// interleave their (header, payload) pairs on the same QUIC stream and
+	// corrupt the frame seen by the agent.
+	writeMu sync.Mutex
 }
 
 // NewAgentConn creates an AgentConn for testing or programmatic use.
@@ -52,10 +60,20 @@ func (a *AgentConn) sendControl(msg *protocol.ControlMessage) error {
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", msg.Type, err)
 	}
-	if err := a.codec.WriteFrame(a.stream, protocol.FrameControl, payload); err != nil {
+	if err := a.writeFrame(protocol.FrameControl, payload); err != nil {
 		return fmt.Errorf("write %s frame: %w", msg.Type, err)
 	}
 	return nil
+}
+
+// writeFrame writes a single framed message to the agent stream while
+// holding writeMu so concurrent writers (API-handler-initiated sendControl
+// plus the read-loop's FramePong response) cannot interleave envelope and
+// payload bytes.
+func (a *AgentConn) writeFrame(frameType byte, payload []byte) error {
+	a.writeMu.Lock()
+	defer a.writeMu.Unlock()
+	return a.codec.WriteFrame(a.stream, frameType, payload)
 }
 
 // SendSessionRequest sends a SessionRequest control message to the agent.
@@ -153,7 +171,7 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 	}
 
 	if frameType == protocol.FramePing {
-		return a.codec.WriteFrame(a.stream, protocol.FramePong, nil)
+		return a.writeFrame(protocol.FramePong, nil)
 	}
 
 	if frameType != protocol.FrameControl {
