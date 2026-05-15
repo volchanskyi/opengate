@@ -189,10 +189,35 @@
       "Bash(echo \"---exit: $?---\")",
       "Edit(/.claude/skills/precommit/**)",
       "Edit(/.claude/skills/refactor/**)",
-      "Bash(python3 -m json.tool /home/ivan/opengate/.claude/settings.json)"
+      "Bash(python3 -m json.tool /home/ivan/opengate/.claude/settings.json)",
+      "Bash(echo \"---push-exit: $?---\")",
+      "Bash(grep -c \"\\\\.md$\")",
+      "Bash(mkdir -p /home/ivan/opengate/.claude/rules && echo \"created\")",
+      "Bash(rm /home/ivan/opengate/.claude/conventions.md)",
+      "Bash(ln -s CLAUDE.md /home/ivan/opengate/AGENT.MD)",
+      "Bash(bash /home/ivan/opengate/scripts/tests/hooks.test.sh)",
+      "Bash(mv /home/ivan/opengate/.claude/plans/modularize-md-guidelines.md /home/ivan/opengate/.claude/plans/archive/ && ls /home/ivan/opengate/.claude/plans/archive/modularize-md-guidelines.md)",
+      "Skill(precommit)",
+      "Skill(precommit:*)",
+      "Bash(echo \"---exit:$?\")",
+      "Bash(/home/ivan/go-workspace/bin/actionlint)",
+      "Bash(PATH=__TRACKED_VAR__/go-workspace/bin:__TRACKED_VAR__ make taint-go)",
+      "Bash(rustup update *)",
+      "Bash(PATH=__TRACKED_VAR__/go-workspace/bin:__TRACKED_VAR__ make verify-codegen)",
+      "Bash(gitleaks protect *)",
+      "Bash(PATH=__TRACKED_VAR__/go-workspace/bin:__TRACKED_VAR__ make lint-deploy)",
+      "Bash(grep -nB2 -A5 \"test_list_directory_success\" /home/ivan/opengate/agent/crates/mesh-agent-core/src/file_ops.rs)",
+      "Bash(command -v cargo-llvm-cov)",
+      "Bash(command -v cargo-nextest)",
+      "Bash(cargo nextest *)",
+      "Bash(grep -vE \"^\\\\?\\\\?|^M $\")",
+      "Bash(mkdir -p .claude/.markers)",
+      "Bash(git write-tree *)"
     ],
     "additionalDirectories": [
-      "/home/ivan/opengate/.claude/hooks"
+      "/home/ivan/opengate/.claude/hooks",
+      "/home/ivan/opengate/.claude",
+      "/home/ivan/opengate/.claude/plans"
     ]
   },
   "hooks": {

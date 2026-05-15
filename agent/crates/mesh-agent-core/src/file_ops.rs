@@ -44,8 +44,19 @@ impl FileOpsHandler {
 
         let read_dir = std::fs::read_dir(dir_path)?;
         for entry in read_dir {
-            let entry = entry?;
-            let metadata = entry.metadata()?;
+            // Entries can disappear between readdir() and metadata() — e.g. when
+            // /tmp is being actively churned by other processes. Treat NotFound
+            // as "file vanished, skip" rather than failing the whole listing.
+            let entry = match entry {
+                Ok(e) => e,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e.into()),
+            };
+            let metadata = match entry.metadata() {
+                Ok(m) => m,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e.into()),
+            };
             let modified = metadata
                 .modified()
                 .ok()
@@ -155,6 +166,61 @@ mod tests {
             }
             _ => panic!("expected FileListResponse"),
         }
+    }
+
+    #[test]
+    fn test_list_directory_concurrent_churn() {
+        // Regression test for the TOCTOU race fixed in list_directory: when an
+        // entry returned by readdir() disappears before metadata() is called,
+        // list_directory must skip the missing entry rather than failing the
+        // whole listing.
+        //
+        // We can't construct that race deterministically from outside the
+        // function (DirEntry holds opaque state), so we approximate it by
+        // running churn — create-then-delete files in a dedicated tempdir on
+        // a background thread — concurrently with many list_directory calls.
+        // Pre-fix, this races into NotFound errors and the listing fails;
+        // post-fix, list_directory always succeeds even when 50% of entries
+        // vanish mid-iteration.
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let tmp = tempfile::tempdir().expect("create tempdir");
+        let dir = tmp.path().to_path_buf();
+        // Seed a few stable entries so the listing has something stable to find.
+        for i in 0..5 {
+            std::fs::write(dir.join(format!("stable-{i}.txt")), b"x").expect("seed file");
+        }
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let churn_dir = dir.clone();
+        let churn_stop = Arc::clone(&stop);
+        let churn = std::thread::spawn(move || {
+            let mut i = 0u64;
+            while !churn_stop.load(Ordering::Relaxed) {
+                let p = churn_dir.join(format!("churn-{i}.txt"));
+                // Transient I/O errors during churn are not the subject of the
+                // test — we only care that the racing list_directory tolerates
+                // mid-iteration disappearance, so drop both Results explicitly.
+                std::fs::write(&p, b"y").ok();
+                std::fs::remove_file(&p).ok();
+                i += 1;
+            }
+        });
+
+        let handler = FileOpsHandler::new(true, false);
+        let dir_str = dir.to_str().expect("utf-8");
+        // Many iterations so the race window is wide.
+        for _ in 0..200 {
+            let result = handler.list_directory(dir_str);
+            assert!(
+                result.is_ok(),
+                "list_directory must not fail under concurrent churn: {:?}",
+                result.err()
+            );
+        }
+        stop.store(true, Ordering::Relaxed);
+        churn.join().expect("churn thread");
     }
 
     #[test]

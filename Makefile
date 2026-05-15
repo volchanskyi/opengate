@@ -162,8 +162,15 @@ verify-codegen:
 	cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go && git diff --exit-code internal/api/
 
 golden:
+	# Forward goldens: Rust encodes, Go verifies. Generates testdata/golden/*.bin.
 	cd agent && GENERATE_GOLDEN=1 cargo test -p mesh-protocol --test golden_test
+	# Reverse goldens: Go encodes go_*.bin, Rust verifies (in the reverse_golden_test below).
+	# Also writes .meta.json sidecars for every .bin in testdata/golden/.
+	cd server && GENERATE_GOLDEN=1 go test ./internal/protocol/ -run "TestGenerateReverseGoldens|TestGenerateForwardSidecars"
+	# Forward verification (Go side): decode and assert all Rust-side fixtures.
 	cd server && go test ./internal/protocol/ -run TestGolden
+	# Reverse verification (Rust side): decode and assert all Go-encoded fixtures.
+	cd agent && cargo test -p mesh-protocol --test reverse_golden_test
 
 ci: lint test build
 

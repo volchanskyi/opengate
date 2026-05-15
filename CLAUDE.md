@@ -1,122 +1,42 @@
-# OpenGate — Development Conventions
+# OpenGate — Project Rules Index
+
+This file is a one-page index. Each rule lives in its own focused file under [`.claude/rules/`](.claude/rules/). MANDATORY rules are enforced deterministically by [`.claude/hooks/`](.claude/hooks/) — **no bypass mechanism exists**.
+
+`AGENT.MD` at the repo root is a symlink to this file for cross-tool compatibility.
 
 ## Project State — Read Before Starting Work
 
-**MANDATORY** — Before beginning any session, read these three files to understand current project state:
+**MANDATORY.** Read these three files at session start:
 
-- [`.claude/phases.md`](.claude/phases.md) — implementation phases (completed / in-progress / planned)
+- [`.claude/phases.md`](.claude/phases.md) — completed / in-progress / planned phases
 - [`.claude/techdebt.md`](.claude/techdebt.md) — known tech debt by severity
-- [`.claude/decisions.md`](.claude/decisions.md) — ADR index (full ADR files in [`docs/adr/`](docs/adr/))
+- [`.claude/decisions.md`](.claude/decisions.md) — ADR index (full ADRs in [`docs/adr/`](docs/adr/))
 
-**[`docs/`](docs/)** — The canonical developer documentation for the project. Covers architecture, API reference, wire protocol, platform abstraction, database, testing, CI/CD pipeline, continuous deployment, container images, monitoring, infrastructure, agent updates, security, and ADRs. Start at [`docs/Home.md`](docs/Home.md). **Read [`docs/README.md`](docs/README.md) before editing any docs** — it defines the two non-negotiable conventions: (1) **link, don't paraphrase** — do not copy numbers, versions, flags, or paths into prose, link to the source; (2) **ADRs are immutable** — superseded ADRs get a new file, never an in-place edit. The previous GitHub wiki is deprecated.
+Canonical developer docs live in [`docs/`](docs/). Start at [`docs/Home.md`](docs/Home.md). Read [`docs/README.md`](docs/README.md) before editing any doc.
 
-**After completing any significant work**, update the relevant files:
-- Mark phases complete / update in-progress status in `phases.md`
-- Add or resolve debt items in `techdebt.md`
-- Record new architectural decisions as a new immutable file in [`docs/adr/`](docs/adr/) AND add an index row in `decisions.md`. Never edit an accepted ADR in place — supersede it with a new ADR. Enforced by `.claude/hooks/pretooluse-write-guard.sh` (PR 2 of `claude-hooks-port-mandatory-directives`). No bypass.
+After completing significant work, update [`phases.md`](.claude/phases.md), [`techdebt.md`](.claude/techdebt.md), and (for architectural decisions) add an immutable ADR file in [`docs/adr/`](docs/adr/) plus an index row in [`decisions.md`](.claude/decisions.md).
 
-**All agent plans** must be created in **this repo's** `.claude/plans/` directory (i.e. `/home/ivan/opengate/.claude/plans/`), **not** the global `~/.claude/plans/`. Use a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names. If plan mode suggests a path under `~/.claude/plans/`, ignore it and use the project-local path instead. Completed plans are archived to `.claude/plans/archive/`. Enforced by `.claude/hooks/pretooluse-write-guard.sh` (PR 2). No bypass.
+## Workflow Rules
 
-**Plans vs memory** — Plans and memory serve different purposes. Never confuse them:
-- **Plans** (`.claude/plans/`) — implementation details, steps, and task breakdowns. Always a `.md` file in this directory.
-- **Memory** (`~/.claude/projects/.../memory/`) — only for cross-session recall: user preferences, project context, references. Never store plans or task details here.
+| Rule | Concern | Enforced by |
+|---|---|---|
+| [`rules/git.md`](.claude/rules/git.md) | branching (`dev` only), identity, commits, push | `pretooluse-git-commit-guard.sh`, `pretooluse-git-push-guard.sh` |
+| [`rules/tdd.md`](.claude/rules/tdd.md) | write failing test before source code | `pretooluse-tdd-gate.sh`, `pretooluse-bash-source-write-guard.sh` |
+| [`rules/precommit-refactor.md`](.claude/rules/precommit-refactor.md) | `/precommit` before commit; `/refactor` before push | commit/push guards via marker files |
+| [`rules/sonarcloud.md`](.claude/rules/sonarcloud.md) | quality-gate workflow; no suppressions without approval | `pretooluse-write-guard.sh` |
+| [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, ADR immutability | `pretooluse-write-guard.sh` |
 
----
+## Code and Process Conventions
 
-## Branching Rules
-**MANDATORY** — All work happens on `dev`. No exceptions.
-- **Before starting any work**, pull latest: `git checkout dev && git pull origin dev`
-- **Before every push**, pull again: `git pull --rebase origin dev` then push
-- Commit and push to `dev` only: `git push origin dev`
-- **Never commit or push directly to `main`** — `main` receives code exclusively via the automated `merge-to-main` CI job after all checks pass on `dev`
+- [`rules/code.md`](.claude/rules/code.md) — Rust / Go / TypeScript conventions + wire protocol
+- [`rules/editing-and-scope.md`](.claude/rules/editing-and-scope.md) — numbered-list edit protocol, no silent SKIP, zero-manual-install, audit/refactor scope, `/docs` is canonical
+- [`rules/tooling.md`](.claude/rules/tooling.md) — `make` targets, `make e2e` rule, past lessons
 
-Enforced by `.claude/hooks/pretooluse-git-commit-guard.sh` and `.claude/hooks/pretooluse-git-push-guard.sh` (PR 2). No bypass.
+## Quick Reference
 
-## Git Identity
-**MANDATORY** — Every commit must be authored by Ivan Volchanskyi. No co-authors, no Co-Authored-By trailers.
-- `git config user.name "Ivan Volchanskyi"`
-- `git config user.email "ivan.volchanskyi@gmail.com"`
+The CLI tools the hooks enforce:
 
-Enforced by `.claude/hooks/pretooluse-git-commit-guard.sh` (PR 2). No bypass.
+- `/precommit` — runs lints, tests, coverage, docs checks. Writes marker `.claude/.markers/precommit.head`.
+- `/refactor` — post-commit refactoring. Writes marker `.claude/.markers/refactor.head`.
 
-## TDD Mandate
-Write failing tests FIRST. Then implement. Then refactor. No exceptions.
-Test Both Scenarios: positive cases (expected behavior) and negative cases (error handling)
-
-Enforced by `.claude/hooks/pretooluse-tdd-gate.sh` and `.claude/hooks/pretooluse-bash-source-write-guard.sh` (PR 2): the first `Write`/`Edit`/`MultiEdit` of a source file on a branch is blocked until at least one test-file change exists on that branch (committed, staged, unstaged, or untracked). `.claude/hooks/pretooluse-git-commit-guard.sh` enforces the same check as a defense-in-depth backup at commit time. Classifier: [scripts/tdd-check.sh](scripts/tdd-check.sh). No bypass.
-
-## Rust Conventions
-- `thiserror` for library crate errors, `anyhow` for binary crates only
-- No `unwrap()` in production code — use `?` operator
-- `#[non_exhaustive]` on all public enums
-- `tokio` for async, `tracing` for logging
-- All public items documented with `///` doc comments
-- Workspace dependencies in root `Cargo.toml`
-
-## Go Conventions
-- `context.Context` as first argument on all functions
-- `errors.Is` / `errors.As` for error checking — no string comparison
-- Table-driven tests with `t.Run`
-- `testify/assert` and `testify/require` for assertions
-- All exported types have doc comments
-
-## TypeScript Conventions
-- Strict mode — no `any` in production code
-- Vitest for all tests, React Testing Library for components
-- Tailwind CSS for styling — no custom CSS files
-- Zustand for state management
-
-## Wire Protocol
-- MessagePack encoding for control messages
-- Frame format: [1-byte type][4-byte BE length][payload]
-- Golden file tests verify Rust ↔ Go compatibility
-
-## Pre-Commit Checklist
-**MANDATORY** — Run `/precommit` before EVERY commit. No exceptions.
-
-Enforced by `.claude/hooks/pretooluse-git-commit-guard.sh` (PR 2) via the marker file `.claude/.markers/precommit.head` (= `git write-tree` at the time `/precommit` last passed). The hook blocks `git commit` when the marker is missing or stale. Re-staging invalidates the marker — re-run `/precommit`. No bypass.
-
-## Post-Commit Refactoring
-**MANDATORY** — After all pre-commit checks pass, run `/refactor`. No exceptions.
-
-Enforced by `.claude/hooks/pretooluse-git-push-guard.sh` (PR 2) via the marker file `.claude/.markers/refactor.head` (= `git rev-parse HEAD` after `/refactor` finishes). The hook blocks `git push` when commits since `origin/dev` touch source files unless this marker equals HEAD. Doc-only pushes are exempt. No bypass.
-
-## SonarCloud Workflow
-**MANDATORY** — When a SonarCloud quality-gate failure lands on `dev`, fix **all** findings in **one** commit. Never push → wait → fix-one → push-again — each round trip wastes a CI cycle and fragments git history.
-
-### Local SonarCloud scan
-Run `make sonar` (full scan with coverage) or `make sonar-quick` (code-quality only, no coverage generation) before pushing to catch issues locally. Requires Docker and `SONAR_TOKEN` set in the environment or in `.env` (gitignored). Generate a User Token at sonarcloud.io/account/security scoped to the `volchanskyi` organization.
-
-### Fetch everything, not just issues
-On the **first** failure, query all three SonarCloud endpoints in parallel. They return disjoint data:
-- `GET /api/issues/search?componentKeys=volchanskyi_opengate&branch=dev&resolved=false&inNewCodePeriod=true&ps=100` — code-smell / bug / vulnerability **issues**
-- `GET /api/hotspots/search?projectKey=volchanskyi_opengate&branch=dev&status=TO_REVIEW&inNewCodePeriod=true&ps=100` — **security hotspots** (separate endpoint, separate data)
-- `GET /api/qualitygates/project_status?projectKey=volchanskyi_opengate&branch=dev` — which gate **conditions** failed (hotspot-review %, coverage, duplication, ratings)
-
-The issues endpoint returning `total: 0` does **not** mean the gate is green. Hotspots and coverage live elsewhere. Always pull all three before deciding what to fix.
-
-### Audit the diff for analogous patterns
-Before pushing, grep the diff for patterns the project has fixed before. `git log --oneline --grep=SonarCloud --grep=sonar -i` shows past fixes — when a new file is added alongside an existing fixed file (e.g. `postgres.go` next to `sqlite.go`), the new file **will** re-introduce the same rule violations unless you search for them. Concrete patterns to grep on any new Go DB file:
-- `fmt\.Sprintf.*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP)` — `go:S2077` dynamic SQL hotspot
-- `strings\.Join.*(WHERE|AND|OR)` — same hotspot, different shape
-- 3+ identical string literals in one file — `go:S1192` duplicated literals
-
-### No suppression without approval
-Do **not** add `sonar.issue.ignore.multicriteria` entries, `// NOSONAR` comments, or `//nolint` escape hatches to clear the gate unless the user explicitly approves. Restructure the code so Sonar's pattern matcher sees static SQL / deduplicated literals / etc. The existing fixes in `sqlite.go` and `postgres.go` are reference patterns — copy them, don't bypass them.
-
-Enforced by `.claude/hooks/pretooluse-write-guard.sh` (PR 2): any `Write`/`Edit`/`MultiEdit` whose new content contains `NOSONAR`, `//nolint`, `nolint:`, `sonar.issue.ignore.multicriteria`, or `eslint-disable*` is blocked. No bypass — restructure the code instead.
-
-## Commands
-- `make build` — build all components
-- `make test` — run all tests
-- `make lint` — clippy + go vet + eslint + actionlint
-- `make golden` — cross-language compatibility check
-- `make e2e` — run Playwright end-to-end tests
-- `make sonar` — full local SonarCloud scan (generates coverage + runs scanner via Docker)
-- `make sonar-quick` — code-quality-only SonarCloud scan (no coverage generation)
-- `make sonar-coverage` — generate all coverage files for SonarCloud
-- `make mutate` (and `mutate-rust`/`mutate-go`/`mutate-web`) — mutation tests across all three languages (cargo-mutants / gremlins / stryker). Developer-facing; CI gate lands in PR 9 of the structural-testing rollout
-- `make taint-go` / `make taint-web` — static taint linting (gosec; eslint-plugin-security + eslint-plugin-no-unsanitized via `web/eslint.security.config.js`)
-- `make dead-code` — dead-code sweep (clippy `-W dead_code`, staticcheck `U1000`, ts-prune)
-- `cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go` — regenerate Go API from OpenAPI spec
-- `cd web && npm run generate:api` — regenerate TypeScript types from OpenAPI spec
+Editing [`.claude/settings.json`](.claude/settings.json) is the only way to change hook behavior. No flag, comment, or environment variable bypasses any hook.

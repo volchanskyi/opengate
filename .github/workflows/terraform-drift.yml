@@ -62,7 +62,7 @@ jobs:
           }
           EOF
 
-      - name: Terraform init (S3 backend)
+      - name: Terraform init (S3 backend, with retry)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
@@ -71,7 +71,21 @@ jobs:
           # supported`. Forcing `when_required` skips it. Required on every
           # terraform invocation against this backend.
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-        run: terraform -chdir=deploy/terraform init -backend-config=/tmp/backend.tfbackend -input=false
+        # The S3-compat endpoint hostname `<ns>.compat.objectstorage.<region>.oraclecloud.com`
+        # has occasionally failed DNS resolution on GHA runners (observed:
+        # `dial tcp: lookup …: no such host`, 2026-05-15 06:37). Retry with
+        # exponential backoff before failing the gate.
+        run: |
+          set -e
+          for attempt in 1 2 3; do
+            if terraform -chdir=deploy/terraform init -backend-config=/tmp/backend.tfbackend -input=false; then
+              exit 0
+            fi
+            echo "::warning::terraform init attempt $attempt/3 failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::terraform init failed after 3 attempts"
+          exit 1
 
       - name: Terraform plan (refresh-only, detailed exit)
         id: plan

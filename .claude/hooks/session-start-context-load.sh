@@ -7,7 +7,7 @@
 #   - In Progress + Planned + last 10 Completed rows from .claude/phases.md
 #   - Critical / High items from .claude/techdebt.md
 #   - Summary of any prior-session blocks (last 20 entries)
-#   - Pointer to .claude/conventions.md
+#   - Pointer to .claude/rules/ (rules index in CLAUDE.md)
 #
 # Always exit 0; SessionStart hooks must never block.
 set -euo pipefail
@@ -34,9 +34,9 @@ MANDATORY RULES (enforced by .claude/hooks/, NO bypass):
   - Plans live in /home/ivan/opengate/.claude/plans/, NOT ~/.claude/plans/ (write-guard)
   - ADRs in docs/adr/ are immutable — supersede with new file (write-guard)
   - No NOSONAR / //nolint / sonar.issue.ignore / eslint-disable (write-guard)
-  - Use `make e2e`, not bare `npx playwright test` (.claude/conventions.md)
+  - Use `make e2e`, not bare `npx playwright test` (.claude/rules/tooling.md)
 
-Conventions / lessons: see /home/ivan/opengate/.claude/conventions.md.
+Rules: see /home/ivan/opengate/.claude/rules/ (index in CLAUDE.md).
 EOF
 
 phases_section=""
