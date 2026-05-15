@@ -11,9 +11,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"nhooyr.io/websocket"
 )
+
+// waitForRelayWired blocks until both agent and browser sides have registered
+// with the relay and piping has started. Replaces fixed `time.Sleep` waits.
+func waitForRelayWired(t *testing.T, ctx context.Context, r *relay.Relay, token protocol.SessionToken) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		waitCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+		defer cancel()
+		return r.WaitForPeer(waitCtx, token) == nil
+	}, 3*time.Second, 25*time.Millisecond, "relay should wire both sides of session %s", token)
+}
 
 // setupRelayPair creates a session and connects both agent and browser WebSockets.
 // The returned connections are cleaned up when the test ends.
@@ -54,13 +66,14 @@ func (e *sessionTestEnv) setupRelayPair(t *testing.T, ctx context.Context) (agen
 	browserConn = e.dialRelayWS(t, ctx, result.Token, "browser", jwtToken)
 	t.Cleanup(func() { browserConn.Close(websocket.StatusNormalClosure, "") })
 
-	// Wait for relay to wire both sides
-	time.Sleep(200 * time.Millisecond)
+	// Wait for relay pipe to start (both sides registered).
+	waitForRelayWired(t, ctx, e.relay, protocol.SessionToken(result.Token))
 
 	return agentConn, browserConn
 }
 
 func TestRelayBinaryPayloadIntegrity(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -93,6 +106,7 @@ func TestRelayBinaryPayloadIntegrity(t *testing.T) {
 }
 
 func TestRelayLargeFrameSequence(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -114,6 +128,7 @@ func TestRelayLargeFrameSequence(t *testing.T) {
 }
 
 func TestRelayProtocolFrameRoundTrip(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -271,6 +286,7 @@ func TestRelayProtocolFrameRoundTrip(t *testing.T) {
 }
 
 func TestRelayBidirectionalConcurrent(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 

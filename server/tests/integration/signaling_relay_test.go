@@ -17,6 +17,7 @@ import (
 // via the relay WebSocket path: SDP offer → answer → ICE candidates → SwitchAck.
 // Uses fake SDP strings — the relay is message-agnostic and just forwards binary frames.
 func TestSignalingFlowThroughRelay(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -132,6 +133,7 @@ func TestSignalingFlowThroughRelay(t *testing.T) {
 // TestSignalingTimeout verifies that if an offer is sent but no answer arrives,
 // the tracker records PhaseFailed.
 func TestSignalingTimeout(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 

@@ -4,18 +4,16 @@ The project follows a strict test-first approach. All logic is covered before sh
 
 ### Database Tests
 
-`db.Store` contract tests run against a real PostgreSQL 17 service container. The shared tests in [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) use a factory pattern and `storeFactories` table; per-test isolation is via `TRUNCATE ... CASCADE` on the pinned `opengate_test` schema. Tests are skipped when `POSTGRES_TEST_URL` is unset (so `go test ./internal/db/...` without a local Postgres exits cleanly).
+`db.Store` contract tests run against a real PostgreSQL 17 service container. The shared tests in [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) use a factory pattern and `storeFactories` table. Integration and handler tests obtain stores through [`server/internal/testutil/testutil.go`](../server/internal/testutil/testutil.go)'s `NewTestStore(t)`, which creates a fresh PostgreSQL schema (`ogt_<uuid>`) per test, runs migrations on it, and drops it on cleanup — so tests may safely call `t.Parallel()`. Each test pool caps at 3 connections and a process-wide semaphore limits concurrent live stores; with the default Postgres `max_connections=100` the working set can saturate when many parallel tests overlap, so the project's Makefile (`make postgres-test-up`) and CI launch Postgres with `-c max_connections=400`. Tests are skipped when `POSTGRES_TEST_URL` is unset (so `go test ./internal/db/...` without a local Postgres exits cleanly).
 
 To run the DB tests locally:
 
 ```bash
-# Start a test Postgres instance
-docker run -d --rm --name opengate-pg-test \
-  -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
-  -p 55432:5432 postgres:17-alpine
+# Start a test Postgres with the required max_connections
+make postgres-test-up
 
 # Run with the Postgres URL set
-POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:55432/opengate_test?sslmode=disable" \
+POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable" \
   go test -race -timeout 5m ./internal/db/...
 ```
 

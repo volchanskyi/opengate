@@ -66,6 +66,7 @@ func seedDeviceRow(t *testing.T, ctx context.Context, sqlDB *sql.DB, id uuid.UUI
 }
 
 func TestPostgresTIMESTAMPTZNormalizesNonUTCOffsetToUTC(t *testing.T) {
+	t.Parallel()
 	_, sqlDB := pgStore(t)
 	ctx := t.Context()
 
@@ -97,6 +98,7 @@ func TestPostgresTIMESTAMPTZNormalizesNonUTCOffsetToUTC(t *testing.T) {
 }
 
 func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
+	t.Parallel()
 	store, _ := pgStore(t)
 	ctx := t.Context()
 
@@ -147,6 +149,7 @@ func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 }
 
 func TestPostgresUUIDRejectsMalformedAtBoundary(t *testing.T) {
+	t.Parallel()
 	_, sqlDB := pgStore(t)
 	ctx := t.Context()
 
@@ -174,6 +177,7 @@ func TestPostgresUUIDRejectsMalformedAtBoundary(t *testing.T) {
 }
 
 func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
+	t.Parallel()
 	_, sqlDB := pgStore(t)
 	ctx := t.Context()
 
@@ -208,6 +212,7 @@ func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
 }
 
 func TestPostgresConcurrentUpsertDevices(t *testing.T) {
+	t.Parallel()
 	store, _ := pgStore(t)
 	ctx := t.Context()
 
@@ -255,6 +260,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 }
 
 func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
+	t.Parallel()
 	store, _ := pgStore(t)
 	ctx := t.Context()
 
@@ -294,6 +300,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 // the connection — important because the pgx driver pools connections
 // and a permanently-broken conn would poison the pool for later tests.
 func TestPostgresMalformedUUIDInsertRollbackable(t *testing.T) {
+	t.Parallel()
 	_, sqlDB := pgStore(t)
 	ctx := t.Context()
 

@@ -68,6 +68,7 @@ func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 }
 
 func TestRestartDevice(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		online     bool
@@ -145,17 +146,19 @@ func TestRestartDevice(t *testing.T) {
 		w := doRequest(env.srv, http.MethodPost, "/api/v1/devices/"+env.device.ID.String()+"/restart", env.ownerToken, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		// auditLog is async (fire-and-forget goroutine)
-		time.Sleep(100 * time.Millisecond)
-
-		events, err := env.store.QueryAuditLog(t.Context(), db.AuditQuery{Action: "device.restart"})
-		require.NoError(t, err)
-		require.Len(t, events, 1)
+		// auditLog is async (fire-and-forget goroutine) — poll until it lands.
+		var events []*db.AuditEvent
+		require.Eventually(t, func() bool {
+			var err error
+			events, err = env.store.QueryAuditLog(t.Context(), db.AuditQuery{Action: "device.restart"})
+			return err == nil && len(events) == 1
+		}, 2*time.Second, 25*time.Millisecond, "device.restart audit event should be written")
 		assert.Equal(t, env.device.ID.String(), events[0].Target)
 	})
 }
 
 func TestGetDeviceHardware(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		hasCached  bool
@@ -235,6 +238,7 @@ func TestGetDeviceHardware(t *testing.T) {
 }
 
 func TestGetDeviceLogs(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		hasCached  bool

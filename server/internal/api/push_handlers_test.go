@@ -9,6 +9,7 @@ import (
 )
 
 func TestPushHandlers(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, "push@example.com", false)
 

@@ -18,6 +18,7 @@ const (
 )
 
 func TestListAMTDevicesEmpty(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
@@ -30,6 +31,7 @@ func TestListAMTDevicesEmpty(t *testing.T) {
 }
 
 func TestListAMTDevicesWithDevices(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
@@ -55,12 +57,14 @@ func TestListAMTDevicesWithDevices(t *testing.T) {
 }
 
 func TestListAMTDevicesUnauthorized(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServer(t)
 	w := doRequest(srv, http.MethodGet, testPathAMT, "", nil)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestGetAMTDeviceFound(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
@@ -84,6 +88,7 @@ func TestGetAMTDeviceFound(t *testing.T) {
 }
 
 func TestGetAMTDeviceNotFound(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
@@ -92,6 +97,7 @@ func TestGetAMTDeviceNotFound(t *testing.T) {
 }
 
 func TestAmtPowerActionNotConnected(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
@@ -105,6 +111,7 @@ func TestAmtPowerActionNotConnected(t *testing.T) {
 }
 
 func TestAmtPowerActionUnauthorized(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServer(t)
 	body := AMTPowerRequest{Action: PowerOn}
 	w := doRequest(srv, http.MethodPost, testPathAMTOne+uuid.New().String()+"/power", "", body)

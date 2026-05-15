@@ -14,6 +14,7 @@ import (
 
 // TestDeviceIDOR verifies that users cannot access devices belonging to other users' groups.
 func TestDeviceIDOR(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := t.Context()
 
@@ -81,6 +82,7 @@ func TestDeviceIDOR(t *testing.T) {
 
 // TestGroupIDOR verifies that users cannot access other users' groups.
 func TestGroupIDOR(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := t.Context()
 
@@ -130,6 +132,7 @@ func TestGroupIDOR(t *testing.T) {
 
 // TestSessionIDOR verifies session ownership checks.
 func TestSessionIDOR(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := t.Context()
 
@@ -163,6 +166,7 @@ func TestSessionIDOR(t *testing.T) {
 
 // TestAMTAdminOnly verifies that all AMT endpoints require admin access.
 func TestAMTAdminOnly(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := t.Context()
 
@@ -203,6 +207,7 @@ func TestAMTAdminOnly(t *testing.T) {
 
 // TestPasswordValidation verifies password length constraints during registration.
 func TestPasswordValidation(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServer(t)
 
 	tests := []struct {

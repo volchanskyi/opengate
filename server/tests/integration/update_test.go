@@ -83,6 +83,7 @@ func pushUpdate(t *testing.T, env *sessionTestEnv, jwt, version, osName, arch st
 // admin publishes manifest → pushes update → connected agent receives AgentUpdate
 // control message on QUIC stream → agent sends AgentUpdateAck → DB records status.
 func TestUpdatePublishAndPush(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -153,6 +154,7 @@ func TestUpdatePublishAndPush(t *testing.T) {
 // TestUpdatePushSkipsCurrentVersion verifies that agents already on the
 // target version are not pushed an update.
 func TestUpdatePushSkipsCurrentVersion(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -187,6 +189,7 @@ func TestUpdatePushSkipsCurrentVersion(t *testing.T) {
 // TestUpdatePushNoMatchingOS verifies that agents with non-matching OS/arch
 // are not pushed an update.
 func TestUpdatePushNoMatchingOS(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 

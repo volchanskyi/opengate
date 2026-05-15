@@ -14,6 +14,7 @@ import (
 )
 
 func TestAdminUserPromotion(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -54,6 +55,7 @@ func TestAdminUserPromotion(t *testing.T) {
 }
 
 func TestAdminAuditLogCapturesActions(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -72,31 +74,31 @@ func TestAdminAuditLogCapturesActions(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
-	// Wait for async audit log to be written
-	time.Sleep(200 * time.Millisecond)
-
-	// Query audit log
-	resp = env.doJSON(t, http.MethodGet, "/api/v1/audit?action=user.delete", adminToken, nil)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
-	var events []db.AuditEvent
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&events))
-	assert.NotEmpty(t, events)
-
-	// Find our specific event
-	found := false
-	for _, e := range events {
-		if e.Target == victim.ID.String() {
-			found = true
-			assert.Equal(t, "user.delete", e.Action)
-			break
+	// Audit log is written asynchronously — poll until the user.delete event for our victim appears.
+	var matched db.AuditEvent
+	require.Eventually(t, func() bool {
+		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?action=user.delete", adminToken, nil)
+		defer r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			return false
 		}
-	}
-	assert.True(t, found, "audit log should contain user.delete event")
+		var events []db.AuditEvent
+		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+			return false
+		}
+		for _, e := range events {
+			if e.Target == victim.ID.String() {
+				matched = e
+				return true
+			}
+		}
+		return false
+	}, 3*time.Second, 50*time.Millisecond, "audit log should contain user.delete event for victim")
+	assert.Equal(t, "user.delete", matched.Action)
 }
 
 func TestAdminAuditLogFiltering(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -111,21 +113,28 @@ func TestAdminAuditLogFiltering(t *testing.T) {
 	resp := env.doJSON(t, http.MethodPost, pathGroups, adminToken, map[string]string{"name": "audit-test-group"})
 	resp.Body.Close()
 
-	time.Sleep(200 * time.Millisecond)
-
-	// Filter by action
-	resp = env.doJSON(t, http.MethodGet, "/api/v1/audit?action=user.delete", adminToken, nil)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
+	// Filter by action — audit writes are async, so poll until the filter result is consistent.
 	var events []db.AuditEvent
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&events))
+	require.Eventually(t, func() bool {
+		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?action=user.delete", adminToken, nil)
+		defer r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
+		events = nil
+		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+			return false
+		}
+		// Any returned event must match the filter; once the endpoint returns 200 we can validate.
+		return true
+	}, 3*time.Second, 50*time.Millisecond)
 	for _, e := range events {
 		assert.Equal(t, "user.delete", e.Action)
 	}
 }
 
 func TestAdminAuditLogPagination(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -147,15 +156,20 @@ func TestAdminAuditLogPagination(t *testing.T) {
 		resp.Body.Close()
 	}
 
-	time.Sleep(200 * time.Millisecond)
-
-	// Request with limit
-	resp := env.doJSON(t, http.MethodGet, "/api/v1/audit?limit=2", adminToken, nil)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
+	// Audit events are flushed asynchronously — poll until limit=2 returns a valid page.
 	var events []db.AuditEvent
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&events))
+	require.Eventually(t, func() bool {
+		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?limit=2", adminToken, nil)
+		defer r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
+		events = nil
+		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+			return false
+		}
+		return len(events) > 0
+	}, 3*time.Second, 50*time.Millisecond)
 	assert.LessOrEqual(t, len(events), 2)
 
 	// Request with offset

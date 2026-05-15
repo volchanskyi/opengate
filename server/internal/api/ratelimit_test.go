@@ -10,6 +10,7 @@ import (
 )
 
 func TestRateLimiter(t *testing.T) {
+	t.Parallel()
 	okHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -86,6 +87,7 @@ func TestRateLimiter(t *testing.T) {
 }
 
 func TestExtractIP(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name       string
 		remoteAddr string

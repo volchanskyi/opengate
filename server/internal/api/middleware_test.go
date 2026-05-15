@@ -19,6 +19,7 @@ const (
 )
 
 func TestAuthMiddleware(t *testing.T) {
+	t.Parallel()
 	cfg := testJWTConfig()
 	userID := uuid.New()
 
@@ -99,6 +100,7 @@ func TestAuthMiddleware(t *testing.T) {
 }
 
 func TestSecurityHeaders(t *testing.T) {
+	t.Parallel()
 	srv, _ := newTestServer(t)
 
 	w := doRequest(srv, http.MethodGet, "/api/v1/health", "", nil)
@@ -109,6 +111,7 @@ func TestSecurityHeaders(t *testing.T) {
 }
 
 func TestRequestTimeout(t *testing.T) {
+	t.Parallel()
 	slow := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-time.After(5 * time.Second):
@@ -126,6 +129,7 @@ func TestRequestTimeout(t *testing.T) {
 }
 
 func TestMaxBodySize(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, "bodysize@example.com", false)
 
@@ -148,6 +152,7 @@ func TestMaxBodySize(t *testing.T) {
 }
 
 func TestIsGroupOwner(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	owner, ownerToken := seedTestUser(t, srv, cfg, "owner@example.com", false)
 	_ = ownerToken
@@ -199,6 +204,7 @@ func TestIsGroupOwner(t *testing.T) {
 }
 
 func TestContextHelpers(t *testing.T) {
+	t.Parallel()
 	t.Run("ContextClaims returns nil for empty context", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		assert.Nil(t, ContextClaims(req.Context()))

@@ -13,6 +13,7 @@ import (
 )
 
 func TestAuditHandlers(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	adminUser, adminToken := seedTestUser(t, srv, cfg, "audit-admin@example.com", true)
 	_, regularToken := seedTestUser(t, srv, cfg, "audit-regular@example.com", false)

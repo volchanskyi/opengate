@@ -46,6 +46,7 @@ func dialWSConn(t *testing.T, serverURL string) (*WSConn, *websocket.Conn) {
 }
 
 func TestWSConn_ReadWriteRoundtrip(t *testing.T) {
+	t.Parallel()
 	srv := wsEchoServer(t)
 	defer srv.Close()
 
@@ -63,6 +64,7 @@ func TestWSConn_ReadWriteRoundtrip(t *testing.T) {
 }
 
 func TestWSConn_LargeMessage(t *testing.T) {
+	t.Parallel()
 	srv := wsEchoServer(t)
 	defer srv.Close()
 
@@ -82,6 +84,7 @@ func TestWSConn_LargeMessage(t *testing.T) {
 }
 
 func TestWSConn_CloseClosesUnderlying(t *testing.T) {
+	t.Parallel()
 	srv := wsEchoServer(t)
 	defer srv.Close()
 
@@ -96,6 +99,7 @@ func TestWSConn_CloseClosesUnderlying(t *testing.T) {
 }
 
 func TestWSConn_MultipleMessages(t *testing.T) {
+	t.Parallel()
 	srv := wsEchoServer(t)
 	defer srv.Close()
 

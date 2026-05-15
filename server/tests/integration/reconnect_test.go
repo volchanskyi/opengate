@@ -13,6 +13,7 @@ import (
 )
 
 func TestAgentReconnectAfterDisconnect(t *testing.T) {
+	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
 
@@ -61,6 +62,7 @@ func TestAgentReconnectAfterDisconnect(t *testing.T) {
 }
 
 func TestAgentReconnectNewCert(t *testing.T) {
+	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
 
@@ -95,6 +97,7 @@ func TestAgentReconnectNewCert(t *testing.T) {
 }
 
 func TestAgentReconnectSessionSurvives(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
