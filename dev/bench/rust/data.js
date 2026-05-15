@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778867544899,
+  "lastUpdate": 1778868476165,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13009,6 +13009,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.638411707323602,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "339e3e865a5f86e766459b5ab5d34b76853ce991",
+          "message": "test(web): Phase C / C2 — cross-browser nightly, a11y gate, visual regression, codegen drift\n\n* Playwright config: gate Firefox + WebKit projects behind\n  PLAYWRIGHT_ALL_BROWSERS=1; PR CI stays Chromium-only. Cross-browser\n  retries bump 0 → 1 to absorb occasional WebKit flake under Docker.\n* New `.github/workflows/e2e-cross-browser.yml` runs the full Playwright\n  suite against all 3 engines at 03:00 UTC + workflow_dispatch. Never\n  gates merges.\n* A11y gate: add `@axe-core/playwright` devDep; new `web/e2e/a11y.spec.ts`\n  covers login / register / device list / admin user management / admin\n  audit log with WCAG 2.1 A/AA tags. Pre-existing rule violations\n  (color-contrast, link-in-text-block, link-in-text-block-style) waived\n  in `WAIVED_RULES` + reviewer-facing `web/e2e/a11y-baseline.json` with\n  justification; any new rule firing fails CI.\n* Visual regression: 4 Chromium-only baselines (login / register /\n  device list empty / admin user management) under\n  `web/e2e/visual-regression.spec.ts-snapshots/`. `maxDiffPixelRatio:\n  0.01` tolerates font-rendering jitter. Audit log + populated/heavy\n  flows excluded (timestamp drift / fixture cost).\n* Web codegen drift: new step on Web Lint regenerates\n  `src/types/api.d.ts` from the OpenAPI spec and asserts `git diff`\n  is clean — mirrors the Go-side oapi-codegen drift gate.\n* terraform-drift workflow: add an OCI endpoint pre-check step that\n  fails fast with a clear error when `OCI_TFSTATE_NAMESPACE` or\n  `OCI_REGION` is empty, instead of the opaque\n  `dial tcp: lookup ***: no such host` deep inside `terraform init`.",
+          "timestamp": "2026-05-15T11:06:07-07:00",
+          "tree_id": "8f3c6f2ad7a4dee6a19c402e7e5252dbfb33a3b1",
+          "url": "https://github.com/volchanskyi/opengate/commit/339e3e865a5f86e766459b5ab5d34b76853ce991"
+        },
+        "date": 1778868476104,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.11085033568768,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.845366915628837,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 783.6129820726626,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.79822325167925,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.603936937525773,
             "unit": "ns/iter"
           }
         ]
