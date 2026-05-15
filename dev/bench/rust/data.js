@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778793027040,
+  "lastUpdate": 1778813478992,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12862,6 +12862,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.553342722503004,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e31431b2abf1d5ed809b3ec58acfde783bda1239",
+          "message": "feat(protocol): bidirectional goldens + sidecars + Go fuzzing; modularize CLAUDE.md\n\nTest Coverage Phase C / C1 + Markdown Guideline Modularization, bundled per\nuser request.\n\nC1 — Cross-language protocol safety:\n- Reverse goldens (Go → Rust): server/internal/protocol/golden_reverse_test.go\n  writes go_<variant>.bin under GENERATE_GOLDEN=1 for 8 representative\n  variants; agent/crates/mesh-protocol/tests/reverse_golden_test.rs decodes\n  each and asserts canonical struct values. Closes \"Golden File Tests Are\n  One-Directional\" tech-debt (open since Phase 1).\n- .meta.json sidecars for every .bin (35 forward + 8 reverse = 43);\n  TestGoldenSidecarsExist enforces coverage.\n- Go native fuzzing: FuzzReadFrame + FuzzDecodeControl, seed corpus from\n  forward goldens. 555k/445k execs at 5s, no panics.\n- Makefile golden target now bidirectional. CI golden job sets up both\n  toolchains; runs Go generators then both verifications; git diff\n  --exit-code asserts no drift.\n- ADR-016 records the design (extends ADR-002).\n\nMarkdown reorg:\n- CLAUDE.md (122 lines) -> 42-line index pointing at 8 topical rule files\n  under .claude/rules/. AGENT.MD replaced with tracked symlink. All 6 hooks'\n  error messages repointed. .claude/conventions.md dissolved. 8 duplicated\n  feedback memories deleted from ~/.claude/projects/.../memory/.\n\nBug fix bundled (surfaced by Phase C verification):\n- file_ops::list_directory was flaky under parallel test execution — TOCTOU\n  race between readdir() and entry.metadata() when /tmp had concurrent\n  churn. Now skips per-entry NotFound errors instead of failing the listing.",
+          "timestamp": "2026-05-14T19:45:26-07:00",
+          "tree_id": "6b70ed886c8d36fdd61b960ead62e02dff1e1839",
+          "url": "https://github.com/volchanskyi/opengate/commit/e31431b2abf1d5ed809b3ec58acfde783bda1239"
+        },
+        "date": 1778813478929,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.216728000759495,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.38043809016082,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 740.504368128823,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 311.3444464757204,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.08398064486661,
             "unit": "ns/iter"
           }
         ]
