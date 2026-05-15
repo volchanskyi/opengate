@@ -150,7 +150,9 @@ jobs:
     env:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
+      - uses: actions/checkout@v6
       - name: Start Postgres with max_connections=400
+        working-directory: .
         run: |
           docker run -d --rm --name pg-ci \
             -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
@@ -162,7 +164,6 @@ jobs:
             sleep 1
           done
           echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
-      - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
@@ -262,7 +263,9 @@ jobs:
     env:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
+      - uses: actions/checkout@v6
       - name: Start Postgres with max_connections=400
+        working-directory: .
         run: |
           docker run -d --rm --name pg-ci \
             -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
@@ -274,7 +277,6 @@ jobs:
             sleep 1
           done
           echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
-      - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'

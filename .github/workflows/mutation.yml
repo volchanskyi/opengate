@@ -257,10 +257,25 @@ jobs:
           git add docs/mutation-history.jsonl
           if git diff --cached --quiet; then
             echo "no JSONL changes to commit"
-          else
-            git commit -m "chore(mutation): nightly score snapshot [skip ci]"
-            git push origin "HEAD:${GITHUB_REF_NAME:-dev}"
+            exit 0
           fi
+          git commit -m "chore(mutation): nightly score snapshot [skip ci]"
+          # Rebase + push with retry: another job may have pushed to dev
+          # between the checkout and now (race with merge-to-main, CI fixes,
+          # other scheduled workflows). Up to 3 attempts, refetching each time.
+          BRANCH="${GITHUB_REF_NAME:-dev}"
+          for attempt in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git rebase "origin/${BRANCH}" || { echo "rebase failed (likely a real conflict)"; exit 1; }
+            if git push origin "HEAD:${BRANCH}"; then
+              echo "JSONL row pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "push attempt ${attempt}/3 rejected (branch moved); retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::JSONL row push failed after 3 rebase+push attempts"
+          exit 1
 
       - name: OCI + SSH setup
         id: infra
