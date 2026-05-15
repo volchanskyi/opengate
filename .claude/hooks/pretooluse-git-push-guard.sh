@@ -36,7 +36,7 @@ if [ "$targets_main" = "true" ]; then
   if printf '%s' "$cmd" | grep -qE -- '--force(-with-lease)?\b|[[:space:]]-f\b'; then
     block git-push-no-force-main "git push refused: force-push to main is never allowed. Remove --force / -f."
   fi
-  block git-push-no-main "git push refused: target is main. CLAUDE.md §Branching Rules: main updates only via the auto-merge CI job. Push to dev instead."
+  block git-push-no-main "git push refused: target is main. .claude/rules/git.md: main updates only via the auto-merge CI job. Push to dev instead."
 fi
 
 # 3. Behind upstream (best-effort).

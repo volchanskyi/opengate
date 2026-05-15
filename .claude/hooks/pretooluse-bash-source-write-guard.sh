@@ -101,7 +101,7 @@ while IFS= read -r raw; do
   fi
 
   msg=$(cat <<EOF
-TDD violation (Bash form). Per CLAUDE.md §TDD Mandate, the failing test MUST be written BEFORE the source code.
+TDD violation (Bash form). Per .claude/rules/tdd.md, the failing test MUST be written BEFORE the source code.
 The Bash command would modify ${rel}, a source file, on a branch that has no test files modified, added, or staged. Stage a test first.
 Detected command: ${cmd}
 There is NO bypass.
