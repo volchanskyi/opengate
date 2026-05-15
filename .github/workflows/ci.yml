@@ -369,6 +369,17 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - name: Verify generated API types are in sync
+        # Mirrors the Go-side codegen drift check earlier in this workflow.
+        # Regenerate `src/types/api.d.ts` from the OpenAPI spec; if the diff
+        # is non-empty the developer forgot to run `npm run generate:api`
+        # after editing `api/openapi.yaml`.
+        run: |
+          npm run generate:api
+          if ! git diff --exit-code -- src/types/api.d.ts; then
+            echo "::error::src/types/api.d.ts is out of sync with api/openapi.yaml. Run \`cd web && npm run generate:api\` and commit."
+            exit 1
+          fi
 
   web-unit:
     name: Web Unit Tests

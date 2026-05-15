@@ -257,7 +257,11 @@
       "Bash(curl -sL \"https://api.github.com/repos/volchanskyi/opengate/actions/jobs/76176807041/logs\" -H \"Authorization: Bearer $\\(gh auth token\\)\")",
       "Bash(curl -sL \"https://api.github.com/repos/volchanskyi/opengate/actions/jobs/76181049590/logs\" -H \"Authorization: Bearer $\\(gh auth token\\)\")",
       "Bash(actionlint .github/workflows/ci.yml .github/workflows/mutation.yml)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(grep -n \"^  [a-z][a-z-]*:$\" /home/ivan/opengate/.github/workflows/ci.yml)",
+      "Bash(actionlint .github/workflows/e2e-cross-browser.yml)",
+      "Bash(make -B e2e)",
+      "Bash(actionlint .github/workflows/ci.yml .github/workflows/e2e-cross-browser.yml)"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate/.claude/hooks",
