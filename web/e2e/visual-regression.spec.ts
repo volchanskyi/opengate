@@ -11,12 +11,12 @@ import { test, expect } from "./fixtures";
 //   - Login page (anonymous)
 //   - Register page (anonymous)
 //   - Device list, empty (authed)
-//   - Admin user management (admin authed)
 //
 // Excluded:
-//   - Admin audit log — content drifts with timestamps + per-run event
-//     count, so the screenshot is inherently flaky without mocking the
-//     audit feed. The a11y spec still covers this page.
+//   - Admin user management + admin audit log — both render rows whose
+//     content drifts each run (created_at / last_seen timestamps, dynamic
+//     event counts), so the screenshots are inherently flaky without
+//     mocking the underlying data. The a11y spec still covers both pages.
 //   - Heavy specs (device list populated, session view, file manager,
 //     filtered device logs) require backend state (live QUIC agent,
 //     files in a real sandbox) and are deferred to a follow-up.
@@ -47,13 +47,5 @@ test.describe("Visual regression (Chromium baselines)", () => {
       authedPage.getByText(/no groups|no devices|create.*group/i),
     ).toBeVisible();
     await expect(authedPage).toHaveScreenshot("device-list-empty.png", screenshotOptions);
-  });
-
-  test("admin user management", async ({ adminPage }) => {
-    await adminPage.goto("/settings/users");
-    await expect(
-      adminPage.getByRole("heading", { name: /user management/i }),
-    ).toBeVisible();
-    await expect(adminPage).toHaveScreenshot("admin-users.png", screenshotOptions);
   });
 });

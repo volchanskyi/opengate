@@ -528,18 +528,11 @@ jobs:
 
   e2e:
     name: E2E Tests
-    needs:
-      - rust-lint
-      - rust-test
-      - go-lint
-      - go-unit
-      - go-integration
-      - golden
-      - web-lint
-      - web-unit
-      - web-integration
-      - config-lint
-      - web-bundle-size
+    # No `needs:` — E2E builds its own docker-compose test stack and shares
+    # no artifacts with the unit/integration jobs, so it can run in
+    # parallel from the start of the workflow. Failures here surface
+    # alongside the unit failures instead of after them, cutting the
+    # critical path roughly in half on PRs that touch web code.
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:

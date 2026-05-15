@@ -261,7 +261,10 @@
       "Bash(grep -n \"^  [a-z][a-z-]*:$\" /home/ivan/opengate/.github/workflows/ci.yml)",
       "Bash(actionlint .github/workflows/e2e-cross-browser.yml)",
       "Bash(make -B e2e)",
-      "Bash(actionlint .github/workflows/ci.yml .github/workflows/e2e-cross-browser.yml)"
+      "Bash(actionlint .github/workflows/ci.yml .github/workflows/e2e-cross-browser.yml)",
+      "Bash(actionlint .github/workflows/terraform-drift.yml)",
+      "Bash(grep -nE \"^  [a-z][a-z-]*:$|name:\" /home/ivan/opengate/.github/workflows/iac-plan-preview.yml)",
+      "Bash(curl -sL \"https://api.github.com/repos/volchanskyi/opengate/actions/jobs/76233468011/logs\" -H \"Authorization: Bearer $\\(gh auth token\\)\")"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate/.claude/hooks",
