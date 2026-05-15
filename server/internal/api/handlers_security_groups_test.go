@@ -16,6 +16,7 @@ const (
 )
 
 func TestSecurityGroupHandlers(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, adminToken := seedTestUser(t, srv, cfg, "sgadmin@example.com", true)
 	_, nonAdminToken := seedTestUser(t, srv, cfg, "sguser@example.com", false)
@@ -100,6 +101,7 @@ func TestSecurityGroupHandlers(t *testing.T) {
 }
 
 func TestSecurityGroupMemberHandlers(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	adminUser, adminToken := seedTestUser(t, srv, cfg, "memadmin@example.com", true)
 	_, nonAdminToken := seedTestUser(t, srv, cfg, "memuser@example.com", false)

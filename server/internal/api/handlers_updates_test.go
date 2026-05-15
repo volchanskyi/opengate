@@ -45,6 +45,7 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 }
 
 func TestListUpdateManifests_Empty(t *testing.T) {
+	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
 	w := doRequest(srv, http.MethodGet, "/api/v1/updates/manifests", adminToken, nil)
@@ -56,6 +57,7 @@ func TestListUpdateManifests_Empty(t *testing.T) {
 }
 
 func TestPublishUpdate_Success(t *testing.T) {
+	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
 	body := PublishUpdateRequest{
@@ -78,6 +80,7 @@ func TestPublishUpdate_Success(t *testing.T) {
 }
 
 func TestPublishUpdate_NonAdmin(t *testing.T) {
+	t.Parallel()
 	srv, _, userToken := newTestServerWithUpdater(t)
 
 	body := PublishUpdateRequest{
@@ -93,6 +96,7 @@ func TestPublishUpdate_NonAdmin(t *testing.T) {
 }
 
 func TestListUpdateManifests_AfterPublish(t *testing.T) {
+	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
 	body := PublishUpdateRequest{
@@ -115,6 +119,7 @@ func TestListUpdateManifests_AfterPublish(t *testing.T) {
 }
 
 func TestPushUpdate_NoManifest(t *testing.T) {
+	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
 	body := PushUpdateRequest{
@@ -128,6 +133,7 @@ func TestPushUpdate_NoManifest(t *testing.T) {
 }
 
 func TestPushUpdate_NonAdmin(t *testing.T) {
+	t.Parallel()
 	srv, _, userToken := newTestServerWithUpdater(t)
 
 	body := PushUpdateRequest{
@@ -141,6 +147,7 @@ func TestPushUpdate_NonAdmin(t *testing.T) {
 }
 
 func TestPushUpdate_VersionMismatch(t *testing.T) {
+	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
 	// Publish v1.0.0
@@ -165,6 +172,7 @@ func TestPushUpdate_VersionMismatch(t *testing.T) {
 }
 
 func TestPushUpdate_NoConnectedAgents(t *testing.T) {
+	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
 	// Publish
@@ -193,6 +201,7 @@ func TestPushUpdate_NoConnectedAgents(t *testing.T) {
 }
 
 func TestGetUpdateSigningKey_Admin(t *testing.T) {
+	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
 	w := doRequest(srv, http.MethodGet, "/api/v1/updates/signing-key", adminToken, nil)
@@ -206,6 +215,7 @@ func TestGetUpdateSigningKey_Admin(t *testing.T) {
 }
 
 func TestGetUpdateSigningKey_NonAdmin(t *testing.T) {
+	t.Parallel()
 	srv, _, userToken := newTestServerWithUpdater(t)
 
 	w := doRequest(srv, http.MethodGet, "/api/v1/updates/signing-key", userToken, nil)
@@ -213,6 +223,7 @@ func TestGetUpdateSigningKey_NonAdmin(t *testing.T) {
 }
 
 func TestGetUpdateStatus_Empty(t *testing.T) {
+	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
 	w := doRequest(srv, http.MethodGet, "/api/v1/updates/status/1.0.0", adminToken, nil)
@@ -224,6 +235,7 @@ func TestGetUpdateStatus_Empty(t *testing.T) {
 }
 
 func TestGetUpdateStatus_NonAdmin(t *testing.T) {
+	t.Parallel()
 	srv, _, userToken := newTestServerWithUpdater(t)
 
 	w := doRequest(srv, http.MethodGet, "/api/v1/updates/status/1.0.0", userToken, nil)

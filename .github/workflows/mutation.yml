@@ -47,23 +47,23 @@ jobs:
     # 60min leaves headroom over the prior 35min ceiling that timed out on
     # the 2026-05-14 run. Go and web finish in ~25min and share the matrix.
     timeout-minutes: 60
-    services:
-      # Only the Go job needs Postgres; the service is cheap to start on all
-      # three runners (~5s) and keeps the matrix uniform.
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: opengate
-          POSTGRES_PASSWORD: opengate
-          POSTGRES_DB: opengate_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U opengate -d opengate_test"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
     steps:
+      # Only the Go matrix leg needs Postgres, but launch is cheap (~5s)
+      # and uniform across legs simplifies the conditional. `-c
+      # max_connections=400` is required so the parallel per-schema test
+      # store pattern in testutil.NewTestStore stays within the conn budget.
+      - name: Start Postgres with max_connections=400
+        run: |
+          docker run -d --rm --name pg-ci \
+            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+            -p 5432:5432 postgres:17-alpine -c max_connections=400
+          for i in {1..30}; do
+            if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
+              echo "postgres ready after ${i} attempt(s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
       - uses: actions/checkout@v6
 
       # -- Rust --------------------------------------------------------------

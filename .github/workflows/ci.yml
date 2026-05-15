@@ -142,23 +142,26 @@ jobs:
     defaults:
       run:
         working-directory: server
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: opengate
-          POSTGRES_PASSWORD: opengate
-          POSTGRES_DB: opengate_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U opengate -d opengate_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # Postgres is launched manually below (not as a service) so we can pass
+    # `-c max_connections=400`. The default 100-conn limit saturates when
+    # tests run in parallel — each parallel test holds its own schema via
+    # testutil.NewTestStore and the working set of transient conns exceeds
+    # 100 with `go test -p $GOMAXPROCS`.
     env:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
+      - name: Start Postgres with max_connections=400
+        run: |
+          docker run -d --rm --name pg-ci \
+            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+            -p 5432:5432 postgres:17-alpine -c max_connections=400
+          for i in {1..30}; do
+            if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
+              echo "postgres ready after ${i} attempt(s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
@@ -254,23 +257,23 @@ jobs:
     defaults:
       run:
         working-directory: server
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: opengate
-          POSTGRES_PASSWORD: opengate
-          POSTGRES_DB: opengate_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U opengate -d opengate_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # See go-unit job above for rationale on launching Postgres manually
+    # with `-c max_connections=400`.
     env:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
+      - name: Start Postgres with max_connections=400
+        run: |
+          docker run -d --rm --name pg-ci \
+            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+            -p 5432:5432 postgres:17-alpine -c max_connections=400
+          for i in {1..30}; do
+            if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
+              echo "postgres ready after ${i} attempt(s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:

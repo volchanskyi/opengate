@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 // RequestLogger) does not break WebSocket upgrades. The http.Hijacker
 // interface must be preserved through all response writer wrappers.
 func TestWebSocketUpgradeThroughFullMiddlewareStack(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
@@ -52,22 +54,42 @@ func TestWebSocketUpgradeThroughFullMiddlewareStack(t *testing.T) {
 
 // TestRelayRouteBypassesRequestTimeout verifies that the WebSocket relay
 // route lives outside the 30-second RequestTimeout middleware group.
-// A relay connection must survive longer than the API timeout.
+// A relay connection must survive longer than the API timeout. Instead of
+// sleeping silently for 32s the test exchanges heartbeats every 2s for the
+// duration, asserting the relay stays bidirectionally functional past the
+// 30s timeout point.
 func TestRelayRouteBypassesRequestTimeout(t *testing.T) {
+	t.Parallel()
 	env := newSessionTestEnv(t)
 	ctx := context.Background()
 
 	agentConn, browserConn := env.setupRelayPair(t, ctx)
 
-	// Wait longer than the API RequestTimeout (30s) — we use 32s to confirm
-	// the relay is not subject to it. This is the critical assertion.
-	t.Log("waiting 32s to confirm relay survives past API timeout...")
-	time.Sleep(32 * time.Second)
+	const (
+		heartbeatInterval = 2 * time.Second
+		totalDuration     = 32 * time.Second
+	)
+	t.Logf("exchanging heartbeats every %s for %s to confirm relay survives past API timeout", heartbeatInterval, totalDuration)
+
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	deadline := time.Now().Add(totalDuration)
+
+	for i := 0; time.Now().Before(deadline); i++ {
+		<-ticker.C
+		wsCtx, wsCancel := context.WithTimeout(ctx, 2*time.Second)
+		payload := []byte(fmt.Sprintf("heartbeat-%d", i))
+		require.NoError(t, agentConn.Write(wsCtx, websocket.MessageBinary, payload), "heartbeat %d agent→browser write failed", i)
+		_, data, err := browserConn.Read(wsCtx)
+		wsCancel()
+		require.NoError(t, err, "heartbeat %d browser read failed", i)
+		require.Equal(t, payload, data, "heartbeat %d payload mismatch", i)
+	}
 
 	wsCtx, wsCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer wsCancel()
 
-	// Connection should still be alive
+	// Final assertion: connection still alive after the full window.
 	payload := []byte("still-alive-after-timeout")
 	require.NoError(t, agentConn.Write(wsCtx, websocket.MessageBinary, payload))
 	_, data, err := browserConn.Read(wsCtx)

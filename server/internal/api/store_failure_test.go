@@ -18,6 +18,7 @@ import (
 
 // TestHandlerStoreFailures verifies that every handler returns 500 when the store is unavailable.
 func TestHandlerStoreFailures(t *testing.T) {
+	t.Parallel()
 	pgURL := os.Getenv("POSTGRES_TEST_URL")
 	if pgURL == "" {
 		t.Skip("POSTGRES_TEST_URL not set; skipping Postgres tests")

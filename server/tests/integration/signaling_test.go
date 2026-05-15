@@ -10,6 +10,7 @@ import (
 )
 
 func TestSignalingStartAndAck(t *testing.T) {
+	t.Parallel()
 	tracker := signaling.NewTracker(signaling.DefaultConfig())
 
 	token := string(protocol.GenerateSessionToken())
@@ -47,6 +48,7 @@ func TestSignalingStartAndAck(t *testing.T) {
 }
 
 func TestSignalingRecordFailure(t *testing.T) {
+	t.Parallel()
 	tracker := signaling.NewTracker(signaling.DefaultConfig())
 
 	token := string(protocol.GenerateSessionToken())
@@ -70,6 +72,7 @@ func TestSignalingRecordFailure(t *testing.T) {
 }
 
 func TestSignalingConcurrentSessions(t *testing.T) {
+	t.Parallel()
 	tracker := signaling.NewTracker(signaling.DefaultConfig())
 
 	tokens := make([]string, 5)

@@ -32,6 +32,7 @@ func newTestServerWithWebDir(t *testing.T, webDir string) *Server {
 }
 
 func TestSPA_PathTraversal_Returns404(t *testing.T) {
+	t.Parallel()
 	webDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>SPA</html>"), 0644))
 
@@ -55,6 +56,7 @@ func TestSPA_PathTraversal_Returns404(t *testing.T) {
 }
 
 func TestSPA_ServesStaticFile(t *testing.T) {
+	t.Parallel()
 	webDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>SPA</html>"), 0644))
 	require.NoError(t, os.MkdirAll(filepath.Join(webDir, "assets"), 0755))
@@ -68,6 +70,7 @@ func TestSPA_ServesStaticFile(t *testing.T) {
 }
 
 func TestSPA_FallsBackToIndex(t *testing.T) {
+	t.Parallel()
 	webDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>SPA</html>"), 0644))
 
@@ -79,6 +82,7 @@ func TestSPA_FallsBackToIndex(t *testing.T) {
 }
 
 func TestSPA_APIPathsNotIntercepted(t *testing.T) {
+	t.Parallel()
 	webDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>SPA</html>"), 0644))
 
@@ -95,6 +99,7 @@ func TestSPA_APIPathsNotIntercepted(t *testing.T) {
 }
 
 func TestSPA_DisabledWhenWebDirEmpty(t *testing.T) {
+	t.Parallel()
 	store := testutil.NewTestStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{

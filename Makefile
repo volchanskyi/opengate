@@ -31,6 +31,26 @@ test-integration:
 test-coverage:
 	cd server && go test -race -coverprofile=coverage.out -covermode=atomic ./... && go tool cover -func=coverage.out
 
+# Local Postgres for running the Go test suite. testutil.NewTestStore
+# creates one schema per test for parallel-safe isolation; with `go test`
+# at default parallelism the working set of transient connections exceeds
+# the Postgres 100-conn default, hence `-c max_connections=400`. Mirrors
+# the ci.yml / mutation.yml setup so CI and local behave the same.
+postgres-test-up:
+	docker rm -f opengate-pg-test 2>/dev/null || true
+	docker run -d --rm --name opengate-pg-test \
+		-e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+		-p 5432:5432 postgres:17-alpine -c max_connections=400
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+		docker exec opengate-pg-test pg_isready -U opengate -d opengate_test >/dev/null 2>&1 && break; \
+		sleep 1; \
+	done
+	@echo "Postgres test DB ready. Export:"
+	@echo "  export POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\""
+
+postgres-test-down:
+	docker rm -f opengate-pg-test 2>/dev/null || true
+
 lint: lint-deploy
 	cd agent && cargo clippy --workspace -- -D warnings
 	cd server && go vet ./...

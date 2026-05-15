@@ -90,6 +90,7 @@ func newTestServerWithSigning(t *testing.T) (*Server, *auth.JWTConfig) {
 }
 
 func TestCreateEnrollmentToken(t *testing.T) {
+	t.Parallel()
 	t.Run("admin success", func(t *testing.T) {
 		srv, cfg := newTestServerWithCert(t)
 		_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
@@ -134,6 +135,7 @@ func TestCreateEnrollmentToken(t *testing.T) {
 }
 
 func TestListEnrollmentTokens(t *testing.T) {
+	t.Parallel()
 	t.Run("returns created tokens", func(t *testing.T) {
 		srv, cfg := newTestServerWithCert(t)
 		_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
@@ -176,6 +178,7 @@ func TestListEnrollmentTokens(t *testing.T) {
 }
 
 func TestDeleteEnrollmentToken(t *testing.T) {
+	t.Parallel()
 	t.Run("success", func(t *testing.T) {
 		srv, cfg := newTestServerWithCert(t)
 		_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
@@ -219,6 +222,7 @@ func TestDeleteEnrollmentToken(t *testing.T) {
 }
 
 func TestEnroll(t *testing.T) {
+	t.Parallel()
 	t.Run("success", func(t *testing.T) {
 		srv, cfg := newTestServerWithCert(t)
 		_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
@@ -409,6 +413,7 @@ func TestEnroll(t *testing.T) {
 }
 
 func TestGetServerCA(t *testing.T) {
+	t.Parallel()
 	t.Run("authenticated success", func(t *testing.T) {
 		srv, cfg := newTestServerWithCert(t)
 		_, userToken := seedTestUser(t, srv, cfg, "user@test.com", false)
@@ -430,6 +435,7 @@ func TestGetServerCA(t *testing.T) {
 }
 
 func TestGetInstallScript(t *testing.T) {
+	t.Parallel()
 	t.Run("returns script", func(t *testing.T) {
 		srv, _ := newTestServerWithCert(t)
 

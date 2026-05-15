@@ -134,6 +134,7 @@ func (e *testEnv) login(t *testing.T, email, password string) string {
 // --- Integration Tests ---
 
 func TestAuthFlow(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 
 	t.Run("register then login then access protected endpoint", func(t *testing.T) {
@@ -188,6 +189,7 @@ func TestAuthFlow(t *testing.T) {
 }
 
 func TestDeviceLifecycle(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	token := env.register(t, "devops@example.com", "pass1234")
 
@@ -251,6 +253,7 @@ func TestDeviceLifecycle(t *testing.T) {
 }
 
 func TestGroupLifecycle(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	token1 := env.register(t, "user1@example.com", "pass1234")
 	token2 := env.register(t, "user2@example.com", "pass4567")
@@ -289,6 +292,7 @@ func TestGroupLifecycle(t *testing.T) {
 }
 
 func TestAdminAuthorization(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 
 	// Create admin user first (so the DB is not empty when the regular user registers).
@@ -341,6 +345,7 @@ func TestAdminAuthorization(t *testing.T) {
 }
 
 func TestConcurrentRequests(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	token := env.register(t, "concurrent@example.com", "pass1234")
 

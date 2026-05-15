@@ -16,6 +16,7 @@ const (
 )
 
 func TestGroupHandlers(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	_, token := seedTestUser(t, srv, cfg, "grp@example.com", false)
 

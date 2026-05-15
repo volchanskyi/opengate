@@ -17,6 +17,7 @@ const (
 )
 
 func TestDeviceHandlers(t *testing.T) {
+	t.Parallel()
 	srv, cfg := newTestServer(t)
 	user, token := seedTestUser(t, srv, cfg, "dev@example.com", false)
 

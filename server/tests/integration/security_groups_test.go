@@ -15,6 +15,7 @@ import (
 const pathSecurityGroups = "/api/v1/security-groups"
 
 func TestSecurityGroup_AdminCanListGroups(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -41,6 +42,7 @@ func TestSecurityGroup_AdminCanListGroups(t *testing.T) {
 }
 
 func TestSecurityGroup_AdminCanAddMember(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -71,6 +73,7 @@ func TestSecurityGroup_AdminCanAddMember(t *testing.T) {
 }
 
 func TestSecurityGroup_AdminCanRemoveMember(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -97,6 +100,7 @@ func TestSecurityGroup_AdminCanRemoveMember(t *testing.T) {
 }
 
 func TestSecurityGroup_NonAdminBlocked(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 
 	// Seed an admin first so the registered user is NOT the first user.
@@ -138,6 +142,7 @@ func TestSecurityGroup_NonAdminBlocked(t *testing.T) {
 }
 
 func TestSecurityGroup_CannotDeleteSystemGroup(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -150,6 +155,7 @@ func TestSecurityGroup_CannotDeleteSystemGroup(t *testing.T) {
 }
 
 func TestSecurityGroup_CannotRemoveLastAdmin(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -165,6 +171,7 @@ func TestSecurityGroup_CannotRemoveLastAdmin(t *testing.T) {
 }
 
 func TestSecurityGroup_AuditLogging(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
 
@@ -182,19 +189,25 @@ func TestSecurityGroup_AuditLogging(t *testing.T) {
 		adminToken, map[string]string{"user_id": regUser.ID.String()})
 	resp.Body.Close()
 
-	time.Sleep(200 * time.Millisecond)
-
-	// Check audit log for the add_member action.
-	resp = env.doJSON(t, http.MethodGet, "/api/v1/audit?action=security_group.add_member", adminToken, nil)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-
+	// Audit writes are async — poll until the add_member event surfaces.
 	var events []db.AuditEvent
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&events))
+	require.Eventually(t, func() bool {
+		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?action=security_group.add_member", adminToken, nil)
+		defer r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
+		events = nil
+		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+			return false
+		}
+		return len(events) > 0
+	}, 3*time.Second, 50*time.Millisecond, "audit log should contain security_group.add_member event")
 	assert.NotEmpty(t, events)
 }
 
 func TestAdminFirstUserBootstrap(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 
 	// First user registered becomes admin.
@@ -206,6 +219,7 @@ func TestAdminFirstUserBootstrap(t *testing.T) {
 }
 
 func TestAdminSecondUserNotAdmin(t *testing.T) {
+	t.Parallel()
 	env := newTestEnv(t)
 
 	// First user becomes admin.

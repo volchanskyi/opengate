@@ -30,19 +30,40 @@ type PostgresStore struct {
 	db *sql.DB
 }
 
+// PostgresOptions tunes the connection pool used by NewPostgresStoreWithOptions.
+// A zero value means "use the production default".
+type PostgresOptions struct {
+	MaxOpenConns int
+	MaxIdleConns int
+}
+
 // NewPostgresStore opens a PostgreSQL connection pool, runs migrations, and
 // returns a ready-to-use store.
 //
 // databaseURL follows the libpq URL form: "postgres://user:pass@host:port/db?sslmode=disable".
 func NewPostgresStore(ctx context.Context, databaseURL string) (*PostgresStore, error) {
+	return NewPostgresStoreWithOptions(ctx, databaseURL, PostgresOptions{})
+}
+
+// NewPostgresStoreWithOptions is NewPostgresStore with explicit pool sizing.
+// Test code uses this to keep many parallel per-schema stores within
+// Postgres's max_connections budget.
+func NewPostgresStoreWithOptions(ctx context.Context, databaseURL string, opts PostgresOptions) (*PostgresStore, error) {
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
 
-	// Conservative connection pool. Revisit after production metrics.
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
+	maxOpen := opts.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 25 // production default; conservative
+	}
+	maxIdle := opts.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 5
+	}
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
 	if err := db.PingContext(ctx); err != nil {
