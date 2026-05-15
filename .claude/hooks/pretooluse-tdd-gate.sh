@@ -41,7 +41,7 @@ base="$(git merge-base HEAD origin/dev 2>/dev/null \
        || echo unknown)"
 
 msg=$(cat <<EOF
-TDD violation. Per CLAUDE.md §TDD Mandate, the failing test MUST be written BEFORE the source code.
+TDD violation. Per .claude/rules/tdd.md, the failing test MUST be written BEFORE the source code.
 This branch (since ${base}) has no test files modified, added, or staged. Before editing ${path}, do ONE of:
   - add a new test file (e.g. server/internal/<pkg>/*_test.go, agent/.../tests/, web/src/**/__tests__/),
   - or extend an existing test file with a NEW failing assertion that covers the change.

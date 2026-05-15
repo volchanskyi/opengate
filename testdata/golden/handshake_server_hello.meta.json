@@ -1,0 +1,6 @@
+{
+  "variant": "handshake_server_hello",
+  "protocol_version": 0,
+  "format": "binary",
+  "created": "2026-05-14"
+}

@@ -1,0 +1,6 @@
+{
+  "variant": "control_agent_update_ack",
+  "protocol_version": 0,
+  "format": "msgpack",
+  "created": "2026-05-14"
+}

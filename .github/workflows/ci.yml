@@ -317,27 +317,33 @@ jobs:
           retention-days: 20
 
   golden:
-    name: Golden File Verification
+    name: Golden File Verification (bidirectional)
     needs: [rust-test]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
-    defaults:
-      run:
-        working-directory: server
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: actions/download-artifact@v8
         with:
           name: golden-files
           path: testdata/golden/
-      - run: go test ./internal/protocol/ -run TestGolden -v
-      - name: Verify golden files unchanged
+      - name: Generate reverse goldens + sidecars (Go encodes)
+        working-directory: server
+        run: GENERATE_GOLDEN=1 go test ./internal/protocol/ -run "TestGenerateReverseGoldens|TestGenerateForwardSidecars" -v
+      - name: Verify forward goldens (Go decodes Rust-encoded)
+        working-directory: server
+        run: go test ./internal/protocol/ -run TestGolden -v
+      - name: Verify reverse goldens (Rust decodes Go-encoded)
+        working-directory: agent
+        run: cargo test -p mesh-protocol --test reverse_golden_test
+      - name: Verify golden files unchanged (bidirectional drift gate)
         run: git diff --exit-code -- testdata/golden/
 
   web-lint:

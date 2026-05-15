@@ -29,7 +29,7 @@ fi
 
 # 1. Co-Authored-By.
 if printf '%s' "$cmd" | grep -qiF 'Co-Authored-By'; then
-  block git-no-co-authored-by "git commit refused: message contains Co-Authored-By. CLAUDE.md §Git Identity requires no trailers. Remove it and re-issue."
+  block git-no-co-authored-by "git commit refused: message contains Co-Authored-By. .claude/rules/git.md requires no trailers. Remove it and re-issue."
 fi
 
 # 2. --no-verify.
@@ -50,13 +50,13 @@ eff_name="${eff_name%\"}"; eff_name="${eff_name#\"}"
 eff_name="${eff_name%\'}"; eff_name="${eff_name#\'}"
 
 if [ "$eff_email" != "ivan.volchanskyi@gmail.com" ] || [ "$eff_name" != "Ivan Volchanskyi" ]; then
-  block git-identity "git commit refused: identity is '$eff_name <$eff_email>'. CLAUDE.md §Git Identity requires Ivan Volchanskyi <ivan.volchanskyi@gmail.com>. Fix with: git config user.name \"Ivan Volchanskyi\" && git config user.email \"ivan.volchanskyi@gmail.com\"."
+  block git-identity "git commit refused: identity is '$eff_name <$eff_email>'. .claude/rules/git.md requires Ivan Volchanskyi <ivan.volchanskyi@gmail.com>. Fix with: git config user.name \"Ivan Volchanskyi\" && git config user.email \"ivan.volchanskyi@gmail.com\"."
 fi
 
 # 4. Branch ≠ main.
 current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 if [ "$current_branch" = "main" ]; then
-  block git-branch-not-main "git commit refused: HEAD is on main. CLAUDE.md §Branching Rules: main receives code only via the auto-merge CI job. Switch to dev."
+  block git-branch-not-main "git commit refused: HEAD is on main. .claude/rules/git.md: main receives code only via the auto-merge CI job. Switch to dev."
 fi
 
 # 5. Behind upstream (best-effort; skip on offline).

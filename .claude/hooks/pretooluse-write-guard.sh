@@ -27,17 +27,17 @@ path="${HOOK_TOOL_INPUT_FILE_PATH:-}"
 # 1. ~/.claude/plans/ writes.
 case "$path" in
   /home/ivan/.claude/plans/*|"$HOME/.claude/plans/"*|~/.claude/plans/*)
-    block plans-wrong-dir "Write/Edit refused: $path is under the user-global ~/.claude/plans/. Plans must live in /home/ivan/opengate/.claude/plans/. CLAUDE.md §Project State."
+    block plans-wrong-dir "Write/Edit refused: $path is under the user-global ~/.claude/plans/. Plans must live in /home/ivan/opengate/.claude/plans/. .claude/rules/plans-and-adrs.md."
     ;;
 esac
 
 # 2. ADR immutability.
 if printf '%s' "$path" | grep -qE '(^|/)docs/adr/ADR-[0-9]+.*\.md$'; then
   if [ "$tool" = "Edit" ] || [ "$tool" = "MultiEdit" ]; then
-    block adr-immutable "Edit refused: $path is an ADR. ADRs are immutable — supersede with a new file. CLAUDE.md §Project State."
+    block adr-immutable "Edit refused: $path is an ADR. ADRs are immutable — supersede with a new file. .claude/rules/plans-and-adrs.md."
   fi
   if [ "$tool" = "Write" ] && [ -e "$path" ]; then
-    block adr-immutable "Write refused: $path is an existing ADR. ADRs are immutable — supersede with a new ADR file. CLAUDE.md §Project State."
+    block adr-immutable "Write refused: $path is an existing ADR. ADRs are immutable — supersede with a new ADR file. .claude/rules/plans-and-adrs.md."
   fi
 fi
 
@@ -54,7 +54,7 @@ if [ -n "$new_content" ]; then
     pattern="${pattern_pair%%|*}"
     label="${pattern_pair#*|}"
     if printf '%s' "$new_content" | grep -qE "$pattern"; then
-      block sonar-suppress "Write/Edit refused: introduces ${label} in $path. CLAUDE.md §SonarCloud §No suppression without approval. Restructure the code so the linter is satisfied."
+      block sonar-suppress "Write/Edit refused: introduces ${label} in $path. .claude/rules/sonarcloud.md: no suppression without approval. Restructure the code so the linter is satisfied."
     fi
   done < <(printf '%s\0%s\0%s\0%s\0%s\0' \
     'NOSONAR|NOSONAR comment' \
