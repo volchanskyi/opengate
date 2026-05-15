@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778813478992,
+  "lastUpdate": 1778843862457,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -12911,6 +12911,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.08398064486661,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ce8bab31ee62b8e022647086cca8efbd4f0100a6",
+          "message": "fix(ci): wrap flaky network steps in retry; mutation.yml push-to-dev\n\nThree of the four 2026-05-15 nightly failures (config-lint terraform init,\nsecurity-audit cargo audit, terraform-drift terraform init) were transient\ngithub.com / OCI-DNS hiccups. The fourth (mutation.yml publish) was a real\nbug: the publish job's checkout defaults to the default branch (main) on a\nscheduled run, so its `git push origin HEAD:${GITHUB_REF_NAME:-dev}` line\nresolves to `HEAD:main` and gets rejected by branch protection.\n\nChanges:\n\n  mutation.yml — publish job checkout now uses `ref: dev` explicitly, so\n  HEAD is dev's tip when the workflow appends to docs/mutation-history.jsonl\n  and pushes. GITHUB_REF_NAME-based push target is no longer load-bearing.\n\n  ci.yml — wrapped four network-dependent steps in 3-attempt retry with\n  linear backoff (15s, 30s, 45s) before exiting red:\n    - config-lint: `terraform init -backend=false` (oracle/oci SHA256SUMS\n      fetch from github.com — observed transient timeout on 2026-05-15 02:50)\n    - config-lint: `tflint --init` (plugin downloads)\n    - security-audit: `govulncheck ./...` (Go vuln DB query)\n    - security-audit: `cargo audit` (RustSec/advisory-db.git clone — observed\n      transient IO error on 2026-05-15 02:53)\n    - security-audit: `npm audit` (npm registry query)\n\n  terraform-drift.yml — wrapped `terraform init -backend-config=…` in the\n  same 3-attempt retry (observed transient DNS lookup failure on\n  `<ns>.compat.objectstorage.<region>.oraclecloud.com`, 2026-05-15 06:37).\n\nEach retry block exits 0 on first success, 1 after the 3rd failure, and\nemits `::warning::` per failed attempt + a final `::error::` on exhaustion\nfor the Actions summary panel. No new third-party actions added — pure inline\nbash so the SHA-pinning policy stays clean.\n\nFailed runs that motivated this:\n  - github.com/volchanskyi/opengate/actions/runs/25897551586 (config-lint + security-audit)\n  - github.com/volchanskyi/opengate/actions/runs/25903674833 (mutation push-to-main)\n  - github.com/volchanskyi/opengate/actions/runs/25904214317 (terraform-drift DNS)",
+          "timestamp": "2026-05-15T04:15:38-07:00",
+          "tree_id": "dc74d77d7ebe95494c0871cb277ebb0731d6361e",
+          "url": "https://github.com/volchanskyi/opengate/commit/ce8bab31ee62b8e022647086cca8efbd4f0100a6"
+        },
+        "date": 1778843862395,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.238644654880247,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.379920715234388,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 737.9851259597037,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 309.21713202783593,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.015647914646166,
             "unit": "ns/iter"
           }
         ]
