@@ -1,0 +1,56 @@
+name: E2E Cross-Browser
+
+# Runs the Playwright suite against Firefox + WebKit in addition to Chromium.
+# Gated behind `workflow_dispatch` and a nightly cron (matches mutation.yml
+# and terraform-drift.yml at 03:00 UTC) so PR CI stays Chromium-only and
+# this never blocks merges. WebKit occasionally flakes inside Docker; the
+# Playwright config bumps retries to 1 when PLAYWRIGHT_ALL_BROWSERS=1.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * *'
+
+permissions: {}
+
+jobs:
+  e2e:
+    name: E2E (Firefox + WebKit + Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: web
+    env:
+      PLAYWRIGHT_ALL_BROWSERS: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+      - name: Run Playwright across all browsers
+        run: |
+          set -e
+          cd ../deploy
+          docker compose -f docker-compose.test.yml down -v 2>/dev/null || true
+          docker compose -f docker-compose.test.yml up --build --wait
+          cd ../web
+          npx playwright test
+      - name: Tear down docker
+        if: always()
+        working-directory: deploy
+        run: docker compose -f docker-compose.test.yml down -v
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-cross-browser
+          path: web/playwright-report/
+          retention-days: 14
