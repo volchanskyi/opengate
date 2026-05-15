@@ -689,14 +689,41 @@ jobs:
           terraform_version: 1.9.x
       - name: Terraform fmt
         run: terraform -chdir=deploy/terraform fmt -check -recursive
-      - name: Terraform init
-        run: terraform -chdir=deploy/terraform init -backend=false
+      - name: Terraform init (with retry)
+        # `terraform init` fetches the oracle/oci provider's SHA256SUMS from
+        # github.com to verify the lockfile hashes; that endpoint is occasionally
+        # flaky from GitHub Actions runners (observed: net/http Client.Timeout
+        # while awaiting headers, 2026-05-15 02:50). Retry with exponential
+        # backoff before failing the gate. Same retry pattern applied to the
+        # other init invocations below + in terraform-drift.yml.
+        run: |
+          set -e
+          for attempt in 1 2 3; do
+            if terraform -chdir=deploy/terraform init -backend=false; then
+              exit 0
+            fi
+            echo "::warning::terraform init attempt $attempt/3 failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::terraform init failed after 3 attempts"
+          exit 1
       - name: Terraform validate
         run: terraform -chdir=deploy/terraform validate
 
       # Terraform linting
       - uses: terraform-linters/setup-tflint@b480b8fcdaa6f2c577f8e4fa799e89e756bb7c93 # v6
-      - run: tflint --init --chdir=deploy/terraform
+      - name: Tflint init (with retry)
+        run: |
+          set -e
+          for attempt in 1 2 3; do
+            if tflint --init --chdir=deploy/terraform; then
+              exit 0
+            fi
+            echo "::warning::tflint --init attempt $attempt/3 failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::tflint --init failed after 3 attempts"
+          exit 1
       - run: tflint --chdir=deploy/terraform --format=compact
 
       # Module-invariant tests (mock_provider, no OCI creds). Submodules and the
@@ -853,16 +880,44 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Go vulnerability check
+      - name: Go vulnerability check (with retry)
+        # govulncheck queries the Go vulnerability database over the network;
+        # wrap in retry for github/proxy.golang.org transient failures.
         run: |
+          set -e
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-          cd server && govulncheck ./...
-      - name: Rust vulnerability check
+          for attempt in 1 2 3; do
+            if (cd server && govulncheck ./...); then exit 0; fi
+            echo "::warning::govulncheck attempt $attempt/3 failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::govulncheck failed after 3 attempts"
+          exit 1
+      - name: Rust vulnerability check (with retry)
+        # `cargo audit` clones RustSec/advisory-db on each run; that clone is
+        # the typical transient point (observed: github.com IO error talking
+        # to advisory-db, 2026-05-15 02:53). Retry only the audit, not the
+        # install (which has its own caching).
         run: |
+          set -e
           cargo install cargo-audit@0.22.1
-          cd agent && cargo audit
-      - name: npm vulnerability check
-        run: cd web && npm ci && npm audit --audit-level=high
+          for attempt in 1 2 3; do
+            if (cd agent && cargo audit); then exit 0; fi
+            echo "::warning::cargo audit attempt $attempt/3 failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::cargo audit failed after 3 attempts"
+          exit 1
+      - name: npm vulnerability check (with retry)
+        run: |
+          set -e
+          for attempt in 1 2 3; do
+            if (cd web && npm ci && npm audit --audit-level=high); then exit 0; fi
+            echo "::warning::npm audit attempt $attempt/3 failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::npm audit failed after 3 attempts"
+          exit 1
 
   sonarcloud:
     name: SonarCloud Analysis
