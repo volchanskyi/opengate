@@ -34,7 +34,7 @@ export function UserManagement() {
         <tbody>
           {users.map((user) => (
             <tr key={user.id} className="border-b border-gray-800">
-              <td className="py-2">{user.email}</td>
+              <td className="py-2" data-testid="user-email-cell">{user.email}</td>
               <td className="py-2">{user.display_name}</td>
               <td className="py-2">
                 <button
