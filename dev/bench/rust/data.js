@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778894803072,
+  "lastUpdate": 1778895219198,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13156,6 +13156,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.98563364095452,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "0a297999f826b979b794f1abea25d3906762a119",
+          "message": "fix(ci): mutation push targets dev (not main); terraform-drift bisects DNS\n\n* mutation.yml: hardcode the JSONL push target to `dev`. On the nightly\n  cron, `GITHUB_REF_NAME=main` (default branch), so the previous\n  `${GITHUB_REF_NAME:-dev}` expression pushed to `main` — rightly\n  rejected by the 15-required-checks branch protection rule. `dev` is\n  the unprotected upstream that auto-merges to main; that's where the\n  snapshot belongs.\n\n* terraform-drift.yml: extend the OCI pre-check to also probe the\n  region-only endpoint (`objectstorage.<region>.oraclecloud.com`). When\n  the namespace-scoped endpoint fails, we can now tell whether the\n  region is unreachable (both fail) or the namespace secret is stale\n  (region OK, namespace fails). Also prints the secret-value LENGTHS\n  (not values) so typos / truncation surface without leaking. The\n  current production run shows the namespace-scoped DNS failing; this\n  added detail will pinpoint whether to rotate OCI_TFSTATE_NAMESPACE or\n  chase a region/OCI outage.",
+          "timestamp": "2026-05-15T18:31:56-07:00",
+          "tree_id": "fdadc99ab2d2430fc553f05654e29688046bad11",
+          "url": "https://github.com/volchanskyi/opengate/commit/0a297999f826b979b794f1abea25d3906762a119"
+        },
+        "date": 1778895219150,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.36133861046504,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.583877899230384,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 786.3471318546549,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.0788982973417,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.571972050935727,
             "unit": "ns/iter"
           }
         ]
