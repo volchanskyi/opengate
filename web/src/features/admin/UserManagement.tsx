@@ -15,14 +15,13 @@ export function UserManagement() {
     fireAndForget(fetchUsers());
   }, [fetchUsers]);
 
-  if (isLoading && users.length === 0) {
-    return <p className="text-gray-400">Loading users...</p>;
-  }
+  const loading = isLoading && users.length === 0;
 
   return (
     <div>
       <h2 className="text-xl font-bold mb-4">User Management</h2>
-      <table className="w-full text-sm">
+      {loading && <p className="text-gray-400">Loading users...</p>}
+      <table className="w-full text-sm" aria-hidden={loading || undefined}>
         <thead>
           <tr className="border-b border-gray-700 text-left text-gray-400">
             <th className="pb-2">Email</th>

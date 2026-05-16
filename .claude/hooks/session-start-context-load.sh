@@ -29,7 +29,7 @@ MANDATORY RULES (enforced by .claude/hooks/, NO bypass):
   - Work on dev only; never commit/push to main (git-commit-guard, git-push-guard)
   - Author = Ivan Volchanskyi <ivan.volchanskyi@gmail.com>; no Co-Authored-By (git-commit-guard)
   - TDD: write failing test BEFORE source code (tdd-gate, bash-source-write-guard, git-commit-guard backup)
-  - Run /precommit before every commit; marker validates via git write-tree (git-commit-guard)
+  - Run /precommit before every commit; hook re-runs scripts/precommit-gauntlet.sh on each commit attempt — no marker bypass (git-commit-guard)
   - Run /refactor after /precommit; marker validates via git rev-parse HEAD (git-push-guard)
   - Plans live in /home/ivan/opengate/.claude/plans/, NOT ~/.claude/plans/ (write-guard)
   - ADRs in docs/adr/ are immutable — supersede with new file (write-guard)
