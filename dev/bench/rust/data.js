@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778895219198,
+  "lastUpdate": 1778899584027,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13205,6 +13205,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.571972050935727,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d6325a0d4387043b533d871b1eb5937f10851038",
+          "message": "fix(ci+hooks): hook runs full gauntlet; no marker bypass; mask tbody for stable visual regression\n\n* `scripts/precommit-gauntlet.sh`: new single source of truth for every\n  precommit check. Used by both the /precommit skill and the commit-guard\n  hook. Runs prerequisites + 9 phases (lints, codegen, tests, coverage\n  thresholds, security audits, benchmarks, e2e, sonar). Output is\n  streamed live; all checks run even if early ones fail so the user\n  sees every issue in one pass.\n* `pretooluse-git-commit-guard.sh`: replace the marker-tree check (which\n  was forgeable by `git write-tree > .markers/precommit.head`) with a\n  direct invocation of the gauntlet script. The hook IS the gate. No\n  way to bypass with a manual file write.\n* SKILL.md, rules/precommit-refactor.md, session-start-context-load.sh:\n  scrubbed the \"marker validates via git write-tree\" wording. The skill\n  now delegates to the gauntlet script.\n* hooks.test.sh: updated test 6 (no-marker → no-gauntlet-script), test 7\n  (stale-marker → gauntlet-exit-1), and added test 7b for the\n  prerequisite-missing exit code 2. Tests use a `stub_gauntlet 0|1|2`\n  helper that drops a one-liner script into the temp repo so the hook's\n  real gauntlet invocation completes in <100ms. Fixed an `if ! cmd; rc=$?`\n  bug in the hook (the `!` operator clobbered $?, masking exit codes).\n  All 51 hook tests pass.\n* `web/e2e/visual-regression.spec.ts` + new admin-users baseline:\n  injects `table tbody { display: none !important }` before the\n  screenshot so the table chrome + page heading remain pixel-asserted\n  while the data rows (which vary by what cross-spec fixtures seeded)\n  no longer affect the diff. Verified stable across the full parallel\n  e2e suite.\n* `UserManagement.tsx`: render the \"User Management\" h2 unconditionally\n  instead of early-returning on isLoading. The previous early-return\n  hid the heading during data fetch, which made the a11y spec\n  intermittently time out when the user table was large from cross-spec\n  pollution. The loading state still shows above the table when no rows\n  are yet hydrated.\n\nFull gauntlet verified locally end-to-end: 503s (~8.5 min) green.",
+          "timestamp": "2026-05-15T19:43:57-07:00",
+          "tree_id": "8af5a8b611b36fa9d5a15d86c9e38d3f81521435",
+          "url": "https://github.com/volchanskyi/opengate/commit/d6325a0d4387043b533d871b1eb5937f10851038"
+        },
+        "date": 1778899583963,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.375903032154877,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.501665659924846,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 789.4254751434844,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.5898265055238,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.68674938050742,
             "unit": "ns/iter"
           }
         ]
