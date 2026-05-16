@@ -8,7 +8,11 @@
 #   3. Identity must equal "Ivan Volchanskyi <ivan.volchanskyi@gmail.com>".
 #   4. Branch must not be main.
 #   5. Branch must not be behind upstream (best-effort; offline → skip).
-#   6. .claude/.markers/precommit.head must equal `git write-tree`.
+#   6. scripts/precommit-gauntlet.sh must exit 0 — runs EVERY check from
+#      the /precommit skill (lints, tests, coverage thresholds, security
+#      audits, benchmarks, e2e, sonar). This is the actual enforcement;
+#      there is no forgeable marker. Refreshing a hash file does NOT let
+#      a commit through.
 #   7. TDD backup check via scripts/tdd-check.sh.
 #
 # NO BYPASS.
@@ -71,15 +75,22 @@ $summary"
   fi
 fi
 
-# 6. Precommit marker.
-marker_file="$(project_root)/.claude/.markers/precommit.head"
-if [ ! -f "$marker_file" ]; then
-  block git-precommit-marker "git commit refused: .claude/.markers/precommit.head is missing. Run /precommit; it writes the marker on success."
+# 6. Run the full precommit gauntlet. No marker shortcut — the script IS
+#    the gate. Output streams to stderr; on first failed check the script
+#    keeps going so the user sees ALL failures in one pass. Exit code 0 =
+#    clean, 1 = check(s) failed, 2 = prerequisite missing (Postgres,
+#    SONAR_TOKEN, $HOME/go shadow install).
+gauntlet="$(project_root)/scripts/precommit-gauntlet.sh"
+if [ ! -x "$gauntlet" ]; then
+  block git-precommit-gauntlet "git commit refused: scripts/precommit-gauntlet.sh is missing or not executable. The hook needs it to enforce the precommit checks."
 fi
-expected="$(cat "$marker_file" 2>/dev/null || echo "")"
-actual="$(git write-tree 2>/dev/null || echo unknown)"
-if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
-  block git-precommit-marker "git commit refused: precommit marker ($expected) does not match git write-tree ($actual). Staging changed since /precommit last passed — re-run /precommit."
+rc=0
+"$gauntlet" >&2 || rc=$?
+if [ "$rc" -ne 0 ]; then
+  case "$rc" in
+    2) block git-precommit-prereq "git commit refused: precommit gauntlet reported a missing prerequisite (see output above). Fix the prerequisite and re-attempt — do not refresh a marker, the hook re-runs every check." ;;
+    *) block git-precommit-failed "git commit refused: precommit gauntlet failed (exit $rc). Fix the failing checks listed above and re-attempt — every commit re-runs the full gauntlet." ;;
+  esac
 fi
 
 # 7. TDD backup check.

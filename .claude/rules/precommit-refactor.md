@@ -1,12 +1,12 @@
 # /precommit and /refactor
 
-**Enforced by:** [`.claude/hooks/pretooluse-git-commit-guard.sh`](../hooks/pretooluse-git-commit-guard.sh) (precommit marker), [`.claude/hooks/pretooluse-git-push-guard.sh`](../hooks/pretooluse-git-push-guard.sh) (refactor marker). **No bypass.**
+**Enforced by:** [`.claude/hooks/pretooluse-git-commit-guard.sh`](../hooks/pretooluse-git-commit-guard.sh) (runs the gauntlet directly), [`.claude/hooks/pretooluse-git-push-guard.sh`](../hooks/pretooluse-git-push-guard.sh) (refactor marker). **No bypass.**
 
 ## /precommit
 
 Run `/precommit` before EVERY commit. Including docs-only commits and CI-only commits.
 
-The marker file `.claude/.markers/precommit.head` (= `git write-tree` at the time `/precommit` last passed) is checked by the commit guard. The hook blocks `git commit` when the marker is missing or stale. Re-staging invalidates the marker — re-run `/precommit`.
+`scripts/precommit-gauntlet.sh` is the single source of truth — both the `/precommit` skill and the commit-guard hook execute it. There is no marker file shortcut: the hook re-runs every check (lints, tests, coverage, audits, benchmarks, e2e, sonar) on each commit attempt. Refreshing a marker hash does NOT let a commit through — the hook ignores the legacy marker.
 
 ## /refactor
 

@@ -223,6 +223,20 @@ cleanup_repo
 echo
 echo "## pretooluse-git-commit-guard.sh"
 
+# Write a stub gauntlet script that exits with the requested code. The
+# commit-guard hook invokes `$(project_root)/scripts/precommit-gauntlet.sh`,
+# and in tests `project_root` resolves to the temp repo, so this stub is
+# what the hook actually runs (no slow real gauntlet inside tests).
+stub_gauntlet() {
+  local exit_code="${1:-0}"
+  mkdir -p scripts
+  cat > scripts/precommit-gauntlet.sh <<EOF
+#!/usr/bin/env bash
+exit $exit_code
+EOF
+  chmod +x scripts/precommit-gauntlet.sh
+}
+
 setup_passing_commit_repo() {
   make_repo
   git config user.name "Ivan Volchanskyi"
@@ -232,9 +246,8 @@ setup_passing_commit_repo() {
   echo "package api" > server/internal/api/foo_test.go
   git add server/internal/api/foo_test.go
   git commit --quiet -m "add test"
-  # Write a precommit marker matching current state.
-  mkdir -p .claude/.markers
-  git write-tree > .claude/.markers/precommit.head
+  # Stub a passing gauntlet so the commit-guard's gate runs in <100ms.
+  stub_gauntlet 0
 }
 
 # 1. Non-commit Bash: noop allow.
@@ -263,8 +276,7 @@ cleanup_repo
 make_repo
 git config user.name "Wrong Person"
 git config user.email "wrong@example.com"
-mkdir -p .claude/.markers
-git write-tree > .claude/.markers/precommit.head
+stub_gauntlet 0
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
 run_hook pretooluse-git-commit-guard.sh "$envelope"
 assert_exit "git commit wrong identity: BLOCK" 2
@@ -276,14 +288,13 @@ make_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 git checkout --quiet -b main
-mkdir -p .claude/.markers
-git write-tree > .claude/.markers/precommit.head
+stub_gauntlet 0
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
 run_hook pretooluse-git-commit-guard.sh "$envelope"
 assert_exit "git commit on main: BLOCK" 2
 cleanup_repo
 
-# 6. Commit without precommit marker: BLOCK.
+# 6. Commit without scripts/precommit-gauntlet.sh: BLOCK (hook needs the script to enforce).
 make_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
@@ -293,18 +304,26 @@ git add server/internal/api/foo_test.go
 git commit --quiet -m "add test"
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
 run_hook pretooluse-git-commit-guard.sh "$envelope"
-assert_exit "git commit no marker: BLOCK" 2
-assert_stderr_contains "no marker: stderr cites /precommit" "/precommit"
+assert_exit "git commit no gauntlet script: BLOCK" 2
+assert_stderr_contains "no gauntlet: stderr cites precommit-gauntlet" "precommit-gauntlet"
 cleanup_repo
 
-# 7. Commit with stale precommit marker (write-tree mismatch): BLOCK.
+# 7. Gauntlet exits 1 (check failed): BLOCK.
 setup_passing_commit_repo
-# Add a new file to make write-tree change.
-echo "other" > other.txt
-git add other.txt
+stub_gauntlet 1
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
 run_hook pretooluse-git-commit-guard.sh "$envelope"
-assert_exit "git commit stale marker: BLOCK" 2
+assert_exit "git commit gauntlet exit 1: BLOCK" 2
+assert_stderr_contains "gauntlet fail: stderr cites failed" "failed"
+cleanup_repo
+
+# 7b. Gauntlet exits 2 (prerequisite missing): BLOCK with prereq message.
+setup_passing_commit_repo
+stub_gauntlet 2
+envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
+run_hook pretooluse-git-commit-guard.sh "$envelope"
+assert_exit "git commit gauntlet exit 2 (prereq): BLOCK" 2
+assert_stderr_contains "gauntlet prereq: stderr cites prerequisite" "prerequisite"
 cleanup_repo
 
 # 8. Source-only branch (no test): TDD backup BLOCK even if other checks pass.
@@ -315,8 +334,7 @@ mkdir -p server/internal/api
 echo "package api" > server/internal/api/source.go
 git add server/internal/api/source.go
 git commit --quiet -m "src only"
-mkdir -p .claude/.markers
-git write-tree > .claude/.markers/precommit.head
+stub_gauntlet 0
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
 run_hook pretooluse-git-commit-guard.sh "$envelope"
 assert_exit "git commit TDD backup (source-only): BLOCK" 2

@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# precommit-gauntlet.sh — single source of truth for the precommit checks.
+#
+# Runs EVERY mandatory check from .claude/skills/precommit/SKILL.md in order.
+# Invoked by:
+#   - the /precommit skill (informational; same checks, same exits)
+#   - .claude/hooks/pretooluse-git-commit-guard.sh (enforcement; the hook is
+#     the gate, no marker bypass possible)
+#
+# Exit 0 = all checks passed. Exit 1 = a check failed (the failing check's
+# output is printed to stderr above the exit). Exit 2 = prerequisite missing
+# (Postgres not reachable, SONAR_TOKEN absent, etc.) — also blocks the
+# commit; prerequisites must be fixed, not skipped.
+#
+# Environment:
+#   POSTGRES_TEST_URL  — required for Go DB-dependent tests + coverage.
+#   SONAR_TOKEN        — required for SonarCloud. Sourced from .env if present.
+#   PRECOMMIT_SKIP_SONAR=1 — opt out of SonarCloud ONLY when offline (rare).
+#   PRECOMMIT_SKIP_BENCH=1 — opt out of benchmarks for fast iteration on
+#                            non-perf-touching commits. Use sparingly.
+#
+# NO bypass for tests / lint / e2e. Those are unconditional.
+
+set -uo pipefail
+
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROJECT_ROOT" || exit 2
+
+# Source .env so SONAR_TOKEN and similar local-only secrets are available.
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
+START_EPOCH="$(date +%s)"
+FAIL_COUNT=0
+FAILED_STEPS=()
+
+color() {
+  if [ -t 2 ]; then
+    printf '\033[%sm' "$1" >&2
+  fi
+}
+banner()  { color "1;36"; printf '\n=== %s ===\n' "$1" >&2; color "0"; }
+running() { color "1;34"; printf '▶ %s\n' "$1" >&2; color "0"; }
+ok()      { color "1;32"; printf '✓ %s (%ds)\n' "$1" "$2" >&2; color "0"; }
+fail()    { color "1;31"; printf '✗ %s (%ds)\n' "$1" "$2" >&2; color "0"; }
+
+# run_check NAME -- CMD ARGS...
+# Captures output; on failure, prints the captured output then continues
+# (so the user sees ALL failures in one pass instead of fixing one then
+# discovering the next).
+run_check() {
+  local name="$1"; shift
+  [ "$1" = "--" ] && shift
+  local start; start="$(date +%s)"
+  running "$name"
+  local tmpfile; tmpfile="$(mktemp)"
+  if "$@" >"$tmpfile" 2>&1; then
+    ok "$name" "$(( $(date +%s) - start ))"
+    rm -f "$tmpfile"
+    return 0
+  fi
+  local rc=$?
+  fail "$name" "$(( $(date +%s) - start ))"
+  # Show the last 80 lines of output — full log is at $tmpfile path.
+  tail -80 "$tmpfile" >&2 || true
+  printf '  (full log: %s, exit code: %s)\n' "$tmpfile" "$rc" >&2
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  FAILED_STEPS+=("$name")
+  return 0  # keep going so all failures surface in one pass
+}
+
+# Prerequisites first — if missing, we cannot validly enforce the gate.
+banner "Prerequisites"
+
+if [ -d "$HOME/go/src/net" ] || [ -f "$HOME/go/VERSION" ]; then
+  color "1;31"
+  echo "✗ \$HOME/go appears to be a Go install root, which collides with the default GOPATH." >&2
+  echo "  Remove the manual install (\`rm -rf \$HOME/go\`) and use a snap/apt-managed Go binary." >&2
+  color "0"
+  exit 2
+fi
+
+if [ -z "${POSTGRES_TEST_URL:-}" ]; then
+  color "1;31"
+  echo "✗ POSTGRES_TEST_URL is unset — Postgres-dependent tests would skip silently." >&2
+  echo "  Start the test DB and export:" >&2
+  echo "    make postgres-test-up" >&2
+  echo "    export POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\"" >&2
+  color "0"
+  exit 2
+fi
+
+if [ -z "${SONAR_TOKEN:-}" ] && [ "${PRECOMMIT_SKIP_SONAR:-0}" != "1" ]; then
+  color "1;31"
+  echo "✗ SONAR_TOKEN is unset and PRECOMMIT_SKIP_SONAR is not 1." >&2
+  echo "  Generate a User Token at sonarcloud.io/account/security (scope: volchanskyi)" >&2
+  echo "  and add it to .env as SONAR_TOKEN=... or export it." >&2
+  color "0"
+  exit 2
+fi
+
+echo "✓ all prerequisites present" >&2
+
+# Phase 1: lints (fast, fail-fast for cheap signal).
+banner "Lints"
+run_check "rust fmt"          -- bash -c 'cd agent && cargo fmt --all -- --check'
+run_check "rust clippy"       -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'
+run_check "go vet"            -- bash -c 'cd server && go vet ./...'
+run_check "web eslint"        -- bash -c 'cd web && npx eslint .'
+run_check "actionlint"        -- bash -c 'actionlint'
+run_check "taint (go)"        -- make taint-go
+run_check "taint (web)"       -- make taint-web
+run_check "dead-code"         -- make dead-code
+run_check "gitleaks (staged)" -- gitleaks protect --staged --config .gitleaks.toml --no-banner --redact
+run_check "lint-deploy"       -- make lint-deploy
+
+# Phase 2: codegen sync — would be a CI failure otherwise.
+banner "Codegen sync"
+run_check "verify-codegen"    -- bash -c "PATH=\"\$HOME/go/bin:\$PATH\" make verify-codegen"
+
+# Phase 3: tests (the meat).
+banner "Tests"
+run_check "go unit + coverage" -- bash -c '
+  cd server && go test -race -count=1 -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
+'
+run_check "go integration"     -- bash -c 'cd server && go test -race -count=1 -timeout 5m ./tests/...'
+run_check "rust tests"         -- bash -c 'cd agent && cargo test --workspace'
+run_check "web vitest+cov"     -- bash -c 'cd web && npx vitest run --coverage'
+
+# Phase 4: coverage thresholds (derived from artifacts above).
+banner "Coverage thresholds"
+# shellcheck disable=SC2016 # $pct is set and consumed inside the inner shell; outer expansion is not desired.
+run_check "go coverage ≥80%"   -- bash -c '
+  cd server
+  grep -v -E "/(testutil|metrics|mps/wsman)/|api/openapi_gen\.go" coverage.out > coverage-prod.out
+  pct="$(go tool cover -func=coverage-prod.out | awk "/^total:/ {gsub(\"%\", \"\", \$NF); print \$NF}")"
+  awk -v p="$pct" "BEGIN { exit !(p+0 >= 80.0) }"
+'
+run_check "web coverage ≥80%" -- bash -c '
+  cd web
+  node -e "
+    const s=require(\"./coverage/coverage-summary.json\");
+    const l=s.total.lines.pct;
+    console.log(\"Web line coverage: \"+l+\"%\");
+    process.exit(l<80?1:0);
+  "
+'
+run_check "rust coverage ≥80%" -- bash -c '
+  cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
+    --ignore-filename-regex "(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)"
+'
+
+# Phase 5: security audits — lockfile-based; fail on any reported vuln.
+banner "Security audits"
+run_check "govulncheck"        -- bash -c 'cd server && govulncheck ./...'
+run_check "npm audit"          -- bash -c 'cd web && npm audit --audit-level=high'
+run_check "cargo audit"        -- bash -c 'cd agent && cargo audit'
+
+# Phase 6: benchmarks — must run without errors (no perf thresholds enforced).
+if [ "${PRECOMMIT_SKIP_BENCH:-0}" = "1" ]; then
+  banner "Benchmarks (SKIPPED via PRECOMMIT_SKIP_BENCH=1)"
+else
+  banner "Benchmarks"
+  run_check "go benchmarks"    -- bash -c 'cd server && go test -bench=. -benchmem -count=1 -run="^$" ./internal/...'
+  run_check "rust benchmarks"  -- bash -c 'cd agent && cargo bench -p mesh-protocol'
+fi
+
+# Phase 7: end-to-end + SonarCloud (the slowest).
+banner "E2E"
+run_check "make e2e"           -- make e2e
+
+if [ "${PRECOMMIT_SKIP_SONAR:-0}" = "1" ]; then
+  banner "SonarCloud (SKIPPED via PRECOMMIT_SKIP_SONAR=1)"
+else
+  banner "SonarCloud"
+  run_check "make sonar-quick" -- make sonar-quick
+fi
+
+# Summary.
+ELAPSED=$(( $(date +%s) - START_EPOCH ))
+banner "Summary"
+if [ "$FAIL_COUNT" -eq 0 ]; then
+  color "1;32"
+  printf 'ALL CHECKS PASSED in %ds\n' "$ELAPSED" >&2
+  color "0"
+  exit 0
+fi
+
+color "1;31"
+printf '%d CHECK(S) FAILED in %ds:\n' "$FAIL_COUNT" "$ELAPSED" >&2
+for s in "${FAILED_STEPS[@]}"; do
+  printf '  ✗ %s\n' "$s" >&2
+done
+color "0"
+exit 1
