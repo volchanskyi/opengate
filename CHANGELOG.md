@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.30.3] - 2026-05-16
+
+### Fixed
+- **ci+hooks:** hook runs full gauntlet; no marker bypass; mask tbody for stable visual regression
+- **ci:** mutation push targets dev (not main); terraform-drift bisects DNS
+
+## [v0.30.2] - 2026-05-15
+
+### Fixed
+- **ci:** drop e2e needs:[…] for parallel run; remove flaky admin-users visual baseline
+
+## [v0.30.1] - 2026-05-15
+
+### Fixed
+- **ci:** start Postgres after checkout; rebase JSONL push with retry
+
+## [v0.30.0] - 2026-05-15
+
+### Added
+- **protocol:** bidirectional goldens + sidecars + Go fuzzing; modularize CLAUDE.md
+
+### Fixed
+- **ci:** wrap flaky network steps in retry; mutation.yml push-to-dev
+
 ## [v0.29.0] - 2026-05-14
 
 ### Added
