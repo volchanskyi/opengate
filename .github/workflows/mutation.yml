@@ -260,10 +260,17 @@ jobs:
             exit 0
           fi
           git commit -m "chore(mutation): nightly score snapshot [skip ci]"
+          # ALWAYS target `dev`, regardless of which branch triggered the
+          # workflow. The nightly cron triggers on the default branch (main),
+          # so `GITHUB_REF_NAME=main`; pushing the JSONL row there is
+          # rightly rejected by branch protection (15 required checks).
+          # `dev` is the unprotected upstream that auto-merges to main once
+          # CI is green — that's where the snapshot belongs.
+          #
           # Rebase + push with retry: another job may have pushed to dev
           # between the checkout and now (race with merge-to-main, CI fixes,
           # other scheduled workflows). Up to 3 attempts, refetching each time.
-          BRANCH="${GITHUB_REF_NAME:-dev}"
+          BRANCH=dev
           for attempt in 1 2 3; do
             git fetch origin "$BRANCH"
             git rebase "origin/${BRANCH}" || { echo "rebase failed (likely a real conflict)"; exit 1; }
