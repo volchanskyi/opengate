@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778869243293,
+  "lastUpdate": 1778894803072,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13107,6 +13107,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 25.39299877277936,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "4c568879aa8e2818a4d0d8eaea0641bed566b810",
+          "message": "test(web): restore admin-users visual regression with email-column mask\n\nPutting back the baseline I dropped in 0336364 instead of accepting the\ncoverage loss. The real drift source was the random UUID-suffixed email\nthe test fixture seeds (`admin-<8 hex>@example.com`), not timestamps\n(the table has no created_at / last_seen columns).\n\n* `UserManagement.tsx`: tag the email td with\n  `data-testid=\"user-email-cell\"` so tests can target it precisely.\n* `visual-regression.spec.ts`: re-add the admin-users test using\n  Playwright's `mask:` option on the email cells. The mask paints those\n  cells a uniform color BEFORE the diff, so the rest of the table\n  (headers, row count, Admin badge styling, action buttons) is still\n  pixel-asserted. Verified stable across 2 consecutive local runs with\n  fresh random fixture data.",
+          "timestamp": "2026-05-15T18:25:02-07:00",
+          "tree_id": "73920a220bf078c7b07999041a82b79c4e6c5c29",
+          "url": "https://github.com/volchanskyi/opengate/commit/4c568879aa8e2818a4d0d8eaea0641bed566b810"
+        },
+        "date": 1778894803010,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.338860404513934,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.744993320727176,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 740.8693073869788,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 309.39768146993106,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.98563364095452,
             "unit": "ns/iter"
           }
         ]
