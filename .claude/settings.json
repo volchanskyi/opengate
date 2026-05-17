@@ -283,7 +283,12 @@
       "Bash(grep -nA 3 \"coverprofile\\\\|coverpkg\" /home/ivan/opengate/.github/workflows/ci.yml)",
       "Bash(POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\" go test -race -timeout 5m -coverprofile=coverage-all.out -covermode=atomic ./...)",
       "Bash(POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\" go test -race -timeout 5m -coverprofile=cov-clean.out -covermode=atomic ./internal/...)",
-      "Bash(docker builder *)"
+      "Bash(docker builder *)",
+      "Bash(.claude/hooks/pretooluse-git-commit-guard.sh)",
+      "Bash(unzip -o -q /tmp/e2e-cross-logs.zip -d /tmp/e2e-cross-logs/)",
+      "Bash(./scripts/precommit-gauntlet.sh)",
+      "Bash(make postgres-test-up *)",
+      "Bash(PRECOMMIT_SKIP_SONAR=1 ./scripts/precommit-gauntlet.sh)"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate/.claude/hooks",

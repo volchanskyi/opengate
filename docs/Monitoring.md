@@ -186,7 +186,7 @@ Dashboards are provisioned as code from `deploy/grafana/provisioning/dashboards/
 | OpenGate Overview | `opengate-overview` | HTTP rate/latency, connected agents, relay sessions, MPS devices, signaling, goroutines, memory, DB size |
 | DB Performance | `opengate-db-perf` | Query rate by operation, error rate, p50/p95/p99 duration, slowest operations, DB size trend |
 | PostgreSQL | `opengate-postgres` | Postgres up, database size, active connections, uptime, TPS (commits/rollbacks), tuple operations, cache hit ratio, connections by state |
-| Mutation Testing Trend | `opengate-mutation-trend` | Per-language (Rust/Go/Web) mutation score over time, latest-score stat panels, surviving and no-coverage mutant counts. Source: Loki log lines pushed by the nightly [mutation.yml workflow](../.github/workflows/mutation.yml). Loki retains 14 days; the canonical 90-day history lives in [docs/mutation-history.jsonl](mutation-history.jsonl) |
+| Mutation Testing Trend | `opengate-mutation-trend` | Per-language (Rust/Go/Web) mutation score over time, latest-score stat panels, surviving and no-coverage mutant counts. Source: Loki log lines pushed by the nightly [mutation.yml workflow](../.github/workflows/mutation.yml) (canonical trend store; Loki retention). Each run also uploads the canonical row as the `mutation-canonical-row` workflow artifact (90-day retention) for one-off audits. |
 
 ## Alerting
 

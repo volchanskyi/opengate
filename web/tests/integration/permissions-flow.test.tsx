@@ -89,6 +89,7 @@ describe('Permissions Flow (integration)', () => {
       token: 'test-token',
       user: adminUser,
       isLoading: false,
+      hydrated: true,
       error: null,
     });
     useSecurityGroupsStore.setState({

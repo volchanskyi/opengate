@@ -140,9 +140,9 @@ make iac-policy-custom   # picks up /tmp/tfplan.json automatically
 
 The compose and workflow Rego checks need no plan-file and run unconditionally in CI.
 
-### PR-time plan preview
+### IaC plan + destroy-blocklist gate
 
-[`.github/workflows/iac-plan-preview.yml`](../.github/workflows/iac-plan-preview.yml) triggers on every PR that touches `deploy/terraform/**`. It runs `terraform plan` against the remote backend, posts a markdown summary as a sticky PR comment (updates in place across pushes), and **blocks merge** if the plan destroys a protected resource type:
+The `iac-gate` job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs `terraform plan` against the remote backend on every commit or PR that touches `deploy/terraform/**` (path-filtered inside the job; non-terraform commits skip the terraform steps and complete in ~10 s). It posts a markdown summary — sticky PR comment on PRs, GitHub Job Summary on direct pushes — and **blocks merge** if the plan destroys a protected resource type:
 
 | Protected types (current set) |
 |---|
@@ -152,9 +152,14 @@ The compose and workflow Rego checks need no plan-file and run unconditionally i
 | `oci_core_network_security_group` |
 | `oci_objectstorage_bucket` |
 
-The block is bypassed if the PR carries the label `iac:approve-destroy`. The bypass is auditable — the PR comment records that the override was active.
+Bypass policy (intentionally narrow):
 
-Authentication: reuses the read-only `tf-drift-reader` IAM user provisioned for nightly drift detection (same `OCI_DRIFT_*` + `TFSTATE_S3_*` + `OCI_TFSTATE_NAMESPACE` secrets). No new IAM principal is created for plan preview — the permissions are identical (inspect + state read).
+- **On a pull request:** add the `iac:approve-destroy` label, then re-run the workflow. The bypass is auditable — the sticky PR comment records that the override was active.
+- **On a direct push to `dev`:** no bypass exists. Destructive terraform changes must go through a labelled PR. This is the strongest discipline available without admin overrides.
+
+The job is wired into `merge-to-main.needs:` so the auto-merge to `main` cannot run until the gate passes (or correctly skips when no terraform files changed). Drift detection (next section) is the complementary control that catches anything that landed outside the gate.
+
+Authentication: reuses the read-only `tf-drift-reader` IAM user provisioned for nightly drift detection (same `OCI_DRIFT_*` + `TFSTATE_S3_*` + `OCI_TFSTATE_NAMESPACE` secrets). No new IAM principal is created for the gate — the permissions are identical (inspect + state read). `terraform init` retries 3× with backoff to absorb the same transient OCI S3-compat DNS flake that drift detection handles.
 
 The parser script [`deploy/scripts/parse-tfplan.sh`](../deploy/scripts/parse-tfplan.sh) is testable in isolation via `make test-parse-tfplan` (three canned fixtures cover the gate-decision matrix).
 
