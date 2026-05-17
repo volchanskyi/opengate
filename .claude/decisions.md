@@ -25,3 +25,4 @@
 | 014 | PostgreSQL 17 via `pgx/v5/stdlib`, colocated Docker container on OCI VPS, native types (`TIMESTAMPTZ`/`UUID`/`JSONB`), `pg_dump` backups, `postgres_exporter` metrics | 13a | Accepted (supersedes ADR-003) |
 | 015 | IaC defense-in-depth: Checkov (terraform/dockerfile/github_actions) + Hadolint + Trivy + gitleaks all run; `.checkov.baseline` is the single suppression surface, no inline `checkov:skip` permitted | S2 | Accepted |
 | 016 | Bidirectional goldens (Go→Rust reverse fixtures alongside existing Rust→Go) + `.meta.json` sidecars carrying `protocol_version`/`format` per `.bin` | C1 | Accepted (extends ADR-002) |
+| 017 | CI gates consolidation: inline IaC gate into ci.yml with hard-block on direct-push destroys; drop in-repo `docs/mutation-history.jsonl` (Loki is the trend store, workflow artifact for audit); remove `environment: staging` from `load-test.yml` | — | Accepted |

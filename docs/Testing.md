@@ -131,11 +131,16 @@ Mutation tests do **not** gate merges or deploys. They run **nightly** via the
 [mutation.yml workflow](../.github/workflows/mutation.yml) at 03:00 UTC and
 emit a row per run to:
 
-- [`docs/mutation-history.jsonl`](mutation-history.jsonl) — canonical
-  append-only history (rolling 90-day window). Source of truth for trend.
-- Loki — pushed via the existing deploy SSH tunnel into the monitoring
+- **Loki** — pushed via the existing deploy SSH tunnel into the monitoring
   docker network. Visualised in Grafana under the "Mutation Testing Trend"
-  dashboard (uid `opengate-mutation-trend`).
+  dashboard (uid `opengate-mutation-trend`). Canonical trend store.
+- **Workflow artifact** — each run uploads `mutation-canonical-row` (the
+  per-run JSON object) with 90-day retention for one-off audits.
+
+The previous in-repo `docs/mutation-history.jsonl` was removed: the bot push
+that maintained it was rejected by branch protection on `dev` (required
+status checks block direct bot commits), and Loki + Grafana is the right
+home for time-series telemetry.
 
 **Regression alert rules** — fired when any language regresses on either
 condition:
