@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1778899584027,
+  "lastUpdate": 1779056630608,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13254,6 +13254,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.68674938050742,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9365358063f159bce7debc7d1067db6334a81a52",
+          "message": "refactor(ci): extract OCI tfstate credential bisect into composite action\n\nThe DNS + S3-credential-shape bisect was added in the previous commit to\nboth terraform-drift.yml and ci.yml's iac-gate job (~60 lines each, byte-\nfor-byte identical). Extract into .github/actions/verify-oci-tfstate-creds\nso the diagnostic logic lives in one place — future tweaks (e.g. adding\nan HTTP probe of the bucket once secrets land) edit one file.\n\nNo behavior change. Mechanical extraction; both callers pass the same four\nsecrets through `with:` inputs.",
+          "timestamp": "2026-05-17T15:21:53-07:00",
+          "tree_id": "c77393908f92036cf24b409e16e5a1a96086e4c0",
+          "url": "https://github.com/volchanskyi/opengate/commit/9365358063f159bce7debc7d1067db6334a81a52"
+        },
+        "date": 1779056630543,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.36915823764283,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.736982747963474,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 804.922950735149,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.9127855317974,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.71305463649558,
             "unit": "ns/iter"
           }
         ]
