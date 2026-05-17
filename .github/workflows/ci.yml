@@ -1163,64 +1163,12 @@ jobs:
 
       - name: Verify OCI endpoint reachability + S3 credential shape
         if: steps.changes.outputs.terraform == 'true'
-        env:
-          OCI_TFSTATE_NAMESPACE: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          TFSTATE_S3_ACCESS_KEY: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
-          TFSTATE_S3_SECRET_KEY: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
-        # Same bisect logic as terraform-drift.yml — see that file for the
-        # rationale and failure-mode table. Catches missing / truncated /
-        # half-rotated secrets before `terraform init` emits the opaque
-        # `dial tcp: lookup ***` or `403 SignatureDoesNotMatch` errors.
-        run: |
-          set -e
-          if [ -z "$OCI_TFSTATE_NAMESPACE" ]; then
-            echo "::error::OCI_TFSTATE_NAMESPACE secret is empty — backend URL will not resolve"
-            exit 1
-          fi
-          if [ -z "$OCI_REGION" ]; then
-            echo "::error::OCI_REGION secret is empty — backend URL will not resolve"
-            exit 1
-          fi
-          echo "OCI_TFSTATE_NAMESPACE length: ${#OCI_TFSTATE_NAMESPACE}"
-          echo "OCI_REGION length: ${#OCI_REGION}"
-          NS_HOST="${OCI_TFSTATE_NAMESPACE}.compat.objectstorage.${OCI_REGION}.oraclecloud.com"
-          REGION_HOST="objectstorage.${OCI_REGION}.oraclecloud.com"
-          echo "::add-mask::${NS_HOST}"
-          echo "::add-mask::${REGION_HOST}"
-          NS_OK=0
-          REGION_OK=0
-          if getent hosts "${NS_HOST}" >/dev/null 2>&1; then NS_OK=1; fi
-          if getent hosts "${REGION_HOST}" >/dev/null 2>&1; then REGION_OK=1; fi
-          echo "namespace-scoped endpoint resolves: ${NS_OK}"
-          echo "region-only endpoint resolves: ${REGION_OK}"
-          if [ "${NS_OK}" = "0" ] && [ "${REGION_OK}" = "0" ]; then
-            echo "::warning::Both OCI endpoints fail DNS — likely wrong OCI_REGION secret or OCI region outage."
-          elif [ "${NS_OK}" = "0" ] && [ "${REGION_OK}" = "1" ]; then
-            echo "::warning::Region resolves but namespace-scoped endpoint does not — likely wrong OCI_TFSTATE_NAMESPACE secret."
-          fi
-          AK_LEN=${#TFSTATE_S3_ACCESS_KEY}
-          SK_LEN=${#TFSTATE_S3_SECRET_KEY}
-          echo "TFSTATE_S3_ACCESS_KEY length: ${AK_LEN}"
-          echo "TFSTATE_S3_SECRET_KEY length: ${SK_LEN}"
-          STALE=0
-          if [ -z "$TFSTATE_S3_ACCESS_KEY" ]; then
-            echo "::warning::TFSTATE_S3_ACCESS_KEY is empty — terraform init will 403 with SignatureDoesNotMatch."
-            STALE=1
-          elif [ "$AK_LEN" -lt 20 ]; then
-            echo "::warning::TFSTATE_S3_ACCESS_KEY length (${AK_LEN}) looks short — OCI Customer Secret Key access keys are ~32 chars. Secret may be truncated."
-            STALE=1
-          fi
-          if [ -z "$TFSTATE_S3_SECRET_KEY" ]; then
-            echo "::warning::TFSTATE_S3_SECRET_KEY is empty — terraform init will 403 with SignatureDoesNotMatch."
-            STALE=1
-          elif [ "$SK_LEN" -lt 24 ]; then
-            echo "::warning::TFSTATE_S3_SECRET_KEY length (${SK_LEN}) looks short — OCI secret keys are typically ~28 chars. Secret may be truncated."
-            STALE=1
-          fi
-          if [ "$STALE" = "1" ]; then
-            echo "::warning::S3 credentials look stale or truncated. Rotate the Customer Secret Key in OCI Console for the workflow's IAM user, then re-paste BOTH halves into TFSTATE_S3_ACCESS_KEY and TFSTATE_S3_SECRET_KEY in repo secrets (no whitespace, no trailing newline)."
-          fi
+        uses: ./.github/actions/verify-oci-tfstate-creds
+        with:
+          oci-tfstate-namespace: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          tfstate-s3-access-key: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
+          tfstate-s3-secret-key: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
 
       - name: Terraform init (with retry on transient OCI DNS / S3-compat flake)
         if: steps.changes.outputs.terraform == 'true'

@@ -63,102 +63,12 @@ jobs:
           EOF
 
       - name: Verify OCI endpoint reachability + S3 credential shape
-        env:
-          OCI_TFSTATE_NAMESPACE: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          TFSTATE_S3_ACCESS_KEY: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
-          TFSTATE_S3_SECRET_KEY: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
-        # Two-stage bisect so an `init` failure points at the real cause
-        # instead of the opaque "dial tcp: lookup ***" / "SignatureDoesNotMatch"
-        # the AWS SDK emits. All four inputs are secrets — we never echo
-        # values, only lengths and resolve booleans, and we add the
-        # constructed hostnames to GHA's mask list.
-        #
-        # Stage 1 — DNS bisect for the S3-compat endpoint:
-        #   - both DNS fail            → wrong OCI_REGION or OCI outage
-        #   - region OK, namespace not → OCI_TFSTATE_NAMESPACE stale
-        # Stage 2 — S3 credential shape:
-        #   - either secret empty      → secret never set
-        #   - either secret too short  → secret truncated on paste, or only
-        #                                one half of the pair was updated
-        #                                after rotation in OCI Console
-        # Neither stage proves the credentials are correct — only that they
-        # are present and shaped plausibly. A 403 SignatureDoesNotMatch
-        # downstream after a clean bisect still means "OCI Customer Secret
-        # Key needs rotation + both halves re-pasted to GitHub secrets."
-        run: |
-          set -e
-          if [ -z "$OCI_TFSTATE_NAMESPACE" ]; then
-            echo "::error::OCI_TFSTATE_NAMESPACE secret is empty — backend URL will not resolve"
-            exit 1
-          fi
-          if [ -z "$OCI_REGION" ]; then
-            echo "::error::OCI_REGION secret is empty — backend URL will not resolve"
-            exit 1
-          fi
-
-          # OCI region codes are short (e.g. "us-ashburn-1", "eu-frankfurt-1");
-          # the length is not sensitive and surfaces typos / truncation in
-          # secret values without exposing the value itself.
-          echo "OCI_TFSTATE_NAMESPACE length: ${#OCI_TFSTATE_NAMESPACE}"
-          echo "OCI_REGION length: ${#OCI_REGION}"
-
-          NS_HOST="${OCI_TFSTATE_NAMESPACE}.compat.objectstorage.${OCI_REGION}.oraclecloud.com"
-          REGION_HOST="objectstorage.${OCI_REGION}.oraclecloud.com"
-          echo "::add-mask::${NS_HOST}"
-          echo "::add-mask::${REGION_HOST}"
-
-          NS_OK=0
-          REGION_OK=0
-          if getent hosts "${NS_HOST}" >/dev/null 2>&1; then NS_OK=1; fi
-          if getent hosts "${REGION_HOST}" >/dev/null 2>&1; then REGION_OK=1; fi
-          echo "namespace-scoped endpoint resolves: ${NS_OK}"
-          echo "region-only endpoint resolves: ${REGION_OK}"
-
-          if [ "${NS_OK}" = "0" ] && [ "${REGION_OK}" = "0" ]; then
-            echo "::warning::Both OCI endpoints fail DNS — likely wrong OCI_REGION secret or OCI region outage. terraform init will retry."
-          elif [ "${NS_OK}" = "0" ] && [ "${REGION_OK}" = "1" ]; then
-            echo "::warning::Region resolves but namespace-scoped endpoint does not — likely wrong OCI_TFSTATE_NAMESPACE secret. Verify the tenancy's object-storage namespace matches the secret."
-          fi
-
-          # --- S3 credential-shape bisect -------------------------------------
-          # OCI Customer Secret Key access keys are 32 hex-like characters;
-          # the secret-key half is base64-shaped (28 chars, trailing '='). The
-          # AWS SDK emits SignatureDoesNotMatch with the OCI-specific hint
-          # "The secret key required to complete authentication could not be
-          # found" when either:
-          #   (a) the access-key/secret-key pair was rotated in OCI Console
-          #       but only one half was re-pasted to GitHub secrets, or
-          #   (b) a paste added trailing whitespace / newline, or
-          #   (c) the keys were issued for a different IAM user than the
-          #       workflow expects.
-          # We can't detect (c) without an API call, but we can flag (a) and (b)
-          # by length-checking each secret and warning when either is
-          # missing or implausibly short.
-          AK_LEN=${#TFSTATE_S3_ACCESS_KEY}
-          SK_LEN=${#TFSTATE_S3_SECRET_KEY}
-          echo "TFSTATE_S3_ACCESS_KEY length: ${AK_LEN}"
-          echo "TFSTATE_S3_SECRET_KEY length: ${SK_LEN}"
-          STALE=0
-          if [ -z "$TFSTATE_S3_ACCESS_KEY" ]; then
-            echo "::warning::TFSTATE_S3_ACCESS_KEY is empty — terraform init will 403 with SignatureDoesNotMatch."
-            STALE=1
-          elif [ "$AK_LEN" -lt 20 ]; then
-            echo "::warning::TFSTATE_S3_ACCESS_KEY length (${AK_LEN}) looks short — OCI Customer Secret Key access keys are ~32 chars. Secret may be truncated."
-            STALE=1
-          fi
-          if [ -z "$TFSTATE_S3_SECRET_KEY" ]; then
-            echo "::warning::TFSTATE_S3_SECRET_KEY is empty — terraform init will 403 with SignatureDoesNotMatch."
-            STALE=1
-          elif [ "$SK_LEN" -lt 24 ]; then
-            echo "::warning::TFSTATE_S3_SECRET_KEY length (${SK_LEN}) looks short — OCI secret keys are typically ~28 chars (base64-like, trailing '='). Secret may be truncated."
-            STALE=1
-          fi
-          if [ "$STALE" = "1" ]; then
-            echo "::warning::S3 credentials look stale or truncated. Rotate the Customer Secret Key in OCI Console for the workflow's IAM user, then re-paste BOTH halves into TFSTATE_S3_ACCESS_KEY and TFSTATE_S3_SECRET_KEY in repo secrets (no surrounding whitespace, no trailing newline)."
-          else
-            echo "S3 credentials shape OK (lengths plausible). A downstream 403 SignatureDoesNotMatch still implies a key-pair mismatch — rotate both halves together."
-          fi
+        uses: ./.github/actions/verify-oci-tfstate-creds
+        with:
+          oci-tfstate-namespace: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          tfstate-s3-access-key: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
+          tfstate-s3-secret-key: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
 
       - name: Terraform init (S3 backend, with retry)
         env:
