@@ -1072,6 +1072,225 @@ jobs:
           git commit -m "perf: update Lighthouse + bundle size data"
           git push
 
+  iac-gate:
+    # Inlined from the former .github/workflows/iac-plan-preview.yml so
+    # merge-to-main can `needs:` it (cross-workflow `needs:` is not supported).
+    # Runs `terraform plan` against the remote backend whenever a commit or PR
+    # touches `deploy/terraform/**` or the parser script. The plan summary is
+    # posted as a sticky PR comment on PR events and written to
+    # GITHUB_STEP_SUMMARY on push events. A destroy of a protected resource
+    # type (VCN / subnet / security list / NSG / state bucket) fails the gate
+    # unless the PR carries the `iac:approve-destroy` label.
+    #
+    # No bypass exists for direct pushes to dev: destructive terraform changes
+    # must go through a labelled PR. Drift detection
+    # (`.github/workflows/terraform-drift.yml`) is the complementary control
+    # that catches anything the gate missed.
+    #
+    # Path filter: the job is always queued, but every terraform step is
+    # gated on `steps.changes.outputs.terraform == 'true'` so non-terraform
+    # commits complete in ~10s without paying for `terraform init`. That keeps
+    # this safe to be a `needs:` of `merge-to-main` for every push.
+    name: IaC plan + destroy-blocklist gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write  # for the sticky PR comment on PR events
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # need a baseline for git diff in the change-detection step
+
+      - name: Detect terraform changes
+        id: changes
+        run: |
+          set -euo pipefail
+          # Pick the diff baseline based on the event:
+          #   pull_request → the PR base commit
+          #   push         → github.event.before (the previous tip of the branch)
+          #                  except on a brand-new branch first push, where
+          #                  github.event.before is all zeros; fall back to HEAD~1.
+          #   workflow_dispatch / anything else → no clear baseline; run the gate.
+          case "${{ github.event_name }}" in
+            pull_request)
+              BASE_SHA="${{ github.event.pull_request.base.sha }}"
+              ;;
+            push)
+              BEFORE="${{ github.event.before }}"
+              if [[ "$BEFORE" =~ ^0+$ ]]; then BASE_SHA="HEAD~1"; else BASE_SHA="$BEFORE"; fi
+              ;;
+            *)
+              echo "no baseline for event=${{ github.event_name }}; running the gate"
+              echo "terraform=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          if git diff --name-only "$BASE_SHA" HEAD 2>/dev/null | \
+               grep -qE '^deploy/terraform/|^deploy/scripts/parse-tfplan\.sh$'; then
+            echo "terraform changes detected; running the gate"
+            echo "terraform=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no terraform changes; gate skipped (job stays green)"
+            echo "terraform=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        if: steps.changes.outputs.terraform == 'true'
+        with:
+          terraform_version: 1.9.x
+
+      - name: Write OCI provider API key
+        if: steps.changes.outputs.terraform == 'true'
+        env:
+          OCI_DRIFT_PRIVATE_KEY: ${{ secrets.OCI_DRIFT_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s' "$OCI_DRIFT_PRIVATE_KEY" > ~/.oci/drift.pem
+          chmod 600 ~/.oci/drift.pem
+
+      - name: Write backend config
+        if: steps.changes.outputs.terraform == 'true'
+        env:
+          OCI_TFSTATE_NAMESPACE: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+        run: |
+          cat > /tmp/backend.tfbackend <<EOF
+          endpoints = {
+            s3 = "https://${OCI_TFSTATE_NAMESPACE}.compat.objectstorage.${OCI_REGION}.oraclecloud.com"
+          }
+          EOF
+
+      - name: Verify OCI endpoint reachability + S3 credential shape
+        if: steps.changes.outputs.terraform == 'true'
+        uses: ./.github/actions/verify-oci-tfstate-creds
+        with:
+          oci-tfstate-namespace: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          tfstate-s3-access-key: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
+          tfstate-s3-secret-key: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
+
+      - name: Terraform init (with retry on transient OCI DNS / S3-compat flake)
+        if: steps.changes.outputs.terraform == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+        run: |
+          set -e
+          for attempt in 1 2 3; do
+            if terraform -chdir=deploy/terraform init -backend-config=/tmp/backend.tfbackend -input=false; then
+              exit 0
+            fi
+            echo "::warning::terraform init attempt $attempt/3 failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::terraform init failed after 3 attempts"
+          exit 1
+
+      - name: Terraform plan
+        id: plan
+        if: steps.changes.outputs.terraform == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          TF_VAR_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
+          TF_VAR_user_ocid: ${{ secrets.OCI_DRIFT_USER_OCID }}
+          TF_VAR_fingerprint: ${{ secrets.OCI_DRIFT_FINGERPRINT }}
+          TF_VAR_private_key_path: /home/runner/.oci/drift.pem
+          TF_VAR_region: ${{ secrets.OCI_REGION }}
+          TF_VAR_ssh_allowed_cidr: 203.0.113.0/24
+          TF_VAR_ssh_public_key_path: /dev/null
+        run: |
+          terraform -chdir=deploy/terraform plan -out=plan.tfplan -input=false -no-color
+          terraform -chdir=deploy/terraform show -json plan.tfplan > /tmp/plan.json
+
+      - name: Parse plan, build summary, gate destroys
+        id: parse
+        if: steps.changes.outputs.terraform == 'true'
+        env:
+          # The destroy bypass is gated to PRs only: a PR may carry the
+          # `iac:approve-destroy` label after human review. Direct pushes
+          # have no PR and no label → no bypass → destructive terraform
+          # changes are hard-blocked on dev.
+          HAS_APPROVE_DESTROY: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'iac:approve-destroy') }}
+        run: |
+          set -euo pipefail
+          ARGS=()
+          if [[ "$HAS_APPROVE_DESTROY" == "true" ]]; then
+            ARGS+=(--approve-destroy)
+          fi
+          set +e
+          ./deploy/scripts/parse-tfplan.sh /tmp/plan.json "${ARGS[@]}" > /tmp/pr-body.md 2>/tmp/parse-stderr.txt
+          ec=$?
+          set -e
+          echo "parse_exit=$ec" >> "$GITHUB_OUTPUT"
+          # GitHub PR comments are capped at 64 KB; trim with margin.
+          head -c 60000 /tmp/pr-body.md > /tmp/pr-body-trim.md
+          cat /tmp/pr-body-trim.md
+          {
+            echo "body<<PRBODY_EOF"
+            cat /tmp/pr-body-trim.md
+            echo "PRBODY_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        if: steps.changes.outputs.terraform == 'true' && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PR_BODY: ${{ steps.parse.outputs.body }}
+        with:
+          script: |
+            const wfPath = '.github/workflows/ci.yml';
+            const wfUrl =
+              `${context.serverUrl}/${context.repo.owner}` +
+              `/${context.repo.repo}/blob/${context.sha}/${wfPath}`;
+            const marker = '### IaC plan preview';
+            const body =
+              `${marker}\n\n${process.env.PR_BODY}\n\n` +
+              `_Posted by the \`iac-gate\` job in [\`${wfPath}\`](${wfUrl})._`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      - name: Write plan summary to job summary (push events)
+        if: steps.changes.outputs.terraform == 'true' && github.event_name != 'pull_request'
+        run: |
+          {
+            echo "### IaC plan preview"
+            echo ""
+            cat /tmp/pr-body-trim.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail workflow on protected-resource destroy
+        if: steps.changes.outputs.terraform == 'true' && steps.parse.outputs.parse_exit != '0'
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "::error::Plan destroys a protected resource. Add the 'iac:approve-destroy' label to this PR and re-run the workflow to override."
+          else
+            echo "::error::Plan destroys a protected resource. Direct-push destroys are blocked unconditionally — open a PR carrying the 'iac:approve-destroy' label instead."
+          fi
+          exit 1
+
   merge-to-main:
     name: Auto-merge to main
     needs:
@@ -1094,6 +1313,7 @@ jobs:
       - go-bench
       - rust-bench
       - web-bundle-size
+      - iac-gate
     if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/dependabot-dev')
     runs-on: ubuntu-latest
     timeout-minutes: 20

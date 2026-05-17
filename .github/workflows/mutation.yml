@@ -7,8 +7,13 @@ name: Mutation Testing
 # On regression (drop >2pp from previous successful run OR absolute score <70%):
 #   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
 #   - Workflow exits red (audit trail)
-# All scores are appended to docs/mutation-history.jsonl (rolling 90 days) and
-# pushed to Loki for the "Mutation Testing Trend" Grafana dashboard.
+# All scores are pushed to Loki for the "Mutation Testing Trend" Grafana
+# dashboard, which is the canonical trend store. The per-run canonical row is
+# also uploaded as a workflow artifact for one-off audit access. The repo no
+# longer stores docs/mutation-history.jsonl — the previous attempt to commit
+# nightly snapshots to dev was rejected by branch protection (the bot push
+# lacks the required status checks for new commits), and Loki + Grafana is the
+# correct home for time-series telemetry.
 
 on:
   schedule:
@@ -19,9 +24,9 @@ concurrency:
   group: mutation-testing
   cancel-in-progress: false
 
-# Default to read-only at the workflow level. The `publish` job overrides to
-# `contents: write` so it can commit docs/mutation-history.jsonl. Per
-# githubactions:S8233 (least-privilege workflow permissions).
+# Default to read-only at the workflow level. The publish job no longer
+# commits anything to the repo (trend data lives in Loki + workflow artifacts);
+# read-only is sufficient throughout.
 permissions:
   contents: read
 
@@ -158,8 +163,9 @@ jobs:
             web/reports/mutation/
 
   # -----------------------------------------------------------------------------
-  # Publish: aggregate all three matrix outputs, append to docs/mutation-history.jsonl,
-  # push to Loki, run regression check, alert via Telegram, fail red on regression.
+  # Publish: aggregate all three matrix outputs, push to Loki, run regression
+  # check, alert via Telegram, fail red on regression. The canonical row is
+  # also uploaded as a workflow artifact for one-off audits.
   # -----------------------------------------------------------------------------
   publish:
     name: Publish results + alert on regression
@@ -168,7 +174,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
     # NOTE: deliberately NOT using `environment: staging`. The CD workflow's
     # staging/production environments enforce required_reviewers, which gates
     # CD deploys on a manual approval click. Mutation testing is observability
@@ -182,12 +188,13 @@ jobs:
     # when they are unset, so removing the environment downgrades Telegram
     # from "alert on regression" to "no alert" until the secrets are promoted
     # to repo-level. The workflow still exits red on regression and pushes
-    # the row to Loki / mutation-history.jsonl, so the audit trail is intact.
+    # the row to Loki, so the audit trail is intact.
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0  # need git log for previous commits during rotation
-          ref: dev        # publish job must commit to dev (main is protected; push HEAD:dev)
+          # Shallow checkout; no commit-history needs remain after dropping the
+          # in-repo JSONL trend file.
+          fetch-depth: 1
 
       - name: Download all matrix artifacts
         uses: actions/download-artifact@v8
@@ -219,14 +226,13 @@ jobs:
       - name: Summarize + regression check (canonical row to stdout)
         id: summarize
         env:
-          APPEND: '1'
           GITHUB_SHA: ${{ github.sha }}
-        # Run the summarize script with APPEND=1 to commit the row to
-        # docs/mutation-history.jsonl (after rotating to 90 days). Capture the
-        # canonical row and any REGRESSION_ALERT lines for downstream steps.
-        # Script exits 1 on regression — we capture that but do NOT fail this
-        # step yet (the alert step needs to run). The final step re-applies
-        # the exit code so the workflow goes red.
+        # Run the summarize script (APPEND unset → no on-disk history file
+        # written; trend data lives in Loki). Capture the canonical row and
+        # any REGRESSION_ALERT lines for downstream steps. Script exits 1 on
+        # regression — we capture that but do NOT fail this step yet (the
+        # alert step needs to run). The final step re-applies the exit code
+        # so the workflow goes red.
         run: |
           set -euo pipefail
           OUTPUT="$(./scripts/mutation-summarize.sh 2>&1)" && REGRESSION=0 || REGRESSION=1
@@ -244,45 +250,12 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Commit JSONL row to dev
-        if: >-
-          github.ref == 'refs/heads/main'
-          || github.event_name == 'workflow_dispatch'
-          || github.event_name == 'schedule'
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # The summarize script already appended (APPEND=1) and rotated the file.
-          git add docs/mutation-history.jsonl
-          if git diff --cached --quiet; then
-            echo "no JSONL changes to commit"
-            exit 0
-          fi
-          git commit -m "chore(mutation): nightly score snapshot [skip ci]"
-          # ALWAYS target `dev`, regardless of which branch triggered the
-          # workflow. The nightly cron triggers on the default branch (main),
-          # so `GITHUB_REF_NAME=main`; pushing the JSONL row there is
-          # rightly rejected by branch protection (15 required checks).
-          # `dev` is the unprotected upstream that auto-merges to main once
-          # CI is green — that's where the snapshot belongs.
-          #
-          # Rebase + push with retry: another job may have pushed to dev
-          # between the checkout and now (race with merge-to-main, CI fixes,
-          # other scheduled workflows). Up to 3 attempts, refetching each time.
-          BRANCH=dev
-          for attempt in 1 2 3; do
-            git fetch origin "$BRANCH"
-            git rebase "origin/${BRANCH}" || { echo "rebase failed (likely a real conflict)"; exit 1; }
-            if git push origin "HEAD:${BRANCH}"; then
-              echo "JSONL row pushed on attempt ${attempt}"
-              exit 0
-            fi
-            echo "push attempt ${attempt}/3 rejected (branch moved); retrying in 10s..."
-            sleep 10
-          done
-          echo "::error::JSONL row push failed after 3 rebase+push attempts"
-          exit 1
+      - name: Upload canonical row as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-canonical-row
+          path: canonical-row.json
+          retention-days: 90
 
       - name: OCI + SSH setup
         id: infra
@@ -346,8 +319,8 @@ jobs:
             echo "telegram secrets not set; skipping alert"
             exit 0
           fi
-          MSG="$(printf '%s\n\nRun: %s\nTrend: %s/blob/main/docs/mutation-history.jsonl' \
-            "$ALERT_TEXT" "$RUN_URL" "${{ github.server_url }}/${{ github.repository }}")"
+          MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Mutation Testing Trend" (opengate-mutation-trend)' \
+            "$ALERT_TEXT" "$RUN_URL")"
           curl -sS --fail --max-time 30 \
             -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
             --data-urlencode "chat_id=${CHAT}" \

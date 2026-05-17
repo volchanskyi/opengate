@@ -36,13 +36,66 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps
       - name: Run Playwright across all browsers
+        id: pw
         run: |
           set -e
           cd ../deploy
           docker compose -f docker-compose.test.yml down -v 2>/dev/null || true
           docker compose -f docker-compose.test.yml up --build --wait
           cd ../web
-          npx playwright test
+          # Tee Playwright's stdout/stderr so the next step can extract the
+          # flaky-test list. The retry policy (retries: 1 when
+          # PLAYWRIGHT_ALL_BROWSERS=1) means a flaky test exits with code 0;
+          # without this capture the flake is invisible outside the HTML report.
+          set +e
+          npx playwright test 2>&1 | tee /tmp/playwright-output.txt
+          ec=${PIPESTATUS[0]}
+          set -e
+          exit "$ec"
+      - name: Summarize flaky tests
+        # Always runs so flake visibility is preserved even when the job is
+        # going red for an unrelated reason (e.g. Docker compose failure).
+        if: always() && hashFiles('/tmp/playwright-output.txt') != ''
+        run: |
+          set -euo pipefail
+          # Playwright's summary line looks like `  N flaky` followed by one
+          # indented line per flaky test, then `  N skipped` / `  N passed`.
+          FLAKY_LINE="$(grep -E '^[[:space:]]+[0-9]+[[:space:]]+flaky$' /tmp/playwright-output.txt || true)"
+          if [[ -z "$FLAKY_LINE" ]]; then
+            echo "no flaky tests"
+            exit 0
+          fi
+          FLAKY_COUNT="$(echo "$FLAKY_LINE" | awk '{print $1}')"
+          # Grab the flaky test list: every line between the `N flaky` header
+          # and the next summary line (skipped/passed). awk's range pattern
+          # makes that one-liner.
+          FLAKY_LIST="$(awk '
+            /^[[:space:]]+[0-9]+[[:space:]]+flaky$/ {flag=1; next}
+            /^[[:space:]]+[0-9]+[[:space:]]+(skipped|passed|did not run)/ {flag=0}
+            flag {print}
+          ' /tmp/playwright-output.txt)"
+          echo "::warning::${FLAKY_COUNT} flaky test(s) passed only on retry — see job summary for the list"
+          # Emit a per-flake warning so they show as annotations on the run.
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            # Trim leading whitespace via bash parameter expansion. Using
+            # this form instead of sed avoids spawning a process per line and
+            # also keeps the linter's SC2001 rule satisfied.
+            trimmed="${line#"${line%%[![:space:]]*}"}"
+            echo "::warning::flaky: ${trimmed}"
+          done <<< "$FLAKY_LIST"
+          {
+            echo "## :warning: Flaky tests (${FLAKY_COUNT})"
+            echo ""
+            echo "These tests **failed on first attempt and passed on retry** (Playwright \`retries: 1\` policy)."
+            echo "They did not fail the job, but indicate browser-engine or infrastructure noise worth tracking."
+            echo ""
+            echo '```'
+            echo "$FLAKY_LIST"
+            echo '```'
+            echo ""
+            echo "Full HTML report: see the \`playwright-report-cross-browser\` artifact below."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Tear down docker
         if: always()
         working-directory: deploy

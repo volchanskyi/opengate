@@ -62,54 +62,13 @@ jobs:
           }
           EOF
 
-      - name: Verify OCI endpoint reachability
-        env:
-          OCI_TFSTATE_NAMESPACE: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-        # Surface "secret is empty / DNS is broken" before falling into the
-        # opaque `dial tcp: lookup ***: no such host` failure inside
-        # terraform init. Both inputs are secrets so we add the constructed
-        # hostname to GHA's mask list and never echo it raw.
-        #
-        # When the namespace-scoped endpoint fails, also probe the region's
-        # plain object-storage endpoint to distinguish:
-        #   - both fail  → region value wrong / OCI down for that region
-        #   - region OK, namespace fails → namespace secret stale / bucket
-        #     in a different tenancy than expected
-        run: |
-          set -e
-          if [ -z "$OCI_TFSTATE_NAMESPACE" ]; then
-            echo "::error::OCI_TFSTATE_NAMESPACE secret is empty — backend URL will not resolve"
-            exit 1
-          fi
-          if [ -z "$OCI_REGION" ]; then
-            echo "::error::OCI_REGION secret is empty — backend URL will not resolve"
-            exit 1
-          fi
-
-          # OCI region codes are short (e.g. "us-ashburn-1", "eu-frankfurt-1");
-          # the length is not sensitive and surfaces typos / truncation in
-          # secret values without exposing the value itself.
-          echo "OCI_TFSTATE_NAMESPACE length: ${#OCI_TFSTATE_NAMESPACE}"
-          echo "OCI_REGION length: ${#OCI_REGION}"
-
-          NS_HOST="${OCI_TFSTATE_NAMESPACE}.compat.objectstorage.${OCI_REGION}.oraclecloud.com"
-          REGION_HOST="objectstorage.${OCI_REGION}.oraclecloud.com"
-          echo "::add-mask::${NS_HOST}"
-          echo "::add-mask::${REGION_HOST}"
-
-          NS_OK=0
-          REGION_OK=0
-          if getent hosts "${NS_HOST}" >/dev/null 2>&1; then NS_OK=1; fi
-          if getent hosts "${REGION_HOST}" >/dev/null 2>&1; then REGION_OK=1; fi
-          echo "namespace-scoped endpoint resolves: ${NS_OK}"
-          echo "region-only endpoint resolves: ${REGION_OK}"
-
-          if [ "${NS_OK}" = "0" ] && [ "${REGION_OK}" = "0" ]; then
-            echo "::warning::Both OCI endpoints fail DNS — likely wrong OCI_REGION secret or OCI region outage. terraform init will retry."
-          elif [ "${NS_OK}" = "0" ] && [ "${REGION_OK}" = "1" ]; then
-            echo "::warning::Region resolves but namespace-scoped endpoint does not — likely wrong OCI_TFSTATE_NAMESPACE secret. Verify the tenancy's object-storage namespace matches the secret."
-          fi
+      - name: Verify OCI endpoint reachability + S3 credential shape
+        uses: ./.github/actions/verify-oci-tfstate-creds
+        with:
+          oci-tfstate-namespace: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          tfstate-s3-access-key: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
+          tfstate-s3-secret-key: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
 
       - name: Terraform init (S3 backend, with retry)
         env:

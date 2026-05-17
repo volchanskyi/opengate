@@ -99,7 +99,7 @@ The CI workflow contains **26 jobs** grouped by concern:
 | **Bundle Size** | `web-bundle-size` | `size-limit` gzip size check (JS ≤250KB, CSS ≤10KB, Total ≤260KB). Runs in parallel with other web jobs. |
 | **API Docs** | `deploy-api-docs` | Deploys OpenAPI spec + Scalar viewer to gh-pages (dev push only) |
 | **Config** | `config-lint` | actionlint, yamllint, `terraform fmt/validate`, tflint, `terraform test` (module invariants), output-sensitivity grep, gitleaks (L2), Hadolint Dockerfile policy (L4), Checkov (L4: terraform + dockerfile + github_actions, baseline at `.checkov.baseline`), Conftest+Rego custom policies (L5: compose images, action SHA-pinning), `docker compose config`, `caddy fmt/validate`, Trivy IaC scan, cross-config integration tests |
-| **IaC PR plan preview** | `iac-plan-preview` (separate workflow) | Posts `terraform plan` summary as a sticky PR comment for PRs touching `deploy/terraform/**`; blocks merge if a destroy targets a protected resource type unless the PR carries the `iac:approve-destroy` label. See [Infrastructure.md → PR-time plan preview](Infrastructure.md#pr-time-plan-preview). |
+| **IaC gate** | `iac-gate` | Runs `terraform plan` on every commit / PR that touches `deploy/terraform/**`. Posts a sticky PR comment on PRs and writes the plan summary to the GitHub Job Summary on direct pushes. Blocks merge if a destroy targets a protected resource type. Bypass: `iac:approve-destroy` label on PR only — no bypass for direct pushes to `dev`. Wired into `merge-to-main.needs`. See [Infrastructure.md → IaC plan + destroy-blocklist gate](Infrastructure.md#iac-plan--destroy-blocklist-gate). |
 | **Golden** | `golden` | Cross-language wire format verification (needs `rust-test` artifact) |
 | **Security** | `security-audit` | govulncheck, cargo audit, npm audit |
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
@@ -107,7 +107,7 @@ The CI workflow contains **26 jobs** grouped by concern:
 | **E2E** | `e2e` | Playwright end-to-end + Lighthouse CI audits via `docker-compose.test.yml` (needs all prior checks + bundle-size) |
 | **Perf Publish** | `perf-publish` | Publishes Lighthouse scores and bundle size history to gh-pages for trending (dev push only, not gated) |
 | **Load** | `load-test` | k6 HTTP/WS load test scenarios (on-demand/scheduled only) |
-| **Merge** | `merge-to-main` | Auto-merge `dev` or `dependabot-dev` → `main` after all 19 gate jobs pass (including E2E + bundle-size + benchmarks); updates Go/Rust/Web coverage badges on `dev` pushes |
+| **Merge** | `merge-to-main` | Auto-merge `dev` or `dependabot-dev` → `main` after all 20 gate jobs pass (including E2E + bundle-size + benchmarks + `iac-gate`); updates Go/Rust/Web coverage badges on `dev` pushes |
 | **Auto-tag** | `auto-tag` | Determines semver bump from conventional commits, generates Keep a Changelog entry, commits CHANGELOG.md, and pushes a git tag (triggers `release-agent.yml`) |
 | **Sync** | `sync-branches` | Sync `main` back to the other branch after a successful merge (runs as a separate job so sync failures don't block the merge or badge update) |
 | **Notify** | `notify-failure` | Auto-creates GitHub Issues when any job fails (push/schedule/dispatch only — not PRs). One issue per failed job per branch, with error log excerpts. |
