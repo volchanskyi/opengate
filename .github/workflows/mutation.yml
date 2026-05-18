@@ -182,22 +182,18 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The `observability` environment scopes the Telegram alert secrets
+    # (DEPLOY_TELEGRAM_BOT_TOKEN / DEPLOY_TELEGRAM_CHAT_ID) to unattended
+    # alerting workflows only. It is configured with no required_reviewers
+    # and no wait timer (else the nightly cron would block "Waiting on
+    # review"), and a deployment-branch policy that permits only `main`
+    # (the default branch where scheduled crons trigger) and `dev` (where
+    # workflow_dispatch normally runs). The `production` environment used
+    # by cd.yml is intentionally separate — deploys keep their gated env;
+    # observability runs do not.
+    environment: observability
     permissions:
       contents: read
-    # NOTE: deliberately NOT using `environment: staging`. The CD workflow's
-    # staging/production environments enforce required_reviewers, which gates
-    # CD deploys on a manual approval click. Mutation testing is observability
-    # that runs nightly and must complete unattended — gating it would leave
-    # the workflow stuck "Waiting on review" until someone approves. All
-    # secrets the publish job reads (OCI_*, DEPLOY_SSH_PRIVATE_KEY, DEPLOY_HOST)
-    # already exist as repo-level secrets, so they remain accessible without
-    # the environment. The Telegram alert secrets (DEPLOY_TELEGRAM_BOT_TOKEN /
-    # DEPLOY_TELEGRAM_CHAT_ID) currently live only in the `production`
-    # environment; the alert step degrades gracefully (skips with a log line)
-    # when they are unset, so removing the environment downgrades Telegram
-    # from "alert on regression" to "no alert" until the secrets are promoted
-    # to repo-level. The workflow still exits red on regression and pushes
-    # the row to Loki, so the audit trail is intact.
     steps:
       - uses: actions/checkout@v6
         with:

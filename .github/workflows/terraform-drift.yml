@@ -32,6 +32,12 @@ jobs:
     name: Refresh-only plan + alert
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # See mutation.yml for the rationale on the `observability` environment.
+    # This job needs DEPLOY_TELEGRAM_BOT_TOKEN / DEPLOY_TELEGRAM_CHAT_ID to
+    # fire the drift alert and must run unattended on the nightly cron;
+    # `observability` provides the secrets without the required_reviewers
+    # gate that `staging` / `production` have.
+    environment: observability
     steps:
       - uses: actions/checkout@v6
 
@@ -144,6 +150,9 @@ jobs:
           retention-days: 30
 
       - name: Telegram alert
+        # Never fails the step — same rationale as mutation.yml's Telegram
+        # step. Drift is the workflow-level failure signal (see "Fail
+        # workflow on drift" below); the Telegram channel is observability.
         if: steps.plan.outputs.exitcode == '2'
         env:
           BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
@@ -151,21 +160,45 @@ jobs:
           RUN: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
-            echo "telegram secrets not set; skipping alert"
+            echo "::warning::Telegram secrets not set; skipping alert (drift still reported via workflow exit)."
             exit 0
           fi
+          # Pre-flight: validate the bot token. 404 from getMe means the
+          # token doesn't match any bot (revoked / wrong value pasted).
+          getme_http=$(curl -sS --max-time 10 \
+            -o /tmp/telegram-getme.json \
+            -w '%{http_code}' \
+            "https://api.telegram.org/bot${BOT}/getMe" 2>/dev/null || echo "curl_error")
+          if [ "$getme_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-getme.json >/dev/null 2>&1; then
+            echo "::error::Telegram getMe returned HTTP ${getme_http} — DEPLOY_TELEGRAM_BOT_TOKEN appears invalid or revoked."
+            echo "Telegram API response body:"
+            cat /tmp/telegram-getme.json 2>/dev/null || echo "(no body)"
+            exit 0
+          fi
+          bot_username="$(jq -r '.result.username // "unknown"' /tmp/telegram-getme.json)"
+          echo "Bot token verified via getMe (bot: @${bot_username}) ✓"
+
           # Plan output can exceed Telegram's 4 KB limit. Truncate to 3500 chars;
           # full output remains in the workflow artifacts (above).
           MSG="$(head -c 3500 drift.txt)"
           TEXT="$(printf '⚠️ Terraform drift detected on dev (run %s):\n\n%s\n\nRun: %s' \
             "$RUN" "$MSG" "$RUN_URL")"
-          curl -sS --fail --max-time 30 \
+          send_http=$(curl -sS --max-time 30 \
+            -o /tmp/telegram-send.json \
+            -w '%{http_code}' \
             -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
             --data-urlencode "chat_id=${CHAT}" \
             --data-urlencode "text=${TEXT}" \
-            --data-urlencode "disable_web_page_preview=true"
+            --data-urlencode "disable_web_page_preview=true" 2>/dev/null || echo "curl_error")
+          if [ "$send_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-send.json >/dev/null 2>&1; then
+            echo "::error::Telegram sendMessage returned HTTP ${send_http}. Common cause when getMe succeeds but sendMessage fails: DEPLOY_TELEGRAM_CHAT_ID points at a chat the bot isn't a member of."
+            echo "Telegram API response body:"
+            cat /tmp/telegram-send.json 2>/dev/null || echo "(no body)"
+            exit 0
+          fi
+          echo "Telegram alert delivered ✓"
 
       # SSH / Loki push uses the existing CD-user firewall opener composite —
       # the tf-drift-reader user is read-only and cannot mutate the NSG.
