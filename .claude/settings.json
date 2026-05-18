@@ -288,7 +288,16 @@
       "Bash(unzip -o -q /tmp/e2e-cross-logs.zip -d /tmp/e2e-cross-logs/)",
       "Bash(./scripts/precommit-gauntlet.sh)",
       "Bash(make postgres-test-up *)",
-      "Bash(PRECOMMIT_SKIP_SONAR=1 ./scripts/precommit-gauntlet.sh)"
+      "Bash(PRECOMMIT_SKIP_SONAR=1 ./scripts/precommit-gauntlet.sh)",
+      "Bash(actionlint .github/workflows/ci.yml .github/workflows/terraform-drift.yml)",
+      "Bash(git -C /home/ivan/opengate rev-parse HEAD)",
+      "Bash(awk '/^[[:space:]]+[a-z][a-z-]+:/{job=$1; sub\\(\":\",\"\",job\\); next} /^[[:space:]]+name:/{n=substr\\($0, index\\($0,$2\\)\\); print job\" => \"n}')",
+      "Bash(awk ' *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(r['type']+':', [c['context'] for c in r['parameters']['required_status_checks']]\\) for r in d if r['type']=='required_status_checks']\")",
+      "Bash(actionlint .github/workflows/ci.yml .github/workflows/terraform-drift.yml .github/actions/verify-oci-tfstate-creds/action.yml)",
+      "Bash(PRECOMMIT_SKIP_SONAR=1 PRECOMMIT_SKIP_BENCH=1 ./scripts/precommit-gauntlet.sh)",
+      "Bash(actionlint .github/workflows/mutation.yml .github/workflows/ci.yml .github/workflows/terraform-drift.yml)",
+      "Bash(actionlint .github/workflows/mutation.yml .github/workflows/ci.yml .github/workflows/terraform-drift.yml .github/workflows/e2e-cross-browser.yml)"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate/.claude/hooks",

@@ -307,6 +307,10 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Telegram alert on regression
+        # Never fails the step. Telegram is a notification channel, not a
+        # gate — if it's broken we still want `Fail workflow on regression`
+        # below to run and mark the workflow red for the actual reason. Curl
+        # exit codes are captured + annotated, not propagated.
         if: steps.summarize.outputs.regression == '1'
         env:
           BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
@@ -314,21 +318,57 @@ jobs:
           ALERT_TEXT: ${{ steps.summarize.outputs.alert_text }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
-            echo "telegram secrets not set; skipping alert"
+            echo "::warning::Telegram secrets not set; skipping alert (regression still reported via workflow exit)."
             exit 0
           fi
+
+          # Pre-flight: validate the bot token via getMe. A 404 here means the
+          # token doesn't match any bot (revoked / wrong value pasted). This
+          # surfaces the diagnosis as a clear "DEPLOY_TELEGRAM_BOT_TOKEN is
+          # invalid" warning instead of letting sendMessage curl-22 with the
+          # opaque "404" — see Run 26004707054 for the failure mode this
+          # guards against.
+          getme_http=$(curl -sS --max-time 10 \
+            -o /tmp/telegram-getme.json \
+            -w '%{http_code}' \
+            "https://api.telegram.org/bot${BOT}/getMe" 2>/dev/null || echo "curl_error")
+          if [ "$getme_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-getme.json >/dev/null 2>&1; then
+            echo "::error::Telegram getMe returned HTTP ${getme_http} — DEPLOY_TELEGRAM_BOT_TOKEN appears invalid or revoked. Fix: in @BotFather → /mybots → select bot → API Token → copy → update GitHub secret. Validate with: curl -s \"https://api.telegram.org/bot\$TOKEN/getMe\""
+            # Echo the API response body so the operator sees Telegram's own
+            # error message (description field), not just curl's exit code.
+            # The body cannot contain credentials — getMe takes nothing in
+            # the body and returns only public bot metadata.
+            echo "Telegram API response body:"
+            cat /tmp/telegram-getme.json 2>/dev/null || echo "(no body)"
+            exit 0
+          fi
+          bot_username="$(jq -r '.result.username // "unknown"' /tmp/telegram-getme.json)"
+          echo "Bot token verified via getMe (bot: @${bot_username}) ✓"
+
           MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "Mutation Testing Trend" (opengate-mutation-trend)' \
             "$ALERT_TEXT" "$RUN_URL")"
-          curl -sS --fail --max-time 30 \
+          send_http=$(curl -sS --max-time 30 \
+            -o /tmp/telegram-send.json \
+            -w '%{http_code}' \
             -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
             --data-urlencode "chat_id=${CHAT}" \
             --data-urlencode "text=${MSG}" \
-            --data-urlencode "disable_web_page_preview=true"
+            --data-urlencode "disable_web_page_preview=true" 2>/dev/null || echo "curl_error")
+          if [ "$send_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-send.json >/dev/null 2>&1; then
+            echo "::error::Telegram sendMessage returned HTTP ${send_http}. The most common cause when getMe succeeds but sendMessage fails is DEPLOY_TELEGRAM_CHAT_ID — verify the chat ID belongs to a chat the bot has been added to (or has previously messaged)."
+            echo "Telegram API response body:"
+            cat /tmp/telegram-send.json 2>/dev/null || echo "(no body)"
+            exit 0
+          fi
+          echo "Telegram alert delivered ✓"
 
       - name: Fail workflow red on regression
-        if: steps.summarize.outputs.regression == '1'
+        if: always() && steps.summarize.outputs.regression == '1'
+        # `always()` so a Telegram outage above doesn't suppress the actual
+        # workflow failure signal — the regression is the reason this run is
+        # red, not the notification channel.
         run: |
-          echo "Regression detected — see Telegram alert and run summary above."
+          echo "Regression detected — see workflow summary and Telegram alert (if delivered) above."
           exit 1
