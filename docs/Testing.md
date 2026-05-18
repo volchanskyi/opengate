@@ -144,9 +144,14 @@ home for time-series telemetry.
 
 **Regression alert rules** — fired when any language regresses on either
 condition:
-- absolute score drops below **70%**, or
+- absolute score drops below **85%**, or
 - score drops more than **2 percentage points** from the previous successful
   run.
+
+The `no_coverage` field is reported as `—` for Rust: cargo-mutants does not
+distinguish "missed" from "not covered" — every untested mutant lands in
+`missed` / `Survived`. The field is preserved in the canonical row for shape
+consistency across languages but encoded as `null`.
 
 On regression the workflow goes red ❌ in the GitHub Actions history and
 sends a Telegram alert via the existing `DEPLOY_TELEGRAM_BOT_TOKEN` /

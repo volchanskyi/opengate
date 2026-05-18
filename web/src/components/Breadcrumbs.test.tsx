@@ -141,4 +141,53 @@ describe('Breadcrumbs', () => {
     render(<RouterProvider router={router} />);
     expect(screen.getByText('raw-id')).toBeInTheDocument();
   });
+
+  it('Dashboard link always points to / and is rendered as an anchor', () => {
+    renderAt('/devices');
+    const dash = screen.getByText('Dashboard');
+    expect(dash.tagName).toBe('A');
+    expect(dash.getAttribute('href')).toBe('/');
+  });
+
+  it('uses ">" character as the separator between crumbs', () => {
+    renderAt('/audit/foo');
+    // Two separators: "Dashboard > Audit Log > foo-but-foo-is-unrecognized" → really one for Dashboard→Audit.
+    const nav = document.querySelector('nav')!;
+    expect(nav.textContent).toMatch(/Dashboard\s*>\s*Audit Log/);
+  });
+
+  it('Settings non-last segment links to /settings (not the deeper path)', () => {
+    renderAt('/settings/security');
+    const settings = screen.getByText('Settings');
+    expect(settings.tagName).toBe('A');
+    // The Settings crumb pins its href to '/settings' explicitly — kills the StringLiteral mutant
+    // that swapped the href to "".
+    expect(settings.getAttribute('href')).toBe('/settings');
+  });
+
+  it('Devices non-last segment links to /devices (not the deeper path)', () => {
+    const router = createMemoryRouter(
+      [{ path: 'devices/:id', element: <Breadcrumbs /> }],
+      { initialEntries: ['/devices/some-id'] },
+    );
+    render(<RouterProvider router={router} />);
+    const link = screen.getByText('Devices');
+    expect(link.tagName).toBe('A');
+    expect(link.getAttribute('href')).toBe('/devices');
+  });
+
+  it('does not treat a device-id segment outside the devices/* path as a hostname', () => {
+    useDeviceStore.setState({
+      selectedDevice: { id: 'd1', group_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+    });
+    // The guard `crumbs.some((c) => c.label === 'Devices')` ensures the hostname swap only
+    // applies under /devices/*. Here params.id matches but the path is /audit/d1 — no Devices crumb yet.
+    const router = createMemoryRouter(
+      [{ path: 'audit/:id', element: <Breadcrumbs /> }],
+      { initialEntries: ['/audit/d1'] },
+    );
+    render(<RouterProvider router={router} />);
+    // 'd1' segment must NOT render as 'web-01' (kills the guard mutant).
+    expect(screen.queryByText('web-01')).toBeNull();
+  });
 });

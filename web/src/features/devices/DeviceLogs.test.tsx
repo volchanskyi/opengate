@@ -137,4 +137,68 @@ describe('DeviceLogs', () => {
       refresh: true,
     }));
   });
+
+  it('empty level/search are passed as undefined (not empty string) to fetchLogs', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    render(<DeviceLogs deviceId="d1" />);
+
+    await user.click(screen.getByText('Fetch Logs'));
+
+    expect(fetchLogs).toHaveBeenCalledTimes(1);
+    const [, args] = fetchLogs.mock.calls[0]!;
+    expect(args.level).toBeUndefined();
+    expect(args.search).toBeUndefined();
+  });
+
+  it('level entry uses red color class for ERROR rows', () => {
+    useDeviceStore.setState({ logs: sampleLogs });
+    render(<DeviceLogs deviceId="d1" />);
+    // Find the cell containing ERROR padded with whitespace
+    const errorCell = screen.getAllByText(/ERROR/).find((el) => el.tagName === 'TD');
+    expect(errorCell?.className).toContain('text-red-400');
+  });
+
+  it('level entry uses gray-400 fallback class for unknown level', () => {
+    useDeviceStore.setState({
+      logs: { ...sampleLogs, entries: [
+        { timestamp: 't1', level: 'UNKNOWN', target: 'x', message: 'weird' },
+      ] },
+    });
+    render(<DeviceLogs deviceId="d1" />);
+    const td = screen.getByText(/UNKNOWN/);
+    expect(td.className).toContain('text-gray-400');
+  });
+
+  it('Showing total clamps to logs.total (Math.min branch)', () => {
+    useDeviceStore.setState({
+      logs: { ...sampleLogs, total: 5 },
+    });
+    render(<DeviceLogs deviceId="d1" />);
+    // offset 0 + 3 entries = 3, total is 5, Math.min(3, 5) = 3 → "Showing 1-3 of 5"
+    expect(screen.getByText('Showing 1-3 of 5')).toBeInTheDocument();
+  });
+
+  it('Load More hidden when has_more is false', () => {
+    useDeviceStore.setState({ logs: { ...sampleLogs, has_more: false } });
+    render(<DeviceLogs deviceId="d1" />);
+    expect(screen.queryByText('Load More')).toBeNull();
+  });
+
+  it('Load More button is disabled while another fetch is in flight', () => {
+    useDeviceStore.setState({
+      logs: { ...sampleLogs, has_more: true, total: 100 },
+      logsLoading: true,
+    });
+    render(<DeviceLogs deviceId="d1" />);
+    expect(screen.getByText('Load More')).toBeDisabled();
+  });
+
+  it('level dropdown contains all five named levels plus "All Levels"', () => {
+    render(<DeviceLogs deviceId="d1" />);
+    const select = screen.getByDisplayValue('All Levels') as HTMLSelectElement;
+    const labels = Array.from(select.options).map((o) => o.textContent);
+    expect(labels).toEqual(['All Levels', 'TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR']);
+  });
 });
