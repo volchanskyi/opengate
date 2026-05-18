@@ -62,13 +62,17 @@ jobs:
           }
           EOF
 
-      - name: Verify OCI endpoint reachability + S3 credential shape
+      - name: Verify OCI endpoint reachability + credential shape
         uses: ./.github/actions/verify-oci-tfstate-creds
         with:
           oci-tfstate-namespace: ${{ secrets.OCI_TFSTATE_NAMESPACE }}
           oci-region: ${{ secrets.OCI_REGION }}
           tfstate-s3-access-key: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
           tfstate-s3-secret-key: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
+          oci-tenancy-ocid: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user-ocid: ${{ secrets.OCI_DRIFT_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_DRIFT_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_DRIFT_PRIVATE_KEY }}
 
       - name: Terraform init (S3 backend, with retry)
         env:

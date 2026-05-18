@@ -1161,7 +1161,7 @@ jobs:
           }
           EOF
 
-      - name: Verify OCI endpoint reachability + S3 credential shape
+      - name: Verify OCI endpoint reachability + credential shape
         if: steps.changes.outputs.terraform == 'true'
         uses: ./.github/actions/verify-oci-tfstate-creds
         with:
@@ -1169,6 +1169,10 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           tfstate-s3-access-key: ${{ secrets.TFSTATE_S3_ACCESS_KEY }}
           tfstate-s3-secret-key: ${{ secrets.TFSTATE_S3_SECRET_KEY }}
+          oci-tenancy-ocid: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user-ocid: ${{ secrets.OCI_DRIFT_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_DRIFT_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_DRIFT_PRIVATE_KEY }}
 
       - name: Terraform init (with retry on transient OCI DNS / S3-compat flake)
         if: steps.changes.outputs.terraform == 'true'

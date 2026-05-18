@@ -1,27 +1,37 @@
 name: Verify OCI tfstate creds + endpoint
 description: |
-  Two-stage diagnostic bisect for the OCI Object Storage S3-compat backend
-  that holds the terraform state. Surfaces stale / missing secrets BEFORE
-  terraform init falls into an opaque `dial tcp: lookup ***` or
-  `403 SignatureDoesNotMatch` failure.
+  Three-stage diagnostic bisect for the OCI credentials terraform needs
+  against the OCI Object Storage S3-compat backend (state) AND OCI native
+  APIs (refresh). Surfaces stale / missing secrets BEFORE the failure mode
+  becomes an opaque `dial tcp: lookup ***`, `403 SignatureDoesNotMatch`,
+  or `401-NotAuthenticated`.
 
   Stage 1 — DNS bisect for the S3-compat endpoint. Probes both the
   namespace-scoped hostname (the one we actually use) and the region-only
   hostname (a control). If only the namespace one fails, OCI_TFSTATE_NAMESPACE
   is wrong; if both fail, OCI_REGION is wrong or the region is down.
 
-  Stage 2 — S3 credential shape. Length-checks each half of the Customer
-  Secret Key pair. Catches the most common stale-secret patterns: empty
-  secret, paste-truncation, and only one half re-rotated after the OCI
-  Console rotation.
+  Stage 2 — S3 credential shape (Customer Secret Key pair). Length-checks
+  each half. Catches the most common stale-secret patterns: empty secret,
+  paste-truncation, and only one half re-rotated after the OCI Console
+  rotation.
+
+  Stage 3 — OCI native API key (RSA signing key + fingerprint + OCIDs).
+  Checks the PEM has BEGIN/END markers, that openssl can parse it, and
+  most importantly **cross-checks the fingerprint** by computing the MD5
+  of the public key's DER encoding and comparing to OCI_DRIFT_FINGERPRINT.
+  A mismatch means OCI Console rotated the key but only one of
+  OCI_DRIFT_PRIVATE_KEY / OCI_DRIFT_FINGERPRINT was updated in GitHub —
+  fails the action immediately with a clear message, vs. letting terraform
+  plan 401 at refresh time.
 
   Used by:
     - .github/workflows/terraform-drift.yml (nightly drift detection)
     - .github/workflows/ci.yml :: iac-gate job (PR + push gate)
 
-  All four inputs are secrets passed by the caller. The action never echoes
-  values — only lengths and DNS resolution booleans, plus the constructed
-  hostnames which are pushed to GHA's mask list at runtime.
+  All eight inputs are secrets passed by the caller. The action never
+  echoes values — only lengths, DNS resolution booleans, and the
+  fingerprint MD5 (which is by construction a checksum, not a secret).
 
 inputs:
   oci-tfstate-namespace:
@@ -35,6 +45,18 @@ inputs:
     required: true
   tfstate-s3-secret-key:
     description: OCI Customer Secret Key secret-key half
+    required: true
+  oci-tenancy-ocid:
+    description: OCI tenancy OCID (ocid1.tenancy.oc1...)
+    required: true
+  oci-user-ocid:
+    description: OCI user OCID for the API key principal (ocid1.user.oc1...)
+    required: true
+  oci-fingerprint:
+    description: API key fingerprint (32 hex chars, colon-separated)
+    required: true
+  oci-private-key:
+    description: API key private key PEM (full file contents, BEGIN/END markers included)
     required: true
 
 runs:
@@ -113,4 +135,113 @@ runs:
           echo "::warning::S3 credentials look stale or truncated. Rotate the Customer Secret Key in OCI Console for the workflow's IAM user, then re-paste BOTH halves into TFSTATE_S3_ACCESS_KEY and TFSTATE_S3_SECRET_KEY in repo secrets (no whitespace, no trailing newline)."
         else
           echo "S3 credentials shape OK (lengths plausible). A downstream 403 SignatureDoesNotMatch still implies a key-pair mismatch — rotate both halves together."
+        fi
+
+    - name: OCI native API key shape + fingerprint cross-check
+      shell: bash
+      env:
+        OCI_TENANCY_OCID: ${{ inputs.oci-tenancy-ocid }}
+        OCI_DRIFT_USER_OCID: ${{ inputs.oci-user-ocid }}
+        OCI_DRIFT_FINGERPRINT: ${{ inputs.oci-fingerprint }}
+        OCI_DRIFT_PRIVATE_KEY: ${{ inputs.oci-private-key }}
+      # The OCI provider authenticates each API call with an RSA-PSS signature
+      # over a canonicalized request, using a private key whose public-key
+      # fingerprint must match what OCI has stored for the user. When OCI
+      # Console rotates the key, both halves change: the on-disk PEM and the
+      # fingerprint shown in the UI. If GitHub secrets get only one half
+      # updated, terraform plan 401s at the refresh step with the opaque
+      # "401-NotAuthenticated" error — no hint about which half is wrong.
+      #
+      # This step does three things, in order, without any network call:
+      #   1. Validate OCID shapes (typo / wrong-secret check).
+      #   2. Validate fingerprint shape (32 hex chars, colon-separated octets)
+      #      and PEM markers + parse.
+      #   3. **Compute** the fingerprint from the private key and compare to
+      #      OCI_DRIFT_FINGERPRINT. Mismatch = stale half; fail the action so
+      #      the operator gets a clear rotation message instead of a 401.
+      run: |
+        set -e
+
+        # --- OCID shape -----------------------------------------------------
+        if [ -z "$OCI_TENANCY_OCID" ]; then
+          echo "::warning::OCI_TENANCY_OCID is empty"
+        elif ! [[ "$OCI_TENANCY_OCID" =~ ^ocid1\.tenancy\.oc1\. ]]; then
+          echo "::warning::OCI_TENANCY_OCID does not start with 'ocid1.tenancy.oc1.' — wrong secret type?"
+        else
+          echo "OCI_TENANCY_OCID shape OK"
+        fi
+        if [ -z "$OCI_DRIFT_USER_OCID" ]; then
+          echo "::warning::OCI_DRIFT_USER_OCID is empty"
+        elif ! [[ "$OCI_DRIFT_USER_OCID" =~ ^ocid1\.user\.oc1\. ]]; then
+          echo "::warning::OCI_DRIFT_USER_OCID does not start with 'ocid1.user.oc1.' — wrong secret type?"
+        else
+          echo "OCI_DRIFT_USER_OCID shape OK"
+        fi
+
+        # --- Fingerprint shape ---------------------------------------------
+        # OCI fingerprints are MD5(DER public key), formatted as 16 colon-
+        # separated lowercase hex octets — 47 chars total.
+        if [ -z "$OCI_DRIFT_FINGERPRINT" ]; then
+          echo "::warning::OCI_DRIFT_FINGERPRINT is empty"
+        elif ! [[ "$OCI_DRIFT_FINGERPRINT" =~ ^[0-9a-f]{2}(:[0-9a-f]{2}){15}$ ]]; then
+          echo "::warning::OCI_DRIFT_FINGERPRINT does not match expected shape (32 lowercase hex chars in 16 colon-separated octets). Got length ${#OCI_DRIFT_FINGERPRINT}."
+        else
+          echo "OCI_DRIFT_FINGERPRINT shape OK"
+        fi
+
+        # --- PEM shape + parse + fingerprint cross-check -------------------
+        if [ -z "$OCI_DRIFT_PRIVATE_KEY" ]; then
+          echo "::error::OCI_DRIFT_PRIVATE_KEY is empty — terraform refresh will 401."
+          exit 1
+        fi
+
+        # GitHub's UI preserves newlines verbatim in secret values, but some
+        # paste paths escape them as literal `\n`. Detect that early.
+        if printf '%s' "$OCI_DRIFT_PRIVATE_KEY" | grep -q -F '\n' && \
+           ! printf '%s' "$OCI_DRIFT_PRIVATE_KEY" | grep -qP '^[A-Za-z0-9+/=]+$'; then
+          echo "::warning::OCI_DRIFT_PRIVATE_KEY appears to contain literal \\n characters — paste may have escaped newlines. Re-paste raw PEM contents."
+        fi
+        if ! printf '%s' "$OCI_DRIFT_PRIVATE_KEY" | grep -q -- "-----BEGIN .*PRIVATE KEY-----"; then
+          echo "::error::OCI_DRIFT_PRIVATE_KEY missing BEGIN PRIVATE KEY marker — paste truncated or header stripped."
+          exit 1
+        fi
+        if ! printf '%s' "$OCI_DRIFT_PRIVATE_KEY" | grep -q -- "-----END .*PRIVATE KEY-----"; then
+          echo "::error::OCI_DRIFT_PRIVATE_KEY missing END PRIVATE KEY marker — paste truncated."
+          exit 1
+        fi
+
+        # Try to parse. Use a fifo via process substitution so the key never
+        # touches disk in this step (the calling workflow writes it to
+        # ~/.oci/drift.pem in a separate step, but we keep the bisect
+        # self-contained).
+        if ! printf '%s' "$OCI_DRIFT_PRIVATE_KEY" | openssl pkey -noout 2>/dev/null; then
+          echo "::error::OCI_DRIFT_PRIVATE_KEY fails openssl parse — PEM corrupted (line wraps, escaped newlines, or wrong key format)."
+          exit 1
+        fi
+        echo "OCI_DRIFT_PRIVATE_KEY parses cleanly ✓"
+
+        # Compute fingerprint from the private key. OCI's algorithm:
+        # MD5 of the DER-encoded public key, formatted as colon-separated
+        # lowercase hex octets. `openssl md5 -c` produces exactly this form.
+        computed_fp="$(
+          printf '%s' "$OCI_DRIFT_PRIVATE_KEY" \
+            | openssl pkey -pubout -outform DER 2>/dev/null \
+            | openssl md5 -c 2>/dev/null \
+            | awk '{print $NF}'
+        )"
+        if [ -z "$computed_fp" ]; then
+          echo "::warning::Could not compute fingerprint from OCI_DRIFT_PRIVATE_KEY (openssl pipeline failed). Skipping cross-check."
+        elif [ -z "$OCI_DRIFT_FINGERPRINT" ]; then
+          echo "::warning::Skipping fingerprint cross-check: OCI_DRIFT_FINGERPRINT is empty."
+        elif [ "$computed_fp" != "$OCI_DRIFT_FINGERPRINT" ]; then
+          # The fingerprint is by construction a checksum of the public key,
+          # so echoing both halves leaks nothing sensitive — and the operator
+          # needs to see them side-by-side to fix the mismatch.
+          echo "::error::OCI_DRIFT_FINGERPRINT does NOT match the fingerprint computed from OCI_DRIFT_PRIVATE_KEY. One half of the API key pair is stale."
+          echo "::error::  computed from key: ${computed_fp}"
+          echo "::error::  stored secret:     ${OCI_DRIFT_FINGERPRINT}"
+          echo "::error::Fix: in OCI Console, view the API key for the workflow's user. If the fingerprint shown there matches 'computed from key', update OCI_DRIFT_FINGERPRINT to that value. Otherwise delete the key and generate a new one, then update BOTH OCI_DRIFT_FINGERPRINT and OCI_DRIFT_PRIVATE_KEY in repo secrets together."
+          exit 1
+        else
+          echo "OCI API key fingerprint matches private key ✓"
         fi
