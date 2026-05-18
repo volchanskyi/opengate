@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779056630608,
+  "lastUpdate": 1779073203609,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13303,6 +13303,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.71305463649558,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "341059cbd6da10a911b66968ab2ad0bf35d754a7",
+          "message": "ci: extend OCI bisect to API key; serialize e2e; harden Telegram alert\n\n* OCI native API key bisect (in .github/actions/verify-oci-tfstate-creds):\n  + OCID shape checks (ocid1.tenancy/user.oc1. prefixes).\n  + Fingerprint format (32 hex chars in 16 colon-separated octets).\n  + PEM markers (BEGIN/END PRIVATE KEY) + escaped-newline detection.\n  + openssl parse — the key must be a valid private key.\n  + Fingerprint cross-check: compute MD5 of the public-key DER from the\n    private key and compare to OCI_DRIFT_FINGERPRINT. A mismatch is\n    deterministic evidence that one half of the key pair is stale\n    (rotated in OCI Console without updating both GitHub secrets), so\n    the action fails immediately with a clear rotation message instead\n    of letting terraform plan 401 at refresh time. The two halves +\n    computed fingerprint are echoed on failure because the fingerprint\n    is by construction a public checksum — no secret material leaks.\n  Both callers (terraform-drift, ci.yml iac-gate) pass the 4 new inputs.\n\n* Playwright workers: 1 (web/playwright.config.ts). The admin-promotion\n  fixture races against itself across parallel workers — concurrent\n  PATCH /users/{id} + /users/me reads can land in a window where the\n  promotion hasn't propagated to the next worker's session. Surfaced\n  as flaky AdminGuard redirects (a11y admin-user-management) and false\n  \"cannot remove last admin\" assertions. Confirmed locally: workers=1\n  → 44/44 pass deterministically; default workers → ~67% flake rate.\n  CI was hiding this because per-job runners have less contention.\n  Trade-off: ~25s CI runtime increase on the e2e job.\n\n* Mutation Telegram alert hardening (.github/workflows/mutation.yml):\n  + getMe pre-flight validates the bot token. 404 from /bot{TOKEN}/getMe\n    is Telegram's unambiguous \"this token does not match any bot\"\n    signal — surfaced as a clear \"rotate via @BotFather\" message instead\n    of curl exit 22.\n  + sendMessage failures log the full API response body so the operator\n    sees Telegram's `description` field (e.g. \"chat not found\") instead\n    of just an HTTP code.\n  + Telegram failures NEVER fail the step. Telegram is a notification\n    channel, not a gate. The next step `Fail workflow on regression`\n    now uses `if: always() && ...` so it runs even if the alert step\n    errored out — workflow goes red for the actual reason (regression\n    detected) instead of the misleading \"Telegram failed.\"\n\nRun 26004707054 surfaced the original (now-fixed) symptom — the\nDEPLOY_TELEGRAM_BOT_TOKEN secret is stale or wrong. With this commit,\nthat operator-side fix is independent of CI: rotate via @BotFather,\nupdate the secret, re-run.",
+          "timestamp": "2026-05-17T19:49:56-07:00",
+          "tree_id": "d4920e12b129852228d6189c1c00ef5e36fbf7f2",
+          "url": "https://github.com/volchanskyi/opengate/commit/341059cbd6da10a911b66968ab2ad0bf35d754a7"
+        },
+        "date": 1779073203546,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.353424068742232,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.180949532960796,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 800.3870490800946,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 298.17338901228817,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.84597472265635,
             "unit": "ns/iter"
           }
         ]
