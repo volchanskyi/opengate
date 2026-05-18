@@ -76,4 +76,59 @@ describe('LoginPage', () => {
 
     expect(loginFn).toHaveBeenCalledWith('test@example.com', 'password123');
   });
+
+  it('Login button label flips to "Logging in..." while isLoading is true', () => {
+    useAuthStore.setState({ isLoading: true });
+    renderLogin();
+    expect(screen.getByRole('button', { name: 'Logging in...' })).toBeInTheDocument();
+  });
+
+  it('Login button is disabled while isLoading is true', () => {
+    useAuthStore.setState({ isLoading: true });
+    renderLogin();
+    const btn = screen.getByRole('button', { name: 'Logging in...' }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it('Login button is enabled when not loading', () => {
+    renderLogin();
+    const btn = screen.getByRole('button', { name: 'Login' }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+  });
+
+  it('does not redirect when only token is set (user still null)', () => {
+    useAuthStore.setState({ token: 'valid', user: null });
+    renderLogin();
+    // Stays on Login (the `token && user` guard requires both).
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    expect(screen.queryByText('Devices Page')).toBeNull();
+  });
+
+  it('does not redirect when only user is set (token still null)', () => {
+    useAuthStore.setState({
+      token: null,
+      user: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false, created_at: '', updated_at: '' },
+    });
+    renderLogin();
+    expect(screen.getByLabelText('Email')).toBeInTheDocument();
+    expect(screen.queryByText('Devices Page')).toBeNull();
+  });
+
+  it('email input has type="email"', () => {
+    renderLogin();
+    const email = screen.getByLabelText('Email') as HTMLInputElement;
+    expect(email.type).toBe('email');
+  });
+
+  it('password input has type="password"', () => {
+    renderLogin();
+    const pw = screen.getByLabelText('Password') as HTMLInputElement;
+    expect(pw.type).toBe('password');
+  });
+
+  it('Register link points to /register', () => {
+    renderLogin();
+    const link = screen.getByRole('link', { name: 'Register' });
+    expect(link.getAttribute('href')).toBe('/register');
+  });
 });

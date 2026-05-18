@@ -273,4 +273,61 @@ describe('AgentSetupPage', () => {
     const copyButtons = screen.getAllByText('Copy');
     expect(copyButtons.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('shows loading screen while loading with no tokens yet', () => {
+    useUpdateStore.setState({ isLoading: true, enrollmentTokens: [] });
+    render(<AgentSetupPage />);
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByText('Add Device')).toBeNull();
+  });
+
+  it('skips loading screen when isLoading is true but tokens are present', () => {
+    useUpdateStore.setState({ isLoading: true, enrollmentTokens: [fakeToken] });
+    render(<AgentSetupPage />);
+    expect(screen.queryByText('Loading...')).toBeNull();
+    expect(screen.getByText('Add Device')).toBeInTheDocument();
+  });
+
+  it('fetchEnrollmentTokens is called on admin mount but skipped for non-admin', () => {
+    // Admin
+    const adminFetch = vi.fn();
+    useAuthStore.setState({ user: adminUser, token: 't' });
+    useUpdateStore.setState({ fetchEnrollmentTokens: adminFetch, enrollmentTokens: [] });
+    const { unmount } = render(<AgentSetupPage />);
+    expect(adminFetch).toHaveBeenCalled();
+    unmount();
+
+    // Non-admin
+    const userFetch = vi.fn();
+    useAuthStore.setState({ user: regularUser, token: 't' });
+    useUpdateStore.setState({ fetchEnrollmentTokens: userFetch, enrollmentTokens: [] });
+    render(<AgentSetupPage />);
+    expect(userFetch).not.toHaveBeenCalled();
+  });
+
+  it('Copy button label flips to "Copied!" after click', async () => {
+    // Mock clipboard write to resolve immediately.
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    render(<AgentSetupPage />);
+    // The "install" command Copy button.
+    const copyBtn = screen.getAllByText('Copy')[0]!;
+    await userEvent.click(copyBtn);
+    // Allow microtask queue to flush.
+    await Promise.resolve();
+    expect(await screen.findByText('Copied!')).toBeInTheDocument();
+  });
+
+  it('install command contains the active token and the right URL pattern', () => {
+    render(<AgentSetupPage />);
+    const codeText = screen.getByText(/curl -sL/).textContent ?? '';
+    expect(codeText).toContain(fakeToken.token);
+    expect(codeText).toMatch(/sudo bash -s --/);
+    expect(codeText).toContain('/api/v1/server/install.sh');
+  });
+
+  it('installCommand is null when no active token exists (no install snippet rendered)', () => {
+    useUpdateStore.setState({ enrollmentTokens: [expiredToken] });
+    render(<AgentSetupPage />);
+    expect(screen.queryByText(/curl -sL/)).toBeNull();
+  });
 });
