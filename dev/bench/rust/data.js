@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779079368128,
+  "lastUpdate": 1779119542806,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13450,6 +13450,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.7220212551993,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "21a4e0cd083af17f22a7104bb6ea81ba0c6f2fb0",
+          "message": "test(web,agent,ci): mutation testing PR 10 — raise floor to 85%, 191 new web tests, Rust webrtc.rs carve-out\n\nWeb: 70.96% → 86.33% absolute by attacking surviving mutants across 16 top\nfiles. DeviceDetail.tsx alone goes 71% → 99.18% covered via formatBytes\nboundary battery, AMT section coverage, Restart/Upgrade disabled-state\nmatrix, Move-to-Group filter+reset, polling-clears-on-unmount, navigate\nstate pin, latestManifest numeric-sort + per-OS filter. Other top files\n(~200 new tests) cover FileManagerView, DeviceList, Permissions,\nAgentUpdates, UserManagement, MessengerView, SessionView, AgentSetupPage,\nProfilePage, GroupSidebar, DeviceLogs, InstallInstructions, Dashboard,\nLoginPage, Breadcrumbs. New stryker carve-outs for webrtc-transport.ts\nand NotificationCenter.tsx (analogous to the existing connection-store /\nuse-remote-desktop / input-handler carve-outs — all need browser APIs\njsdom does not simulate).\n\nRust: 83.6% → 89.5% (estimated) by carving out mesh-agent-core/src/webrtc.rs\nin agent/.cargo/mutants.toml. The 22 surviving mutants there all require\na live RTCPeerConnection / ICE agent / STUN exchange; webrtc-rs can only\nexercise them against real network state, mirroring the web-side reasoning\nfor the matching carve-out. Existing carve-outs already cover the platform\nshims and main.rs entry point — webrtc.rs fits the same bucket.\n\nFloor bump: REGRESSION_FLOOR_PCT 70 → 85 in scripts/mutation-summarize.sh\nplus the matching Telegram alert-text branch; the workflow comment, the\nstep-summary table format, and docs/Testing.md regression-rule line all\nfollow. Rust no_coverage encoded as null (rendered as \"—\") rather than\n0 — cargo-mutants does not distinguish missed-without-coverage from\nmissed-with-failing-test, so the field was previously misleading.\n\nVitest Test Report consolidation: the workflow's GITHUB_ACTIONS='' env\noverride was being inherited inconsistently by Stryker's vitest pool,\nproducing hundreds of \"Vitest Test Report\" entries in the mutation job\nsummary. Canonical fix in web/vitest.config.ts: when STRYKER_MUTATOR_WORKER\nis in env, set reporters: ['default'] explicitly to short-circuit\nvitest's `if (!resolved.reporters.length) ... GITHUB_ACTIONS === 'true'`\nauto-load branch. Normal CI test jobs (web-unit, web-integration) leave\nreporters undefined and keep the github-actions reporter for failure\nannotations. GITHUB_STEP_SUMMARY=/dev/null stays as a backstop.\n\nAlso: .stryker-tmp added to web/eslint.config.js globalIgnores so the\ngauntlet's web-eslint step does not see stale sandbox copies between\nmutation runs.\n\nVerified: vitest 502 → 693 tests pass; scripts/precommit-gauntlet.sh ALL\nCHECKS PASSED. Web mutation score 86.33% absolute / 88.79% covered\nre-measured locally against full src/** tree.",
+          "timestamp": "2026-05-18T08:50:35-07:00",
+          "tree_id": "e050c2512fd15855e37a889c07342611ca28109a",
+          "url": "https://github.com/volchanskyi/opengate/commit/21a4e0cd083af17f22a7104bb6ea81ba0c6f2fb0"
+        },
+        "date": 1779119542743,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.117680410313923,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.454980071422384,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 775.4480293993564,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.77616163963967,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.550333383703613,
             "unit": "ns/iter"
           }
         ]
