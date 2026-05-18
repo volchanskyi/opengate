@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779073203609,
+  "lastUpdate": 1779076854545,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13352,6 +13352,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.84597472265635,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "03a613c2db287cd25570f610223714b7d568d8e4",
+          "message": "fix(ci): redirect GITHUB_STEP_SUMMARY for stryker step\n\nThe existing `GITHUB_ACTIONS: ''` env override should disable Vitest's\nauto-loaded github-actions reporter (it checks `=== \"true\"`), but the\nproblem persists per Run 26004707054 — likely because Stryker's\npersistent vitest test-runner pool starts before the env propagates, or\na Vitest auto-load path beyond `process.env.GITHUB_ACTIONS === \"true\"`\nis in play.\n\nBelt-and-suspenders: also redirect GITHUB_STEP_SUMMARY to /dev/null for\nthe stryker step. Any write from a reporter that loads anyway is\ndiscarded. The aggregate summary from the publish job (per-language\ntable + canonical row JSON) is unaffected and remains the canonical\nhuman-facing summary for the run.",
+          "timestamp": "2026-05-17T20:58:48-07:00",
+          "tree_id": "5108ce1c1b1bc7de541dc0c7de7d69f431d7e4c4",
+          "url": "https://github.com/volchanskyi/opengate/commit/03a613c2db287cd25570f610223714b7d568d8e4"
+        },
+        "date": 1779076854481,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.38342613233496,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.706193158960932,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 781.558008748247,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.98107596527285,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.566152019407646,
             "unit": "ns/iter"
           }
         ]
