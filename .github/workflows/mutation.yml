@@ -4,7 +4,7 @@ name: Mutation Testing
 # Plan: .claude/plans/pr9-mutation-testing-as-observability.md
 #
 # Runs nightly. Does NOT block merges or deploys.
-# On regression (drop >2pp from previous successful run OR absolute score <70%):
+# On regression (drop >2pp from previous successful run OR absolute score <85%):
 #   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
 #   - Workflow exits red (audit trail)
 # All scores are pushed to Loki for the "Mutation Testing Trend" Grafana
@@ -138,19 +138,18 @@ jobs:
           # persistent test-runner pool. Vitest's `github-actions` reporter
           # auto-loads when GITHUB_ACTIONS=true and appends a "Vitest Test
           # Report" section to GITHUB_STEP_SUMMARY on every run — leading to
-          # thousands of duplicated sections in the job summary (the original
-          # bug). Two defensive layers:
+          # thousands of duplicated sections in the job summary. The canonical
+          # fix lives in `web/vitest.config.ts`: when STRYKER_MUTATOR_WORKER is
+          # present in process.env, vitest is configured with explicit
+          # `reporters: ['default']`, which short-circuits the auto-load branch
+          # in vitest's reporter resolver (`if (!resolved.reporters.length) {
+          # … GITHUB_ACTIONS check … }`).
           #
-          #   1. GITHUB_ACTIONS='' disables Vitest's auto-loader
-          #      (vitest checks `process.env.GITHUB_ACTIONS === "true"`).
-          #   2. GITHUB_STEP_SUMMARY=/dev/null sinks any write that gets past
-          #      layer 1 (Stryker's persistent worker pool may have been
-          #      spawned with stale env, or a future Vitest version may load
-          #      the reporter via a different signal).
-          #
-          # Stryker's own GHA detection (CIProvider) reads GITHUB_REPOSITORY
-          # / GITHUB_REF which remain set, so its output is unaffected.
-          GITHUB_ACTIONS: ''
+          # The /dev/null sink below remains as a belt-and-suspenders backstop
+          # in case a future vitest version reaches GITHUB_STEP_SUMMARY via a
+          # different code path. Stryker's own GHA detection (CIProvider) reads
+          # GITHUB_REPOSITORY / GITHUB_REF which remain set, so its output is
+          # unaffected.
           GITHUB_STEP_SUMMARY: /dev/null
         run: |
           cd web
@@ -306,7 +305,7 @@ jobs:
             for L in rust go web; do
               jq -r --arg l "$L" '
                 .scores[$l] as $r
-                | "| \($l) | \($r.killed) | \($r.survived) | \($r.no_coverage) | \($r.score_pct)% |"
+                | "| \($l) | \($r.killed) | \($r.survived) | \($r.no_coverage // "—") | \($r.score_pct)% |"
               ' canonical-row.json
             done
           } >> "$GITHUB_STEP_SUMMARY"

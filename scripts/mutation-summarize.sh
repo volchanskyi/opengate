@@ -24,7 +24,7 @@
 #
 # Exit codes:
 #   0  no regression detected
-#   1  regression detected (per-language: drop >2pp from previous OR score <70%)
+#   1  regression detected (per-language: drop >2pp from previous OR score <85%)
 #   2  input file missing or unparseable
 #
 # Score definition (matches PR 6/7/8 conventions):
@@ -42,7 +42,7 @@ WEB_REPORT="${WEB_REPORT:-web/reports/mutation/mutation.json}"
 HISTORY_FILE="${HISTORY_FILE:-docs/mutation-history.jsonl}"
 
 REGRESSION_DROP_PP=2.0       # alert when score drops by more than this from prev
-REGRESSION_FLOOR_PCT=70.0    # alert when absolute score crosses below this floor
+REGRESSION_FLOOR_PCT=85.0    # alert when absolute score crosses below this floor
 RETENTION_DAYS=90            # rolling window for HISTORY_FILE rotation
 
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
@@ -53,6 +53,12 @@ TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # parse_rust FILE → JSON object {killed, survived, no_coverage, total, score_pct}
 # Uses cargo-mutants outcomes.json; "unviable" mutants are excluded from the
 # denominator (they couldn't even compile and aren't real test signal).
+#
+# Note: cargo-mutants does NOT distinguish "no coverage" from "missed" — both
+# end up in `.missed`. The JSON keeps the field for canonical-row shape
+# consistency across languages, but it is encoded as null (not 0) so downstream
+# consumers (Grafana, summary tables) can render it as "—" / "n/a" instead of
+# misreading it as "0 mutants without coverage".
 parse_rust() {
   local file="$1"
   [[ -f "$file" ]] || { echo "missing: $file" >&2; return 2; }
@@ -61,7 +67,7 @@ parse_rust() {
       killed:      (.caught   // 0),
       survived:    (.missed   // 0),
       timeout:     (.timeout  // 0),
-      no_coverage: 0,
+      no_coverage: null,
       unviable:    (.unviable // 0),
       total:       ((.caught // 0) + (.missed // 0) + (.timeout // 0))
     }
@@ -193,7 +199,7 @@ regression_check() {
         if row.regressed
           then "  \(lang | ascii_upcase): \(row.prev // "n/a") → \(row.curr)" +
                (if row.prev == null then " (below floor)"
-                elif (row.curr < 70.0) then " (below 70% floor)"
+                elif (row.curr < 85.0) then " (below 85% floor)"
                 else " (drop > 2pp)" end)
           else "  \(lang | ascii_upcase): \(row.prev // "n/a") → \(row.curr)"
           end;

@@ -163,4 +163,57 @@ describe('Dashboard', () => {
     expect(screen.getByText('action.0')).toBeInTheDocument();
     expect(screen.getByText('action.9')).toBeInTheDocument();
   });
+
+  it('online and offline counts add up to total devices', () => {
+    renderDashboard();
+    const totals = screen.getAllByText('2');
+    // 2 total appears once; 1 online appears once; 1 offline appears once.
+    expect(totals.length).toBeGreaterThanOrEqual(1);
+    // Find each labelled value
+    const totalCard = screen.getByText('Total Devices').closest('div')!;
+    const onlineCard = screen.getByText('Online').closest('div')!;
+    const offlineCard = screen.getByText('Offline').closest('div')!;
+    expect(totalCard.textContent).toContain('2');
+    expect(onlineCard.textContent).toContain('1');
+    expect(offlineCard.textContent).toContain('1');
+  });
+
+  it('online count uses status === "online" filter (not !==)', () => {
+    useDeviceStore.setState({
+      devices: [
+        { id: 'a', group_id: 'g', hostname: 'a', os: 'l', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'b', group_id: 'g', hostname: 'b', os: 'l', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'c', group_id: 'g', hostname: 'c', os: 'l', agent_version: '', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
+      ],
+    });
+    renderDashboard();
+    const onlineCard = screen.getByText('Online').closest('div')!;
+    expect(onlineCard.textContent).toContain('2');
+    const offlineCard = screen.getByText('Offline').closest('div')!;
+    expect(offlineCard.textContent).toContain('1');
+  });
+
+  it('Add Device link points to /setup', () => {
+    renderDashboard();
+    const link = screen.getByRole('link', { name: 'Add Device' });
+    expect(link.getAttribute('href')).toBe('/setup');
+  });
+
+  it('Dashboard heading is rendered', () => {
+    renderDashboard();
+    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+  });
+
+  it('Device Groups tile shows the groups count', () => {
+    useDeviceStore.setState({
+      groups: [
+        { id: 'g1', name: 'Group A', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group B', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g3', name: 'Group C', owner_id: 'u1', created_at: '', updated_at: '' },
+      ],
+    });
+    renderDashboard();
+    const groupsCard = screen.getByText('Device Groups').closest('div')!;
+    expect(groupsCard.textContent).toContain('3');
+  });
 });

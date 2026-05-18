@@ -10,11 +10,17 @@
 #     and process lifecycle exercised only by E2E
 #   * SELinux restorecon match guards in `update.rs` — depend on a privileged
 #     subprocess (system integration, not unit-testable)
+#   * WebRTC peer connection (`mesh-agent-core/src/webrtc.rs`) — RTCPeerConnection
+#     / ICE agent / data-channel callback wiring; webrtc-rs only exercises this
+#     against a live STUN/network stack. This is the Rust analog of the
+#     web-side `webrtc-transport.ts`, `use-remote-desktop.ts`, and
+#     `connection-store.ts` carve-outs (see `web/stryker.config.json`).
 
 exclude_globs = [
     "crates/platform-linux/**",
     "crates/platform-windows/**",
     "crates/mesh-agent/src/main.rs",
+    "crates/mesh-agent-core/src/webrtc.rs",
 ]
 
 # Skip `restore_selinux_context` — the only mutants here are guards on

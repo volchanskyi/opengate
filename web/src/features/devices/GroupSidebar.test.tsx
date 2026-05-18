@@ -128,4 +128,49 @@ describe('GroupSidebar', () => {
     await user.click(screen.getByText('Confirm?'));
     expect(deleteGroupFn).toHaveBeenCalledWith('g1');
   });
+
+  it('non-active groups use the gray text style; active uses white-on-gray', () => {
+    render(<GroupSidebar />);
+    const groupB = screen.getByText('Group B').closest('div');
+    expect(groupB?.className).toContain('text-gray-400');
+    expect(groupB?.className).not.toContain('bg-gray-700 text-white');
+  });
+
+  it('delete button title flips between default and confirm text', async () => {
+    const user = userEvent.setup();
+    render(<GroupSidebar />);
+    const deleteButtons = screen.getAllByText('x');
+    expect(deleteButtons[0]!.getAttribute('title')).toBe('Delete group');
+
+    await user.click(deleteButtons[0]!);
+    expect(screen.getByText('Confirm?').getAttribute('title')).toBe('Click again to confirm');
+  });
+
+  it('clicking another group delete button moves confirmation focus (only one Confirm? rendered)', async () => {
+    const user = userEvent.setup();
+    render(<GroupSidebar />);
+    const deleteButtons = screen.getAllByText('x');
+    await user.click(deleteButtons[0]!);
+    expect(screen.getByText('Confirm?')).toBeInTheDocument();
+    await user.click(screen.getByText('x'));
+    expect(screen.getAllByText('Confirm?').length).toBe(1);
+  });
+
+  it('+ New button toggles label to Cancel when the form is open', async () => {
+    const user = userEvent.setup();
+    render(<GroupSidebar />);
+    await user.click(screen.getByText('+ New'));
+    expect(screen.getByText('Cancel')).toBeInTheDocument();
+    expect(screen.queryByText('+ New')).toBeNull();
+
+    await user.click(screen.getByText('Cancel'));
+    expect(screen.getByText('+ New')).toBeInTheDocument();
+    expect(screen.queryByText('Cancel')).toBeNull();
+  });
+
+  it('Groups heading is rendered as a heading element', () => {
+    render(<GroupSidebar />);
+    const heading = screen.getByRole('heading', { name: 'Groups' });
+    expect(heading.tagName).toBe('H2');
+  });
 });
