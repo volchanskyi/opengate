@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779076854545,
+  "lastUpdate": 1779079368128,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13401,6 +13401,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.566152019407646,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "678dda311899b6b27ae58b8f43ebd2891ba80547",
+          "message": "ci: scope Telegram alerts via observability env; harden terraform-drift Telegram step\n\n`DEPLOY_TELEGRAM_BOT_TOKEN` / `DEPLOY_TELEGRAM_CHAT_ID` previously lived\nonly in the `production` environment (used by cd.yml's gated deploys),\nso the unattended observability workflows (mutation, terraform-drift)\nsaw them as empty strings — alerts silently dropped or curl-22'd. New\n`observability` GitHub environment carries the same secret pair with\nNO required_reviewers, NO wait timer, and a deployment-branch policy\nallowing only `main` + `dev`. Production env keeps its copy for cd.yml;\nthe two are intentionally independent.\n\n* mutation.yml publish job: `environment: observability`. Comment block\n  rewritten to reflect the new shape (no more \"secrets unreachable\n  until promoted to repo level\" caveat).\n\n* terraform-drift.yml drift job: `environment: observability`. Same\n  motivation — the nightly cron's drift alert was reaching a\n  no-such-secret dead end.\n\n* terraform-drift.yml Telegram step: same hardening already applied to\n  mutation.yml in 03a613c — getMe pre-flight that surfaces token\n  revocation as a clear \"DEPLOY_TELEGRAM_BOT_TOKEN appears invalid\"\n  message instead of curl exit 22; sendMessage failures log Telegram's\n  response body (description field with the real reason); step never\n  fails the workflow — the workflow-level \"Fail workflow on drift\"\n  step is the canonical drift signal, not the notification channel.",
+          "timestamp": "2026-05-17T21:40:56-07:00",
+          "tree_id": "73ce3c75813faf5e383541b73fad958dd597fbf2",
+          "url": "https://github.com/volchanskyi/opengate/commit/678dda311899b6b27ae58b8f43ebd2891ba80547"
+        },
+        "date": 1779079368077,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.134432917663823,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.544380388330367,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 791.2168103719672,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.3302547027863,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.7220212551993,
             "unit": "ns/iter"
           }
         ]
