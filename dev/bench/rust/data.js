@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779119542806,
+  "lastUpdate": 1779154671201,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13499,6 +13499,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.550333383703613,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "1adffa172e796eeb38084e65dd1d77ce8e11cba0",
+          "message": "refactor(infra): drop unused bastion + networking outputs\n\nPost-commit refactor sweep on the OCI Bastion module landed in d9c2975:\n\n- networking module: `subnet_cidr` output had no consumer. The bastion\n  module takes the subnet OCID (not the CIDR), and the local\n  `public_subnet_cidr` covers the only intra-module use (the SSH ingress\n  rule + the subnet's own CIDR). Removed.\n- bastion module: `max_session_ttl_in_seconds` output had no consumer. The\n  wrapper script `deploy/scripts/bastion-session.sh` hardcodes the same\n  10800 literal that the module's `main.tf` pins; a stale comment claimed\n  the wrapper would read it. Removed.\n- Updated both module READMEs to drop the corresponding rows. `bastion_name`\n  description rewritten to point at its actual consumer (the integration\n  test's display-name assertion).\n\nNo behavior change — all 17 `terraform test` runs still pass; the full\npre-commit gauntlet (lints, codegen, tests, coverage, audits, benchmarks,\ne2e, sonar-quick) is clean.",
+          "timestamp": "2026-05-18T18:35:09-07:00",
+          "tree_id": "db48bcee035bbe03e60ced9c34da5f6a803184fb",
+          "url": "https://github.com/volchanskyi/opengate/commit/1adffa172e796eeb38084e65dd1d77ce8e11cba0"
+        },
+        "date": 1779154671145,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.411826325038803,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.522299541144697,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 785.6197114493293,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 294.7804421289593,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.64959273382532,
             "unit": "ns/iter"
           }
         ]
