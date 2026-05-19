@@ -72,6 +72,14 @@ Before applying an update, the agent compares the incoming version against its c
 - **Incoming <= current**: skip, send ack with `success=true, error="already up to date"`
 - **Parse failure**: fail-open (proceed with update)
 
+## Content-Hash Precheck
+
+After the version check passes, `apply_update` ([`agent/crates/mesh-agent-core/src/update.rs`](../agent/crates/mesh-agent-core/src/update.rs)) hashes the currently-running binary and compares it against the manifest's `sha256` **before** downloading. If they match, the update is a no-op — no download, no swap, no watchdog — and the function returns `Ok(false)` (the caller sends the same `already up to date` ack as the version-skip branch).
+
+This protects against a server publishing a manifest whose `sha256` already matches the running binary (e.g. a re-published manifest after a metadata-only edit, or — historically — a workflow that auto-built agent binaries on every `feat:`/`fix:` even when `agent/**` was untouched). The workflow-level gate in [`.github/workflows/release-agent.yml`](../.github/workflows/release-agent.yml) is the primary defense (skips the build entirely when `agent/**` is unchanged since the previous `v*` tag); the precheck is belt-and-suspenders for paths that bypass it (manual `workflow_dispatch`, future auto-publish flows).
+
+The precheck is bypassed when `sha256` is empty (legacy manifests) or the current binary path doesn't exist (non-standard install layout).
+
 ## Rollback Mechanism
 
 The agent protects against bad updates with a multi-layer rollback system:
