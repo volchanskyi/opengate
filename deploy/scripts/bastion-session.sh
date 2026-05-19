@@ -87,29 +87,43 @@ cache_is_fresh() {
 }
 
 create_session() {
-  local session_name session_json session_id ssh_proxy
+  local session_name session_id session_json session_ttl ssh_proxy
 
   log "Creating Managed SSH session via bastion $BASTION_OCID ..."
   session_name="opengate-$(date -u +%Y%m%d-%H%M%S)"
 
-  session_json=$(oci bastion session create-managed-ssh \
+  # OCI defaults `--session-ttl-in-seconds` to 1800 (30 min) when omitted,
+  # even when the bastion's `max-session-ttl` is higher. Pin to the bastion
+  # cap (10800 = 3 h) so daily ops match the documented session window.
+  #
+  # `--wait-for-state SUCCEEDED` returns the work-request payload, which does
+  # NOT carry `ssh-metadata` reliably. Capture the session OCID from the
+  # create response, then re-fetch the canonical session shape via
+  # `session get` — that response always carries `ssh-metadata.command`.
+  session_id=$(oci bastion session create-managed-ssh \
     --bastion-id "$BASTION_OCID" \
     --target-resource-id "$INSTANCE_OCID" \
     --target-os-username "$TARGET_USER" \
     --target-private-ip "$INSTANCE_PRIVATE_IP" \
     --display-name "$session_name" \
     --ssh-public-key-file "$SSH_PUBKEY" \
+    --session-ttl-in-seconds 10800 \
     --wait-for-state SUCCEEDED \
-    --query 'data' 2>/dev/null) || err "oci bastion session create-managed-ssh failed. Check IAM: 'manage bastion-session' on the compartment, 'read instance' on the target."
+    --query 'data.id' --raw-output 2>/dev/null) || err "oci bastion session create-managed-ssh failed. Check IAM: 'manage bastion-session' on the compartment, 'read instance' on the target."
 
-  session_id=$(jq -r '.id // empty' <<<"$session_json")
   [[ -n "$session_id" ]] || err "session create returned no id"
 
-  # OCI Bastion's ssh-metadata.command field includes the canonical
-  # ProxyCommand line OCI expects clients to use; persist the raw command so
-  # the wrapper does not have to reconstruct the bastion-host fqdn.
+  session_json=$(oci bastion session get \
+    --session-id "$session_id" \
+    --query 'data' 2>/dev/null) || err "oci bastion session get $session_id failed (session created but unreadable)"
+
   ssh_proxy=$(jq -r '."ssh-metadata".command // empty' <<<"$session_json")
-  [[ -n "$ssh_proxy" ]] || err "session metadata missing ssh-metadata.command — OCI API surface drift?"
+  [[ -n "$ssh_proxy" ]] || err "session $session_id has no ssh-metadata.command — OCI API surface drift?"
+
+  # Read the actual TTL OCI granted (vs assuming the 10800 we requested) so
+  # the cache's expiry stays honest if a future bastion policy clamps the
+  # per-session TTL below the bastion cap.
+  session_ttl=$(jq -r '."session-ttl-in-seconds" // 1800' <<<"$session_json")
 
   jq -n \
     --arg bastion_id   "$BASTION_OCID" \
@@ -119,12 +133,12 @@ create_session() {
     --arg session_id   "$session_id" \
     --arg ssh_command  "$ssh_proxy" \
     --argjson created_at "$(now_epoch)" \
-    --argjson expires_at "$(( $(now_epoch) + 10800 ))" \
+    --argjson expires_at "$(( $(now_epoch) + session_ttl ))" \
     '{$bastion_id, $target_ocid, $target_user, $target_ip, $session_id, $ssh_command, $created_at, $expires_at}' \
     > "$CACHE_FILE"
   chmod 600 "$CACHE_FILE"
 
-  log "Session $session_id created (TTL 10800s, refresh in $(( 10800 - TTL_HEADROOM_SECONDS ))s)."
+  log "Session $session_id created (TTL ${session_ttl}s, refresh in $(( session_ttl - TTL_HEADROOM_SECONDS ))s)."
 }
 
 if cache_is_fresh; then
