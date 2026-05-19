@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779157892356,
+  "lastUpdate": 1779212575637,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13597,6 +13597,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.558560688061476,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d09ffc368235c373bc3a3847453612edc45c551f",
+          "message": "fix(ci,agent): path-gate release-agent.yml + agent-side sha256 precheck\n\nCloses the \"release-agent.yml triggers on every feat:/fix: even when\nagent/ is untouched\" problem. Of the last 50 commits on main, only 14%\nactually touched agent/ — the rest (server/web/deploy/docs/CI) were\nburning ~15-20 min of CI wall-clock per release on rebuilds that publish\nnear-identical agent binaries to GitHub Releases.\n\nWorkflow gate (.github/workflows/release-agent.yml):\n- New `check-agent-changed` job at workflow entry shells out to\n  scripts/release-agent-gate.sh (pure bash, validates the tag exists,\n  finds the previous v* via `git describe --tags HEAD^`, diffs\n  agent/**, emits agent_changed=true|false + prev_tag=...).\n- `build` gets needs:check-agent-changed + if:agent_changed==true.\n- `release` already needs:build, so a skipped build cleanly produces no\n  GitHub Release. The vX.Y.Z tag still exists as a git ref for\n  build-image.yml + CHANGELOG; /releases/latest keeps pointing at the\n  most recent binaries-bearing release, so install.sh's \"latest\" lookup\n  is never broken.\n- Moved `permissions: contents: write` from workflow-level to the\n  `release` job only — closes pre-existing SonarCloud finding\n  githubactions:S8233 and tightens the principle of least privilege\n  (gate + build now run with read-only token).\n- Idempotent: the check is a pure function of git state, so manual\n  workflow_dispatch re-runs produce the same decision as auto-dispatch\n  from auto-tag in ci.yml.\n\nAgent-side content-hash precheck (agent/crates/mesh-agent-core/src/update.rs):\n- New step 0 in apply_update: if the manifest's sha256 matches the\n  sha256 of the currently-running binary, returns Ok(false) WITHOUT\n  downloading. The caller's existing UpdateAck path treats this the\n  same as the should_skip_version branch — sends success ack with\n  \"already up to date\".\n- Belt-and-suspenders for workflow_dispatch paths and the future\n  auto-publish-manifest enhancement: even if the workflow gate is\n  bypassed, fielded agents won't waste bandwidth downloading a binary\n  they already have.\n- Bypassed when sha256 is empty (legacy manifests) or current binary\n  path doesn't exist (non-standard install layout).\n\nTests (TDD, all green):\n- 6 new bash tests in scripts/tests/release-agent-gate.test.sh\n  (no-prev-tag, agent/-unchanged, agent/-changed, missing-arg,\n  unknown-tag, deep-subdir).\n- 4 new tests in agent-core update::tests (skips-on-match using\n  mockito.expect(0) as the no-download oracle, bypassed-on-empty-hash,\n  bypassed-on-missing-binary, proceeds-on-hash-differs). Total\n  update tests 12 → 16.\n\nDocs:\n- New \"Content-Hash Precheck\" section in docs/Agent-Updates.md.\n- Plan archived to .claude/plans/archive/path-gate-agent-release.md.\n\nDeferred (tracked, separate plans):\n- Path-gate build-image.yml on server/** + web/**.\n- Determinize agent build ([profile.release] + SOURCE_DATE_EPOCH +\n  --locked) to enable content-hash equivalence assertions across\n  rebuilds.\n- Auto-publish manifest in release-agent.yml (closes the operational\n  gap that this gate is the prerequisite for).",
+          "timestamp": "2026-05-19T10:40:46-07:00",
+          "tree_id": "c83e53ce31896b81aedd766fe86620135a82fa61",
+          "url": "https://github.com/volchanskyi/opengate/commit/d09ffc368235c373bc3a3847453612edc45c551f"
+        },
+        "date": 1779212575573,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.301873593571745,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.37368099212263,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 746.967658608994,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.26260215009927,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.949880337090793,
             "unit": "ns/iter"
           }
         ]
