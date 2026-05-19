@@ -71,3 +71,44 @@ run "egress_is_unrestricted_but_stateful" {
     error_message = "Egress rules must be stateful (stateless = false) for return-traffic compatibility"
   }
 }
+
+# OCI Bastion ingress — TCP 22 from the public subnet CIDR (`10.0.1.0/24`).
+# The bastion's /28 service endpoint is carved from this subnet at apply time;
+# allowing intra-subnet traffic to port 22 is what makes port-forwarding
+# sessions reachable. Managed SSH sessions tunnel through the agent plugin
+# and do not strictly require this rule, but it keeps port-forwarding open
+# as a fallback when the plugin is offline. See ADR-018.
+run "bastion_ssh_ingress_present" {
+  command = plan
+
+  assert {
+    # Mirrors the `ssh_must_not_be_open_to_world` pattern upstream: the `if`
+    # clause is restricted to the index-guard so Terraform 1.9's
+    # non-short-circuiting `&&` cannot blow up `tcp_options[0]` for UDP
+    # rules. The port equality moves into the value expression — safe because
+    # the filter already dropped empty-tcp_options entries.
+    condition = toset([
+      for r in oci_core_security_list.opengate.ingress_security_rules :
+      r.source
+      if length(r.tcp_options) > 0
+      ]) == toset([
+      var.ssh_allowed_cidr, # operator break-glass (typically 127.0.0.1/32)
+      "10.0.1.0/24",        # bastion service-endpoint /28 lives in this subnet
+      "0.0.0.0/0",          # HTTP + HTTPS + MPS (80, 443, 4433) all use this source
+    ])
+    error_message = "TCP ingress source set drifted — expected {var.ssh_allowed_cidr, public subnet CIDR, 0.0.0.0/0}. The public subnet CIDR is what makes OCI Bastion's /28 service endpoint reachable; missing it breaks `make tunnel`."
+  }
+
+  # Specifically: there must be exactly one TCP 22 rule sourced from the
+  # public subnet CIDR. Length-based assertion expressed via sum so the
+  # condition reduces to a plain integer and avoids per-rule index access.
+  assert {
+    condition = length([
+      for r in oci_core_security_list.opengate.ingress_security_rules :
+      r
+      if length(r.tcp_options) > 0
+      && r.source == "10.0.1.0/24"
+    ]) == 1
+    error_message = "Exactly one ingress rule must source from the public subnet CIDR (10.0.1.0/24) — the bastion's /28 service endpoint depends on it."
+  }
+}

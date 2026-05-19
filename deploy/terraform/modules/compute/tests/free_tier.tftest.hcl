@@ -68,3 +68,21 @@ run "free_tier_boot_volume_limit" {
     error_message = "Always Free boot volume cap is 200 GB total per tenancy"
   }
 }
+
+# OCI Bastion-plugin enablement: the agent_config block must list the Bastion
+# plugin with desired_state = ENABLED so the operator-facing OCI Bastion
+# service (see modules/bastion) can establish Managed SSH sessions to this
+# instance. Without the plugin, Managed SSH sessions fail with a generic
+# "target not reachable" — silent for an operator who just wants `make tunnel`
+# to work. See ADR-018.
+run "bastion_plugin_enabled" {
+  command = plan
+
+  assert {
+    condition = length([
+      for p in oci_core_instance.opengate.agent_config[0].plugins_config :
+      p if p.name == "Bastion" && p.desired_state == "ENABLED"
+    ]) == 1
+    error_message = "agent_config.plugins_config must include exactly one entry with name=Bastion and desired_state=ENABLED so the OCI Bastion service can reach this instance via Managed SSH."
+  }
+}

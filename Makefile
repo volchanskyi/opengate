@@ -2,7 +2,8 @@
 	mutate mutate-rust mutate-go mutate-web taint-go taint-web dead-code \
 	terraform-test terraform-drift \
 	secrets-scan iac-policy iac-policy-fix iac-policy-custom lint-dockerfile \
-	test-parse-tfplan
+	test-parse-tfplan \
+	tunnel ssh
 
 build:
 	cd agent && cargo build --workspace
@@ -104,6 +105,8 @@ terraform-test:
 	terraform -chdir=deploy/terraform/modules/networking test
 	terraform -chdir=deploy/terraform/modules/compute init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform/modules/compute test
+	terraform -chdir=deploy/terraform/modules/bastion init -backend=false -input=false >/dev/null
+	terraform -chdir=deploy/terraform/modules/bastion test
 	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform test
 
@@ -112,6 +115,25 @@ terraform-test:
 # and prints the refresh-only diff. Exit 2 = drift detected; exit 0 = clean.
 terraform-drift:
 	terraform -chdir=deploy/terraform plan -refresh-only -detailed-exitcode
+
+# ----------------------------------------------------------------------------
+# Operator access via OCI Bastion (replaces the static ssh_allowed_cidr rule).
+# Both targets shell into deploy/scripts/bastion-session.sh, which caches the
+# active session OCID + expiry at ~/.cache/opengate/bastion-session.json so
+# subsequent invocations within the 3 h TTL skip the 5–10 s session create.
+# Prerequisites and IAM setup live in docs/Infrastructure.md → "Operator
+# access via OCI Bastion".
+# ----------------------------------------------------------------------------
+
+# `make tunnel` — create (or reuse) a Managed SSH session and forward
+# Grafana :3000 + Uptime Kuma :3001 to localhost. Operator browses to
+# http://localhost:3000 / http://localhost:3001 once the session is up.
+tunnel:
+	@deploy/scripts/bastion-session.sh tunnel
+
+# `make ssh` — same session machinery, interactive shell.
+ssh:
+	@deploy/scripts/bastion-session.sh ssh
 
 # TDD harness for deploy/scripts/parse-tfplan.sh (S4 of the IaC pyramid).
 # Three canned tfplan fixtures cover the gate decision matrix.
