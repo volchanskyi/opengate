@@ -15,7 +15,6 @@ Owns the OpenGate VCN and everything inside it that is not compute: internet gat
 |---|---|
 | `vcn_id` | OCID of the VCN. |
 | `subnet_id` | OCID of the public subnet — passed to compute for VNIC attachment and to the bastion module as `target_subnet_id`. |
-| `subnet_cidr` | CIDR of the public subnet — passed to the bastion module so the /28 service-endpoint allocation and the SSH-from-bastion ingress rule share a single source of truth. |
 | `nsg_id` | OCID of the `cd_deploy` NSG. Mutated at deploy time by `.github/workflows/cd.yml` for just-in-time SSH ingress. Surfaced as a sensitive output so CD can read it via GitHub Secrets without exposing it in logs. |
 | `security_list_id` | OCID of the public-subnet security list (verified by `tests/integration.tftest.hcl`). |
 

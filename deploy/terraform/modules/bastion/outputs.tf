@@ -5,11 +5,6 @@ output "bastion_id" {
 }
 
 output "bastion_name" {
-  description = "Display name of the bastion (for human-readable logs)"
+  description = "Display name of the bastion — asserted by tests/integration.tftest.hcl so a rename is caught before the operator hits a stale make tunnel"
   value       = oci_bastion_bastion.opengate.name
-}
-
-output "max_session_ttl_in_seconds" {
-  description = "Session TTL cap — surfaced so the session-cache wrapper can compute expiry without re-querying OCI"
-  value       = oci_bastion_bastion.opengate.max_session_ttl_in_seconds
 }

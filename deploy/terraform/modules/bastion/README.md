@@ -16,8 +16,7 @@ CI keeps the existing just-in-time NSG-rule pattern in [`.github/actions/oci-ssh
 | Output | Purpose |
 |---|---|
 | `bastion_id` | OCID of the bastion (sensitive). Consumed by [`deploy/scripts/bastion-session.sh`](../../../scripts/bastion-session.sh) to create Managed SSH sessions. |
-| `bastion_name` | Display name — surfaced for human-readable logs. |
-| `max_session_ttl_in_seconds` | Session TTL cap (10800 = 3h). Surfaced so the cache wrapper can compute expiry without re-querying OCI. |
+| `bastion_name` | Display name — asserted by [`tests/integration.tftest.hcl`](../../tests/integration.tftest.hcl) so a rename is caught before the operator hits a stale `make tunnel`. |
 
 ## Daily flow
 
