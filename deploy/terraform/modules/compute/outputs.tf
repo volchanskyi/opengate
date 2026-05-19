@@ -9,6 +9,11 @@ output "public_ip" {
   value       = oci_core_instance.opengate.public_ip
 }
 
+output "private_ip" {
+  description = "Private IP of the compute instance — consumed by deploy/scripts/bastion-session.sh as the target endpoint for the OCI Bastion Managed SSH session"
+  value       = oci_core_instance.opengate.private_ip
+}
+
 # Introspection outputs — surfaced solely so `tests/integration.tftest.hcl` can
 # assert that the instance attached the networking module's cd_deploy NSG.
 
