@@ -3,6 +3,11 @@
 # Runs on the VPS via SSH from the CD workflow.
 #
 # Usage: deploy.sh --mode <staging|production> --tag <image_tag>
+#                  [--git-sha <sha>] [--deploy-changed <true|false>]
+#
+# --git-sha and --deploy-changed feed the digest-equality gate that lets a
+# no-op CD run skip `docker compose down/up`. Both default to a "force full
+# redeploy" stance so an older cd.yml never silently skips a deploy.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -13,11 +18,15 @@ source "${SCRIPT_DIR}/common.sh"
 
 MODE=""
 TAG=""
+GIT_SHA=""
+DEPLOY_CHANGED="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) MODE="$2"; shift 2 ;;
     --tag)  TAG="$2";  shift 2 ;;
+    --git-sha) GIT_SHA="$2"; shift 2 ;;
+    --deploy-changed) DEPLOY_CHANGED="$2"; shift 2 ;;
     *) fail "Unknown argument: $1" ;;
   esac
 done
@@ -25,8 +34,12 @@ done
 [[ -z "$MODE" ]] && fail "Missing required argument: --mode <staging|production>"
 [[ -z "$TAG" ]]  && fail "Missing required argument: --tag <image_tag>"
 validate_mode "$MODE"
+case "$DEPLOY_CHANGED" in
+  true|false) ;;
+  *) fail "Invalid --deploy-changed value: $DEPLOY_CHANGED (expected 'true' or 'false')" ;;
+esac
 
-log "Deploying OpenGate ($MODE) with image tag: $TAG"
+log "Deploying OpenGate ($MODE) with image tag: $TAG (deploy_changed=$DEPLOY_CHANGED)"
 
 # --- Update image tag in .env -------------------------------------------------
 # Note: previous tag is saved by the CD workflow BEFORE overwriting the .env
@@ -47,12 +60,10 @@ if ! grep -q "^${PG_VAR}=" "$LOCAL_ENV_FILE" 2>/dev/null; then
 fi
 
 # --- Pull and deploy ----------------------------------------------------------
+# redeploy() now owns the digest-equality gate AND wait_healthy on the restart
+# branch, so no separate health-wait call is needed here.
 
-redeploy "$MODE"
-
-# --- Wait for health ----------------------------------------------------------
-
-wait_healthy "$(container_name "$MODE")"
+redeploy "$MODE" "$GIT_SHA" "$DEPLOY_CHANGED"
 
 # --- Deploy monitoring stack (production only) --------------------------------
 

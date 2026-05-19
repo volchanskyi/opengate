@@ -7,24 +7,54 @@ on:
     branches: [dev, dependabot-dev]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
-  id-token: write
-  attestations: write
-
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/opengate-server
 
 jobs:
-  build-and-push:
-    name: Build & Push
+  # --------------------------------------------------------------------------
+  # Path-gate: decide whether the diff vs the SHA that produced :latest
+  # actually changes any image input. Skipping the multi-arch build saves
+  # 1-3 min per run on the ~80% of main-branch commits that only touch
+  # docs/agent/deploy/CI. See scripts/build-image-gate.sh.
+  # --------------------------------------------------------------------------
+  check-image-changed:
+    name: Check image inputs changed since :latest
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
+    outputs:
+      image_changed: ${{ steps.gate.outputs.image_changed }}
+      prev_sha: ${{ steps.gate.outputs.prev_sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
+
+      - name: Diff image inputs vs :latest
+        id: gate
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: ./scripts/build-image-gate.sh >> "$GITHUB_OUTPUT"
+
+  build-and-push:
+    name: Build & Push
+    needs: check-image-changed
+    if: needs.check-image-changed.outputs.image_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -107,3 +137,36 @@ jobs:
           exit-code: '1'
           severity: 'CRITICAL,HIGH'
           ignore-unfixed: true
+
+  # --------------------------------------------------------------------------
+  # Tag-forward path: no image input changed, so reuse the existing :latest
+  # digest under the new sha- tag. CD requires sha-<7char> to exist for
+  # `docker compose pull` and has no fallback. crane copy stamps the
+  # destination tag with the same manifest digest, so cosign signatures,
+  # SBOM, and Trivy attestations are inherited via the digest.
+  # --------------------------------------------------------------------------
+  tag-forward:
+    name: Tag-forward :latest → sha-<newsha>
+    needs: check-image-changed
+    if: needs.check-image-changed.outputs.image_changed != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
+
+      - name: Copy :latest → sha-<newsha>
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          SHORT_SHA="${HEAD_SHA:0:7}"
+          crane copy "${IMAGE}:latest" "${IMAGE}:sha-${SHORT_SHA}"
+          echo "::notice::tag-forwarded :latest → sha-${SHORT_SHA} (no image inputs changed)"
