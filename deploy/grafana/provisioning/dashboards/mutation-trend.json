@@ -6,14 +6,14 @@
   "id": null,
   "links": [
     {
-      "title": "Canonical JSONL history",
-      "url": "https://github.com/volchanskyi/opengate/blob/main/docs/mutation-history.jsonl",
+      "title": "Workflow",
+      "url": "https://github.com/volchanskyi/opengate/actions/workflows/mutation.yml",
       "targetBlank": true,
       "type": "link"
     },
     {
-      "title": "Workflow",
-      "url": "https://github.com/volchanskyi/opengate/actions/workflows/mutation.yml",
+      "title": "ADR-017 — Loki is the canonical trend store",
+      "url": "https://github.com/volchanskyi/opengate/blob/main/docs/adr/ADR-017-ci-gates-consolidation.md",
       "targetBlank": true,
       "type": "link"
     }
@@ -54,8 +54,8 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "{job=\"mutation-testing\"} | json | line_format \"{{.score_pct}}\" | unwrap score_pct",
-          "queryType": "range",
+          "expr": "last_over_time({job=\"mutation-testing\"} | json | unwrap score_pct [30d])",
+          "queryType": "instant",
           "legendFormat": "{{ language }}",
           "refId": "A"
         }
@@ -102,7 +102,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "{job=\"mutation-testing\"} | json | unwrap score_pct",
+          "expr": "last_over_time({job=\"mutation-testing\"} | json | unwrap score_pct [1d])",
           "queryType": "range",
           "legendFormat": "{{ language }}",
           "refId": "A"
@@ -129,7 +129,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "{job=\"mutation-testing\"} | json | unwrap survived",
+          "expr": "last_over_time({job=\"mutation-testing\"} | json | unwrap survived [1d])",
           "queryType": "range",
           "legendFormat": "{{ language }}",
           "refId": "A"
@@ -156,7 +156,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "{job=\"mutation-testing\"} | json | unwrap no_coverage",
+          "expr": "last_over_time({job=\"mutation-testing\"} | json | unwrap no_coverage [1d])",
           "queryType": "range",
           "legendFormat": "{{ language }}",
           "refId": "A"
