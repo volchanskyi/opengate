@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779214467888,
+  "lastUpdate": 1779231640313,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13695,6 +13695,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.930047268218107,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "76ead5f1b505b688b3b81f0c86a1ef16b0b0d0d4",
+          "message": "feat(ci,cd): path-gate build-image.yml + digest-aware CD redeploy\n\nStops the workflow from rebuilding the multi-arch server image on every\nmain-branch commit (~83% of recent commits don't touch server/web/Dockerfile)\nand short-circuits CD's compose restart when neither the image digest nor\ndeploy/** changed.\n\n- New scripts/build-image-gate.sh + 9 TDD bash tests; crane mocked via\n  PATH shim, no network needed.\n- .github/workflows/build-image.yml: check-image-changed job + tag-forward\n  job (crane copy :latest -> :sha-<newsha>); workflow-level permissions\n  removed and scoped per job.\n- deploy/scripts/common.sh: redeploy() now pulls first, compares digest\n  against the sentinel-recorded image_digest, and skips compose down/up\n  only when both digest is unchanged AND deploy_changed=false. New\n  helpers: sentinel_file, read_sentinel_field, write_sentinel,\n  inspect_digest.\n- deploy/scripts/deploy.sh: new --git-sha and --deploy-changed flags\n  (default deploy-changed=true so older CD never silently skips).\n- .github/workflows/cd.yml: both deploy jobs ssh-read the sentinel's\n  git_sha, compute deploy_changed locally via git diff -- deploy/, and\n  pass both flags through. fetch-depth: 0 so historical SHAs resolve.\n- docs/Continuous-Deployment.md: new Skip-When-Unchanged Path section.\n\nPlan: .claude/plans/archive/path-gate-build-image.md",
+          "timestamp": "2026-05-19T15:47:32-07:00",
+          "tree_id": "7ca19ed3bc7bc5cbd464dd365490115b5bc55d28",
+          "url": "https://github.com/volchanskyi/opengate/commit/76ead5f1b505b688b3b81f0c86a1ef16b0b0d0d4"
+        },
+        "date": 1779231640245,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.36616116527063,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.51101492358758,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 740.1023540451114,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.9020943473631,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.93874456524642,
             "unit": "ns/iter"
           }
         ]
