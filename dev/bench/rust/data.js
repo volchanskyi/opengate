@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779212575637,
+  "lastUpdate": 1779214467888,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13646,6 +13646,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.949880337090793,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "3b83405015c9cdd4c03a6f94c7d5aa089d83f9bd",
+          "message": "fix(infra): harden bastion-session.sh — debug mode, persistent log, orphan reuse, diagnose subcommand\n\nTriaged three failures in deploy/scripts/bastion-session.sh that wasted\noperator debug time over the last day:\n\n1. `--session-ttl-in-seconds` is the API field name; the OCI CLI flag is\n   `--session-ttl`. The previous patch shipped the API name, OCI rejected\n   it with `No such option`, and the script's generic \"Check IAM\" error\n   misdirected the investigation.\n2. `2>/dev/null` on every `oci ...` call swallowed real OCI errors (IAM,\n   validation, quota, flag typos) — only the generic hint surfaced.\n3. No persistent log, no debug knob, no read-only sanity check. Every\n   investigation required re-issuing OCI CLI commands manually.\n\nA secondary observation surfaced while smoke-testing the rewrite: my own\ninterrupted verification left an orphan ACTIVE session on the bastion.\nThe original script would have ignored it and consumed a second quota\nslot on a duplicate.\n\nRewrite (single file, no Makefile / docs changes):\n\n- `set -Eeuo pipefail` + `trap on_err ERR`: failures emit\n  \"line N (exit C): <failing command>\" and point at the persistent log.\n  `-E` makes functions inherit the trap.\n- `OPENGATE_BASTION_DEBUG=1` env knob: enables `set -x` AND passes\n  `--debug` to every OCI CLI call.\n- `~/.cache/opengate/bastion-session.log`: rolling log (5 MB cap →\n  rotates to `.1`). Every run appends timestamped INFO/WARN/ERROR/DEBUG\n  entries; OCI stderr is captured verbatim on failure.\n- `oci_cmd <args...>` wrapper: single source of truth for invocation.\n  Captures stderr, surfaces on failure (no more `2>/dev/null` swallow).\n- Fixed `--session-ttl 10800` flag name; reads the granted TTL out of\n  `session get` into the cache (defensive against future bastion-side\n  TTL clamps).\n- `find_reusable_session`: jq-filtered scan of\n  `bastion session list --session-lifecycle-state ACTIVE` matching\n  (target instance OCID, target user, > headroom TTL). create_session\n  checks this first and reuses on match. Default-on; always announced.\n- `diagnose` subcommand: prints prerequisites versions, resolved inputs,\n  bastion state, active sessions on the bastion (incl. the 10-active-\n  per-bastion OCI cap reminder), Cloud Agent Bastion plugin status, local\n  cache state, log file size. Pure read-only.\n- `purge` subcommand: deletes the cache file.\n- Prerequisites block uses `${var%%$'\\n'*}` instead of `cmd | head -1` —\n  sidesteps a pipefail+SIGPIPE interaction that printed a spurious\n  \"(not found)\" line for `terraform version`.\n\nSmoke-tested end-to-end against the live OCI bastion: orphan-session\nreuse path kicked in, cache written with `expires_in_min ≈ 180`\n(matching the full 3 h TTL OCI granted), tunnel opened successfully.\nshellcheck clean (one JMESPath false-positive suppressed inline with\njustification). precommit-gauntlet.sh ALL CHECKS PASSED.",
+          "timestamp": "2026-05-19T11:12:28-07:00",
+          "tree_id": "f607b715c7ea424cb725b8d9a56abac2fbd21b90",
+          "url": "https://github.com/volchanskyi/opengate/commit/3b83405015c9cdd4c03a6f94c7d5aa089d83f9bd"
+        },
+        "date": 1779214467826,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.28405030957612,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.4151462811882,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 737.5919194534453,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.87578593111,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.930047268218107,
             "unit": "ns/iter"
           }
         ]
