@@ -8,6 +8,11 @@ output "subnet_id" {
   value       = oci_core_subnet.opengate_public.id
 }
 
+output "subnet_cidr" {
+  description = "CIDR block of the public subnet — surfaced so the bastion module (which carves a /28 service endpoint from it) and any future per-subnet ingress rules can reference a single source of truth"
+  value       = oci_core_subnet.opengate_public.cidr_block
+}
+
 output "nsg_id" {
   description = "OCID of the cd_deploy network security group (mutated at deploy time by cd.yml for just-in-time SSH ingress)"
   value       = oci_core_network_security_group.cd_deploy.id

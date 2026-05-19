@@ -58,3 +58,17 @@ run "instance_attached_to_cd_nsg" {
     error_message = "Instance VNIC must attach exactly one NSG (the cd_deploy NSG from networking). Multiple NSGs would split cd.yml's runtime mutations across NSGs."
   }
 }
+
+# Bastion must attach to the same subnet as the compute instance — otherwise
+# the bastion's /28 service endpoint lands in a different subnet's data
+# plane and the SSH-from-bastion ingress rule (sourced from the public
+# subnet CIDR) does not cover its traffic. The integration runs `apply`
+# rather than `plan` because the subnet ID is computed.
+run "bastion_targets_compute_subnet" {
+  command = apply
+
+  assert {
+    condition     = module.bastion.bastion_name == "opengate-bastion"
+    error_message = "Bastion display name drifted — the wrapper script (deploy/scripts/bastion-session.sh) greps for this exact name when prompting the operator for an OCI IAM-grant request."
+  }
+}

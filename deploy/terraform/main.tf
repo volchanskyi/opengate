@@ -74,6 +74,17 @@ module "compute" {
   cloud_init_path     = "${path.module}/cloud-init.yaml"
 }
 
+# OCI Bastion service — operator access plane. Replaces the static
+# `var.ssh_allowed_cidr` ingress rule for human SSH + monitoring-UI tunnels.
+# CI still uses the just-in-time NSG-rule pattern (see
+# .github/actions/oci-ssh-setup). See ADR-018 for the decision rationale.
+module "bastion" {
+  source = "./modules/bastion"
+
+  compartment_id   = local.compartment_id
+  target_subnet_id = module.networking.subnet_id
+}
+
 # Reconcile pre-decomposition state addresses with the new module-prefixed
 # addresses. Without these blocks Terraform would plan to destroy + recreate
 # every resource on the next apply. Data sources do not need `moved` — they

@@ -24,3 +24,14 @@ output "cd_nsg_id" {
   value       = module.networking.nsg_id
   sensitive   = true
 }
+
+output "instance_private_ip" {
+  description = "Private IP of the OpenGate server — consumed by deploy/scripts/bastion-session.sh as the target endpoint for the OCI Bastion Managed SSH session"
+  value       = module.compute.private_ip
+}
+
+output "bastion_id" {
+  description = "OCID of the OCI Bastion resource — consumed by deploy/scripts/bastion-session.sh to create Managed SSH sessions for operator access"
+  value       = module.bastion.bastion_id
+  sensitive   = true
+}

@@ -48,6 +48,19 @@ resource "oci_core_instance" "opengate" {
     user_data           = base64encode(file(var.cloud_init_path))
   }
 
+  # OCI Cloud Agent — enable the Bastion plugin so Managed SSH sessions
+  # established by the operator-facing OCI Bastion (see [bastion submodule
+  # README](../bastion/README.md) and [ADR-018](../../../docs/adr/ADR-018-oci-bastion-operator-access.md))
+  # can reach this instance over the plugin's outbound tunnel. Plugins not
+  # listed here retain their existing desired_state — only Bastion is
+  # actively managed by terraform.
+  agent_config {
+    plugins_config {
+      name          = "Bastion"
+      desired_state = "ENABLED"
+    }
+  }
+
   lifecycle {
     ignore_changes = [metadata, source_details[0].source_id]
   }
