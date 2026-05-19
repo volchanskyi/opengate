@@ -10,12 +10,33 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
-
 jobs:
+  check-agent-changed:
+    name: Check agent/ changed since previous tag
+    runs-on: ubuntu-latest
+    outputs:
+      agent_changed: ${{ steps.gate.outputs.agent_changed }}
+      prev_tag: ${{ steps.gate.outputs.prev_tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+      # Path-gates the matrix build. When the diff against the previous v*
+      # tag contains no agent/** entries, build + release are skipped — the
+      # tag still exists as a git ref for build-image.yml + CHANGELOG, but
+      # no GitHub Release is published (so /releases/latest keeps pointing
+      # at the most recent binaries-bearing release). See
+      # .claude/plans/path-gate-agent-release.md and ADR-005.
+      - name: Gate on agent/ diff
+        id: gate
+        run: ./scripts/release-agent-gate.sh "${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.target }}
+    needs: check-agent-changed
+    if: needs.check-agent-changed.outputs.agent_changed == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -87,6 +108,10 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
+    # Scoped here (vs workflow-level) so the gate + build jobs run with the
+    # default read-only token. Only this job publishes to GitHub Releases.
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:

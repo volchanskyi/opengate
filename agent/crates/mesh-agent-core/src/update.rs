@@ -68,6 +68,24 @@ pub async fn apply_update(
     let new_path = config.data_dir.join(".update.new");
     let prev_path = config.current_binary_path.with_extension("prev");
 
+    // 0. Precheck: if the currently-running binary already hashes to the
+    //    manifest's expected sha256, the update is a no-op — skip download,
+    //    verify, swap, and watchdog entirely. Belt-and-suspenders for the
+    //    workflow-level gate in .github/workflows/release-agent.yml; see
+    //    ADR-005. Bypassed when `sha256_hex` is empty (legacy manifests) or
+    //    the current binary path doesn't exist (non-standard installs).
+    if !sha256_hex.is_empty() && config.current_binary_path.exists() {
+        let current_hash = sha256_file(&config.current_binary_path).await?;
+        if current_hash == sha256_hex {
+            info!(
+                version,
+                sha256 = sha256_hex,
+                "update precheck: current binary already matches manifest hash, skipping"
+            );
+            return Ok(false);
+        }
+    }
+
     // 1. Download binary
     info!(version, url, "downloading update binary");
     download_to_file(url, &new_path).await?;
@@ -537,5 +555,152 @@ mod tests {
 
         let backup = fs::read(&prev_path).await.unwrap();
         assert_eq!(backup, b"old binary");
+    }
+
+    // ── Content-hash precheck (see ADR-005; the workflow gate in
+    // .github/workflows/release-agent.yml is the primary defense — these
+    // tests cover the belt-and-suspenders agent-side check that protects
+    // against a server publishing a manifest whose sha256 already matches
+    // the running binary).
+
+    #[tokio::test]
+    async fn test_apply_update_precheck_skips_when_hash_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let binary_path = dir.path().join("agent");
+        let body = b"identical binary contents";
+        fs::write(&binary_path, body).await.unwrap();
+
+        let (signing_key, verifying_key) = test_keypair();
+        let hash = Sha256::digest(body);
+        let hash_hex = hex::encode(hash);
+        let sig_hex = hex::encode(signing_key.sign(&hash).to_bytes());
+
+        // Mock server with expect(0): a request would fail the test.
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/agent-vNEW")
+            .expect(0)
+            .create_async()
+            .await;
+
+        let config = UpdateConfig {
+            signing_public_key: verifying_key.to_bytes(),
+            current_binary_path: binary_path.clone(),
+            data_dir: dir.path().to_path_buf(),
+        };
+
+        let url = format!("{}/agent-vNEW", server.url());
+        let result = apply_update(&config, "9.9.9", &url, &hash_hex, &sig_hex).await;
+        assert!(result.is_ok(), "apply_update errored: {:?}", result.err());
+        assert!(
+            !result.unwrap(),
+            "precheck must return Ok(false) when current binary already matches manifest sha256"
+        );
+
+        mock.assert_async().await;
+
+        // Binary untouched, no .prev created, no update-pending sentinel.
+        assert_eq!(fs::read(&binary_path).await.unwrap(), body);
+        assert!(!binary_path.with_extension("prev").exists());
+        assert!(!is_update_pending(dir.path()));
+    }
+
+    #[tokio::test]
+    async fn test_apply_update_precheck_skipped_with_empty_hash() {
+        // Empty sha256_hex preserves legacy behavior — precheck must NOT
+        // fire, and download proceeds (we'd want a download error to confirm
+        // the precheck didn't short-circuit).
+        let dir = tempfile::tempdir().unwrap();
+        let binary_path = dir.path().join("agent");
+        fs::write(&binary_path, b"current binary").await.unwrap();
+
+        let (_, verifying_key) = test_keypair();
+        let config = UpdateConfig {
+            signing_public_key: verifying_key.to_bytes(),
+            current_binary_path: binary_path,
+            data_dir: dir.path().to_path_buf(),
+        };
+
+        let result = apply_update(
+            &config,
+            "1.0.0",
+            "http://127.0.0.1:1/nonexistent",
+            "", // empty hash → precheck bypassed → download attempted → fails
+            "",
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "empty hash must bypass precheck and attempt download"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_update_precheck_skipped_when_current_binary_missing() {
+        // If the current binary path doesn't exist (e.g. agent installed at
+        // a non-standard path), precheck must skip and let download proceed.
+        let dir = tempfile::tempdir().unwrap();
+        let binary_path = dir.path().join("nonexistent-agent");
+
+        let (_, verifying_key) = test_keypair();
+        let config = UpdateConfig {
+            signing_public_key: verifying_key.to_bytes(),
+            current_binary_path: binary_path,
+            data_dir: dir.path().to_path_buf(),
+        };
+
+        // Use a real-looking hash so precheck would fire IF the binary
+        // existed — assert that it doesn't.
+        let result = apply_update(
+            &config,
+            "1.0.0",
+            "http://127.0.0.1:1/nonexistent",
+            "a".repeat(64).as_str(),
+            "deadbeef",
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "missing current binary must bypass precheck and attempt download"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_apply_update_proceeds_when_hash_differs() {
+        // Hash on disk differs from manifest hash → precheck does NOT skip,
+        // download + swap proceeds as in the full-pipeline test.
+        let dir = tempfile::tempdir().unwrap();
+        let binary_path = dir.path().join("agent");
+        fs::write(&binary_path, b"old binary").await.unwrap();
+
+        let (signing_key, verifying_key) = test_keypair();
+        let new_body = b"new agent binary";
+        let new_hash = Sha256::digest(new_body);
+        let new_hash_hex = hex::encode(new_hash);
+        let new_sig_hex = hex::encode(signing_key.sign(&new_hash).to_bytes());
+
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/agent-vNEW")
+            .with_status(200)
+            .with_body(new_body)
+            .create_async()
+            .await;
+
+        let config = UpdateConfig {
+            signing_public_key: verifying_key.to_bytes(),
+            current_binary_path: binary_path.clone(),
+            data_dir: dir.path().to_path_buf(),
+        };
+
+        let url = format!("{}/agent-vNEW", server.url());
+        let result = apply_update(&config, "2.0.0", &url, &new_hash_hex, &new_sig_hex).await;
+        assert!(result.is_ok(), "apply_update errored: {:?}", result.err());
+        assert!(
+            result.unwrap(),
+            "hash differs → precheck must NOT skip → apply_update returns true"
+        );
+        mock.assert_async().await;
+        assert_eq!(fs::read(&binary_path).await.unwrap(), new_body);
     }
 }
