@@ -88,6 +88,9 @@ jobs:
       IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Full history is needed for the deploy/** drift check below.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -151,6 +154,22 @@ jobs:
             cosign version
           }'
 
+      - name: Compute deploy/** drift vs last deploy
+        id: drift_staging
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          LAST_SHA=$(ssh deploy-target \
+            "grep -oP '^git_sha=\K.*' ${{ env.DEPLOY_DIR }}/.last-deployed-staging 2>/dev/null || true")
+          DEPLOY_CHANGED="true"
+          if [[ -n "$LAST_SHA" ]] \
+             && git cat-file -e "${LAST_SHA}^{commit}" 2>/dev/null \
+             && git diff --quiet "$LAST_SHA" "$GIT_SHA" -- deploy/; then
+            DEPLOY_CHANGED="false"
+          fi
+          echo "deploy_changed=$DEPLOY_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "last_sha=$LAST_SHA deploy_changed=$DEPLOY_CHANGED"
+
       - name: Deploy staging
         env:
           JWT_SECRET: ${{ secrets.DEPLOY_STAGING_JWT_SECRET }}
@@ -176,7 +195,10 @@ jobs:
             "OPENGATE_QUIC_HOST=${{ secrets.DEPLOY_QUIC_HOST }}" \
             | ssh deploy-target "cat > ${{ env.DEPLOY_DIR }}/.env.staging"
 
-          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh --mode staging --tag ${{ env.IMAGE_TAG }}"
+          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh \
+            --mode staging --tag ${{ env.IMAGE_TAG }} \
+            --git-sha ${{ github.sha }} \
+            --deploy-changed ${{ steps.drift_staging.outputs.deploy_changed }}"
 
       - name: Run smoke tests
         run: |
@@ -283,6 +305,9 @@ jobs:
       IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Full history is needed for the deploy/** drift check below.
+          fetch-depth: 0
 
       - name: OCI + SSH setup
         id: infra
@@ -330,6 +355,22 @@ jobs:
             cosign version
           }'
 
+      - name: Compute deploy/** drift vs last deploy
+        id: drift_production
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          LAST_SHA=$(ssh deploy-target \
+            "grep -oP '^git_sha=\K.*' ${{ env.DEPLOY_DIR }}/.last-deployed 2>/dev/null || true")
+          DEPLOY_CHANGED="true"
+          if [[ -n "$LAST_SHA" ]] \
+             && git cat-file -e "${LAST_SHA}^{commit}" 2>/dev/null \
+             && git diff --quiet "$LAST_SHA" "$GIT_SHA" -- deploy/; then
+            DEPLOY_CHANGED="false"
+          fi
+          echo "deploy_changed=$DEPLOY_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "last_sha=$LAST_SHA deploy_changed=$DEPLOY_CHANGED"
+
       - name: Deploy production
         env:
           JWT_SECRET: ${{ secrets.DEPLOY_JWT_SECRET }}
@@ -363,7 +404,10 @@ jobs:
             "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}" \
             | ssh deploy-target "cat > ${{ env.DEPLOY_DIR }}/.env.monitoring && chmod 600 ${{ env.DEPLOY_DIR }}/.env.monitoring"
 
-          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh --mode production --tag ${{ env.IMAGE_TAG }}"
+          ssh deploy-target "bash ${{ env.DEPLOY_DIR }}/scripts/deploy.sh \
+            --mode production --tag ${{ env.IMAGE_TAG }} \
+            --git-sha ${{ github.sha }} \
+            --deploy-changed ${{ steps.drift_production.outputs.deploy_changed }}"
 
       - name: Run production health check
         run: |
