@@ -177,3 +177,12 @@ CD failures create GitHub Issues labeled `cd-failure` using the same `notify_fai
 Every deploy copies compose files, Caddy configs, and monitoring configs (VictoriaMetrics, Loki, Promtail, Grafana provisioning) from the repo to the VPS via `scp`. This ensures the infrastructure configuration on the VPS always matches what's in version control — no configuration drift.
 
 The monitoring stack (`docker-compose.monitoring.yml`) is deployed during production deploys only. See [[Monitoring]] for details.
+
+## Skip-When-Unchanged Path
+
+Two cooperating gates short-circuit the pipeline when nothing relevant changed:
+
+1. **Image build skip** — [`scripts/build-image-gate.sh`](../scripts/build-image-gate.sh) diffs the current commit against the `org.opencontainers.image.revision` label on `ghcr.io/.../opengate-server:latest`. If no file under `server/**`, `web/**`, or `Dockerfile` changed, the multi-arch build is skipped and the `tag-forward` job runs `crane copy :latest :sha-<newsha>` (~5 s). Cosign signatures, SBOM, and Trivy attestations are tied to the manifest digest and inherit automatically.
+2. **CD redeploy skip** — [`deploy/scripts/common.sh`](../deploy/scripts/common.sh)'s `redeploy()` compares the freshly-pulled image digest against the `image_digest` recorded in `/opt/opengate/.last-deployed[-staging]`. CD also computes `deploy_changed` by diffing the current commit against the sentinel's `git_sha` (limited to `deploy/`). The compose restart is skipped only when **both** the digest is unchanged **and** no `deploy/**` file changed — pure infra changes (Grafana dashboards, compose tweaks) still trigger a config-only redeploy that picks them up.
+
+The sentinel writes atomically via `mktemp + mv` after every successful deploy (or skip). Smoke tests still run on the skip path so the running stack gets a periodic health verification.
