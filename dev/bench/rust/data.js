@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779154671201,
+  "lastUpdate": 1779157892356,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13548,6 +13548,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.64959273382532,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "61d28135dbad10b4bf2518bea6fc10c9641e4348",
+          "message": "fix(infra): bastion-session TTL + SSH-metadata fetch; grafana datasource UID + LogQL parse errors\n\nThree bugs surfaced while exercising the new monitoring + bastion paths\nend-to-end.\n\ndeploy/scripts/bastion-session.sh:\n- `oci bastion session create-managed-ssh --wait-for-state SUCCEEDED`\n  returns the work-request payload, NOT the canonical session resource.\n  `.ssh-metadata.command` is absent on first response and the wrapper\n  failed with \"session metadata missing ssh-metadata.command — OCI API\n  surface drift?\". Fixed by capturing the session OCID from the create\n  response and re-fetching the full session via `session get`, which\n  always carries `ssh-metadata.command`.\n- OCI silently defaults `--session-ttl-in-seconds` to 1800 (30 min) when\n  omitted, even though the bastion's `max-session-ttl` is 10800 (3 h).\n  Pin to the bastion cap and read the actual granted TTL out of the\n  response into the cache, so a future bastion-side clamp would surface\n  in the cache's expiry rather than silently shortening sessions.\n\ndeploy/grafana/provisioning/dashboards/postgres.json:\n- All 8 panel `datasource.uid` values used lowercase `\"victoriametrics\"`,\n  but the datasource is provisioned as `\"VictoriaMetrics\"` in\n  datasources.yml. Grafana UIDs are opaque case-sensitive strings;\n  result was \"datasource victoriametrics is not available\" on every\n  panel. Fixed via global case correction. Other dashboards\n  (opengate-overview, db-performance) already used the correct casing.\n\ndeploy/grafana/provisioning/dashboards/mutation-trend.json:\n- All 4 LogQL queries used bare `{job=\"mutation-testing\"} | json |\n  unwrap <field>` without an aggregation wrapper. As metric expressions\n  these fail to parse — Grafana reported \"parse error at line 1 col 35\n  and col 66\" pointing at `line_format` / `unwrap`. Wrapped each in\n  `last_over_time(... [Xd])`; for the stat panel switched\n  `queryType: range → instant`; dropped the unused `line_format`.\n- Removed the dashboard's broken link to `docs/mutation-history.jsonl`\n  (deleted by ADR-017); replaced with a link to that ADR.\n\nNote: the mutation-trend dashboard will still show \"no data\" until the\nnightly `.github/workflows/mutation.yml` workflow successfully pushes to\nLoki — the last 3 runs (May 17/18) all FAILED before reaching the push\nstep, so Loki has no `job=mutation-testing` streams indexed. That's a\nseparate investigation tracked outside this commit; this commit fixes\nthe queries so they will render correctly once data arrives.",
+          "timestamp": "2026-05-18T19:28:48-07:00",
+          "tree_id": "808beed312e1cf8030b43536aa010263554161c5",
+          "url": "https://github.com/volchanskyi/opengate/commit/61d28135dbad10b4bf2518bea6fc10c9641e4348"
+        },
+        "date": 1779157892304,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.369879044929952,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.590063627013652,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 773.0118053390771,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.2223589909929,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.558560688061476,
             "unit": "ns/iter"
           }
         ]
