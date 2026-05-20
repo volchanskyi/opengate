@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779294031218,
+  "lastUpdate": 1779299690653,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13940,6 +13940,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.943210903280566,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "807fd2410af1291b42c6089db0e0c68277106786",
+          "message": "chore(security,arch): rkyv 0.8.16 + os.Root SPA serving + go-arch-lint cert pilot\n\nThree independent batches landed together to clear the security backlog\nand lay the first piece of ADR-020 enforcement infrastructure.\n\n1. Dependabot #21 (GHSA-vfvv-c25p-m7mm, rkyv panic-safety → arbitrary\n   code execution): bumped rkyv 0.8.15 → 0.8.16 via `cargo update -p\n   rkyv`. Transitive through webrtc-rs → dtls; no direct dep changes.\n\n2. CodeQL go/path-injection #191 (api.go:192 SPA serving): refactored\n   the static-file lookup to use os.OpenRoot (Go 1.24+, Go 1.26 in use).\n   The rooted FS rejects \"..\", absolute paths, and symlinks escaping\n   webDir; CodeQL recognises os.Root.Open as taint-safe. Three response\n   tiers: file-found → serve; ErrNotExist-without-`..` → SPA fallback\n   (preserves /devices/123-style deep links); any other error (traversal,\n   permission, symlink-escape) → explicit 404. Added a symlink-escape\n   regression test and tightened the existing traversal test with a\n   body-content assertion to catch any future leak of filesystem content.\n\n   Also: 19 other code-scanning alerts dismissed via gh API as confirmed\n   false positives — #168 (libc::getifaddrs null-checked idiom), #192\n   (MD5 mandated by HTTP Digest Auth RFC 2617/7616), and 17 rust/unused-\n   variable (CodeQL doesn't understand Rust 2021 named-capture format\n   strings like `warn!(\"... {e}\")`).\n\n3. ADR-020 first enforcement step: `server/.go-arch-lint.yml` with the\n   cert pilot. cert is constrained to `mayDependOn: []` (no internal\n   project imports), satisfied trivially today since cert already has\n   zero internal imports. Everything else is in a catch-all `other`\n   component with `anyProjectDeps: true`, so this pilot does NOT gate\n   non-cert code. Wired into precommit-gauntlet.sh's Lints phase. The\n   remaining 11 modules from ADR-020 will earn their own rules during\n   ADR-021/022/023/024 work.\n\nAlso fixed a latent verify-codegen scoping bug: the Makefile rule's\n`git diff --exit-code internal/api/` was flagging any hand-written diff\nin the api package; narrowed to just `internal/api/openapi_gen.go`\nwhich is the only file the rule actually regenerates.",
+          "timestamp": "2026-05-20T10:52:51-07:00",
+          "tree_id": "56bcb7847cfc7dcaa8a44faeda7bd4a081acba1a",
+          "url": "https://github.com/volchanskyi/opengate/commit/807fd2410af1291b42c6089db0e0c68277106786"
+        },
+        "date": 1779299690600,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.725166883310237,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.45063312116774,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 747.3410184187497,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 310.98191889224285,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.92584450912274,
             "unit": "ns/iter"
           }
         ]
