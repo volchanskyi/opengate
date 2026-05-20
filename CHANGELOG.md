@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.32.1] - 2026-05-20
+
+### Fixed
+- **ci:** build-image HEAD_SHA uses github.sha to match CD's SHA source
+
+## [v0.32.0] - 2026-05-19
+
+### Added
+- **ci,cd:** path-gate build-image.yml + digest-aware CD redeploy
+
+## [v0.31.3] - 2026-05-19
+
+### Fixed
+- **infra:** harden bastion-session.sh — debug mode, persistent log, orphan reuse, diagnose subcommand
+
+## [v0.31.2] - 2026-05-19
+
+### Fixed
+- **ci,agent:** path-gate release-agent.yml + agent-side sha256 precheck
+
 ## [v0.31.1] - 2026-05-19
 
 ### Fixed
