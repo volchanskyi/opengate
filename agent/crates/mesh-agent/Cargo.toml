@@ -2,6 +2,7 @@
 name = "mesh-agent"
 version = "0.15.4"
 edition.workspace = true
+license.workspace = true
 
 [[bin]]
 name = "mesh-agent"

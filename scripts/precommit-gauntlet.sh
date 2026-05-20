@@ -111,6 +111,16 @@ run_check "rust fmt"          -- bash -c 'cd agent && cargo fmt --all -- --check
 run_check "rust clippy"       -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'
 run_check "go vet"            -- bash -c 'cd server && go vet ./...'
 run_check "go-arch-lint"      -- bash -c 'cd server && go-arch-lint check'
+run_check "cargo modules"     -- bash -c '
+  cd agent
+  actual=$(NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core 2>&1)
+  if ! printf "%s\n" "$actual" | diff -u crates/mesh-agent-core/tests/module-graph.snap - ; then
+    echo "::error::mesh-agent-core module graph diverged from the ADR-020 §5.2 snapshot."
+    echo "Review the diff above. If the change is intentional, regenerate:"
+    echo "  cd agent && NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core > crates/mesh-agent-core/tests/module-graph.snap"
+    exit 1
+  fi
+'
 run_check "web eslint"        -- bash -c 'cd web && npx eslint .'
 run_check "actionlint"        -- bash -c 'actionlint'
 run_check "taint (go)"        -- make taint-go
@@ -179,6 +189,7 @@ banner "Security audits"
 run_check "govulncheck"        -- bash -c 'cd server && govulncheck ./...'
 run_check "npm audit"          -- bash -c 'cd web && npm audit --audit-level=high'
 run_check "cargo audit"        -- bash -c 'cd agent && cargo audit'
+run_check "cargo deny"         -- bash -c 'cd agent && cargo deny check 2>&1'
 
 # Phase 6: benchmarks — must run without errors (no perf thresholds enforced).
 if [ "${PRECOMMIT_SKIP_BENCH:-0}" = "1" ]; then

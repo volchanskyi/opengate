@@ -1,0 +1,16 @@
+
+crate mesh_agent_core
+├── mod config: pub
+├── mod connection: pub
+├── mod error: pub
+├── mod file_ops: pub
+├── mod identity: pub
+├── mod platform: pub
+├── mod session: pub
+│   ├── mod handler: pub(self)
+│   ├── mod relay: pub(crate)
+│   └── mod terminal_handle: pub(crate)
+├── mod session_error: pub
+├── mod terminal: pub
+├── mod update: pub
+└── mod webrtc: pub

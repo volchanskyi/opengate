@@ -1,0 +1,64 @@
+# OpenGate Rust agent — cargo-deny policy.
+#
+# Defense-in-depth alongside `cargo audit` (precommit-gauntlet.sh step 18):
+# cargo-audit covers advisories; cargo-deny additionally enforces license
+# compatibility, source URLs, and a bans surface for forbidden crates.
+#
+# Per ADR-020 §5.2. No inline crate-level suppressions; all exceptions live
+# in this file with an explicit `reason` string.
+
+# --- Advisories ----------------------------------------------------------------
+
+[advisories]
+version = 2
+yanked = "warn"
+ignore = [
+  { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 marked unmaintained; transitive via rav1e → ravif → image. No CVE; clears when image bumps rav1e." },
+  { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile archived 2025-08; awaiting upstream migration to rustls-pki-types PemObject API. No CVE." },
+  { id = "RUSTSEC-2026-0105", reason = "bitstream-io / core2 0.4.0 yanked; transitive via rav1e → ravif → image. No CVE; clears when image bumps rav1e." },
+]
+
+# --- Licenses -----------------------------------------------------------------
+
+[licenses]
+version = 2
+confidence-threshold = 0.93
+# Standard OSS-compatible set. Anything not here fails the check; new licenses
+# require this file's amendment + ADR cross-reference.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "Zlib",
+  "MPL-2.0",
+  "CC0-1.0",
+  "0BSD",
+  "CDLA-Permissive-2.0",
+  # libfuzzer-sys (via webrtc-rs benches) carries `(MIT OR Apache-2.0) AND NCSA`.
+  # NCSA (University of Illinois/NCSA Open Source License) is OSI-approved and
+  # permissive — bundled here because it's pulled in only transitively.
+  "NCSA",
+]
+
+# --- Bans ---------------------------------------------------------------------
+
+[bans]
+# Pilot stage: no specific crate bans. ADR-020 §5.2 envisions adding HTTP-stack
+# bans here later ("no crate may add new external HTTP deps without ADR
+# amendment"); deferred until current HTTP-using deps (e.g. those pulled in by
+# webrtc-rs) are inventoried and the ADR is amended.
+multiple-versions = "warn"
+wildcards = "warn"
+
+# --- Sources ------------------------------------------------------------------
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
