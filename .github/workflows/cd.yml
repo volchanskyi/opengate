@@ -28,7 +28,8 @@ permissions:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Job 1: Determine the image tag and verify it exists in GHCR
+  # Job 1: Determine the image tag, verify it exists in GHCR, and decide
+  # whether deploy-staging needs to run at all (ADR-025 pre-flight check).
   # --------------------------------------------------------------------------
   resolve-tag:
     name: Resolve image tag
@@ -38,7 +39,14 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     outputs:
       image_tag: ${{ steps.tag.outputs.tag }}
+      target_digest: ${{ steps.preflight.outputs.target_digest }}
+      should_skip_staging: ${{ steps.preflight.outputs.should_skip_staging }}
     steps:
+      # fetch-depth: 0 required for the `git diff` against deploy/** below.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
       - name: Determine tag
         id: tag
         run: |
@@ -76,16 +84,93 @@ jobs:
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             "ghcr.io/${{ env.IMAGE_NAME }}:${TAG}"
 
+      # ADR-025: pre-flight check to short-circuit no-op staging deploys.
+      # Pin matches build-image.yml's setup-crane to avoid drift.
+      - uses: imjasonh/setup-crane@31b88efe9de28ae0ffa220711af4b60be9435f6e # v0.4
+
+      - name: Restore prior staging deploy state
+        id: restore-state
+        uses: actions/cache/restore@v4
+        with:
+          path: staging-deploy-state.json
+          key: cd-deploy-state-staging-v1-${{ github.run_id }}
+          restore-keys: |
+            cd-deploy-state-staging-v1-
+
+      - name: Pre-flight digest check
+        id: preflight
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          GIT_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          # Resolve the target image's digest from GHCR. Fail-open: a transient
+          # crane error falls through to a full deploy.
+          TARGET_DIGEST="$(crane digest "${IMAGE}:${TAG}" 2>/dev/null || true)"
+          echo "target_digest=${TARGET_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Target digest: ${TARGET_DIGEST:-<unresolved>}"
+
+          # Manual dispatch always proceeds — user intent overrides the cache.
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "should_skip_staging=false" >> "$GITHUB_OUTPUT"
+            echo "Pre-flight: workflow_dispatch → full deploy"
+            exit 0
+          fi
+
+          if [[ -z "$TARGET_DIGEST" ]]; then
+            echo "should_skip_staging=false" >> "$GITHUB_OUTPUT"
+            echo "Pre-flight: target digest unresolved → full deploy (fail-open)"
+            exit 0
+          fi
+
+          if [[ ! -f staging-deploy-state.json ]]; then
+            echo "should_skip_staging=false" >> "$GITHUB_OUTPUT"
+            echo "Pre-flight: no prior state cached → full deploy"
+            exit 0
+          fi
+
+          PRIOR_DIGEST="$(jq -r '.image_digest // ""' staging-deploy-state.json)"
+          PRIOR_SHA="$(jq -r '.git_sha // ""' staging-deploy-state.json)"
+          echo "Prior digest: ${PRIOR_DIGEST:-<empty>}"
+          echo "Prior sha:    ${PRIOR_SHA:-<empty>}"
+
+          if [[ -z "$PRIOR_DIGEST" ]] || [[ "$TARGET_DIGEST" != "$PRIOR_DIGEST" ]]; then
+            echo "should_skip_staging=false" >> "$GITHUB_OUTPUT"
+            echo "Pre-flight: digest changed → full deploy"
+            exit 0
+          fi
+
+          # deploy/** drift since the cached deploy.
+          if [[ -z "$PRIOR_SHA" ]] \
+             || ! git cat-file -e "${PRIOR_SHA}^{commit}" 2>/dev/null \
+             || ! git diff --quiet "$PRIOR_SHA" "$GIT_SHA" -- deploy/; then
+            echo "should_skip_staging=false" >> "$GITHUB_OUTPUT"
+            echo "Pre-flight: deploy/** changed since prior deploy → full deploy"
+            exit 0
+          fi
+
+          echo "should_skip_staging=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::Pre-flight: digest unchanged AND deploy/** unchanged → SKIP deploy-staging (ADR-025)"
+
   # --------------------------------------------------------------------------
   # Job 2: Deploy to persistent staging, run smoke tests
   # --------------------------------------------------------------------------
   deploy-staging:
     name: Deploy staging
     needs: resolve-tag
+    # ADR-025: skip when the pre-flight check found the target digest matches
+    # the cached prior deploy AND deploy/** is unchanged. The on-VPS sentinel
+    # remains the source of truth (deploy.sh would skip the compose restart
+    # anyway); this gate avoids the ~2-3 min of OCI/SSH/scp setup before that.
+    if: needs.resolve-tag.outputs.should_skip_staging != 'true'
     runs-on: ubuntu-latest
     environment: staging
     env:
       IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
+      TARGET_DIGEST: ${{ needs.resolve-tag.outputs.target_digest }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -279,6 +364,32 @@ jobs:
           name: staging-playwright-report
           path: web/playwright-report/
           retention-days: 20
+
+      # ADR-025: write the pre-flight cache only when the full deploy chain
+      # (compose pull/up + smoke + Playwright) succeeded. A rollback path
+      # below would leave the VPS on the previous tag, so we must NOT cache
+      # the new digest as deployed in that case.
+      - name: Write staging deploy state for next pre-flight
+        if: success()
+        env:
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg sha "$GIT_SHA" \
+            --arg digest "$TARGET_DIGEST" \
+            --arg tag "$IMAGE_TAG" \
+            '{ git_sha: $sha, image_digest: $digest, image_tag: $tag }' \
+            > staging-deploy-state.json
+          echo "Cached state:"
+          cat staging-deploy-state.json
+
+      - name: Cache staging deploy state for next pre-flight
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: staging-deploy-state.json
+          key: cd-deploy-state-staging-v1-${{ github.run_id }}
 
       - name: Rollback on failure
         if: failure()
