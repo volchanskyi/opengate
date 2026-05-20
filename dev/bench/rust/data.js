@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779247903575,
+  "lastUpdate": 1779248864779,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13793,6 +13793,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 21.503616638709527,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d706ac90f4a9250a23b6a30637a2180e82fae208",
+          "message": "docs(adr): ADR-019 — PMAT augment-only quality overlay (MCP + precommit + nightly Grafana)\n\nAdopts PMAT (pinned to pmat@3.17.0) at three separately-togglable points\nthat fill four gaps in the existing quality stack — churn/entropy/hotspot\noverlay, single-letter TDG grade, quality-trend timeseries, and MCP-served\nquality reports for Claude Code — without replacing any existing gate.\n\nStrict thresholds resolved up-front (B+ TDG floor, ≥3-pt repo-score alert,\nsingle-file TDG-slip alert, full-repo nightly) to catch regressions from\nday one rather than ramp. Kaizen confined to --dry-run because the\nno-bypass commit-identity, TDD, and refactor-marker hooks would block its\nauto-commit path.\n\nImplementation follows the plan's opportunistic-trigger model — no source,\nCI, or settings changes land in this commit. Retirement criterion encoded\nfor review one quarter after first trigger.",
+          "timestamp": "2026-05-19T20:45:50-07:00",
+          "tree_id": "8d1914c5a4963eba9e1d9425aed7f620c4215b77",
+          "url": "https://github.com/volchanskyi/opengate/commit/d706ac90f4a9250a23b6a30637a2180e82fae208"
+        },
+        "date": 1779248864714,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.347610495041703,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.51456789742823,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 777.2570381856259,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 292.8100439962264,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.62633092546055,
             "unit": "ns/iter"
           }
         ]
