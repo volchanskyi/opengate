@@ -124,6 +124,25 @@ run_check "verify-codegen"    -- bash -c "PATH=\"\$HOME/go/bin:\$PATH\" make ver
 
 # Phase 3: tests (the meat).
 banner "Tests"
+# Shell tests for CI gates / hooks / helper scripts (scripts/tests/*.test.sh).
+# Iterate by glob so adding a new test file requires no gauntlet edit.
+run_check "shell tests"        -- bash -c '
+  rc=0
+  shopt -s nullglob
+  for t in scripts/tests/*.test.sh; do
+    if [ ! -x "$t" ]; then
+      echo "not executable: $t" >&2
+      rc=1
+      continue
+    fi
+    echo "▶ $t"
+    if ! "$t"; then
+      echo "✗ $t failed" >&2
+      rc=1
+    fi
+  done
+  exit $rc
+'
 run_check "go unit + coverage" -- bash -c '
   cd server && go test -race -count=1 -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
 '

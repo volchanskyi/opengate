@@ -42,7 +42,7 @@ jobs:
         id: gate
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: ./scripts/build-image-gate.sh >> "$GITHUB_OUTPUT"
 
   build-and-push:
@@ -165,7 +165,7 @@ jobs:
       - name: Copy :latest → sha-<newsha>
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           SHORT_SHA="${HEAD_SHA:0:7}"
           crane copy "${IMAGE}:latest" "${IMAGE}:sha-${SHORT_SHA}"
