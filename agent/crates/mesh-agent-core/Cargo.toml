@@ -2,6 +2,7 @@
 name = "mesh-agent-core"
 version = "0.15.4"
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 mesh-protocol = { path = "../mesh-protocol" }
