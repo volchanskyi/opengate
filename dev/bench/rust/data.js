@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779231640313,
+  "lastUpdate": 1779247903575,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13744,6 +13744,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.93874456524642,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "81a0b613daa0c1565fc4ac436fb83efcffbd1802",
+          "message": "fix(ci): build-image HEAD_SHA uses github.sha to match CD's SHA source\n\ntag-forward and the path-gate both used workflow_run.head_sha for HEAD_SHA,\nwhich on a workflow_run trigger resolves to the CI workflow's head (dev),\nnot the main HEAD that CD subsequently looks for. When tag-forward fired\n(no image inputs changed), :latest was retagged as sha-<dev-short> while\nCD expected sha-<main-short>, producing 'manifest unknown' on resolve-tag.\nSee gh run 26130609683.\n\nSwitch both HEAD_SHA expressions to github.sha — on workflow_run-triggered\nbuild-image runs github.sha equals the default branch HEAD, matching what\ndocker/metadata-action stamps from in build-and-push and what CD reads\nfrom build-image's own workflow_run.head_sha.\n\n- scripts/tests/build-image-workflow.test.sh: new regression test (2\n  cases) asserting HEAD_SHA lines avoid workflow_run.head_sha\n- scripts/precommit-gauntlet.sh: new \"shell tests\" step iterates\n  scripts/tests/*.test.sh by glob so new test files don't require a\n  gauntlet edit",
+          "timestamp": "2026-05-19T20:24:44-07:00",
+          "tree_id": "8b4aef655a8e760bd73860975323553d8fce2afb",
+          "url": "https://github.com/volchanskyi/opengate/commit/81a0b613daa0c1565fc4ac436fb83efcffbd1802"
+        },
+        "date": 1779247903510,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 14.28399204019915,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 21.32853849836074,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 613.1932022438524,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 238.2961321867749,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 21.503616638709527,
             "unit": "ns/iter"
           }
         ]
