@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779318564982,
+  "lastUpdate": 1779319963202,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14038,6 +14038,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.88025402983213,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e0dcf483a350236e48ea217cb29a549c22f9f17e",
+          "message": "chore(arch): ADR-020 §5.2 Rust gates — cargo-deny config + cargo-modules snapshot\n\nLays the Rust equivalent of the cert pilot from `807fd24`. Two new gauntlet\nsteps; no source-file changes.\n\ncargo-deny (`agent/deny.toml`):\n- advisories v2: yanked=warn; three documented ignores for the unmaintained\n  transitive deps that cargo-audit already tolerates (RUSTSEC-2024-0436 paste,\n  RUSTSEC-2025-0134 rustls-pemfile, RUSTSEC-2026-0105 bitstream-io/core2).\n  Each ignore carries an explicit `reason` string per ADR-019's no-suppression\n  posture.\n- licenses v2: standard OSS-compatible allow list — MIT/Apache-2.0/BSD-2/BSD-3/\n  ISC/Unicode-DFS-2016/Unicode-3.0/Zlib/MPL-2.0/CC0-1.0/0BSD/CDLA-Permissive-2.0\n  plus NCSA for libfuzzer-sys (transitive through webrtc-rs).\n- bans: pilot stage. multiple-versions/wildcards=warn only. ADR-020 envisions\n  HTTP-stack bans later but defers until the current HTTP-using surface is\n  inventoried via ADR amendment.\n- sources: only crates.io.\n\nThe 5 workspace member crates (mesh-agent, mesh-agent-core, mesh-protocol,\nplatform-linux, platform-windows) gained `license.workspace = true`. The\nworkspace already declared `license = \"Apache-2.0\"` but members weren't\ninheriting; cargo-deny flagged each as unlicensed until this PR.\n\ncargo-modules:\n- Snapshot stored at `agent/crates/mesh-agent-core/tests/module-graph.snap`\n  per ADR-020 §5.2. Captures the module hierarchy of mesh-agent-core; any\n  pub→pub(crate), new module, removed module, or visibility change shows up\n  as a diff against this snapshot.\n- Generated via `NO_COLOR=1 cargo modules structure --no-fns --no-types\n  --no-traits --package mesh-agent-core` so the snapshot stays focused on\n  structural shape, not API surface details (those churn for unrelated\n  reasons).\n\nGauntlet integration:\n- New `cargo modules` step in Phase 1 (Lints) — diffs the live structure\n  against the snapshot; failure message includes the exact regen command.\n- New `cargo deny` step in Phase 5 (Security audits), sibling to cargo audit.",
+          "timestamp": "2026-05-20T16:30:49-07:00",
+          "tree_id": "bbb6e49ebd9852925356953b8914fd22c66a71e1",
+          "url": "https://github.com/volchanskyi/opengate/commit/e0dcf483a350236e48ea217cb29a549c22f9f17e"
+        },
+        "date": 1779319963134,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.236488772126407,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.780800138786184,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 599.2677224141361,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 307.64405171795016,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.882038373390504,
             "unit": "ns/iter"
           }
         ]
