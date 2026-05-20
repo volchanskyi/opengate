@@ -81,7 +81,9 @@ jobs:
           path: testdata/golden/
           retention-days: 20
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@12ed20a2623efa905821036b9bae41ea21e1a490 # cargo-llvm-cov
+        uses: taiki-e/install-action@e1c4cd42111751368541a7cb5db3522bd1f846a4 # v2 — newer pin requires explicit tool input
+        with:
+          tool: cargo-llvm-cov
       - name: Generate Rust coverage
         id: coverage
         run: |
@@ -959,7 +961,7 @@ jobs:
           path: agent/
       - name: SonarCloud Scan
         if: env.SONAR_TOKEN != ''
-        uses: SonarSource/sonarqube-scan-action@59db25f34e16620e48ab4bb9e4a5dce155cb5432 # v8
+        uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8
         with:
           args: -Dsonar.qualitygate.wait=true
 
@@ -1241,7 +1243,7 @@ jobs:
 
       - name: Post sticky PR comment
         if: steps.changes.outputs.terraform == 'true' && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PR_BODY: ${{ steps.parse.outputs.body }}
         with:
