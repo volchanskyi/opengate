@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779299690653,
+  "lastUpdate": 1779318564982,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13989,6 +13989,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.92584450912274,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f3510b68baf26e891ec704b81ce056d6398a6872",
+          "message": "chore(deps): apply dependabot PRs #233 #237 #238 #240 (npm/cargo/go/actions)\n\nBundled the four open dependabot PRs into a single dev-branch commit\nsince they all target dependabot-dev (per repo convention) and dev is\nthe only working branch. Each PR's changes applied semantically via the\nnative tooling, then validated end-to-end through the gauntlet.\n\nPR #233 — cargo: sysinfo 0.39.1 → 0.39.2 (patch, agent/Cargo.lock).\n\nPR #237 — go: github.com/oapi-codegen/runtime 1.4.0 → 1.4.1; brings in\ngithub.com/oapi-codegen/nullable v1.1.0 as a new indirect. `make\nverify-codegen` confirmed openapi_gen.go does not drift under the bump.\n\nPR #240 — github actions group across build-image.yml, cd.yml, ci.yml:\n  sigstore/cosign-installer v3 → v4.1.2 (major)\n  actions/cache/restore v4 → v5 (major)\n  actions/cache/save v4 → v5 (major)\n  actions/github-script v7 → v9 (skipped v8)\n  taiki-e/install-action SHA refresh — newer pin now REQUIRES an\n    explicit `tool:` input, so the cargo-llvm-cov use site was given\n    `with: tool: cargo-llvm-cov` (the cargo-nextest site already had it).\n  SonarSource/sonarqube-scan-action SHA refresh within v8.\n\nPR #238 — npm group (web/), 22 updates. TypeScript reverted to ^5.9.3\nfrom dependabot's proposed ^6.0.3 because openapi-typescript@7.13.0 (the\nlatest published) caps its peer dep at typescript@^5.x — fresh `npm ci`\ninside the Docker e2e build fails ERESOLVE on TS 6. typescript-eslint\n8.59.4 was fine either way (allows >=4.8.4 <6.1.0). All other 21 updates\nlanded unchanged, including the eslint 9.x → 10.4.0 + @eslint/js 10.0.1\nmajor bumps and the Playwright 1.59.1 → 1.60.0 bump (which required\nre-downloading the chromium-headless-shell-1223 binary locally).",
+          "timestamp": "2026-05-20T15:57:03-07:00",
+          "tree_id": "495b5c80e8d50e6f7bce0e28f6d3a25dec9032af",
+          "url": "https://github.com/volchanskyi/opengate/commit/f3510b68baf26e891ec704b81ce056d6398a6872"
+        },
+        "date": 1779318564916,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.526550687911657,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 20.142496032840356,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 600.5246828758469,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 302.0229820232332,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.88025402983213,
             "unit": "ns/iter"
           }
         ]
