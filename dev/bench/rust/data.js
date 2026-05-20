@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779290361095,
+  "lastUpdate": 1779294031218,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13891,6 +13891,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.93088354256955,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f77a426124555fab8b46f1f455693e13ac5989dd",
+          "message": "chore(baseline): PMAT pre-ADR-020 quality baseline (TDG + repo-score @ ffa3c92)\n\nCaptures the named PMAT snapshot required by ADR-019 / ADR-020 / the PMAT\nplan §5.3 before the first opportunistic-trigger PR fires, so any drift\nduring the modular-monolith decomposition is measurable against a known\nstarting point.\n\nNumbers:\n- TDG: 335 files analyzed, average 90.6, distribution 268 A- / 21 B+ /\n  17 B / 18 B- / 6 C+ / 1 C / 2 C- / 1 D / 1 F. Lone F-grade is\n  agent/crates/mesh-agent/build.rs (tiny build script, pre-existing).\n- Repo-score: 64.5 / 110 (grade C). Documentation, two unnamed categories,\n  and one minor category fail; two categories pass at 100%.\n\nBASELINE.md indexes both JSONs, documents the re-baseline policy, and\nrecords a lesson learned: `pmat tdg baseline create --with-git-context`\nserializes the git remote URL verbatim, so it MUST NOT be invoked while\nthe remote URL contains embedded credentials. The first baseline attempt\ncaught a leaked PAT in .git/config; the user rotated the token and\nsanitized the remote URL before this commit landed.\n\nPMAT version pinned to 3.17.0 per ADR-019. Cargo-installed locally for\nthis baseline; CI integration is a separate ADR-019 trigger.",
+          "timestamp": "2026-05-20T09:14:54-07:00",
+          "tree_id": "c4d2f987895c0baa33326e945c04e82d1ffa8c82",
+          "url": "https://github.com/volchanskyi/opengate/commit/f77a426124555fab8b46f1f455693e13ac5989dd"
+        },
+        "date": 1779294031146,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.352087641845245,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.445004976604114,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 742.0116236893654,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 309.8432722332581,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.943210903280566,
             "unit": "ns/iter"
           }
         ]
