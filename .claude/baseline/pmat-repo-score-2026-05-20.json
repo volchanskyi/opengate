@@ -1,0 +1,911 @@
+{
+  "total_score": 64.5,
+  "grade": "C",
+  "categories": {
+    "documentation": {
+      "score": 10.0,
+      "max_score": 15.0,
+      "percentage": 66.66666666666666,
+      "status": "Fail",
+      "subcategories": [
+        {
+          "id": "A1",
+          "name": "README Accuracy",
+          "score": 5.0,
+          "max_score": 5.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "Documentation",
+              "message": "All links and images valid",
+              "location": "README.md",
+              "impact_points": 0.0
+            }
+          ]
+        },
+        {
+          "id": "A2",
+          "name": "README Comprehensiveness",
+          "score": 2.0,
+          "max_score": 5.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "Documentation",
+              "message": "Project Description section found",
+              "location": "README.md",
+              "impact_points": 1.0
+            },
+            {
+              "severity": "Warning",
+              "category": "Documentation",
+              "message": "Installation section missing",
+              "location": "README.md",
+              "impact_points": 0.0
+            },
+            {
+              "severity": "Success",
+              "category": "Documentation",
+              "message": "Usage section found",
+              "location": "README.md",
+              "impact_points": 1.0
+            },
+            {
+              "severity": "Warning",
+              "category": "Documentation",
+              "message": "License section missing",
+              "location": "README.md",
+              "impact_points": 0.0
+            },
+            {
+              "severity": "Warning",
+              "category": "Documentation",
+              "message": "Contributing section missing",
+              "location": "README.md",
+              "impact_points": 0.0
+            }
+          ]
+        },
+        {
+          "id": "A3",
+          "name": "Professional Structure",
+          "score": 3.0,
+          "max_score": 5.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "Documentation",
+              "message": "Hero image present",
+              "location": "README.md",
+              "impact_points": 1.5
+            },
+            {
+              "severity": "Info",
+              "category": "Documentation",
+              "message": "Consider using centered header for professional look",
+              "location": "README.md",
+              "impact_points": 0.0
+            },
+            {
+              "severity": "Warning",
+              "category": "Documentation",
+              "message": "Table of Contents missing",
+              "location": "README.md",
+              "impact_points": 0.0
+            },
+            {
+              "severity": "Success",
+              "category": "Documentation",
+              "message": "Professional structure (no release notes at top)",
+              "location": "README.md",
+              "impact_points": 1.5
+            }
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "severity": "Success",
+          "category": "Documentation",
+          "message": "All links and images valid",
+          "location": "README.md",
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Success",
+          "category": "Documentation",
+          "message": "Project Description section found",
+          "location": "README.md",
+          "impact_points": 1.0
+        },
+        {
+          "severity": "Warning",
+          "category": "Documentation",
+          "message": "Installation section missing",
+          "location": "README.md",
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Success",
+          "category": "Documentation",
+          "message": "Usage section found",
+          "location": "README.md",
+          "impact_points": 1.0
+        },
+        {
+          "severity": "Warning",
+          "category": "Documentation",
+          "message": "License section missing",
+          "location": "README.md",
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Warning",
+          "category": "Documentation",
+          "message": "Contributing section missing",
+          "location": "README.md",
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Success",
+          "category": "Documentation",
+          "message": "Hero image present",
+          "location": "README.md",
+          "impact_points": 1.5
+        },
+        {
+          "severity": "Info",
+          "category": "Documentation",
+          "message": "Consider using centered header for professional look",
+          "location": "README.md",
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Warning",
+          "category": "Documentation",
+          "message": "Table of Contents missing",
+          "location": "README.md",
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Success",
+          "category": "Documentation",
+          "message": "Professional structure (no release notes at top)",
+          "location": "README.md",
+          "impact_points": 1.5
+        }
+      ]
+    },
+    "precommit_hooks": {
+      "score": 0.0,
+      "max_score": 20.0,
+      "percentage": 0.0,
+      "status": "Fail",
+      "subcategories": [
+        {
+          "id": "B1",
+          "name": "Pre-commit Hook Present",
+          "score": 0.0,
+          "max_score": 10.0,
+          "findings": [
+            {
+              "severity": "Error",
+              "category": "Pre-commit",
+              "message": "No pre-commit hook found",
+              "location": "/home/ivan/opengate/.git/hooks/pre-commit",
+              "impact_points": -10.0
+            }
+          ]
+        },
+        {
+          "id": "B2",
+          "name": "Hook Execution Time",
+          "score": 0.0,
+          "max_score": 10.0,
+          "findings": [
+            {
+              "severity": "Info",
+              "category": "Pre-commit",
+              "message": "No hook to check performance",
+              "location": null,
+              "impact_points": 0.0
+            }
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "severity": "Error",
+          "category": "Pre-commit",
+          "message": "No pre-commit hook found",
+          "location": "/home/ivan/opengate/.git/hooks/pre-commit",
+          "impact_points": -10.0
+        },
+        {
+          "severity": "Info",
+          "category": "Pre-commit",
+          "message": "No hook to check performance",
+          "location": null,
+          "impact_points": 0.0
+        }
+      ]
+    },
+    "repository_hygiene": {
+      "score": 15.0,
+      "max_score": 15.0,
+      "percentage": 100.0,
+      "status": "Pass",
+      "subcategories": [
+        {
+          "id": "C1",
+          "name": "No Cruft Files",
+          "score": 5.0,
+          "max_score": 5.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "Hygiene",
+              "message": "No cruft files detected",
+              "location": null,
+              "impact_points": 0.0
+            }
+          ]
+        },
+        {
+          "id": "C2",
+          "name": "No Team-Specific Files",
+          "score": 5.0,
+          "max_score": 5.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "Hygiene",
+              "message": "No team-specific files detected",
+              "location": null,
+              "impact_points": 0.0
+            }
+          ]
+        },
+        {
+          "id": "C3",
+          "name": "No Large Files in Git History",
+          "score": 5.0,
+          "max_score": 5.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "Hygiene",
+              "message": "No large files (>1MB) detected in git history",
+              "location": null,
+              "impact_points": 0.0
+            }
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "severity": "Success",
+          "category": "Hygiene",
+          "message": "No cruft files detected",
+          "location": null,
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Success",
+          "category": "Hygiene",
+          "message": "No team-specific files detected",
+          "location": null,
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Success",
+          "category": "Hygiene",
+          "message": "No large files (>1MB) detected in git history",
+          "location": null,
+          "impact_points": 0.0
+        }
+      ]
+    },
+    "build_test_automation": {
+      "score": 17.0,
+      "max_score": 25.0,
+      "percentage": 68.0,
+      "status": "Fail",
+      "subcategories": [
+        {
+          "id": "D1",
+          "name": "Makefile Present",
+          "score": 5.0,
+          "max_score": 5.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "Build",
+              "message": "Makefile present and valid",
+              "location": "/home/ivan/opengate/Makefile",
+              "impact_points": 0.0
+            }
+          ]
+        },
+        {
+          "id": "D2",
+          "name": "Required Targets Present",
+          "score": 7.0,
+          "max_score": 15.0,
+          "findings": [
+            {
+              "severity": "Warning",
+              "category": "Build",
+              "message": "Target 'test-fast' missing",
+              "location": "Makefile",
+              "impact_points": 0.0
+            },
+            {
+              "severity": "Success",
+              "category": "Build",
+              "message": "Target 'test' found",
+              "location": "Makefile",
+              "impact_points": 4.0
+            },
+            {
+              "severity": "Success",
+              "category": "Build",
+              "message": "Target 'lint' found",
+              "location": "Makefile",
+              "impact_points": 3.0
+            },
+            {
+              "severity": "Warning",
+              "category": "Build",
+              "message": "Target 'coverage' missing",
+              "location": "Makefile",
+              "impact_points": 0.0
+            }
+          ]
+        },
+        {
+          "id": "D3",
+          "name": "Target Performance",
+          "score": 5.0,
+          "max_score": 5.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "Build",
+              "message": "Makefile appears optimized for fast execution",
+              "location": "Makefile",
+              "impact_points": 0.0
+            }
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "severity": "Success",
+          "category": "Build",
+          "message": "Makefile present and valid",
+          "location": "/home/ivan/opengate/Makefile",
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Warning",
+          "category": "Build",
+          "message": "Target 'test-fast' missing",
+          "location": "Makefile",
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Success",
+          "category": "Build",
+          "message": "Target 'test' found",
+          "location": "Makefile",
+          "impact_points": 4.0
+        },
+        {
+          "severity": "Success",
+          "category": "Build",
+          "message": "Target 'lint' found",
+          "location": "Makefile",
+          "impact_points": 3.0
+        },
+        {
+          "severity": "Warning",
+          "category": "Build",
+          "message": "Target 'coverage' missing",
+          "location": "Makefile",
+          "impact_points": 0.0
+        },
+        {
+          "severity": "Success",
+          "category": "Build",
+          "message": "Makefile appears optimized for fast execution",
+          "location": "Makefile",
+          "impact_points": 0.0
+        }
+      ]
+    },
+    "continuous_integration": {
+      "score": 20.0,
+      "max_score": 20.0,
+      "percentage": 100.0,
+      "status": "Pass",
+      "subcategories": [
+        {
+          "id": "E1",
+          "name": "CI Workflows Present",
+          "score": 6.0,
+          "max_score": 6.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Workflow: cd.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/cd.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Workflow: build-image.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/build-image.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Workflow: e2e-cross-browser.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/e2e-cross-browser.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Workflow: load-test.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/load-test.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Workflow: mutation.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/mutation.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Workflow: sync-from-main.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/sync-from-main.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Workflow: terraform-drift.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/terraform-drift.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Workflow: ci.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/ci.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Workflow: release-agent.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/release-agent.yml",
+              "impact_points": 2.0
+            }
+          ]
+        },
+        {
+          "id": "E2",
+          "name": "Workflows Configured Properly",
+          "score": 6.0,
+          "max_score": 6.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Valid workflow structure: cd.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/cd.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Valid workflow structure: build-image.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/build-image.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Valid workflow structure: e2e-cross-browser.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/e2e-cross-browser.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Valid workflow structure: load-test.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/load-test.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Valid workflow structure: mutation.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/mutation.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Valid workflow structure: sync-from-main.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/sync-from-main.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Valid workflow structure: terraform-drift.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/terraform-drift.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Valid workflow structure: ci.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/ci.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Valid workflow structure: release-agent.yml (+2 pts)",
+              "location": "/home/ivan/opengate/.github/workflows/release-agent.yml",
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Testing step detected (+1 pt)",
+              "location": null,
+              "impact_points": 1.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Linting step detected (+1 pt)",
+              "location": null,
+              "impact_points": 1.0
+            }
+          ]
+        },
+        {
+          "id": "E3",
+          "name": "Advanced CI Features",
+          "score": 8.0,
+          "max_score": 8.0,
+          "findings": [
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Code coverage reporting (+2 pts)",
+              "location": null,
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Security scanning enabled (+2 pts)",
+              "location": null,
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Build caching configured (+2 pts)",
+              "location": null,
+              "impact_points": 2.0
+            },
+            {
+              "severity": "Success",
+              "category": "CI",
+              "message": "✓ Matrix/strategy builds configured (+2 pts)",
+              "location": null,
+              "impact_points": 2.0
+            }
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Workflow: cd.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/cd.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Workflow: build-image.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/build-image.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Workflow: e2e-cross-browser.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/e2e-cross-browser.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Workflow: load-test.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/load-test.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Workflow: mutation.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/mutation.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Workflow: sync-from-main.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/sync-from-main.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Workflow: terraform-drift.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/terraform-drift.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Workflow: ci.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/ci.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Workflow: release-agent.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/release-agent.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Valid workflow structure: cd.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/cd.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Valid workflow structure: build-image.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/build-image.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Valid workflow structure: e2e-cross-browser.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/e2e-cross-browser.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Valid workflow structure: load-test.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/load-test.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Valid workflow structure: mutation.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/mutation.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Valid workflow structure: sync-from-main.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/sync-from-main.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Valid workflow structure: terraform-drift.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/terraform-drift.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Valid workflow structure: ci.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/ci.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Valid workflow structure: release-agent.yml (+2 pts)",
+          "location": "/home/ivan/opengate/.github/workflows/release-agent.yml",
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Testing step detected (+1 pt)",
+          "location": null,
+          "impact_points": 1.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Linting step detected (+1 pt)",
+          "location": null,
+          "impact_points": 1.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Code coverage reporting (+2 pts)",
+          "location": null,
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Security scanning enabled (+2 pts)",
+          "location": null,
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Build caching configured (+2 pts)",
+          "location": null,
+          "impact_points": 2.0
+        },
+        {
+          "severity": "Success",
+          "category": "CI",
+          "message": "✓ Matrix/strategy builds configured (+2 pts)",
+          "location": null,
+          "impact_points": 2.0
+        }
+      ]
+    },
+    "pmat_compliance": {
+      "score": 2.5,
+      "max_score": 5.0,
+      "percentage": 50.0,
+      "status": "Fail",
+      "subcategories": [
+        {
+          "id": "F1",
+          "name": "PMAT Configuration Present",
+          "score": 0.0,
+          "max_score": 2.5,
+          "findings": [
+            {
+              "severity": "Warning",
+              "category": "PMAT",
+              "message": ".pmat-gates.toml not found",
+              "location": "/home/ivan/opengate/.pmat-gates.toml",
+              "impact_points": -2.5
+            }
+          ]
+        },
+        {
+          "id": "F2",
+          "name": "No PMAT Violations",
+          "score": 2.5,
+          "max_score": 2.5,
+          "findings": [
+            {
+              "severity": "Info",
+              "category": "PMAT",
+              "message": "No PMAT configuration to check",
+              "location": null,
+              "impact_points": 0.0
+            }
+          ]
+        }
+      ],
+      "findings": [
+        {
+          "severity": "Warning",
+          "category": "PMAT",
+          "message": ".pmat-gates.toml not found",
+          "location": "/home/ivan/opengate/.pmat-gates.toml",
+          "impact_points": -2.5
+        },
+        {
+          "severity": "Info",
+          "category": "PMAT",
+          "message": "No PMAT configuration to check",
+          "location": null,
+          "impact_points": 0.0
+        }
+      ]
+    }
+  },
+  "recommendations": [
+    {
+      "priority": "Critical",
+      "category": "Documentation",
+      "title": "Add comprehensive README.md",
+      "description": "Your repository is missing a complete README.md with required sections (Overview, Installation, Usage, License, Contributing).",
+      "impact_points": 5.0,
+      "estimated_effort": "30 minutes",
+      "commands": [
+        "# Create README.md with all required sections",
+        "touch README.md"
+      ]
+    },
+    {
+      "priority": "Critical",
+      "category": "Build & Test",
+      "title": "Create Makefile with required targets",
+      "description": "Add a Makefile with targets: test-fast, test, lint, coverage",
+      "impact_points": 8.0,
+      "estimated_effort": "1 hour",
+      "commands": [
+        "# Create Makefile",
+        "cat > Makefile << 'EOF'\n.PHONY: test-fast test lint coverage\n\ntest-fast:\n\tcargo test --lib\n\ntest:\n\tcargo test\n\nlint:\n\tcargo clippy -- -D warnings\n\ncoverage:\n\tcargo llvm-cov --html\nEOF"
+      ]
+    },
+    {
+      "priority": "High",
+      "category": "Pre-commit Hooks",
+      "title": "Install pre-commit hooks",
+      "description": "Add a pre-commit hook to run linting before commits.",
+      "impact_points": 20.0,
+      "estimated_effort": "15 minutes",
+      "commands": [
+        "mkdir -p .git/hooks",
+        "cat > .git/hooks/pre-commit << 'EOF'\n#!/bin/bash\ncargo clippy -- -D warnings\nEOF",
+        "chmod +x .git/hooks/pre-commit"
+      ]
+    },
+    {
+      "priority": "Medium",
+      "category": "PMAT Compliance",
+      "title": "Add PMAT quality gates configuration",
+      "description": "Create .pmat-gates.toml with quality thresholds",
+      "impact_points": 2.5,
+      "estimated_effort": "15 minutes",
+      "commands": [
+        "cat > .pmat-gates.toml << 'EOF'\n[complexity]\nmax_complexity = 10\n\n[coverage]\nminimum_coverage = 80.0\nEOF"
+      ]
+    }
+  ],
+  "metadata": {
+    "timestamp": "2026-05-20T15:35:56.951734506+00:00",
+    "repository_path": "/home/ivan/opengate",
+    "git_branch": "dev",
+    "git_commit": "ffa3c92fa0c53102043b9b7d4ba90191fcc22ff4",
+    "pmat_version": "3.17.0",
+    "spec_version": "1.0.0",
+    "execution_time_ms": 687
+  }
+}
