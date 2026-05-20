@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779248864779,
+  "lastUpdate": 1779290361095,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -13842,6 +13842,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.62633092546055,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ffa3c92fa0c53102043b9b7d4ba90191fcc22ff4",
+          "message": "docs(adr): ADR-020–025 — modular-monolith full hexagonal batch + CD pre-flight digest check\n\nSix ADRs land together as the docs deliverable for the resolved\nmodular-monolith plan (.claude/plans/modular-monolith-evaluation.md):\n\n- ADR-020 picks full hexagonal across all modules, codifies the\n  earned-port rule, names the 12 Go modules with their inbound +\n  outbound ports, and locks the three CI gates to auto-flip from warn\n  to error at zero violations (no soak). Plan's original layered-hybrid\n  recommendation overridden after re-grounding §3.5 against the verified\n  codebase reality.\n- ADR-021 splits the 56-method db.Store into per-aggregate repositories\n  with transactions owned by the use-case layer and threaded via\n  context.Context.\n- ADR-022 moves 11 of 12 Zustand stores into their feature folder;\n  only useAuthStore stays global (the lone hydration-gated store);\n  useToastStore relocates to lib/feedback/.\n- ADR-023 introduces a SessionRegistry outbound port for relay; Redis\n  adapter at Phase 13b kickoff; memberlist deferred until server count\n  exceeds the threshold where its value materializes.\n- ADR-024 names a ControlMessageHandler trait around the inner\n  handle_control fan-out (~10 methods) and corrects the plan's wrong\n  hotspot location (the dispatch lives at handler.rs:17-46, not in\n  session/mod.rs::receive_loop).\n\nADR-025 is the only non-docs piece in the batch: it adds a pre-flight\ndigest check inside cd.yml's resolve-tag job that short-circuits the\ndeploy-staging job on no-op deploys. crane queries GHCR for the target\ndigest, an actions/cache entry remembers the prior successful deploy's\nstate, and deploy-staging is gated off when both digest and deploy/**\nare unchanged. The on-VPS sentinel in deploy.sh remains the source of\ntruth; the cache is a hint, not a contract.",
+          "timestamp": "2026-05-20T08:17:31-07:00",
+          "tree_id": "66b90a60b85b9dc6370b64fc6801132a4d908a27",
+          "url": "https://github.com/volchanskyi/opengate/commit/ffa3c92fa0c53102043b9b7d4ba90191fcc22ff4"
+        },
+        "date": 1779290361031,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.335504726783512,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.56345216968907,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 750.2142261837668,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 311.6425156148928,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.93088354256955,
             "unit": "ns/iter"
           }
         ]
