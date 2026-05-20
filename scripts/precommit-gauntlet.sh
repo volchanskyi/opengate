@@ -110,6 +110,7 @@ banner "Lints"
 run_check "rust fmt"          -- bash -c 'cd agent && cargo fmt --all -- --check'
 run_check "rust clippy"       -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'
 run_check "go vet"            -- bash -c 'cd server && go vet ./...'
+run_check "go-arch-lint"      -- bash -c 'cd server && go-arch-lint check'
 run_check "web eslint"        -- bash -c 'cd web && npx eslint .'
 run_check "actionlint"        -- bash -c 'actionlint'
 run_check "taint (go)"        -- make taint-go

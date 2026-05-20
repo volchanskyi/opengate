@@ -1,0 +1,51 @@
+# OpenGate Go architecture lint (per ADR-020).
+#
+# Pilot scope: `cert` is the only constrained component. ADR-020 §"Migration
+# order" calls cert "the lowest fan-in, safe pilot" — it has zero internal
+# imports today, so a `mayDependOn: []` rule is satisfied without code change.
+# The catch-all `other` component covers everything else with no restrictions,
+# so this pilot does NOT gate any code that's not in internal/cert.
+#
+# Subsequent ADR-021/022/023/024 work will tighten one component at a time.
+#
+# Mode:  Warn-only at the gauntlet integration today; auto-flips to error
+# when violation count reaches zero per ADR-020 §"Warn → error flip criterion".
+# This config file itself is invariant under that flip — only the gauntlet
+# step's exit-code handling changes.
+
+version: 3
+workdir: .
+
+allow:
+  # Any component may import any 3rd-party (vendor) dependency. We constrain
+  # PROJECT-INTERNAL imports only; vendor management lives in go.mod + the
+  # govulncheck/cargo-audit/npm-audit gauntlet steps.
+  depOnAnyVendor: true
+  # v3+ AST linter for accurate import resolution.
+  deepScan: true
+
+components:
+  # Constrained: the cert module owns CA/CSR signing + verification. Already a
+  # leaf module today (imports stdlib only). The rule preserves that.
+  cert:
+    in: internal/cert
+
+  # Catch-all for everything else. NOT constrained at the pilot stage — these
+  # components will earn their own rules in ADR-021/022/023/024 work.
+  other:
+    in:
+      - internal/**
+      - cmd/**
+      - tests/**
+
+deps:
+  cert:
+    # Project-internal: cert may NOT import any other project component.
+    # Empty mayDependOn = deny-all-internal. anyVendorDeps:true is required by
+    # the schema (at least one allow-flag must be set per component).
+    mayDependOn: []
+    anyVendorDeps: true
+  other:
+    # Unconstrained at the pilot stage; everything is allowed for non-cert code.
+    anyProjectDeps: true
+    anyVendorDeps: true
