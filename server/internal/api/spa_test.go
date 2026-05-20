@@ -49,9 +49,42 @@ func TestSPA_PathTraversal_Returns404(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			w := doRequest(srv, http.MethodGet, tc.path, "", nil)
-			// Must not serve files outside webDir; 301/404 are both acceptable rejections
+			// Must not serve files outside webDir; 301/404 are both acceptable rejections.
+			// In particular, the response body must never contain content sourced from
+			// outside webDir (e.g. /etc/passwd's "root:" prefix).
 			assert.NotEqual(t, http.StatusOK, w.Code, "traversal path %s should not return 200", tc.path)
+			assert.NotContains(t, w.Body.String(), "root:", "traversal path %s leaked /etc/passwd content", tc.path)
 		})
+	}
+}
+
+// TestSPA_SymlinkEscape_Refused covers an attack vector that the prior
+// filepath.Clean+HasPrefix validation could miss: a symlink inside webDir
+// pointing at a file outside webDir. os.OpenRoot rejects this because the
+// resolved target escapes the root.
+func TestSPA_SymlinkEscape_Refused(t *testing.T) {
+	t.Parallel()
+	webDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>SPA</html>"), 0644))
+
+	// Create a symlink inside webDir that points outside (to /etc/hostname,
+	// which exists on Linux runners and is harmless to read).
+	outsideTarget := "/etc/hostname"
+	if _, err := os.Stat(outsideTarget); err != nil {
+		t.Skipf("test target %s missing on this platform: %v", outsideTarget, err)
+	}
+	symlinkPath := filepath.Join(webDir, "escape.txt")
+	require.NoError(t, os.Symlink(outsideTarget, symlinkPath))
+
+	srv := newTestServerWithWebDir(t, webDir)
+
+	w := doRequest(srv, http.MethodGet, "/escape.txt", "", nil)
+	// os.Root rejects symlinks resolving outside the root → fallback to SPA.
+	// Either way, the response body must NOT contain /etc/hostname content.
+	hostnameBytes, _ := os.ReadFile(outsideTarget)
+	if len(hostnameBytes) > 0 {
+		assert.NotContains(t, w.Body.String(), string(hostnameBytes),
+			"symlink-escape leaked %s content", outsideTarget)
 	}
 }
 
