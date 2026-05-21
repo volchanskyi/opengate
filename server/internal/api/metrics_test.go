@@ -38,6 +38,7 @@ func TestServer_MetricsWiring(t *testing.T) {
 
 	srv := NewServer(ServerConfig{
 		Store:           store,
+		Audit:           testutil.NewTestAudit(t, store),
 		JWT:             cfg,
 		Agents:          &stubAgentGetter{},
 		AMT:             &stubAMTOperator{},

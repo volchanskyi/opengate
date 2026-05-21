@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
@@ -53,6 +54,7 @@ type CertProvider interface {
 // ServerConfig holds all dependencies for the API server.
 type ServerConfig struct {
 	Store     db.Store
+	Audit     audit.Repository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
 	AMT       AMTOperator
@@ -74,6 +76,7 @@ type ServerConfig struct {
 // Server is the HTTP API server.
 type Server struct {
 	store     db.Store
+	audit     audit.Repository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
 	amt       AMTOperator
@@ -97,6 +100,7 @@ type Server struct {
 func NewServer(cfg ServerConfig) *Server {
 	s := &Server{
 		store:     cfg.Store,
+		audit:     cfg.Audit,
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
 		amt:       cfg.AMT,
@@ -248,7 +252,7 @@ func (s *Server) auditLog(userID db.UserID, action, target, details string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := s.store.WriteAuditEvent(ctx, &db.AuditEvent{
+		if err := s.audit.Write(ctx, &audit.Event{
 			UserID:    userID,
 			Action:    action,
 			Target:    target,

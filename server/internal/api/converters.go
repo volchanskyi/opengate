@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
@@ -122,7 +123,7 @@ func derefInt(p *int, fallback int) int {
 	return *p
 }
 
-func auditEventToAPI(e *db.AuditEvent) AuditEvent {
+func auditEventToAPI(e *audit.Event) AuditEvent {
 	return AuditEvent{
 		Id:        e.ID,
 		UserId:    e.UserID,
@@ -133,7 +134,7 @@ func auditEventToAPI(e *db.AuditEvent) AuditEvent {
 	}
 }
 
-func auditEventsToAPI(es []*db.AuditEvent) []AuditEvent {
+func auditEventsToAPI(es []*audit.Event) []AuditEvent {
 	return mapSlice(es, auditEventToAPI)
 }
 

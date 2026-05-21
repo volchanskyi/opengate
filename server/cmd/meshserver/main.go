@@ -13,6 +13,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/api"
+	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
@@ -93,6 +94,11 @@ func main() {
 	appMetrics := appmetrics.NewMetrics(metricsRegistry)
 	instrumentedStore := appmetrics.NewInstrumentedStore(store, appMetrics)
 
+	// Audit module owns its own outbound port (ADR-021). Wired against the
+	// same connection pool as the main store; instrumented so audit calls
+	// land on the same db_query_* metrics as before the extraction.
+	auditRepo := audit.NewInstrumented(audit.NewPostgres(store.DB()), appMetrics)
+
 	certMgr, err := cert.NewManager(*dataDir)
 	if err != nil {
 		logger.Error("init cert manager", "error", err)
@@ -143,6 +149,7 @@ func main() {
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
 	srv := api.NewServer(api.ServerConfig{
 		Store:     instrumentedStore,
+		Audit:     auditRepo,
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		AMT:       amtSvc,

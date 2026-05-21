@@ -83,6 +83,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 
 	apiSrv := api.NewServer(api.ServerConfig{
 		Store:     store,
+		Audit:     testutil.NewTestAudit(t, store),
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		Relay:     r,

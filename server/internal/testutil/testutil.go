@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // register pgx driver for admin connections
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -169,6 +170,20 @@ func NewTestStore(t testing.TB) db.Store {
 	require.NoErrorf(t, err, "open test store for schema %s", schemaName)
 
 	return store
+}
+
+// NewTestAudit returns a Postgres-backed audit.Repository sharing the same
+// connection pool as s. s must be the *db.PostgresStore returned by
+// NewTestStore (or otherwise satisfy the db.DBProvider interface) — otherwise
+// the test is skipped. The audit_events schema is owned by the db package's
+// migrations.
+func NewTestAudit(t testing.TB, s db.Store) audit.Repository {
+	t.Helper()
+	provider, ok := s.(interface{ DB() *sql.DB })
+	if !ok {
+		t.Skipf("audit tests require a Postgres-backed store, got %T", s)
+	}
+	return audit.NewPostgres(provider.DB())
 }
 
 // SeedUser inserts a minimal user into the store and returns it.
