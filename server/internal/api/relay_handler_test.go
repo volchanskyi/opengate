@@ -41,6 +41,7 @@ func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfi
 	srv := NewServer(ServerConfig{
 		Store:    store,
 		Audit:    testutil.NewTestAudit(t, store),
+		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},

@@ -316,7 +316,12 @@
       "Bash(POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\" ./scripts/precommit-gauntlet.sh)",
       "Bash(echo \"---exit-$?---\")",
       "Bash(nc -zv localhost 5432)",
-      "Bash(POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\" go test -coverprofile=/tmp/cov.out ./internal/updater/ ./internal/api/)"
+      "Bash(POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\" go test -coverprofile=/tmp/cov.out ./internal/updater/ ./internal/api/)",
+      "Bash(awk 'NR==714{print NR}; /^func TestSecurityGroupMigrationSeedsExistingAdmins/{start=NR} /^}$/ && start{print NR\" END\"; exit}' server/internal/db/store_test.go)",
+      "Bash(sed -i '715,975d' server/internal/db/store_test.go)",
+      "Bash(sed -n '712,718p' server/internal/db/store_test.go)",
+      "Bash(POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\" go test -race -timeout 5m ./internal/auth/ ./internal/db/ ./internal/api/)",
+      "Bash(POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\" go test -race -timeout 5m ./tests/...)"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate/.claude/hooks",

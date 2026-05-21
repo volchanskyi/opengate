@@ -104,6 +104,7 @@ func main() {
 	// pool, Instrumented decorator preserves db_query_* metric continuity.
 	deviceUpdatesRepo := updater.NewInstrumentedDeviceUpdates(updater.NewPostgresDeviceUpdates(store.DB()), appMetrics)
 	enrollmentRepo := updater.NewInstrumentedEnrollment(updater.NewPostgresEnrollment(store.DB()), appMetrics)
+	securityGroupsRepo := auth.NewInstrumentedSecurityGroups(auth.NewPostgresSecurityGroups(store.DB()), appMetrics)
 
 	certMgr, err := cert.NewManager(*dataDir)
 	if err != nil {
@@ -158,6 +159,7 @@ func main() {
 		Audit:         auditRepo,
 		DeviceUpdates: deviceUpdatesRepo,
 		Enrollment:    enrollmentRepo,
+		SecurityGroups: securityGroupsRepo,
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		AMT:       amtSvc,

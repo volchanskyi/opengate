@@ -197,6 +197,15 @@ func NewTestEnrollment(t testing.TB, s db.Store) updater.EnrollmentTokenReposito
 	return updater.NewPostgresEnrollment(extractDB(t, s, "updater.Enrollment"))
 }
 
+// NewTestSecurityGroups returns a Postgres-backed
+// auth.SecurityGroupRepository sharing the same connection pool as s. The
+// security_groups + security_group_members schemas are owned by the db
+// package's migrations.
+func NewTestSecurityGroups(t testing.TB, s db.Store) auth.SecurityGroupRepository {
+	t.Helper()
+	return auth.NewPostgresSecurityGroups(extractDB(t, s, "auth.SecurityGroup"))
+}
+
 // extractDB returns the *sql.DB behind a Postgres-backed db.Store. Tests that
 // need direct DB access for module-owned repos use it; if s isn't Postgres-
 // backed, the test is skipped (mirrors the audit/updater leaf-module pattern).
@@ -276,7 +285,8 @@ func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*db.User, str
 		IsAdmin:      true,
 	}
 	require.NoError(t, s.UpsertUser(ctx, u))
-	require.NoError(t, s.AddSecurityGroupMember(ctx, db.AdminGroupID, u.ID))
+	sg := NewTestSecurityGroups(t, s)
+	require.NoError(t, sg.AddMember(ctx, auth.AdminGroupID, u.ID))
 	return u, password
 }
 

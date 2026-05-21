@@ -61,12 +61,12 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 	// Auto-promote the first registered user to administrator.
 	users, err := s.store.ListUsers(ctx)
 	if err == nil && len(users) == 1 {
-		if addErr := s.store.AddSecurityGroupMember(ctx, db.AdminGroupID, user.ID); addErr != nil {
+		if addErr := s.securityGroups.AddMember(ctx, auth.AdminGroupID, user.ID); addErr != nil {
 			s.logger.Warn("auto-promote first user to admin failed", "user_id", user.ID, "error", addErr)
 		}
 	}
 
-	isAdmin, adminErr := s.store.IsUserInSecurityGroup(ctx, user.ID, db.AdminGroupID)
+	isAdmin, adminErr := s.securityGroups.IsUserInGroup(ctx, user.ID, auth.AdminGroupID)
 	if adminErr != nil {
 		s.logger.Warn("admin lookup failed", "user_id", user.ID, "error", adminErr)
 	}
@@ -99,7 +99,7 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		return Login401JSONResponse{Error: "invalid credentials"}, nil
 	}
 
-	isAdmin, adminErr := s.store.IsUserInSecurityGroup(ctx, user.ID, db.AdminGroupID)
+	isAdmin, adminErr := s.securityGroups.IsUserInGroup(ctx, user.ID, auth.AdminGroupID)
 	if adminErr != nil {
 		s.logger.Warn("admin lookup failed", "user_id", user.ID, "error", adminErr)
 	}

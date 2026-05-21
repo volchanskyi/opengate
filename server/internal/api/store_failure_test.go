@@ -15,6 +15,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
 // TestHandlerStoreFailures verifies that every handler returns 500 when the store is unavailable.
@@ -48,6 +49,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 	srv := NewServer(ServerConfig{
 		Store:    store,
 		Audit:    audit.NewPostgres(store.DB()),
+		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},

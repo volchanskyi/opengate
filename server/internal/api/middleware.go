@@ -95,6 +95,7 @@ func isAdmin(ctx context.Context) bool {
 const msgAdminRequired = "admin access required"
 const msgUpdateNotConfigured = "update system not configured"
 const msgForbidden = "forbidden"
+const msgSecurityGroupNotFound = "security group not found"
 
 // denyIfNotAdmin returns the forbidden response and true when the caller lacks admin access.
 func denyIfNotAdmin[T any](ctx context.Context, forbidden T) (T, bool) {
