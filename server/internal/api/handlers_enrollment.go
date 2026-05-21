@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 // CreateEnrollmentToken implements StrictServerInterface.
@@ -41,7 +41,7 @@ func (s *Server) CreateEnrollmentToken(ctx context.Context, request CreateEnroll
 		expiresInHours = *request.Body.ExpiresInHours
 	}
 
-	et := &db.EnrollmentToken{
+	et := &updater.EnrollmentToken{
 		ID:        uuid.New(),
 		Token:     tokenStr,
 		Label:     label,
@@ -51,7 +51,7 @@ func (s *Server) CreateEnrollmentToken(ctx context.Context, request CreateEnroll
 		ExpiresAt: time.Now().UTC().Add(time.Duration(expiresInHours) * time.Hour),
 	}
 
-	if err := s.store.CreateEnrollmentToken(ctx, et); err != nil {
+	if err := s.enrollment.Create(ctx, et); err != nil {
 		return nil, fmt.Errorf("create enrollment token: %w", err)
 	}
 
@@ -67,7 +67,7 @@ func (s *Server) ListEnrollmentTokens(ctx context.Context, _ ListEnrollmentToken
 		return resp, nil
 	}
 
-	tokens, err := s.store.ListEnrollmentTokens(ctx, ContextUserID(ctx))
+	tokens, err := s.enrollment.List(ctx, ContextUserID(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("list enrollment tokens: %w", err)
 	}
@@ -85,8 +85,8 @@ func (s *Server) DeleteEnrollmentToken(ctx context.Context, request DeleteEnroll
 		return resp, nil
 	}
 
-	if err := s.store.DeleteEnrollmentToken(ctx, request.Id); err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+	if err := s.enrollment.Delete(ctx, request.Id); err != nil {
+		if errors.Is(err, updater.ErrNotFound) {
 			return DeleteEnrollmentToken404JSONResponse{Error: "token not found"}, nil
 		}
 		return nil, fmt.Errorf("delete enrollment token: %w", err)
@@ -137,7 +137,7 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 		}
 		result.CertPem = &certPEM
 
-		if err := s.store.IncrementEnrollmentTokenUseCount(ctx, et.ID); err != nil {
+		if err := s.enrollment.IncrementUseCount(ctx, et.ID); err != nil {
 			return nil, fmt.Errorf("increment token use count: %w", err)
 		}
 	}
@@ -147,10 +147,10 @@ func (s *Server) Enroll(ctx context.Context, request EnrollRequestObject) (Enrol
 
 // validateEnrollmentToken fetches the token and checks expiry/usage limits.
 // Returns (token, nil, nil) on success, or (nil, response, nil) for client errors.
-func (s *Server) validateEnrollmentToken(ctx context.Context, token string) (*db.EnrollmentToken, EnrollResponseObject, error) {
-	et, err := s.store.GetEnrollmentTokenByToken(ctx, token)
+func (s *Server) validateEnrollmentToken(ctx context.Context, token string) (*updater.EnrollmentToken, EnrollResponseObject, error) {
+	et, err := s.enrollment.GetByToken(ctx, token)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, updater.ErrNotFound) {
 			return nil, Enroll404JSONResponse{Error: "invalid enrollment token"}, nil
 		}
 		return nil, nil, fmt.Errorf("get enrollment token: %w", err)
@@ -217,7 +217,7 @@ func (s *Server) GetServerCA(ctx context.Context, _ GetServerCARequestObject) (G
 	return GetServerCA200JSONResponse{Pem: string(s.cert.CACertPEM())}, nil
 }
 
-func enrollmentTokenToAPI(t *db.EnrollmentToken) EnrollmentToken {
+func enrollmentTokenToAPI(t *updater.EnrollmentToken) EnrollmentToken {
 	return EnrollmentToken{
 		Id:        t.ID,
 		Token:     t.Token,

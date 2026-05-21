@@ -37,7 +37,8 @@ const (
 
 // sessionTestEnv bundles all dependencies for session integration tests.
 type sessionTestEnv struct {
-	store      db.Store
+	store         db.Store
+	deviceUpdates updater.DeviceUpdateRepository
 	certMgr    *cert.Manager
 	relay      *relay.Relay
 	agentSrv   *agentapi.AgentServer
@@ -54,12 +55,13 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	t.Helper()
 
 	store := testutil.NewTestStore(t)
+	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 
 	r := relay.NewRelay(slog.Default())
 	logger := testLogger()
-	agentSrv := agentapi.NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", logger)
+	agentSrv := agentapi.NewAgentServer(cm, store, deviceUpdates, r, &notifications.NoopNotifier{}, "", logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -82,8 +84,10 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	manifestStore := updater.NewManifestStore(t.TempDir())
 
 	apiSrv := api.NewServer(api.ServerConfig{
-		Store:     store,
-		Audit:     testutil.NewTestAudit(t, store),
+		Store:         store,
+		Audit:         testutil.NewTestAudit(t, store),
+		DeviceUpdates: deviceUpdates,
+		Enrollment:    testutil.NewTestEnrollment(t, store),
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		Relay:     r,
@@ -107,7 +111,8 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	})
 
 	return &sessionTestEnv{
-		store:      store,
+		store:         store,
+		deviceUpdates: deviceUpdates,
 		certMgr:    cm,
 		relay:      r,
 		agentSrv:   agentSrv,

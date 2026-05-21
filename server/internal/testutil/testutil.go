@@ -19,6 +19,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 const postgresTestURLEnv = "POSTGRES_TEST_URL"
@@ -179,11 +180,33 @@ func NewTestStore(t testing.TB) db.Store {
 // migrations.
 func NewTestAudit(t testing.TB, s db.Store) audit.Repository {
 	t.Helper()
+	return audit.NewPostgres(extractDB(t, s, "audit"))
+}
+
+// NewTestDeviceUpdates returns a Postgres-backed updater.DeviceUpdateRepository
+// sharing the same connection pool as s.
+func NewTestDeviceUpdates(t testing.TB, s db.Store) updater.DeviceUpdateRepository {
+	t.Helper()
+	return updater.NewPostgresDeviceUpdates(extractDB(t, s, "updater.DeviceUpdate"))
+}
+
+// NewTestEnrollment returns a Postgres-backed updater.EnrollmentTokenRepository
+// sharing the same connection pool as s.
+func NewTestEnrollment(t testing.TB, s db.Store) updater.EnrollmentTokenRepository {
+	t.Helper()
+	return updater.NewPostgresEnrollment(extractDB(t, s, "updater.Enrollment"))
+}
+
+// extractDB returns the *sql.DB behind a Postgres-backed db.Store. Tests that
+// need direct DB access for module-owned repos use it; if s isn't Postgres-
+// backed, the test is skipped (mirrors the audit/updater leaf-module pattern).
+func extractDB(t testing.TB, s db.Store, name string) *sql.DB {
+	t.Helper()
 	provider, ok := s.(interface{ DB() *sql.DB })
 	if !ok {
-		t.Skipf("audit tests require a Postgres-backed store, got %T", s)
+		t.Skipf("%s tests require a Postgres-backed store, got %T", name, s)
 	}
-	return audit.NewPostgres(provider.DB())
+	return provider.DB()
 }
 
 // SeedUser inserts a minimal user into the store and returns it.

@@ -99,6 +99,12 @@ func main() {
 	// land on the same db_query_* metrics as before the extraction.
 	auditRepo := audit.NewInstrumented(audit.NewPostgres(store.DB()), appMetrics)
 
+	// Update module owns DeviceUpdate + EnrollmentToken aggregates (ADR-021).
+	// Same pattern as audit: leaf module, Postgres adapter against the shared
+	// pool, Instrumented decorator preserves db_query_* metric continuity.
+	deviceUpdatesRepo := updater.NewInstrumentedDeviceUpdates(updater.NewPostgresDeviceUpdates(store.DB()), appMetrics)
+	enrollmentRepo := updater.NewInstrumentedEnrollment(updater.NewPostgresEnrollment(store.DB()), appMetrics)
+
 	certMgr, err := cert.NewManager(*dataDir)
 	if err != nil {
 		logger.Error("init cert manager", "error", err)
@@ -133,7 +139,7 @@ func main() {
 			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
 		}
 	}
-	agentSrv := agentapi.NewAgentServer(certMgr, instrumentedStore, agentRelay, notifier, quicHost, logger)
+	agentSrv := agentapi.NewAgentServer(certMgr, instrumentedStore, deviceUpdatesRepo, agentRelay, notifier, quicHost, logger)
 
 	// Initialize update signing keys and manifest store
 	signingKeys, err := updater.LoadOrGenerateSigningKeys(*dataDir)
@@ -148,8 +154,10 @@ func main() {
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
 	srv := api.NewServer(api.ServerConfig{
-		Store:     instrumentedStore,
-		Audit:     auditRepo,
+		Store:         instrumentedStore,
+		Audit:         auditRepo,
+		DeviceUpdates: deviceUpdatesRepo,
+		Enrollment:    enrollmentRepo,
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		AMT:       amtSvc,

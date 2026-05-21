@@ -16,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 // publishManifest publishes an update manifest via the REST API.
@@ -135,7 +136,7 @@ func TestUpdatePublishAndPush(t *testing.T) {
 	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, ackPayload))
 
 	// 5. Verify DB recorded the pending update (created synchronously in the push handler)
-	updates, err := env.store.ListDeviceUpdatesByVersion(ctx, "0.14.0")
+	updates, err := env.deviceUpdates.ListByVersion(ctx, "0.14.0")
 	require.NoError(t, err)
 	require.NotEmpty(t, updates, "push handler should have created a device_update record")
 
@@ -144,7 +145,7 @@ func TestUpdatePublishAndPush(t *testing.T) {
 		if u.DeviceID == deviceID {
 			// Status may be "pending" or "success" depending on whether the
 			// server processed the AgentUpdateAck before this query runs.
-			assert.Contains(t, []db.UpdateStatus{db.UpdateStatusPending, db.UpdateStatusSuccess}, u.Status)
+			assert.Contains(t, []updater.Status{updater.StatusPending, updater.StatusSuccess}, u.Status)
 			found = true
 		}
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 // stubAMT is a test double for api.AMTOperator that always returns "not connected".
@@ -50,14 +51,16 @@ const (
 
 // testEnv holds a running test server and its dependencies.
 type testEnv struct {
-	server *httptest.Server
-	store  db.Store
-	jwt    *auth.JWTConfig
+	server        *httptest.Server
+	store         db.Store
+	deviceUpdates updater.DeviceUpdateRepository
+	jwt           *auth.JWTConfig
 }
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	store := testutil.NewTestStore(t)
+	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
 
 	jwtCfg := &auth.JWTConfig{
 		Secret:   "integration-test-secret-32-bytes!",
@@ -66,8 +69,10 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := api.NewServer(api.ServerConfig{
-		Store:    store,
-		Audit:    testutil.NewTestAudit(t, store),
+		Store:         store,
+		Audit:         testutil.NewTestAudit(t, store),
+		DeviceUpdates: deviceUpdates,
+		Enrollment:    testutil.NewTestEnrollment(t, store),
 		JWT:      jwtCfg,
 		AMT:      &stubAMT{},
 		Relay:    relay.NewRelay(slog.Default()),
@@ -78,7 +83,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 
-	return &testEnv{server: ts, store: store, jwt: jwtCfg}
+	return &testEnv{server: ts, store: store, deviceUpdates: deviceUpdates, jwt: jwtCfg}
 }
 
 // helpers

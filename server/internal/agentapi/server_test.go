@@ -23,9 +23,11 @@ func newTestAgentServer(t *testing.T) *AgentServer {
 	t.Helper()
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
+	store := testutil.NewTestStore(t)
 	return NewAgentServer(
 		cm,
-		testutil.NewTestStore(t),
+		store,
+		testutil.NewTestDeviceUpdates(t, store),
 		relay.NewRelay(slog.Default()),
 		&notifications.NoopNotifier{},
 		"",

@@ -56,13 +56,6 @@ type Store interface {
 	ListAMTDevices(ctx context.Context) ([]*AMTDevice, error)
 	SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status DeviceStatus) error
 
-	// Enrollment Tokens
-	CreateEnrollmentToken(ctx context.Context, t *EnrollmentToken) error
-	GetEnrollmentTokenByToken(ctx context.Context, token string) (*EnrollmentToken, error)
-	ListEnrollmentTokens(ctx context.Context, createdBy UserID) ([]*EnrollmentToken, error)
-	DeleteEnrollmentToken(ctx context.Context, id uuid.UUID) error
-	IncrementEnrollmentTokenUseCount(ctx context.Context, id uuid.UUID) error
-
 	// Device Hardware
 	UpsertDeviceHardware(ctx context.Context, hw *DeviceHardware) error
 	GetDeviceHardware(ctx context.Context, deviceID DeviceID) (*DeviceHardware, error)
@@ -71,11 +64,6 @@ type Store interface {
 	UpsertDeviceLogs(ctx context.Context, deviceID DeviceID, entries []DeviceLogEntry) error
 	QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error)
 	HasRecentLogs(ctx context.Context, deviceID DeviceID, maxAge time.Duration) (bool, error)
-
-	// Device Updates
-	CreateDeviceUpdate(ctx context.Context, du *DeviceUpdate) error
-	UpdateDeviceUpdateStatus(ctx context.Context, deviceID DeviceID, version string, status UpdateStatus, errMsg string) error
-	ListDeviceUpdatesByVersion(ctx context.Context, version string) ([]*DeviceUpdate, error)
 
 	// Security Groups
 	CreateSecurityGroup(ctx context.Context, g *SecurityGroup) error
