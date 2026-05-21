@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779319963202,
+  "lastUpdate": 1779324140651,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14087,6 +14087,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.882038373390504,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e03f7b2a2141f25dbd4711db1e2aa1f0a0909767",
+          "message": "chore(arch): ADR-020 §5.3 Web gate — eslint-plugin-boundaries + dependency-cruiser\n\nFinal §5 enforcement gate of ADR-020, completing the trio after the cert\npilot (go-arch-lint, commit 807fd24) and the Rust gate (cargo-deny +\ncargo-modules, commit e0dcf48).\n\neslint-plugin-boundaries (warn-severity, pilot per ADR-020 §5.4):\n- Four element groups configured in `web/eslint.config.js`:\n    app        — entry files (main, App, router, vite-env.d)\n    feature    — src/features/<name>/**\n    lib        — src/lib/**\n    app-state  — src/state/**  (bootstrap-coupled exception per ADR-022;\n                                 only useAuthStore stays here long-term)\n- `boundaries/dependencies` allow-graph: app→all, feature→{feature,lib,\n  app-state}, lib→lib, app-state→{app-state,lib}.\n- Migration from the deprecated `element-types` rule with legacy selector\n  syntax to v6's object-selector syntax. v6 also merged `no-private`'s\n  semantics into `dependencies`; that arrives opportunistically as each\n  feature gains an index.ts barrel under ADR-022.\n\ndependency-cruiser (warn-severity, snapshot-gated):\n- New `web/.dependency-cruiser.cjs` based on `depcruise --init typescript`\n  with two ADR-022 direction-rules appended:\n    adr-022-no-lib-to-feature  — lib/** may not import features/**\n    adr-022-no-state-to-feature — state/** may not import features/**\n- Cross-feature deep-import detection lives in boundaries instead (depcruise\n  can't express \"sibling-feature OK only via index.ts\" via regex; boundaries\n  handles element-relative rules natively).\n- `web/dependency-cruiser.snapshot.json` captures today's warn-count\n  baseline (0). The gauntlet step fails if a future commit increases it;\n  the failure message includes the exact jq command to ratchet the baseline\n  down when violations DROP.\n\nGauntlet: new `depcruise` step in Phase 1 (Lints), sibling to web eslint.\nCost: ~1s. Step compares the JSON-extracted `.summary.warn` to the snapshot's\n`.warn`; greater = fail with regen hint.\n\nSide cleanup: removed an outdated comment in web/eslint.config.js claiming\neslint-plugin-react-hooks 7.x doesn't support ESLint ≥10 — PR #238 confirmed\nv7.1.1 supports up to ESLint 10.4. The TypeScript ≤5 cap stays accurate\n(openapi-typescript 7.13.0 still 5.x-only).",
+          "timestamp": "2026-05-20T17:40:41-07:00",
+          "tree_id": "4eea37867443a4685c25173e9d5204f4beb04ceb",
+          "url": "https://github.com/volchanskyi/opengate/commit/e03f7b2a2141f25dbd4711db1e2aa1f0a0909767"
+        },
+        "date": 1779324140577,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.387021154734963,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.603483597834494,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 756.726018025482,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 295.766803131759,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 28.035621399717023,
             "unit": "ns/iter"
           }
         ]
