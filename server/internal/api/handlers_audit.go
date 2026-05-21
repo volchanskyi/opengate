@@ -3,7 +3,7 @@ package api
 import (
 	"context"
 
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/audit"
 )
 
 // ListAuditEvents implements StrictServerInterface.
@@ -12,7 +12,7 @@ func (s *Server) ListAuditEvents(ctx context.Context, request ListAuditEventsReq
 		return resp, nil
 	}
 
-	q := db.AuditQuery{
+	q := audit.Query{
 		Limit:  50,
 		Offset: 0,
 	}
@@ -33,7 +33,7 @@ func (s *Server) ListAuditEvents(ctx context.Context, request ListAuditEventsReq
 		q.UserID = &uid
 	}
 
-	events, err := s.store.QueryAuditLog(ctx, q)
+	events, err := s.audit.Query(ctx, q)
 	if err != nil {
 		return nil, err
 	}

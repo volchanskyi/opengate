@@ -28,6 +28,7 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 
 	srv := NewServer(ServerConfig{
 		Store:     store,
+		Audit:     testutil.NewTestAudit(t, store),
 		JWT:       cfg,
 		Agents:    &stubAgentGetter{},
 		AMT:       &stubAMTOperator{},

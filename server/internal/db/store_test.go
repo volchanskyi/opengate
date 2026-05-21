@@ -636,69 +636,6 @@ func TestWebPushSubscriptionCRUD(t *testing.T) {
 	}
 }
 
-func TestAuditLog(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-
-			userID := uuid.New()
-
-			t.Run("write and query", func(t *testing.T) {
-				event := &AuditEvent{
-					UserID:  userID,
-					Action:  "login",
-					Target:  "session",
-					Details: "from 10.0.0.1",
-				}
-				require.NoError(t, s.WriteAuditEvent(ctx, event))
-
-				events, err := s.QueryAuditLog(ctx, AuditQuery{UserID: &userID, Limit: 10})
-				require.NoError(t, err)
-				require.Len(t, events, 1)
-				assert.Equal(t, "login", events[0].Action)
-				assert.Equal(t, "from 10.0.0.1", events[0].Details)
-				assert.False(t, events[0].CreatedAt.IsZero())
-				assert.Greater(t, events[0].ID, int64(0))
-			})
-
-			t.Run("query by action", func(t *testing.T) {
-				e1 := &AuditEvent{UserID: userID, Action: "logout"}
-				e2 := &AuditEvent{UserID: userID, Action: "login"}
-				require.NoError(t, s.WriteAuditEvent(ctx, e1))
-				require.NoError(t, s.WriteAuditEvent(ctx, e2))
-
-				events, err := s.QueryAuditLog(ctx, AuditQuery{Action: "logout", Limit: 100})
-				require.NoError(t, err)
-				for _, e := range events {
-					assert.Equal(t, "logout", e.Action)
-				}
-			})
-
-			t.Run("query with limit and offset", func(t *testing.T) {
-				for i := 0; i < 5; i++ {
-					require.NoError(t, s.WriteAuditEvent(ctx, &AuditEvent{UserID: userID, Action: "paginate"}))
-				}
-
-				page1, err := s.QueryAuditLog(ctx, AuditQuery{Action: "paginate", Limit: 2})
-				require.NoError(t, err)
-				assert.Len(t, page1, 2)
-
-				page2, err := s.QueryAuditLog(ctx, AuditQuery{Action: "paginate", Limit: 2, Offset: 2})
-				require.NoError(t, err)
-				assert.Len(t, page2, 2)
-				assert.NotEqual(t, page1[0].ID, page2[0].ID)
-			})
-
-			t.Run("query no filters returns all", func(t *testing.T) {
-				events, err := s.QueryAuditLog(ctx, AuditQuery{})
-				require.NoError(t, err)
-				assert.GreaterOrEqual(t, len(events), 1)
-			})
-		})
-	}
-}
-
 func TestAMTDeviceCRUD(t *testing.T) {
 	for _, f := range storeFactories {
 		t.Run(f.name, func(t *testing.T) {

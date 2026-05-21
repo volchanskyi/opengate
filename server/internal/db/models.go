@@ -98,24 +98,6 @@ type EnrollmentToken struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// AuditEvent records a security-relevant action.
-type AuditEvent struct {
-	ID        int64     `json:"id"`
-	UserID    UserID    `json:"user_id"`
-	Action    string    `json:"action"`
-	Target    string    `json:"target"`
-	Details   string    `json:"details"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// AuditQuery specifies filters for querying the audit log.
-type AuditQuery struct {
-	UserID *UserID
-	Action string
-	Limit  int
-	Offset int
-}
-
 // UpdateStatus represents the outcome of a pushed update.
 type UpdateStatus string
 

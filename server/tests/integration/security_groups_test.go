@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
@@ -190,7 +191,7 @@ func TestSecurityGroup_AuditLogging(t *testing.T) {
 	resp.Body.Close()
 
 	// Audit writes are async — poll until the add_member event surfaces.
-	var events []db.AuditEvent
+	var events []audit.Event
 	require.Eventually(t, func() bool {
 		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?action=security_group.add_member", adminToken, nil)
 		defer r.Body.Close()

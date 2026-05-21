@@ -67,6 +67,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := api.NewServer(api.ServerConfig{
 		Store:    store,
+		Audit:    testutil.NewTestAudit(t, store),
 		JWT:      jwtCfg,
 		AMT:      &stubAMT{},
 		Relay:    relay.NewRelay(slog.Default()),

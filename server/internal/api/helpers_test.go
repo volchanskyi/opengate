@@ -75,10 +75,12 @@ func testJWTConfig() *auth.JWTConfig {
 func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
+	auditRepo := testutil.NewTestAudit(t, store)
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{
 		Store:    store,
+		Audit:    auditRepo,
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
@@ -98,6 +100,7 @@ func newTestServerWithStoreAndAgents(t *testing.T, store db.Store, agents AgentG
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{
 		Store:    store,
+		Audit:    testutil.NewTestAudit(t, store),
 		JWT:      cfg,
 		Agents:   agents,
 		AMT:      &stubAMTOperator{},

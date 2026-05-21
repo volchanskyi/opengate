@@ -63,10 +63,6 @@ type Store interface {
 	DeleteEnrollmentToken(ctx context.Context, id uuid.UUID) error
 	IncrementEnrollmentTokenUseCount(ctx context.Context, id uuid.UUID) error
 
-	// Audit
-	WriteAuditEvent(ctx context.Context, event *AuditEvent) error
-	QueryAuditLog(ctx context.Context, q AuditQuery) ([]*AuditEvent, error)
-
 	// Device Hardware
 	UpsertDeviceHardware(ctx context.Context, hw *DeviceHardware) error
 	GetDeviceHardware(ctx context.Context, deviceID DeviceID) (*DeviceHardware, error)

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -147,10 +148,10 @@ func TestRestartDevice(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		// auditLog is async (fire-and-forget goroutine) — poll until it lands.
-		var events []*db.AuditEvent
+		var events []*audit.Event
 		require.Eventually(t, func() bool {
 			var err error
-			events, err = env.store.QueryAuditLog(t.Context(), db.AuditQuery{Action: "device.restart"})
+			events, err = env.srv.audit.Query(t.Context(), audit.Query{Action: "device.restart"})
 			return err == nil && len(events) == 1
 		}, 2*time.Second, 25*time.Millisecond, "device.restart audit event should be written")
 		assert.Equal(t, env.device.ID.String(), events[0].Target)

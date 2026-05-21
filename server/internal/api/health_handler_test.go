@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
@@ -40,6 +41,7 @@ func TestHealthHandler(t *testing.T) {
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 		closedSrv := NewServer(ServerConfig{
 			Store:    store,
+			Audit:    audit.NewPostgres(store.DB()),
 			JWT:      cfg,
 			Agents:   &stubAgentGetter{},
 			AMT:      &stubAMTOperator{},

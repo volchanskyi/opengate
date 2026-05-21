@@ -40,6 +40,7 @@ func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfi
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{
 		Store:    store,
+		Audit:    testutil.NewTestAudit(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},

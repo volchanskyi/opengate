@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
@@ -75,14 +76,14 @@ func TestAdminAuditLogCapturesActions(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
 	// Audit log is written asynchronously — poll until the user.delete event for our victim appears.
-	var matched db.AuditEvent
+	var matched audit.Event
 	require.Eventually(t, func() bool {
 		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?action=user.delete", adminToken, nil)
 		defer r.Body.Close()
 		if r.StatusCode != http.StatusOK {
 			return false
 		}
-		var events []db.AuditEvent
+		var events []audit.Event
 		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
 			return false
 		}
@@ -114,7 +115,7 @@ func TestAdminAuditLogFiltering(t *testing.T) {
 	resp.Body.Close()
 
 	// Filter by action — audit writes are async, so poll until the filter result is consistent.
-	var events []db.AuditEvent
+	var events []audit.Event
 	require.Eventually(t, func() bool {
 		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?action=user.delete", adminToken, nil)
 		defer r.Body.Close()
@@ -157,7 +158,7 @@ func TestAdminAuditLogPagination(t *testing.T) {
 	}
 
 	// Audit events are flushed asynchronously — poll until limit=2 returns a valid page.
-	var events []db.AuditEvent
+	var events []audit.Event
 	require.Eventually(t, func() bool {
 		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?limit=2", adminToken, nil)
 		defer r.Body.Close()
