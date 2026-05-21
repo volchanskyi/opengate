@@ -122,6 +122,17 @@ run_check "cargo modules"     -- bash -c '
   fi
 '
 run_check "web eslint"        -- bash -c 'cd web && npx eslint .'
+run_check "depcruise"         -- bash -c '
+  cd web
+  current=$(npx --no-install depcruise src --output-type json --no-progress 2>/dev/null | jq -r ".summary.warn")
+  baseline=$(jq -r ".warn" dependency-cruiser.snapshot.json)
+  if [ "$current" -gt "$baseline" ]; then
+    echo "::error::depcruise warning count grew: current=$current baseline=$baseline (ADR-020 §5.3)."
+    echo "Either fix the new violation or, if intentional, update the baseline:"
+    echo "  jq \".warn = $current\" web/dependency-cruiser.snapshot.json > /tmp/snap.json && mv /tmp/snap.json web/dependency-cruiser.snapshot.json"
+    exit 1
+  fi
+'
 run_check "actionlint"        -- bash -c 'actionlint'
 run_check "taint (go)"        -- make taint-go
 run_check "taint (web)"       -- make taint-web

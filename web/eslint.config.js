@@ -1,13 +1,13 @@
 import js from '@eslint/js'
 import globals from 'globals'
-// NOTE: eslint-plugin-react-hooks 7.x only supports ESLint ≤9,
-// and openapi-typescript 7.x only supports TypeScript ≤5.
-// Do NOT upgrade ESLint to v10+ or TypeScript to v6+ until stable
-// releases of these plugins add support.
+// NOTE: openapi-typescript 7.x caps its peer dep at TypeScript ^5.x.
+// Do NOT upgrade TypeScript to v6+ until openapi-typescript ships a
+// version that supports it (last checked: 7.13.0 still 5.x-only).
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import security from 'eslint-plugin-security'
 import noUnsanitized from 'eslint-plugin-no-unsanitized'
+import boundaries from 'eslint-plugin-boundaries'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
@@ -58,6 +58,58 @@ export default defineConfig([
     files: ['src/router.tsx'],
     rules: {
       'react-refresh/only-export-components': 'off',
+    },
+  },
+  // ADR-022 / ADR-020 §5.3 — per-feature boundaries.
+  //
+  // Element groups:
+  //   app        — top-level src/{main,App,router,...}.tsx — entry points,
+  //                may import from any group.
+  //   feature    — src/features/<name>/** — should import siblings only via
+  //                their barrel index.ts (deep-import rule comes later).
+  //   lib        — src/lib/<name>/** — utility layer; never imports feature.
+  //   app-state  — src/state/** — bootstrap-coupled global stores; only
+  //                useAuthStore lives here per ADR-022, but the directory is
+  //                permitted as the documented exception until the migration
+  //                completes.
+  //
+  // Pilot severity: WARN — auto-flips to ERROR when violation count reaches
+  // zero per ADR-020 §5.4. The 81 current cross-feature imports are paid
+  // down opportunistically.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { boundaries },
+    settings: {
+      'boundaries/include': ['src/**/*'],
+      'boundaries/elements': [
+        { type: 'app', pattern: 'src/{main,App,router,vite-env.d}.{ts,tsx}', mode: 'file' },
+        { type: 'app-state', pattern: 'src/state/**' },
+        { type: 'feature', pattern: 'src/features/*/**' },
+        { type: 'lib', pattern: 'src/lib/**' },
+      ],
+    },
+    rules: {
+      // v6 object-selector syntax. `boundaries/dependencies` replaces the
+      // legacy `boundaries/element-types`.
+      'boundaries/dependencies': ['warn', {
+        default: 'disallow',
+        rules: [
+          // Entry points reach everywhere.
+          { from: { type: 'app' }, allow: { to: { type: ['app', 'app-state', 'feature', 'lib'] } } },
+          // Features may use shared utilities + the global bootstrap stores.
+          { from: { type: 'feature' }, allow: { to: { type: ['feature', 'lib', 'app-state'] } } },
+          // The lib layer is a leaf — utilities only depend on other utilities.
+          { from: { type: 'lib' }, allow: { to: { type: 'lib' } } },
+          // Global bootstrap stores can pull lib helpers but not features.
+          { from: { type: 'app-state' }, allow: { to: { type: ['app-state', 'lib'] } } },
+        ],
+      }],
+      // ADR-022's barrel-only enforcement ("features must import siblings
+      // only via the sibling's index.ts") rides on `boundaries/dependencies`
+      // when each feature gains an index.ts. The legacy `boundaries/no-private`
+      // rule is deprecated in v6+ — its semantics merged into `dependencies`
+      // with appropriate selectors. We add per-feature barrel enforcement
+      // opportunistically as each feature migrates.
     },
   },
 ])
