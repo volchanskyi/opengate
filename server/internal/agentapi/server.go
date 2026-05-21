@@ -18,12 +18,14 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 // AgentServer accepts QUIC connections from agents and manages their lifecycle.
 type AgentServer struct {
-	cert       *cert.Manager
-	store      db.Store
+	cert          *cert.Manager
+	store         db.Store
+	deviceUpdates updater.DeviceUpdateRepository
 	relay      *relay.Relay
 	notifier   notifications.Notifier
 	quicHost   string // extra DNS SAN for the server certificate
@@ -36,10 +38,11 @@ type AgentServer struct {
 }
 
 // NewAgentServer creates a new AgentServer.
-func NewAgentServer(cm *cert.Manager, store db.Store, r *relay.Relay, notifier notifications.Notifier, quicHost string, logger *slog.Logger) *AgentServer {
+func NewAgentServer(cm *cert.Manager, store db.Store, deviceUpdates updater.DeviceUpdateRepository, r *relay.Relay, notifier notifications.Notifier, quicHost string, logger *slog.Logger) *AgentServer {
 	return &AgentServer{
-		cert:     cm,
-		store:    store,
+		cert:          cm,
+		store:         store,
+		deviceUpdates: deviceUpdates,
 		relay:    r,
 		notifier: notifier,
 		quicHost: quicHost,
@@ -178,12 +181,13 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	groupID, hostname := s.lookupDeviceMeta(ctx, result.DeviceID)
 
 	ac := &AgentConn{
-		DeviceID: result.DeviceID,
-		GroupID:  groupID,
-		stream:   stream,
-		codec:    &protocol.Codec{},
-		store:    s.store,
-		logger:   logger,
+		DeviceID:      result.DeviceID,
+		GroupID:       groupID,
+		stream:        stream,
+		codec:         &protocol.Codec{},
+		store:         s.store,
+		deviceUpdates: s.deviceUpdates,
+		logger:        logger,
 	}
 
 	s.registerConn(ctx, ac, hostname)

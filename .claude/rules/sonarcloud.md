@@ -6,7 +6,9 @@ When a SonarCloud quality-gate failure lands on `dev`, fix **all** findings in *
 
 ## Local SonarCloud scan
 
-Run `make sonar` (full scan with coverage) or `make sonar-quick` (code-quality only, no coverage generation) before pushing to catch issues locally. Requires Docker and `SONAR_TOKEN` set in the environment or in `.env` (gitignored). Generate a User Token at sonarcloud.io/account/security scoped to the `volchanskyi` organization.
+The precommit gauntlet always runs `make sonar` (full scan with fresh coverage upload). `make sonar-quick` exists in the Makefile for ad-hoc code-quality probing, but the gauntlet does **not** use it — a quality-gate evaluation against stale coverage previously let a `new_coverage` regression surface only in CI. No `PRECOMMIT_SKIP_SONAR` escape hatch exists.
+
+Requires Docker and `SONAR_TOKEN` set in the environment or in `.env` (gitignored). Generate a User Token at sonarcloud.io/account/security scoped to the `volchanskyi` organization.
 
 ## Fetch everything, not just issues
 

@@ -12,6 +12,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 // AgentConn represents an authenticated, connected agent.
@@ -29,10 +30,11 @@ type AgentConn struct {
 	// Capabilities reported by the agent during registration.
 	Capabilities []protocol.AgentCapability
 
-	stream io.ReadWriter
-	codec  *protocol.Codec
-	store  db.Store
-	logger *slog.Logger
+	stream        io.ReadWriter
+	codec         *protocol.Codec
+	store         db.Store
+	deviceUpdates updater.DeviceUpdateRepository
+	logger        *slog.Logger
 
 	// writeMu serializes writes to stream. protocol.Codec.WriteFrame issues
 	// a 5-byte envelope write followed by an N-byte payload write; without
@@ -43,14 +45,15 @@ type AgentConn struct {
 }
 
 // NewAgentConn creates an AgentConn for testing or programmatic use.
-func NewAgentConn(deviceID protocol.DeviceID, groupID uuid.UUID, stream io.ReadWriter, store db.Store, logger *slog.Logger) *AgentConn {
+func NewAgentConn(deviceID protocol.DeviceID, groupID uuid.UUID, stream io.ReadWriter, store db.Store, deviceUpdates updater.DeviceUpdateRepository, logger *slog.Logger) *AgentConn {
 	return &AgentConn{
-		DeviceID: deviceID,
-		GroupID:  groupID,
-		stream:   stream,
-		codec:    &protocol.Codec{},
-		store:    store,
-		logger:   logger,
+		DeviceID:      deviceID,
+		GroupID:       groupID,
+		stream:        stream,
+		codec:         &protocol.Codec{},
+		store:         store,
+		deviceUpdates: deviceUpdates,
+		logger:        logger,
 	}
 }
 
@@ -203,11 +206,11 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		}
 
 		// Persist update outcome.
-		status := db.UpdateStatusSuccess
+		status := updater.StatusSuccess
 		if !success {
-			status = db.UpdateStatusFailed
+			status = updater.StatusFailed
 		}
-		if err := a.store.UpdateDeviceUpdateStatus(ctx, a.DeviceID, msg.Version, status, msg.AckError); err != nil {
+		if err := a.deviceUpdates.SetStatus(ctx, a.DeviceID, msg.Version, status, msg.AckError); err != nil {
 			a.logger.Warn("persist update ack failed", "device_id", a.DeviceID, "error", err)
 		}
 		return nil

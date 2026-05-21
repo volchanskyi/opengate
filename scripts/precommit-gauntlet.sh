@@ -15,11 +15,12 @@
 # Environment:
 #   POSTGRES_TEST_URL  — required for Go DB-dependent tests + coverage.
 #   SONAR_TOKEN        — required for SonarCloud. Sourced from .env if present.
-#   PRECOMMIT_SKIP_SONAR=1 — opt out of SonarCloud ONLY when offline (rare).
 #   PRECOMMIT_SKIP_BENCH=1 — opt out of benchmarks for fast iteration on
 #                            non-perf-touching commits. Use sparingly.
 #
-# NO bypass for tests / lint / e2e. Those are unconditional.
+# NO bypass for tests / lint / e2e / sonar. Those are unconditional.
+# Sonar is always the FULL `make sonar` (includes fresh coverage upload) so a
+# coverage regression cannot slip past local enforcement and surface only in CI.
 
 set -uo pipefail
 
@@ -94,9 +95,9 @@ if [ -z "${POSTGRES_TEST_URL:-}" ]; then
   exit 2
 fi
 
-if [ -z "${SONAR_TOKEN:-}" ] && [ "${PRECOMMIT_SKIP_SONAR:-0}" != "1" ]; then
+if [ -z "${SONAR_TOKEN:-}" ]; then
   color "1;31"
-  echo "✗ SONAR_TOKEN is unset and PRECOMMIT_SKIP_SONAR is not 1." >&2
+  echo "✗ SONAR_TOKEN is unset — full SonarCloud scan is mandatory (no skip)." >&2
   echo "  Generate a User Token at sonarcloud.io/account/security (scope: volchanskyi)" >&2
   echo "  and add it to .env as SONAR_TOKEN=... or export it." >&2
   color "0"
@@ -215,12 +216,11 @@ fi
 banner "E2E"
 run_check "make e2e"           -- make e2e
 
-if [ "${PRECOMMIT_SKIP_SONAR:-0}" = "1" ]; then
-  banner "SonarCloud (SKIPPED via PRECOMMIT_SKIP_SONAR=1)"
-else
-  banner "SonarCloud"
-  run_check "make sonar-quick" -- make sonar-quick
-fi
+banner "SonarCloud"
+# Always the full scan with fresh coverage upload. `sonar-quick` is intentionally
+# not wired in: a quality-gate evaluation against stale coverage was the gap
+# that let new_coverage regressions reach CI undetected.
+run_check "make sonar"         -- make sonar
 
 # Summary.
 ELAPSED=$(( $(date +%s) - START_EPOCH ))
