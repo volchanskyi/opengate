@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779329785939,
+  "lastUpdate": 1779384566107,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14185,6 +14185,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.678808238175677,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "0818e0a8fa3f9771c1c1139dad3882a52c982bb4",
+          "message": "chore(arch): ADR-021 #2 — extract update module (DeviceUpdate + Enrollment) from db.Store\n\nSecond per-aggregate repository extraction off the monolithic db.Store\n(54 → 46 methods toward the <30 target). Follows the audit template from\nADR-021 #1, validated across a larger surface: the update module owns two\nrelated aggregates (DeviceUpdate, EnrollmentToken) with 3 + 5 methods, the\nextraction touches both api handlers and the agentapi update-ack path, and\nthe migration order (cross-module callers first) is now established for\nfuture extractions.\n\n- New `internal/updater/repository.go`: `DeviceUpdate` + `Status` enum\n  (Pending/Success/Failed) + `DeviceUpdateRepository` outbound port.\n- New `internal/updater/enrollment.go`: `EnrollmentToken` +\n  `EnrollmentTokenRepository` outbound port.\n- New `internal/updater/postgres.go`: per-aggregate Postgres adapters with\n  their own per-package `ErrNotFound` sentinel (avoids re-importing db).\n- New `internal/updater/instrumented.go`: decorators preserving the\n  db_query_* metric labels (`updater.DeviceUpdate.*`, `updater.Enrollment.*`).\n- `testutil.NewTestDeviceUpdates` + `NewTestEnrollment` helpers reuse the\n  per-test schema; `extractDB` factored out of `NewTestAudit`.\n- `api.Server` grows `deviceUpdates`/`enrollment` fields wired through\n  `ServerConfig`; `handlers_updates.go` and `handlers_enrollment.go`\n  switch to the new ports.\n- `agentapi.AgentServer` + `AgentConn` accept the `DeviceUpdateRepository`\n  for the agent-update-ack persistence path (conn.go:212). Both\n  constructors grow the parameter; main.go and every test fixture rewire.\n- `.go-arch-lint.yml` adds the `update` component (deny-all internal,\n  deepScan off — same pattern as audit; the duck-typed Observer accepts\n  *metrics.Metrics at wiring time without an import).\n- Removed: 8 db.Store interface methods, 8 PostgresStore impls, 3 db\n  model types (DeviceUpdate / EnrollmentToken / UpdateStatus), 8\n  `metrics.InstrumentedStore` wrappers, 8 `notifications` mock methods,\n  and the two db package tests (`TestEnrollmentTokenCRUD`,\n  `TestDeviceUpdateCRUD`) — equivalents now live in the updater package.\n\nFull gauntlet green (lints, codegen, tests w/ race, coverage thresholds,\nsecurity audits, benchmarks, e2e, SonarCloud).",
+          "timestamp": "2026-05-21T10:17:55-07:00",
+          "tree_id": "b57c514514ba64aeeadb6f51afdcd59c410442ed",
+          "url": "https://github.com/volchanskyi/opengate/commit/0818e0a8fa3f9771c1c1139dad3882a52c982bb4"
+        },
+        "date": 1779384566053,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.09487698430629,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.375198378899395,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 778.1899074700674,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 314.9899401390854,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.76952354049502,
             "unit": "ns/iter"
           }
         ]
