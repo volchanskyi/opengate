@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779324140651,
+  "lastUpdate": 1779329785939,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14136,6 +14136,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 28.035621399717023,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e6e6b0d923a9c2a671c31278be7f75c20a011120",
+          "message": "chore(arch): ADR-021 pilot — extract audit module from db.Store\n\nFirst per-aggregate repository extraction off the monolithic 56-method\ndb.Store interface (now 54). Establishes the file-layout and wiring\ntemplate for the remaining ADR-021 modules (amt, notification, update,\nauth, device, session) as their functional triggers fire.\n\n- New `server/internal/audit/` package: Event/Query types, Repository\n  outbound port, Postgres adapter (sentinel-param query preserved),\n  Instrumented decorator preserving the db_query_* metric labels.\n- `metrics.Metrics.Observe(op, dur, ok)` lets audit's duck-typed Observer\n  be satisfied without an import; audit stays internal-import-free.\n- `testutil.NewTestAudit(t, store)` reuses the per-test schema from\n  NewTestStore so api/integration tests get a real repo without a\n  parallel setup path.\n- `*api.Server` grows `audit audit.Repository`; auditLog + ListAuditEvents\n  rewire onto it. 10 api test files + 4 integration test files wire the\n  new ServerConfig.Audit field.\n- db.Store loses WriteAuditEvent/QueryAuditLog; db package loses\n  AuditEvent/AuditQuery types and the postgres impl; metrics.InstrumentedStore\n  drops the matching wrappers.\n- `.go-arch-lint.yml` adds the `audit` component (deny-all internal,\n  `_test.go` excluded, deepScan off — see ADR-020 §5 / ADR-021).\n\nFull gauntlet green (lints, codegen, tests w/ race, coverage thresholds,\nsecurity audits, benchmarks, e2e, SonarCloud).",
+          "timestamp": "2026-05-20T19:00:30-07:00",
+          "tree_id": "a4be74dca9e72e370e5b3ee3c7a00df1d4459b31",
+          "url": "https://github.com/volchanskyi/opengate/commit/e6e6b0d923a9c2a671c31278be7f75c20a011120"
+        },
+        "date": 1779329785885,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 22.530007269666758,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.561166376935184,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 769.1829945899574,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 298.9616842915429,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.678808238175677,
             "unit": "ns/iter"
           }
         ]
