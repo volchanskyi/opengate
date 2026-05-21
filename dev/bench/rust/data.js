@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779387685557,
+  "lastUpdate": 1779400629813,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14283,6 +14283,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.864238857076053,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9b3adf327d8dbf5a6367897c89efef7bb6eac4db",
+          "message": "chore(arch): ADR-021 #3 — extract SecurityGroup repository from db.Store into auth module\n\nThird per-aggregate extraction off db.Store (46 → 37 methods toward the\n<30 target). Moves the 9-method SecurityGroup interface, its types, the\nPostgres adapter (including syncIsAdmin), and the Instrumented decorator\ninto server/internal/auth/, the module that already owns the JWT and\npassword-hash helpers.\n\nNew auth files:\n- securitygroup.go — SecurityGroup, Member (user-as-seen-from-group; no\n  password hash), SecurityGroupID alias, AdminGroupID, sentinel errors\n  (ErrSecurityGroupNotFound, ErrSystemGroup, ErrLastAdmin,\n  ErrMemberNotFound), and the SecurityGroupRepository interface.\n- postgres_securitygroup.go — PostgresSecurityGroups adapter. syncIsAdmin\n  moves here: the users.is_admin column is the auth aggregate's mirror\n  of Administrators membership, so the coupling stays local to the\n  adapter rather than leaking into a use-case orchestrator (consistent\n  with ADR-021's transaction-in-context model since both tables belong\n  to one aggregate).\n- instrumented_securitygroup.go — duck-typed Observer + decorator that\n  emits \"auth.SecurityGroup.<op>\" labels for the existing\n  metrics.Metrics observer.\n- securitygroup_test.go — Postgres tests (CRUD, members, last-admin\n  protection, syncIsAdmin) + decorator success / error-path coverage\n  for all 9 methods.\n\napi/handlers_security_groups.go rewires every call onto\ns.securityGroups, with a new memberToAPI(*auth.Member) User converter\nin place of the userToAPI bridge (Member omits PasswordHash so the\nSELECT no longer pulls it). handlers_users.go and handlers_auth.go\nswitch their AddMember / RemoveMember / IsUserInGroup calls plus the\nAdminGroupID constant to the auth package. New middleware.go constant\nmsgSecurityGroupNotFound consolidates a 3-place literal that triggers\ngo:S1192.\n\nmain.go wires auth.NewPostgresSecurityGroups + the Instrumented\ndecorator (caught locally on the first gauntlet run after the e2e\nregister/login bootstrap returned 500 against a nil interface).\n\nTestutil:\n- NewTestSecurityGroups(t, store) follows the audit/updater pattern.\n- SeedAdminUser now uses it instead of the removed db.Store method.\n\nCoverage:\n- 12 ServerConfig literals across api / integration tests gain the\n  SecurityGroups: testutil.NewTestSecurityGroups(t, store) field.\n- .go-arch-lint.yml adds the `auth` component (deny-all internal,\n  deepScan off — same shape as audit + update).\n- phases.md gets an ADR-021 #3 row.\n\nRemoved:\n- 9 SecurityGroup methods from db.Store + the matching PostgresStore\n  impl + the syncIsAdmin helper.\n- 4 db model types (SecurityGroup, SecurityGroupID, SecurityGroupMember,\n  AdminGroupID + 2 sentinel errors).\n- 9 metrics.InstrumentedStore wrappers + the matching 9 mocks in\n  notifications/helpers_test.go.\n- The 6 TestSecurityGroup* tests (260 lines) from db/store_test.go;\n  equivalent coverage now lives in auth/securitygroup_test.go.\n\nFull gauntlet green incl. SonarCloud, coverage thresholds, e2e, taint,\ndead-code (657s).",
+          "timestamp": "2026-05-21T14:55:26-07:00",
+          "tree_id": "b12d06574f7b988c8d497dcc3056a667f1ec5220",
+          "url": "https://github.com/volchanskyi/opengate/commit/9b3adf327d8dbf5a6367897c89efef7bb6eac4db"
+        },
+        "date": 1779400629736,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.588674798430176,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.80380983934068,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 754.2090044358428,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 309.0695200829956,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.19043749901966,
             "unit": "ns/iter"
           }
         ]
