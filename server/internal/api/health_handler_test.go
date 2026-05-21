@@ -15,6 +15,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
 func TestHealthHandler(t *testing.T) {
@@ -42,6 +43,7 @@ func TestHealthHandler(t *testing.T) {
 		closedSrv := NewServer(ServerConfig{
 			Store:    store,
 			Audit:    audit.NewPostgres(store.DB()),
+			SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 			JWT:      cfg,
 			Agents:   &stubAgentGetter{},
 			AMT:      &stubAMTOperator{},

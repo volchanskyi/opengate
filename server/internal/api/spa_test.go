@@ -22,6 +22,7 @@ func newTestServerWithWebDir(t *testing.T, webDir string) *Server {
 	return NewServer(ServerConfig{
 		Store:    store,
 		Audit:    testutil.NewTestAudit(t, store),
+		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		JWT:      testJWTConfig(),
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
@@ -139,6 +140,7 @@ func TestSPA_DisabledWhenWebDirEmpty(t *testing.T) {
 	srv := NewServer(ServerConfig{
 		Store:    store,
 		Audit:    testutil.NewTestAudit(t, store),
+		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		JWT:      &auth.JWTConfig{Secret: "test-secret-key-at-least-32-bytes!", Issuer: "test", Duration: 60},
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},

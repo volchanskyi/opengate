@@ -88,6 +88,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 		Audit:         testutil.NewTestAudit(t, store),
 		DeviceUpdates: deviceUpdates,
 		Enrollment:    testutil.NewTestEnrollment(t, store),
+		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		Relay:     r,

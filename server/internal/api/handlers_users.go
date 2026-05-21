@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
@@ -80,16 +81,16 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 		user.IsAdmin = *request.Body.IsAdmin
 		// Sync Administrators group membership with is_admin flag.
 		if *request.Body.IsAdmin {
-			if err := s.store.AddSecurityGroupMember(ctx, db.AdminGroupID, user.ID); err != nil {
+			if err := s.securityGroups.AddMember(ctx, auth.AdminGroupID, user.ID); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := s.store.RemoveSecurityGroupMember(ctx, db.AdminGroupID, user.ID); err != nil {
-				if errors.Is(err, db.ErrLastAdmin) {
+			if err := s.securityGroups.RemoveMember(ctx, auth.AdminGroupID, user.ID); err != nil {
+				if errors.Is(err, auth.ErrLastAdmin) {
 					return UpdateUser403JSONResponse{Error: "cannot remove last administrator"}, nil
 				}
-				// ErrNotFound is fine — user may not have been in the group.
-				if !errors.Is(err, db.ErrNotFound) {
+				// ErrMemberNotFound is fine — user may not have been in the group.
+				if !errors.Is(err, auth.ErrMemberNotFound) {
 					return nil, err
 				}
 			}

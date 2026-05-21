@@ -65,17 +65,6 @@ type Store interface {
 	QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error)
 	HasRecentLogs(ctx context.Context, deviceID DeviceID, maxAge time.Duration) (bool, error)
 
-	// Security Groups
-	CreateSecurityGroup(ctx context.Context, g *SecurityGroup) error
-	GetSecurityGroup(ctx context.Context, id SecurityGroupID) (*SecurityGroup, error)
-	ListSecurityGroups(ctx context.Context) ([]*SecurityGroup, error)
-	DeleteSecurityGroup(ctx context.Context, id SecurityGroupID) error
-	AddSecurityGroupMember(ctx context.Context, groupID SecurityGroupID, userID UserID) error
-	RemoveSecurityGroupMember(ctx context.Context, groupID SecurityGroupID, userID UserID) error
-	ListSecurityGroupMembers(ctx context.Context, groupID SecurityGroupID) ([]*User, error)
-	IsUserInSecurityGroup(ctx context.Context, userID UserID, groupID SecurityGroupID) (bool, error)
-	CountSecurityGroupMembers(ctx context.Context, groupID SecurityGroupID) (int, error)
-
 	// Health
 	Ping(ctx context.Context) error
 	Close() error

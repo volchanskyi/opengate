@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/audit"
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
@@ -27,7 +28,7 @@ func TestSecurityGroup_AdminCanListGroups(t *testing.T) {
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var groups []db.SecurityGroup
+	var groups []auth.SecurityGroup
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&groups))
 	require.GreaterOrEqual(t, len(groups), 1)
 
@@ -59,7 +60,7 @@ func TestSecurityGroup_AdminCanAddMember(t *testing.T) {
 	assert.False(t, regUser.IsAdmin)
 
 	// Add regular user to Administrators group.
-	resp = env.doJSON(t, http.MethodPost, pathSecurityGroups+"/"+db.AdminGroupID.String()+"/members",
+	resp = env.doJSON(t, http.MethodPost, pathSecurityGroups+"/"+auth.AdminGroupID.String()+"/members",
 		adminToken, map[string]string{"user_id": regUser.ID.String()})
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
@@ -88,7 +89,7 @@ func TestSecurityGroup_AdminCanRemoveMember(t *testing.T) {
 
 	// Remove admin2 from Administrators group.
 	resp := env.doJSON(t, http.MethodDelete,
-		pathSecurityGroups+"/"+db.AdminGroupID.String()+"/members/"+admin2.ID.String(),
+		pathSecurityGroups+"/"+auth.AdminGroupID.String()+"/members/"+admin2.ID.String(),
 		admin1Token, nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
@@ -114,8 +115,8 @@ func TestSecurityGroup_NonAdminBlocked(t *testing.T) {
 		expect int // POST with no body may 400 before auth check
 	}{
 		{http.MethodGet, pathSecurityGroups, http.StatusForbidden},
-		{http.MethodGet, pathSecurityGroups + "/" + db.AdminGroupID.String(), http.StatusForbidden},
-		{http.MethodDelete, pathSecurityGroups + "/" + db.AdminGroupID.String(), http.StatusForbidden},
+		{http.MethodGet, pathSecurityGroups + "/" + auth.AdminGroupID.String(), http.StatusForbidden},
+		{http.MethodDelete, pathSecurityGroups + "/" + auth.AdminGroupID.String(), http.StatusForbidden},
 	}
 
 	for _, ep := range endpoints {
@@ -135,7 +136,7 @@ func TestSecurityGroup_NonAdminBlocked(t *testing.T) {
 	})
 	t.Run("POST "+pathSecurityGroups+"/members", func(t *testing.T) {
 		resp := env.doJSON(t, http.MethodPost,
-			pathSecurityGroups+"/"+db.AdminGroupID.String()+"/members",
+			pathSecurityGroups+"/"+auth.AdminGroupID.String()+"/members",
 			regularToken, map[string]string{"user_id": "00000000-0000-0000-0000-000000000002"})
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
@@ -150,7 +151,7 @@ func TestSecurityGroup_CannotDeleteSystemGroup(t *testing.T) {
 	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
-	resp := env.doJSON(t, http.MethodDelete, pathSecurityGroups+"/"+db.AdminGroupID.String(), adminToken, nil)
+	resp := env.doJSON(t, http.MethodDelete, pathSecurityGroups+"/"+auth.AdminGroupID.String(), adminToken, nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 }
@@ -165,7 +166,7 @@ func TestSecurityGroup_CannotRemoveLastAdmin(t *testing.T) {
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
 	resp := env.doJSON(t, http.MethodDelete,
-		pathSecurityGroups+"/"+db.AdminGroupID.String()+"/members/"+adminUser.ID.String(),
+		pathSecurityGroups+"/"+auth.AdminGroupID.String()+"/members/"+adminUser.ID.String(),
 		adminToken, nil)
 	defer resp.Body.Close()
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
@@ -186,7 +187,7 @@ func TestSecurityGroup_AuditLogging(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&regUser))
 	resp.Body.Close()
 
-	resp = env.doJSON(t, http.MethodPost, pathSecurityGroups+"/"+db.AdminGroupID.String()+"/members",
+	resp = env.doJSON(t, http.MethodPost, pathSecurityGroups+"/"+auth.AdminGroupID.String()+"/members",
 		adminToken, map[string]string{"user_id": regUser.ID.String()})
 	resp.Body.Close()
 

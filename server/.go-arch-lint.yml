@@ -57,6 +57,15 @@ components:
   update:
     in: internal/updater
 
+  # Constrained: the auth module owns the SecurityGroup aggregate (ADR-021
+  # extraction #3) plus the existing JWT / password-hash helpers. Repository
+  # interface, Postgres adapter, and Instrumented decorator live here. No
+  # internal imports — the Postgres adapter's syncIsAdmin updates the users
+  # table but that coupling is local to the auth aggregate, not a cross-
+  # module dependency.
+  auth:
+    in: internal/auth
+
   # Catch-all for everything else. NOT constrained at the pilot stage — these
   # components will earn their own rules in ADR-021/022/023/024 work.
   other:
@@ -87,6 +96,13 @@ deps:
     # Same rationale as audit: leaf module, owns its ports + adapters +
     # decorators. deepScan disabled because the Instrumented decorators
     # accept the same duck-typed Observer interface as audit.
+    mayDependOn: []
+    anyVendorDeps: true
+    deepScan: false
+  auth:
+    # Same rationale as audit and update: leaf module, owns its ports +
+    # adapters + decorators. deepScan disabled because the Instrumented
+    # decorator accepts the same duck-typed Observer interface as audit/update.
     mayDependOn: []
     anyVendorDeps: true
     deepScan: false

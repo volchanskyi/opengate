@@ -69,6 +69,7 @@ func newTestServerWithCert(t *testing.T) (*Server, *auth.JWTConfig) {
 		Audit:         testutil.NewTestAudit(t, store),
 		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
 		Enrollment:    testutil.NewTestEnrollment(t, store),
+		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
