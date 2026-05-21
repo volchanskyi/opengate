@@ -207,37 +207,101 @@ func TestPostgresEnrollment_CRUD(t *testing.T) {
 	})
 }
 
-func TestInstrumentedDeviceUpdates_ObservesWriteAndError(t *testing.T) {
+func TestInstrumentedDeviceUpdates_ObservesAllMethods(t *testing.T) {
 	t.Parallel()
-	obs := &fakeObserver{}
-	repo := updater.NewInstrumentedDeviceUpdates(&memDeviceUpdates{}, obs)
+	ctx := context.Background()
 
-	require.NoError(t, repo.Create(context.Background(), &updater.DeviceUpdate{DeviceID: uuid.New(), Version: "1"}))
-	require.Len(t, obs.calls, 1)
-	assert.Equal(t, "updater.DeviceUpdate.Create", obs.calls[0].op)
-	assert.True(t, obs.calls[0].ok)
+	t.Run("success paths", func(t *testing.T) {
+		obs := &fakeObserver{}
+		repo := updater.NewInstrumentedDeviceUpdates(&memDeviceUpdates{}, obs)
 
-	failRepo := updater.NewInstrumentedDeviceUpdates(&memDeviceUpdates{listErr: sql.ErrConnDone}, obs)
-	_, err := failRepo.ListByVersion(context.Background(), "1")
-	require.Error(t, err)
-	require.Len(t, obs.calls, 2)
-	assert.Equal(t, "updater.DeviceUpdate.ListByVersion", obs.calls[1].op)
-	assert.False(t, obs.calls[1].ok)
+		require.NoError(t, repo.Create(ctx, &updater.DeviceUpdate{DeviceID: uuid.New(), Version: "1"}))
+		require.NoError(t, repo.SetStatus(ctx, uuid.New(), "1", updater.StatusSuccess, ""))
+		_, err := repo.ListByVersion(ctx, "1")
+		require.NoError(t, err)
+
+		require.Len(t, obs.calls, 3)
+		assert.Equal(t, "updater.DeviceUpdate.Create", obs.calls[0].op)
+		assert.True(t, obs.calls[0].ok)
+		assert.Equal(t, "updater.DeviceUpdate.SetStatus", obs.calls[1].op)
+		assert.True(t, obs.calls[1].ok)
+		assert.Equal(t, "updater.DeviceUpdate.ListByVersion", obs.calls[2].op)
+		assert.True(t, obs.calls[2].ok)
+	})
+
+	t.Run("error paths flip ok to false", func(t *testing.T) {
+		obs := &fakeObserver{}
+		failRepo := updater.NewInstrumentedDeviceUpdates(&memDeviceUpdates{
+			createErr: sql.ErrConnDone,
+			setErr:    sql.ErrConnDone,
+			listErr:   sql.ErrConnDone,
+		}, obs)
+
+		require.Error(t, failRepo.Create(ctx, &updater.DeviceUpdate{}))
+		require.Error(t, failRepo.SetStatus(ctx, uuid.New(), "1", updater.StatusFailed, "boom"))
+		_, err := failRepo.ListByVersion(ctx, "1")
+		require.Error(t, err)
+
+		require.Len(t, obs.calls, 3)
+		for _, c := range obs.calls {
+			assert.False(t, c.ok)
+		}
+	})
 }
 
-func TestInstrumentedEnrollment_ObservesWriteAndError(t *testing.T) {
+func TestInstrumentedEnrollment_ObservesAllMethods(t *testing.T) {
 	t.Parallel()
-	obs := &fakeObserver{}
-	repo := updater.NewInstrumentedEnrollment(&memEnrollments{}, obs)
+	ctx := context.Background()
 
-	require.NoError(t, repo.Create(context.Background(), &updater.EnrollmentToken{ID: uuid.New()}))
-	require.Len(t, obs.calls, 1)
-	assert.Equal(t, "updater.Enrollment.Create", obs.calls[0].op)
-	assert.True(t, obs.calls[0].ok)
+	t.Run("success paths", func(t *testing.T) {
+		obs := &fakeObserver{}
+		// Seed one item so GetByToken/List succeed.
+		seeded := &memEnrollments{items: []*updater.EnrollmentToken{{ID: uuid.New(), Token: "tok"}}}
+		repo := updater.NewInstrumentedEnrollment(seeded, obs)
 
-	failRepo := updater.NewInstrumentedEnrollment(&memEnrollments{incErr: sql.ErrConnDone}, obs)
-	require.Error(t, failRepo.IncrementUseCount(context.Background(), uuid.New()))
-	require.Len(t, obs.calls, 2)
-	assert.Equal(t, "updater.Enrollment.IncrementUseCount", obs.calls[1].op)
-	assert.False(t, obs.calls[1].ok)
+		require.NoError(t, repo.Create(ctx, &updater.EnrollmentToken{ID: uuid.New()}))
+		_, err := repo.GetByToken(ctx, "tok")
+		require.NoError(t, err)
+		_, err = repo.List(ctx, uuid.New())
+		require.NoError(t, err)
+		require.NoError(t, repo.Delete(ctx, uuid.New()))
+		require.NoError(t, repo.IncrementUseCount(ctx, uuid.New()))
+
+		require.Len(t, obs.calls, 5)
+		wantOps := []string{
+			"updater.Enrollment.Create",
+			"updater.Enrollment.GetByToken",
+			"updater.Enrollment.List",
+			"updater.Enrollment.Delete",
+			"updater.Enrollment.IncrementUseCount",
+		}
+		for i, op := range wantOps {
+			assert.Equal(t, op, obs.calls[i].op)
+			assert.True(t, obs.calls[i].ok)
+		}
+	})
+
+	t.Run("error paths flip ok to false", func(t *testing.T) {
+		obs := &fakeObserver{}
+		failRepo := updater.NewInstrumentedEnrollment(&memEnrollments{
+			createErr: sql.ErrConnDone,
+			getErr:    sql.ErrConnDone,
+			listErr:   sql.ErrConnDone,
+			deleteErr: sql.ErrConnDone,
+			incErr:    sql.ErrConnDone,
+		}, obs)
+
+		require.Error(t, failRepo.Create(ctx, &updater.EnrollmentToken{}))
+		_, err := failRepo.GetByToken(ctx, "x")
+		require.Error(t, err)
+		_, err = failRepo.List(ctx, uuid.New())
+		require.Error(t, err)
+		require.Error(t, failRepo.Delete(ctx, uuid.New()))
+		require.Error(t, failRepo.IncrementUseCount(ctx, uuid.New()))
+
+		require.Len(t, obs.calls, 5)
+		for _, c := range obs.calls {
+			assert.False(t, c.ok)
+		}
+	})
 }
