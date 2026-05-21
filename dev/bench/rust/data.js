@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779384566107,
+  "lastUpdate": 1779387685557,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14234,6 +14234,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.76952354049502,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "dbb6fbe4de329dda0cbf988309bd5356e81623eb",
+          "message": "chore(ci): harden precommit sonar policy, cover updater decorator, bump actions-deps\n\nThree related changes bundled because they address one incident (sonar\nnew_coverage gate failed on dev after ADR-021 #2; see\nhttps://github.com/volchanskyi/opengate/actions/runs/26242148240):\n\n1. Test coverage — server/internal/updater/repository_test.go now\n   exercises all six previously-uncovered methods on\n   InstrumentedDeviceUpdates and InstrumentedEnrollment (SetStatus,\n   ListByVersion happy path, GetByToken, List, Delete, IncrementUseCount\n   happy paths + error paths). Brings new-code coverage on updater/\n   instrumented.go from 53% to 100% and the package's new-code coverage\n   from 78.4% to ~91%, restoring the >=80% gate.\n\n2. Gauntlet hardening — scripts/precommit-gauntlet.sh now runs\n   `make sonar` (full scan with fresh coverage upload) instead of\n   `make sonar-quick` on every commit. The previous quick-scan path\n   relied on stale coverage data, so a coverage regression could pass\n   the local gate and surface only in CI. The PRECOMMIT_SKIP_SONAR\n   escape hatch is removed entirely. .claude/rules/sonarcloud.md and\n   .claude/skills/precommit/SKILL.md updated to match.\n\n3. Actions deps — workflow version bumps from dependabot PR #242:\n   imjasonh/setup-crane v0.4 -> v0.5 (build-image.yml x2, cd.yml),\n   taiki-e/install-action 2.78.0 -> 2.79.3 (ci.yml x2).\n\nVerified locally via the full gauntlet (`make sonar` included; 540s).",
+          "timestamp": "2026-05-21T11:18:31-07:00",
+          "tree_id": "62c59064051c798872b94d48030e41e091f3713a",
+          "url": "https://github.com/volchanskyi/opengate/commit/dbb6fbe4de329dda0cbf988309bd5356e81623eb"
+        },
+        "date": 1779387685489,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.491087082308862,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.40076654657714,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 750.561956591811,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 309.08400484830406,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.864238857076053,
             "unit": "ns/iter"
           }
         ]
