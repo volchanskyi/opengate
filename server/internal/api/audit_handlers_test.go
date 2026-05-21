@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/audit"
 )
 
 func TestAuditHandlers(t *testing.T) {
@@ -20,7 +20,7 @@ func TestAuditHandlers(t *testing.T) {
 
 	// Seed some audit events
 	for i := range 5 {
-		err := srv.store.WriteAuditEvent(t.Context(), &db.AuditEvent{
+		err := srv.audit.Write(t.Context(), &audit.Event{
 			ID:        0,
 			UserID:    adminUser.ID,
 			Action:    "user.login",
@@ -53,7 +53,7 @@ func TestAuditHandlers(t *testing.T) {
 
 	t.Run("filter by action", func(t *testing.T) {
 		// Add an event with different action
-		err := srv.store.WriteAuditEvent(t.Context(), &db.AuditEvent{
+		err := srv.audit.Write(t.Context(), &audit.Event{
 			ID:        0,
 			UserID:    adminUser.ID,
 			Action:    "user.delete",
@@ -75,7 +75,7 @@ func TestAuditHandlers(t *testing.T) {
 
 	t.Run("filter by user_id", func(t *testing.T) {
 		otherUser, _ := seedTestUser(t, srv, cfg, "other-audit@example.com", false)
-		err := srv.store.WriteAuditEvent(t.Context(), &db.AuditEvent{
+		err := srv.audit.Write(t.Context(), &audit.Event{
 			ID:        0,
 			UserID:    otherUser.ID,
 			Action:    "session.create",

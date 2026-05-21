@@ -1,10 +1,15 @@
 # OpenGate Go architecture lint (per ADR-020).
 #
-# Pilot scope: `cert` is the only constrained component. ADR-020 §"Migration
-# order" calls cert "the lowest fan-in, safe pilot" — it has zero internal
-# imports today, so a `mayDependOn: []` rule is satisfied without code change.
+# Constrained components today:
+#   - cert  — leaf module, no internal imports (ADR-020 §"Migration order")
+#   - audit — first real per-aggregate extraction (ADR-021), no internal imports
+#
+# `audit` is intentionally narrow: it depends only on stdlib + uuid (vendor).
+# The 3rd-party pgx driver is registered as a database/sql driver in main.go,
+# so audit imports nothing project-internal.
+#
 # The catch-all `other` component covers everything else with no restrictions,
-# so this pilot does NOT gate any code that's not in internal/cert.
+# so these rules do NOT gate code outside the constrained components.
 #
 # Subsequent ADR-021/022/023/024 work will tighten one component at a time.
 #
@@ -15,6 +20,14 @@
 
 version: 3
 workdir: .
+
+# Test files commonly need broader imports than production code (testutil
+# helpers, fixtures, fakes). Architecture rules apply to production code only;
+# this matches the conventional usage of the tool. The TDD gate
+# (.claude/hooks/pretooluse-tdd-gate.sh) and the test-coverage suite handle
+# test discipline separately.
+excludeFiles:
+  - '_test\.go$'
 
 allow:
   # Any component may import any 3rd-party (vendor) dependency. We constrain
@@ -29,6 +42,12 @@ components:
   # leaf module today (imports stdlib only). The rule preserves that.
   cert:
     in: internal/cert
+
+  # Constrained: the audit module owns the audit-log aggregate (ADR-021 pilot
+  # extraction). Repository interface, Postgres adapter, and Instrumented
+  # decorator live here; no internal imports.
+  audit:
+    in: internal/audit
 
   # Catch-all for everything else. NOT constrained at the pilot stage — these
   # components will earn their own rules in ADR-021/022/023/024 work.
@@ -45,7 +64,18 @@ deps:
     # the schema (at least one allow-flag must be set per component).
     mayDependOn: []
     anyVendorDeps: true
+  audit:
+    # Project-internal: audit owns its outbound port and the Postgres adapter
+    # entirely; it has no project-internal imports. The Instrumented decorator
+    # accepts an Observer interface (duck-typed against metrics.Metrics at
+    # wiring time in main.go) — deepScan would trace the concrete metrics.Metrics
+    # type flowing into NewInstrumented at the call site and flag it as a
+    # dependency. The audit source code itself imports nothing project-internal,
+    # so the looser non-deepScan check is the correct rule here.
+    mayDependOn: []
+    anyVendorDeps: true
+    deepScan: false
   other:
-    # Unconstrained at the pilot stage; everything is allowed for non-cert code.
+    # Unconstrained at the pilot stage; everything is allowed for non-pilot code.
     anyProjectDeps: true
     anyVendorDeps: true

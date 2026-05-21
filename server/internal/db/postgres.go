@@ -428,40 +428,6 @@ func (s *PostgresStore) DeleteWebPushSubscription(ctx context.Context, endpoint 
 	return s.execAndCheckAffected(ctx, `DELETE FROM web_push_subscriptions WHERE endpoint = $1`, endpoint)
 }
 
-// --- Audit ---
-
-func scanAuditEventPG(sc scanner) (*AuditEvent, error) {
-	var e AuditEvent
-	if err := sc.Scan(&e.ID, &e.UserID, &e.Action, &e.Target, &e.Details, &e.CreatedAt); err != nil {
-		return nil, err
-	}
-	return &e, nil
-}
-
-func (s *PostgresStore) WriteAuditEvent(ctx context.Context, event *AuditEvent) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO audit_events (user_id, action, target, details, created_at) VALUES ($1, $2, $3, $4, NOW())`,
-		event.UserID, event.Action, event.Target, event.Details)
-	return err
-}
-
-func (s *PostgresStore) QueryAuditLog(ctx context.Context, q AuditQuery) ([]*AuditEvent, error) {
-	// Sentinel-parameter pattern: always pass every filter so the query is a
-	// single static literal (avoids go:S2077 dynamic-SQL hotspot).
-	var userID any
-	if q.UserID != nil {
-		userID = *q.UserID
-	}
-
-	return queryListPG(ctx, s.db, scanAuditEventPG,
-		`SELECT id, user_id, action, target, details, created_at FROM audit_events
-		 WHERE ($1::uuid IS NULL OR user_id = $1)
-		   AND ($2 = '' OR action = $2)
-		 ORDER BY created_at DESC, id DESC
-		 LIMIT NULLIF($3, 0) OFFSET $4`,
-		userID, q.Action, q.Limit, q.Offset)
-}
-
 // --- AMT Devices ---
 
 func scanAMTDevicePG(sc scanner) (*AMTDevice, error) {

@@ -21,13 +21,20 @@ func NewInstrumentedStore(store db.Store, m *Metrics) *InstrumentedStore {
 }
 
 func (s *InstrumentedStore) observe(operation string, start time.Time, err error) {
-	duration := time.Since(start).Seconds()
+	s.metrics.Observe(operation, time.Since(start), err == nil)
+}
+
+// Observe records a single DB-shaped operation against the standard db_query_*
+// metric pair. It lets audit.Instrumented (and other repository decorators
+// added under ADR-021) reuse the same dashboards without importing this
+// package or duplicating label discipline.
+func (m *Metrics) Observe(operation string, duration time.Duration, ok bool) {
 	status := "ok"
-	if err != nil {
+	if !ok {
 		status = "error"
 	}
-	s.metrics.DBQueryDuration.WithLabelValues(operation).Observe(duration)
-	s.metrics.DBQueriesTotal.WithLabelValues(operation, status).Inc()
+	m.DBQueryDuration.WithLabelValues(operation).Observe(duration.Seconds())
+	m.DBQueriesTotal.WithLabelValues(operation, status).Inc()
 }
 
 // --- Devices -----------------------------------------------------------------
@@ -322,24 +329,6 @@ func (s *InstrumentedStore) IncrementEnrollmentTokenUseCount(ctx context.Context
 	err := s.inner.IncrementEnrollmentTokenUseCount(ctx, id)
 	s.observe("IncrementEnrollmentTokenUseCount", start, err)
 	return err
-}
-
-// --- Audit -------------------------------------------------------------------
-
-// WriteAuditEvent instruments db.Store.WriteAuditEvent.
-func (s *InstrumentedStore) WriteAuditEvent(ctx context.Context, event *db.AuditEvent) error {
-	start := time.Now()
-	err := s.inner.WriteAuditEvent(ctx, event)
-	s.observe("WriteAuditEvent", start, err)
-	return err
-}
-
-// QueryAuditLog instruments db.Store.QueryAuditLog.
-func (s *InstrumentedStore) QueryAuditLog(ctx context.Context, q db.AuditQuery) ([]*db.AuditEvent, error) {
-	start := time.Now()
-	events, err := s.inner.QueryAuditLog(ctx, q)
-	s.observe("QueryAuditLog", start, err)
-	return events, err
 }
 
 // --- Device Updates ----------------------------------------------------------

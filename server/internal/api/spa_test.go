@@ -21,6 +21,7 @@ func newTestServerWithWebDir(t *testing.T, webDir string) *Server {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	return NewServer(ServerConfig{
 		Store:    store,
+		Audit:    testutil.NewTestAudit(t, store),
 		JWT:      testJWTConfig(),
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
@@ -137,6 +138,7 @@ func TestSPA_DisabledWhenWebDirEmpty(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{
 		Store:    store,
+		Audit:    testutil.NewTestAudit(t, store),
 		JWT:      &auth.JWTConfig{Secret: "test-secret-key-at-least-32-bytes!", Issuer: "test", Duration: 60},
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
