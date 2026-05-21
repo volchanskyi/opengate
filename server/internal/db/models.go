@@ -86,38 +86,6 @@ type AMTDevice struct {
 	LastSeen time.Time    `json:"last_seen"`
 }
 
-// EnrollmentToken authorises agent enrollment and CA certificate retrieval.
-type EnrollmentToken struct {
-	ID        uuid.UUID `json:"id"`
-	Token     string    `json:"token"`
-	Label     string    `json:"label"`
-	CreatedBy UserID    `json:"created_by"`
-	MaxUses   int       `json:"max_uses"`
-	UseCount  int       `json:"use_count"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
-}
-
-// UpdateStatus represents the outcome of a pushed update.
-type UpdateStatus string
-
-const (
-	UpdateStatusPending UpdateStatus = "pending"
-	UpdateStatusSuccess UpdateStatus = "success"
-	UpdateStatusFailed  UpdateStatus = "failed"
-)
-
-// DeviceUpdate tracks a single update push to a device.
-type DeviceUpdate struct {
-	ID       int64        `json:"id"`
-	DeviceID DeviceID     `json:"device_id"`
-	Version  string       `json:"version"`
-	Status   UpdateStatus `json:"status"`
-	Error    string       `json:"error"`
-	PushedAt time.Time    `json:"pushed_at"`
-	AckedAt  *time.Time   `json:"acked_at,omitempty"`
-}
-
 // NetworkInterfaceInfo describes a single network interface on the agent host.
 type NetworkInterfaceInfo struct {
 	Name string   `json:"name"`

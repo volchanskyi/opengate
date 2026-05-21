@@ -289,49 +289,7 @@ func (s *InstrumentedStore) SetAMTDeviceStatus(ctx context.Context, id uuid.UUID
 	return err
 }
 
-// --- Enrollment Tokens -------------------------------------------------------
-
-// CreateEnrollmentToken instruments db.Store.CreateEnrollmentToken.
-func (s *InstrumentedStore) CreateEnrollmentToken(ctx context.Context, t *db.EnrollmentToken) error {
-	start := time.Now()
-	err := s.inner.CreateEnrollmentToken(ctx, t)
-	s.observe("CreateEnrollmentToken", start, err)
-	return err
-}
-
-// GetEnrollmentTokenByToken instruments db.Store.GetEnrollmentTokenByToken.
-func (s *InstrumentedStore) GetEnrollmentTokenByToken(ctx context.Context, token string) (*db.EnrollmentToken, error) {
-	start := time.Now()
-	t, err := s.inner.GetEnrollmentTokenByToken(ctx, token)
-	s.observe("GetEnrollmentTokenByToken", start, err)
-	return t, err
-}
-
-// ListEnrollmentTokens instruments db.Store.ListEnrollmentTokens.
-func (s *InstrumentedStore) ListEnrollmentTokens(ctx context.Context, createdBy db.UserID) ([]*db.EnrollmentToken, error) {
-	start := time.Now()
-	t, err := s.inner.ListEnrollmentTokens(ctx, createdBy)
-	s.observe("ListEnrollmentTokens", start, err)
-	return t, err
-}
-
-// DeleteEnrollmentToken instruments db.Store.DeleteEnrollmentToken.
-func (s *InstrumentedStore) DeleteEnrollmentToken(ctx context.Context, id uuid.UUID) error {
-	start := time.Now()
-	err := s.inner.DeleteEnrollmentToken(ctx, id)
-	s.observe("DeleteEnrollmentToken", start, err)
-	return err
-}
-
-// IncrementEnrollmentTokenUseCount instruments db.Store.IncrementEnrollmentTokenUseCount.
-func (s *InstrumentedStore) IncrementEnrollmentTokenUseCount(ctx context.Context, id uuid.UUID) error {
-	start := time.Now()
-	err := s.inner.IncrementEnrollmentTokenUseCount(ctx, id)
-	s.observe("IncrementEnrollmentTokenUseCount", start, err)
-	return err
-}
-
-// --- Device Updates ----------------------------------------------------------
+// --- Device Hardware ---------------------------------------------------------
 
 // UpsertDeviceHardware instruments db.Store.UpsertDeviceHardware.
 func (s *InstrumentedStore) UpsertDeviceHardware(ctx context.Context, hw *db.DeviceHardware) error {
@@ -373,29 +331,6 @@ func (s *InstrumentedStore) HasRecentLogs(ctx context.Context, deviceID db.Devic
 	return ok, err
 }
 
-// CreateDeviceUpdate instruments db.Store.CreateDeviceUpdate.
-func (s *InstrumentedStore) CreateDeviceUpdate(ctx context.Context, du *db.DeviceUpdate) error {
-	start := time.Now()
-	err := s.inner.CreateDeviceUpdate(ctx, du)
-	s.observe("CreateDeviceUpdate", start, err)
-	return err
-}
-
-// UpdateDeviceUpdateStatus instruments db.Store.UpdateDeviceUpdateStatus.
-func (s *InstrumentedStore) UpdateDeviceUpdateStatus(ctx context.Context, deviceID db.DeviceID, version string, status db.UpdateStatus, errMsg string) error {
-	start := time.Now()
-	err := s.inner.UpdateDeviceUpdateStatus(ctx, deviceID, version, status, errMsg)
-	s.observe("UpdateDeviceUpdateStatus", start, err)
-	return err
-}
-
-// ListDeviceUpdatesByVersion instruments db.Store.ListDeviceUpdatesByVersion.
-func (s *InstrumentedStore) ListDeviceUpdatesByVersion(ctx context.Context, version string) ([]*db.DeviceUpdate, error) {
-	start := time.Now()
-	du, err := s.inner.ListDeviceUpdatesByVersion(ctx, version)
-	s.observe("ListDeviceUpdatesByVersion", start, err)
-	return du, err
-}
 
 // --- Security Groups ---------------------------------------------------------
 

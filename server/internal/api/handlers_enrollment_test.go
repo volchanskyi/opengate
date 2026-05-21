@@ -21,10 +21,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 // generateTestCSRPEM creates a valid PEM-encoded CERTIFICATE REQUEST for testing.
@@ -65,8 +65,10 @@ func newTestServerWithCert(t *testing.T) (*Server, *auth.JWTConfig) {
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{
-		Store:    store,
-		Audit:    testutil.NewTestAudit(t, store),
+		Store:         store,
+		Audit:         testutil.NewTestAudit(t, store),
+		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
+		Enrollment:    testutil.NewTestEnrollment(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
@@ -338,7 +340,7 @@ func TestEnroll(t *testing.T) {
 		user, _ := seedTestUser(t, srv, cfg, "admin@test.com", true)
 
 		// Insert an already-expired token directly into the store.
-		et := &db.EnrollmentToken{
+		et := &updater.EnrollmentToken{
 			ID:        uuid.New(),
 			Token:     "expired-token-abc123",
 			Label:     "expired",
@@ -347,7 +349,7 @@ func TestEnroll(t *testing.T) {
 			UseCount:  0,
 			ExpiresAt: time.Now().UTC().Add(-1 * time.Hour),
 		}
-		err := srv.store.CreateEnrollmentToken(t.Context(), et)
+		err := srv.enrollment.Create(t.Context(), et)
 		require.NoError(t, err)
 
 		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/expired-token-abc123", "", EnrollRequest{})
@@ -359,7 +361,7 @@ func TestEnroll(t *testing.T) {
 		user, _ := seedTestUser(t, srv, cfg, "admin@test.com", true)
 
 		// Insert token with max_uses=1, use_count=1 directly.
-		et := &db.EnrollmentToken{
+		et := &updater.EnrollmentToken{
 			ID:        uuid.New(),
 			Token:     "exhausted-token-abc123",
 			Label:     "exhausted",
@@ -368,7 +370,7 @@ func TestEnroll(t *testing.T) {
 			UseCount:  1,
 			ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
 		}
-		err := srv.store.CreateEnrollmentToken(t.Context(), et)
+		err := srv.enrollment.Create(t.Context(), et)
 		require.NoError(t, err)
 
 		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/exhausted-token-abc123", "", EnrollRequest{})
@@ -396,7 +398,7 @@ func TestEnroll(t *testing.T) {
 		srv, cfg := newTestServer(t)
 		user, _ := seedTestUser(t, srv, cfg, "admin@test.com", true)
 
-		et := &db.EnrollmentToken{
+		et := &updater.EnrollmentToken{
 			ID:        uuid.New(),
 			Token:     "token-no-cert",
 			Label:     "no-cert",
@@ -405,7 +407,7 @@ func TestEnroll(t *testing.T) {
 			UseCount:  0,
 			ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
 		}
-		err := srv.store.CreateEnrollmentToken(t.Context(), et)
+		err := srv.enrollment.Create(t.Context(), et)
 		require.NoError(t, err)
 
 		w := doRequest(srv, http.MethodPost, "/api/v1/enroll/token-no-cert", "", EnrollRequest{})

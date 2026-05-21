@@ -49,6 +49,14 @@ components:
   audit:
     in: internal/audit
 
+  # Constrained: the update module owns DeviceUpdate + EnrollmentToken
+  # aggregates (ADR-021 extraction #2). Repository interfaces, Postgres
+  # adapters, and Instrumented decorators live here. No internal imports.
+  # The existing manifest/signing/github files inside internal/updater pre-
+  # date the extraction; verified to import nothing project-internal.
+  update:
+    in: internal/updater
+
   # Catch-all for everything else. NOT constrained at the pilot stage — these
   # components will earn their own rules in ADR-021/022/023/024 work.
   other:
@@ -72,6 +80,13 @@ deps:
     # type flowing into NewInstrumented at the call site and flag it as a
     # dependency. The audit source code itself imports nothing project-internal,
     # so the looser non-deepScan check is the correct rule here.
+    mayDependOn: []
+    anyVendorDeps: true
+    deepScan: false
+  update:
+    # Same rationale as audit: leaf module, owns its ports + adapters +
+    # decorators. deepScan disabled because the Instrumented decorators
+    # accept the same duck-typed Observer interface as audit.
     mayDependOn: []
     anyVendorDeps: true
     deepScan: false

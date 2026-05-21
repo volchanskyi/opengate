@@ -16,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
+	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 func testLogger() *slog.Logger {
@@ -77,7 +78,7 @@ func TestNewAgentConn(t *testing.T) {
 	var buf bytes.Buffer
 	logger := testLogger()
 
-	ac := NewAgentConn(deviceID, groupID, &buf, store, logger)
+	ac := NewAgentConn(deviceID, groupID, &buf, store, testutil.NewTestDeviceUpdates(t, store), logger)
 	assert.Equal(t, deviceID, ac.DeviceID)
 	assert.Equal(t, groupID, ac.GroupID)
 	assert.NotNil(t, ac.codec)
@@ -457,6 +458,7 @@ func TestAgentConn_Close(t *testing.T) {
 
 func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 	store := testutil.NewTestStore(t)
+	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
 	ctx := context.Background()
 
 	user := testutil.SeedUser(t, ctx, store)
@@ -464,18 +466,18 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 	device := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	// Create a pending update record
-	require.NoError(t, store.CreateDeviceUpdate(ctx, &db.DeviceUpdate{
+	require.NoError(t, deviceUpdates.Create(ctx, &updater.DeviceUpdate{
 		DeviceID: device.ID,
 		Version:  "0.5.0",
-		Status:   db.UpdateStatusPending,
+		Status:   updater.StatusPending,
 	}))
 
 	codec := &protocol.Codec{}
 
 	// findUpdate returns the latest DeviceUpdate record for (device, version).
-	findUpdate := func(t *testing.T) *db.DeviceUpdate {
+	findUpdate := func(t *testing.T) *updater.DeviceUpdate {
 		t.Helper()
-		ups, err := store.ListDeviceUpdatesByVersion(ctx, "0.5.0")
+		ups, err := deviceUpdates.ListByVersion(ctx, "0.5.0")
 		require.NoError(t, err)
 		for _, u := range ups {
 			if u.DeviceID == device.ID {
@@ -500,12 +502,13 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 		require.NoError(t, codec.WriteFrame(&frameBuf, protocol.FrameControl, payload))
 
 		ac := &AgentConn{
-			DeviceID: device.ID,
-			GroupID:  group.ID,
-			stream:   &frameBuf,
-			codec:    codec,
-			store:    store,
-			logger:   testLogger(),
+			DeviceID:      device.ID,
+			GroupID:       group.ID,
+			stream:        &frameBuf,
+			codec:         codec,
+			store:         store,
+			deviceUpdates: deviceUpdates,
+			logger:        testLogger(),
 		}
 		require.NoError(t, ac.handleControl(ctx))
 
@@ -513,8 +516,8 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 		// CONDITIONALS_NEGATION on `msg.Success != nil` survives because
 		// handleControl returns nil regardless of the persisted outcome.
 		got := findUpdate(t)
-		assert.Equal(t, db.UpdateStatusSuccess, got.Status,
-			"success=true ack must persist UpdateStatusSuccess")
+		assert.Equal(t, updater.StatusSuccess, got.Status,
+			"success=true ack must persist updater.StatusSuccess")
 	})
 
 	t.Run("failure ack persists Failed status", func(t *testing.T) {
@@ -532,18 +535,19 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 		require.NoError(t, codec.WriteFrame(&frameBuf, protocol.FrameControl, payload))
 
 		ac := &AgentConn{
-			DeviceID: device.ID,
-			GroupID:  group.ID,
-			stream:   &frameBuf,
-			codec:    codec,
-			store:    store,
-			logger:   testLogger(),
+			DeviceID:      device.ID,
+			GroupID:       group.ID,
+			stream:        &frameBuf,
+			codec:         codec,
+			store:         store,
+			deviceUpdates: deviceUpdates,
+			logger:        testLogger(),
 		}
 		require.NoError(t, ac.handleControl(ctx))
 
 		got := findUpdate(t)
-		assert.Equal(t, db.UpdateStatusFailed, got.Status,
-			"success=false ack must persist UpdateStatusFailed")
+		assert.Equal(t, updater.StatusFailed, got.Status,
+			"success=false ack must persist updater.StatusFailed")
 		assert.Equal(t, "checksum mismatch", got.Error)
 	})
 }

@@ -27,8 +27,10 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 	manifests := updater.NewManifestStore(dir)
 
 	srv := NewServer(ServerConfig{
-		Store:     store,
-		Audit:     testutil.NewTestAudit(t, store),
+		Store:         store,
+		Audit:         testutil.NewTestAudit(t, store),
+		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
+		Enrollment:    testutil.NewTestEnrollment(t, store),
 		JWT:       cfg,
 		Agents:    &stubAgentGetter{},
 		AMT:       &stubAMTOperator{},

@@ -29,9 +29,9 @@ In order, with elapsed time printed per step:
 6. **Security audits** — `govulncheck`, `npm audit --audit-level=high`, `cargo audit`.
 7. **Benchmarks** — Go `go test -bench` and Rust `cargo bench -p mesh-protocol`. Skip with `PRECOMMIT_SKIP_BENCH=1` only for clearly non-perf-touching iterations.
 8. **E2E** — `make e2e` (full Playwright suite against the docker-compose test stack).
-9. **SonarCloud** — `make sonar-quick`. Skip with `PRECOMMIT_SKIP_SONAR=1` only when offline.
+9. **SonarCloud** — `make sonar` (full scan with fresh coverage upload). **No skip.** Quality-gate evaluation against stale coverage previously let `new_coverage` regressions surface only in CI; the gauntlet now uploads fresh coverage on every commit.
 
-The two `PRECOMMIT_SKIP_*` env vars exist for narrow local-iteration cases; they are NOT honored by the hook in CI (no CI workflow sets them). Skipping for convenience leaves the failure mode for CI.
+`PRECOMMIT_SKIP_BENCH=1` remains for narrow local-iteration cases; it is NOT honored by the hook in CI. Skipping for convenience leaves the failure mode for CI.
 
 ## Why every commit
 

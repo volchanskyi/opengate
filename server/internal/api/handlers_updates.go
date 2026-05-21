@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -104,12 +103,12 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 		pushed++
 
 		// Record pending update status for tracking.
-		du := &db.DeviceUpdate{
+		du := &updater.DeviceUpdate{
 			DeviceID: agent.DeviceID,
 			Version:  m.Version,
-			Status:   db.UpdateStatusPending,
+			Status:   updater.StatusPending,
 		}
-		if err := s.store.CreateDeviceUpdate(ctx, du); err != nil {
+		if err := s.deviceUpdates.Create(ctx, du); err != nil {
 			s.logger.Warn("record device update failed",
 				"device_id", agent.DeviceID,
 				"error", err)
@@ -150,7 +149,7 @@ func (s *Server) GetUpdateStatus(ctx context.Context, request GetUpdateStatusReq
 		return resp, nil
 	}
 
-	updates, err := s.store.ListDeviceUpdatesByVersion(ctx, request.Version)
+	updates, err := s.deviceUpdates.ListByVersion(ctx, request.Version)
 	if err != nil {
 		return nil, fmt.Errorf("list device updates: %w", err)
 	}

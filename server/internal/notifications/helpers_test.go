@@ -128,19 +128,6 @@ func (m *notifMockStore) ListAMTDevices(_ context.Context) ([]*db.AMTDevice, err
 func (m *notifMockStore) SetAMTDeviceStatus(_ context.Context, _ uuid.UUID, _ db.DeviceStatus) error {
 	return nil
 }
-func (m *notifMockStore) CreateEnrollmentToken(_ context.Context, _ *db.EnrollmentToken) error {
-	return nil
-}
-func (m *notifMockStore) GetEnrollmentTokenByToken(_ context.Context, _ string) (*db.EnrollmentToken, error) {
-	return nil, nil
-}
-func (m *notifMockStore) ListEnrollmentTokens(_ context.Context, _ db.UserID) ([]*db.EnrollmentToken, error) {
-	return nil, nil
-}
-func (m *notifMockStore) DeleteEnrollmentToken(_ context.Context, _ uuid.UUID) error { return nil }
-func (m *notifMockStore) IncrementEnrollmentTokenUseCount(_ context.Context, _ uuid.UUID) error {
-	return nil
-}
 func (m *notifMockStore) CreateSecurityGroup(_ context.Context, _ *db.SecurityGroup) error {
 	return nil
 }
@@ -167,15 +154,6 @@ func (m *notifMockStore) IsUserInSecurityGroup(_ context.Context, _ db.UserID, _
 }
 func (m *notifMockStore) CountSecurityGroupMembers(_ context.Context, _ db.SecurityGroupID) (int, error) {
 	return 0, nil
-}
-func (m *notifMockStore) CreateDeviceUpdate(_ context.Context, _ *db.DeviceUpdate) error {
-	return nil
-}
-func (m *notifMockStore) UpdateDeviceUpdateStatus(_ context.Context, _ db.DeviceID, _ string, _ db.UpdateStatus, _ string) error {
-	return nil
-}
-func (m *notifMockStore) ListDeviceUpdatesByVersion(_ context.Context, _ string) ([]*db.DeviceUpdate, error) {
-	return nil, nil
 }
 func (m *notifMockStore) UpsertDeviceHardware(_ context.Context, _ *db.DeviceHardware) error {
 	return nil

@@ -44,7 +44,7 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 
 	r := relay.NewRelay(slog.Default())
 	logger := testLogger()
-	srv := agentapi.NewAgentServer(cm, store, r, &notifications.NoopNotifier{}, "", logger)
+	srv := agentapi.NewAgentServer(cm, store, testutil.NewTestDeviceUpdates(t, store), r, &notifications.NoopNotifier{}, "", logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
