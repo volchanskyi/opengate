@@ -73,6 +73,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Audit:         testutil.NewTestAudit(t, store),
 		DeviceUpdates: deviceUpdates,
 		Enrollment:    testutil.NewTestEnrollment(t, store),
+		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		JWT:      jwtCfg,
 		AMT:      &stubAMT{},
 		Relay:    relay.NewRelay(slog.Default()),

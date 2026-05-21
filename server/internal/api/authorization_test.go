@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
@@ -23,7 +23,7 @@ func TestDeviceIDOR(t *testing.T) {
 	_, adminToken := seedTestUser(t, srv, cfg, "admin-idor@example.com", true)
 	// Add admin to Administrators security group.
 	admin, _ := srv.store.GetUserByEmail(ctx, "admin-idor@example.com")
-	require.NoError(t, srv.store.AddSecurityGroupMember(ctx, db.AdminGroupID, admin.ID))
+	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
 	group := testutil.SeedGroup(t, ctx, srv.store, owner.ID)
 	device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
@@ -90,7 +90,7 @@ func TestGroupIDOR(t *testing.T) {
 	_, attackerToken := seedTestUser(t, srv, cfg, "group-attacker@example.com", false)
 	_, adminToken := seedTestUser(t, srv, cfg, "group-admin@example.com", true)
 	admin, _ := srv.store.GetUserByEmail(ctx, "group-admin@example.com")
-	require.NoError(t, srv.store.AddSecurityGroupMember(ctx, db.AdminGroupID, admin.ID))
+	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
 	group := testutil.SeedGroup(t, ctx, srv.store, owner.ID)
 
@@ -140,7 +140,7 @@ func TestSessionIDOR(t *testing.T) {
 	_, attackerToken := seedTestUser(t, srv, cfg, "sess-attacker@example.com", false)
 	_, adminToken := seedTestUser(t, srv, cfg, "sess-admin@example.com", true)
 	admin, _ := srv.store.GetUserByEmail(ctx, "sess-admin@example.com")
-	require.NoError(t, srv.store.AddSecurityGroupMember(ctx, db.AdminGroupID, admin.ID))
+	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
 	group := testutil.SeedGroup(t, ctx, srv.store, owner.ID)
 	device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
@@ -173,7 +173,7 @@ func TestAMTAdminOnly(t *testing.T) {
 	_, regularToken := seedTestUser(t, srv, cfg, "amt-regular@example.com", false)
 	_, adminToken := seedTestUser(t, srv, cfg, "amt-admin@example.com", true)
 	admin, _ := srv.store.GetUserByEmail(ctx, "amt-admin@example.com")
-	require.NoError(t, srv.store.AddSecurityGroupMember(ctx, db.AdminGroupID, admin.ID))
+	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
 	amtDevice := testutil.SeedAMTDevice(t, ctx, srv.store)
 

@@ -53,10 +53,11 @@ type CertProvider interface {
 
 // ServerConfig holds all dependencies for the API server.
 type ServerConfig struct {
-	Store          db.Store
-	Audit          audit.Repository
-	DeviceUpdates  updater.DeviceUpdateRepository
-	Enrollment     updater.EnrollmentTokenRepository
+	Store           db.Store
+	Audit           audit.Repository
+	DeviceUpdates   updater.DeviceUpdateRepository
+	Enrollment      updater.EnrollmentTokenRepository
+	SecurityGroups  auth.SecurityGroupRepository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
 	AMT       AMTOperator
@@ -77,10 +78,11 @@ type ServerConfig struct {
 
 // Server is the HTTP API server.
 type Server struct {
-	store         db.Store
-	audit         audit.Repository
-	deviceUpdates updater.DeviceUpdateRepository
-	enrollment    updater.EnrollmentTokenRepository
+	store          db.Store
+	audit          audit.Repository
+	deviceUpdates  updater.DeviceUpdateRepository
+	enrollment     updater.EnrollmentTokenRepository
+	securityGroups auth.SecurityGroupRepository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
 	amt       AMTOperator
@@ -103,10 +105,11 @@ type Server struct {
 // NewServer creates an API server with all routes registered.
 func NewServer(cfg ServerConfig) *Server {
 	s := &Server{
-		store:         cfg.Store,
-		audit:         cfg.Audit,
-		deviceUpdates: cfg.DeviceUpdates,
-		enrollment:    cfg.Enrollment,
+		store:          cfg.Store,
+		audit:          cfg.Audit,
+		deviceUpdates:  cfg.DeviceUpdates,
+		enrollment:     cfg.Enrollment,
+		securityGroups: cfg.SecurityGroups,
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
 		amt:       cfg.AMT,
