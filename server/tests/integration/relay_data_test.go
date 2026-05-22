@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
@@ -41,7 +42,7 @@ func (e *sessionTestEnv) setupRelayPair(t *testing.T, ctx context.Context) (agen
 	stream, deviceID := e.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := e.store.GetDevice(ctx, deviceID)
+		d, err := device.NewPostgresDevices(e.store.(*db.PostgresStore).DB()).Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 

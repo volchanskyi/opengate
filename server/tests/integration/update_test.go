@@ -98,7 +98,7 @@ func TestUpdatePublishAndPush(t *testing.T) {
 	stream, deviceID := env.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
@@ -170,14 +170,14 @@ func TestUpdatePushSkipsCurrentVersion(t *testing.T) {
 	_, deviceID := env.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
 	// Get the agent's reported version from the DB
-	device, err := env.store.GetDevice(ctx, deviceID)
+	d, err := env.devices.Get(ctx, deviceID)
 	require.NoError(t, err)
-	agentVersion := device.AgentVersion
+	agentVersion := d.AgentVersion
 
 	// Publish manifest with the same version the agent already reports
 	publishManifest(t, env, adminJWT, agentVersion, "linux", "amd64")
@@ -204,7 +204,7 @@ func TestUpdatePushNoMatchingOS(t *testing.T) {
 	_, deviceID := env.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 

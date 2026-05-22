@@ -66,6 +66,13 @@ components:
   auth:
     in: internal/auth
 
+  # Constrained: the device module owns the Device aggregate (ADR-021
+  # extraction #4) — Devices, Groups, Hardware inventory, and the cached log
+  # read model. Four Repository interfaces, their Postgres adapters, and
+  # their Instrumented decorators live here. No internal imports.
+  device:
+    in: internal/device
+
   # Catch-all for everything else. NOT constrained at the pilot stage — these
   # components will earn their own rules in ADR-021/022/023/024 work.
   other:
@@ -103,6 +110,13 @@ deps:
     # Same rationale as audit and update: leaf module, owns its ports +
     # adapters + decorators. deepScan disabled because the Instrumented
     # decorator accepts the same duck-typed Observer interface as audit/update.
+    mayDependOn: []
+    anyVendorDeps: true
+    deepScan: false
+  device:
+    # Same leaf-module pattern as audit/update/auth. The four repository
+    # interfaces (Devices/Groups/Hardware/Logs) and their Postgres + Instrumented
+    # adapters live entirely in this package; no internal imports.
     mayDependOn: []
     anyVendorDeps: true
     deepScan: false

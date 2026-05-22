@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
@@ -104,9 +105,9 @@ func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 
 	owner := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, owner.ID)
-	device := testutil.SeedDevice(t, ctx, store, group.ID)
+	dev := testutil.SeedDevice(t, ctx, store, group.ID)
 
-	originals := []db.NetworkInterfaceInfo{
+	originals := []device.NetworkInterfaceInfo{
 		{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff",
 			IPv4: []string{"10.0.0.1"},
 			IPv6: []string{"fe80::1", "2001:db8::1"}},
@@ -119,8 +120,8 @@ func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 			IPv4: []string{"192.168.1.10"},
 			IPv6: []string{}},
 	}
-	hw := &db.DeviceHardware{
-		DeviceID:          device.ID,
+	hw := &device.Hardware{
+		DeviceID:          dev.ID,
 		CPUModel:          "Intel(R) Core(TM) i9-12900K",
 		CPUCores:          16,
 		RAMTotalMB:        32_768,
@@ -128,9 +129,9 @@ func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 		DiskFreeMB:        512_000,
 		NetworkInterfaces: originals,
 	}
-	require.NoError(t, store.UpsertDeviceHardware(ctx, hw))
+	require.NoError(t, testutil.NewTestHardware(t, store).Upsert(ctx, hw))
 
-	got, err := store.GetDeviceHardware(ctx, device.ID)
+	got, err := testutil.NewTestHardware(t, store).Get(ctx, dev.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 
@@ -231,7 +232,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			err := store.UpsertDevice(ctx, &db.Device{
+			err := testutil.NewTestDevices(t, store).Upsert(ctx, &device.Device{
 				ID:           ids[i],
 				GroupID:      group.ID,
 				Hostname:     fmt.Sprintf("concurrent-%d", i),
@@ -254,7 +255,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 	}
 	require.Empty(t, errs, "concurrent UpsertDevice produced errors")
 
-	devices, err := store.ListDevices(ctx, group.ID)
+	devices, err := testutil.NewTestDevices(t, store).List(ctx, group.ID)
 	require.NoError(t, err)
 	assert.Len(t, devices, N, "all concurrent inserts must be visible after wg.Wait")
 }
@@ -274,7 +275,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 	// the server-side statement table.
 	const N = 200
 	for i := range N {
-		err := store.UpsertDevice(ctx, &db.Device{
+		err := testutil.NewTestDevices(t, store).Upsert(ctx, &device.Device{
 			ID:           uuid.New(),
 			GroupID:      group.ID,
 			Hostname:     fmt.Sprintf("cache-%d", i),
@@ -290,7 +291,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 
 	// Reset of a single connection should not leak server-side prepared
 	// statements either — ensure subsequent queries still work.
-	devices, err := store.ListAllDevices(ctx)
+	devices, err := testutil.NewTestDevices(t, store).ListAll(ctx)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(devices), N)
 }

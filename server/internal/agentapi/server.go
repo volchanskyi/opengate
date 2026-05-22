@@ -15,6 +15,7 @@ import (
 	"github.com/quic-go/quic-go"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -25,6 +26,9 @@ import (
 type AgentServer struct {
 	cert          *cert.Manager
 	store         db.Store
+	devices       device.Repository
+	hardware      device.HardwareRepository
+	deviceLogs    device.LogsRepository
 	deviceUpdates updater.DeviceUpdateRepository
 	relay      *relay.Relay
 	notifier   notifications.Notifier
@@ -37,16 +41,35 @@ type AgentServer struct {
 	addrOnce   sync.Once
 }
 
+// AgentServerConfig groups the AgentServer constructor's dependencies. A
+// struct rather than a long parameter list keeps the call sites readable now
+// that ADR-021 has split the persistence ports across modules.
+type AgentServerConfig struct {
+	Cert          *cert.Manager
+	Store         db.Store
+	Devices       device.Repository
+	Hardware      device.HardwareRepository
+	DeviceLogs    device.LogsRepository
+	DeviceUpdates updater.DeviceUpdateRepository
+	Relay         *relay.Relay
+	Notifier      notifications.Notifier
+	QuicHost      string
+	Logger        *slog.Logger
+}
+
 // NewAgentServer creates a new AgentServer.
-func NewAgentServer(cm *cert.Manager, store db.Store, deviceUpdates updater.DeviceUpdateRepository, r *relay.Relay, notifier notifications.Notifier, quicHost string, logger *slog.Logger) *AgentServer {
+func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 	return &AgentServer{
-		cert:          cm,
-		store:         store,
-		deviceUpdates: deviceUpdates,
-		relay:    r,
-		notifier: notifier,
-		quicHost: quicHost,
-		logger:   logger,
+		cert:          cfg.Cert,
+		store:         cfg.Store,
+		devices:       cfg.Devices,
+		hardware:      cfg.Hardware,
+		deviceLogs:    cfg.DeviceLogs,
+		deviceUpdates: cfg.DeviceUpdates,
+		relay:    cfg.Relay,
+		notifier: cfg.Notifier,
+		quicHost: cfg.QuicHost,
+		logger:   cfg.Logger,
 		addrCh:   make(chan string, 1),
 	}
 }
@@ -186,6 +209,9 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		stream:        stream,
 		codec:         &protocol.Codec{},
 		store:         s.store,
+		devices:       s.devices,
+		hardware:      s.hardware,
+		deviceLogs:    s.deviceLogs,
 		deviceUpdates: s.deviceUpdates,
 		logger:        logger,
 	}
@@ -215,7 +241,7 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 		s.count.Add(-1)
 		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := s.store.SetDeviceStatus(offlineCtx, ac.DeviceID, db.StatusOffline); err != nil {
+		if err := s.devices.SetStatus(offlineCtx, ac.DeviceID, db.StatusOffline); err != nil {
 			logger.Error("set device offline", "error", err)
 		}
 		offlineEvt := notifications.Event{
@@ -306,7 +332,7 @@ func (s *AgentServer) rejectIfTombstoned(stream *quic.Stream, conn *quic.Conn, d
 func (s *AgentServer) lookupDeviceMeta(ctx context.Context, deviceID uuid.UUID) (uuid.UUID, string) {
 	groupID := uuid.Nil
 	hostname := deviceID.String()[:8]
-	if existing, err := s.store.GetDevice(ctx, deviceID); err == nil {
+	if existing, err := s.devices.Get(ctx, deviceID); err == nil {
 		groupID = existing.GroupID
 		if existing.Hostname != "" {
 			hostname = existing.Hostname

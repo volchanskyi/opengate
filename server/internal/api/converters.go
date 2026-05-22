@@ -3,6 +3,7 @@ package api
 import (
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
@@ -17,7 +18,7 @@ func mapSlice[S, D any](items []S, fn func(S) D) []D {
 	return out
 }
 
-func deviceToAPI(d *db.Device) Device {
+func deviceToAPI(d *device.Device) Device {
 	dev := Device{
 		Id:           d.ID,
 		GroupId:      d.GroupID,
@@ -36,11 +37,11 @@ func deviceToAPI(d *db.Device) Device {
 	return dev
 }
 
-func devicesToAPI(ds []*db.Device) []Device {
+func devicesToAPI(ds []*device.Device) []Device {
 	return mapSlice(ds, deviceToAPI)
 }
 
-func groupToAPI(g *db.Group) Group {
+func groupToAPI(g *device.Group) Group {
 	return Group{
 		Id:        g.ID,
 		Name:      g.Name,
@@ -50,7 +51,7 @@ func groupToAPI(g *db.Group) Group {
 	}
 }
 
-func groupsToAPI(gs []*db.Group) []Group {
+func groupsToAPI(gs []*device.Group) []Group {
 	return mapSlice(gs, groupToAPI)
 }
 
@@ -154,7 +155,7 @@ func manifestsToAPI(ms []*updater.Manifest) []AgentManifest {
 	return mapSlice(ms, manifestToAPI)
 }
 
-func deviceHardwareToAPI(hw *db.DeviceHardware) DeviceHardware {
+func deviceHardwareToAPI(hw *device.Hardware) DeviceHardware {
 	return DeviceHardware{
 		DeviceId:          hw.DeviceID,
 		CpuModel:          hw.CPUModel,
@@ -167,7 +168,7 @@ func deviceHardwareToAPI(hw *db.DeviceHardware) DeviceHardware {
 	}
 }
 
-func networkInterfaceToAPI(ni db.NetworkInterfaceInfo) NetworkInterfaceInfo {
+func networkInterfaceToAPI(ni device.NetworkInterfaceInfo) NetworkInterfaceInfo {
 	return NetworkInterfaceInfo{
 		Name: ni.Name,
 		Mac:  ni.MAC,
@@ -176,7 +177,7 @@ func networkInterfaceToAPI(ni db.NetworkInterfaceInfo) NetworkInterfaceInfo {
 	}
 }
 
-func deviceLogsToAPI(entries []db.DeviceLogEntry, total int, filter db.LogFilter) DeviceLogsResponse {
+func deviceLogsToAPI(entries []device.LogEntry, total int, filter device.LogFilter) DeviceLogsResponse {
 	apiEntries := make([]DeviceLogEntry, len(entries))
 	for i, e := range entries {
 		apiEntries[i] = DeviceLogEntry{

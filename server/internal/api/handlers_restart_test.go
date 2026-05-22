@@ -15,6 +15,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
@@ -23,7 +24,10 @@ import (
 // deviceTestEnv holds common setup for restart and hardware handler tests.
 type deviceTestEnv struct {
 	store       db.Store
-	device      *db.Device
+	devices     device.Repository
+	hardware    device.HardwareRepository
+	deviceLogs  device.LogsRepository
+	device      *device.Device
 	srv         *Server
 	ownerToken  string
 	agentStream *bytes.Buffer
@@ -47,7 +51,7 @@ func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 
 	lookup := &stubAgentGetter{}
 	if online {
-		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDeviceUpdates(t, store), logger)
+		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDevices(t, store), testutil.NewTestHardware(t, store), testutil.NewTestLogs(t, store), testutil.NewTestDeviceUpdates(t, store), logger)
 		lookup = &stubAgentGetter{
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 		}
@@ -60,6 +64,9 @@ func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 
 	return &deviceTestEnv{
 		store:         store,
+		devices:       testutil.NewTestDevices(t, store),
+		hardware:      testutil.NewTestHardware(t, store),
+		deviceLogs:    testutil.NewTestLogs(t, store),
 		device:        device,
 		srv:           srv,
 		ownerToken:    token,
@@ -180,18 +187,18 @@ func TestGetDeviceHardware(t *testing.T) {
 			env := setupDeviceTest(t, tt.online)
 
 			if tt.hasCached {
-				hw := &db.DeviceHardware{
+				hw := &device.Hardware{
 					DeviceID:    env.device.ID,
 					CPUModel:    "Intel Core i7-12700K",
 					CPUCores:    12,
 					RAMTotalMB:  32768,
 					DiskTotalMB: 512000,
 					DiskFreeMB:  256000,
-					NetworkInterfaces: []db.NetworkInterfaceInfo{
+					NetworkInterfaces: []device.NetworkInterfaceInfo{
 						{Name: "eth0", MAC: "00:11:22:33:44:55", IPv4: []string{"192.168.1.100"}, IPv6: []string{}},
 					},
 				}
-				require.NoError(t, env.store.UpsertDeviceHardware(t.Context(), hw))
+				require.NoError(t, env.hardware.Upsert(t.Context(), hw))
 			}
 
 			token := env.ownerToken
@@ -261,11 +268,11 @@ func TestGetDeviceLogs(t *testing.T) {
 			env := setupDeviceTest(t, tt.online)
 
 			if tt.hasCached {
-				entries := []db.DeviceLogEntry{
+				entries := []device.LogEntry{
 					{Timestamp: "2026-04-01T12:00:00Z", Level: "INFO", Target: "mesh_agent::main", Message: "agent started"},
 					{Timestamp: "2026-04-01T12:01:00Z", Level: "WARN", Target: "mesh_agent::connection", Message: "slow heartbeat"},
 				}
-				require.NoError(t, env.store.UpsertDeviceLogs(t.Context(), env.device.ID, entries))
+				require.NoError(t, env.deviceLogs.Upsert(t.Context(), env.device.ID, entries))
 			}
 
 			token := env.ownerToken
@@ -308,10 +315,10 @@ func TestGetDeviceLogs(t *testing.T) {
 		env := setupDeviceTest(t, true)
 
 		// Seed cached logs so hasRecent returns true.
-		entries := []db.DeviceLogEntry{
+		entries := []device.LogEntry{
 			{Timestamp: "2026-04-01T12:00:00Z", Level: "INFO", Target: "test", Message: "cached"},
 		}
-		require.NoError(t, env.store.UpsertDeviceLogs(t.Context(), env.device.ID, entries))
+		require.NoError(t, env.deviceLogs.Upsert(t.Context(), env.device.ID, entries))
 
 		// Without refresh, should return cached data (200).
 		w := doRequest(env.srv, http.MethodGet, "/api/v1/devices/"+env.device.ID.String()+"/logs", env.ownerToken, nil)

@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 // Shared test constants and subtest names (reused across CRUD tables).
@@ -154,21 +156,29 @@ func seedUser(t *testing.T, ctx context.Context, s Store) *User {
 	return u
 }
 
-// seedGroup creates a group in the store for FK dependencies.
+// seedGroup creates a group via the extracted device.GroupRepository for FK
+// dependencies in non-device tests (sessions, web push, AMT). After ADR-021
+// #4 the db.Store no longer owns CreateGroup; this helper bridges the gap
+// without forcing every consumer to thread a repo through.
 func seedGroup(t *testing.T, ctx context.Context, s Store, ownerID UserID) *Group {
 	t.Helper()
+	pg, ok := s.(*PostgresStore)
+	require.Truef(t, ok, "seedGroup expects PostgresStore, got %T", s)
 	g := &Group{
 		ID:      uuid.New(),
 		Name:    "group-" + uuid.New().String()[:8],
 		OwnerID: ownerID,
 	}
-	require.NoError(t, s.CreateGroup(ctx, g))
+	require.NoError(t, device.NewPostgresGroups(pg.DB()).Create(ctx, g))
 	return g
 }
 
-// seedDevice creates a device in the store for FK dependencies.
+// seedDevice creates a device via the extracted device.Repository for FK
+// dependencies in non-device tests.
 func seedDevice(t *testing.T, ctx context.Context, s Store, groupID GroupID) *Device {
 	t.Helper()
+	pg, ok := s.(*PostgresStore)
+	require.Truef(t, ok, "seedDevice expects PostgresStore, got %T", s)
 	d := &Device{
 		ID:       uuid.New(),
 		GroupID:  groupID,
@@ -176,7 +186,7 @@ func seedDevice(t *testing.T, ctx context.Context, s Store, groupID GroupID) *De
 		OS:       "linux",
 		Status:   StatusOffline,
 	}
-	require.NoError(t, s.UpsertDevice(ctx, d))
+	require.NoError(t, device.NewPostgresDevices(pg.DB()).Upsert(ctx, d))
 	return d
 }
 
@@ -272,220 +282,6 @@ func TestUserCRUD(t *testing.T) {
 	}
 }
 
-func TestGroupCRUD(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-			owner := seedUser(t, ctx, s)
-
-			t.Run("create and get", func(t *testing.T) {
-				g := &Group{ID: uuid.New(), Name: "Engineering", OwnerID: owner.ID}
-				require.NoError(t, s.CreateGroup(ctx, g))
-
-				got, err := s.GetGroup(ctx, g.ID)
-				require.NoError(t, err)
-				assert.Equal(t, "Engineering", got.Name)
-				assert.Equal(t, owner.ID, got.OwnerID)
-				assert.False(t, got.CreatedAt.IsZero())
-			})
-
-			t.Run(testNameGetNotFound, func(t *testing.T) {
-				_, err := s.GetGroup(ctx, uuid.New())
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run("list groups by owner", func(t *testing.T) {
-				other := seedUser(t, ctx, s)
-				g1 := &Group{ID: uuid.New(), Name: "Team A", OwnerID: owner.ID}
-				g2 := &Group{ID: uuid.New(), Name: "Team B", OwnerID: other.ID}
-				require.NoError(t, s.CreateGroup(ctx, g1))
-				require.NoError(t, s.CreateGroup(ctx, g2))
-
-				groups, err := s.ListGroups(ctx, owner.ID)
-				require.NoError(t, err)
-				for _, g := range groups {
-					assert.Equal(t, owner.ID, g.OwnerID)
-				}
-
-				otherGroups, err := s.ListGroups(ctx, other.ID)
-				require.NoError(t, err)
-				assert.Len(t, otherGroups, 1)
-				assert.Equal(t, "Team B", otherGroups[0].Name)
-			})
-
-			t.Run("delete", func(t *testing.T) {
-				g := &Group{ID: uuid.New(), Name: "Delete Me", OwnerID: owner.ID}
-				require.NoError(t, s.CreateGroup(ctx, g))
-				require.NoError(t, s.DeleteGroup(ctx, g.ID))
-				_, err := s.GetGroup(ctx, g.ID)
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run(testNameDeleteNF, func(t *testing.T) {
-				err := s.DeleteGroup(ctx, uuid.New())
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-		})
-	}
-}
-
-func TestDeviceCRUD(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-			owner := seedUser(t, ctx, s)
-			group := seedGroup(t, ctx, s, owner.ID)
-
-			t.Run("upsert and get", func(t *testing.T) {
-				d := &Device{
-					ID:       uuid.New(),
-					GroupID:  group.ID,
-					Hostname: "workstation-01",
-					OS:       "linux",
-					Status:   StatusOffline,
-				}
-				require.NoError(t, s.UpsertDevice(ctx, d))
-
-				got, err := s.GetDevice(ctx, d.ID)
-				require.NoError(t, err)
-				assert.Equal(t, "workstation-01", got.Hostname)
-				assert.Equal(t, "linux", got.OS)
-				assert.Equal(t, StatusOffline, got.Status)
-				assert.Equal(t, group.ID, got.GroupID)
-				assert.False(t, got.CreatedAt.IsZero())
-			})
-
-			t.Run(testNameUpsertUpdates, func(t *testing.T) {
-				d := &Device{ID: uuid.New(), GroupID: group.ID, Hostname: "old", OS: "linux", Status: StatusOffline}
-				require.NoError(t, s.UpsertDevice(ctx, d))
-				d.Hostname = "new"
-				require.NoError(t, s.UpsertDevice(ctx, d))
-
-				got, err := s.GetDevice(ctx, d.ID)
-				require.NoError(t, err)
-				assert.Equal(t, "new", got.Hostname)
-			})
-
-			t.Run(testNameGetNotFound, func(t *testing.T) {
-				_, err := s.GetDevice(ctx, uuid.New())
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run("list devices by group", func(t *testing.T) {
-				group2 := seedGroup(t, ctx, s, owner.ID)
-				d1 := &Device{ID: uuid.New(), GroupID: group.ID, Hostname: "a", OS: "linux", Status: StatusOffline}
-				d2 := &Device{ID: uuid.New(), GroupID: group2.ID, Hostname: "b", OS: "linux", Status: StatusOffline}
-				require.NoError(t, s.UpsertDevice(ctx, d1))
-				require.NoError(t, s.UpsertDevice(ctx, d2))
-
-				devices, err := s.ListDevices(ctx, group2.ID)
-				require.NoError(t, err)
-				assert.Len(t, devices, 1)
-				assert.Equal(t, "b", devices[0].Hostname)
-			})
-
-			t.Run("set device status", func(t *testing.T) {
-				d := seedDevice(t, ctx, s, group.ID)
-				require.NoError(t, s.SetDeviceStatus(ctx, d.ID, StatusOnline))
-
-				got, err := s.GetDevice(ctx, d.ID)
-				require.NoError(t, err)
-				assert.Equal(t, StatusOnline, got.Status)
-			})
-
-			t.Run("set status not found", func(t *testing.T) {
-				err := s.SetDeviceStatus(ctx, uuid.New(), StatusOnline)
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run("reset all device statuses", func(t *testing.T) {
-				d1 := seedDevice(t, ctx, s, group.ID)
-				d2 := seedDevice(t, ctx, s, group.ID)
-				require.NoError(t, s.SetDeviceStatus(ctx, d1.ID, StatusOnline))
-				require.NoError(t, s.SetDeviceStatus(ctx, d2.ID, StatusOnline))
-
-				require.NoError(t, s.ResetAllDeviceStatuses(ctx))
-
-				got1, err := s.GetDevice(ctx, d1.ID)
-				require.NoError(t, err)
-				assert.Equal(t, StatusOffline, got1.Status)
-
-				got2, err := s.GetDevice(ctx, d2.ID)
-				require.NoError(t, err)
-				assert.Equal(t, StatusOffline, got2.Status)
-			})
-
-			t.Run("reset all device statuses no-op when none online", func(t *testing.T) {
-				require.NoError(t, s.ResetAllDeviceStatuses(ctx))
-			})
-
-			t.Run("delete", func(t *testing.T) {
-				d := seedDevice(t, ctx, s, group.ID)
-				require.NoError(t, s.DeleteDevice(ctx, d.ID))
-				_, err := s.GetDevice(ctx, d.ID)
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run(testNameDeleteNF, func(t *testing.T) {
-				err := s.DeleteDevice(ctx, uuid.New())
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-		})
-	}
-}
-
-func TestListDevicesForOwner_IncludesUngrouped(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-
-			owner := seedUser(t, ctx, s)
-			otherUser := seedUser(t, ctx, s)
-			group := seedGroup(t, ctx, s, owner.ID)
-
-			// Device in owner's group.
-			grouped := seedDevice(t, ctx, s, group.ID)
-
-			// Device with no group (ungrouped — the default after agent registration).
-			ungrouped := &Device{
-				ID:       uuid.New(),
-				GroupID:  uuid.Nil,
-				Hostname: "ungrouped-host",
-				OS:       "linux",
-				Status:   StatusOffline,
-			}
-			require.NoError(t, s.UpsertDevice(ctx, ungrouped))
-
-			t.Run("owner sees grouped and ungrouped devices", func(t *testing.T) {
-				devices, err := s.ListDevicesForOwner(ctx, owner.ID)
-				require.NoError(t, err)
-
-				ids := make(map[uuid.UUID]bool)
-				for _, d := range devices {
-					ids[d.ID] = true
-				}
-				assert.True(t, ids[grouped.ID], "should include grouped device")
-				assert.True(t, ids[ungrouped.ID], "should include ungrouped device")
-			})
-
-			t.Run("other user sees ungrouped devices", func(t *testing.T) {
-				devices, err := s.ListDevicesForOwner(ctx, otherUser.ID)
-				require.NoError(t, err)
-
-				ids := make(map[uuid.UUID]bool)
-				for _, d := range devices {
-					ids[d.ID] = true
-				}
-				assert.False(t, ids[grouped.ID], "should NOT include other owner's grouped device")
-				assert.True(t, ids[ungrouped.ID], "should include ungrouped device")
-			})
-		})
-	}
-}
-
 func TestAgentSessionCRUD(t *testing.T) {
 	for _, f := range storeFactories {
 		t.Run(f.name, func(t *testing.T) {
@@ -493,12 +289,12 @@ func TestAgentSessionCRUD(t *testing.T) {
 			ctx := context.Background()
 			owner := seedUser(t, ctx, s)
 			group := seedGroup(t, ctx, s, owner.ID)
-			device := seedDevice(t, ctx, s, group.ID)
+			dev := seedDevice(t, ctx, s, group.ID)
 
 			t.Run("create and get", func(t *testing.T) {
 				sess := &AgentSession{
 					Token:    "tok-" + uuid.New().String()[:8],
-					DeviceID: device.ID,
+					DeviceID: dev.ID,
 					UserID:   owner.ID,
 				}
 				require.NoError(t, s.CreateAgentSession(ctx, sess))
@@ -506,7 +302,7 @@ func TestAgentSessionCRUD(t *testing.T) {
 				got, err := s.GetAgentSession(ctx, sess.Token)
 				require.NoError(t, err)
 				assert.Equal(t, sess.Token, got.Token)
-				assert.Equal(t, device.ID, got.DeviceID)
+				assert.Equal(t, dev.ID, got.DeviceID)
 				assert.Equal(t, owner.ID, got.UserID)
 				assert.False(t, got.CreatedAt.IsZero())
 			})
@@ -529,7 +325,7 @@ func TestAgentSessionCRUD(t *testing.T) {
 			})
 
 			t.Run("delete", func(t *testing.T) {
-				sess := &AgentSession{Token: "del-" + uuid.New().String()[:8], DeviceID: device.ID, UserID: owner.ID}
+				sess := &AgentSession{Token: "del-" + uuid.New().String()[:8], DeviceID: dev.ID, UserID: owner.ID}
 				require.NoError(t, s.CreateAgentSession(ctx, sess))
 				require.NoError(t, s.DeleteAgentSession(ctx, sess.Token))
 				_, err := s.GetAgentSession(ctx, sess.Token)
@@ -546,7 +342,9 @@ func TestAgentSessionCRUD(t *testing.T) {
 				sess := &AgentSession{Token: "cascade-" + uuid.New().String()[:8], DeviceID: d.ID, UserID: owner.ID}
 				require.NoError(t, s.CreateAgentSession(ctx, sess))
 
-				require.NoError(t, s.DeleteDevice(ctx, d.ID))
+				pg, ok := s.(*PostgresStore)
+				require.True(t, ok)
+				require.NoError(t, device.NewPostgresDevices(pg.DB()).Delete(ctx, d.ID))
 				_, err := s.GetAgentSession(ctx, sess.Token)
 				assert.True(t, errors.Is(err, ErrNotFound))
 			})
@@ -712,159 +510,6 @@ func TestAMTDeviceCRUD(t *testing.T) {
 	}
 }
 
-func TestDeviceHardwareCRUD(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-			owner := seedUser(t, ctx, s)
-			group := seedGroup(t, ctx, s, owner.ID)
-			device := seedDevice(t, ctx, s, group.ID)
-
-			t.Run("upsert and get", func(t *testing.T) {
-				hw := &DeviceHardware{
-					DeviceID:    device.ID,
-					CPUModel:    "Intel Core i7-12700K",
-					CPUCores:    12,
-					RAMTotalMB:  32768,
-					DiskTotalMB: 512000,
-					DiskFreeMB:  256000,
-					NetworkInterfaces: []NetworkInterfaceInfo{
-						{Name: "eth0", MAC: "00:11:22:33:44:55", IPv4: []string{"192.168.1.100"}, IPv6: []string{}},
-					},
-				}
-				require.NoError(t, s.UpsertDeviceHardware(ctx, hw))
-
-				got, err := s.GetDeviceHardware(ctx, device.ID)
-				require.NoError(t, err)
-				assert.Equal(t, "Intel Core i7-12700K", got.CPUModel)
-				assert.Equal(t, 12, got.CPUCores)
-				assert.Equal(t, int64(32768), got.RAMTotalMB)
-				assert.Equal(t, int64(512000), got.DiskTotalMB)
-				assert.Equal(t, int64(256000), got.DiskFreeMB)
-				require.Len(t, got.NetworkInterfaces, 1)
-				assert.Equal(t, "eth0", got.NetworkInterfaces[0].Name)
-				assert.Equal(t, "00:11:22:33:44:55", got.NetworkInterfaces[0].MAC)
-				assert.False(t, got.UpdatedAt.IsZero())
-			})
-
-			t.Run(testNameUpsertUpdates, func(t *testing.T) {
-				hw := &DeviceHardware{
-					DeviceID:    device.ID,
-					CPUModel:    "AMD Ryzen 9 7950X",
-					CPUCores:    16,
-					RAMTotalMB:  65536,
-					DiskTotalMB: 1024000,
-					DiskFreeMB:  500000,
-					NetworkInterfaces: []NetworkInterfaceInfo{
-						{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff", IPv4: []string{"10.0.0.1"}, IPv6: []string{"::1"}},
-						{Name: "wlan0", MAC: "11:22:33:44:55:66", IPv4: []string{"192.168.1.50"}, IPv6: []string{}},
-					},
-				}
-				require.NoError(t, s.UpsertDeviceHardware(ctx, hw))
-
-				got, err := s.GetDeviceHardware(ctx, device.ID)
-				require.NoError(t, err)
-				assert.Equal(t, "AMD Ryzen 9 7950X", got.CPUModel)
-				assert.Equal(t, 16, got.CPUCores)
-				assert.Len(t, got.NetworkInterfaces, 2)
-			})
-
-			t.Run(testNameGetNotFound, func(t *testing.T) {
-				_, err := s.GetDeviceHardware(ctx, uuid.New())
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run("empty network interfaces", func(t *testing.T) {
-				d2 := seedDevice(t, ctx, s, group.ID)
-				hw := &DeviceHardware{
-					DeviceID:          d2.ID,
-					CPUModel:          "ARM Cortex-A72",
-					CPUCores:          4,
-					RAMTotalMB:        4096,
-					NetworkInterfaces: []NetworkInterfaceInfo{},
-				}
-				require.NoError(t, s.UpsertDeviceHardware(ctx, hw))
-
-				got, err := s.GetDeviceHardware(ctx, d2.ID)
-				require.NoError(t, err)
-				assert.Empty(t, got.NetworkInterfaces)
-			})
-
-			t.Run("cascade delete on device removal", func(t *testing.T) {
-				d3 := seedDevice(t, ctx, s, group.ID)
-				hw := &DeviceHardware{
-					DeviceID: d3.ID, CPUModel: "test", CPUCores: 1,
-					NetworkInterfaces: []NetworkInterfaceInfo{},
-				}
-				require.NoError(t, s.UpsertDeviceHardware(ctx, hw))
-
-				require.NoError(t, s.DeleteDevice(ctx, d3.ID))
-
-				_, err := s.GetDeviceHardware(ctx, d3.ID)
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-		})
-	}
-}
-
-func TestListAllDevices(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-			owner := seedUser(t, ctx, s)
-			g1 := seedGroup(t, ctx, s, owner.ID)
-			g2 := seedGroup(t, ctx, s, owner.ID)
-			d1 := seedDevice(t, ctx, s, g1.ID)
-			d2 := seedDevice(t, ctx, s, g2.ID)
-
-			devices, err := s.ListAllDevices(ctx)
-			require.NoError(t, err)
-			assert.GreaterOrEqual(t, len(devices), 2)
-
-			ids := make(map[uuid.UUID]bool)
-			for _, d := range devices {
-				ids[d.ID] = true
-			}
-			assert.True(t, ids[d1.ID], "should contain device from group 1")
-			assert.True(t, ids[d2.ID], "should contain device from group 2")
-		})
-	}
-}
-
-func TestUpdateDeviceGroup(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-			owner := seedUser(t, ctx, s)
-			g1 := seedGroup(t, ctx, s, owner.ID)
-			g2 := seedGroup(t, ctx, s, owner.ID)
-			d := seedDevice(t, ctx, s, g1.ID)
-
-			t.Run("move to different group", func(t *testing.T) {
-				require.NoError(t, s.UpdateDeviceGroup(ctx, d.ID, g2.ID))
-				got, err := s.GetDevice(ctx, d.ID)
-				require.NoError(t, err)
-				assert.Equal(t, g2.ID, got.GroupID)
-			})
-
-			t.Run("clear group", func(t *testing.T) {
-				require.NoError(t, s.UpdateDeviceGroup(ctx, d.ID, uuid.Nil))
-				got, err := s.GetDevice(ctx, d.ID)
-				require.NoError(t, err)
-				assert.Equal(t, uuid.Nil, got.GroupID)
-			})
-
-			t.Run("not found", func(t *testing.T) {
-				err := s.UpdateDeviceGroup(ctx, uuid.New(), g1.ID)
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-		})
-	}
-}
-
 func TestListAllWebPushSubscriptions(t *testing.T) {
 	for _, f := range storeFactories {
 		t.Run(f.name, func(t *testing.T) {
@@ -892,133 +537,6 @@ func TestListAllWebPushSubscriptions(t *testing.T) {
 	}
 }
 
-func TestDeviceLogsCRUD(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-			owner := seedUser(t, ctx, s)
-			group := seedGroup(t, ctx, s, owner.ID)
-			device := seedDevice(t, ctx, s, group.ID)
-
-			sampleEntries := []DeviceLogEntry{
-				{Timestamp: "2026-04-01T10:00:00Z", Level: "INFO", Target: "mesh_agent::main", Message: "agent started"},
-				{Timestamp: "2026-04-01T11:00:00Z", Level: "WARN", Target: "mesh_agent::connection", Message: "slow heartbeat"},
-				{Timestamp: "2026-04-01T12:00:00Z", Level: "ERROR", Target: "mesh_agent::connection", Message: "connection lost"},
-				{Timestamp: "2026-04-01T13:00:00Z", Level: "INFO", Target: "mesh_agent::main", Message: "reconnected to server"},
-				{Timestamp: "2026-04-01T14:00:00Z", Level: "DEBUG", Target: "mesh_agent::connection", Message: "heartbeat sent"},
-			}
-
-			t.Run("insert_new_entries", func(t *testing.T) {
-				require.NoError(t, s.UpsertDeviceLogs(ctx, device.ID, sampleEntries))
-
-				entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Limit: 100})
-				require.NoError(t, err)
-				assert.Equal(t, 5, total)
-				assert.Len(t, entries, 5)
-			})
-
-			t.Run("replace_existing_entries", func(t *testing.T) {
-				newEntries := []DeviceLogEntry{
-					{Timestamp: "2026-04-02T10:00:00Z", Level: "INFO", Target: "mesh_agent::main", Message: "new day"},
-				}
-				require.NoError(t, s.UpsertDeviceLogs(ctx, device.ID, newEntries))
-
-				entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Limit: 100})
-				require.NoError(t, err)
-				assert.Equal(t, 1, total)
-				assert.Len(t, entries, 1)
-				assert.Equal(t, "new day", entries[0].Message)
-			})
-
-			// Re-seed for filter tests
-			require.NoError(t, s.UpsertDeviceLogs(ctx, device.ID, sampleEntries))
-
-			t.Run("filter_by_level", func(t *testing.T) {
-				entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Level: "ERROR", Limit: 100})
-				require.NoError(t, err)
-				assert.Equal(t, 1, total)
-				assert.Len(t, entries, 1)
-				assert.Equal(t, "ERROR", entries[0].Level)
-			})
-
-			t.Run("filter_by_level_severity_based", func(t *testing.T) {
-				// Selecting WARN must include both WARN and ERROR (severity >= WARN),
-				// matching the agent-side filter in mesh-agent/src/logs.rs so that
-				// users don't miss error rows while filtering at the warn threshold.
-				entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Level: "WARN", Limit: 100})
-				require.NoError(t, err)
-				assert.Equal(t, 2, total)
-				require.Len(t, entries, 2)
-				// Ordered by timestamp DESC: ERROR (12:00) before WARN (11:00).
-				assert.Equal(t, "ERROR", entries[0].Level)
-				assert.Equal(t, "WARN", entries[1].Level)
-			})
-
-			t.Run("filter_by_time_range", func(t *testing.T) {
-				entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{
-					From:  "2026-04-01T11:00:00Z",
-					To:    "2026-04-01T13:00:00Z",
-					Limit: 100,
-				})
-				require.NoError(t, err)
-				assert.Equal(t, 3, total)
-				assert.Len(t, entries, 3)
-			})
-
-			t.Run("filter_by_keyword", func(t *testing.T) {
-				entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Search: "heartbeat", Limit: 100})
-				require.NoError(t, err)
-				assert.Equal(t, 2, total)
-				assert.Len(t, entries, 2)
-			})
-
-			t.Run("pagination", func(t *testing.T) {
-				entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{Offset: 2, Limit: 2})
-				require.NoError(t, err)
-				assert.Equal(t, 5, total)
-				assert.Len(t, entries, 2)
-			})
-
-			t.Run("combined_filters", func(t *testing.T) {
-				entries, total, err := s.QueryDeviceLogs(ctx, device.ID, LogFilter{
-					Level:  "INFO",
-					Search: "server",
-					Limit:  100,
-				})
-				require.NoError(t, err)
-				assert.Equal(t, 1, total)
-				require.Len(t, entries, 1)
-				assert.Equal(t, "reconnected to server", entries[0].Message)
-			})
-
-			t.Run("no_entries_for_device", func(t *testing.T) {
-				otherDevice := seedDevice(t, ctx, s, group.ID)
-				entries, total, err := s.QueryDeviceLogs(ctx, otherDevice.ID, LogFilter{Limit: 100})
-				require.NoError(t, err)
-				assert.Equal(t, 0, total)
-				assert.Empty(t, entries)
-			})
-
-			t.Run("has_recent_logs_true", func(t *testing.T) {
-				ok, err := s.HasRecentLogs(ctx, device.ID, 5*time.Minute)
-				require.NoError(t, err)
-				assert.True(t, ok)
-			})
-
-			t.Run("has_recent_logs_no_data", func(t *testing.T) {
-				otherDevice := seedDevice(t, ctx, s, group.ID)
-				ok, err := s.HasRecentLogs(ctx, otherDevice.ID, 5*time.Minute)
-				require.NoError(t, err)
-				assert.False(t, ok)
-			})
-		})
-	}
-}
-
-// TestStoreSize verifies both backends report a non-zero database size.
-// Size() is intentionally not on the Store interface — it's a metrics-only
-// helper — so we use a local type assertion here.
 func TestStoreSize(t *testing.T) {
 	type sizer interface {
 		Size(ctx context.Context) (int64, error)

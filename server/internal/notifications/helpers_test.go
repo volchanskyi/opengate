@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 // testVAPIDKeys generates a valid VAPID key pair for use in tests.
@@ -64,17 +65,17 @@ func (m *notifMockStore) DeleteWebPushSubscription(_ context.Context, endpoint s
 }
 
 // Unused Store methods — stubs to satisfy the interface.
-func (m *notifMockStore) UpsertDevice(_ context.Context, _ *db.Device) error { return nil }
-func (m *notifMockStore) GetDevice(_ context.Context, _ db.DeviceID) (*db.Device, error) {
+func (m *notifMockStore) UpsertDevice(_ context.Context, _ *device.Device) error { return nil }
+func (m *notifMockStore) GetDevice(_ context.Context, _ db.DeviceID) (*device.Device, error) {
 	return nil, nil
 }
-func (m *notifMockStore) ListDevices(_ context.Context, _ db.GroupID) ([]*db.Device, error) {
+func (m *notifMockStore) ListDevices(_ context.Context, _ db.GroupID) ([]*device.Device, error) {
 	return nil, nil
 }
-func (m *notifMockStore) ListAllDevices(_ context.Context) ([]*db.Device, error) {
+func (m *notifMockStore) ListAllDevices(_ context.Context) ([]*device.Device, error) {
 	return nil, nil
 }
-func (m *notifMockStore) ListDevicesForOwner(_ context.Context, _ db.UserID) ([]*db.Device, error) {
+func (m *notifMockStore) ListDevicesForOwner(_ context.Context, _ db.UserID) ([]*device.Device, error) {
 	return nil, nil
 }
 func (m *notifMockStore) DeleteDevice(_ context.Context, _ db.DeviceID) error { return nil }
@@ -85,11 +86,11 @@ func (m *notifMockStore) SetDeviceStatus(_ context.Context, _ db.DeviceID, _ db.
 	return nil
 }
 func (m *notifMockStore) ResetAllDeviceStatuses(_ context.Context) error { return nil }
-func (m *notifMockStore) CreateGroup(_ context.Context, _ *db.Group) error { return nil }
-func (m *notifMockStore) GetGroup(_ context.Context, _ db.GroupID) (*db.Group, error) {
+func (m *notifMockStore) CreateGroup(_ context.Context, _ *device.Group) error { return nil }
+func (m *notifMockStore) GetGroup(_ context.Context, _ db.GroupID) (*device.Group, error) {
 	return nil, nil
 }
-func (m *notifMockStore) ListGroups(_ context.Context, _ db.UserID) ([]*db.Group, error) {
+func (m *notifMockStore) ListGroups(_ context.Context, _ db.UserID) ([]*device.Group, error) {
 	return nil, nil
 }
 func (m *notifMockStore) DeleteGroup(_ context.Context, _ db.GroupID) error { return nil }
@@ -128,16 +129,16 @@ func (m *notifMockStore) ListAMTDevices(_ context.Context) ([]*db.AMTDevice, err
 func (m *notifMockStore) SetAMTDeviceStatus(_ context.Context, _ uuid.UUID, _ db.DeviceStatus) error {
 	return nil
 }
-func (m *notifMockStore) UpsertDeviceHardware(_ context.Context, _ *db.DeviceHardware) error {
+func (m *notifMockStore) UpsertDeviceHardware(_ context.Context, _ *device.Hardware) error {
 	return nil
 }
-func (m *notifMockStore) GetDeviceHardware(_ context.Context, _ db.DeviceID) (*db.DeviceHardware, error) {
+func (m *notifMockStore) GetDeviceHardware(_ context.Context, _ db.DeviceID) (*device.Hardware, error) {
 	return nil, db.ErrNotFound
 }
-func (m *notifMockStore) UpsertDeviceLogs(_ context.Context, _ db.DeviceID, _ []db.DeviceLogEntry) error {
+func (m *notifMockStore) UpsertDeviceLogs(_ context.Context, _ db.DeviceID, _ []device.LogEntry) error {
 	return nil
 }
-func (m *notifMockStore) QueryDeviceLogs(_ context.Context, _ db.DeviceID, _ db.LogFilter) ([]db.DeviceLogEntry, int, error) {
+func (m *notifMockStore) QueryDeviceLogs(_ context.Context, _ db.DeviceID, _ device.LogFilter) ([]device.LogEntry, int, error) {
 	return nil, 0, nil
 }
 func (m *notifMockStore) HasRecentLogs(_ context.Context, _ db.DeviceID, _ time.Duration) (bool, error) {

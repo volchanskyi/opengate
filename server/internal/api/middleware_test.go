@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 const (
@@ -159,7 +159,7 @@ func TestIsGroupOwner(t *testing.T) {
 
 	// Create a group owned by the user.
 	groupID := uuid.New()
-	err := srv.store.CreateGroup(t.Context(), &db.Group{
+	err := srv.groups.Create(t.Context(), &device.Group{
 		ID:      groupID,
 		Name:    "test-group",
 		OwnerID: owner.ID,

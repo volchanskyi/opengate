@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 // CreateGroup implements StrictServerInterface.
@@ -14,13 +14,13 @@ func (s *Server) CreateGroup(ctx context.Context, request CreateGroupRequestObje
 		return CreateGroup400JSONResponse{Error: "name is required"}, nil
 	}
 
-	group := &db.Group{
+	group := &device.Group{
 		ID:      uuid.New(),
 		Name:    request.Body.Name,
 		OwnerID: ContextUserID(ctx),
 	}
 
-	if err := s.store.CreateGroup(ctx, group); err != nil {
+	if err := s.groups.Create(ctx, group); err != nil {
 		return nil, err
 	}
 
@@ -29,7 +29,7 @@ func (s *Server) CreateGroup(ctx context.Context, request CreateGroupRequestObje
 
 // ListGroups implements StrictServerInterface.
 func (s *Server) ListGroups(ctx context.Context, _ ListGroupsRequestObject) (ListGroupsResponseObject, error) {
-	groups, err := s.store.ListGroups(ctx, ContextUserID(ctx))
+	groups, err := s.groups.List(ctx, ContextUserID(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -39,9 +39,9 @@ func (s *Server) ListGroups(ctx context.Context, _ ListGroupsRequestObject) (Lis
 
 // GetGroup implements StrictServerInterface.
 func (s *Server) GetGroup(ctx context.Context, request GetGroupRequestObject) (GetGroupResponseObject, error) {
-	group, err := s.store.GetGroup(ctx, request.Id)
+	group, err := s.groups.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, device.ErrGroupNotFound) {
 			return GetGroup404JSONResponse{Error: "group not found"}, nil
 		}
 		return nil, err
@@ -56,9 +56,9 @@ func (s *Server) GetGroup(ctx context.Context, request GetGroupRequestObject) (G
 
 // DeleteGroup implements StrictServerInterface.
 func (s *Server) DeleteGroup(ctx context.Context, request DeleteGroupRequestObject) (DeleteGroupResponseObject, error) {
-	group, err := s.store.GetGroup(ctx, request.Id)
+	group, err := s.groups.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, device.ErrGroupNotFound) {
 			return DeleteGroup404JSONResponse{Error: "group not found"}, nil
 		}
 		return nil, err
@@ -68,7 +68,7 @@ func (s *Server) DeleteGroup(ctx context.Context, request DeleteGroupRequestObje
 		return DeleteGroup403JSONResponse{Error: msgForbidden}, nil
 	}
 
-	if err := s.store.DeleteGroup(ctx, request.Id); err != nil {
+	if err := s.groups.Delete(ctx, request.Id); err != nil {
 		return nil, err
 	}
 
