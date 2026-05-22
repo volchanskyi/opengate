@@ -21,6 +21,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -38,6 +39,7 @@ const (
 // sessionTestEnv bundles all dependencies for session integration tests.
 type sessionTestEnv struct {
 	store         db.Store
+	devices       device.Repository
 	deviceUpdates updater.DeviceUpdateRepository
 	certMgr    *cert.Manager
 	relay      *relay.Relay
@@ -61,7 +63,17 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 
 	r := relay.NewRelay(slog.Default())
 	logger := testLogger()
-	agentSrv := agentapi.NewAgentServer(cm, store, deviceUpdates, r, &notifications.NoopNotifier{}, "", logger)
+	agentSrv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
+		Cert:          cm,
+		Store:         store,
+		Devices:       testutil.NewTestDevices(t, store),
+		Hardware:      testutil.NewTestHardware(t, store),
+		DeviceLogs:    testutil.NewTestLogs(t, store),
+		DeviceUpdates: deviceUpdates,
+		Relay:         r,
+		Notifier:      &notifications.NoopNotifier{},
+		Logger:        logger,
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -89,6 +101,10 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 		DeviceUpdates: deviceUpdates,
 		Enrollment:    testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
+		Devices:       testutil.NewTestDevices(t, store),
+		Groups:        testutil.NewTestGroups(t, store),
+		Hardware:      testutil.NewTestHardware(t, store),
+		DeviceLogs:    testutil.NewTestLogs(t, store),
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		Relay:     r,
@@ -113,6 +129,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 
 	return &sessionTestEnv{
 		store:         store,
+		devices:       testutil.NewTestDevices(t, store),
 		deviceUpdates: deviceUpdates,
 		certMgr:    cm,
 		relay:      r,
@@ -134,6 +151,7 @@ func (e *sessionTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (io.ReadW
 	// Create a temporary agentTestEnv-like setup reusing the existing env
 	ae := &agentTestEnv{
 		store:   e.store,
+		devices: e.devices,
 		certMgr: e.certMgr,
 		srv:     e.agentSrv,
 		addr:    e.agentAddr,
@@ -230,7 +248,7 @@ func TestSessionLifecycle_CreateAndRelay(t *testing.T) {
 
 	// Wait for agent to register as online
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
@@ -306,7 +324,7 @@ func TestSessionLifecycle_AgentRejectsSession(t *testing.T) {
 	stream, deviceID := env.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
@@ -347,7 +365,7 @@ func TestSessionLifecycle_MultipleSessionsSameDevice(t *testing.T) {
 	_, deviceID := env.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
@@ -400,7 +418,7 @@ func TestSessionLifecycle_ConcurrentSessions(t *testing.T) {
 	// Wait for all to register
 	for _, a := range agents {
 		require.Eventually(t, func() bool {
-			d, err := env.store.GetDevice(ctx, a.deviceID)
+			d, err := env.devices.Get(ctx, a.deviceID)
 			return err == nil && d.Status == db.StatusOnline
 		}, 3*time.Second, 50*time.Millisecond)
 	}
@@ -469,7 +487,7 @@ func TestSessionLifecycle_AgentDisconnectDuringSession(t *testing.T) {
 	stream, deviceID := env.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
@@ -526,14 +544,14 @@ func TestSessionLifecycleSessionForOfflineDevice(t *testing.T) {
 
 	user := testutil.SeedUser(t, ctx, env.store)
 	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
-	device := testutil.SeedDevice(t, ctx, env.store, group.ID) // offline, no agent
+	dev := testutil.SeedDevice(t, ctx, env.store, group.ID) // offline, no agent
 
 	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	require.NoError(t, err)
 
 	// Try to create session for an offline device — agent not connected → 409
 	body := map[string]interface{}{
-		"device_id": device.ID.String(),
+		"device_id": dev.ID.String(),
 	}
 	var buf bytes.Buffer
 	require.NoError(t, json.NewEncoder(&buf).Encode(body))

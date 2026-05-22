@@ -4,7 +4,6 @@ package db
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,23 +13,6 @@ var ErrNotFound = errors.New("not found")
 
 // Store defines the database operations for all persistent data.
 type Store interface {
-	// Devices
-	UpsertDevice(ctx context.Context, d *Device) error
-	GetDevice(ctx context.Context, id DeviceID) (*Device, error)
-	ListDevices(ctx context.Context, groupID GroupID) ([]*Device, error)
-	ListAllDevices(ctx context.Context) ([]*Device, error)
-	ListDevicesForOwner(ctx context.Context, ownerID UserID) ([]*Device, error)
-	DeleteDevice(ctx context.Context, id DeviceID) error
-	UpdateDeviceGroup(ctx context.Context, id DeviceID, groupID GroupID) error
-	SetDeviceStatus(ctx context.Context, id DeviceID, status DeviceStatus) error
-	ResetAllDeviceStatuses(ctx context.Context) error
-
-	// Groups
-	CreateGroup(ctx context.Context, g *Group) error
-	GetGroup(ctx context.Context, id GroupID) (*Group, error)
-	ListGroups(ctx context.Context, ownerID UserID) ([]*Group, error)
-	DeleteGroup(ctx context.Context, id GroupID) error
-
 	// Users
 	UpsertUser(ctx context.Context, u *User) error
 	GetUser(ctx context.Context, id UserID) (*User, error)
@@ -55,15 +37,6 @@ type Store interface {
 	GetAMTDevice(ctx context.Context, id uuid.UUID) (*AMTDevice, error)
 	ListAMTDevices(ctx context.Context) ([]*AMTDevice, error)
 	SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status DeviceStatus) error
-
-	// Device Hardware
-	UpsertDeviceHardware(ctx context.Context, hw *DeviceHardware) error
-	GetDeviceHardware(ctx context.Context, deviceID DeviceID) (*DeviceHardware, error)
-
-	// Device Logs
-	UpsertDeviceLogs(ctx context.Context, deviceID DeviceID, entries []DeviceLogEntry) error
-	QueryDeviceLogs(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]DeviceLogEntry, int, error)
-	HasRecentLogs(ctx context.Context, deviceID DeviceID, maxAge time.Duration) (bool, error)
 
 	// Health
 	Ping(ctx context.Context) error

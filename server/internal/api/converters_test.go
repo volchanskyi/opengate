@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -97,7 +98,7 @@ func TestDerefBool(t *testing.T) {
 func TestDeviceToAPI(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
-	d := &db.Device{
+	d := &device.Device{
 		ID:           uuid.New(),
 		GroupID:      uuid.New(),
 		Hostname:     "test-host",
@@ -118,7 +119,7 @@ func TestDeviceToAPI(t *testing.T) {
 	assert.Equal(t, "Ubuntu 22.04", *result.OsDisplay)
 
 	t.Run("empty os display", func(t *testing.T) {
-		d2 := &db.Device{OS: "linux"}
+		d2 := &device.Device{OS: "linux"}
 		result2 := deviceToAPI(d2)
 		assert.Nil(t, result2.OsDisplay)
 	})
@@ -169,26 +170,26 @@ func TestManifestToAPI(t *testing.T) {
 
 func TestDeviceLogsToAPI(t *testing.T) {
 	t.Parallel()
-	entries := []db.DeviceLogEntry{
+	entries := []device.LogEntry{
 		{Timestamp: "2026-01-01T00:00:00Z", Level: "INFO", Target: "agent", Message: "started"},
 		{Timestamp: "2026-01-01T00:01:00Z", Level: "WARN", Target: "agent", Message: "slow"},
 	}
 
 	t.Run("has more", func(t *testing.T) {
-		result := deviceLogsToAPI(entries, 10, db.LogFilter{Offset: 0, Limit: 2})
+		result := deviceLogsToAPI(entries, 10, device.LogFilter{Offset: 0, Limit: 2})
 		assert.Len(t, result.Entries, 2)
 		assert.Equal(t, 10, result.Total)
 		assert.True(t, result.HasMore)
 	})
 
 	t.Run("no more", func(t *testing.T) {
-		result := deviceLogsToAPI(entries, 2, db.LogFilter{Offset: 0, Limit: 5})
+		result := deviceLogsToAPI(entries, 2, device.LogFilter{Offset: 0, Limit: 5})
 		assert.False(t, result.HasMore)
 	})
 
 	// Pin the Offset+Limit == total boundary so the `<` cannot mutate to `<=`.
 	t.Run("exact page boundary is no-more", func(t *testing.T) {
-		result := deviceLogsToAPI(entries, 2, db.LogFilter{Offset: 0, Limit: 2})
+		result := deviceLogsToAPI(entries, 2, device.LogFilter{Offset: 0, Limit: 2})
 		assert.False(t, result.HasMore, "Offset+Limit == total must mean no more pages")
 	})
 }

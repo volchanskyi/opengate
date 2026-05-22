@@ -87,7 +87,7 @@ func TestCreateSession(t *testing.T) {
 		device := testutil.SeedDevice(t, ctx, store, group.ID)
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDeviceUpdates(t, store), logger)
+		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDevices(t, store), testutil.NewTestHardware(t, store), testutil.NewTestLogs(t, store), testutil.NewTestDeviceUpdates(t, store), logger)
 
 		lookup := &stubAgentGetter{
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{
@@ -153,7 +153,7 @@ func TestCreateSession(t *testing.T) {
 				device := testutil.SeedDevice(t, ctx, store, group.ID)
 
 				logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-				ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDeviceUpdates(t, store), logger)
+				ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDevices(t, store), testutil.NewTestHardware(t, store), testutil.NewTestLogs(t, store), testutil.NewTestDeviceUpdates(t, store), logger)
 
 				lookup := &stubAgentGetter{
 					agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
@@ -193,7 +193,7 @@ func TestCreateSession(t *testing.T) {
 		device := testutil.SeedDevice(t, ctx, store, group.ID)
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDeviceUpdates(t, store), logger)
+		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDevices(t, store), testutil.NewTestHardware(t, store), testutil.NewTestLogs(t, store), testutil.NewTestDeviceUpdates(t, store), logger)
 
 		lookup := &stubAgentGetter{
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
@@ -231,7 +231,7 @@ func TestCreateSession(t *testing.T) {
 		device := testutil.SeedDevice(t, ctx, store, group.ID)
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDeviceUpdates(t, store), logger)
+		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDevices(t, store), testutil.NewTestHardware(t, store), testutil.NewTestLogs(t, store), testutil.NewTestDeviceUpdates(t, store), logger)
 
 		lookup := &stubAgentGetter{
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},

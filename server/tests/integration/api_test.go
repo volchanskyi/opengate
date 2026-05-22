@@ -22,6 +22,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/api"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -53,6 +54,7 @@ const (
 type testEnv struct {
 	server        *httptest.Server
 	store         db.Store
+	devices       device.Repository
 	deviceUpdates updater.DeviceUpdateRepository
 	jwt           *auth.JWTConfig
 }
@@ -61,6 +63,10 @@ func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	store := testutil.NewTestStore(t)
 	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
+	devicesRepo := testutil.NewTestDevices(t, store)
+	groupsRepo := testutil.NewTestGroups(t, store)
+	hardwareRepo := testutil.NewTestHardware(t, store)
+	deviceLogsRepo := testutil.NewTestLogs(t, store)
 
 	jwtCfg := &auth.JWTConfig{
 		Secret:   "integration-test-secret-32-bytes!",
@@ -74,6 +80,10 @@ func newTestEnv(t *testing.T) *testEnv {
 		DeviceUpdates: deviceUpdates,
 		Enrollment:    testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
+		Devices:       devicesRepo,
+		Groups:        groupsRepo,
+		Hardware:      hardwareRepo,
+		DeviceLogs:    deviceLogsRepo,
 		JWT:      jwtCfg,
 		AMT:      &stubAMT{},
 		Relay:    relay.NewRelay(slog.Default()),
@@ -84,7 +94,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 
-	return &testEnv{server: ts, store: store, deviceUpdates: deviceUpdates, jwt: jwtCfg}
+	return &testEnv{server: ts, store: store, devices: devicesRepo, deviceUpdates: deviceUpdates, jwt: jwtCfg}
 }
 
 // helpers
@@ -209,38 +219,38 @@ func TestDeviceLifecycle(t *testing.T) {
 	// Create a group via API
 	resp = env.doJSON(t, http.MethodPost, pathGroups, token, map[string]string{"name": "prod-servers"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var group db.Group
+	var group device.Group
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&group))
 	resp.Body.Close()
 	assert.Equal(t, "prod-servers", group.Name)
 
 	// Seed a device directly into the store (agents register via agentapi, not REST)
-	device := &db.Device{
+	d := &device.Device{
 		ID:       uuid.New(),
 		GroupID:  group.ID,
 		Hostname: webServer01,
 		OS:       "linux",
 		Status:   db.StatusOnline,
 	}
-	require.NoError(t, env.store.UpsertDevice(t.Context(), device))
+	require.NoError(t, env.devices.Upsert(t.Context(), d))
 
 	t.Run("list devices in group", func(t *testing.T) {
 		resp := env.doJSON(t, http.MethodGet, "/api/v1/devices?group_id="+group.ID.String(), token, nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var devices []*db.Device
+		var devices []*device.Device
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&devices))
 		require.Len(t, devices, 1)
 		assert.Equal(t, webServer01, devices[0].Hostname)
 	})
 
 	t.Run("get single device", func(t *testing.T) {
-		resp := env.doJSON(t, http.MethodGet, "/api/v1/devices/"+device.ID.String(), token, nil)
+		resp := env.doJSON(t, http.MethodGet, "/api/v1/devices/"+d.ID.String(), token, nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var d db.Device
+		var d device.Device
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&d))
 		assert.Equal(t, webServer01, d.Hostname)
 		assert.Equal(t, "linux", d.OS)
@@ -253,7 +263,7 @@ func TestDeviceLifecycle(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
 		// Device should still exist but with null group_id
-		resp2 := env.doJSON(t, http.MethodGet, "/api/v1/devices/"+device.ID.String(), token, nil)
+		resp2 := env.doJSON(t, http.MethodGet, "/api/v1/devices/"+d.ID.String(), token, nil)
 		defer resp2.Body.Close()
 		assert.Equal(t, http.StatusOK, resp2.StatusCode)
 	})
@@ -282,7 +292,7 @@ func TestGroupLifecycle(t *testing.T) {
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var groups []*db.Group
+		var groups []*device.Group
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&groups))
 		assert.Len(t, groups, 2)
 	})
@@ -291,7 +301,7 @@ func TestGroupLifecycle(t *testing.T) {
 		resp := env.doJSON(t, http.MethodGet, pathGroups, token2, nil)
 		defer resp.Body.Close()
 
-		var groups []*db.Group
+		var groups []*device.Group
 		require.NoError(t, json.NewDecoder(resp.Body).Decode(&groups))
 		assert.Len(t, groups, 1)
 		assert.Equal(t, "group-c", groups[0].Name)
@@ -359,7 +369,7 @@ func TestConcurrentRequests(t *testing.T) {
 	// Create a group for device listing
 	resp := env.doJSON(t, http.MethodPost, pathGroups, token, map[string]string{"name": "concurrent-group"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var group db.Group
+	var group device.Group
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&group))
 	resp.Body.Close()
 

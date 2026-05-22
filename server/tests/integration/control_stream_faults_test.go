@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
@@ -29,8 +30,9 @@ import (
 // expected status, or the deadline expires.
 func waitForDeviceStatus(t *testing.T, store db.Store, deviceID protocol.DeviceID, want db.DeviceStatus) {
 	t.Helper()
+	devs := device.NewPostgresDevices(store.(*db.PostgresStore).DB())
 	require.Eventually(t, func() bool {
-		dev, err := store.GetDevice(context.Background(), deviceID)
+		dev, err := devs.Get(context.Background(), deviceID)
 		return err == nil && dev.Status == want
 	}, 3*time.Second, 25*time.Millisecond,
 		"device %s never reached status %q", deviceID, want)
@@ -120,7 +122,7 @@ func TestControlStream_ConcurrentServerInitiatedSendsArriveDecodable(t *testing.
 	// write mutex, the (header, payload) pairs can interleave on the stream.
 	errCh := make(chan error, 2)
 	go func() { errCh <- ac.SendRequestHardwareReport(context.Background()) }()
-	go func() { errCh <- ac.SendRequestDeviceLogs(context.Background(), db.LogFilter{}) }()
+	go func() { errCh <- ac.SendRequestDeviceLogs(context.Background(), device.LogFilter{}) }()
 	for i := 0; i < 2; i++ {
 		require.NoError(t, <-errCh, "concurrent send %d returned an error", i)
 	}

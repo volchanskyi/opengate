@@ -24,15 +24,18 @@ func newTestAgentServer(t *testing.T) *AgentServer {
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 	store := testutil.NewTestStore(t)
-	return NewAgentServer(
-		cm,
-		store,
-		testutil.NewTestDeviceUpdates(t, store),
-		relay.NewRelay(slog.Default()),
-		&notifications.NoopNotifier{},
-		"",
-		testLogger(),
-	)
+	return NewAgentServer(AgentServerConfig{
+		Cert:          cm,
+		Store:         store,
+		Devices:       testutil.NewTestDevices(t, store),
+		Hardware:      testutil.NewTestHardware(t, store),
+		DeviceLogs:    testutil.NewTestLogs(t, store),
+		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
+		Relay:         relay.NewRelay(slog.Default()),
+		Notifier:      &notifications.NoopNotifier{},
+		QuicHost:      "",
+		Logger:        testLogger(),
+	})
 }
 
 func TestAgentServer_ConnectedAgentCount_ZeroAtStart(t *testing.T) {

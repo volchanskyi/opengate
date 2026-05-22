@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
@@ -17,15 +18,15 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 	deviceID := request.Body.DeviceId
 
 	// Verify device exists and user owns it.
-	device, err := s.store.GetDevice(ctx, deviceID)
+	d, err := s.devices.Get(ctx, deviceID)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, device.ErrDeviceNotFound) {
 			return CreateSession404JSONResponse{Error: "device not found"}, nil
 		}
 		return nil, err
 	}
 
-	if !s.isGroupOwner(ctx, device.GroupID) {
+	if !s.isGroupOwner(ctx, d.GroupID) {
 		return CreateSession403JSONResponse{Error: msgForbidden}, nil
 	}
 
@@ -104,15 +105,15 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 // ListSessions implements StrictServerInterface.
 func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error) {
 	// Verify user owns the device's group.
-	device, err := s.store.GetDevice(ctx, request.Params.DeviceId)
+	d, err := s.devices.Get(ctx, request.Params.DeviceId)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, device.ErrDeviceNotFound) {
 			return ListSessions200JSONResponse([]AgentSession{}), nil
 		}
 		return nil, err
 	}
 
-	if !s.isGroupOwner(ctx, device.GroupID) {
+	if !s.isGroupOwner(ctx, d.GroupID) {
 		return ListSessions403JSONResponse{Error: msgForbidden}, nil
 	}
 

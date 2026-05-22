@@ -18,6 +18,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -206,6 +207,31 @@ func NewTestSecurityGroups(t testing.TB, s db.Store) auth.SecurityGroupRepositor
 	return auth.NewPostgresSecurityGroups(extractDB(t, s, "auth.SecurityGroup"))
 }
 
+// NewTestDevices returns a Postgres-backed device.Repository sharing the
+// connection pool of s.
+func NewTestDevices(t testing.TB, s db.Store) device.Repository {
+	t.Helper()
+	return device.NewPostgresDevices(extractDB(t, s, "device.Devices"))
+}
+
+// NewTestGroups returns a Postgres-backed device.GroupRepository.
+func NewTestGroups(t testing.TB, s db.Store) device.GroupRepository {
+	t.Helper()
+	return device.NewPostgresGroups(extractDB(t, s, "device.Groups"))
+}
+
+// NewTestHardware returns a Postgres-backed device.HardwareRepository.
+func NewTestHardware(t testing.TB, s db.Store) device.HardwareRepository {
+	t.Helper()
+	return device.NewPostgresHardware(extractDB(t, s, "device.Hardware"))
+}
+
+// NewTestLogs returns a Postgres-backed device.LogsRepository.
+func NewTestLogs(t testing.TB, s db.Store) device.LogsRepository {
+	t.Helper()
+	return device.NewPostgresLogs(extractDB(t, s, "device.Logs"))
+}
+
 // extractDB returns the *sql.DB behind a Postgres-backed db.Store. Tests that
 // need direct DB access for module-owned repos use it; if s isn't Postgres-
 // backed, the test is skipped (mirrors the audit/updater leaf-module pattern).
@@ -233,28 +259,30 @@ func SeedUser(t testing.TB, ctx context.Context, s db.Store) *db.User {
 }
 
 // SeedGroup inserts a group owned by ownerID into the store and returns it.
-func SeedGroup(t testing.TB, ctx context.Context, s db.Store, ownerID uuid.UUID) *db.Group {
+// Uses an ad-hoc device.GroupRepository over the same connection pool to
+// avoid forcing every test setup to thread a repo through.
+func SeedGroup(t testing.TB, ctx context.Context, s db.Store, ownerID uuid.UUID) *device.Group {
 	t.Helper()
-	g := &db.Group{
+	g := &device.Group{
 		ID:      uuid.New(),
 		Name:    "group-" + uuid.New().String()[:8],
 		OwnerID: ownerID,
 	}
-	require.NoError(t, s.CreateGroup(ctx, g))
+	require.NoError(t, NewTestGroups(t, s).Create(ctx, g))
 	return g
 }
 
 // SeedDevice inserts an offline device belonging to groupID into the store and returns it.
-func SeedDevice(t testing.TB, ctx context.Context, s db.Store, groupID uuid.UUID) *db.Device {
+func SeedDevice(t testing.TB, ctx context.Context, s db.Store, groupID uuid.UUID) *device.Device {
 	t.Helper()
-	d := &db.Device{
+	d := &device.Device{
 		ID:       uuid.New(),
 		GroupID:  groupID,
 		Hostname: "host-" + uuid.New().String()[:8],
 		OS:       "linux",
-		Status:   db.StatusOffline,
+		Status:   device.StatusOffline,
 	}
-	require.NoError(t, s.UpsertDevice(ctx, d))
+	require.NoError(t, NewTestDevices(t, s).Upsert(ctx, d))
 	return d
 }
 

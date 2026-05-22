@@ -21,6 +21,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
@@ -58,6 +59,10 @@ type ServerConfig struct {
 	DeviceUpdates   updater.DeviceUpdateRepository
 	Enrollment      updater.EnrollmentTokenRepository
 	SecurityGroups  auth.SecurityGroupRepository
+	Devices         device.Repository
+	Groups          device.GroupRepository
+	Hardware        device.HardwareRepository
+	DeviceLogs      device.LogsRepository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
 	AMT       AMTOperator
@@ -83,6 +88,10 @@ type Server struct {
 	deviceUpdates  updater.DeviceUpdateRepository
 	enrollment     updater.EnrollmentTokenRepository
 	securityGroups auth.SecurityGroupRepository
+	devices        device.Repository
+	groups         device.GroupRepository
+	hardware       device.HardwareRepository
+	deviceLogs     device.LogsRepository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
 	amt       AMTOperator
@@ -110,6 +119,10 @@ func NewServer(cfg ServerConfig) *Server {
 		deviceUpdates:  cfg.DeviceUpdates,
 		enrollment:     cfg.Enrollment,
 		securityGroups: cfg.SecurityGroups,
+		devices:        cfg.Devices,
+		groups:         cfg.Groups,
+		hardware:       cfg.Hardware,
+		deviceLogs:     cfg.DeviceLogs,
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
 		amt:       cfg.AMT,

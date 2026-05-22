@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"github.com/volchanskyi/opengate/server/internal/updater"
@@ -33,6 +34,9 @@ func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store db.Store) (*AgentC
 		stream:   &buf,
 		codec:    &protocol.Codec{},
 		store:    store,
+		devices:    testutil.NewTestDevices(t, store),
+		hardware:   testutil.NewTestHardware(t, store),
+		deviceLogs: testutil.NewTestLogs(t, store),
 		logger:   testLogger(),
 	}
 	return ac, &buf
@@ -78,7 +82,7 @@ func TestNewAgentConn(t *testing.T) {
 	var buf bytes.Buffer
 	logger := testLogger()
 
-	ac := NewAgentConn(deviceID, groupID, &buf, store, testutil.NewTestDeviceUpdates(t, store), logger)
+	ac := NewAgentConn(deviceID, groupID, &buf, store, testutil.NewTestDevices(t, store), testutil.NewTestHardware(t, store), testutil.NewTestLogs(t, store), testutil.NewTestDeviceUpdates(t, store), logger)
 	assert.Equal(t, deviceID, ac.DeviceID)
 	assert.Equal(t, groupID, ac.GroupID)
 	assert.NotNil(t, ac.codec)
@@ -117,6 +121,9 @@ func TestAgentConn_HandleRegister(t *testing.T) {
 		stream:   &frameBuf,
 		codec:    codec,
 		store:    store,
+		devices:    testutil.NewTestDevices(t, store),
+		hardware:   testutil.NewTestHardware(t, store),
+		deviceLogs: testutil.NewTestLogs(t, store),
 		logger:   testLogger(),
 	}
 
@@ -124,11 +131,11 @@ func TestAgentConn_HandleRegister(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify device was upserted
-	device, err := store.GetDevice(ctx, deviceID)
+	d, err := testutil.NewTestDevices(t, store).Get(ctx, deviceID)
 	require.NoError(t, err)
-	assert.Equal(t, "test-host", device.Hostname)
-	assert.Equal(t, "linux", device.OS)
-	assert.Equal(t, db.StatusOnline, device.Status)
+	assert.Equal(t, "test-host", d.Hostname)
+	assert.Equal(t, "linux", d.OS)
+	assert.Equal(t, db.StatusOnline, d.Status)
 }
 
 func TestAgentConn_HandleHeartbeat(t *testing.T) {
@@ -137,7 +144,7 @@ func TestAgentConn_HandleHeartbeat(t *testing.T) {
 
 	user := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, user.ID)
-	device := testutil.SeedDevice(t, ctx, store, group.ID)
+	d := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	codec := &protocol.Codec{}
 
@@ -154,11 +161,14 @@ func TestAgentConn_HandleHeartbeat(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID: device.ID,
+		DeviceID: d.ID,
 		GroupID:  group.ID,
 		stream:   &frameBuf,
 		codec:    codec,
 		store:    store,
+		devices:    testutil.NewTestDevices(t, store),
+		hardware:   testutil.NewTestHardware(t, store),
+		deviceLogs: testutil.NewTestLogs(t, store),
 		logger:   testLogger(),
 	}
 
@@ -166,7 +176,7 @@ func TestAgentConn_HandleHeartbeat(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify device status is online
-	updated, err := store.GetDevice(ctx, device.ID)
+	updated, err := testutil.NewTestDevices(t, store).Get(ctx, d.ID)
 	require.NoError(t, err)
 	assert.Equal(t, db.StatusOnline, updated.Status)
 }
@@ -231,7 +241,7 @@ func TestAgentConn_SendRequestHardwareReport(t *testing.T) {
 func TestAgentConn_SendRequestDeviceLogs(t *testing.T) {
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
-	filter := db.LogFilter{
+	filter := device.LogFilter{
 		Level:  "ERROR",
 		From:   "2026-01-01T00:00:00Z",
 		To:     "2026-01-02T00:00:00Z",
@@ -264,7 +274,7 @@ func TestAgentConn_HandleDeviceLogsResponse(t *testing.T) {
 
 	user := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, user.ID)
-	device := testutil.SeedDevice(t, ctx, store, group.ID)
+	d := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	codec := &protocol.Codec{}
 
@@ -284,11 +294,14 @@ func TestAgentConn_HandleDeviceLogsResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID: device.ID,
+		DeviceID: d.ID,
 		GroupID:  group.ID,
 		stream:   &frameBuf,
 		codec:    codec,
 		store:    store,
+		devices:    testutil.NewTestDevices(t, store),
+		hardware:   testutil.NewTestHardware(t, store),
+		deviceLogs: testutil.NewTestLogs(t, store),
 		logger:   testLogger(),
 	}
 
@@ -296,7 +309,7 @@ func TestAgentConn_HandleDeviceLogsResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify logs were stored
-	entries, total, err := store.QueryDeviceLogs(ctx, device.ID, db.LogFilter{Limit: 100})
+	entries, total, err := testutil.NewTestLogs(t, store).Query(ctx, d.ID, device.LogFilter{Limit: 100})
 	require.NoError(t, err)
 	assert.Equal(t, 2, total)
 	assert.Len(t, entries, 2)
@@ -328,7 +341,7 @@ func TestAgentConn_HandleHardwareReport(t *testing.T) {
 
 	user := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, user.ID)
-	device := testutil.SeedDevice(t, ctx, store, group.ID)
+	d := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	codec := &protocol.Codec{}
 
@@ -351,11 +364,14 @@ func TestAgentConn_HandleHardwareReport(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID: device.ID,
+		DeviceID: d.ID,
 		GroupID:  group.ID,
 		stream:   &frameBuf,
 		codec:    codec,
 		store:    store,
+		devices:    testutil.NewTestDevices(t, store),
+		hardware:   testutil.NewTestHardware(t, store),
+		deviceLogs: testutil.NewTestLogs(t, store),
 		logger:   testLogger(),
 	}
 
@@ -363,7 +379,7 @@ func TestAgentConn_HandleHardwareReport(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify hardware was stored
-	hw, err := store.GetDeviceHardware(ctx, device.ID)
+	hw, err := testutil.NewTestHardware(t, store).Get(ctx, d.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "Intel i7-12700", hw.CPUModel)
 	assert.Equal(t, 12, hw.CPUCores)
@@ -401,16 +417,19 @@ func TestAgentConn_HandleRegister_NormalizesOS(t *testing.T) {
 		stream:   &frameBuf,
 		codec:    codec,
 		store:    store,
+		devices:    testutil.NewTestDevices(t, store),
+		hardware:   testutil.NewTestHardware(t, store),
+		deviceLogs: testutil.NewTestLogs(t, store),
 		logger:   testLogger(),
 	}
 
 	err = ac.handleControl(ctx)
 	require.NoError(t, err)
 
-	device, err := store.GetDevice(ctx, deviceID)
+	d, err := testutil.NewTestDevices(t, store).Get(ctx, deviceID)
 	require.NoError(t, err)
-	assert.Equal(t, "linux", device.OS, "OS should be normalized")
-	assert.Equal(t, "Ubuntu 22.04 LTS", device.OsDisplay, "OsDisplay should preserve original")
+	assert.Equal(t, "linux", d.OS, "OS should be normalized")
+	assert.Equal(t, "Ubuntu 22.04 LTS", d.OsDisplay, "OsDisplay should preserve original")
 	assert.Equal(t, "amd64", ac.Arch, "Arch should be normalized from x86_64")
 }
 
@@ -463,11 +482,11 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 
 	user := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, user.ID)
-	device := testutil.SeedDevice(t, ctx, store, group.ID)
+	d := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	// Create a pending update record
 	require.NoError(t, deviceUpdates.Create(ctx, &updater.DeviceUpdate{
-		DeviceID: device.ID,
+		DeviceID: d.ID,
 		Version:  "0.5.0",
 		Status:   updater.StatusPending,
 	}))
@@ -480,11 +499,11 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 		ups, err := deviceUpdates.ListByVersion(ctx, "0.5.0")
 		require.NoError(t, err)
 		for _, u := range ups {
-			if u.DeviceID == device.ID {
+			if u.DeviceID == d.ID {
 				return u
 			}
 		}
-		t.Fatalf("no update record for %s @ 0.5.0", device.ID)
+		t.Fatalf("no update record for %s @ 0.5.0", d.ID)
 		return nil
 	}
 
@@ -502,11 +521,14 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 		require.NoError(t, codec.WriteFrame(&frameBuf, protocol.FrameControl, payload))
 
 		ac := &AgentConn{
-			DeviceID:      device.ID,
+			DeviceID:      d.ID,
 			GroupID:       group.ID,
 			stream:        &frameBuf,
 			codec:         codec,
 			store:         store,
+			devices:    testutil.NewTestDevices(t, store),
+			hardware:   testutil.NewTestHardware(t, store),
+			deviceLogs: testutil.NewTestLogs(t, store),
 			deviceUpdates: deviceUpdates,
 			logger:        testLogger(),
 		}
@@ -535,11 +557,14 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 		require.NoError(t, codec.WriteFrame(&frameBuf, protocol.FrameControl, payload))
 
 		ac := &AgentConn{
-			DeviceID:      device.ID,
+			DeviceID:      d.ID,
 			GroupID:       group.ID,
 			stream:        &frameBuf,
 			codec:         codec,
 			store:         store,
+			devices:    testutil.NewTestDevices(t, store),
+			hardware:   testutil.NewTestHardware(t, store),
+			deviceLogs: testutil.NewTestLogs(t, store),
 			deviceUpdates: deviceUpdates,
 			logger:        testLogger(),
 		}

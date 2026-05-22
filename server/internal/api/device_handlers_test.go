@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 const (
@@ -21,44 +22,44 @@ func TestDeviceHandlers(t *testing.T) {
 	srv, cfg := newTestServer(t)
 	user, token := seedTestUser(t, srv, cfg, "dev@example.com", false)
 
-	group := &db.Group{ID: uuid.New(), Name: "test-group", OwnerID: user.ID}
-	require.NoError(t, srv.store.CreateGroup(t.Context(), group))
+	group := &device.Group{ID: uuid.New(), Name: "test-group", OwnerID: user.ID}
+	require.NoError(t, srv.groups.Create(t.Context(), group))
 
-	device := &db.Device{
+	dev := &device.Device{
 		ID:       uuid.New(),
 		GroupID:  group.ID,
 		Hostname: "test-host",
 		OS:       "linux",
 		Status:   db.StatusOnline,
 	}
-	require.NoError(t, srv.store.UpsertDevice(t.Context(), device))
+	require.NoError(t, srv.devices.Upsert(t.Context(), dev))
 
 	t.Run("list devices", func(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathDevices + "?group_id="+group.ID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var devices []*db.Device
+		var devices []*device.Device
 		json.NewDecoder(w.Body).Decode(&devices)
 		assert.Len(t, devices, 1)
-		assert.Equal(t, device.ID, devices[0].ID)
+		assert.Equal(t, dev.ID, devices[0].ID)
 	})
 
 	t.Run("list all devices without group_id", func(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathDevices, token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var devices []*db.Device
+		var devices []*device.Device
 		json.NewDecoder(w.Body).Decode(&devices)
 		assert.GreaterOrEqual(t, len(devices), 1)
 	})
 
 	t.Run("get device", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, testPathDevicesS+device.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevicesS+dev.ID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var d db.Device
+		var d device.Device
 		json.NewDecoder(w.Body).Decode(&d)
-		assert.Equal(t, device.Hostname, d.Hostname)
+		assert.Equal(t, dev.Hostname, d.Hostname)
 	})
 
 	t.Run("get device not found", func(t *testing.T) {
@@ -67,11 +68,11 @@ func TestDeviceHandlers(t *testing.T) {
 	})
 
 	t.Run("update device group", func(t *testing.T) {
-		newGroup := &db.Group{ID: uuid.New(), Name: "new-group", OwnerID: user.ID}
-		require.NoError(t, srv.store.CreateGroup(t.Context(), newGroup))
+		newGroup := &device.Group{ID: uuid.New(), Name: "new-group", OwnerID: user.ID}
+		require.NoError(t, srv.groups.Create(t.Context(), newGroup))
 
 		body := map[string]interface{}{"group_id": newGroup.ID.String()}
-		w := doRequest(srv, http.MethodPatch, testPathDevicesS+device.ID.String(), token, body)
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), token, body)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var d Device
@@ -81,7 +82,7 @@ func TestDeviceHandlers(t *testing.T) {
 
 	t.Run("update device group not found", func(t *testing.T) {
 		body := map[string]interface{}{"group_id": uuid.New().String()}
-		w := doRequest(srv, http.MethodPatch, testPathDevicesS+device.ID.String(), token, body)
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), token, body)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
@@ -92,7 +93,7 @@ func TestDeviceHandlers(t *testing.T) {
 	})
 
 	t.Run("delete device", func(t *testing.T) {
-		w := doRequest(srv, http.MethodDelete, testPathDevicesS+device.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathDevicesS+dev.ID.String(), token, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 
