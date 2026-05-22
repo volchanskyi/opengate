@@ -58,7 +58,7 @@ func TestUserHandlers(t *testing.T) {
 
 	t.Run("get me after user deleted", func(t *testing.T) {
 		tempUser, tempToken := seedTestUser(t, srv, cfg, "temp@example.com", false)
-		require.NoError(t, srv.store.DeleteUser(t.Context(), tempUser.ID))
+		require.NoError(t, srv.users.Delete(t.Context(), tempUser.ID))
 		w := doRequest(srv, http.MethodGet, "/api/v1/users/me", tempToken, nil)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})

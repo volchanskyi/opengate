@@ -22,7 +22,7 @@ func newTestSGRepo(t *testing.T) (auth.SecurityGroupRepository, db.Store) {
 	return testutil.NewTestSecurityGroups(t, store), store
 }
 
-func seedUser(t *testing.T, ctx context.Context, store db.Store) *db.User {
+func seedUser(t *testing.T, ctx context.Context, store db.Store) *auth.User {
 	t.Helper()
 	return testutil.SeedUser(t, ctx, store)
 }
@@ -196,13 +196,13 @@ func TestPostgresSecurityGroups_SyncIsAdmin(t *testing.T) {
 	u := seedUser(t, ctx, store)
 
 	// Initially not admin.
-	got, err := store.GetUser(ctx, u.ID)
+	got, err := testutil.NewTestUsers(t, store).Get(ctx, u.ID)
 	require.NoError(t, err)
 	assert.False(t, got.IsAdmin)
 
 	// Add to Administrators — users.is_admin should flip to true.
 	require.NoError(t, repo.AddMember(ctx, auth.AdminGroupID, u.ID))
-	got, err = store.GetUser(ctx, u.ID)
+	got, err = testutil.NewTestUsers(t, store).Get(ctx, u.ID)
 	require.NoError(t, err)
 	assert.True(t, got.IsAdmin)
 
@@ -212,7 +212,7 @@ func TestPostgresSecurityGroups_SyncIsAdmin(t *testing.T) {
 
 	// Remove from Administrators — users.is_admin should flip to false.
 	require.NoError(t, repo.RemoveMember(ctx, auth.AdminGroupID, u.ID))
-	got, err = store.GetUser(ctx, u.ID)
+	got, err = testutil.NewTestUsers(t, store).Get(ctx, u.ID)
 	require.NoError(t, err)
 	assert.False(t, got.IsAdmin)
 }

@@ -40,7 +40,8 @@ func TestHandlerStoreFailures(t *testing.T) {
 	hash, err := auth.HashPassword("password123")
 	require.NoError(t, err)
 	userID := uuid.New()
-	require.NoError(t, store.UpsertUser(t.Context(), &db.User{
+	usersRepo := testutil.NewTestUsers(t, store)
+	require.NoError(t, usersRepo.Upsert(t.Context(), &auth.User{
 		ID: userID, Email: email, PasswordHash: hash,
 	}))
 	token, err := cfg.GenerateToken(userID, email, true)
@@ -54,6 +55,10 @@ func TestHandlerStoreFailures(t *testing.T) {
 		Groups:         testutil.NewTestGroups(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
 		DeviceLogs:     testutil.NewTestLogs(t, store),
+		WebPush:        testutil.NewTestWebPush(t, store),
+		AMTDevices:     testutil.NewTestAMTDevices(t, store),
+		Sessions:       testutil.NewTestSessions(t, store),
+		Users:          testutil.NewTestUsers(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},

@@ -23,10 +23,21 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
+// AMTStateWriter is the narrow port mps uses to persist device online/offline
+// state when CIRA connections come and go. The amt.Repository (ADR-021 #6)
+// satisfies this interface; mps does NOT import amt to avoid a cycle —
+// amt.Service holds a *mps.Server, so the dependency direction must stay
+// amt → mps. The method names mirror amt.Repository so the interface is
+// satisfied structurally.
+type AMTStateWriter interface {
+	Upsert(ctx context.Context, d *db.AMTDevice) error
+	SetStatus(ctx context.Context, id uuid.UUID, status db.DeviceStatus) error
+}
+
 // Server is the Intel AMT Management Presence Server.
 type Server struct {
 	cert   *cert.Manager
-	store  db.Store
+	state  AMTStateWriter
 	conns  sync.Map // map[uuid.UUID]*Conn
 	count  atomic.Int64
 	logger *slog.Logger
@@ -35,10 +46,10 @@ type Server struct {
 }
 
 // NewServer creates a new MPS server.
-func NewServer(cm *cert.Manager, store db.Store, logger *slog.Logger) *Server {
+func NewServer(cm *cert.Manager, state AMTStateWriter, logger *slog.Logger) *Server {
 	return &Server{
 		cert:   cm,
-		store:  store,
+		state:  state,
 		logger: logger,
 		addrCh: make(chan string, 1),
 	}
@@ -145,7 +156,7 @@ func (s *Server) registerConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) 
 
 	upsertCtx, upsertCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer upsertCancel()
-	if err := s.store.UpsertAMTDevice(upsertCtx, &db.AMTDevice{
+	if err := s.state.Upsert(upsertCtx, &db.AMTDevice{
 		UUID:     amtUUID,
 		Status:   db.StatusOnline,
 		LastSeen: time.Now(),
@@ -161,7 +172,7 @@ func (s *Server) unregisterConn(mc *Conn, amtUUID uuid.UUID) {
 
 	offCtx, offCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer offCancel()
-	if err := s.store.SetAMTDeviceStatus(offCtx, amtUUID, db.StatusOffline); err != nil {
+	if err := s.state.SetStatus(offCtx, amtUUID, db.StatusOffline); err != nil {
 		mc.logger.Error("set AMT device offline", "error", err)
 	}
 	mc.logger.Info("AMT device disconnected")

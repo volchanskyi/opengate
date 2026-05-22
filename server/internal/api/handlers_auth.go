@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
 // Register implements StrictServerInterface.
@@ -38,7 +37,7 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 		displayName = *request.Body.DisplayName
 	}
 
-	user := &db.User{
+	user := &auth.User{
 		ID:           uuid.New(),
 		Email:        email,
 		PasswordHash: hash,
@@ -46,20 +45,20 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 	}
 
 	// Check for duplicate email to prevent account enumeration.
-	existing, lookupErr := s.store.GetUserByEmail(ctx, email)
-	if lookupErr != nil && !errors.Is(lookupErr, db.ErrNotFound) {
+	existing, lookupErr := s.users.GetByEmail(ctx, email)
+	if lookupErr != nil && !errors.Is(lookupErr, auth.ErrUserNotFound) {
 		return nil, lookupErr
 	}
 	if existing != nil {
 		return Register400JSONResponse{Error: "registration failed"}, nil
 	}
 
-	if err := s.store.UpsertUser(ctx, user); err != nil {
+	if err := s.users.Upsert(ctx, user); err != nil {
 		return nil, err
 	}
 
 	// Auto-promote the first registered user to administrator.
-	users, err := s.store.ListUsers(ctx)
+	users, err := s.users.List(ctx)
 	if err == nil && len(users) == 1 {
 		if addErr := s.securityGroups.AddMember(ctx, auth.AdminGroupID, user.ID); addErr != nil {
 			s.logger.Warn("auto-promote first user to admin failed", "user_id", user.ID, "error", addErr)
@@ -87,9 +86,9 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		return Login400JSONResponse{Error: "email and password are required"}, nil
 	}
 
-	user, err := s.store.GetUserByEmail(ctx, email)
+	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, auth.ErrUserNotFound) {
 			return Login401JSONResponse{Error: "invalid credentials"}, nil
 		}
 		return nil, err

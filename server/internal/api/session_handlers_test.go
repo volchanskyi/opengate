@@ -15,6 +15,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
@@ -113,7 +114,7 @@ func TestCreateSession(t *testing.T) {
 		assert.Contains(t, resp["relay_url"], testPathWSRelay+resp["token"])
 
 		// Session should be retrievable from DB
-		sess, err := store.GetAgentSession(ctx, resp["token"])
+		sess, err := testutil.NewTestSessions(t, store).Get(ctx, resp["token"])
 		require.NoError(t, err)
 		assert.Equal(t, device.ID, sess.DeviceID)
 		assert.Equal(t, user.ID, sess.UserID)
@@ -370,8 +371,8 @@ func TestDeleteSession(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, w.Code)
 
 		// Verify gone from DB
-		_, err := srv.store.GetAgentSession(ctx, sess.Token)
-		assert.ErrorIs(t, err, db.ErrNotFound)
+		_, err := srv.sessions.Get(ctx, sess.Token)
+		assert.ErrorIs(t, err, session.ErrSessionNotFound)
 	})
 
 	t.Run("idempotent", func(t *testing.T) {

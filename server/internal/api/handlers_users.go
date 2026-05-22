@@ -5,16 +5,15 @@ import (
 	"errors"
 
 	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
 // GetMe implements StrictServerInterface.
 func (s *Server) GetMe(ctx context.Context, _ GetMeRequestObject) (GetMeResponseObject, error) {
 	userID := ContextUserID(ctx)
 
-	user, err := s.store.GetUser(ctx, userID)
+	user, err := s.users.Get(ctx, userID)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, auth.ErrUserNotFound) {
 			return GetMe404JSONResponse{Error: "user not found"}, nil
 		}
 		return nil, err
@@ -29,7 +28,7 @@ func (s *Server) ListUsers(ctx context.Context, _ ListUsersRequestObject) (ListU
 		return resp, nil
 	}
 
-	users, err := s.store.ListUsers(ctx)
+	users, err := s.users.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +42,7 @@ func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject
 		return resp, nil
 	}
 
-	if err := s.store.DeleteUser(ctx, request.Id); err != nil {
+	if err := s.users.Delete(ctx, request.Id); err != nil {
 		return nil, err
 	}
 
@@ -69,9 +68,9 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 		}
 	}
 
-	user, err := s.store.GetUser(ctx, request.Id)
+	user, err := s.users.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, auth.ErrUserNotFound) {
 			return UpdateUser404JSONResponse{Error: "user not found"}, nil
 		}
 		return nil, err
@@ -100,7 +99,7 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 		user.DisplayName = *request.Body.DisplayName
 	}
 
-	if err := s.store.UpsertUser(ctx, user); err != nil {
+	if err := s.users.Upsert(ctx, user); err != nil {
 		return nil, err
 	}
 

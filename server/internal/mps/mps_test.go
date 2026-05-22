@@ -19,11 +19,49 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
+// pgAMTState is a tiny test-only AMTStateWriter that also reads back rows.
+// Defined here (not in amt/) because amt imports mps; importing amt from
+// mps_test.go would create a build cycle. Production wiring threads
+// amt.PostgresAMTDevices through main.go instead.
+type pgAMTState struct{ pool *db.PostgresStore }
+
+func (p *pgAMTState) Upsert(ctx context.Context, d *db.AMTDevice) error {
+	_, err := p.pool.DB().ExecContext(ctx,
+		`INSERT INTO amt_devices (uuid, hostname, model, firmware, status, last_seen)
+		 VALUES ($1, $2, $3, $4, $5, NOW())
+		 ON CONFLICT (uuid) DO UPDATE SET
+		   hostname  = CASE WHEN EXCLUDED.hostname = '' THEN amt_devices.hostname ELSE EXCLUDED.hostname END,
+		   model     = CASE WHEN EXCLUDED.model    = '' THEN amt_devices.model    ELSE EXCLUDED.model    END,
+		   firmware  = CASE WHEN EXCLUDED.firmware = '' THEN amt_devices.firmware ELSE EXCLUDED.firmware END,
+		   status    = EXCLUDED.status,
+		   last_seen = NOW()`,
+		d.UUID, d.Hostname, d.Model, d.Firmware, string(d.Status))
+	return err
+}
+
+func (p *pgAMTState) SetStatus(ctx context.Context, id uuid.UUID, status db.DeviceStatus) error {
+	_, err := p.pool.DB().ExecContext(ctx,
+		`UPDATE amt_devices SET status = $1, last_seen = NOW() WHERE uuid = $2`,
+		string(status), id)
+	return err
+}
+
+func (p *pgAMTState) Get(ctx context.Context, id uuid.UUID) (*db.AMTDevice, error) {
+	var d db.AMTDevice
+	err := p.pool.DB().QueryRowContext(ctx,
+		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices WHERE uuid = $1`,
+		id).Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newTestServer(t *testing.T) (*Server, db.Store) {
+func newTestServer(t *testing.T) (*Server, *pgAMTState) {
 	t.Helper()
 
 	pgURL := os.Getenv("POSTGRES_TEST_URL")
@@ -38,8 +76,9 @@ func newTestServer(t *testing.T) (*Server, db.Store) {
 	require.NoError(t, err)
 
 	logger := discardLogger()
-	srv := NewServer(cm, store, logger)
-	return srv, store
+	state := &pgAMTState{pool: store}
+	srv := NewServer(cm, state, logger)
+	return srv, state
 }
 
 func startTestServer(t *testing.T, srv *Server) (string, context.CancelFunc) {
@@ -171,7 +210,7 @@ func TestMPSCIRAHandshake(t *testing.T) {
 
 	// Check DB upsert.
 	ctx := context.Background()
-	device, err := store.GetAMTDevice(ctx, amtUUID)
+	device, err := store.Get(ctx, amtUUID)
 	require.NoError(t, err)
 	assert.Equal(t, db.StatusOnline, device.Status)
 
@@ -182,7 +221,7 @@ func TestMPSCIRAHandshake(t *testing.T) {
 	assert.Equal(t, 0, srv.ConnectedDeviceCount())
 	assert.Nil(t, srv.GetConn(amtUUID))
 
-	device, err = store.GetAMTDevice(ctx, amtUUID)
+	device, err = store.Get(ctx, amtUUID)
 	require.NoError(t, err)
 	assert.Equal(t, db.StatusOffline, device.Status)
 }

@@ -22,7 +22,7 @@ func TestDeviceIDOR(t *testing.T) {
 	_, attackerToken := seedTestUser(t, srv, cfg, "attacker@example.com", false)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin-idor@example.com", true)
 	// Add admin to Administrators security group.
-	admin, _ := srv.store.GetUserByEmail(ctx, "admin-idor@example.com")
+	admin, _ := srv.users.GetByEmail(ctx, "admin-idor@example.com")
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
 	group := testutil.SeedGroup(t, ctx, srv.store, owner.ID)
@@ -89,7 +89,7 @@ func TestGroupIDOR(t *testing.T) {
 	owner, ownerToken := seedTestUser(t, srv, cfg, "group-owner@example.com", false)
 	_, attackerToken := seedTestUser(t, srv, cfg, "group-attacker@example.com", false)
 	_, adminToken := seedTestUser(t, srv, cfg, "group-admin@example.com", true)
-	admin, _ := srv.store.GetUserByEmail(ctx, "group-admin@example.com")
+	admin, _ := srv.users.GetByEmail(ctx, "group-admin@example.com")
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
 	group := testutil.SeedGroup(t, ctx, srv.store, owner.ID)
@@ -139,7 +139,7 @@ func TestSessionIDOR(t *testing.T) {
 	owner, ownerToken := seedTestUser(t, srv, cfg, "sess-owner@example.com", false)
 	_, attackerToken := seedTestUser(t, srv, cfg, "sess-attacker@example.com", false)
 	_, adminToken := seedTestUser(t, srv, cfg, "sess-admin@example.com", true)
-	admin, _ := srv.store.GetUserByEmail(ctx, "sess-admin@example.com")
+	admin, _ := srv.users.GetByEmail(ctx, "sess-admin@example.com")
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
 	group := testutil.SeedGroup(t, ctx, srv.store, owner.ID)
@@ -172,7 +172,7 @@ func TestAMTAdminOnly(t *testing.T) {
 
 	_, regularToken := seedTestUser(t, srv, cfg, "amt-regular@example.com", false)
 	_, adminToken := seedTestUser(t, srv, cfg, "amt-admin@example.com", true)
-	admin, _ := srv.store.GetUserByEmail(ctx, "amt-admin@example.com")
+	admin, _ := srv.users.GetByEmail(ctx, "amt-admin@example.com")
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
 	amtDevice := testutil.SeedAMTDevice(t, ctx, srv.store)

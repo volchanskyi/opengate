@@ -36,7 +36,7 @@ func TestListAMTDevicesWithDevices(t *testing.T) {
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
 	id := uuid.New()
-	err := srv.store.UpsertAMTDevice(t.Context(), &db.AMTDevice{
+	err := srv.amtDevices.Upsert(t.Context(), &db.AMTDevice{
 		UUID:     id,
 		Hostname: "amt-host",
 		Model:    "ModelX",
@@ -69,7 +69,7 @@ func TestGetAMTDeviceFound(t *testing.T) {
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
 	id := uuid.New()
-	err := srv.store.UpsertAMTDevice(t.Context(), &db.AMTDevice{
+	err := srv.amtDevices.Upsert(t.Context(), &db.AMTDevice{
 		UUID:     id,
 		Hostname: "found-host",
 		Model:    "ModelY",

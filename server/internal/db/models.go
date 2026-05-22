@@ -5,7 +5,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/session"
 )
 
 // DeviceID uniquely identifies a device.
@@ -43,32 +46,22 @@ type (
 	NetworkInterfaceInfo = device.NetworkInterfaceInfo
 )
 
-// User represents an authenticated user of the system.
-type User struct {
-	ID           UserID    `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	DisplayName  string    `json:"display_name"`
-	IsAdmin      bool      `json:"is_admin"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
+// User is aliased to the canonical type in [auth] for the migration window
+// while not-yet-updated callers still spell this with a `db.` prefix.
+// Removed once those callers migrate to auth.User directly.
+type User = auth.User
 
-// AgentSession tracks an active relay session between browser and agent.
-type AgentSession struct {
-	Token     string    `json:"token"`
-	DeviceID  DeviceID  `json:"device_id"`
-	UserID    UserID    `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
-}
+// AgentSession is aliased to the canonical type in [session] for the
+// migration window while not-yet-updated callers still spell this with a
+// `db.` prefix. Removed once those callers migrate to session.Session
+// directly.
+type AgentSession = session.Session
 
-// WebPushSubscription stores a user's Web Push subscription.
-type WebPushSubscription struct {
-	Endpoint string `json:"endpoint"`
-	UserID   UserID `json:"user_id"`
-	P256dh   string `json:"p256dh"`
-	Auth     string `json:"auth"`
-}
+// WebPushSubscription is aliased to the canonical type in [notifications] for
+// the migration window while the not-yet-updated callers still spell this
+// with a `db.` prefix. Removed once those callers migrate to the
+// notifications.WebPushSubscription identifier directly.
+type WebPushSubscription = notifications.WebPushSubscription
 
 // AMTDevice represents an Intel AMT device connected via CIRA.
 type AMTDevice struct {

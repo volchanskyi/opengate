@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
@@ -26,6 +27,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -63,6 +65,10 @@ type ServerConfig struct {
 	Groups          device.GroupRepository
 	Hardware        device.HardwareRepository
 	DeviceLogs      device.LogsRepository
+	WebPush         notifications.WebPushRepository
+	AMTDevices      amt.Repository
+	Sessions        session.Repository
+	Users           auth.UserRepository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
 	AMT       AMTOperator
@@ -92,6 +98,10 @@ type Server struct {
 	groups         device.GroupRepository
 	hardware       device.HardwareRepository
 	deviceLogs     device.LogsRepository
+	webPush        notifications.WebPushRepository
+	amtDevices     amt.Repository
+	sessions       session.Repository
+	users          auth.UserRepository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
 	amt       AMTOperator
@@ -123,6 +133,10 @@ func NewServer(cfg ServerConfig) *Server {
 		groups:         cfg.Groups,
 		hardware:       cfg.Hardware,
 		deviceLogs:     cfg.DeviceLogs,
+		webPush:        cfg.WebPush,
+		amtDevices:     cfg.AMTDevices,
+		sessions:       cfg.Sessions,
+		users:          cfg.Users,
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
 		amt:       cfg.AMT,

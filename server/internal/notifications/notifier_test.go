@@ -90,7 +90,7 @@ func TestNoopNotifier(t *testing.T) {
 }
 
 func TestPushNotifier_NoSubscriptions(t *testing.T) {
-	store := newMockNotifStore(nil)
+	store := newMockNotifRepo(nil)
 	logger := newDiscardLogger()
 	priv, pub := testVAPIDKeys(t)
 	n := NewPushNotifier(store, priv, pub, "test@example.com", logger)
@@ -100,7 +100,7 @@ func TestPushNotifier_NoSubscriptions(t *testing.T) {
 }
 
 func TestPushNotifier_VAPIDPublicKey(t *testing.T) {
-	store := newMockNotifStore(nil)
+	store := newMockNotifRepo(nil)
 	logger := newDiscardLogger()
 	n := NewPushNotifier(store, "privkey", "mypubkey", "test@example.com", logger)
 
@@ -115,7 +115,7 @@ func TestPushNotifier_StaleSubscriptionDeleted(t *testing.T) {
 	defer srv.Close()
 
 	priv, pub := testVAPIDKeys(t)
-	store := newMockNotifStore([]*mockSub{
+	store := newMockNotifRepo([]*mockSub{
 		{Endpoint: srv.URL, P256dh: pub, Auth: priv[:22]},
 	})
 	logger := newDiscardLogger()
@@ -143,7 +143,7 @@ func TestPushNotifier_NonGoneErrorDoesNotDelete(t *testing.T) {
 	defer srv.Close()
 
 	priv, pub := testVAPIDKeys(t)
-	store := newMockNotifStore([]*mockSub{
+	store := newMockNotifRepo([]*mockSub{
 		{Endpoint: srv.URL, P256dh: pub, Auth: priv[:22]},
 	})
 	logger := newDiscardLogger()
@@ -171,7 +171,7 @@ func TestPushNotifier_SendPayloadReachesServer(t *testing.T) {
 	defer srv.Close()
 
 	priv, pub := testVAPIDKeys(t)
-	store := newMockNotifStore([]*mockSub{
+	store := newMockNotifRepo([]*mockSub{
 		{Endpoint: srv.URL, P256dh: pub, Auth: priv[:22]},
 	})
 	logger := newDiscardLogger()
