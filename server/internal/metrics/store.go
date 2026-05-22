@@ -78,40 +78,6 @@ func (s *InstrumentedStore) DeleteUser(ctx context.Context, id db.UserID) error 
 	return err
 }
 
-// --- Agent Sessions ----------------------------------------------------------
-
-// CreateAgentSession instruments db.Store.CreateAgentSession.
-func (s *InstrumentedStore) CreateAgentSession(ctx context.Context, sess *db.AgentSession) error {
-	start := time.Now()
-	err := s.inner.CreateAgentSession(ctx, sess)
-	s.observe("CreateAgentSession", start, err)
-	return err
-}
-
-// GetAgentSession instruments db.Store.GetAgentSession.
-func (s *InstrumentedStore) GetAgentSession(ctx context.Context, token string) (*db.AgentSession, error) {
-	start := time.Now()
-	sess, err := s.inner.GetAgentSession(ctx, token)
-	s.observe("GetAgentSession", start, err)
-	return sess, err
-}
-
-// DeleteAgentSession instruments db.Store.DeleteAgentSession.
-func (s *InstrumentedStore) DeleteAgentSession(ctx context.Context, token string) error {
-	start := time.Now()
-	err := s.inner.DeleteAgentSession(ctx, token)
-	s.observe("DeleteAgentSession", start, err)
-	return err
-}
-
-// ListActiveSessionsForDevice instruments db.Store.ListActiveSessionsForDevice.
-func (s *InstrumentedStore) ListActiveSessionsForDevice(ctx context.Context, deviceID db.DeviceID) ([]*db.AgentSession, error) {
-	start := time.Now()
-	sess, err := s.inner.ListActiveSessionsForDevice(ctx, deviceID)
-	s.observe("ListActiveSessionsForDevice", start, err)
-	return sess, err
-}
-
 // --- Health ------------------------------------------------------------------
 
 // Ping instruments db.Store.Ping.

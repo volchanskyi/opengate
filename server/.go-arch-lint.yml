@@ -82,6 +82,13 @@ components:
   notifications:
     in: internal/notifications
 
+  # Constrained: the session module owns the agent-session aggregate (ADR-021
+  # extraction #7) — browser ↔ relay ↔ agent session tokens. Repository
+  # interface, Postgres adapter, and Instrumented decorator live here. No
+  # internal imports (clean leaf — stdlib + uuid only).
+  session:
+    in: internal/session
+
   # Catch-all for everything else. NOT constrained at the pilot stage — these
   # components will earn their own rules in ADR-021/022/023/024 work.
   other:
@@ -134,6 +141,13 @@ deps:
     # repository + Postgres adapter + Instrumented decorator + PushNotifier
     # + NoopNotifier + VAPID helpers all live entirely in this package;
     # no internal imports.
+    mayDependOn: []
+    anyVendorDeps: true
+    deepScan: false
+  session:
+    # Same leaf-module pattern as audit/update/auth/device/notifications.
+    # The Repository interface, Postgres adapter, and Instrumented
+    # decorator live entirely in this package; no internal imports.
     mayDependOn: []
     anyVendorDeps: true
     deepScan: false

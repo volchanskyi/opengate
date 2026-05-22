@@ -27,6 +27,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -66,6 +67,7 @@ type ServerConfig struct {
 	DeviceLogs      device.LogsRepository
 	WebPush         notifications.WebPushRepository
 	AMTDevices      amt.Repository
+	Sessions        session.Repository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
 	AMT       AMTOperator
@@ -97,6 +99,7 @@ type Server struct {
 	deviceLogs     device.LogsRepository
 	webPush        notifications.WebPushRepository
 	amtDevices     amt.Repository
+	sessions       session.Repository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
 	amt       AMTOperator
@@ -130,6 +133,7 @@ func NewServer(cfg ServerConfig) *Server {
 		deviceLogs:     cfg.DeviceLogs,
 		webPush:        cfg.WebPush,
 		amtDevices:     cfg.AMTDevices,
+		sessions:       cfg.Sessions,
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
 		amt:       cfg.AMT,

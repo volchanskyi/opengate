@@ -5,6 +5,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -70,7 +71,7 @@ func usersToAPI(us []*db.User) []User {
 	return mapSlice(us, userToAPI)
 }
 
-func sessionToAPI(s *db.AgentSession) AgentSession {
+func sessionToAPI(s *session.Session) AgentSession {
 	return AgentSession{
 		Token:     s.Token,
 		DeviceId:  s.DeviceID,
@@ -79,7 +80,7 @@ func sessionToAPI(s *db.AgentSession) AgentSession {
 	}
 }
 
-func sessionsToAPI(ss []*db.AgentSession) []AgentSession {
+func sessionsToAPI(ss []*session.Session) []AgentSession {
 	return mapSlice(ss, sessionToAPI)
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -250,6 +251,14 @@ func NewTestAMTDevices(t testing.TB, s db.Store) amt.Repository {
 	return amt.NewPostgresAMTDevices(extractDB(t, s, "amt.Repository"))
 }
 
+// NewTestSessions returns a Postgres-backed session.Repository sharing the
+// connection pool of s. The agent_sessions schema is owned by the db
+// package's migrations.
+func NewTestSessions(t testing.TB, s db.Store) session.Repository {
+	t.Helper()
+	return session.NewPostgresSessions(extractDB(t, s, "session.Repository"))
+}
+
 // extractDB returns the *sql.DB behind a Postgres-backed db.Store. Tests that
 // need direct DB access for module-owned repos use it; if s isn't Postgres-
 // backed, the test is skipped (mirrors the audit/updater leaf-module pattern).
@@ -304,15 +313,17 @@ func SeedDevice(t testing.TB, ctx context.Context, s db.Store, groupID uuid.UUID
 	return d
 }
 
-// SeedAgentSession inserts an agent session for the given device and user.
-func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, userID uuid.UUID) *db.AgentSession {
+// SeedAgentSession inserts an agent session for the given device and user
+// via the extracted session.Repository — db.Store no longer owns this
+// aggregate (ADR-021 #7).
+func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, userID uuid.UUID) *session.Session {
 	t.Helper()
-	sess := &db.AgentSession{
+	sess := &session.Session{
 		Token:    string(protocol.GenerateSessionToken()),
 		DeviceID: deviceID,
 		UserID:   userID,
 	}
-	require.NoError(t, s.CreateAgentSession(ctx, sess))
+	require.NoError(t, NewTestSessions(t, s).Create(ctx, sess))
 	return sess
 }
 

@@ -5,9 +5,9 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/session"
 	"nhooyr.io/websocket"
 )
 
@@ -94,7 +94,7 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 	tp := protocol.RedactToken(token)
 
 	if err := s.validateRelayToken(r, token); err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, session.ErrSessionNotFound) {
 			s.logger.Warn("relay token not found", "token_prefix", tp)
 			rejectWebSocket(w, r, "session not found")
 		} else {
@@ -127,6 +127,6 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // validateRelayToken checks that the given token exists in the agent session store.
 func (s *Server) validateRelayToken(r *http.Request, token string) error {
-	_, err := s.store.GetAgentSession(r.Context(), token)
+	_, err := s.sessions.Get(r.Context(), token)
 	return err
 }

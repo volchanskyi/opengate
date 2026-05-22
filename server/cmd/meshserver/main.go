@@ -23,6 +23,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -106,6 +107,7 @@ func main() {
 	deviceLogsRepo := device.NewInstrumentedLogs(device.NewPostgresLogs(store.DB()), appMetrics)
 	webPushRepo := notifications.NewInstrumentedWebPush(notifications.NewPostgresWebPush(store.DB()), appMetrics)
 	amtRepo := amt.NewInstrumented(amt.NewPostgresAMTDevices(store.DB()), appMetrics)
+	sessionsRepo := session.NewInstrumented(session.NewPostgresSessions(store.DB()), appMetrics)
 
 	// Reset stale online statuses from a prior run via the device repository.
 	if err := devicesRepo.ResetAllStatuses(context.Background()); err != nil {
@@ -143,7 +145,7 @@ func main() {
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := store.DeleteAgentSession(ctx, string(token)); err != nil {
+		if err := sessionsRepo.Delete(ctx, string(token)); err != nil {
 			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
 		}
 	}
@@ -184,6 +186,7 @@ func main() {
 		DeviceLogs:     deviceLogsRepo,
 		WebPush:        webPushRepo,
 		AMTDevices:     amtRepo,
+		Sessions:       sessionsRepo,
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		AMT:       amtSvc,

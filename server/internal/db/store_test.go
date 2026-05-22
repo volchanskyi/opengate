@@ -12,8 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 // Shared test constants and subtest names (reused across CRUD tables).
@@ -141,55 +139,6 @@ func truncatePostgresTestDB(ctx context.Context, s *PostgresStore) error {
 	return nil
 }
 
-// --- Seed helpers (interface-typed so they work with any backend) ---
-
-// seedUser creates a user in the store for FK dependencies.
-func seedUser(t *testing.T, ctx context.Context, s Store) *User {
-	t.Helper()
-	u := &User{
-		ID:           uuid.New(),
-		Email:        "test-" + uuid.New().String()[:8] + "@example.com",
-		PasswordHash: "hash",
-		DisplayName:  "Test User",
-	}
-	require.NoError(t, s.UpsertUser(ctx, u))
-	return u
-}
-
-// seedGroup creates a group via the extracted device.GroupRepository for FK
-// dependencies in non-device tests (sessions, web push, AMT). After ADR-021
-// #4 the db.Store no longer owns CreateGroup; this helper bridges the gap
-// without forcing every consumer to thread a repo through.
-func seedGroup(t *testing.T, ctx context.Context, s Store, ownerID UserID) *Group {
-	t.Helper()
-	pg, ok := s.(*PostgresStore)
-	require.Truef(t, ok, "seedGroup expects PostgresStore, got %T", s)
-	g := &Group{
-		ID:      uuid.New(),
-		Name:    "group-" + uuid.New().String()[:8],
-		OwnerID: ownerID,
-	}
-	require.NoError(t, device.NewPostgresGroups(pg.DB()).Create(ctx, g))
-	return g
-}
-
-// seedDevice creates a device via the extracted device.Repository for FK
-// dependencies in non-device tests.
-func seedDevice(t *testing.T, ctx context.Context, s Store, groupID GroupID) *Device {
-	t.Helper()
-	pg, ok := s.(*PostgresStore)
-	require.Truef(t, ok, "seedDevice expects PostgresStore, got %T", s)
-	d := &Device{
-		ID:       uuid.New(),
-		GroupID:  groupID,
-		Hostname: "host-" + uuid.New().String()[:8],
-		OS:       "linux",
-		Status:   StatusOffline,
-	}
-	require.NoError(t, device.NewPostgresDevices(pg.DB()).Upsert(ctx, d))
-	return d
-}
-
 // --- Shared tests (run against every storeFactory) ---
 
 func TestPing(t *testing.T) {
@@ -276,76 +225,6 @@ func TestUserCRUD(t *testing.T) {
 
 			t.Run(testNameDeleteNF, func(t *testing.T) {
 				err := s.DeleteUser(ctx, uuid.New())
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-		})
-	}
-}
-
-func TestAgentSessionCRUD(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-			owner := seedUser(t, ctx, s)
-			group := seedGroup(t, ctx, s, owner.ID)
-			dev := seedDevice(t, ctx, s, group.ID)
-
-			t.Run("create and get", func(t *testing.T) {
-				sess := &AgentSession{
-					Token:    "tok-" + uuid.New().String()[:8],
-					DeviceID: dev.ID,
-					UserID:   owner.ID,
-				}
-				require.NoError(t, s.CreateAgentSession(ctx, sess))
-
-				got, err := s.GetAgentSession(ctx, sess.Token)
-				require.NoError(t, err)
-				assert.Equal(t, sess.Token, got.Token)
-				assert.Equal(t, dev.ID, got.DeviceID)
-				assert.Equal(t, owner.ID, got.UserID)
-				assert.False(t, got.CreatedAt.IsZero())
-			})
-
-			t.Run(testNameGetNotFound, func(t *testing.T) {
-				_, err := s.GetAgentSession(ctx, "nonexistent")
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run("list active sessions for device", func(t *testing.T) {
-				device2 := seedDevice(t, ctx, s, group.ID)
-				s1 := &AgentSession{Token: "s1-" + uuid.New().String()[:8], DeviceID: device2.ID, UserID: owner.ID}
-				s2 := &AgentSession{Token: "s2-" + uuid.New().String()[:8], DeviceID: device2.ID, UserID: owner.ID}
-				require.NoError(t, s.CreateAgentSession(ctx, s1))
-				require.NoError(t, s.CreateAgentSession(ctx, s2))
-
-				sessions, err := s.ListActiveSessionsForDevice(ctx, device2.ID)
-				require.NoError(t, err)
-				assert.Len(t, sessions, 2)
-			})
-
-			t.Run("delete", func(t *testing.T) {
-				sess := &AgentSession{Token: "del-" + uuid.New().String()[:8], DeviceID: dev.ID, UserID: owner.ID}
-				require.NoError(t, s.CreateAgentSession(ctx, sess))
-				require.NoError(t, s.DeleteAgentSession(ctx, sess.Token))
-				_, err := s.GetAgentSession(ctx, sess.Token)
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run(testNameDeleteNF, func(t *testing.T) {
-				err := s.DeleteAgentSession(ctx, "nope")
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run("cascade delete on device removal", func(t *testing.T) {
-				d := seedDevice(t, ctx, s, group.ID)
-				sess := &AgentSession{Token: "cascade-" + uuid.New().String()[:8], DeviceID: d.ID, UserID: owner.ID}
-				require.NoError(t, s.CreateAgentSession(ctx, sess))
-
-				pg, ok := s.(*PostgresStore)
-				require.True(t, ok)
-				require.NoError(t, device.NewPostgresDevices(pg.DB()).Delete(ctx, d.ID))
-				_, err := s.GetAgentSession(ctx, sess.Token)
 				assert.True(t, errors.Is(err, ErrNotFound))
 			})
 		})

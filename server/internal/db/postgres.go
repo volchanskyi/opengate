@@ -211,37 +211,4 @@ func (s *PostgresStore) DeleteUser(ctx context.Context, id UserID) error {
 	return s.execAndCheckAffected(ctx, `DELETE FROM users WHERE id = $1`, id)
 }
 
-// --- Agent Sessions ---
-
-func scanAgentSessionPG(sc scanner) (*AgentSession, error) {
-	var as AgentSession
-	if err := sc.Scan(&as.Token, &as.DeviceID, &as.UserID, &as.CreatedAt); err != nil {
-		return nil, err
-	}
-	return &as, nil
-}
-
-func (s *PostgresStore) CreateAgentSession(ctx context.Context, as *AgentSession) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO agent_sessions (token, device_id, user_id, created_at) VALUES ($1, $2, $3, NOW())`,
-		as.Token, as.DeviceID, as.UserID)
-	return err
-}
-
-func (s *PostgresStore) GetAgentSession(ctx context.Context, token string) (*AgentSession, error) {
-	return queryOnePG(ctx, s.db, scanAgentSessionPG,
-		`SELECT token, device_id, user_id, created_at FROM agent_sessions WHERE token = $1`,
-		token)
-}
-
-func (s *PostgresStore) DeleteAgentSession(ctx context.Context, token string) error {
-	return s.execAndCheckAffected(ctx, `DELETE FROM agent_sessions WHERE token = $1`, token)
-}
-
-func (s *PostgresStore) ListActiveSessionsForDevice(ctx context.Context, deviceID DeviceID) ([]*AgentSession, error) {
-	return queryListPG(ctx, s.db, scanAgentSessionPG,
-		`SELECT token, device_id, user_id, created_at FROM agent_sessions WHERE device_id = $1`,
-		deviceID)
-}
-
 

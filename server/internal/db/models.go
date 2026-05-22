@@ -7,6 +7,7 @@ import (
 
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/session"
 )
 
 // DeviceID uniquely identifies a device.
@@ -55,13 +56,11 @@ type User struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// AgentSession tracks an active relay session between browser and agent.
-type AgentSession struct {
-	Token     string    `json:"token"`
-	DeviceID  DeviceID  `json:"device_id"`
-	UserID    UserID    `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
-}
+// AgentSession is aliased to the canonical type in [session] for the
+// migration window while not-yet-updated callers still spell this with a
+// `db.` prefix. Removed once those callers migrate to session.Session
+// directly.
+type AgentSession = session.Session
 
 // WebPushSubscription is aliased to the canonical type in [notifications] for
 // the migration window while the not-yet-updated callers still spell this

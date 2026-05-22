@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"time"
 
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/session"
 )
 
 // CreateSession implements StrictServerInterface.
@@ -44,12 +43,12 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 
 	// Store session in DB
 	userID := ContextUserID(ctx)
-	sess := &db.AgentSession{
+	sess := &session.Session{
 		Token:    string(token),
 		DeviceID: deviceID,
 		UserID:   userID,
 	}
-	if err := s.store.CreateAgentSession(ctx, sess); err != nil {
+	if err := s.sessions.Create(ctx, sess); err != nil {
 		return nil, err
 	}
 
@@ -73,7 +72,7 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 	// Send SessionRequest to agent — clean up orphaned session on failure
 	if err := agentConn.SendSessionRequest(ctx, token, relayURL, perms); err != nil {
 		s.logger.Error("send session request to agent", "error", err, "device_id", deviceID)
-		if delErr := s.store.DeleteAgentSession(ctx, string(token)); delErr != nil {
+		if delErr := s.sessions.Delete(ctx, string(token)); delErr != nil {
 			s.logger.Warn("orphan session cleanup failed", "token_prefix", protocol.RedactToken(string(token)), "error", delErr)
 		}
 		return CreateSession409JSONResponse{Error: "agent communication failed"}, nil
@@ -117,13 +116,13 @@ func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestOb
 		return ListSessions403JSONResponse{Error: msgForbidden}, nil
 	}
 
-	sessions, err := s.store.ListActiveSessionsForDevice(ctx, request.Params.DeviceId)
+	sessions, err := s.sessions.ListActiveForDevice(ctx, request.Params.DeviceId)
 	if err != nil {
 		return nil, err
 	}
 
 	if sessions == nil {
-		sessions = []*db.AgentSession{}
+		sessions = []*session.Session{}
 	}
 
 	return ListSessions200JSONResponse(sessionsToAPI(sessions)), nil
@@ -131,9 +130,9 @@ func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestOb
 
 // DeleteSession implements StrictServerInterface.
 func (s *Server) DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error) {
-	sess, err := s.store.GetAgentSession(ctx, request.Token)
+	sess, err := s.sessions.Get(ctx, request.Token)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, session.ErrSessionNotFound) {
 			return DeleteSession404JSONResponse{Error: "session not found"}, nil
 		}
 		return nil, err
@@ -144,7 +143,7 @@ func (s *Server) DeleteSession(ctx context.Context, request DeleteSessionRequest
 		return DeleteSession403JSONResponse{Error: msgForbidden}, nil
 	}
 
-	if err := s.store.DeleteAgentSession(ctx, request.Token); err != nil {
+	if err := s.sessions.Delete(ctx, request.Token); err != nil {
 		return nil, err
 	}
 

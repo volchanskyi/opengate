@@ -86,6 +86,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		DeviceLogs:    deviceLogsRepo,
 		WebPush:       testutil.NewTestWebPush(t, store),
 		AMTDevices:    testutil.NewTestAMTDevices(t, store),
+		Sessions:      testutil.NewTestSessions(t, store),
 		JWT:      jwtCfg,
 		AMT:      &stubAMT{},
 		Relay:    relay.NewRelay(slog.Default()),

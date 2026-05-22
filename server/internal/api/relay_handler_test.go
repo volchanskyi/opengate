@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/db"
-	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"nhooyr.io/websocket"
 )
@@ -48,6 +48,7 @@ func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfi
 		DeviceLogs:     testutil.NewTestLogs(t, store),
 		WebPush:        testutil.NewTestWebPush(t, store),
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
+		Sessions:       testutil.NewTestSessions(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
@@ -236,7 +237,7 @@ func TestRelayWebSocket(t *testing.T) {
 		device := testutil.SeedDevice(t, context.Background(), srv.store, group.ID)
 
 		token := protocol.GenerateSessionToken()
-		require.NoError(t, srv.store.CreateAgentSession(context.Background(), &db.AgentSession{
+		require.NoError(t, srv.sessions.Create(context.Background(), &session.Session{
 			Token:    string(token),
 			DeviceID: device.ID,
 			UserID:   user.ID,

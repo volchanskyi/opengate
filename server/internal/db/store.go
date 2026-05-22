@@ -18,12 +18,6 @@ type Store interface {
 	ListUsers(ctx context.Context) ([]*User, error)
 	DeleteUser(ctx context.Context, id UserID) error
 
-	// Agent Sessions
-	CreateAgentSession(ctx context.Context, s *AgentSession) error
-	GetAgentSession(ctx context.Context, token string) (*AgentSession, error)
-	DeleteAgentSession(ctx context.Context, token string) error
-	ListActiveSessionsForDevice(ctx context.Context, deviceID DeviceID) ([]*AgentSession, error)
-
 	// Health
 	Ping(ctx context.Context) error
 	Close() error
