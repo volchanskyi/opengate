@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779400629813,
+  "lastUpdate": 1779420172571,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14332,6 +14332,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.19043749901966,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "bfb5fef4ac6ba052aeda5214c5ffbd06b7ac7ef5",
+          "message": "chore(arch): ADR-021 #4 — extract device aggregate (Devices+Groups+Hardware+Logs) from db.Store\n\nFourth and final per-aggregate extraction off db.Store for the < 30\nmethod target set in ADR-021. db.Store drops from 37 to 19 methods.\n\nNew server/internal/device/ package\n-----------------------------------\n- device.go: types + ports for the entire aggregate\n  - DeviceID/GroupID = uuid.UUID aliases\n  - DeviceStatus + StatusOnline/StatusOffline/StatusConnecting\n  - Device, Group, Hardware, NetworkInterfaceInfo, LogEntry, LogFilter\n  - ErrDeviceNotFound / ErrGroupNotFound / ErrHardwareNotFound\n  - Repository (9 methods), GroupRepository (4), HardwareRepository (2),\n    LogsRepository (3)\n- postgres.go: PostgresDevices/Groups/Hardware/Logs adapters with\n  matching sentinel-param Query() against the device_logs CASE-ranked\n  level filter (preserves the agent-side severity semantics).\n- instrumented.go: four duck-typed Observer decorators emitting\n  device.<Aggregate>.<Op> labels through metrics.Metrics.\n- device_test.go: Postgres-backed CRUD per repo + success/error-path\n  coverage for every Instrumented method.\n\nWiring\n------\n- api.ServerConfig + api.Server gain Devices/Groups/Hardware/DeviceLogs\n  fields. All device/group/hardware/logs handlers, handlers_sessions.go,\n  middleware.isGroupOwner, and authorization-related code rewire onto\n  them. Error-mapping in handlers checks the new device.ErrX sentinels.\n- agentapi.NewAgentServer takes an AgentServerConfig struct: the\n  positional constructor exceeded Sonar's parameter cap once the three\n  device repos joined deviceUpdates. AgentConn picks up the same repos\n  internally; handleRegister/handleHardwareReport/handleDeviceLogsResponse\n  call them directly instead of the removed db.Store methods.\n- main.go constructs all four device.Instrumented* repos against the\n  shared connection pool. devicesRepo.ResetAllStatuses(ctx) replaces the\n  removed store.ResetAllDeviceStatuses on startup.\n- testutil gains NewTestDevices/Groups/Hardware/Logs helpers; existing\n  SeedDevice/SeedGroup reroute through them so callers stay untouched.\n\ndb package shrinks\n------------------\n- Store interface: -18 methods (every device/group/hardware/logs op).\n- PostgresStore: matching -257 lines of implementations + scanners.\n- models.go: Device/Group/Hardware/NetworkInterfaceInfo/LogEntry/LogFilter\n  type definitions removed. Compat aliases retained at the package level\n  (`type Device = device.Device`, etc.) plus DeviceStatus + StatusX\n  constant aliases so the not-yet-extracted AMT module and remaining\n  test files keep compiling without a flag day.\n- store_test.go: 7 TestDevice*/TestGroup*/TestDeviceHardware*/\n  TestDeviceLogs*/TestListAll*/TestListDevicesForOwner_*/\n  TestUpdateDeviceGroup tests deleted (~520 lines). Equivalent coverage\n  now lives in device/device_test.go.\n- bench_test.go: removed entirely (4 device benchmarks).\n- syncIsAdmin already moved to auth in #3 stays put.\n\nmetrics + notifications cleanup\n-------------------------------\n- metrics.InstrumentedStore: -18 wrappers for device-aggregate methods.\n  Health (Ping/Close) wrappers reinstated.\n- notifications/helpers_test.go: -18 mock methods on notifMockStore.\n\nTests\n-----\n- 10 ServerConfig{} literals across api/integration tests gain\n  Devices/Groups/Hardware/DeviceLogs fields.\n- 3 NewAgentServer call sites migrate to the AgentServerConfig struct.\n- 8 AgentConn literals in conn_test.go pick up devices/hardware/deviceLogs.\n- session/api/agentapi integration test envs expose env.devices for the\n  GetDevice/UpsertDevice migration; control_stream_faults_test.go and\n  postgres_native_test.go construct device.PostgresDevices inline.\n\nArch + docs\n-----------\n- .go-arch-lint.yml: new `device` component (deny-all internal, deepScan\n  off — same shape as audit/update/auth).\n- phases.md: ADR-021 #4 row.\n\nFull gauntlet green (incl. SonarCloud, coverage thresholds, e2e, taint,\ndead-code, mutation tests; 591s end-to-end).",
+          "timestamp": "2026-05-21T20:21:13-07:00",
+          "tree_id": "212560b4eabdbdc7d91e22d8c995f31742675247",
+          "url": "https://github.com/volchanskyi/opengate/commit/bfb5fef4ac6ba052aeda5214c5ffbd06b7ac7ef5"
+        },
+        "date": 1779420172504,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.345951409511954,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.63347551399399,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 785.1518306091774,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 303.6875811346572,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.882251829481838,
             "unit": "ns/iter"
           }
         ]
