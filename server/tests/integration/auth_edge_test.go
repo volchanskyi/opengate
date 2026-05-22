@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
 func TestAuthExpiredJWTAllEndpoints(t *testing.T) {
@@ -66,8 +67,8 @@ func TestAuthDeletedUser(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&user))
 	resp.Body.Close()
 
-	// Delete user from store directly
-	require.NoError(t, env.store.DeleteUser(ctx, user.ID))
+	// Delete user from store directly via the extracted UserRepository.
+	require.NoError(t, testutil.NewTestUsers(t, env.store).Delete(ctx, user.ID))
 
 	// Token is still valid (JWT is stateless) but /me returns 404
 	resp = env.doJSON(t, http.MethodGet, pathUsersMe, token, nil)

@@ -87,6 +87,10 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 		Groups:         testutil.NewTestGroups(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
 		DeviceLogs:     testutil.NewTestLogs(t, store),
+		WebPush:        testutil.NewTestWebPush(t, store),
+		AMTDevices:     testutil.NewTestAMTDevices(t, store),
+		Sessions:       testutil.NewTestSessions(t, store),
+		Users:          testutil.NewTestUsers(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},
@@ -114,6 +118,10 @@ func newTestServerWithStoreAndAgents(t *testing.T, store db.Store, agents AgentG
 		Groups:         testutil.NewTestGroups(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
 		DeviceLogs:     testutil.NewTestLogs(t, store),
+		WebPush:        testutil.NewTestWebPush(t, store),
+		AMTDevices:     testutil.NewTestAMTDevices(t, store),
+		Sessions:       testutil.NewTestSessions(t, store),
+		Users:          testutil.NewTestUsers(t, store),
 		JWT:      cfg,
 		Agents:   agents,
 		AMT:      &stubAMTOperator{},
@@ -125,19 +133,19 @@ func newTestServerWithStoreAndAgents(t *testing.T, store db.Store, agents AgentG
 }
 
 // seedTestUser inserts a user directly into the server's store and returns the user and a valid JWT.
-func seedTestUser(t *testing.T, srv *Server, cfg *auth.JWTConfig, email string, isAdmin bool) (*db.User, string) {
+func seedTestUser(t *testing.T, srv *Server, cfg *auth.JWTConfig, email string, isAdmin bool) (*auth.User, string) {
 	t.Helper()
 	hash, err := auth.HashPassword("password123")
 	require.NoError(t, err)
 
-	user := &db.User{
+	user := &auth.User{
 		ID:           uuid.New(),
 		Email:        email,
 		PasswordHash: hash,
 		DisplayName:  "Test User",
 		IsAdmin:      isAdmin,
 	}
-	err = srv.store.UpsertUser(t.Context(), user)
+	err = srv.users.Upsert(t.Context(), user)
 	require.NoError(t, err)
 
 	token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)

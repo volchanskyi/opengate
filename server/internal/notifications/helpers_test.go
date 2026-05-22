@@ -6,12 +6,9 @@ import (
 	"log/slog"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/volchanskyi/opengate/server/internal/db"
-	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 // testVAPIDKeys generates a valid VAPID key pair for use in tests.
@@ -31,121 +28,46 @@ type mockSub struct {
 	Auth     string
 }
 
-// notifMockStore implements only the db.Store methods used by PushNotifier.
-type notifMockStore struct {
-	subs       []*db.WebPushSubscription
+// notifMockRepo implements WebPushRepository for PushNotifier tests.
+type notifMockRepo struct {
+	subs       []*WebPushSubscription
 	deletedEPs []string
 	mu         sync.Mutex
 }
 
-func newMockNotifStore(subs []*mockSub) *notifMockStore {
-	var dbSubs []*db.WebPushSubscription
+func newMockNotifRepo(subs []*mockSub) *notifMockRepo {
+	var ws []*WebPushSubscription
 	for _, s := range subs {
-		dbSubs = append(dbSubs, &db.WebPushSubscription{
+		ws = append(ws, &WebPushSubscription{
 			Endpoint: s.Endpoint,
 			UserID:   s.UserID,
 			P256dh:   s.P256dh,
 			Auth:     s.Auth,
 		})
 	}
-	return &notifMockStore{subs: dbSubs}
+	return &notifMockRepo{subs: ws}
 }
 
-func (m *notifMockStore) ListAllWebPushSubscriptions(_ context.Context) ([]*db.WebPushSubscription, error) {
+func (m *notifMockRepo) Upsert(_ context.Context, _ *WebPushSubscription) error { return nil }
+
+func (m *notifMockRepo) ListForUser(_ context.Context, _ uuid.UUID) ([]*WebPushSubscription, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.subs, nil
 }
 
-func (m *notifMockStore) DeleteWebPushSubscription(_ context.Context, endpoint string) error {
+func (m *notifMockRepo) ListAll(_ context.Context) ([]*WebPushSubscription, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.subs, nil
+}
+
+func (m *notifMockRepo) Delete(_ context.Context, endpoint string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.deletedEPs = append(m.deletedEPs, endpoint)
 	return nil
 }
-
-// Unused Store methods — stubs to satisfy the interface.
-func (m *notifMockStore) UpsertDevice(_ context.Context, _ *device.Device) error { return nil }
-func (m *notifMockStore) GetDevice(_ context.Context, _ db.DeviceID) (*device.Device, error) {
-	return nil, nil
-}
-func (m *notifMockStore) ListDevices(_ context.Context, _ db.GroupID) ([]*device.Device, error) {
-	return nil, nil
-}
-func (m *notifMockStore) ListAllDevices(_ context.Context) ([]*device.Device, error) {
-	return nil, nil
-}
-func (m *notifMockStore) ListDevicesForOwner(_ context.Context, _ db.UserID) ([]*device.Device, error) {
-	return nil, nil
-}
-func (m *notifMockStore) DeleteDevice(_ context.Context, _ db.DeviceID) error { return nil }
-func (m *notifMockStore) UpdateDeviceGroup(_ context.Context, _ db.DeviceID, _ db.GroupID) error {
-	return nil
-}
-func (m *notifMockStore) SetDeviceStatus(_ context.Context, _ db.DeviceID, _ db.DeviceStatus) error {
-	return nil
-}
-func (m *notifMockStore) ResetAllDeviceStatuses(_ context.Context) error { return nil }
-func (m *notifMockStore) CreateGroup(_ context.Context, _ *device.Group) error { return nil }
-func (m *notifMockStore) GetGroup(_ context.Context, _ db.GroupID) (*device.Group, error) {
-	return nil, nil
-}
-func (m *notifMockStore) ListGroups(_ context.Context, _ db.UserID) ([]*device.Group, error) {
-	return nil, nil
-}
-func (m *notifMockStore) DeleteGroup(_ context.Context, _ db.GroupID) error { return nil }
-func (m *notifMockStore) UpsertUser(_ context.Context, _ *db.User) error    { return nil }
-func (m *notifMockStore) GetUser(_ context.Context, _ db.UserID) (*db.User, error) {
-	return nil, nil
-}
-func (m *notifMockStore) GetUserByEmail(_ context.Context, _ string) (*db.User, error) {
-	return nil, nil
-}
-func (m *notifMockStore) ListUsers(_ context.Context) ([]*db.User, error) { return nil, nil }
-func (m *notifMockStore) DeleteUser(_ context.Context, _ db.UserID) error  { return nil }
-func (m *notifMockStore) CreateAgentSession(_ context.Context, _ *db.AgentSession) error {
-	return nil
-}
-func (m *notifMockStore) GetAgentSession(_ context.Context, _ string) (*db.AgentSession, error) {
-	return nil, nil
-}
-func (m *notifMockStore) DeleteAgentSession(_ context.Context, _ string) error { return nil }
-func (m *notifMockStore) ListActiveSessionsForDevice(_ context.Context, _ db.DeviceID) ([]*db.AgentSession, error) {
-	return nil, nil
-}
-func (m *notifMockStore) UpsertWebPushSubscription(_ context.Context, _ *db.WebPushSubscription) error {
-	return nil
-}
-func (m *notifMockStore) ListWebPushSubscriptions(_ context.Context, _ uuid.UUID) ([]*db.WebPushSubscription, error) {
-	return nil, nil
-}
-func (m *notifMockStore) UpsertAMTDevice(_ context.Context, _ *db.AMTDevice) error { return nil }
-func (m *notifMockStore) GetAMTDevice(_ context.Context, _ uuid.UUID) (*db.AMTDevice, error) {
-	return nil, nil
-}
-func (m *notifMockStore) ListAMTDevices(_ context.Context) ([]*db.AMTDevice, error) {
-	return nil, nil
-}
-func (m *notifMockStore) SetAMTDeviceStatus(_ context.Context, _ uuid.UUID, _ db.DeviceStatus) error {
-	return nil
-}
-func (m *notifMockStore) UpsertDeviceHardware(_ context.Context, _ *device.Hardware) error {
-	return nil
-}
-func (m *notifMockStore) GetDeviceHardware(_ context.Context, _ db.DeviceID) (*device.Hardware, error) {
-	return nil, db.ErrNotFound
-}
-func (m *notifMockStore) UpsertDeviceLogs(_ context.Context, _ db.DeviceID, _ []device.LogEntry) error {
-	return nil
-}
-func (m *notifMockStore) QueryDeviceLogs(_ context.Context, _ db.DeviceID, _ device.LogFilter) ([]device.LogEntry, int, error) {
-	return nil, 0, nil
-}
-func (m *notifMockStore) HasRecentLogs(_ context.Context, _ db.DeviceID, _ time.Duration) (bool, error) {
-	return false, nil
-}
-func (m *notifMockStore) Ping(_ context.Context) error { return nil }
-func (m *notifMockStore) Close() error                 { return nil }
 
 func newDiscardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))

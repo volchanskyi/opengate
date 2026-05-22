@@ -15,11 +15,14 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // register pgx driver for admin connections
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -232,6 +235,38 @@ func NewTestLogs(t testing.TB, s db.Store) device.LogsRepository {
 	return device.NewPostgresLogs(extractDB(t, s, "device.Logs"))
 }
 
+// NewTestWebPush returns a Postgres-backed notifications.WebPushRepository
+// sharing the connection pool of s. The web_push_subscriptions schema is
+// owned by the db package's migrations.
+func NewTestWebPush(t testing.TB, s db.Store) notifications.WebPushRepository {
+	t.Helper()
+	return notifications.NewPostgresWebPush(extractDB(t, s, "notifications.WebPush"))
+}
+
+// NewTestAMTDevices returns a Postgres-backed amt.Repository sharing the
+// connection pool of s. The amt_devices schema is owned by the db package's
+// migrations.
+func NewTestAMTDevices(t testing.TB, s db.Store) amt.Repository {
+	t.Helper()
+	return amt.NewPostgresAMTDevices(extractDB(t, s, "amt.Repository"))
+}
+
+// NewTestSessions returns a Postgres-backed session.Repository sharing the
+// connection pool of s. The agent_sessions schema is owned by the db
+// package's migrations.
+func NewTestSessions(t testing.TB, s db.Store) session.Repository {
+	t.Helper()
+	return session.NewPostgresSessions(extractDB(t, s, "session.Repository"))
+}
+
+// NewTestUsers returns a Postgres-backed auth.UserRepository sharing the
+// connection pool of s. The users schema is owned by the db package's
+// migrations.
+func NewTestUsers(t testing.TB, s db.Store) auth.UserRepository {
+	t.Helper()
+	return auth.NewPostgresUsers(extractDB(t, s, "auth.User"))
+}
+
 // extractDB returns the *sql.DB behind a Postgres-backed db.Store. Tests that
 // need direct DB access for module-owned repos use it; if s isn't Postgres-
 // backed, the test is skipped (mirrors the audit/updater leaf-module pattern).
@@ -244,17 +279,18 @@ func extractDB(t testing.TB, s db.Store, name string) *sql.DB {
 	return provider.DB()
 }
 
-// SeedUser inserts a minimal user into the store and returns it.
+// SeedUser inserts a minimal user into the store via the extracted
+// auth.UserRepository — db.Store no longer owns this aggregate (ADR-021 #8).
 // The email is randomised to avoid uniqueness conflicts across parallel tests.
-func SeedUser(t testing.TB, ctx context.Context, s db.Store) *db.User {
+func SeedUser(t testing.TB, ctx context.Context, s db.Store) *auth.User {
 	t.Helper()
-	u := &db.User{
+	u := &auth.User{
 		ID:           uuid.New(),
 		Email:        "test-" + uuid.New().String()[:8] + "@example.com",
 		PasswordHash: "hash",
 		DisplayName:  "Test User",
 	}
-	require.NoError(t, s.UpsertUser(ctx, u))
+	require.NoError(t, NewTestUsers(t, s).Upsert(ctx, u))
 	return u
 }
 
@@ -286,39 +322,43 @@ func SeedDevice(t testing.TB, ctx context.Context, s db.Store, groupID uuid.UUID
 	return d
 }
 
-// SeedAgentSession inserts an agent session for the given device and user.
-func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, userID uuid.UUID) *db.AgentSession {
+// SeedAgentSession inserts an agent session for the given device and user
+// via the extracted session.Repository — db.Store no longer owns this
+// aggregate (ADR-021 #7).
+func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, userID uuid.UUID) *session.Session {
 	t.Helper()
-	sess := &db.AgentSession{
+	sess := &session.Session{
 		Token:    string(protocol.GenerateSessionToken()),
 		DeviceID: deviceID,
 		UserID:   userID,
 	}
-	require.NoError(t, s.CreateAgentSession(ctx, sess))
+	require.NoError(t, NewTestSessions(t, s).Create(ctx, sess))
 	return sess
 }
 
 // SeedAdminUser inserts an admin user with a real bcrypt password hash
 // and adds them to the Administrators security group.
-func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*db.User, string) {
+func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*auth.User, string) {
 	t.Helper()
 	password := "admin-pass-" + uuid.New().String()[:8]
 	hash, err := auth.HashPassword(password)
 	require.NoError(t, err)
-	u := &db.User{
+	u := &auth.User{
 		ID:           uuid.New(),
 		Email:        "admin-" + uuid.New().String()[:8] + "@example.com",
 		PasswordHash: hash,
 		DisplayName:  "Admin User",
 		IsAdmin:      true,
 	}
-	require.NoError(t, s.UpsertUser(ctx, u))
+	require.NoError(t, NewTestUsers(t, s).Upsert(ctx, u))
 	sg := NewTestSecurityGroups(t, s)
 	require.NoError(t, sg.AddMember(ctx, auth.AdminGroupID, u.ID))
 	return u, password
 }
 
-// SeedAMTDevice inserts an AMT device record into the store.
+// SeedAMTDevice inserts an AMT device record into the store via an ad-hoc
+// amt.Repository over the same connection pool — db.Store no longer owns
+// AMT methods (ADR-021 #6).
 func SeedAMTDevice(t testing.TB, ctx context.Context, s db.Store) *db.AMTDevice {
 	t.Helper()
 	d := &db.AMTDevice{
@@ -329,6 +369,6 @@ func SeedAMTDevice(t testing.TB, ctx context.Context, s db.Store) *db.AMTDevice 
 		Status:   db.StatusOffline,
 		LastSeen: time.Now(),
 	}
-	require.NoError(t, s.UpsertAMTDevice(ctx, d))
+	require.NoError(t, NewTestAMTDevices(t, s).Upsert(ctx, d))
 	return d
 }

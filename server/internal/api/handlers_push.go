@@ -3,20 +3,20 @@ package api
 import (
 	"context"
 
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 )
 
 // SubscribePush implements StrictServerInterface.
 func (s *Server) SubscribePush(ctx context.Context, request SubscribePushRequestObject) (SubscribePushResponseObject, error) {
 	userID := ContextUserID(ctx)
 
-	sub := &db.WebPushSubscription{
+	sub := &notifications.WebPushSubscription{
 		Endpoint: request.Body.Endpoint,
 		UserID:   userID,
 		P256dh:   request.Body.P256dh,
 		Auth:     request.Body.Auth,
 	}
-	if err := s.store.UpsertWebPushSubscription(ctx, sub); err != nil {
+	if err := s.webPush.Upsert(ctx, sub); err != nil {
 		return nil, err
 	}
 
@@ -25,7 +25,7 @@ func (s *Server) SubscribePush(ctx context.Context, request SubscribePushRequest
 
 // UnsubscribePush implements StrictServerInterface.
 func (s *Server) UnsubscribePush(ctx context.Context, request UnsubscribePushRequestObject) (UnsubscribePushResponseObject, error) {
-	if err := s.store.DeleteWebPushSubscription(ctx, request.Body.Endpoint); err != nil {
+	if err := s.webPush.Delete(ctx, request.Body.Endpoint); err != nil {
 		return nil, err
 	}
 
