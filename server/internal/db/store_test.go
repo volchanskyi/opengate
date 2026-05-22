@@ -352,88 +352,6 @@ func TestAgentSessionCRUD(t *testing.T) {
 	}
 }
 
-func TestWebPushSubscriptionCRUD(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-			owner := seedUser(t, ctx, s)
-
-			t.Run("upsert and list", func(t *testing.T) {
-				sub := &WebPushSubscription{
-					Endpoint: "https://push.example.com/" + uuid.New().String()[:8],
-					UserID:   owner.ID,
-					P256dh:   "key123",
-					Auth:     "auth456",
-				}
-				require.NoError(t, s.UpsertWebPushSubscription(ctx, sub))
-
-				subs, err := s.ListWebPushSubscriptions(ctx, owner.ID)
-				require.NoError(t, err)
-				assert.GreaterOrEqual(t, len(subs), 1)
-
-				found := false
-				for _, got := range subs {
-					if got.Endpoint == sub.Endpoint {
-						assert.Equal(t, "key123", got.P256dh)
-						assert.Equal(t, "auth456", got.Auth)
-						found = true
-					}
-				}
-				assert.True(t, found)
-			})
-
-			t.Run(testNameUpsertUpdates, func(t *testing.T) {
-				endpoint := "https://push.example.com/update-" + uuid.New().String()[:8]
-				sub := &WebPushSubscription{Endpoint: endpoint, UserID: owner.ID, P256dh: "old", Auth: "old"}
-				require.NoError(t, s.UpsertWebPushSubscription(ctx, sub))
-
-				sub.P256dh = "new"
-				require.NoError(t, s.UpsertWebPushSubscription(ctx, sub))
-
-				subs, err := s.ListWebPushSubscriptions(ctx, owner.ID)
-				require.NoError(t, err)
-				for _, got := range subs {
-					if got.Endpoint == endpoint {
-						assert.Equal(t, "new", got.P256dh)
-					}
-				}
-			})
-
-			t.Run("delete", func(t *testing.T) {
-				endpoint := "https://push.example.com/del-" + uuid.New().String()[:8]
-				sub := &WebPushSubscription{Endpoint: endpoint, UserID: owner.ID}
-				require.NoError(t, s.UpsertWebPushSubscription(ctx, sub))
-				require.NoError(t, s.DeleteWebPushSubscription(ctx, endpoint))
-
-				// Verify it's gone by listing (no direct get method)
-				subs, err := s.ListWebPushSubscriptions(ctx, owner.ID)
-				require.NoError(t, err)
-				for _, got := range subs {
-					assert.NotEqual(t, endpoint, got.Endpoint)
-				}
-			})
-
-			t.Run(testNameDeleteNF, func(t *testing.T) {
-				err := s.DeleteWebPushSubscription(ctx, "https://push.example.com/nope")
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run("cascade delete on user removal", func(t *testing.T) {
-				u := seedUser(t, ctx, s)
-				endpoint := "https://push.example.com/cascade-" + uuid.New().String()[:8]
-				sub := &WebPushSubscription{Endpoint: endpoint, UserID: u.ID}
-				require.NoError(t, s.UpsertWebPushSubscription(ctx, sub))
-
-				require.NoError(t, s.DeleteUser(ctx, u.ID))
-				subs, err := s.ListWebPushSubscriptions(ctx, u.ID)
-				require.NoError(t, err)
-				assert.Empty(t, subs)
-			})
-		})
-	}
-}
-
 func TestAMTDeviceCRUD(t *testing.T) {
 	for _, f := range storeFactories {
 		t.Run(f.name, func(t *testing.T) {
@@ -506,33 +424,6 @@ func TestAMTDeviceCRUD(t *testing.T) {
 				err := s.SetAMTDeviceStatus(ctx, uuid.New(), StatusOnline)
 				assert.True(t, errors.Is(err, ErrNotFound))
 			})
-		})
-	}
-}
-
-func TestListAllWebPushSubscriptions(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-			u1 := seedUser(t, ctx, s)
-			u2 := seedUser(t, ctx, s)
-
-			sub1 := &WebPushSubscription{Endpoint: "https://push.example.com/u1-" + uuid.New().String()[:8], UserID: u1.ID, P256dh: "key1", Auth: "auth1"}
-			sub2 := &WebPushSubscription{Endpoint: "https://push.example.com/u2-" + uuid.New().String()[:8], UserID: u2.ID, P256dh: "key2", Auth: "auth2"}
-			require.NoError(t, s.UpsertWebPushSubscription(ctx, sub1))
-			require.NoError(t, s.UpsertWebPushSubscription(ctx, sub2))
-
-			all, err := s.ListAllWebPushSubscriptions(ctx)
-			require.NoError(t, err)
-			assert.GreaterOrEqual(t, len(all), 2)
-
-			endpoints := make(map[string]bool)
-			for _, s := range all {
-				endpoints[s.Endpoint] = true
-			}
-			assert.True(t, endpoints[sub1.Endpoint])
-			assert.True(t, endpoints[sub2.Endpoint])
 		})
 	}
 }

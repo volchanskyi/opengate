@@ -113,40 +113,6 @@ func (s *InstrumentedStore) ListActiveSessionsForDevice(ctx context.Context, dev
 	return sess, err
 }
 
-// --- Web Push ----------------------------------------------------------------
-
-// UpsertWebPushSubscription instruments db.Store.UpsertWebPushSubscription.
-func (s *InstrumentedStore) UpsertWebPushSubscription(ctx context.Context, sub *db.WebPushSubscription) error {
-	start := time.Now()
-	err := s.inner.UpsertWebPushSubscription(ctx, sub)
-	s.observe("UpsertWebPushSubscription", start, err)
-	return err
-}
-
-// ListWebPushSubscriptions instruments db.Store.ListWebPushSubscriptions.
-func (s *InstrumentedStore) ListWebPushSubscriptions(ctx context.Context, userID db.UserID) ([]*db.WebPushSubscription, error) {
-	start := time.Now()
-	subs, err := s.inner.ListWebPushSubscriptions(ctx, userID)
-	s.observe("ListWebPushSubscriptions", start, err)
-	return subs, err
-}
-
-// ListAllWebPushSubscriptions instruments db.Store.ListAllWebPushSubscriptions.
-func (s *InstrumentedStore) ListAllWebPushSubscriptions(ctx context.Context) ([]*db.WebPushSubscription, error) {
-	start := time.Now()
-	subs, err := s.inner.ListAllWebPushSubscriptions(ctx)
-	s.observe("ListAllWebPushSubscriptions", start, err)
-	return subs, err
-}
-
-// DeleteWebPushSubscription instruments db.Store.DeleteWebPushSubscription.
-func (s *InstrumentedStore) DeleteWebPushSubscription(ctx context.Context, endpoint string) error {
-	start := time.Now()
-	err := s.inner.DeleteWebPushSubscription(ctx, endpoint)
-	s.observe("DeleteWebPushSubscription", start, err)
-	return err
-}
-
 // --- AMT Devices -------------------------------------------------------------
 
 // UpsertAMTDevice instruments db.Store.UpsertAMTDevice.

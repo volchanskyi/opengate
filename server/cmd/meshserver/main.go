@@ -104,6 +104,7 @@ func main() {
 	groupsRepo := device.NewInstrumentedGroups(device.NewPostgresGroups(store.DB()), appMetrics)
 	hardwareRepo := device.NewInstrumentedHardware(device.NewPostgresHardware(store.DB()), appMetrics)
 	deviceLogsRepo := device.NewInstrumentedLogs(device.NewPostgresLogs(store.DB()), appMetrics)
+	webPushRepo := notifications.NewInstrumentedWebPush(notifications.NewPostgresWebPush(store.DB()), appMetrics)
 
 	// Reset stale online statuses from a prior run via the device repository.
 	if err := devicesRepo.ResetAllStatuses(context.Background()); err != nil {
@@ -129,7 +130,7 @@ func main() {
 		logger.Error("init VAPID keys", "error", err)
 		os.Exit(1)
 	}
-	notifier := notifications.NewPushNotifier(instrumentedStore, vapidPriv, vapidPub, *vapidContact, logger)
+	notifier := notifications.NewPushNotifier(webPushRepo, vapidPriv, vapidPub, *vapidContact, logger)
 
 	// Environment overrides
 	githubRepo := os.Getenv("OPENGATE_GITHUB_REPO")
@@ -180,6 +181,7 @@ func main() {
 		Groups:         groupsRepo,
 		Hardware:       hardwareRepo,
 		DeviceLogs:     deviceLogsRepo,
+		WebPush:        webPushRepo,
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		AMT:       amtSvc,

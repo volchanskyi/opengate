@@ -26,12 +26,6 @@ type Store interface {
 	DeleteAgentSession(ctx context.Context, token string) error
 	ListActiveSessionsForDevice(ctx context.Context, deviceID DeviceID) ([]*AgentSession, error)
 
-	// Web Push
-	UpsertWebPushSubscription(ctx context.Context, sub *WebPushSubscription) error
-	ListWebPushSubscriptions(ctx context.Context, userID UserID) ([]*WebPushSubscription, error)
-	ListAllWebPushSubscriptions(ctx context.Context) ([]*WebPushSubscription, error)
-	DeleteWebPushSubscription(ctx context.Context, endpoint string) error
-
 	// AMT Devices
 	UpsertAMTDevice(ctx context.Context, d *AMTDevice) error
 	GetAMTDevice(ctx context.Context, id uuid.UUID) (*AMTDevice, error)

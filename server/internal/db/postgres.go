@@ -245,44 +245,6 @@ func (s *PostgresStore) ListActiveSessionsForDevice(ctx context.Context, deviceI
 		deviceID)
 }
 
-// --- Web Push ---
-
-func scanWebPushSubPG(sc scanner) (*WebPushSubscription, error) {
-	var sub WebPushSubscription
-	if err := sc.Scan(&sub.Endpoint, &sub.UserID, &sub.P256dh, &sub.Auth); err != nil {
-		return nil, err
-	}
-	return &sub, nil
-}
-
-func (s *PostgresStore) UpsertWebPushSubscription(ctx context.Context, sub *WebPushSubscription) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO web_push_subscriptions (endpoint, user_id, p256dh, auth)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (endpoint) DO UPDATE SET
-		   user_id = EXCLUDED.user_id,
-		   p256dh = EXCLUDED.p256dh,
-		   auth = EXCLUDED.auth`,
-		sub.Endpoint, sub.UserID, sub.P256dh, sub.Auth)
-	return err
-}
-
-func (s *PostgresStore) ListWebPushSubscriptions(ctx context.Context, userID UserID) ([]*WebPushSubscription, error) {
-	return queryListPG(ctx, s.db, scanWebPushSubPG,
-		`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions WHERE user_id = $1`,
-		userID)
-}
-
-// ListAllWebPushSubscriptions returns all push subscriptions across all users.
-func (s *PostgresStore) ListAllWebPushSubscriptions(ctx context.Context) ([]*WebPushSubscription, error) {
-	return queryListPG(ctx, s.db, scanWebPushSubPG,
-		`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions`)
-}
-
-func (s *PostgresStore) DeleteWebPushSubscription(ctx context.Context, endpoint string) error {
-	return s.execAndCheckAffected(ctx, `DELETE FROM web_push_subscriptions WHERE endpoint = $1`, endpoint)
-}
-
 // --- AMT Devices ---
 
 func scanAMTDevicePG(sc scanner) (*AMTDevice, error) {

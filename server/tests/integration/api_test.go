@@ -84,6 +84,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Groups:        groupsRepo,
 		Hardware:      hardwareRepo,
 		DeviceLogs:    deviceLogsRepo,
+		WebPush:       testutil.NewTestWebPush(t, store),
 		JWT:      jwtCfg,
 		AMT:      &stubAMT{},
 		Relay:    relay.NewRelay(slog.Default()),

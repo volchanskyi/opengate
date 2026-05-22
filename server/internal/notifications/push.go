@@ -7,12 +7,11 @@ import (
 	"net/http"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
-	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
 // PushNotifier sends Web Push notifications using VAPID.
 type PushNotifier struct {
-	store      db.Store
+	repo       WebPushRepository
 	vapidPriv  string
 	vapidPub   string
 	contact    string
@@ -21,9 +20,9 @@ type PushNotifier struct {
 }
 
 // NewPushNotifier creates a PushNotifier.
-func NewPushNotifier(store db.Store, vapidPriv, vapidPub, contact string, logger *slog.Logger) *PushNotifier {
+func NewPushNotifier(repo WebPushRepository, vapidPriv, vapidPub, contact string, logger *slog.Logger) *PushNotifier {
 	return &PushNotifier{
-		store:      store,
+		repo:       repo,
 		vapidPriv:  vapidPriv,
 		vapidPub:   vapidPub,
 		contact:    contact,
@@ -39,7 +38,7 @@ func (p *PushNotifier) VAPIDPublicKey() string {
 
 // Notify sends a push notification for the given event to all subscribers.
 func (p *PushNotifier) Notify(ctx context.Context, event Event) error {
-	subs, err := p.store.ListAllWebPushSubscriptions(ctx)
+	subs, err := p.repo.ListAll(ctx)
 	if err != nil {
 		p.logger.Error("list push subscriptions", "error", err)
 		return err
@@ -77,7 +76,7 @@ func (p *PushNotifier) Notify(ctx context.Context, event Event) error {
 		// 410 Gone means the subscription is stale — remove it.
 		if resp.StatusCode == http.StatusGone {
 			p.logger.Info("removing stale push subscription", "endpoint", sub.Endpoint)
-			if delErr := p.store.DeleteWebPushSubscription(ctx, sub.Endpoint); delErr != nil {
+			if delErr := p.repo.Delete(ctx, sub.Endpoint); delErr != nil {
 				p.logger.Warn("delete stale subscription", "endpoint", sub.Endpoint, "error", delErr)
 			}
 		}

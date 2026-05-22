@@ -46,6 +46,7 @@ func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfi
 		Groups:         testutil.NewTestGroups(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
 		DeviceLogs:     testutil.NewTestLogs(t, store),
+		WebPush:        testutil.NewTestWebPush(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},

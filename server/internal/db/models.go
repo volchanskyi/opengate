@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 )
 
 // DeviceID uniquely identifies a device.
@@ -62,13 +63,11 @@ type AgentSession struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// WebPushSubscription stores a user's Web Push subscription.
-type WebPushSubscription struct {
-	Endpoint string `json:"endpoint"`
-	UserID   UserID `json:"user_id"`
-	P256dh   string `json:"p256dh"`
-	Auth     string `json:"auth"`
-}
+// WebPushSubscription is aliased to the canonical type in [notifications] for
+// the migration window while the not-yet-updated callers still spell this
+// with a `db.` prefix. Removed once those callers migrate to the
+// notifications.WebPushSubscription identifier directly.
+type WebPushSubscription = notifications.WebPushSubscription
 
 // AMTDevice represents an Intel AMT device connected via CIRA.
 type AMTDevice struct {

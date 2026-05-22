@@ -73,6 +73,15 @@ components:
   device:
     in: internal/device
 
+  # Constrained: the notifications module owns the WebPushSubscription
+  # aggregate (ADR-021 extraction #5) plus the existing Notifier interface
+  # and VAPID key material. Repository interface, Postgres adapter, and
+  # Instrumented decorator live here. The PushNotifier itself depends only
+  # on WebPushRepository, not db.Store — so the module has no internal
+  # imports.
+  notifications:
+    in: internal/notifications
+
   # Catch-all for everything else. NOT constrained at the pilot stage — these
   # components will earn their own rules in ADR-021/022/023/024 work.
   other:
@@ -117,6 +126,14 @@ deps:
     # Same leaf-module pattern as audit/update/auth. The four repository
     # interfaces (Devices/Groups/Hardware/Logs) and their Postgres + Instrumented
     # adapters live entirely in this package; no internal imports.
+    mayDependOn: []
+    anyVendorDeps: true
+    deepScan: false
+  notifications:
+    # Same leaf-module pattern as audit/update/auth/device. The WebPush
+    # repository + Postgres adapter + Instrumented decorator + PushNotifier
+    # + NoopNotifier + VAPID helpers all live entirely in this package;
+    # no internal imports.
     mayDependOn: []
     anyVendorDeps: true
     deepScan: false

@@ -63,6 +63,7 @@ type ServerConfig struct {
 	Groups          device.GroupRepository
 	Hardware        device.HardwareRepository
 	DeviceLogs      device.LogsRepository
+	WebPush         notifications.WebPushRepository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
 	AMT       AMTOperator
@@ -92,6 +93,7 @@ type Server struct {
 	groups         device.GroupRepository
 	hardware       device.HardwareRepository
 	deviceLogs     device.LogsRepository
+	webPush        notifications.WebPushRepository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
 	amt       AMTOperator
@@ -123,6 +125,7 @@ func NewServer(cfg ServerConfig) *Server {
 		groups:         cfg.Groups,
 		hardware:       cfg.Hardware,
 		deviceLogs:     cfg.DeviceLogs,
+		webPush:        cfg.WebPush,
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
 		amt:       cfg.AMT,

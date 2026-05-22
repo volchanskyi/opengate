@@ -19,6 +19,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -230,6 +231,14 @@ func NewTestHardware(t testing.TB, s db.Store) device.HardwareRepository {
 func NewTestLogs(t testing.TB, s db.Store) device.LogsRepository {
 	t.Helper()
 	return device.NewPostgresLogs(extractDB(t, s, "device.Logs"))
+}
+
+// NewTestWebPush returns a Postgres-backed notifications.WebPushRepository
+// sharing the connection pool of s. The web_push_subscriptions schema is
+// owned by the db package's migrations.
+func NewTestWebPush(t testing.TB, s db.Store) notifications.WebPushRepository {
+	t.Helper()
+	return notifications.NewPostgresWebPush(extractDB(t, s, "notifications.WebPush"))
 }
 
 // extractDB returns the *sql.DB behind a Postgres-backed db.Store. Tests that
