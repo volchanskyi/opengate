@@ -36,48 +36,6 @@ func (m *Metrics) Observe(operation string, duration time.Duration, ok bool) {
 	m.DBQueriesTotal.WithLabelValues(operation, status).Inc()
 }
 
-// --- Users -------------------------------------------------------------------
-
-// UpsertUser instruments db.Store.UpsertUser.
-func (s *InstrumentedStore) UpsertUser(ctx context.Context, u *db.User) error {
-	start := time.Now()
-	err := s.inner.UpsertUser(ctx, u)
-	s.observe("UpsertUser", start, err)
-	return err
-}
-
-// GetUser instruments db.Store.GetUser.
-func (s *InstrumentedStore) GetUser(ctx context.Context, id db.UserID) (*db.User, error) {
-	start := time.Now()
-	u, err := s.inner.GetUser(ctx, id)
-	s.observe("GetUser", start, err)
-	return u, err
-}
-
-// GetUserByEmail instruments db.Store.GetUserByEmail.
-func (s *InstrumentedStore) GetUserByEmail(ctx context.Context, email string) (*db.User, error) {
-	start := time.Now()
-	u, err := s.inner.GetUserByEmail(ctx, email)
-	s.observe("GetUserByEmail", start, err)
-	return u, err
-}
-
-// ListUsers instruments db.Store.ListUsers.
-func (s *InstrumentedStore) ListUsers(ctx context.Context) ([]*db.User, error) {
-	start := time.Now()
-	u, err := s.inner.ListUsers(ctx)
-	s.observe("ListUsers", start, err)
-	return u, err
-}
-
-// DeleteUser instruments db.Store.DeleteUser.
-func (s *InstrumentedStore) DeleteUser(ctx context.Context, id db.UserID) error {
-	start := time.Now()
-	err := s.inner.DeleteUser(ctx, id)
-	s.observe("DeleteUser", start, err)
-	return err
-}
-
 // --- Health ------------------------------------------------------------------
 
 // Ping instruments db.Store.Ping.

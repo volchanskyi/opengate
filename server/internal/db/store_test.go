@@ -2,25 +2,19 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// Shared test constants and subtest names (reused across CRUD tables).
-const (
-	testNameUpsertUpdates = "upsert updates existing"
-	testNameGetNotFound   = "get not found"
-	testNameDeleteNF      = "delete not found"
-	postgresTestURLEnv    = "POSTGRES_TEST_URL"
-)
+// postgresTestURLEnv selects the test database for the residual db.Store
+// shared tests.
+const postgresTestURLEnv = "POSTGRES_TEST_URL"
 
 // storeFactory constructs a fresh Store for a single test.
 type storeFactory struct {
@@ -146,87 +140,6 @@ func TestPing(t *testing.T) {
 		t.Run(f.name, func(t *testing.T) {
 			s := f.new(t)
 			assert.NoError(t, s.Ping(context.Background()))
-		})
-	}
-}
-
-func TestUserCRUD(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			ctx := context.Background()
-
-			t.Run("upsert and get", func(t *testing.T) {
-				u := &User{
-					ID:           uuid.New(),
-					Email:        "alice-" + uuid.New().String()[:8] + "@example.com",
-					PasswordHash: "argon2",
-					DisplayName:  "Alice",
-					IsAdmin:      true,
-				}
-				require.NoError(t, s.UpsertUser(ctx, u))
-
-				got, err := s.GetUser(ctx, u.ID)
-				require.NoError(t, err)
-				assert.Equal(t, u.ID, got.ID)
-				assert.Equal(t, u.Email, got.Email)
-				assert.Equal(t, u.PasswordHash, got.PasswordHash)
-				assert.Equal(t, u.DisplayName, got.DisplayName)
-				assert.True(t, got.IsAdmin)
-				assert.False(t, got.CreatedAt.IsZero())
-				assert.False(t, got.UpdatedAt.IsZero())
-			})
-
-			t.Run(testNameUpsertUpdates, func(t *testing.T) {
-				u := &User{ID: uuid.New(), Email: "update-" + uuid.New().String()[:8] + "@example.com", DisplayName: "Before"}
-				require.NoError(t, s.UpsertUser(ctx, u))
-
-				u.DisplayName = "After"
-				require.NoError(t, s.UpsertUser(ctx, u))
-
-				got, err := s.GetUser(ctx, u.ID)
-				require.NoError(t, err)
-				assert.Equal(t, "After", got.DisplayName)
-			})
-
-			t.Run("get by email", func(t *testing.T) {
-				email := "byemail-" + uuid.New().String()[:8] + "@example.com"
-				u := &User{ID: uuid.New(), Email: email}
-				require.NoError(t, s.UpsertUser(ctx, u))
-
-				got, err := s.GetUserByEmail(ctx, email)
-				require.NoError(t, err)
-				assert.Equal(t, u.ID, got.ID)
-			})
-
-			t.Run("get by email not found", func(t *testing.T) {
-				_, err := s.GetUserByEmail(ctx, "nope-"+uuid.New().String()[:8]+"@example.com")
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run(testNameGetNotFound, func(t *testing.T) {
-				_, err := s.GetUser(ctx, uuid.New())
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run("list users", func(t *testing.T) {
-				users, err := s.ListUsers(ctx)
-				require.NoError(t, err)
-				assert.GreaterOrEqual(t, len(users), 2) // from earlier subtests
-			})
-
-			t.Run("delete", func(t *testing.T) {
-				u := &User{ID: uuid.New(), Email: "delete-" + uuid.New().String()[:8] + "@example.com"}
-				require.NoError(t, s.UpsertUser(ctx, u))
-				require.NoError(t, s.DeleteUser(ctx, u.ID))
-				_, err := s.GetUser(ctx, u.ID)
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
-
-			t.Run(testNameDeleteNF, func(t *testing.T) {
-				err := s.DeleteUser(ctx, uuid.New())
-				assert.True(t, errors.Is(err, ErrNotFound))
-			})
 		})
 	}
 }

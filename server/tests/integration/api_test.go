@@ -87,6 +87,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		WebPush:       testutil.NewTestWebPush(t, store),
 		AMTDevices:    testutil.NewTestAMTDevices(t, store),
 		Sessions:      testutil.NewTestSessions(t, store),
+		Users:         testutil.NewTestUsers(t, store),
 		JWT:      jwtCfg,
 		AMT:      &stubAMT{},
 		Relay:    relay.NewRelay(slog.Default()),

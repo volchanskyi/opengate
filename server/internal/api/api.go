@@ -68,6 +68,7 @@ type ServerConfig struct {
 	WebPush         notifications.WebPushRepository
 	AMTDevices      amt.Repository
 	Sessions        session.Repository
+	Users           auth.UserRepository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
 	AMT       AMTOperator
@@ -100,6 +101,7 @@ type Server struct {
 	webPush        notifications.WebPushRepository
 	amtDevices     amt.Repository
 	sessions       session.Repository
+	users          auth.UserRepository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
 	amt       AMTOperator
@@ -134,6 +136,7 @@ func NewServer(cfg ServerConfig) *Server {
 		webPush:        cfg.WebPush,
 		amtDevices:     cfg.AMTDevices,
 		sessions:       cfg.Sessions,
+		users:          cfg.Users,
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
 		amt:       cfg.AMT,

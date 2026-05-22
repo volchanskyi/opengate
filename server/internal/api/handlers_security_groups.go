@@ -6,7 +6,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
 // ListSecurityGroups implements StrictServerInterface.
@@ -115,9 +114,9 @@ func (s *Server) AddSecurityGroupMember(ctx context.Context, request AddSecurity
 		}
 		return nil, err
 	}
-	// Verify user exists (still owned by db.Store until UserRepository extraction).
-	if _, err := s.store.GetUser(ctx, request.Body.UserId); err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+	// Verify user exists via the extracted auth.UserRepository.
+	if _, err := s.users.Get(ctx, request.Body.UserId); err != nil {
+		if errors.Is(err, auth.ErrUserNotFound) {
 			return AddSecurityGroupMember404JSONResponse{Error: "user not found"}, nil
 		}
 		return nil, err

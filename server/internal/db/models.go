@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/session"
@@ -45,16 +46,10 @@ type (
 	NetworkInterfaceInfo = device.NetworkInterfaceInfo
 )
 
-// User represents an authenticated user of the system.
-type User struct {
-	ID           UserID    `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	DisplayName  string    `json:"display_name"`
-	IsAdmin      bool      `json:"is_admin"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
+// User is aliased to the canonical type in [auth] for the migration window
+// while not-yet-updated callers still spell this with a `db.` prefix.
+// Removed once those callers migrate to auth.User directly.
+type User = auth.User
 
 // AgentSession is aliased to the canonical type in [session] for the
 // migration window while not-yet-updated callers still spell this with a

@@ -18,11 +18,6 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// scanner abstracts *sql.Row and *sql.Rows so scan helpers work with both.
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 // PostgresStore implements Store using PostgreSQL via the pgx/v5 stdlib driver.
 type PostgresStore struct {
 	db *sql.DB
@@ -117,98 +112,4 @@ func (s *PostgresStore) Size(ctx context.Context) (int64, error) {
 	}
 	return size, nil
 }
-
-// execAndCheckAffected runs a mutation query and returns ErrNotFound when zero rows were affected.
-func (s *PostgresStore) execAndCheckAffected(ctx context.Context, query string, args ...any) error {
-	res, err := s.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// queryListPG runs a SELECT and scans all rows using the provided scan function.
-func queryListPG[T any](ctx context.Context, db *sql.DB, scan func(scanner) (*T, error), query string, args ...any) ([]*T, error) {
-	rows, err := db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var items []*T
-	for rows.Next() {
-		item, err := scan(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
-// queryOnePG runs a SELECT that returns a single row and maps sql.ErrNoRows to
-// ErrNotFound so callers don't need to repeat the check.
-func queryOnePG[T any](ctx context.Context, db *sql.DB, scan func(scanner) (*T, error), query string, args ...any) (*T, error) {
-	item, err := scan(db.QueryRowContext(ctx, query, args...))
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return item, nil
-}
-
-// --- Users ---
-
-func scanUserPG(sc scanner) (*User, error) {
-	var u User
-	if err := sc.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt); err != nil {
-		return nil, err
-	}
-	return &u, nil
-}
-
-func (s *PostgresStore) UpsertUser(ctx context.Context, u *User) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO users (id, email, password_hash, display_name, is_admin, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-		 ON CONFLICT (id) DO UPDATE SET
-		   email = EXCLUDED.email,
-		   password_hash = EXCLUDED.password_hash,
-		   display_name = EXCLUDED.display_name,
-		   is_admin = EXCLUDED.is_admin,
-		   updated_at = NOW()`,
-		u.ID, u.Email, u.PasswordHash, u.DisplayName, u.IsAdmin)
-	return err
-}
-
-func (s *PostgresStore) GetUser(ctx context.Context, id UserID) (*User, error) {
-	return queryOnePG(ctx, s.db, scanUserPG,
-		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users WHERE id = $1`,
-		id)
-}
-
-func (s *PostgresStore) GetUserByEmail(ctx context.Context, email string) (*User, error) {
-	return queryOnePG(ctx, s.db, scanUserPG,
-		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users WHERE email = $1`,
-		email)
-}
-
-func (s *PostgresStore) ListUsers(ctx context.Context) ([]*User, error) {
-	return queryListPG(ctx, s.db, scanUserPG,
-		`SELECT id, email, password_hash, display_name, is_admin, created_at, updated_at FROM users`)
-}
-
-func (s *PostgresStore) DeleteUser(ctx context.Context, id UserID) error {
-	return s.execAndCheckAffected(ctx, `DELETE FROM users WHERE id = $1`, id)
-}
-
 

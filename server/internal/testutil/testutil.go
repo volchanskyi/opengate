@@ -259,6 +259,14 @@ func NewTestSessions(t testing.TB, s db.Store) session.Repository {
 	return session.NewPostgresSessions(extractDB(t, s, "session.Repository"))
 }
 
+// NewTestUsers returns a Postgres-backed auth.UserRepository sharing the
+// connection pool of s. The users schema is owned by the db package's
+// migrations.
+func NewTestUsers(t testing.TB, s db.Store) auth.UserRepository {
+	t.Helper()
+	return auth.NewPostgresUsers(extractDB(t, s, "auth.User"))
+}
+
 // extractDB returns the *sql.DB behind a Postgres-backed db.Store. Tests that
 // need direct DB access for module-owned repos use it; if s isn't Postgres-
 // backed, the test is skipped (mirrors the audit/updater leaf-module pattern).
@@ -271,17 +279,18 @@ func extractDB(t testing.TB, s db.Store, name string) *sql.DB {
 	return provider.DB()
 }
 
-// SeedUser inserts a minimal user into the store and returns it.
+// SeedUser inserts a minimal user into the store via the extracted
+// auth.UserRepository — db.Store no longer owns this aggregate (ADR-021 #8).
 // The email is randomised to avoid uniqueness conflicts across parallel tests.
-func SeedUser(t testing.TB, ctx context.Context, s db.Store) *db.User {
+func SeedUser(t testing.TB, ctx context.Context, s db.Store) *auth.User {
 	t.Helper()
-	u := &db.User{
+	u := &auth.User{
 		ID:           uuid.New(),
 		Email:        "test-" + uuid.New().String()[:8] + "@example.com",
 		PasswordHash: "hash",
 		DisplayName:  "Test User",
 	}
-	require.NoError(t, s.UpsertUser(ctx, u))
+	require.NoError(t, NewTestUsers(t, s).Upsert(ctx, u))
 	return u
 }
 
@@ -329,19 +338,19 @@ func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, u
 
 // SeedAdminUser inserts an admin user with a real bcrypt password hash
 // and adds them to the Administrators security group.
-func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*db.User, string) {
+func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*auth.User, string) {
 	t.Helper()
 	password := "admin-pass-" + uuid.New().String()[:8]
 	hash, err := auth.HashPassword(password)
 	require.NoError(t, err)
-	u := &db.User{
+	u := &auth.User{
 		ID:           uuid.New(),
 		Email:        "admin-" + uuid.New().String()[:8] + "@example.com",
 		PasswordHash: hash,
 		DisplayName:  "Admin User",
 		IsAdmin:      true,
 	}
-	require.NoError(t, s.UpsertUser(ctx, u))
+	require.NoError(t, NewTestUsers(t, s).Upsert(ctx, u))
 	sg := NewTestSecurityGroups(t, s)
 	require.NoError(t, sg.AddMember(ctx, auth.AdminGroupID, u.ID))
 	return u, password
