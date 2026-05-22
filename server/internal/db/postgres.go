@@ -11,7 +11,6 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"github.com/google/uuid"
 
 	_ "github.com/jackc/pgx/v5/stdlib" // register pgx driver with database/sql
 )
@@ -245,44 +244,4 @@ func (s *PostgresStore) ListActiveSessionsForDevice(ctx context.Context, deviceI
 		deviceID)
 }
 
-// --- AMT Devices ---
-
-func scanAMTDevicePG(sc scanner) (*AMTDevice, error) {
-	var d AMTDevice
-	if err := sc.Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen); err != nil {
-		return nil, err
-	}
-	return &d, nil
-}
-
-func (s *PostgresStore) UpsertAMTDevice(ctx context.Context, d *AMTDevice) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO amt_devices (uuid, hostname, model, firmware, status, last_seen)
-		 VALUES ($1, $2, $3, $4, $5, NOW())
-		 ON CONFLICT (uuid) DO UPDATE SET
-		   hostname  = CASE WHEN EXCLUDED.hostname = '' THEN amt_devices.hostname ELSE EXCLUDED.hostname END,
-		   model     = CASE WHEN EXCLUDED.model    = '' THEN amt_devices.model    ELSE EXCLUDED.model    END,
-		   firmware  = CASE WHEN EXCLUDED.firmware = '' THEN amt_devices.firmware ELSE EXCLUDED.firmware END,
-		   status    = EXCLUDED.status,
-		   last_seen = NOW()`,
-		d.UUID, d.Hostname, d.Model, d.Firmware, string(d.Status))
-	return err
-}
-
-func (s *PostgresStore) GetAMTDevice(ctx context.Context, id uuid.UUID) (*AMTDevice, error) {
-	return queryOnePG(ctx, s.db, scanAMTDevicePG,
-		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices WHERE uuid = $1`,
-		id)
-}
-
-func (s *PostgresStore) ListAMTDevices(ctx context.Context) ([]*AMTDevice, error) {
-	return queryListPG(ctx, s.db, scanAMTDevicePG,
-		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices`)
-}
-
-func (s *PostgresStore) SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status DeviceStatus) error {
-	return s.execAndCheckAffected(ctx,
-		`UPDATE amt_devices SET status = $1, last_seen = NOW() WHERE uuid = $2`,
-		string(status), id)
-}
 

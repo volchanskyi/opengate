@@ -105,6 +105,7 @@ func main() {
 	hardwareRepo := device.NewInstrumentedHardware(device.NewPostgresHardware(store.DB()), appMetrics)
 	deviceLogsRepo := device.NewInstrumentedLogs(device.NewPostgresLogs(store.DB()), appMetrics)
 	webPushRepo := notifications.NewInstrumentedWebPush(notifications.NewPostgresWebPush(store.DB()), appMetrics)
+	amtRepo := amt.NewInstrumented(amt.NewPostgresAMTDevices(store.DB()), appMetrics)
 
 	// Reset stale online statuses from a prior run via the device repository.
 	if err := devicesRepo.ResetAllStatuses(context.Background()); err != nil {
@@ -167,7 +168,7 @@ func main() {
 	}
 	manifestStore := updater.NewManifestStore(*dataDir)
 
-	mpsSrv := mps.NewServer(certMgr, instrumentedStore, logger)
+	mpsSrv := mps.NewServer(certMgr, amtRepo, logger)
 	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
@@ -182,6 +183,7 @@ func main() {
 		Hardware:       hardwareRepo,
 		DeviceLogs:     deviceLogsRepo,
 		WebPush:        webPushRepo,
+		AMTDevices:     amtRepo,
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		AMT:       amtSvc,

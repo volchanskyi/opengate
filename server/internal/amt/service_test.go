@@ -1,4 +1,4 @@
-package amt
+package amt_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/mps"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
@@ -17,7 +18,7 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newTestService(t *testing.T) *Service {
+func newTestService(t *testing.T) *amt.Service {
 	t.Helper()
 	store := testutil.NewTestStore(t)
 
@@ -25,8 +26,9 @@ func newTestService(t *testing.T) *Service {
 	assert.NoError(t, err)
 
 	logger := discardLogger()
-	mpsSrv := mps.NewServer(cm, store, logger)
-	return NewService(mpsSrv, "admin", "password", logger)
+	repo := testutil.NewTestAMTDevices(t, store)
+	mpsSrv := mps.NewServer(cm, repo, logger)
+	return amt.NewService(mpsSrv, "admin", "password", logger)
 }
 
 func TestPowerActionDeviceNotConnected(t *testing.T) {

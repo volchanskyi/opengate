@@ -55,6 +55,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 		Hardware:       testutil.NewTestHardware(t, store),
 		DeviceLogs:     testutil.NewTestLogs(t, store),
 		WebPush:        testutil.NewTestWebPush(t, store),
+		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		JWT:      cfg,
 		Agents:   &stubAgentGetter{},
 		AMT:      &stubAMTOperator{},

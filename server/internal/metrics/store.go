@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
@@ -111,40 +110,6 @@ func (s *InstrumentedStore) ListActiveSessionsForDevice(ctx context.Context, dev
 	sess, err := s.inner.ListActiveSessionsForDevice(ctx, deviceID)
 	s.observe("ListActiveSessionsForDevice", start, err)
 	return sess, err
-}
-
-// --- AMT Devices -------------------------------------------------------------
-
-// UpsertAMTDevice instruments db.Store.UpsertAMTDevice.
-func (s *InstrumentedStore) UpsertAMTDevice(ctx context.Context, d *db.AMTDevice) error {
-	start := time.Now()
-	err := s.inner.UpsertAMTDevice(ctx, d)
-	s.observe("UpsertAMTDevice", start, err)
-	return err
-}
-
-// GetAMTDevice instruments db.Store.GetAMTDevice.
-func (s *InstrumentedStore) GetAMTDevice(ctx context.Context, id uuid.UUID) (*db.AMTDevice, error) {
-	start := time.Now()
-	d, err := s.inner.GetAMTDevice(ctx, id)
-	s.observe("GetAMTDevice", start, err)
-	return d, err
-}
-
-// ListAMTDevices instruments db.Store.ListAMTDevices.
-func (s *InstrumentedStore) ListAMTDevices(ctx context.Context) ([]*db.AMTDevice, error) {
-	start := time.Now()
-	d, err := s.inner.ListAMTDevices(ctx)
-	s.observe("ListAMTDevices", start, err)
-	return d, err
-}
-
-// SetAMTDeviceStatus instruments db.Store.SetAMTDeviceStatus.
-func (s *InstrumentedStore) SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status db.DeviceStatus) error {
-	start := time.Now()
-	err := s.inner.SetAMTDeviceStatus(ctx, id, status)
-	s.observe("SetAMTDeviceStatus", start, err)
-	return err
 }
 
 // --- Health ------------------------------------------------------------------

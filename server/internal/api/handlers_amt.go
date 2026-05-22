@@ -23,7 +23,7 @@ func (s *Server) ListAMTDevices(ctx context.Context, _ ListAMTDevicesRequestObje
 		return resp, nil
 	}
 
-	devices, err := s.store.ListAMTDevices(ctx)
+	devices, err := s.amtDevices.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -41,9 +41,12 @@ func (s *Server) GetAMTDevice(ctx context.Context, request GetAMTDeviceRequestOb
 		return resp, nil
 	}
 
-	d, err := s.store.GetAMTDevice(ctx, request.Uuid)
+	d, err := s.amtDevices.Get(ctx, request.Uuid)
 	if err != nil {
-		return GetAMTDevice404JSONResponse{Error: "device not found"}, nil
+		if errors.Is(err, amt.ErrAMTDeviceNotFound) {
+			return GetAMTDevice404JSONResponse{Error: "device not found"}, nil
+		}
+		return nil, err
 	}
 	return GetAMTDevice200JSONResponse(amtDeviceToAPI(d)), nil
 }

@@ -4,8 +4,6 @@ package db
 import (
 	"context"
 	"errors"
-
-	"github.com/google/uuid"
 )
 
 // ErrNotFound indicates the requested record does not exist.
@@ -25,12 +23,6 @@ type Store interface {
 	GetAgentSession(ctx context.Context, token string) (*AgentSession, error)
 	DeleteAgentSession(ctx context.Context, token string) error
 	ListActiveSessionsForDevice(ctx context.Context, deviceID DeviceID) ([]*AgentSession, error)
-
-	// AMT Devices
-	UpsertAMTDevice(ctx context.Context, d *AMTDevice) error
-	GetAMTDevice(ctx context.Context, id uuid.UUID) (*AMTDevice, error)
-	ListAMTDevices(ctx context.Context) ([]*AMTDevice, error)
-	SetAMTDeviceStatus(ctx context.Context, id uuid.UUID, status DeviceStatus) error
 
 	// Health
 	Ping(ctx context.Context) error

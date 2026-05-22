@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib" // register pgx driver for admin connections
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
@@ -241,6 +242,14 @@ func NewTestWebPush(t testing.TB, s db.Store) notifications.WebPushRepository {
 	return notifications.NewPostgresWebPush(extractDB(t, s, "notifications.WebPush"))
 }
 
+// NewTestAMTDevices returns a Postgres-backed amt.Repository sharing the
+// connection pool of s. The amt_devices schema is owned by the db package's
+// migrations.
+func NewTestAMTDevices(t testing.TB, s db.Store) amt.Repository {
+	t.Helper()
+	return amt.NewPostgresAMTDevices(extractDB(t, s, "amt.Repository"))
+}
+
 // extractDB returns the *sql.DB behind a Postgres-backed db.Store. Tests that
 // need direct DB access for module-owned repos use it; if s isn't Postgres-
 // backed, the test is skipped (mirrors the audit/updater leaf-module pattern).
@@ -327,7 +336,9 @@ func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*db.User, str
 	return u, password
 }
 
-// SeedAMTDevice inserts an AMT device record into the store.
+// SeedAMTDevice inserts an AMT device record into the store via an ad-hoc
+// amt.Repository over the same connection pool — db.Store no longer owns
+// AMT methods (ADR-021 #6).
 func SeedAMTDevice(t testing.TB, ctx context.Context, s db.Store) *db.AMTDevice {
 	t.Helper()
 	d := &db.AMTDevice{
@@ -338,6 +349,6 @@ func SeedAMTDevice(t testing.TB, ctx context.Context, s db.Store) *db.AMTDevice 
 		Status:   db.StatusOffline,
 		LastSeen: time.Now(),
 	}
-	require.NoError(t, s.UpsertAMTDevice(ctx, d))
+	require.NoError(t, NewTestAMTDevices(t, s).Upsert(ctx, d))
 	return d
 }

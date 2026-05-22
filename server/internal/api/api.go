@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
@@ -64,6 +65,7 @@ type ServerConfig struct {
 	Hardware        device.HardwareRepository
 	DeviceLogs      device.LogsRepository
 	WebPush         notifications.WebPushRepository
+	AMTDevices      amt.Repository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
 	AMT       AMTOperator
@@ -94,6 +96,7 @@ type Server struct {
 	hardware       device.HardwareRepository
 	deviceLogs     device.LogsRepository
 	webPush        notifications.WebPushRepository
+	amtDevices     amt.Repository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
 	amt       AMTOperator
@@ -126,6 +129,7 @@ func NewServer(cfg ServerConfig) *Server {
 		hardware:       cfg.Hardware,
 		deviceLogs:     cfg.DeviceLogs,
 		webPush:        cfg.WebPush,
+		amtDevices:     cfg.AMTDevices,
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
 		amt:       cfg.AMT,
