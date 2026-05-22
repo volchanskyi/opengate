@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -33,7 +32,6 @@ type AgentConn struct {
 
 	stream        io.ReadWriter
 	codec         *protocol.Codec
-	store         db.Store
 	devices       device.Repository
 	hardware      device.HardwareRepository
 	deviceLogs    device.LogsRepository
@@ -48,19 +46,32 @@ type AgentConn struct {
 	writeMu sync.Mutex
 }
 
+// AgentConnConfig bundles the dependencies an AgentConn needs. Promoted
+// from a positional argument list when the latter exceeded Sonar's
+// parameter cap during the ADR-021 residual-Store retirement.
+type AgentConnConfig struct {
+	DeviceID      protocol.DeviceID
+	GroupID       uuid.UUID
+	Stream        io.ReadWriter
+	Devices       device.Repository
+	Hardware      device.HardwareRepository
+	DeviceLogs    device.LogsRepository
+	DeviceUpdates updater.DeviceUpdateRepository
+	Logger        *slog.Logger
+}
+
 // NewAgentConn creates an AgentConn for testing or programmatic use.
-func NewAgentConn(deviceID protocol.DeviceID, groupID uuid.UUID, stream io.ReadWriter, store db.Store, devices device.Repository, hardware device.HardwareRepository, deviceLogs device.LogsRepository, deviceUpdates updater.DeviceUpdateRepository, logger *slog.Logger) *AgentConn {
+func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 	return &AgentConn{
-		DeviceID:      deviceID,
-		GroupID:       groupID,
-		stream:        stream,
+		DeviceID:      cfg.DeviceID,
+		GroupID:       cfg.GroupID,
+		stream:        cfg.Stream,
 		codec:         &protocol.Codec{},
-		store:         store,
-		devices:       devices,
-		hardware:      hardware,
-		deviceLogs:    deviceLogs,
-		deviceUpdates: deviceUpdates,
-		logger:        logger,
+		devices:       cfg.Devices,
+		hardware:      cfg.Hardware,
+		deviceLogs:    cfg.DeviceLogs,
+		deviceUpdates: cfg.DeviceUpdates,
+		logger:        cfg.Logger,
 	}
 }
 

@@ -88,7 +88,6 @@ func main() {
 	// Prometheus metrics
 	metricsRegistry := appmetrics.NewRegistry()
 	appMetrics := appmetrics.NewMetrics(metricsRegistry)
-	instrumentedStore := appmetrics.NewInstrumentedStore(store, appMetrics)
 
 	// Audit module owns its own outbound port (ADR-021). Wired against the
 	// same connection pool as the main store; instrumented so audit calls
@@ -152,7 +151,6 @@ func main() {
 	}
 	agentSrv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          certMgr,
-		Store:         instrumentedStore,
 		Devices:       devicesRepo,
 		Hardware:      hardwareRepo,
 		DeviceLogs:    deviceLogsRepo,
@@ -176,7 +174,7 @@ func main() {
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
 	srv := api.NewServer(api.ServerConfig{
-		Store:         instrumentedStore,
+		Store:         store,
 		Audit:         auditRepo,
 		DeviceUpdates: deviceUpdatesRepo,
 		Enrollment:    enrollmentRepo,
