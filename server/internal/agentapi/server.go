@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"
 	"github.com/volchanskyi/opengate/server/internal/cert"
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -25,7 +24,6 @@ import (
 // AgentServer accepts QUIC connections from agents and manages their lifecycle.
 type AgentServer struct {
 	cert          *cert.Manager
-	store         db.Store
 	devices       device.Repository
 	hardware      device.HardwareRepository
 	deviceLogs    device.LogsRepository
@@ -46,7 +44,6 @@ type AgentServer struct {
 // that ADR-021 has split the persistence ports across modules.
 type AgentServerConfig struct {
 	Cert          *cert.Manager
-	Store         db.Store
 	Devices       device.Repository
 	Hardware      device.HardwareRepository
 	DeviceLogs    device.LogsRepository
@@ -61,7 +58,6 @@ type AgentServerConfig struct {
 func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 	return &AgentServer{
 		cert:          cfg.Cert,
-		store:         cfg.Store,
 		devices:       cfg.Devices,
 		hardware:      cfg.Hardware,
 		deviceLogs:    cfg.DeviceLogs,
@@ -208,7 +204,6 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		GroupID:       groupID,
 		stream:        stream,
 		codec:         &protocol.Codec{},
-		store:         s.store,
 		devices:       s.devices,
 		hardware:      s.hardware,
 		deviceLogs:    s.deviceLogs,
@@ -241,7 +236,7 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 		s.count.Add(-1)
 		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := s.devices.SetStatus(offlineCtx, ac.DeviceID, db.StatusOffline); err != nil {
+		if err := s.devices.SetStatus(offlineCtx, ac.DeviceID, device.StatusOffline); err != nil {
 			logger.Error("set device offline", "error", err)
 		}
 		offlineEvt := notifications.Event{

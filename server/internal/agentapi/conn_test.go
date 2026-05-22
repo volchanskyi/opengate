@@ -33,7 +33,6 @@ func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store db.Store) (*AgentC
 		DeviceID: deviceID,
 		stream:   &buf,
 		codec:    &protocol.Codec{},
-		store:    store,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
@@ -82,7 +81,16 @@ func TestNewAgentConn(t *testing.T) {
 	var buf bytes.Buffer
 	logger := testLogger()
 
-	ac := NewAgentConn(deviceID, groupID, &buf, store, testutil.NewTestDevices(t, store), testutil.NewTestHardware(t, store), testutil.NewTestLogs(t, store), testutil.NewTestDeviceUpdates(t, store), logger)
+	ac := NewAgentConn(AgentConnConfig{
+		DeviceID:      deviceID,
+		GroupID:       groupID,
+		Stream:        &buf,
+		Devices:       testutil.NewTestDevices(t, store),
+		Hardware:      testutil.NewTestHardware(t, store),
+		DeviceLogs:    testutil.NewTestLogs(t, store),
+		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
+		Logger:        logger,
+	})
 	assert.Equal(t, deviceID, ac.DeviceID)
 	assert.Equal(t, groupID, ac.GroupID)
 	assert.NotNil(t, ac.codec)
@@ -120,7 +128,6 @@ func TestAgentConn_HandleRegister(t *testing.T) {
 		GroupID:  group.ID,
 		stream:   &frameBuf,
 		codec:    codec,
-		store:    store,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
@@ -165,7 +172,6 @@ func TestAgentConn_HandleHeartbeat(t *testing.T) {
 		GroupID:  group.ID,
 		stream:   &frameBuf,
 		codec:    codec,
-		store:    store,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
@@ -298,7 +304,6 @@ func TestAgentConn_HandleDeviceLogsResponse(t *testing.T) {
 		GroupID:  group.ID,
 		stream:   &frameBuf,
 		codec:    codec,
-		store:    store,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
@@ -368,7 +373,6 @@ func TestAgentConn_HandleHardwareReport(t *testing.T) {
 		GroupID:  group.ID,
 		stream:   &frameBuf,
 		codec:    codec,
-		store:    store,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
@@ -416,7 +420,6 @@ func TestAgentConn_HandleRegister_NormalizesOS(t *testing.T) {
 		GroupID:  group.ID,
 		stream:   &frameBuf,
 		codec:    codec,
-		store:    store,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
@@ -525,7 +528,6 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 			GroupID:       group.ID,
 			stream:        &frameBuf,
 			codec:         codec,
-			store:         store,
 			devices:    testutil.NewTestDevices(t, store),
 			hardware:   testutil.NewTestHardware(t, store),
 			deviceLogs: testutil.NewTestLogs(t, store),
@@ -561,7 +563,6 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 			GroupID:       group.ID,
 			stream:        &frameBuf,
 			codec:         codec,
-			store:         store,
 			devices:    testutil.NewTestDevices(t, store),
 			hardware:   testutil.NewTestHardware(t, store),
 			deviceLogs: testutil.NewTestLogs(t, store),

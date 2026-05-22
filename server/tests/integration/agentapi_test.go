@@ -48,7 +48,6 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	logger := testLogger()
 	srv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          cm,
-		Store:         store,
 		Devices:       testutil.NewTestDevices(t, store),
 		Hardware:      testutil.NewTestHardware(t, store),
 		DeviceLogs:    testutil.NewTestLogs(t, store),
