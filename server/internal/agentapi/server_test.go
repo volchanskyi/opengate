@@ -26,7 +26,6 @@ func newTestAgentServer(t *testing.T) *AgentServer {
 	store := testutil.NewTestStore(t)
 	return NewAgentServer(AgentServerConfig{
 		Cert:          cm,
-		Store:         store,
 		Devices:       testutil.NewTestDevices(t, store),
 		Hardware:      testutil.NewTestHardware(t, store),
 		DeviceLogs:    testutil.NewTestLogs(t, store),

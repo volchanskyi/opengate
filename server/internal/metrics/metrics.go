@@ -120,6 +120,19 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	return m
 }
 
+// Observe records a single DB-shaped operation against the standard db_query_*
+// metric pair. It lets the per-aggregate Instrumented decorators (audit,
+// updater, auth, device, notifications, amt, session) reuse the same
+// dashboards without importing this package or duplicating label discipline.
+func (m *Metrics) Observe(operation string, duration time.Duration, ok bool) {
+	status := "ok"
+	if !ok {
+		status = "error"
+	}
+	m.DBQueryDuration.WithLabelValues(operation).Observe(duration.Seconds())
+	m.DBQueriesTotal.WithLabelValues(operation, status).Inc()
+}
+
 // NewRegistry creates a Prometheus registry with Go and process collectors.
 func NewRegistry() *prometheus.Registry {
 	reg := prometheus.NewRegistry()

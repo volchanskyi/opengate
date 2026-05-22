@@ -51,7 +51,7 @@ func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 
 	lookup := &stubAgentGetter{}
 	if online {
-		ac := agentapi.NewAgentConn(device.ID, group.ID, &agentStream, store, testutil.NewTestDevices(t, store), testutil.NewTestHardware(t, store), testutil.NewTestLogs(t, store), testutil.NewTestDeviceUpdates(t, store), logger)
+		ac := agentapi.NewAgentConn(agentapi.AgentConnConfig{DeviceID: device.ID, GroupID: group.ID, Stream: &agentStream, Devices: testutil.NewTestDevices(t, store), Hardware: testutil.NewTestHardware(t, store), DeviceLogs: testutil.NewTestLogs(t, store), DeviceUpdates: testutil.NewTestDeviceUpdates(t, store), Logger: logger})
 		lookup = &stubAgentGetter{
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
 		}
