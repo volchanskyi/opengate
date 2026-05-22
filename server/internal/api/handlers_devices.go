@@ -5,20 +5,20 @@ import (
 	"errors"
 	"time"
 
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 // RestartDevice implements StrictServerInterface.
 func (s *Server) RestartDevice(ctx context.Context, request RestartDeviceRequestObject) (RestartDeviceResponseObject, error) {
-	device, err := s.store.GetDevice(ctx, request.Id)
+	d, err := s.devices.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			return RestartDevice404JSONResponse{Error: "device not found"}, nil
+		if errors.Is(err, device.ErrDeviceNotFound) {
+			return RestartDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
 	}
 
-	if !s.isGroupOwner(ctx, device.GroupID) {
+	if !s.isGroupOwner(ctx, d.GroupID) {
 		return RestartDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
@@ -43,21 +43,21 @@ func (s *Server) RestartDevice(ctx context.Context, request RestartDeviceRequest
 
 // GetDeviceHardware implements StrictServerInterface.
 func (s *Server) GetDeviceHardware(ctx context.Context, request GetDeviceHardwareRequestObject) (GetDeviceHardwareResponseObject, error) {
-	device, err := s.store.GetDevice(ctx, request.Id)
+	d, err := s.devices.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			return GetDeviceHardware404JSONResponse{Error: "device not found"}, nil
+		if errors.Is(err, device.ErrDeviceNotFound) {
+			return GetDeviceHardware404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
 	}
 
-	if !s.isGroupOwner(ctx, device.GroupID) {
+	if !s.isGroupOwner(ctx, d.GroupID) {
 		return GetDeviceHardware403JSONResponse{Error: msgForbidden}, nil
 	}
 
-	hw, err := s.store.GetDeviceHardware(ctx, request.Id)
+	hw, err := s.hardware.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
+		if errors.Is(err, device.ErrHardwareNotFound) {
 			// No cached data — request from agent if online
 			ac := s.agents.GetAgent(request.Id)
 			if ac == nil {
@@ -76,19 +76,19 @@ func (s *Server) GetDeviceHardware(ctx context.Context, request GetDeviceHardwar
 
 // GetDeviceLogs implements StrictServerInterface.
 func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequestObject) (GetDeviceLogsResponseObject, error) {
-	device, err := s.store.GetDevice(ctx, request.Id)
+	d, err := s.devices.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			return GetDeviceLogs404JSONResponse{Error: "device not found"}, nil
+		if errors.Is(err, device.ErrDeviceNotFound) {
+			return GetDeviceLogs404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
 	}
 
-	if !s.isGroupOwner(ctx, device.GroupID) {
+	if !s.isGroupOwner(ctx, d.GroupID) {
 		return GetDeviceLogs403JSONResponse{Error: msgForbidden}, nil
 	}
 
-	filter := db.LogFilter{
+	filter := device.LogFilter{
 		Level:  derefStr(request.Params.Level),
 		From:   derefStr(request.Params.From),
 		To:     derefStr(request.Params.To),
@@ -98,14 +98,14 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 	}
 
 	// Check if we have recent cached logs (5-minute TTL)
-	hasRecent, err := s.store.HasRecentLogs(ctx, request.Id, 5*time.Minute)
+	hasRecent, err := s.deviceLogs.HasRecent(ctx, request.Id, 5*time.Minute)
 	if err != nil {
 		return nil, err
 	}
 
 	refresh := request.Params.Refresh != nil && *request.Params.Refresh
 	if hasRecent && !refresh {
-		entries, total, err := s.store.QueryDeviceLogs(ctx, request.Id, filter)
+		entries, total, err := s.deviceLogs.Query(ctx, request.Id, filter)
 		if err != nil {
 			return nil, err
 		}
@@ -116,7 +116,7 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 	ac := s.agents.GetAgent(request.Id)
 	if ac == nil {
 		// Agent offline — try serving stale cache if any exists
-		entries, total, err := s.store.QueryDeviceLogs(ctx, request.Id, filter)
+		entries, total, err := s.deviceLogs.Query(ctx, request.Id, filter)
 		if err != nil || total == 0 {
 			return GetDeviceLogs404JSONResponse{Error: "logs not available — device offline"}, nil
 		}
@@ -125,7 +125,7 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 
 	// Request ALL recent logs from agent (no search/level filter) so the
 	// DB cache is comprehensive.  Filtering happens at the DB level on retry.
-	cacheFilter := db.LogFilter{Limit: 1000}
+	cacheFilter := device.LogFilter{Limit: 1000}
 	if err := ac.SendRequestDeviceLogs(ctx, cacheFilter); err != nil {
 		return nil, err
 	}
@@ -134,17 +134,17 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 
 // ListDevices implements StrictServerInterface.
 func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error) {
-	var devices []*db.Device
+	var devices []*device.Device
 	var err error
 	if request.Params.GroupId != nil {
 		if !s.isGroupOwner(ctx, *request.Params.GroupId) {
 			return ListDevices403JSONResponse{Error: msgForbidden}, nil
 		}
-		devices, err = s.store.ListDevices(ctx, *request.Params.GroupId)
+		devices, err = s.devices.List(ctx, *request.Params.GroupId)
 	} else if isAdmin(ctx) {
-		devices, err = s.store.ListAllDevices(ctx)
+		devices, err = s.devices.ListAll(ctx)
 	} else {
-		devices, err = s.store.ListDevicesForOwner(ctx, ContextUserID(ctx))
+		devices, err = s.devices.ListForOwner(ctx, ContextUserID(ctx))
 	}
 	if err != nil {
 		return nil, err
@@ -155,40 +155,40 @@ func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObje
 
 // GetDevice implements StrictServerInterface.
 func (s *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) (GetDeviceResponseObject, error) {
-	device, err := s.store.GetDevice(ctx, request.Id)
+	d, err := s.devices.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			return GetDevice404JSONResponse{Error: "device not found"}, nil
+		if errors.Is(err, device.ErrDeviceNotFound) {
+			return GetDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
 	}
 
-	if !s.isGroupOwner(ctx, device.GroupID) {
+	if !s.isGroupOwner(ctx, d.GroupID) {
 		return GetDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
-	return GetDevice200JSONResponse(deviceToAPI(device)), nil
+	return GetDevice200JSONResponse(deviceToAPI(d)), nil
 }
 
 // UpdateDevice implements StrictServerInterface.
 func (s *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error) {
-	device, err := s.store.GetDevice(ctx, request.Id)
+	d, err := s.devices.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			return UpdateDevice404JSONResponse{Error: "device not found"}, nil
+		if errors.Is(err, device.ErrDeviceNotFound) {
+			return UpdateDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
 	}
 
-	if !s.isGroupOwner(ctx, device.GroupID) {
+	if !s.isGroupOwner(ctx, d.GroupID) {
 		return UpdateDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	if request.Body.GroupId != nil {
 		newGroupID := *request.Body.GroupId
 		// Verify the target group exists and the user owns it.
-		if _, err := s.store.GetGroup(ctx, newGroupID); err != nil {
-			if errors.Is(err, db.ErrNotFound) {
+		if _, err := s.groups.Get(ctx, newGroupID); err != nil {
+			if errors.Is(err, device.ErrGroupNotFound) {
 				return UpdateDevice400JSONResponse{Error: "target group not found"}, nil
 			}
 			return nil, err
@@ -196,12 +196,12 @@ func (s *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestOb
 		if !s.isGroupOwner(ctx, newGroupID) {
 			return UpdateDevice403JSONResponse{Error: msgForbidden}, nil
 		}
-		if err := s.store.UpdateDeviceGroup(ctx, request.Id, newGroupID); err != nil {
+		if err := s.devices.UpdateGroup(ctx, request.Id, newGroupID); err != nil {
 			return nil, err
 		}
 	}
 
-	updated, err := s.store.GetDevice(ctx, request.Id)
+	updated, err := s.devices.Get(ctx, request.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -211,19 +211,19 @@ func (s *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestOb
 
 // DeleteDevice implements StrictServerInterface.
 func (s *Server) DeleteDevice(ctx context.Context, request DeleteDeviceRequestObject) (DeleteDeviceResponseObject, error) {
-	device, err := s.store.GetDevice(ctx, request.Id)
+	d, err := s.devices.Get(ctx, request.Id)
 	if err != nil {
-		if errors.Is(err, db.ErrNotFound) {
-			return DeleteDevice404JSONResponse{Error: "device not found"}, nil
+		if errors.Is(err, device.ErrDeviceNotFound) {
+			return DeleteDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
 	}
 
-	if !s.isGroupOwner(ctx, device.GroupID) {
+	if !s.isGroupOwner(ctx, d.GroupID) {
 		return DeleteDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
-	if err := s.store.DeleteDevice(ctx, request.Id); err != nil {
+	if err := s.devices.Delete(ctx, request.Id); err != nil {
 		return nil, err
 	}
 

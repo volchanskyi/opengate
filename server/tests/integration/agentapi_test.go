@@ -16,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -28,11 +29,12 @@ func testLogger() *slog.Logger {
 
 // agentTestEnv sets up a real in-process agentapi server for integration tests.
 type agentTestEnv struct {
-	store   db.Store
-	certMgr *cert.Manager
-	srv     *agentapi.AgentServer
-	addr    string
-	cancel  context.CancelFunc
+	store    db.Store
+	devices  device.Repository
+	certMgr  *cert.Manager
+	srv      *agentapi.AgentServer
+	addr     string
+	cancel   context.CancelFunc
 }
 
 func newAgentTestEnv(t *testing.T) *agentTestEnv {
@@ -44,7 +46,17 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 
 	r := relay.NewRelay(slog.Default())
 	logger := testLogger()
-	srv := agentapi.NewAgentServer(cm, store, testutil.NewTestDeviceUpdates(t, store), r, &notifications.NoopNotifier{}, "", logger)
+	srv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
+		Cert:          cm,
+		Store:         store,
+		Devices:       testutil.NewTestDevices(t, store),
+		Hardware:      testutil.NewTestHardware(t, store),
+		DeviceLogs:    testutil.NewTestLogs(t, store),
+		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
+		Relay:         r,
+		Notifier:      &notifications.NoopNotifier{},
+		Logger:        logger,
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -73,6 +85,7 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 		srv:     srv,
 		addr:    actualAddr,
 		cancel:  cancel,
+		devices: testutil.NewTestDevices(t, store),
 	}
 }
 
@@ -136,14 +149,14 @@ func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stre
 	// Pre-seed the device in the DB BEFORE connecting so the server can
 	// find its group during accept(). Previously this happened after the
 	// handshake, causing races with concurrent connections.
-	seedDevice := &db.Device{
+	seedDevice := &device.Device{
 		ID:       deviceID,
 		GroupID:  groupID,
 		Hostname: "pre-seed",
 		OS:       "linux",
 		Status:   db.StatusOffline,
 	}
-	require.NoError(t, e.store.UpsertDevice(ctx, seedDevice))
+	require.NoError(t, e.devices.Upsert(ctx, seedDevice))
 
 	// Sign an agent cert using the CA
 	tlsCert, err := e.certMgr.SignAgent(deviceID.String(), "test-agent")
@@ -208,11 +221,11 @@ func TestAgentConnect_RegistersDevice(t *testing.T) {
 
 	// Verify device appears in DB as online
 	require.Eventually(t, func() bool {
-		device, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		if err != nil {
 			return false
 		}
-		return device.Status == db.StatusOnline && device.Hostname == "integration-test-host"
+		return d.Status == db.StatusOnline && d.Hostname == "integration-test-host"
 	}, 3*time.Second, 50*time.Millisecond)
 }
 
@@ -228,14 +241,14 @@ func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
 
 	// Wait for registration to complete.
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
 	// Record current last_seen
-	device, err := env.store.GetDevice(ctx, deviceID)
+	d, err := env.devices.Get(ctx, deviceID)
 	require.NoError(t, err)
-	originalLastSeen := device.UpdatedAt
+	originalLastSeen := d.UpdatedAt
 
 	// Send heartbeat
 	codec := &protocol.Codec{}
@@ -250,17 +263,17 @@ func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
 
 	// Verify last_seen updated
 	require.Eventually(t, func() bool {
-		device, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		if err != nil {
 			return false
 		}
-		return device.UpdatedAt.After(originalLastSeen) || device.UpdatedAt.Equal(originalLastSeen)
+		return d.UpdatedAt.After(originalLastSeen) || d.UpdatedAt.Equal(originalLastSeen)
 	}, 2*time.Second, 50*time.Millisecond)
 
 	// Verify still online
-	device, err = env.store.GetDevice(ctx, deviceID)
+	finalDev, err := env.devices.Get(ctx, deviceID)
 	require.NoError(t, err)
-	assert.Equal(t, db.StatusOnline, device.Status)
+	assert.Equal(t, db.StatusOnline, finalDev.Status)
 }
 
 func TestAgentConnect_DisconnectSetsOffline(t *testing.T) {
@@ -275,8 +288,8 @@ func TestAgentConnect_DisconnectSetsOffline(t *testing.T) {
 
 	// Wait for registration
 	require.Eventually(t, func() bool {
-		device, err := env.store.GetDevice(ctx, deviceID)
-		return err == nil && device.Status == db.StatusOnline
+		d, err := env.devices.Get(ctx, deviceID)
+		return err == nil && d.Status == db.StatusOnline
 	}, 2*time.Second, 50*time.Millisecond)
 
 	// Close the stream to disconnect
@@ -284,7 +297,7 @@ func TestAgentConnect_DisconnectSetsOffline(t *testing.T) {
 
 	// Verify device becomes offline
 	require.Eventually(t, func() bool {
-		device, err := env.store.GetDevice(ctx, deviceID)
-		return err == nil && device.Status == db.StatusOffline
+		d, err := env.devices.Get(ctx, deviceID)
+		return err == nil && d.Status == db.StatusOffline
 	}, 5*time.Second, 100*time.Millisecond)
 }

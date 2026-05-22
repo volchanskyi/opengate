@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/updater"
@@ -33,6 +34,9 @@ type AgentConn struct {
 	stream        io.ReadWriter
 	codec         *protocol.Codec
 	store         db.Store
+	devices       device.Repository
+	hardware      device.HardwareRepository
+	deviceLogs    device.LogsRepository
 	deviceUpdates updater.DeviceUpdateRepository
 	logger        *slog.Logger
 
@@ -45,13 +49,16 @@ type AgentConn struct {
 }
 
 // NewAgentConn creates an AgentConn for testing or programmatic use.
-func NewAgentConn(deviceID protocol.DeviceID, groupID uuid.UUID, stream io.ReadWriter, store db.Store, deviceUpdates updater.DeviceUpdateRepository, logger *slog.Logger) *AgentConn {
+func NewAgentConn(deviceID protocol.DeviceID, groupID uuid.UUID, stream io.ReadWriter, store db.Store, devices device.Repository, hardware device.HardwareRepository, deviceLogs device.LogsRepository, deviceUpdates updater.DeviceUpdateRepository, logger *slog.Logger) *AgentConn {
 	return &AgentConn{
 		DeviceID:      deviceID,
 		GroupID:       groupID,
 		stream:        stream,
 		codec:         &protocol.Codec{},
 		store:         store,
+		devices:       devices,
+		hardware:      hardware,
+		deviceLogs:    deviceLogs,
 		deviceUpdates: deviceUpdates,
 		logger:        logger,
 	}
@@ -124,7 +131,7 @@ func (a *AgentConn) SendRequestHardwareReport(ctx context.Context) error {
 }
 
 // SendRequestDeviceLogs asks the agent to collect and send filtered log entries.
-func (a *AgentConn) SendRequestDeviceLogs(ctx context.Context, filter db.LogFilter) error {
+func (a *AgentConn) SendRequestDeviceLogs(ctx context.Context, filter device.LogFilter) error {
 	offset := clampNonNegativeUint32(filter.Offset)
 	limit := clampNonNegativeUint32(filter.Limit)
 	return a.sendControl(&protocol.ControlMessage{
@@ -230,9 +237,9 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 }
 
 func (a *AgentConn) handleHardwareReport(ctx context.Context, msg *protocol.ControlMessage) error {
-	nis := make([]db.NetworkInterfaceInfo, len(msg.NetworkInterfaces))
+	nis := make([]device.NetworkInterfaceInfo, len(msg.NetworkInterfaces))
 	for i, ni := range msg.NetworkInterfaces {
-		nis[i] = db.NetworkInterfaceInfo{
+		nis[i] = device.NetworkInterfaceInfo{
 			Name: ni.Name,
 			MAC:  ni.MAC,
 			IPv4: ni.IPv4,
@@ -240,7 +247,7 @@ func (a *AgentConn) handleHardwareReport(ctx context.Context, msg *protocol.Cont
 		}
 	}
 
-	hw := &db.DeviceHardware{
+	hw := &device.Hardware{
 		DeviceID:          a.DeviceID,
 		CPUModel:          msg.CPUModel,
 		CPUCores:          int(msg.CPUCores), // uint32 -> int: always fits on supported (64-bit) platforms.
@@ -249,7 +256,7 @@ func (a *AgentConn) handleHardwareReport(ctx context.Context, msg *protocol.Cont
 		DiskFreeMB:        clampInt64(msg.DiskFreeMB),
 		NetworkInterfaces: nis,
 	}
-	if err := a.store.UpsertDeviceHardware(ctx, hw); err != nil {
+	if err := a.hardware.Upsert(ctx, hw); err != nil {
 		return fmt.Errorf("upsert hardware: %w", err)
 	}
 
@@ -268,7 +275,7 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 		caps[i] = string(c)
 	}
 
-	device := &db.Device{
+	d := &device.Device{
 		ID:           a.DeviceID,
 		GroupID:      a.GroupID,
 		Hostname:     msg.Hostname,
@@ -276,14 +283,14 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 		OsDisplay:    msg.OS,
 		AgentVersion: msg.Version,
 		Capabilities: caps,
-		Status:       db.StatusOnline,
+		Status:       device.StatusOnline,
 	}
 
-	if err := a.store.UpsertDevice(ctx, device); err != nil {
+	if err := a.devices.Upsert(ctx, d); err != nil {
 		return fmt.Errorf("upsert device: %w", err)
 	}
 
-	if err := a.store.SetDeviceStatus(ctx, a.DeviceID, db.StatusOnline); err != nil {
+	if err := a.devices.SetStatus(ctx, a.DeviceID, device.StatusOnline); err != nil {
 		return fmt.Errorf("set device online: %w", err)
 	}
 
@@ -298,9 +305,9 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 }
 
 func (a *AgentConn) handleDeviceLogsResponse(ctx context.Context, msg *protocol.ControlMessage) error {
-	entries := make([]db.DeviceLogEntry, len(msg.LogEntries))
+	entries := make([]device.LogEntry, len(msg.LogEntries))
 	for i, le := range msg.LogEntries {
-		entries[i] = db.DeviceLogEntry{
+		entries[i] = device.LogEntry{
 			DeviceID:  a.DeviceID,
 			Timestamp: le.Timestamp,
 			Level:     le.Level,
@@ -308,7 +315,7 @@ func (a *AgentConn) handleDeviceLogsResponse(ctx context.Context, msg *protocol.
 			Message:   le.Message,
 		}
 	}
-	if err := a.store.UpsertDeviceLogs(ctx, a.DeviceID, entries); err != nil {
+	if err := a.deviceLogs.Upsert(ctx, a.DeviceID, entries); err != nil {
 		return fmt.Errorf("upsert device logs: %w", err)
 	}
 
@@ -317,7 +324,7 @@ func (a *AgentConn) handleDeviceLogsResponse(ctx context.Context, msg *protocol.
 }
 
 func (a *AgentConn) handleHeartbeat(ctx context.Context, msg *protocol.ControlMessage) error {
-	if err := a.store.SetDeviceStatus(ctx, a.DeviceID, db.StatusOnline); err != nil {
+	if err := a.devices.SetStatus(ctx, a.DeviceID, device.StatusOnline); err != nil {
 		return fmt.Errorf("update heartbeat: %w", err)
 	}
 

@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 // DeviceID uniquely identifies a device.
@@ -15,38 +17,31 @@ type UserID = uuid.UUID
 // GroupID uniquely identifies a device group.
 type GroupID = uuid.UUID
 
-// DeviceStatus represents the connection state of a device.
-type DeviceStatus string
+// DeviceStatus is aliased to the canonical device-aggregate type so existing
+// db.StatusOnline / db.StatusOffline / db.StatusConnecting references in
+// not-yet-extracted modules (AMT, integration tests) keep compiling while the
+// type itself now lives in [device]. Removed once those callers migrate to
+// device.StatusX directly.
+type DeviceStatus = device.DeviceStatus
 
 const (
-	StatusOnline     DeviceStatus = "online"
-	StatusOffline    DeviceStatus = "offline"
-	StatusConnecting DeviceStatus = "connecting"
+	StatusOnline     = device.StatusOnline
+	StatusOffline    = device.StatusOffline
+	StatusConnecting = device.StatusConnecting
 )
 
-// Device represents a managed device/agent.
-type Device struct {
-	ID           DeviceID     `json:"id"`
-	GroupID      GroupID      `json:"group_id"`
-	Hostname     string       `json:"hostname"`
-	OS           string       `json:"os"`
-	OsDisplay    string       `json:"os_display"`
-	AgentVersion string       `json:"agent_version"`
-	Capabilities []string     `json:"capabilities"`
-	Status       DeviceStatus `json:"status"`
-	LastSeen     time.Time    `json:"last_seen"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
-}
-
-// Group organizes devices for access control.
-type Group struct {
-	ID        GroupID   `json:"id"`
-	Name      string    `json:"name"`
-	OwnerID   UserID    `json:"owner_id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
+// Compat aliases for the not-yet-extracted callers that still spell these
+// types with a `db.` prefix. Test files, bench files, AMT code, etc. — every
+// alias here is a direct rename to its canonical home in [device]. Removed
+// once the matching modules complete their ADR-021 extraction.
+type (
+	Device               = device.Device
+	Group                = device.Group
+	DeviceHardware       = device.Hardware
+	DeviceLogEntry       = device.LogEntry
+	LogFilter            = device.LogFilter
+	NetworkInterfaceInfo = device.NetworkInterfaceInfo
+)
 
 // User represents an authenticated user of the system.
 type User struct {
@@ -84,45 +79,3 @@ type AMTDevice struct {
 	Status   DeviceStatus `json:"status"`
 	LastSeen time.Time    `json:"last_seen"`
 }
-
-// NetworkInterfaceInfo describes a single network interface on the agent host.
-type NetworkInterfaceInfo struct {
-	Name string   `json:"name"`
-	MAC  string   `json:"mac"`
-	IPv4 []string `json:"ipv4"`
-	IPv6 []string `json:"ipv6"`
-}
-
-// DeviceHardware stores hardware inventory for a device.
-type DeviceHardware struct {
-	DeviceID          DeviceID               `json:"device_id"`
-	CPUModel          string                 `json:"cpu_model"`
-	CPUCores          int                    `json:"cpu_cores"`
-	RAMTotalMB        int64                  `json:"ram_total_mb"`
-	DiskTotalMB       int64                  `json:"disk_total_mb"`
-	DiskFreeMB        int64                  `json:"disk_free_mb"`
-	NetworkInterfaces []NetworkInterfaceInfo  `json:"network_interfaces"`
-	UpdatedAt         time.Time              `json:"updated_at"`
-}
-
-// DeviceLogEntry stores a single log entry fetched from a device.
-type DeviceLogEntry struct {
-	ID        int64     `json:"id"`
-	DeviceID  DeviceID  `json:"device_id"`
-	Timestamp string    `json:"timestamp"`
-	Level     string    `json:"level"`
-	Target    string    `json:"target"`
-	Message   string    `json:"message"`
-	FetchedAt time.Time `json:"fetched_at"`
-}
-
-// LogFilter specifies criteria for querying device logs.
-type LogFilter struct {
-	Level  string
-	From   string
-	To     string
-	Search string
-	Offset int
-	Limit  int
-}
-

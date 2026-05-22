@@ -17,6 +17,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/mps"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
@@ -83,12 +84,6 @@ func main() {
 	defer store.Close()
 	logger.Info("database opened", "backend", "postgres")
 
-	// Reset stale device statuses from previous run.
-	if err := store.ResetAllDeviceStatuses(context.Background()); err != nil {
-		logger.Error("reset device statuses on startup", "error", err)
-		os.Exit(1)
-	}
-
 	// Prometheus metrics
 	metricsRegistry := appmetrics.NewRegistry()
 	appMetrics := appmetrics.NewMetrics(metricsRegistry)
@@ -105,6 +100,16 @@ func main() {
 	deviceUpdatesRepo := updater.NewInstrumentedDeviceUpdates(updater.NewPostgresDeviceUpdates(store.DB()), appMetrics)
 	enrollmentRepo := updater.NewInstrumentedEnrollment(updater.NewPostgresEnrollment(store.DB()), appMetrics)
 	securityGroupsRepo := auth.NewInstrumentedSecurityGroups(auth.NewPostgresSecurityGroups(store.DB()), appMetrics)
+	devicesRepo := device.NewInstrumentedDevices(device.NewPostgresDevices(store.DB()), appMetrics)
+	groupsRepo := device.NewInstrumentedGroups(device.NewPostgresGroups(store.DB()), appMetrics)
+	hardwareRepo := device.NewInstrumentedHardware(device.NewPostgresHardware(store.DB()), appMetrics)
+	deviceLogsRepo := device.NewInstrumentedLogs(device.NewPostgresLogs(store.DB()), appMetrics)
+
+	// Reset stale online statuses from a prior run via the device repository.
+	if err := devicesRepo.ResetAllStatuses(context.Background()); err != nil {
+		logger.Error("reset device statuses on startup", "error", err)
+		os.Exit(1)
+	}
 
 	certMgr, err := cert.NewManager(*dataDir)
 	if err != nil {
@@ -140,7 +145,18 @@ func main() {
 			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
 		}
 	}
-	agentSrv := agentapi.NewAgentServer(certMgr, instrumentedStore, deviceUpdatesRepo, agentRelay, notifier, quicHost, logger)
+	agentSrv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
+		Cert:          certMgr,
+		Store:         instrumentedStore,
+		Devices:       devicesRepo,
+		Hardware:      hardwareRepo,
+		DeviceLogs:    deviceLogsRepo,
+		DeviceUpdates: deviceUpdatesRepo,
+		Relay:         agentRelay,
+		Notifier:      notifier,
+		QuicHost:      quicHost,
+		Logger:        logger,
+	})
 
 	// Initialize update signing keys and manifest store
 	signingKeys, err := updater.LoadOrGenerateSigningKeys(*dataDir)
@@ -160,6 +176,10 @@ func main() {
 		DeviceUpdates: deviceUpdatesRepo,
 		Enrollment:    enrollmentRepo,
 		SecurityGroups: securityGroupsRepo,
+		Devices:        devicesRepo,
+		Groups:         groupsRepo,
+		Hardware:       hardwareRepo,
+		DeviceLogs:     deviceLogsRepo,
 		JWT:       jwtCfg,
 		Agents:    agentSrv,
 		AMT:       amtSvc,

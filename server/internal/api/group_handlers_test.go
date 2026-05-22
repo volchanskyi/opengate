@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 const (
@@ -27,7 +27,7 @@ func TestGroupHandlers(t *testing.T) {
 		w := doRequest(srv, http.MethodPost, testPathGroups, token, body)
 		assert.Equal(t, http.StatusCreated, w.Code)
 
-		var g db.Group
+		var g device.Group
 		json.NewDecoder(w.Body).Decode(&g)
 		assert.Equal(t, "my-group", g.Name)
 		createdGroupID = g.ID
@@ -37,7 +37,7 @@ func TestGroupHandlers(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathGroups, token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var groups []*db.Group
+		var groups []*device.Group
 		json.NewDecoder(w.Body).Decode(&groups)
 		assert.Len(t, groups, 1)
 	})

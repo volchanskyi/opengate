@@ -24,7 +24,7 @@ func TestAgentReconnectAfterDisconnect(t *testing.T) {
 	stream, deviceID := env.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
@@ -32,7 +32,7 @@ func TestAgentReconnectAfterDisconnect(t *testing.T) {
 	stream.Close()
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOffline
 	}, 5*time.Second, 100*time.Millisecond)
 
@@ -40,7 +40,7 @@ func TestAgentReconnectAfterDisconnect(t *testing.T) {
 	stream2 := env.connectAgentWithID(t, deviceID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
@@ -56,7 +56,7 @@ func TestAgentReconnectAfterDisconnect(t *testing.T) {
 
 	// Confirm heartbeat processed
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 2*time.Second, 50*time.Millisecond)
 }
@@ -73,7 +73,7 @@ func TestAgentReconnectNewCert(t *testing.T) {
 	stream, deviceID := env.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
@@ -81,7 +81,7 @@ func TestAgentReconnectNewCert(t *testing.T) {
 	stream.Close()
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOffline
 	}, 5*time.Second, 100*time.Millisecond)
 
@@ -91,7 +91,7 @@ func TestAgentReconnectNewCert(t *testing.T) {
 
 	// Device should come back online with the new cert
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 }
@@ -111,7 +111,7 @@ func TestAgentReconnectSessionSurvives(t *testing.T) {
 	_, deviceID := env.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := env.store.GetDevice(ctx, deviceID)
+		d, err := env.devices.Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 
