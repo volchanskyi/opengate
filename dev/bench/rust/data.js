@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779470750010,
+  "lastUpdate": 1779488003817,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14430,6 +14430,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.99982594285667,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "afaf71a0f3af375da02fbde0195a7612b7ad5369",
+          "message": "chore(arch): ADR-021 follow-up — retire metrics.InstrumentedStore + drop unused agentapi store carrier\n\nTwo narrow cleanups after the 8 per-aggregate extractions left db.Store at\njust Ping/Close.\n\n1. **metrics.InstrumentedStore deleted.** With every aggregate method\n   moved into its own per-module Instrumented* decorator (audit/updater/\n   auth-SG/auth-User/device×4/notifications/amt/session), the residual\n   wrapper only delegated Ping/Close. Promoted `Metrics.Observe(op, dur,\n   ok)` from metrics/store.go into metrics/metrics.go so the duck-typed\n   Observer interface used by all eight aggregate decorators keeps\n   working. Removed metrics/store.go and metrics/store_test.go entirely.\n   main.go now passes the raw *db.PostgresStore directly into\n   api.ServerConfig.Store; no instrumentation layer in between (the\n   per-aggregate decorators handle their own observation).\n\n2. **agentapi.AgentConn.store + AgentServer.store removed.** Dead carriers\n   that were never invoked after ADR-021 #1–#8 moved every aggregate\n   method off db.Store. agentapi.AgentServerConfig drops its Store field;\n   NewAgentConn signature shrinks from 9 positional args to a new\n   AgentConnConfig struct (same Sonar S107 ≤7-param mitigation pattern\n   used by AgentServerConfig in #4). 13 test sites in conn_test.go +\n   session_handlers_test.go + handlers_restart_test.go converted to the\n   config form. server.go also rewires the offline-status SetStatus call\n   from db.StatusOffline → device.StatusOffline (the alias was unused\n   after the store import dropped).\n\ndb.Store interface is intentionally retained as the {Ping, Close} pair —\napi.Server.store + ~30 test seed sites rely on it as a thin polymorphic\nseed handle. Collapsing to *db.PostgresStore would cascade into a wider\ntest refactor out of scope here. Full gauntlet green (lints, race tests,\ncoverage thresholds, taint, dead-code, audits, benches, e2e, SonarCloud)\nin 605s.",
+          "timestamp": "2026-05-22T15:11:36-07:00",
+          "tree_id": "ac09e581a1617f61855132c5d8b4366dc23e3578",
+          "url": "https://github.com/volchanskyi/opengate/commit/afaf71a0f3af375da02fbde0195a7612b7ad5369"
+        },
+        "date": 1779488003758,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.480868929027807,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.48473268117009,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 743.8093326142675,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 309.9167841004877,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.9085692748087,
             "unit": "ns/iter"
           }
         ]
