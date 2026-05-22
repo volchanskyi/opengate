@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779420172571,
+  "lastUpdate": 1779470750010,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14381,6 +14381,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.882251829481838,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "154d0e044f62c33602ca1f9e94d4c49216b63db5",
+          "message": "docs(arch): record ADR-021 #5–#8 in phases.md (db.Store reduced 19 → 2)\n\nAdds completed-phase entries for the four per-aggregate extractions\nlanded in this session: notifications/WebPush (#5), amt (#6), session\n(#7), and auth/User (#8). The residual db.Store interface is now just\nPing + Close — ADR-021's <30 method target exceeded by 28.",
+          "timestamp": "2026-05-22T10:23:59-07:00",
+          "tree_id": "908a42f7fc7c9d14c396d1297b1c96833fca5039",
+          "url": "https://github.com/volchanskyi/opengate/commit/154d0e044f62c33602ca1f9e94d4c49216b63db5"
+        },
+        "date": 1779470749939,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.473232197907674,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.467839221960947,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 745.0152055608714,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.21052347354896,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.99982594285667,
             "unit": "ns/iter"
           }
         ]
