@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779488003817,
+  "lastUpdate": 1779521862845,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14479,6 +14479,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.9085692748087,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d7f73162a767d5ca7ca2d32417010674678a435c",
+          "message": "chore(arch): rename internal/mps → internal/amt/transport (ADR-020 §9 trigger)\n\nPer modular-monolith-evaluation.md §4.1 + §9 (R1 Q3 resolution): fold the\nstandalone internal/mps package (3,910 LOC: APF/CIRA + nested wsman/) into\ninternal/amt/transport as the AMT module's transport layer. Pure rename, no\nbehavior change.\n\n- 15 files moved via git mv (apf*, mps*, wsman/*).\n- package mps → package transport in 5 source/test files; wsman subpackage\n  name unchanged.\n- 9 callers updated to the new import path: amt/service{,_test}.go,\n  api/{api,handlers_amt,helpers_test}.go, tests/integration/api_test.go,\n  cmd/meshserver/main.go, transport/wsman/{client,client_wire_test}.go\n  (the wsman → parent back-reference).\n- Coverage exclusion regex repointed in sonar-project.properties and\n  scripts/precommit-gauntlet.sh (mps/wsman → amt/transport/wsman).\n- Doc paths updated in docs/Architecture.md and 4 skill SKILL.md files\n  (backend-audit, infra-audit, tests-audit, precommit).\n- Plan §4.1 + §9 trigger row marks the rename done; AMTOperator →\n  AMTService port-promotion still pending.\n- CLI flag -mps-listen kept verbatim (it names the MPS protocol, not the\n  package).\n- Piggy-back doc cleanup in /precommit SKILL.md: dropped the redundant\n  PRECOMMIT_SKIP_BENCH=1 note that duplicated the gauntlet-step text.\n\nFull precommit gauntlet green (648s).",
+          "timestamp": "2026-05-23T00:35:38-07:00",
+          "tree_id": "955c72647e705c3794ad143862f099e0421361c5",
+          "url": "https://github.com/volchanskyi/opengate/commit/d7f73162a767d5ca7ca2d32417010674678a435c"
+        },
+        "date": 1779521862776,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.621247075470617,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.508000920703417,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 741.7057624845395,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.1896924526273,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.897895611509202,
             "unit": "ns/iter"
           }
         ]
