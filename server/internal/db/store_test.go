@@ -12,20 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// postgresTestURLEnv selects the test database for the residual db.Store
-// shared tests.
+// postgresTestURLEnv selects the test database for the PostgresStore tests.
 const postgresTestURLEnv = "POSTGRES_TEST_URL"
-
-// storeFactory constructs a fresh Store for a single test.
-type storeFactory struct {
-	name string
-	new  func(t *testing.T) Store
-}
-
-// storeFactories are the backends every shared test runs against.
-var storeFactories = []storeFactory{
-	{name: "postgres", new: newPostgresTestStore},
-}
 
 // --- Postgres factory (shared store + per-test TRUNCATE) ---
 
@@ -91,7 +79,7 @@ func setupPostgresTestDB(baseURL string) error {
 
 // newPostgresTestStore returns the shared test store after wiping all rows.
 // Tests run sequentially (no t.Parallel), so a shared pool is safe.
-func newPostgresTestStore(t *testing.T) Store {
+func newPostgresTestStore(t *testing.T) *PostgresStore {
 	t.Helper()
 	if pgTestDB == nil {
 		t.Skipf("%s not set; skipping Postgres tests", postgresTestURLEnv)
@@ -133,37 +121,24 @@ func truncatePostgresTestDB(ctx context.Context, s *PostgresStore) error {
 	return nil
 }
 
-// --- Shared tests (run against every storeFactory) ---
+// --- PostgresStore tests ---
 
 func TestPing(t *testing.T) {
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			assert.NoError(t, s.Ping(context.Background()))
-		})
-	}
+	s := newPostgresTestStore(t)
+	assert.NoError(t, s.Ping(context.Background()))
 }
 
 func TestStoreSize(t *testing.T) {
-	type sizer interface {
-		Size(ctx context.Context) (int64, error)
-	}
-	for _, f := range storeFactories {
-		t.Run(f.name, func(t *testing.T) {
-			s := f.new(t)
-			sz, ok := s.(sizer)
-			require.True(t, ok, "store must implement Size(ctx)")
-			size, err := sz.Size(context.Background())
-			require.NoError(t, err)
-			assert.Greater(t, size, int64(0))
-		})
-	}
+	s := newPostgresTestStore(t)
+	size, err := s.Size(context.Background())
+	require.NoError(t, err)
+	assert.Greater(t, size, int64(0))
 }
 
 // TestPostgresStoreDB exercises the DB() accessor used by metrics and test
 // helpers to reach the underlying *sql.DB.
 func TestPostgresStoreDB(t *testing.T) {
-	s := newPostgresTestStore(t).(*PostgresStore)
+	s := newPostgresTestStore(t)
 	pool := s.DB()
 	require.NotNil(t, pool)
 	require.NoError(t, pool.PingContext(context.Background()))

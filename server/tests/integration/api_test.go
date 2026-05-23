@@ -53,7 +53,7 @@ const (
 // testEnv holds a running test server and its dependencies.
 type testEnv struct {
 	server        *httptest.Server
-	store         db.Store
+	store         *db.PostgresStore
 	devices       device.Repository
 	deviceUpdates updater.DeviceUpdateRepository
 	jwt           *auth.JWTConfig

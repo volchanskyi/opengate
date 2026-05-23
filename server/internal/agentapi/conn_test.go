@@ -26,17 +26,20 @@ func testLogger() *slog.Logger {
 
 // newTestAgentConn creates an AgentConn backed by an in-memory buffer for testing.
 // Returns the conn and the buffer so callers can read back what was written.
-func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store db.Store) (*AgentConn, *bytes.Buffer) {
+// Pass store=nil for tests that do not touch the device/hardware/logs repos.
+func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store *db.PostgresStore) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
 	ac := &AgentConn{
 		DeviceID: deviceID,
 		stream:   &buf,
 		codec:    &protocol.Codec{},
-		devices:    testutil.NewTestDevices(t, store),
-		hardware:   testutil.NewTestHardware(t, store),
-		deviceLogs: testutil.NewTestLogs(t, store),
 		logger:   testLogger(),
+	}
+	if store != nil {
+		ac.devices = testutil.NewTestDevices(t, store)
+		ac.hardware = testutil.NewTestHardware(t, store)
+		ac.deviceLogs = testutil.NewTestLogs(t, store)
 	}
 	return ac, &buf
 }

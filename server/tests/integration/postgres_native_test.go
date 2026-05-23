@@ -42,16 +42,11 @@ import (
 //     statement complete without "prepared statement already exists"
 //     pgx errors.
 
-// pgStore extracts the underlying *sql.DB from the store returned by
-// testutil.NewTestStore. The interface assertion mirrors the production
-// metrics path that already uses db.DB().
-func pgStore(t *testing.T) (db.Store, *sql.DB) {
+// pgStore returns the test store and its underlying *sql.DB for postgres-native tests.
+func pgStore(t *testing.T) (*db.PostgresStore, *sql.DB) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
-	type dbAccessor interface{ DB() *sql.DB }
-	acc, ok := store.(dbAccessor)
-	require.True(t, ok, "test store must expose DB() for postgres-native tests")
-	return store, acc.DB()
+	return store, store.DB()
 }
 
 // seedDeviceRow inserts a minimal row directly so we can pin exact

@@ -23,7 +23,7 @@ import (
 
 // deviceTestEnv holds common setup for restart and hardware handler tests.
 type deviceTestEnv struct {
-	store       db.Store
+	store       *db.PostgresStore
 	devices     device.Repository
 	hardware    device.HardwareRepository
 	deviceLogs  device.LogsRepository

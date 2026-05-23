@@ -42,7 +42,7 @@ func (e *sessionTestEnv) setupRelayPair(t *testing.T, ctx context.Context) (agen
 	stream, deviceID := e.connectAgent(t, group.ID)
 
 	require.Eventually(t, func() bool {
-		d, err := device.NewPostgresDevices(e.store.(*db.PostgresStore).DB()).Get(ctx, deviceID)
+		d, err := device.NewPostgresDevices(e.store.DB()).Get(ctx, deviceID)
 		return err == nil && d.Status == db.StatusOnline
 	}, 3*time.Second, 50*time.Millisecond)
 

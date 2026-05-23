@@ -1,17 +1,7 @@
-// Package db provides the database abstraction layer backed by PostgreSQL.
+// Package db provides the PostgreSQL store, migrations, and per-aggregate
+// type aliases retained for backward compatibility while per-module
+// repositories (audit, auth, device, notifications, session, update, amt)
+// are wired through. The Store interface is retired: callers use the
+// concrete *db.PostgresStore directly, and each module owns its own
+// repository plus its own ErrXxxNotFound sentinel.
 package db
-
-import (
-	"context"
-	"errors"
-)
-
-// ErrNotFound indicates the requested record does not exist.
-var ErrNotFound = errors.New("not found")
-
-// Store defines the database operations for all persistent data.
-type Store interface {
-	// Health
-	Ping(ctx context.Context) error
-	Close() error
-}

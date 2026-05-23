@@ -38,7 +38,7 @@ const (
 
 // sessionTestEnv bundles all dependencies for session integration tests.
 type sessionTestEnv struct {
-	store         db.Store
+	store         *db.PostgresStore
 	devices       device.Repository
 	deviceUpdates updater.DeviceUpdateRepository
 	certMgr    *cert.Manager
