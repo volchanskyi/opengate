@@ -29,7 +29,7 @@ func testLogger() *slog.Logger {
 
 // agentTestEnv sets up a real in-process agentapi server for integration tests.
 type agentTestEnv struct {
-	store    db.Store
+	store    *db.PostgresStore
 	devices  device.Repository
 	certMgr  *cert.Manager
 	srv      *agentapi.AgentServer

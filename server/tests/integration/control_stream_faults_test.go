@@ -28,9 +28,9 @@ import (
 
 // waitForDeviceStatus polls the DB until the given device reaches the
 // expected status, or the deadline expires.
-func waitForDeviceStatus(t *testing.T, store db.Store, deviceID protocol.DeviceID, want db.DeviceStatus) {
+func waitForDeviceStatus(t *testing.T, store *db.PostgresStore, deviceID protocol.DeviceID, want db.DeviceStatus) {
 	t.Helper()
-	devs := device.NewPostgresDevices(store.(*db.PostgresStore).DB())
+	devs := device.NewPostgresDevices(store.DB())
 	require.Eventually(t, func() bool {
 		dev, err := devs.Get(context.Background(), deviceID)
 		return err == nil && dev.Status == want

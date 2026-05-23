@@ -102,7 +102,7 @@ func initPostgresBaseURL() {
 // using this helper MAY call t.Parallel().
 //
 // Requires POSTGRES_TEST_URL to be set; skips the test otherwise.
-func NewTestStore(t testing.TB) db.Store {
+func NewTestStore(t testing.TB) *db.PostgresStore {
 	t.Helper()
 
 	pgBaseURLOnce.Do(initPostgresBaseURL)
@@ -177,112 +177,91 @@ func NewTestStore(t testing.TB) db.Store {
 	return store
 }
 
-// NewTestAudit returns a Postgres-backed audit.Repository sharing the same
-// connection pool as s. s must be the *db.PostgresStore returned by
-// NewTestStore (or otherwise satisfy the db.DBProvider interface) — otherwise
-// the test is skipped. The audit_events schema is owned by the db package's
+// NewTestAudit returns a Postgres-backed audit.Repository sharing the
+// connection pool of s. The audit_events schema is owned by the db package's
 // migrations.
-func NewTestAudit(t testing.TB, s db.Store) audit.Repository {
+func NewTestAudit(t testing.TB, s *db.PostgresStore) audit.Repository {
 	t.Helper()
-	return audit.NewPostgres(extractDB(t, s, "audit"))
+	return audit.NewPostgres(s.DB())
 }
 
 // NewTestDeviceUpdates returns a Postgres-backed updater.DeviceUpdateRepository
-// sharing the same connection pool as s.
-func NewTestDeviceUpdates(t testing.TB, s db.Store) updater.DeviceUpdateRepository {
+// sharing the connection pool of s.
+func NewTestDeviceUpdates(t testing.TB, s *db.PostgresStore) updater.DeviceUpdateRepository {
 	t.Helper()
-	return updater.NewPostgresDeviceUpdates(extractDB(t, s, "updater.DeviceUpdate"))
+	return updater.NewPostgresDeviceUpdates(s.DB())
 }
 
 // NewTestEnrollment returns a Postgres-backed updater.EnrollmentTokenRepository
-// sharing the same connection pool as s.
-func NewTestEnrollment(t testing.TB, s db.Store) updater.EnrollmentTokenRepository {
+// sharing the connection pool of s.
+func NewTestEnrollment(t testing.TB, s *db.PostgresStore) updater.EnrollmentTokenRepository {
 	t.Helper()
-	return updater.NewPostgresEnrollment(extractDB(t, s, "updater.Enrollment"))
+	return updater.NewPostgresEnrollment(s.DB())
 }
 
 // NewTestSecurityGroups returns a Postgres-backed
-// auth.SecurityGroupRepository sharing the same connection pool as s. The
-// security_groups + security_group_members schemas are owned by the db
-// package's migrations.
-func NewTestSecurityGroups(t testing.TB, s db.Store) auth.SecurityGroupRepository {
+// auth.SecurityGroupRepository sharing the connection pool of s.
+func NewTestSecurityGroups(t testing.TB, s *db.PostgresStore) auth.SecurityGroupRepository {
 	t.Helper()
-	return auth.NewPostgresSecurityGroups(extractDB(t, s, "auth.SecurityGroup"))
+	return auth.NewPostgresSecurityGroups(s.DB())
 }
 
 // NewTestDevices returns a Postgres-backed device.Repository sharing the
 // connection pool of s.
-func NewTestDevices(t testing.TB, s db.Store) device.Repository {
+func NewTestDevices(t testing.TB, s *db.PostgresStore) device.Repository {
 	t.Helper()
-	return device.NewPostgresDevices(extractDB(t, s, "device.Devices"))
+	return device.NewPostgresDevices(s.DB())
 }
 
 // NewTestGroups returns a Postgres-backed device.GroupRepository.
-func NewTestGroups(t testing.TB, s db.Store) device.GroupRepository {
+func NewTestGroups(t testing.TB, s *db.PostgresStore) device.GroupRepository {
 	t.Helper()
-	return device.NewPostgresGroups(extractDB(t, s, "device.Groups"))
+	return device.NewPostgresGroups(s.DB())
 }
 
 // NewTestHardware returns a Postgres-backed device.HardwareRepository.
-func NewTestHardware(t testing.TB, s db.Store) device.HardwareRepository {
+func NewTestHardware(t testing.TB, s *db.PostgresStore) device.HardwareRepository {
 	t.Helper()
-	return device.NewPostgresHardware(extractDB(t, s, "device.Hardware"))
+	return device.NewPostgresHardware(s.DB())
 }
 
 // NewTestLogs returns a Postgres-backed device.LogsRepository.
-func NewTestLogs(t testing.TB, s db.Store) device.LogsRepository {
+func NewTestLogs(t testing.TB, s *db.PostgresStore) device.LogsRepository {
 	t.Helper()
-	return device.NewPostgresLogs(extractDB(t, s, "device.Logs"))
+	return device.NewPostgresLogs(s.DB())
 }
 
 // NewTestWebPush returns a Postgres-backed notifications.WebPushRepository
-// sharing the connection pool of s. The web_push_subscriptions schema is
-// owned by the db package's migrations.
-func NewTestWebPush(t testing.TB, s db.Store) notifications.WebPushRepository {
+// sharing the connection pool of s.
+func NewTestWebPush(t testing.TB, s *db.PostgresStore) notifications.WebPushRepository {
 	t.Helper()
-	return notifications.NewPostgresWebPush(extractDB(t, s, "notifications.WebPush"))
+	return notifications.NewPostgresWebPush(s.DB())
 }
 
 // NewTestAMTDevices returns a Postgres-backed amt.Repository sharing the
-// connection pool of s. The amt_devices schema is owned by the db package's
-// migrations.
-func NewTestAMTDevices(t testing.TB, s db.Store) amt.Repository {
+// connection pool of s.
+func NewTestAMTDevices(t testing.TB, s *db.PostgresStore) amt.Repository {
 	t.Helper()
-	return amt.NewPostgresAMTDevices(extractDB(t, s, "amt.Repository"))
+	return amt.NewPostgresAMTDevices(s.DB())
 }
 
 // NewTestSessions returns a Postgres-backed session.Repository sharing the
-// connection pool of s. The agent_sessions schema is owned by the db
-// package's migrations.
-func NewTestSessions(t testing.TB, s db.Store) session.Repository {
+// connection pool of s.
+func NewTestSessions(t testing.TB, s *db.PostgresStore) session.Repository {
 	t.Helper()
-	return session.NewPostgresSessions(extractDB(t, s, "session.Repository"))
+	return session.NewPostgresSessions(s.DB())
 }
 
 // NewTestUsers returns a Postgres-backed auth.UserRepository sharing the
-// connection pool of s. The users schema is owned by the db package's
-// migrations.
-func NewTestUsers(t testing.TB, s db.Store) auth.UserRepository {
+// connection pool of s.
+func NewTestUsers(t testing.TB, s *db.PostgresStore) auth.UserRepository {
 	t.Helper()
-	return auth.NewPostgresUsers(extractDB(t, s, "auth.User"))
+	return auth.NewPostgresUsers(s.DB())
 }
 
-// extractDB returns the *sql.DB behind a Postgres-backed db.Store. Tests that
-// need direct DB access for module-owned repos use it; if s isn't Postgres-
-// backed, the test is skipped (mirrors the audit/updater leaf-module pattern).
-func extractDB(t testing.TB, s db.Store, name string) *sql.DB {
-	t.Helper()
-	provider, ok := s.(interface{ DB() *sql.DB })
-	if !ok {
-		t.Skipf("%s tests require a Postgres-backed store, got %T", name, s)
-	}
-	return provider.DB()
-}
-
-// SeedUser inserts a minimal user into the store via the extracted
-// auth.UserRepository — db.Store no longer owns this aggregate (ADR-021 #8).
-// The email is randomised to avoid uniqueness conflicts across parallel tests.
-func SeedUser(t testing.TB, ctx context.Context, s db.Store) *auth.User {
+// SeedUser inserts a minimal user via the auth.UserRepository. The email is
+// randomised to avoid uniqueness conflicts across parallel tests.
+func SeedUser(t testing.TB, ctx context.Context, s *db.PostgresStore) *auth.User {
 	t.Helper()
 	u := &auth.User{
 		ID:           uuid.New(),
@@ -297,7 +276,7 @@ func SeedUser(t testing.TB, ctx context.Context, s db.Store) *auth.User {
 // SeedGroup inserts a group owned by ownerID into the store and returns it.
 // Uses an ad-hoc device.GroupRepository over the same connection pool to
 // avoid forcing every test setup to thread a repo through.
-func SeedGroup(t testing.TB, ctx context.Context, s db.Store, ownerID uuid.UUID) *device.Group {
+func SeedGroup(t testing.TB, ctx context.Context, s *db.PostgresStore, ownerID uuid.UUID) *device.Group {
 	t.Helper()
 	g := &device.Group{
 		ID:      uuid.New(),
@@ -309,7 +288,7 @@ func SeedGroup(t testing.TB, ctx context.Context, s db.Store, ownerID uuid.UUID)
 }
 
 // SeedDevice inserts an offline device belonging to groupID into the store and returns it.
-func SeedDevice(t testing.TB, ctx context.Context, s db.Store, groupID uuid.UUID) *device.Device {
+func SeedDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, groupID uuid.UUID) *device.Device {
 	t.Helper()
 	d := &device.Device{
 		ID:       uuid.New(),
@@ -323,9 +302,8 @@ func SeedDevice(t testing.TB, ctx context.Context, s db.Store, groupID uuid.UUID
 }
 
 // SeedAgentSession inserts an agent session for the given device and user
-// via the extracted session.Repository — db.Store no longer owns this
-// aggregate (ADR-021 #7).
-func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, userID uuid.UUID) *session.Session {
+// via the session.Repository.
+func SeedAgentSession(t testing.TB, ctx context.Context, s *db.PostgresStore, deviceID, userID uuid.UUID) *session.Session {
 	t.Helper()
 	sess := &session.Session{
 		Token:    string(protocol.GenerateSessionToken()),
@@ -338,7 +316,7 @@ func SeedAgentSession(t testing.TB, ctx context.Context, s db.Store, deviceID, u
 
 // SeedAdminUser inserts an admin user with a real bcrypt password hash
 // and adds them to the Administrators security group.
-func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*auth.User, string) {
+func SeedAdminUser(t testing.TB, ctx context.Context, s *db.PostgresStore) (*auth.User, string) {
 	t.Helper()
 	password := "admin-pass-" + uuid.New().String()[:8]
 	hash, err := auth.HashPassword(password)
@@ -356,10 +334,8 @@ func SeedAdminUser(t testing.TB, ctx context.Context, s db.Store) (*auth.User, s
 	return u, password
 }
 
-// SeedAMTDevice inserts an AMT device record into the store via an ad-hoc
-// amt.Repository over the same connection pool — db.Store no longer owns
-// AMT methods (ADR-021 #6).
-func SeedAMTDevice(t testing.TB, ctx context.Context, s db.Store) *db.AMTDevice {
+// SeedAMTDevice inserts an AMT device record via the amt.Repository.
+func SeedAMTDevice(t testing.TB, ctx context.Context, s *db.PostgresStore) *db.AMTDevice {
 	t.Helper()
 	d := &db.AMTDevice{
 		UUID:     uuid.New(),
