@@ -16,13 +16,13 @@ import (
 
 // newTestSGRepo returns a Postgres-backed auth.SecurityGroupRepository against
 // the per-test isolated schema created by testutil.NewTestStore.
-func newTestSGRepo(t *testing.T) (auth.SecurityGroupRepository, db.Store) {
+func newTestSGRepo(t *testing.T) (auth.SecurityGroupRepository, *db.PostgresStore) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
 	return testutil.NewTestSecurityGroups(t, store), store
 }
 
-func seedUser(t *testing.T, ctx context.Context, store db.Store) *auth.User {
+func seedUser(t *testing.T, ctx context.Context, store *db.PostgresStore) *auth.User {
 	t.Helper()
 	return testutil.SeedUser(t, ctx, store)
 }

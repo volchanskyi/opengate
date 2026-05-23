@@ -104,7 +104,7 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 // newTestServerWithStoreAndAgents creates a Server with an existing store, custom
 // AgentGetter and relay. Use this when the caller has already obtained a store
 // and seeded data — it avoids a redundant TRUNCATE.
-func newTestServerWithStoreAndAgents(t *testing.T, store db.Store, agents AgentGetter, r *relay.Relay) (*Server, *auth.JWTConfig) {
+func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agents AgentGetter, r *relay.Relay) (*Server, *auth.JWTConfig) {
 	t.Helper()
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))

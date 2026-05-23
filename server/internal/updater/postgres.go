@@ -9,9 +9,7 @@ import (
 )
 
 // ErrNotFound is returned by SetStatus / IncrementUseCount / Delete / GetByToken
-// when the target record does not exist. Mirrors db.ErrNotFound by value so
-// callers that previously checked errors.Is(err, db.ErrNotFound) continue to
-// work via the same sentinel pattern.
+// when the target record does not exist.
 var ErrNotFound = errors.New("not found")
 
 // PostgresDeviceUpdates implements [DeviceUpdateRepository] against PostgreSQL.

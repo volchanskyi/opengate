@@ -56,7 +56,7 @@ type CertProvider interface {
 
 // ServerConfig holds all dependencies for the API server.
 type ServerConfig struct {
-	Store           db.Store
+	Store           *db.PostgresStore
 	Audit           audit.Repository
 	DeviceUpdates   updater.DeviceUpdateRepository
 	Enrollment      updater.EnrollmentTokenRepository
@@ -89,7 +89,7 @@ type ServerConfig struct {
 
 // Server is the HTTP API server.
 type Server struct {
-	store          db.Store
+	store          *db.PostgresStore
 	audit          audit.Repository
 	deviceUpdates  updater.DeviceUpdateRepository
 	enrollment     updater.EnrollmentTokenRepository
