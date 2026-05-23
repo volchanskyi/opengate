@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779521862845,
+  "lastUpdate": 1779524130150,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14528,6 +14528,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.897895611509202,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "fe6bba94d7eebd24f1c5ff0b564adee4ea321007",
+          "message": "chore(arch): ADR-021 closeout — retire db.Store interface\n\nFinal step of the per-aggregate decomposition. db.Store had been reduced\nto 2 methods (Ping/Close) by ADR-021 #1–#8; per ADR-020's earned-port\nrule a 2-method interface with 1 production consumer (the health Ping)\nand a defer-only Close caller no longer earns its keep.\n\n- Delete the Store interface; api.Server.store + ServerConfig.Store are\n  retyped from db.Store to *db.PostgresStore (the only impl, already\n  carrying DB() and Size()).\n- testutil.NewTestStore returns *db.PostgresStore directly; the 14\n  NewTest*/Seed* helpers take *db.PostgresStore. extractDB(t, s, name)\n  is inlined to s.DB() at each call site and the helper deleted —\n  with concrete typing no type-assertion is needed.\n- db/store_test.go drops the now-vestigial storeFactory/storeFactories\n  indirection (one backend, one factory was over-engineering); TestPing,\n  TestStoreSize, TestPostgresStoreDB use newPostgresTestStore directly.\n- 9 test files (api, device, auth, agentapi) and 5 integration tests\n  drop their `store db.Store` field declarations.\n- newTestAgentConn now guards the testutil.NewTestDevices/Hardware/Logs\n  wires behind a `store != nil` check — preserves the previous\n  pass-nil-to-skip-DB-repos pattern (~14 tests). Previously this worked\n  only because extractDB's failing type-assertion called t.Skipf,\n  silently skipping the test entirely; the new structure runs the test\n  with nil repos instead of skipping.\n- Orphan db.ErrNotFound deleted (the only reference was a doc comment\n  in updater/postgres.go); per-module sentinels are now the only\n  \"not found\" surface.\n- db/store.go reduces to a package-doc file (5 lines).\n- phases.md: new \"ADR-021 closeout\" row recording that the <30\n  residual-method target is now 0.\n\nFull precommit gauntlet green (658s).",
+          "timestamp": "2026-05-23T01:13:10-07:00",
+          "tree_id": "eeea7f7d19c51f465222cc8de4e0346df2c0dc35",
+          "url": "https://github.com/volchanskyi/opengate/commit/fe6bba94d7eebd24f1c5ff0b564adee4ea321007"
+        },
+        "date": 1779524130078,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.16457759162385,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.11149185891317,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 764.2201130878728,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 303.0795560164165,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.795299033498896,
             "unit": "ns/iter"
           }
         ]
