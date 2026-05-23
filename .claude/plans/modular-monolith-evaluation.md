@@ -139,8 +139,8 @@ DDD-lite (domain events, aggregate enforcement, ubiquitous language) remains a n
 |---|---|---|---|
 | `device` | parts of `db`, `api/handlers_devices.go`, `api/handlers_groups.go`, `api/handlers_users.go`, `api/handlers_security_groups.go` | Hexagonal — inbound `DeviceService` port, outbound `DeviceRepository` | Primary CRUD domain; shard-key candidate for 13b |
 | `session` | parts of `db`, `api/handlers_sessions.go`, parts of `agentapi`, parts of `relay` | Hexagonal — inbound `SessionService` port, outbound `SessionRepository`, `SessionRegistry` (see §4.5) | Needs distributed semantics in 13b |
-| `amt` | `internal/amt` (domain wrapper, 109 LOC) | Hexagonal — inbound `AMTService` port; outbound `AMTTransport` port satisfied by `mps` | `AMTOperator` interface (already in `api/api.go`) becomes the canonical inbound port |
-| `amt/transport` | renamed from `internal/mps` (3,910 LOC) | Hexagonal — `AMTTransport` adapter implementing CIRA/APF/WS-MAN | **Round 1 Q3 resolution:** keep separate, restructure as transport layer of `amt`. No merge. |
+| `amt` | `internal/amt` (domain wrapper, 109 LOC) | Hexagonal — inbound `AMTService` port; outbound `AMTTransport` port satisfied by `transport` | `AMTOperator` interface (already in `api/api.go`) becomes the canonical inbound port |
+| `amt/transport` | `internal/amt/transport` (3,910 LOC; renamed from `internal/mps` on 2026-05-23) | Hexagonal — `AMTTransport` adapter implementing CIRA/APF/WS-MAN | **Round 1 Q3 resolution:** keep separate, restructure as transport layer of `amt`. No merge. |
 | `update` | `internal/updater` + `api/handlers_updates.go` + `api/handlers_enrollment.go` + `api/handlers_install.go` | Hexagonal — inbound `UpdateService` port, outbound `ManifestStore` + `SigningKeys` ports | Loosest coupling today; cleanest pilot |
 | `notification` | `internal/notifications` + `api/handlers_push.go` | Hexagonal (already done — `Notifier` is the port) | Reaffirm; no further work |
 | `auth` | `internal/auth` + `api/handlers_auth.go` | Hexagonal — inbound `AuthService` port, outbound `UserStore` + `JWTSigner` ports | `tenant` model deferred to Phase 15; auth module stays single-tenant until then |
@@ -310,7 +310,7 @@ No greenfield refactor PRs. Every architectural change rides on a functional cha
 
 | Trigger | Module | Governing ADR | First micro-step |
 |---|---|---|---|
-| Next AMT bug fix | `amt` + `amt/transport` (mps rename) | ADR-021 | Extract `AMTRepository` from `db.Store`; rename `internal/mps` → `internal/amt/transport`; promote `AMTOperator` to formal `AMTService` port |
+| Next AMT bug fix | `amt` + `amt/transport` (mps rename) | ADR-021 | ✅ `AMTRepository` extracted (ADR-021 #6, 2026-05-22). ✅ `internal/mps` → `internal/amt/transport` renamed (2026-05-23). ⏳ Promote `AMTOperator` → `AMTService` (still pending). |
 | Next session-protocol change | Rust agent | ADR-024 | Carve `MouseHandler` first (largest control-message group); add the `ControlMessageHandler` trait around it |
 | Next web feature touching >2 stores | Web state | ADR-022 | Move target stores into their feature folder; add barrel exports; enable `boundaries` rule in warn |
 | Phase 13b kickoff | `relay` + registry | ADR-023 | Wire the in-process `SessionRegistry` port; verify the Redis adapter against a docker-compose stack; run `make e2e-multiserver` |

@@ -178,7 +178,7 @@ banner "Coverage thresholds"
 # shellcheck disable=SC2016 # $pct is set and consumed inside the inner shell; outer expansion is not desired.
 run_check "go coverage ≥80%"   -- bash -c '
   cd server
-  grep -v -E "/(testutil|metrics|mps/wsman)/|api/openapi_gen\.go" coverage.out > coverage-prod.out
+  grep -v -E "/(testutil|metrics|amt/transport/wsman)/|api/openapi_gen\.go" coverage.out > coverage-prod.out
   pct="$(go tool cover -func=coverage-prod.out | awk "/^total:/ {gsub(\"%\", \"\", \$NF); print \$NF}")"
   awk -v p="$pct" "BEGIN { exit !(p+0 >= 80.0) }"
 '

@@ -183,11 +183,11 @@ Read the coverage exclusion regex in `go-unit` job:
 grep -n 'coverage-prod\.out\|grep -v -E' .github/workflows/ci.yml
 ```
 
-Current exclusions typically include: `testutil`, `metrics`, `mps/wsman`, `openapi_gen`. **Files in the exclusion regex can silently regress**. For each excluded path, check whether integration tests exist:
+Current exclusions typically include: `testutil`, `metrics`, `amt/transport/wsman`, `openapi_gen`. **Files in the exclusion regex can silently regress**. For each excluded path, check whether integration tests exist:
 
 ```bash
 # Example
-grep -l 'mps/wsman\|ClientWsman\|DigestAuth' server/tests/integration/*.go
+grep -l 'amt/transport/wsman\|ClientWsman\|DigestAuth' server/tests/integration/*.go
 ```
 
 If an excluded path has no integration coverage either, flag it **HIGH** — regression is invisible on both gates.
@@ -423,7 +423,7 @@ Table, one row per finding:
 | #   | Severity | Finding                                         | Section  | CI-caught?  |
 +-----+----------+-------------------------------------------------+----------+-------------+
 | 1   | CRITICAL | No E2E for session + terminal                   | 2b       | No          |
-| 2   | HIGH     | `mps/wsman` excluded from coverage and Sonar,   | 1b       | No          |
+| 2   | HIGH     | `amt/transport/wsman` excluded from coverage,   | 1b       | No          |
 |     |          | no integration test either                      |          |             |
 | 3   | HIGH     | 8 cross-boundary ControlMessage variants lack   | 3b       | No          |
 |     |          | goldens                                         |          |             |

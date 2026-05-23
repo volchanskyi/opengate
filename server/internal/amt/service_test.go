@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/volchanskyi/opengate/server/internal/amt"
+	"github.com/volchanskyi/opengate/server/internal/amt/transport"
 	"github.com/volchanskyi/opengate/server/internal/cert"
-	"github.com/volchanskyi/opengate/server/internal/mps"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
@@ -27,7 +27,7 @@ func newTestService(t *testing.T) *amt.Service {
 
 	logger := discardLogger()
 	repo := testutil.NewTestAMTDevices(t, store)
-	mpsSrv := mps.NewServer(cm, repo, logger)
+	mpsSrv := transport.NewServer(cm, repo, logger)
 	return amt.NewService(mpsSrv, "admin", "password", logger)
 }
 

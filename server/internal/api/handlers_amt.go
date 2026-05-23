@@ -5,8 +5,8 @@ import (
 	"errors"
 
 	"github.com/volchanskyi/opengate/server/internal/amt"
+	"github.com/volchanskyi/opengate/server/internal/amt/transport/wsman"
 	"github.com/volchanskyi/opengate/server/internal/db"
-	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
 )
 
 // powerActionMap maps OpenAPI enum strings to WSMAN PowerState int values.
