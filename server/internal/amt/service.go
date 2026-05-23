@@ -8,8 +8,8 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/volchanskyi/opengate/server/internal/mps"
-	"github.com/volchanskyi/opengate/server/internal/mps/wsman"
+	"github.com/volchanskyi/opengate/server/internal/amt/transport"
+	"github.com/volchanskyi/opengate/server/internal/amt/transport/wsman"
 )
 
 // ErrDeviceNotConnected is returned when an operation targets a device
@@ -18,14 +18,14 @@ var ErrDeviceNotConnected = errors.New("device not connected")
 
 // Service provides high-level AMT device operations.
 type Service struct {
-	mps      *mps.Server
+	mps      *transport.Server
 	username string
 	password string
 	logger   *slog.Logger
 }
 
 // NewService creates an AMT service that uses the given MPS server for connections.
-func NewService(mpsSrv *mps.Server, username, password string, logger *slog.Logger) *Service {
+func NewService(mpsSrv *transport.Server, username, password string, logger *slog.Logger) *Service {
 	return &Service{
 		mps:      mpsSrv,
 		username: username,

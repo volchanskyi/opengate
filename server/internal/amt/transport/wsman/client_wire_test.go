@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/volchanskyi/opengate/server/internal/mps"
+	"github.com/volchanskyi/opengate/server/internal/amt/transport"
 )
 
 // Phase B / B3: wire-level tests for wsman.Client.
@@ -25,13 +25,13 @@ import (
 // These tests exercise Do() and the three operation methods end-to-end through
 // the production code paths (request encoding, channel data framing, digest
 // auth retry, response parsing). The connection dependency is faked via the
-// MPSConn interface: a *mps.Channel that we control and a net.Pipe() that an
+// MPSConn interface: a *transport.Channel that we control and a net.Pipe() that an
 // AMT-side goroutine reads/writes to.
 //
 // Bytes flow as in production:
 //   wsman.Client.Do
 //     -> opens our fake channel (RemoteID=42)
-//     -> writes the HTTP request through mps.WriteChannelData(netConn, ...)
+//     -> writes the HTTP request through transport.WriteChannelData(netConn, ...)
 //     -> AMT goroutine reads APF ChannelData from the other end, parses HTTP
 //     -> AMT goroutine delivers an HTTP response by calling ch.OnData(...)
 //   wsman.Client.Do
@@ -41,12 +41,12 @@ import (
 // fakeMPSConn implements MPSConn for tests.
 type fakeMPSConn struct {
 	netConn   net.Conn      // wsman client writes APF here
-	ch        *mps.Channel  // returned by OpenChannel
+	ch        *transport.Channel  // returned by OpenChannel
 	openErr   error         // optional: simulate OpenChannel failure
 	openCalls int
 }
 
-func (f *fakeMPSConn) OpenChannel(_ string, _ uint16) (*mps.Channel, error) {
+func (f *fakeMPSConn) OpenChannel(_ string, _ uint16) (*transport.Channel, error) {
 	f.openCalls++
 	if f.openErr != nil {
 		return nil, f.openErr
@@ -64,7 +64,7 @@ func (f *fakeMPSConn) NetConn() net.Conn { return f.netConn }
 type amtSimulator struct {
 	t        *testing.T
 	conn     net.Conn
-	ch       *mps.Channel
+	ch       *transport.Channel
 	handler  func(req *http.Request) []byte
 	done     chan struct{}
 	requests int
@@ -98,14 +98,14 @@ func (a *amtSimulator) run() {
 func readOneHTTPRequest(c net.Conn) (*http.Request, error) {
 	var acc bytes.Buffer
 	for {
-		msgType, payload, err := mps.ReadMessage(c)
+		msgType, payload, err := transport.ReadMessage(c)
 		if err != nil {
 			return nil, err
 		}
-		if msgType != mps.APFChannelData {
+		if msgType != transport.APFChannelData {
 			continue
 		}
-		cd, err := mps.ParseChannelData(payload)
+		cd, err := transport.ParseChannelData(payload)
 		if err != nil {
 			return nil, err
 		}
@@ -137,7 +137,7 @@ func readOneHTTPRequest(c net.Conn) (*http.Request, error) {
 func newWireFixture(t *testing.T, handler func(req *http.Request) []byte) (*Client, *fakeMPSConn, func()) {
 	t.Helper()
 	clientSide, amtSide := net.Pipe()
-	ch := &mps.Channel{LocalID: 1, RemoteID: 42, Type: "direct-tcpip"}
+	ch := &transport.Channel{LocalID: 1, RemoteID: 42, Type: "direct-tcpip"}
 
 	fconn := &fakeMPSConn{netConn: clientSide, ch: ch}
 	sim := &amtSimulator{

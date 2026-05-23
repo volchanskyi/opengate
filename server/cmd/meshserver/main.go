@@ -12,6 +12,7 @@ import (
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/amt"
+	"github.com/volchanskyi/opengate/server/internal/amt/transport"
 	"github.com/volchanskyi/opengate/server/internal/api"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
@@ -19,7 +20,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
-	"github.com/volchanskyi/opengate/server/internal/mps"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -169,7 +169,7 @@ func main() {
 	}
 	manifestStore := updater.NewManifestStore(*dataDir)
 
-	mpsSrv := mps.NewServer(certMgr, amtRepo, logger)
+	mpsSrv := transport.NewServer(certMgr, amtRepo, logger)
 	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())

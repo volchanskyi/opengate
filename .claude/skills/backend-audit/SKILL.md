@@ -183,7 +183,7 @@ If CodeQL is configured for the repo, run the `go/sql-injection`, `go/command-in
 
 - **Audit log filtering** — `server/internal/api/handlers_audit.go` accepts `?actor`, `?event`, `?since`, `?until`. Trace each into the audit-log query builder.
 - **Device-logs filter** — `server/internal/api/handlers_devicelogs.go` accepts `?level`, `?since`, `?limit`. Trace into the postgres query.
-- **MPS digest auth** — `server/internal/mps/wsman/digest.go` parses agent-supplied digest fields. Verify each reaches a constant-time comparison, not string concat into a query.
+- **MPS digest auth** — `server/internal/amt/transport/wsman/digest.go` parses agent-supplied digest fields. Verify each reaches a constant-time comparison, not string concat into a query.
 - **Hardware inventory** — agent posts `device_hardware.network_interfaces` JSON. Server stores in JSONB and renders in admin UI. Verify no path interprets the JSON as HTML.
 
 ### 3f. Severity rubric

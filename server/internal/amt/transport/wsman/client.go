@@ -11,18 +11,18 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/volchanskyi/opengate/server/internal/mps"
+	"github.com/volchanskyi/opengate/server/internal/amt/transport"
 )
 
 // amtWSManPort is the default WSMAN HTTP port on AMT devices.
 const amtWSManPort = 16992
 
-// MPSConn is the minimal subset of mps.Conn the WSMAN client depends on.
-// Defining it here keeps the package decoupled from the concrete *mps.Conn
-// type so the client can be unit-tested with a fake. *mps.Conn satisfies
+// MPSConn is the minimal subset of transport.Conn the WSMAN client depends on.
+// Defining it here keeps the package decoupled from the concrete *transport.Conn
+// type so the client can be unit-tested with a fake. *transport.Conn satisfies
 // this interface; no production caller needs to change.
 type MPSConn interface {
-	OpenChannel(targetAddr string, targetPort uint16) (*mps.Channel, error)
+	OpenChannel(targetAddr string, targetPort uint16) (*transport.Channel, error)
 	NetConn() net.Conn
 }
 
@@ -57,7 +57,7 @@ func (c *Client) Do(ctx context.Context, soapAction string, body []byte) ([]byte
 	defer c.closeChannel(ch)
 
 	cc := NewChannelConn(func(data []byte) error {
-		return mps.WriteChannelData(c.conn.NetConn(), ch.RemoteID, data)
+		return transport.WriteChannelData(c.conn.NetConn(), ch.RemoteID, data)
 	})
 	ch.SetOnData(cc.Feed)
 	defer cc.Close()
@@ -122,6 +122,6 @@ func (c *Client) doHTTP(cc *ChannelConn, soapAction string, body []byte, authHea
 }
 
 // closeChannel sends a channel close and ignores errors (best effort).
-func (c *Client) closeChannel(ch *mps.Channel) {
-	_ = mps.WriteChannelClose(c.conn.NetConn(), ch.RemoteID)
+func (c *Client) closeChannel(ch *transport.Channel) {
+	_ = transport.WriteChannelClose(c.conn.NetConn(), ch.RemoteID)
 }

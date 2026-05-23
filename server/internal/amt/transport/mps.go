@@ -1,9 +1,9 @@
-// Package mps implements the Intel AMT Management Presence Server.
+// Package transport implements the Intel AMT Management Presence Server.
 //
 // MPS accepts CIRA (Client Initiated Remote Access) connections from Intel AMT
 // devices over TLS. It speaks the APF (AMT Port Forwarding) protocol and
 // manages per-device connections and TCP channel forwarding.
-package mps
+package transport
 
 import (
 	"context"

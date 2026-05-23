@@ -254,7 +254,7 @@ The audit log is queryable via `GET /api/v1/audit` (admin-only) with optional `u
 
 ## Intel AMT Management Presence Server (MPS)
 
-The server includes an MPS (`server/internal/mps/`) that accepts CIRA (Client Initiated Remote Access) connections from Intel AMT devices over TLS:
+The server includes an MPS (`server/internal/amt/transport/`) that accepts CIRA (Client Initiated Remote Access) connections from Intel AMT devices over TLS:
 
 ```
 Intel AMT Device              MPS Server

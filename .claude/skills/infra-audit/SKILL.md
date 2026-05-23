@@ -377,7 +377,7 @@ grep -rnE 'env\.\.\.|os\.Environ\(\)|format!.*\$\{' deploy/ server/ agent/ 2>/de
 - **`POSTGRES_PASSWORD`** — passes through compose interpolation; should never appear in agent logs or in Promtail-shipped server logs.
 - **`SONAR_TOKEN`** — appears on the `docker run` command line of `make sonar-quick` (visible to any local user via `ps -ef`). Acceptable for a local make target; flag if it ever moves to a server-side process.
 - **`VAPID_PRIVATE_KEY`** — generated into `${dataDir}/vapid.json`. Verify never logged at startup; only the *public* key is exposed via `/api/v1/push/vapid-key`.
-- **`AMT_PASS`** — server-side credential for MPS. Check `server/internal/mps/` for any `slog` field carrying it, and that the digest-auth flow does not echo it on failure.
+- **`AMT_PASS`** — server-side credential for MPS. Check `server/internal/amt/transport/` for any `slog` field carrying it, and that the digest-auth flow does not echo it on failure.
 - **Agent enrollment token** — agent-side persistent secret. Must be redacted in agent logs (`tracing::info!("enrolled with token={}", token)` is a finding).
 - **`OCI_*` and `*_OCID`** — reveal account / network topology. Flag any GitHub Action that prints a secret named like this without `::add-mask::`.
 
