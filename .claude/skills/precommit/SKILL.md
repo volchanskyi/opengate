@@ -25,13 +25,11 @@ In order, with elapsed time printed per step:
 2. **Lints** — `cargo fmt --check`, `cargo clippy -D warnings`, `go vet`, `eslint`, `actionlint`, `make taint-go`, `make taint-web`, `make dead-code`, `gitleaks protect --staged`, `make lint-deploy`.
 3. **Codegen sync** — `make verify-codegen` (`oapi-codegen` re-run + clean-diff assertion).
 4. **Tests** — Go unit + integration with `-race`, Rust workspace, Vitest with coverage.
-5. **Coverage thresholds** — Go ≥ 80% (excluding `testutil/`, `metrics/`, `mps/wsman/`, `openapi_gen.go`), Web ≥ 80% lines, Rust ≥ 80% lines (excluding `main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/`).
+5. **Coverage thresholds** — Go ≥ 80% (excluding `testutil/`, `metrics/`, `amt/transport/wsman/`, `openapi_gen.go`), Web ≥ 80% lines, Rust ≥ 80% lines (excluding `main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/`).
 6. **Security audits** — `govulncheck`, `npm audit --audit-level=high`, `cargo audit`.
 7. **Benchmarks** — Go `go test -bench` and Rust `cargo bench -p mesh-protocol`. Skip with `PRECOMMIT_SKIP_BENCH=1` only for clearly non-perf-touching iterations.
 8. **E2E** — `make e2e` (full Playwright suite against the docker-compose test stack).
 9. **SonarCloud** — `make sonar` (full scan with fresh coverage upload). **No skip.** Quality-gate evaluation against stale coverage previously let `new_coverage` regressions surface only in CI; the gauntlet now uploads fresh coverage on every commit.
-
-`PRECOMMIT_SKIP_BENCH=1` remains for narrow local-iteration cases; it is NOT honored by the hook in CI. Skipping for convenience leaves the failure mode for CI.
 
 ## Why every commit
 
