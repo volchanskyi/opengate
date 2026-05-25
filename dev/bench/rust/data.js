@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779524130150,
+  "lastUpdate": 1779673910011,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14577,6 +14577,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.795299033498896,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "a6cceb8f59ff02778f652075938458b18e122616",
+          "message": "refactor(tests): explicit if/else in arch-lint-flip unknown-mode test\n\nshellcheck SC2015 ('A && B || C is not if-then-else') on the\nunknown-mode assertion. Rewrite as a proper if/then/else block;\nbehavior is unchanged (still asserts exit 2 on --bogus invocation).\nAll 16 tests still pass.\n\nFound via /refactor shellcheck sweep on the new arch-lint-flip.sh\n+ tests + secrets-rebalancer hook (the only handwritten new code\nin the previous commit). No other findings.",
+          "timestamp": "2026-05-24T18:49:42-07:00",
+          "tree_id": "fb0a7987ffcb8a07aa2d601bb60ef6912539ee19",
+          "url": "https://github.com/volchanskyi/opengate/commit/a6cceb8f59ff02778f652075938458b18e122616"
+        },
+        "date": 1779673909939,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.494254091749266,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.397137660609143,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 763.2615965770223,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 310.2995131745576,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.90147797119986,
             "unit": "ns/iter"
           }
         ]
