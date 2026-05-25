@@ -892,7 +892,15 @@
       "Bash(git -C /home/ivan/opengate rm --cached -r --quiet node_modules)",
       "Bash(git -C /home/ivan/opengate add .gitignore)",
       "Bash(git -C /home/ivan/opengate diff --cached .claude/settings.json)",
-      "Bash(git -C /home/ivan/opengate add .claude/settings.json)"
+      "Bash(git -C /home/ivan/opengate add .claude/settings.json)",
+      "Bash(git -C /home/ivan/opengate log -1 --format=\"%h %an <%ae>\")",
+      "Bash(shellcheck /home/ivan/opengate/scripts/arch-lint-flip.sh /home/ivan/opengate/scripts/tests/arch-lint-flip.test.sh /home/ivan/opengate/.claude/hooks/pretooluse-git-commit-secrets-rebalancer.sh)",
+      "Bash(echo \"shellcheck exit: $?\")",
+      "Bash(timeout 60 npx --no-install ts-prune -p tsconfig.app.json)",
+      "Bash(shellcheck /home/ivan/opengate/scripts/tests/arch-lint-flip.test.sh)",
+      "Bash(git -C /home/ivan/opengate add scripts/tests/arch-lint-flip.test.sh)",
+      "Bash(git -C /home/ivan/opengate add .claude/settings.json scripts/tests/arch-lint-flip.test.sh)",
+      "Bash(echo \"HEAD = $\\(git -C /home/ivan/opengate rev-parse HEAD\\)\")"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate.wiki",

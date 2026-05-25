@@ -121,7 +121,11 @@ make_fake_repo
 echo '{"warn": 0}' > web/dependency-cruiser.snapshot.json
 rc=0
 "$FLIP_SCRIPT" --bogus >/dev/null 2>&1 || rc=$?
-[ "$rc" = "2" ] && pass "rejects unknown mode with exit 2" || fail "unknown mode rc=$rc (expected 2)"
+if [ "$rc" = "2" ]; then
+  pass "rejects unknown mode with exit 2"
+else
+  fail "unknown mode rc=$rc (expected 2)"
+fi
 cleanup_repo
 
 # ----------------------------------------------------------------------------
