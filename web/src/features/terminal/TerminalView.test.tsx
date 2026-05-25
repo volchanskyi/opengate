@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useConnectionStore } from '../../state/connection-store';
+import { useConnectionStore } from '../session';
 import { TerminalView } from './TerminalView';
 
 vi.mock('../../lib/api', () => ({

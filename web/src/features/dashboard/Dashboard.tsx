@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useDeviceStore } from '../../state/device-store';
+import { useDeviceStore } from '../devices';
 import { useAuthStore } from '../../state/auth-store';
-import { useAdminStore } from '../../state/admin-store';
+import { useAdminStore } from '../admin';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 interface StatCardProps {

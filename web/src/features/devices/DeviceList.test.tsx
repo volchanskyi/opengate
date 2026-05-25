@@ -2,9 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import { useDeviceStore } from '../../state/device-store';
-import { useUpdateStore } from '../../state/update-store';
-import { useToastStore } from '../../state/toast-store';
+import { useDeviceStore } from './state/device-store';
+import { useUpdateStore } from './state/update-store';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { DeviceList } from './DeviceList';
 
 vi.mock('../../lib/api', () => ({

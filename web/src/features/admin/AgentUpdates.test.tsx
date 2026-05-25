@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useUpdateStore } from '../../state/update-store';
-import { useToastStore } from '../../state/toast-store';
+import { useUpdateStore } from '../devices';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { AgentUpdates } from './AgentUpdates';
 
 vi.mock('../../lib/api', () => ({

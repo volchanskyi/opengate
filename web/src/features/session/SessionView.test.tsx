@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { useConnectionStore } from '../../state/connection-store';
+import { useConnectionStore } from './state/connection-store';
 import { useAuthStore } from '../../state/auth-store';
 import { SessionView } from './SessionView';
 

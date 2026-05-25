@@ -1,4 +1,4 @@
-import { useToastStore } from '../state/toast-store';
+import { useToastStore } from '../lib/feedback/toast-store';
 
 const typeStyles = {
   success: 'bg-green-900/80 border-green-700 text-green-300',

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { useConnectionStore } from '../../state/connection-store';
-import { useFileStore } from '../../state/file-store';
-import { useToastStore } from '../../state/toast-store';
+import { useConnectionStore } from '../session';
+import { useFileStore } from './state/file-store';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { DownloadAccumulator } from './file-transfer';
 import type { FileFrame } from '../../lib/protocol/types';
 

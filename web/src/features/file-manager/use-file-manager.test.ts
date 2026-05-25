@@ -1,7 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { useConnectionStore } from '../../state/connection-store';
-import { useFileStore } from '../../state/file-store';
+import { useConnectionStore } from '../session';
+import { useFileStore } from './state/file-store';
 import { useFileManager } from './use-file-manager';
 
 const originalCreateElement = document.createElement.bind(document);

@@ -5,7 +5,7 @@ import { useConnectionStore } from './connection-store';
 let capturedEvents: Record<string, (...args: unknown[]) => void> = {};
 
 // Mock WSTransport
-vi.mock('../lib/transport/ws-transport', () => {
+vi.mock('../../../lib/transport/ws-transport', () => {
   class MockWSTransport {
     state = 'disconnected';
     sendControl = vi.fn();

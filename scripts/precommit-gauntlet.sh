@@ -122,16 +122,25 @@ run_check "cargo modules"     -- bash -c '
     exit 1
   fi
 '
+run_check "cargo-deny"        -- bash -c 'cd agent && cargo-deny check --hide-inclusion-graph 2>&1'
 run_check "web eslint"        -- bash -c 'cd web && npx eslint .'
 run_check "depcruise"         -- bash -c '
   cd web
   current=$(npx --no-install depcruise src --output-type json --no-progress 2>/dev/null | jq -r ".summary.warn")
   baseline=$(jq -r ".warn" dependency-cruiser.snapshot.json)
-  if [ "$current" -gt "$baseline" ]; then
-    echo "::error::depcruise warning count grew: current=$current baseline=$baseline (ADR-020 §5.3)."
-    echo "Either fix the new violation or, if intentional, update the baseline:"
-    echo "  jq \".warn = $current\" web/dependency-cruiser.snapshot.json > /tmp/snap.json && mv /tmp/snap.json web/dependency-cruiser.snapshot.json"
-    exit 1
+  if [ -f ../.claude/.markers/arch-lint-flipped/depcruise ]; then
+    # ADR-020 §5.4 flipped: zero is the only allowed count.
+    if [ "$current" -gt 0 ]; then
+      echo "::error::depcruise (flipped to error mode) violations: current=$current (ADR-020 §5.3+§5.4)."
+      exit 1
+    fi
+  else
+    if [ "$current" -gt "$baseline" ]; then
+      echo "::error::depcruise warning count grew: current=$current baseline=$baseline (ADR-020 §5.3)."
+      echo "Either fix the new violation or, if intentional, update the baseline:"
+      echo "  jq \".warn = $current\" web/dependency-cruiser.snapshot.json > /tmp/snap.json && mv /tmp/snap.json web/dependency-cruiser.snapshot.json"
+      exit 1
+    fi
   fi
 '
 run_check "actionlint"        -- bash -c 'actionlint'

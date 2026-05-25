@@ -1,0 +1,8 @@
+# ADR-020 §5.4 flip marker for the depcruise gate.
+#
+# Created by scripts/arch-lint-flip.sh --apply on 2026-05-25T00:12:26Z.
+# Trigger: web/dependency-cruiser.snapshot.json's .warn count reached zero.
+#
+# While this file is present, the gauntlet and CI run depcruise in strict
+# error mode (zero violations required) instead of the warn-mode baseline-
+# snapshot pattern. Remove the file to revert to warn mode.

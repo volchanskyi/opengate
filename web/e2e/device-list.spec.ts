@@ -1,4 +1,4 @@
-import { test, expect } from "../e2e/fixtures";
+import { test, expect } from "./fixtures";
 import { createGroup } from "./helpers/api-helper";
 
 test.describe("Device list", () => {

@@ -7,6 +7,7 @@
 /server/vendor/
 
 # Web
+/node_modules/
 /web/node_modules/
 /web/dist/
 
@@ -42,7 +43,7 @@ desktop.ini
 # MCP
 .mcp.json
 
-# Claude Code local settings (machine-specific)
+# Claude Code local settings (machine-specific, may contain credentials)
 .claude/settings.local.json
 
 # Test artifacts
@@ -73,6 +74,7 @@ server/coverage*.out
 # Python
 __pycache__/
 
-# Hook marker files — local state only (Claude Code hooks, PR 2)
-.claude/.markers/*
-!.claude/.markers/.gitkeep
+# Local-state marker files: ignore precommit/refactor head pointers only.
+# Tracked subdirectories under .claude/.markers/ (e.g. arch-lint-flipped/
+# per ADR-020 §5.4) must NOT be ignored.
+/.claude/.markers/*.head

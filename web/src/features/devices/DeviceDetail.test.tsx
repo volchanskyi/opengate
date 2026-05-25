@@ -2,11 +2,11 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-dom';
-import { useDeviceStore } from '../../state/device-store';
-import { useSessionStore } from '../../state/session-store';
-import { useAMTStore } from '../../state/amt-store';
-import { useUpdateStore } from '../../state/update-store';
-import { useToastStore } from '../../state/toast-store';
+import { useDeviceStore } from './state/device-store';
+import { useSessionStore } from '../session';
+import { useAMTStore } from './state/amt-store';
+import { useUpdateStore } from './state/update-store';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { DeviceDetail } from './DeviceDetail';
 
 vi.mock('../../lib/api', () => ({

@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { api } from '../lib/api';
-import { apiAction } from './api-action';
-import { isTokenExpired, isTokenExhausted } from '../lib/token-status';
-import type { components } from '../types/api';
+import { api } from '../../../lib/api';
+import { apiAction } from '../../../state/api-action';
+import { isTokenExpired, isTokenExhausted } from '../../../lib/token-status';
+import type { components } from '../../../types/api';
 
 type AgentManifest = components['schemas']['AgentManifest'];
 type EnrollmentToken = components['schemas']['EnrollmentToken'];

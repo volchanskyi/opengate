@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSecurityGroupsStore } from '../../state/security-groups-store';
+import { useSecurityGroupsStore } from './state/security-groups-store';
 import { useAuthStore } from '../../state/auth-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 

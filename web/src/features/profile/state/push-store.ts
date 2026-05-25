@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { api } from '../lib/api';
-import { apiAction } from './api-action';
+import { api } from '../../../lib/api';
+import { apiAction } from '../../../state/api-action';
 
 interface PushState {
   vapidKey: string | null;

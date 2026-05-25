@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { useConnectionStore } from '../../state/connection-store';
-import { useChatStore } from '../../state/chat-store';
+import { useConnectionStore } from '../session';
+import { useChatStore } from './state/chat-store';
 
 export function MessengerView() {
   const connectionState = useConnectionStore((s) => s.state);

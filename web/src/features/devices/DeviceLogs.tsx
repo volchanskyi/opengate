@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useDeviceStore } from '../../state/device-store';
+import { useDeviceStore } from './state/device-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 const levelColors: Record<string, string> = {

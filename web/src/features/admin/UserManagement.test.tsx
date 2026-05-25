@@ -1,6 +1,6 @@
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useAdminStore } from '../../state/admin-store';
+import { useAdminStore } from './state/admin-store';
 import { useAuthStore } from '../../state/auth-store';
 import { UserManagement } from './UserManagement';
 

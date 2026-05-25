@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import { api } from '../lib/api';
-import { apiAction } from './api-action';
-import type { components } from '../types/api';
+import { api } from '../../../lib/api';
+import { apiAction } from '../../../state/api-action';
+import type { components } from '../../../types/api';
 
 type AMTDevice = components['schemas']['AMTDevice'];
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];

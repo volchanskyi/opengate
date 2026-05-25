@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import { useDeviceStore } from '../state/device-store';
+import { useDeviceStore } from '../features/devices/state/device-store';
 import { Breadcrumbs } from './Breadcrumbs';
 
 function renderAt(path: string) {

@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useAdminStore } from '../../state/admin-store';
+import { useAdminStore } from './state/admin-store';
 import { AuditLog } from './AuditLog';
 
 vi.mock('../../lib/api', () => ({
