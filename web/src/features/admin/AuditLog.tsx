@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useAdminStore } from '../../state/admin-store';
+import { useAdminStore } from './state/admin-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 export function AuditLog() {

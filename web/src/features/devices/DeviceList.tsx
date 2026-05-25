@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useDeviceStore } from '../../state/device-store';
-import { useUpdateStore } from '../../state/update-store';
-import { useToastStore } from '../../state/toast-store';
+import { useDeviceStore } from './state/device-store';
+import { useUpdateStore } from './state/update-store';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { GroupSidebar } from './GroupSidebar';
 import { DeviceCard } from './DeviceCard';
 import { DeviceSearchBar } from './DeviceSearchBar';

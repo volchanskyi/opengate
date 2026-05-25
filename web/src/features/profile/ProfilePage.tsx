@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useAuthStore } from '../../state/auth-store';
-import { useToastStore } from '../../state/toast-store';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { api } from '../../lib/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
 

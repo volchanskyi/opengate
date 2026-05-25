@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useConnectionStore } from '../../state/connection-store';
-import { useFileStore } from '../../state/file-store';
+import { useConnectionStore } from '../session';
+import { useFileStore } from './state/file-store';
 import { FileManagerView } from './FileManagerView';
 
 vi.mock('../../lib/api', () => ({

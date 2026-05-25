@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useDeviceStore } from '../../state/device-store';
+import { useDeviceStore } from './state/device-store';
 import { GroupSidebar } from './GroupSidebar';
 
 vi.mock('../../lib/api', () => ({

@@ -5,7 +5,7 @@ const mockPost = vi.fn();
 const mockGet = vi.fn();
 const mockDelete = vi.fn();
 
-vi.mock('../lib/api', () => ({
+vi.mock('../../../lib/api', () => ({
   api: {
     POST: (...args: unknown[]) => mockPost(...args),
     GET: (...args: unknown[]) => mockGet(...args),

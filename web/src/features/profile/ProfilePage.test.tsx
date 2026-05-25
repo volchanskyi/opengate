@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useAuthStore } from '../../state/auth-store';
-import { useToastStore } from '../../state/toast-store';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { ProfilePage } from './ProfilePage';
 
 vi.mock('../../lib/api', () => ({

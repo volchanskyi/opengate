@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useDeviceStore } from '../../state/device-store';
-import { useSessionStore } from '../../state/session-store';
-import { useAMTStore } from '../../state/amt-store';
-import { useUpdateStore } from '../../state/update-store';
-import { useToastStore } from '../../state/toast-store';
+import { useDeviceStore } from './state/device-store';
+import { useSessionStore } from '../session';
+import { useAMTStore } from './state/amt-store';
+import { useUpdateStore } from './state/update-store';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { StatusBadge } from './StatusBadge';
 import { DeviceLogs } from './DeviceLogs';
 import type { components } from '../../types/api';

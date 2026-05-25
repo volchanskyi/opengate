@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { useConnectionStore } from '../../state/connection-store';
-import { useFileStore } from '../../state/file-store';
+import { useConnectionStore } from '../session';
+import { useFileStore } from './state/file-store';
 import { useFileManager } from './use-file-manager';
 
 export function FileManagerView() {

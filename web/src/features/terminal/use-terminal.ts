@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { useConnectionStore } from '../../state/connection-store';
+import { useConnectionStore } from '../session';
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();

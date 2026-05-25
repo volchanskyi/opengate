@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useConnectionStore } from '../../state/connection-store';
-import { useChatStore } from '../../state/chat-store';
+import { useConnectionStore } from '../session';
+import { useChatStore } from './state/chat-store';
 import { MessengerView } from './MessengerView';
 
 vi.mock('../../lib/api', () => ({
