@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { WSTransport, type ConnectionState, type TransportEvents } from '../lib/transport/ws-transport';
-import { WebRTCTransport, type RTCConfig } from '../lib/transport/webrtc-transport';
-import { useToastStore } from './toast-store';
-import type { ControlMessage, DesktopFrame, TerminalFrame, FileFrame } from '../lib/protocol/types';
+import { WSTransport, type ConnectionState, type TransportEvents } from '../../../lib/transport/ws-transport';
+import { WebRTCTransport, type RTCConfig } from '../../../lib/transport/webrtc-transport';
+import { useToastStore } from '../../../lib/feedback/toast-store';
+import type { ControlMessage, DesktopFrame, TerminalFrame, FileFrame } from '../../../lib/protocol/types';
 
 let webrtcFallbackToastShown = false;
 function notifyWebRTCFallback(reason: string): void {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useUpdateStore } from '../../state/update-store';
+import { useUpdateStore } from '../devices';
 import { useAuthStore } from '../../state/auth-store';
 import { isTokenActive } from '../../lib/token-status';
 import { EnrollmentTokenForm } from './EnrollmentTokenForm';

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useUpdateStore } from '../../state/update-store';
-import { useToastStore } from '../../state/toast-store';
+import { useUpdateStore } from '../devices';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { isTokenExpired, isTokenExhausted } from '../../lib/token-status';
 import { fireAndForget } from '../../lib/fire-and-forget';
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
-import { useConnectionStore } from '../../state/connection-store';
+import { useConnectionStore } from './state/connection-store';
 import { useAuthStore } from '../../state/auth-store';
 import { SessionToolbar } from './SessionToolbar';
 import { RemoteDesktopView } from '../remote-desktop/RemoteDesktopView';

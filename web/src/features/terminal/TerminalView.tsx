@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { useConnectionStore } from '../../state/connection-store';
+import { useConnectionStore } from '../session';
 import { useTerminal } from './use-terminal';
 
 export function TerminalView() {

@@ -29,6 +29,29 @@ jobs:
           workspaces: agent
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace -- -D warnings
+      # ADR-020 §5.2 — Rust architecture gates.
+      - name: Cache cargo-deny + cargo-modules binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-deny
+            ~/.cargo/bin/cargo-modules
+          key: arch-lint-tools-${{ runner.os }}-v1
+      - name: Install cargo-deny + cargo-modules (if not cached)
+        run: |
+          command -v cargo-deny    || cargo install --locked cargo-deny
+          command -v cargo-modules || cargo install --locked cargo-modules
+      - name: cargo-deny check
+        run: cargo-deny check --hide-inclusion-graph
+      - name: cargo modules snapshot diff
+        run: |
+          actual=$(NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core 2>&1)
+          if ! printf "%s\n" "$actual" | diff -u crates/mesh-agent-core/tests/module-graph.snap - ; then
+            echo "::error::mesh-agent-core module graph diverged from the ADR-020 §5.2 snapshot."
+            echo "If intentional, regenerate locally and commit:"
+            echo "  cd agent && NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core > crates/mesh-agent-core/tests/module-graph.snap"
+            exit 1
+          fi
 
   rust-test:
     name: Rust Tests
@@ -122,6 +145,11 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
       - run: go vet ./...
+      # ADR-020 §5.1 — Go architecture gate.
+      - name: Install go-arch-lint
+        run: go install github.com/fe3dback/go-arch-lint@v1.15.0
+      - name: go-arch-lint check
+        run: go-arch-lint check
       - name: Install oapi-codegen
         run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0
       - name: Verify OpenAPI codegen is in sync
@@ -371,6 +399,24 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run lint
+      # ADR-020 §5.3 — web architecture gate (cross-feature edge count).
+      - name: depcruise snapshot check
+        run: |
+          current=$(npx --no-install depcruise src --output-type json --no-progress 2>/dev/null | jq -r ".summary.warn")
+          baseline=$(jq -r ".warn" dependency-cruiser.snapshot.json)
+          if [ -f ../.claude/.markers/arch-lint-flipped/depcruise ]; then
+            if [ "$current" -gt 0 ]; then
+              echo "::error::depcruise (flipped to error mode per ADR-020 §5.4) violations: current=$current"
+              exit 1
+            fi
+          else
+            if [ "$current" -gt "$baseline" ]; then
+              echo "::error::depcruise warning count grew: current=$current baseline=$baseline (ADR-020 §5.3)."
+              echo "Either fix the new violation or, if intentional, update the baseline:"
+              echo "  jq \".warn = \$current\" web/dependency-cruiser.snapshot.json > /tmp/snap.json && mv /tmp/snap.json web/dependency-cruiser.snapshot.json"
+              exit 1
+            fi
+          fi
       - name: Verify generated API types are in sync
         # Mirrors the Go-side codegen drift check earlier in this workflow.
         # Regenerate `src/types/api.d.ts` from the OpenAPI spec; if the diff

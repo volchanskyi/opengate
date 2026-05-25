@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider, Navigate } from 'react-router-dom';
-import { useSecurityGroupsStore } from '../../src/state/security-groups-store';
+import { useSecurityGroupsStore } from '../../src/features/admin/state/security-groups-store';
 import { useAuthStore } from '../../src/state/auth-store';
 import { AuthGuard } from '../../src/features/auth/AuthGuard';
 import { AdminGuard } from '../../src/features/admin/AdminGuard';

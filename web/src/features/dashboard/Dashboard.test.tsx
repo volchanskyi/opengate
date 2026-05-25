@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
-import { useDeviceStore } from '../../state/device-store';
+import { useDeviceStore } from '../devices';
 import { useAuthStore } from '../../state/auth-store';
-import { useAdminStore } from '../../state/admin-store';
+import { useAdminStore } from '../admin';
 import { Dashboard } from './Dashboard';
 
 vi.mock('../../lib/api', () => ({

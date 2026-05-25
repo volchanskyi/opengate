@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { api } from '../lib/api';
-import { apiAction } from './api-action';
-import { useToastStore } from './toast-store';
-import type { components } from '../types/api';
-import { fireAndForget } from '../lib/fire-and-forget';
+import { api } from '../../../lib/api';
+import { apiAction } from '../../../state/api-action';
+import { useToastStore } from '../../../lib/feedback/toast-store';
+import type { components } from '../../../types/api';
+import { fireAndForget } from '../../../lib/fire-and-forget';
 
 type Device = components['schemas']['Device'];
 type Group = components['schemas']['Group'];

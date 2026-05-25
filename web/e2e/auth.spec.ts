@@ -1,4 +1,4 @@
-import { test, expect } from "../e2e/fixtures";
+import { test, expect } from "./fixtures";
 import { register } from "./helpers/api-helper";
 
 test.describe("Auth flows", () => {

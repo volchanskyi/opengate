@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { usePushStore } from '../../state/push-store';
+import { usePushStore } from '../profile';
 import { NotificationCenter } from './NotificationCenter';
 
 vi.mock('../../lib/fire-and-forget', () => ({

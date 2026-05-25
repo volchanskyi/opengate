@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { FileEntry } from '../lib/protocol/types';
+import type { FileEntry } from '../../../lib/protocol/types';
 
 interface FileState {
   currentPath: string;

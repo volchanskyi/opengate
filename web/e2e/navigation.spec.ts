@@ -1,4 +1,4 @@
-import { test, expect } from "../e2e/fixtures";
+import { test, expect } from "./fixtures";
 
 test.describe("Navigation and routing", () => {
   test("/ redirects to /login when not authenticated", async ({ page }) => {

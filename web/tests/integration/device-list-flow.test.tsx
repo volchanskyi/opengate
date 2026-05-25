@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { useAuthStore } from '../../src/state/auth-store';
-import { useDeviceStore } from '../../src/state/device-store';
+import { useDeviceStore } from '../../src/features/devices/state/device-store';
 import { AuthGuard } from '../../src/features/auth/AuthGuard';
 import { Layout } from '../../src/components/Layout';
 import { DeviceList } from '../../src/features/devices/DeviceList';

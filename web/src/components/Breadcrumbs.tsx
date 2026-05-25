@@ -1,5 +1,5 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
-import { useDeviceStore } from '../state/device-store';
+import { useDeviceStore } from '../features/devices/state/device-store';
 
 interface Crumb {
   label: string;

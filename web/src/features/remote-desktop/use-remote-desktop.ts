@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useConnectionStore } from '../../state/connection-store';
+import { useConnectionStore } from '../session';
 import { InputHandler } from './input-handler';
 import { paintFrame, type CanvasContext } from './desktop-worker';
 import { fireAndForget } from '../../lib/fire-and-forget';
