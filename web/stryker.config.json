@@ -27,7 +27,7 @@
     "!src/features/terminal/use-terminal.ts",
     "!src/features/remote-desktop/use-remote-desktop.ts",
     "!src/features/remote-desktop/input-handler.ts",
-    "!src/state/connection-store.ts",
+    "!src/features/session/state/connection-store.ts",
     "!src/lib/transport/webrtc-transport.ts",
     "!src/features/admin/NotificationCenter.tsx"
   ],
