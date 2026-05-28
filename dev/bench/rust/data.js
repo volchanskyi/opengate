@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779673910011,
+  "lastUpdate": 1780007012912,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14626,6 +14626,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.90147797119986,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "25bf0c92ddf2d634c6228ea814415e80abd85a5b",
+          "message": "refactor(relay): drop dead meta/hasMeta fields in InProcessRegistry\n\nThe registryEntry struct stored SessionMeta and a hasMeta flag that\nSaveSession wrote but nothing ever read — the SessionRegistry interface\nhas no LookupMeta method, and in a single-server deployment no peer\nexists to query persisted metadata anyway. Detected via /refactor\ndead-write audit on the just-committed registry adapter.\n\nSimplify registryEntry to plain map[SessionToken]string (token →\nowning serverID). The interface contract — \"an entry exists after\nSave until Delete, observable via LookupOwner\" — is preserved.\nRedisRegistry (Phase 13b) will persist metadata for actual cross-\nserver consumers; that's the correct boundary for the work.\n\nNo interface change. All 12 contract tests still pass.",
+          "timestamp": "2026-05-28T15:12:19-07:00",
+          "tree_id": "9db7ffd647f380cb49ab219526e23b1736320c2e",
+          "url": "https://github.com/volchanskyi/opengate/commit/25bf0c92ddf2d634c6228ea814415e80abd85a5b"
+        },
+        "date": 1780007012832,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.48337518008875,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.61964131509337,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 740.9576766899759,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 288.75939625587495,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.845381865327848,
             "unit": "ns/iter"
           }
         ]
