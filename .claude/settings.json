@@ -900,7 +900,22 @@
       "Bash(shellcheck /home/ivan/opengate/scripts/tests/arch-lint-flip.test.sh)",
       "Bash(git -C /home/ivan/opengate add scripts/tests/arch-lint-flip.test.sh)",
       "Bash(git -C /home/ivan/opengate add .claude/settings.json scripts/tests/arch-lint-flip.test.sh)",
-      "Bash(echo \"HEAD = $\\(git -C /home/ivan/opengate rev-parse HEAD\\)\")"
+      "Bash(echo \"HEAD = $\\(git -C /home/ivan/opengate rev-parse HEAD\\)\")",
+      "Bash(git -C /home/ivan/opengate log origin/dev..HEAD --oneline)",
+      "Bash(git -C /home/ivan/opengate push origin dev)",
+      "Bash(gh -R volchanskyi/opengate run view 26559127043)",
+      "Bash(gh -R volchanskyi/opengate run view 26559127043 --log-failed)",
+      "Bash(gh -R volchanskyi/opengate run view --job=78242868096 --log)",
+      "Bash(gh -R volchanskyi/opengate api repos/volchanskyi/opengate/actions/runs/26559127043/artifacts)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(a['name'], '->', a['archive_download_url']\\) for a in d['artifacts']]\")",
+      "Bash(rm -rf mutation-canonical-row)",
+      "Bash(gh -R volchanskyi/opengate run download 26559127043 -n mutation-canonical-row)",
+      "Bash(gh -R volchanskyi/opengate run download 26559127043)",
+      "Bash(gh -R volchanskyi/opengate api repos/volchanskyi/opengate/actions/runs/26559127043/jobs --jq '.jobs[] | select\\(.name | contains\\(\"Publish\"\\)\\) | {name, conclusion, html_url}')",
+      "Bash(gh -R volchanskyi/opengate api \"repos/volchanskyi/opengate/actions/jobs/78242868096/logs\")",
+      "Bash(git -C /home/ivan/opengate log --format=\"%h %ai %s\" a6cceb8 -1)",
+      "Bash(git -C /home/ivan/opengate fetch origin main)",
+      "Bash(git -C /home/ivan/opengate log --format=\"%h %ai %s\" origin/main -3)"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate.wiki",
