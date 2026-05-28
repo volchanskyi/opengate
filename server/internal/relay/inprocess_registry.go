@@ -15,24 +15,24 @@ import (
 //
 // TTL is ignored by this adapter — there is no crash-recovery scenario
 // for a single server. RedisRegistry honors TTL.
+//
+// SaveSession's metadata is intentionally not persisted: in a single-
+// server deployment no peer exists to query it. RedisRegistry will
+// persist it so cross-server consumers (proxy server lookups, crash
+// reclaim) can read it. The interface contract — "an entry exists
+// after Save until Delete" — is observable here via LookupOwner.
 type InProcessRegistry struct {
 	mu      sync.Mutex
-	entries map[protocol.SessionToken]*registryEntry
+	entries map[protocol.SessionToken]string // token → owning serverID
 
 	subMu       sync.RWMutex
 	subscribers []chan SessionEvent
 }
 
-type registryEntry struct {
-	serverID string
-	meta     SessionMeta
-	hasMeta  bool
-}
-
 // NewInProcessRegistry returns a SessionRegistry backed by in-memory state.
 func NewInProcessRegistry() *InProcessRegistry {
 	return &InProcessRegistry{
-		entries: make(map[protocol.SessionToken]*registryEntry),
+		entries: make(map[protocol.SessionToken]string),
 	}
 }
 
@@ -43,10 +43,10 @@ func (r *InProcessRegistry) ClaimAffinity(_ context.Context, token protocol.Sess
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if e, ok := r.entries[token]; ok {
-		return e.serverID, nil
+	if owner, ok := r.entries[token]; ok {
+		return owner, nil
 	}
-	r.entries[token] = &registryEntry{serverID: serverID}
+	r.entries[token] = serverID
 	return serverID, nil
 }
 
@@ -54,24 +54,22 @@ func (r *InProcessRegistry) ClaimAffinity(_ context.Context, token protocol.Sess
 func (r *InProcessRegistry) LookupOwner(_ context.Context, token protocol.SessionToken) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	e, ok := r.entries[token]
+	owner, ok := r.entries[token]
 	if !ok {
 		return "", ErrRegistryNotFound
 	}
-	return e.serverID, nil
+	return owner, nil
 }
 
-// SaveSession implements SessionRegistry. Creates an entry if none exists.
+// SaveSession implements SessionRegistry. Creates an entry owned by
+// meta.ServerID if none exists; otherwise leaves the existing claim
+// untouched (SaveSession does not overwrite affinity).
 func (r *InProcessRegistry) SaveSession(_ context.Context, token protocol.SessionToken, meta SessionMeta) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	e, ok := r.entries[token]
-	if !ok {
-		e = &registryEntry{serverID: meta.ServerID}
-		r.entries[token] = e
+	if _, ok := r.entries[token]; !ok {
+		r.entries[token] = meta.ServerID
 	}
-	e.meta = meta
-	e.hasMeta = true
 	return nil
 }
 

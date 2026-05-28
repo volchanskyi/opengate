@@ -915,7 +915,9 @@
       "Bash(gh -R volchanskyi/opengate api \"repos/volchanskyi/opengate/actions/jobs/78242868096/logs\")",
       "Bash(git -C /home/ivan/opengate log --format=\"%h %ai %s\" a6cceb8 -1)",
       "Bash(git -C /home/ivan/opengate fetch origin main)",
-      "Bash(git -C /home/ivan/opengate log --format=\"%h %ai %s\" origin/main -3)"
+      "Bash(git -C /home/ivan/opengate log --format=\"%h %ai %s\" origin/main -3)",
+      "Bash(staticcheck -checks U1000 ./internal/relay/...)",
+      "Bash(timeout 60 staticcheck -checks U1000 ./server/internal/relay/...)"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate.wiki",
