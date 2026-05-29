@@ -48,12 +48,73 @@ allow = [
 # --- Bans ---------------------------------------------------------------------
 
 [bans]
-# Pilot stage: no specific crate bans. ADR-020 §5.2 envisions adding HTTP-stack
-# bans here later ("no crate may add new external HTTP deps without ADR
-# amendment"); deferred until current HTTP-using deps (e.g. those pulled in by
-# webrtc-rs) are inventoried and the ADR is amended.
-multiple-versions = "warn"
-wildcards = "warn"
+# ADR-020 §5.4 flip: warn → deny. Strict from this commit on; every transitive
+# duplicate below is enumerated with rationale (matches ADR-020 §5.1's no-bare-
+# suppression rule). ADR-026 amends ADR-020 §5.2 with the HTTP-stack inventory
+# and the policy that gates new direct HTTP deps via ADR amendment, not lint.
+multiple-versions = "deny"
+wildcards = "deny"
+# Workspace-internal deps (the mesh-* crates and platform-* shims) use
+# `version = "*"` in path dependencies. Exempt those from the wildcard check
+# so it only catches external wildcard pins, which are the real lurking
+# CVE-vector. ADR-020 §5.2.
+allow-wildcard-paths = true
+
+# HTTP-stack inventory (ADR-020 §5.2 / ADR-026):
+#   Direct deps    : reqwest, tokio-tungstenite
+#   Allowed via reqwest: hyper, hyper-rustls, hyper-util, http, http-body
+#   Allowed via tokio-tungstenite: tungstenite
+# Adding a new direct HTTP crate (ureq, isahc, surf, attohttpc, hreq, …)
+# requires an ADR amendment before merge; cargo-deny cannot express a
+# "direct-only" ban, so enforcement is via code review on Cargo.toml diffs
+# and the ADR-026 policy doc. The explicit deny below catches the one
+# historically problematic stale crypto/HTTP stack in case it appears
+# transitively.
+deny = [
+  { crate = "openssl", reason = "rustls-only policy — openssl pulls system-level crypto and complicates static cross-compilation. If a transitive dep needs openssl, pin to rustls-equivalent variant or document in an ADR amendment." },
+]
+
+# Transitive-duplicate allowlist. Each entry pins the OLDER version so the
+# duplicate counter sees one effective version. Resolving long-term requires
+# upstream bumps in webrtc-rs, image, the RustCrypto stack, and the Windows
+# API bindings cohort. Reviewer hook: any time a skip clears upstream, drop
+# the entry — drift this list down, not up.
+skip = [
+  { crate = "bitflags@1.3.2",                  reason = "bitflags 1→2 ecosystem stagger; 1.3.2 via older webrtc-rs deps, 2.x via newer rustls/nix" },
+  { crate = "block-buffer@0.10.4",             reason = "RustCrypto 0.10→0.11 stagger; 0.10 via reqwest stack, 0.11 via newer sha2/digest" },
+  { crate = "cfg_aliases@0.1.1",               reason = "0.1→0.2 patch stagger via nix vs newer transitives" },
+  { crate = "const-oid@0.9.6",                 reason = "RustCrypto 0.9→0.10 stagger via x509/rcgen versions" },
+  { crate = "cpufeatures@0.2.17",              reason = "RustCrypto 0.2→0.3 stagger paired with sha2/digest split" },
+  { crate = "crypto-common@0.1.7",             reason = "RustCrypto 0.1→0.2 stagger paired with digest split" },
+  { crate = "digest@0.10.7",                   reason = "RustCrypto 0.10→0.11 stagger via reqwest stack vs newer sha2" },
+  { crate = "getrandom@0.2.17",                reason = "getrandom 0.2/0.3/0.4 ecosystem stagger — three majors coexist via rand, ring, rustls, webrtc-rs" },
+  { crate = "getrandom@0.3.4",                 reason = "getrandom 0.2/0.3/0.4 ecosystem stagger — three majors coexist via rand, ring, rustls, webrtc-rs" },
+  { crate = "hashbrown@0.16.1",                reason = "hashbrown 0.16/0.17 stagger via std internal vs hashbrown 0.17 in newer indexmap" },
+  { crate = "nix@0.26.4",                      reason = "nix 0.26/0.28 stagger via webrtc-rs vs platform-linux's newer transitives" },
+  { crate = "nom@7.1.3",                       reason = "nom 7→8 stagger via cookie/x509 parsers" },
+  { crate = "r-efi@5.3.0",                     reason = "UEFI bindings 5/6 stagger via getrandom 0.2 vs 0.3" },
+  { crate = "rand_core@0.6.4",                 reason = "rand_core 0.6/0.9 stagger pairs with rand version stagger across crypto stack" },
+  { crate = "rcgen@0.13.2",                    reason = "rcgen 0.13/0.14 stagger — webrtc-rs/dtls pins 0.13, our direct mTLS uses 0.14" },
+  { crate = "sha2@0.10.9",                     reason = "RustCrypto 0.10→0.11 stagger paired with digest split" },
+  { crate = "socket2@0.5.10",                  reason = "socket2 0.5/0.6 stagger via tokio vs reqwest transport" },
+  { crate = "thiserror@1.0.69",                reason = "thiserror 1→2 ecosystem stagger; pre-existing slack, candidate to resolve by bumping direct deps to v2" },
+  { crate = "thiserror-impl@1.0.69",           reason = "proc-macro half of thiserror, must move in lockstep with thiserror skip above" },
+  { crate = "webpki-roots@0.26.11",            reason = "TLS roots 0.26/1.0 stagger via reqwest stack vs rustls transitives" },
+  { crate = "yasna@0.5.2",                     reason = "ASN.1 parser 0.5/0.6 stagger pinned by rcgen 0.13/0.14 split" },
+  # Windows API binding cohort stagger — older 0.42.x/0.45.x targets remain
+  # pulled in by parking_lot and a couple of older rustls transitives;
+  # 0.52.x/0.61.x are carried by socket2, getrandom, mio. All move together.
+  { crate = "windows-sys@0.45.0",              reason = "Windows API surface 0.45/0.52/0.61 cohort stagger" },
+  { crate = "windows-sys@0.52.0",              reason = "Windows API surface 0.45/0.52/0.61 cohort stagger" },
+  { crate = "windows-targets@0.42.2",          reason = "paired with windows-sys cohort" },
+  { crate = "windows_aarch64_gnullvm@0.42.2",  reason = "paired with windows-targets cohort" },
+  { crate = "windows_aarch64_msvc@0.42.2",     reason = "paired with windows-targets cohort" },
+  { crate = "windows_i686_gnu@0.42.2",         reason = "paired with windows-targets cohort" },
+  { crate = "windows_i686_msvc@0.42.2",        reason = "paired with windows-targets cohort" },
+  { crate = "windows_x86_64_gnu@0.42.2",       reason = "paired with windows-targets cohort" },
+  { crate = "windows_x86_64_gnullvm@0.42.2",   reason = "paired with windows-targets cohort" },
+  { crate = "windows_x86_64_msvc@0.42.2",      reason = "paired with windows-targets cohort" },
+]
 
 # --- Sources ------------------------------------------------------------------
 

@@ -154,9 +154,84 @@ EOF
 fi
 
 # ----------------------------------------------------------------------------
-# Deferred gates — explicitly listed so they're visible in --check output.
+# Gate: cargo-deny (ADR-020 §5.4 / ADR-026)
+#
+# State machine driven by agent/deny.toml's `multiple-versions` AND
+# `wildcards` severity tokens AND the marker file:
+#
+#   - both severities 'warn'  AND no marker  → eligible
+#   - both severities 'deny'  OR  marker     → flipped
+#   - missing config                         → no config
+#
+# `--apply` on eligible mutates both severity tokens warn → deny atomically
+# AND writes the marker. The cargo-deny tool itself reads deny.toml at
+# `cd agent && cargo deny check` time (gauntlet step 9 + 18); flipping the
+# severities makes any new violation fail the gate instead of warning.
 # ----------------------------------------------------------------------------
-printf 'gate: cargo-deny          — deferred (HTTP-dep inventory pending; ADR-020 §5.4)\n'
+deny_config="$repo/agent/deny.toml"
+deny_marker="$marker_dir/cargo-deny"
+
+deny_mv_warn='multiple-versions = "warn"'
+deny_mv_deny='multiple-versions = "deny"'
+deny_wc_warn='wildcards = "warn"'
+deny_wc_deny='wildcards = "deny"'
+
+deny_state="unknown"
+if [ -f "$deny_marker" ]; then
+  deny_state="flipped"
+elif [ ! -f "$deny_config" ]; then
+  deny_state="no config"
+elif grep -qF "$deny_mv_deny" "$deny_config" && grep -qF "$deny_wc_deny" "$deny_config"; then
+  deny_state="flipped"
+elif grep -qF "$deny_mv_warn" "$deny_config" || grep -qF "$deny_wc_warn" "$deny_config"; then
+  deny_state="eligible"
+fi
+
+case "$deny_state" in
+  flipped)     printf 'gate: cargo-deny          — flipped (marker or both severities=deny)\n' ;;
+  eligible)    printf 'gate: cargo-deny          — eligible to flip (severity=warn)\n' ;;
+  "no config") printf 'gate: cargo-deny          — no config at %s\n' "${deny_config#"$repo/"}" ;;
+  *)           printf 'gate: cargo-deny          — %s\n' "$deny_state" ;;
+esac
+
+if [ "$mode" = "--apply" ] && [ "$deny_state" = "eligible" ]; then
+  tmp="$(mktemp)"
+  sed -e 's/^multiple-versions = "warn"/multiple-versions = "deny"/' \
+      -e 's/^wildcards = "warn"/wildcards = "deny"/' \
+      "$deny_config" > "$tmp"
+  if grep -qF "$deny_mv_deny" "$tmp" && grep -qF "$deny_wc_deny" "$tmp"; then
+    mv "$tmp" "$deny_config"
+    cat >"$deny_marker" <<EOF
+# ADR-020 §5.4 flip marker for the cargo-deny gate.
+#
+# Created by scripts/arch-lint-flip.sh --apply on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+# Trigger: agent/deny.toml's multiple-versions + wildcards severities reached
+# zero violations and were promoted from 'warn' to 'deny'.
+#
+# While this file is present, the gauntlet and CI treat the cargo-deny gate
+# as strict. Remove the file (and revert the severities to 'warn') to
+# revert the flip.
+EOF
+    printf '  → flipped: created marker %s and mutated severities warn → deny\n' "${deny_marker#"$repo/"}"
+    flipped_count=$((flipped_count + 1))
+  else
+    rm -f "$tmp"
+    printf '  → flip aborted: sed did not produce expected severity tokens in %s\n' "${deny_config#"$repo/"}" >&2
+  fi
+elif [ "$mode" = "--apply" ] && [ "$deny_state" = "flipped" ] && [ ! -f "$deny_marker" ]; then
+  # Reconcile: deny.toml severities were edited to 'deny' out-of-band (e.g.
+  # in the same commit that introduces this gate). Record the marker so the
+  # audit trail matches the config state.
+  cat >"$deny_marker" <<EOF
+# ADR-020 §5.4 flip marker for the cargo-deny gate.
+#
+# Created by scripts/arch-lint-flip.sh --apply on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+# Trigger: agent/deny.toml severities were already at 'deny' when --apply ran;
+# the marker reconciles the audit trail with the config state.
+EOF
+  printf '  → reconciled: created marker %s (severities already at deny)\n' "${deny_marker#"$repo/"}"
+  flipped_count=$((flipped_count + 1))
+fi
 
 # ----------------------------------------------------------------------------
 # Already-strict gates.

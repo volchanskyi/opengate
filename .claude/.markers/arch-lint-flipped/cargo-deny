@@ -1,0 +1,5 @@
+# ADR-020 §5.4 flip marker for the cargo-deny gate.
+#
+# Created by scripts/arch-lint-flip.sh --apply on 2026-05-29T04:03:05Z.
+# Trigger: agent/deny.toml severities were already at 'deny' when --apply ran;
+# the marker reconciles the audit trail with the config state.

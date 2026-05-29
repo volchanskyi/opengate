@@ -175,7 +175,75 @@ assert_contains "reports flipped on error severity" "$out" "flipped"
 cleanup_repo
 
 # ----------------------------------------------------------------------------
-echo "remaining deferred + already-strict gates always listed:"
+# cargo-deny gate — config-severity state machine (added 2026-05-28 for the
+# second ADR-020 §5.4 flip). State derives from agent/deny.toml's
+# `multiple-versions` AND `wildcards` severity tokens AND marker presence:
+#   - both severities 'warn' AND no marker          → eligible
+#   - both severities 'deny' OR marker present      → flipped
+#   - missing config                                → no config
+# `--apply` on eligible mutates both severities atomically and writes the
+# marker. Same pattern as the eslint-boundaries gate.
+# ----------------------------------------------------------------------------
+
+write_deny_config() {
+  # $1 = severity token to embed (warn|deny)
+  local sev="$1"
+  mkdir -p agent
+  cat > agent/deny.toml <<EOF
+[bans]
+multiple-versions = "${sev}"
+wildcards = "${sev}"
+skip = []
+EOF
+}
+
+echo "cargo-deny gate — no config file:"
+make_fake_repo
+out=$("$FLIP_SCRIPT" --check)
+assert_contains "reports no config" "$out" "no config"
+"$FLIP_SCRIPT" --apply >/dev/null
+assert_file_missing "--apply does not create marker without config" .claude/.markers/arch-lint-flipped/cargo-deny
+cleanup_repo
+
+echo "cargo-deny gate — eligible (severities=warn, no marker), --check:"
+make_fake_repo
+write_deny_config "warn"
+out=$("$FLIP_SCRIPT" --check)
+assert_contains "reports eligible"        "$out" "cargo-deny"
+assert_contains "eligible to flip phrase" "$out" "eligible to flip"
+assert_file_missing "--check does not create marker" .claude/.markers/arch-lint-flipped/cargo-deny
+if grep -q '^multiple-versions = "warn"' agent/deny.toml && grep -q '^wildcards = "warn"' agent/deny.toml; then
+  pass "--check does not mutate config severities"
+else
+  fail "--check mutated config severities (expected both 'warn')"
+fi
+cleanup_repo
+
+echo "cargo-deny gate — --apply on eligible:"
+make_fake_repo
+write_deny_config "warn"
+out=$("$FLIP_SCRIPT" --apply)
+assert_file_exists "--apply creates marker" .claude/.markers/arch-lint-flipped/cargo-deny
+assert_contains "summary mentions flip count" "$out" "gate(s) flipped"
+if grep -q '^multiple-versions = "deny"' agent/deny.toml && grep -q '^wildcards = "deny"' agent/deny.toml; then
+  pass "--apply mutates both severities warn → deny"
+else
+  fail "--apply did not mutate severities to 'deny'"
+fi
+# Idempotency: severities now 'deny', marker exists → flipped, no further changes.
+out2=$("$FLIP_SCRIPT" --apply)
+assert_contains "idempotent — reports flipped" "$out2" "flipped"
+cleanup_repo
+
+echo "cargo-deny gate — severities already 'deny' (reconcile):"
+make_fake_repo
+write_deny_config "deny"
+out=$("$FLIP_SCRIPT" --check)
+assert_contains "reports flipped on deny severities" "$out" "flipped"
+cleanup_repo
+
+# ----------------------------------------------------------------------------
+echo "remaining already-strict gates always listed:"
 make_fake_repo
 echo '{"warn": 0}' > web/dependency-cruiser.snapshot.json
 out=$("$FLIP_SCRIPT" --check)
