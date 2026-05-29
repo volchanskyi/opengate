@@ -36,30 +36,30 @@ jobs:
   auto-merge:
     name: Auto-merge patch + minor updates
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    # `github.event.pull_request.user.login` is the immutable PR-author field
+    # set by GitHub at PR creation; `github.actor` can shift on re-runs and is
+    # flagged as forgeable by Sonar rule S8232.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
     timeout-minutes: 5
     permissions:
       contents: write
       pull-requests: write
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Fetch Dependabot metadata
         id: metadata
-        uses: dependabot/fetch-metadata@d7267f607e9d3fb96fc2fbe83e0af444713e90b7 # v2.3.0
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Enable auto-merge for patch + minor updates
         if: contains(fromJSON('["version-update:semver-patch", "version-update:semver-minor"]'), steps.metadata.outputs.update-type)
         run: gh pr merge --auto --squash "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Comment on major-version updates
         if: steps.metadata.outputs.update-type == 'version-update:semver-major'
         run: |
           gh pr comment "$PR_URL" --body \
             "Major-version update — auto-merge deliberately skipped. Review for breaking changes; merge manually if accepted."
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
