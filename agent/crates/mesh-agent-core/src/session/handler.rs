@@ -2,10 +2,11 @@
 
 use std::sync::Arc;
 
-use mesh_protocol::{ControlMessage, Frame, KeyCode, MouseButton};
+use mesh_protocol::{ControlMessage, Frame, KeyCode};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
+use super::handlers::MouseHandler;
 use super::relay::send_frame;
 use super::terminal_handle::TerminalHandle;
 use super::SessionHandler;
@@ -57,7 +58,7 @@ impl SessionHandler {
     ) {
         match msg {
             ControlMessage::MouseMove { x, y } => {
-                self.handle_mouse_move(injector, x, y);
+                MouseHandler::handle_mouse_move(&self.permissions, injector, x, y);
             }
             ControlMessage::MouseClick {
                 button,
@@ -65,7 +66,14 @@ impl SessionHandler {
                 x,
                 y,
             } => {
-                self.handle_mouse_click(injector, button, pressed, x, y);
+                MouseHandler::handle_mouse_click(
+                    &self.permissions,
+                    injector,
+                    button,
+                    pressed,
+                    x,
+                    y,
+                );
             }
             ControlMessage::KeyPress { key, pressed } => {
                 self.handle_key_press(injector, terminal, key, pressed);
@@ -114,32 +122,6 @@ impl SessionHandler {
             }
             _ => {
                 debug!("unhandled control message in session");
-            }
-        }
-    }
-
-    fn handle_mouse_move(&self, injector: &dyn InputInjector, x: u16, y: u16) {
-        if self.permissions.input {
-            if let Err(e) = injector.inject_mouse_move(x as i32, y as i32) {
-                warn!(target: "input", error = %e, "inject_mouse_move failed");
-            }
-        }
-    }
-
-    fn handle_mouse_click(
-        &self,
-        injector: &dyn InputInjector,
-        button: MouseButton,
-        pressed: bool,
-        x: u16,
-        y: u16,
-    ) {
-        if self.permissions.input {
-            if let Err(e) = injector.inject_mouse_move(x as i32, y as i32) {
-                warn!(target: "input", error = %e, "inject_mouse_move failed");
-            }
-            if let Err(e) = injector.inject_mouse_button(button, pressed) {
-                warn!(target: "input", error = %e, "inject_mouse_button failed");
             }
         }
     }
