@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780067071436,
+  "lastUpdate": 1780088875864,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15018,6 +15018,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.842140292198046,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e652546c8f1121c64239d0062a4092241e1c7358",
+          "message": "refactor(api): ADR-020 §9 OpenAPI Approach D — amt + notifications + Sonar coverage fix\n\nTwo more per-domain Handlers extractions following the audit pilot pattern.\n\namt domain (3 methods — ListDevices, GetDevice, PowerAction):\n- New server/internal/amt/handlers.go — Handlers struct holding Repository\n  (List/Get) + Operator (PowerAction). PowerAction surfaces\n  ErrDeviceNotConnected from the operator unchanged.\n- New server/internal/amt/handlers_test.go — 6 tests pinning delegation,\n  error pass-through (NotFound + NotConnected), and arg routing.\n- handlers_amt.go — three delegations: s.amtDevices.List/Get → s.amtHandlers.*;\n  s.amt.PowerAction → s.amtHandlers.PowerAction.\n\nnotifications domain (3 methods — Subscribe, Unsubscribe, VAPIDPublicKey):\n- New server/internal/notifications/handlers.go — Handlers struct holding\n  WebPushRepository + Notifier ports.\n- New server/internal/notifications/handlers_test.go — 4 tests covering\n  upsert/delete delegation, error pass-through, and VAPID-key passthrough.\n- handlers_push.go — three delegations to s.notifHandlers.\n\napi.go — ServerConfig.AMTHandlers + ServerConfig.NotificationsHandlers\nfields; Server.amtHandlers + Server.notifHandlers fields; resolveAMTHandlers\n+ resolveNotificationsHandlers fallback constructors mirroring the\nresolveAuditHandlers pattern.\n\nmain.go — amt.NewHandlers + notifications.NewHandlers constructed\nexplicitly and passed via AMTHandlers + NotificationsHandlers.\n\nSonar coverage fix bundled: server/internal/api/resolve_handlers_test.go\nexercises every branch of resolveAuditHandlers, resolveAMTHandlers, and\nresolveNotificationsHandlers (3 branches each × 3 functions = 9 assertions,\nplus multi-case for the 2-port functions). Fixes the new_coverage = 77.8%\n< 80% gate failure on the audit-pilot commit 08371e2; the 2 uncovered\nlines were the explicit-handler-wins early return and the both-missing\nreturn-nil branch of resolveAuditHandlers, which no existing test\nexercised.\n\nRollout progress per .claude/plans/adr-020-024-pmat-phase-13b-rollout.md:\n3 of 7 domains done (audit, amt, notifications). Remaining: session,\ndevice, auth, updater.",
+          "timestamp": "2026-05-29T14:06:06-07:00",
+          "tree_id": "fb687acff07852c2d2f7f462d3ed3ba39cfadd70",
+          "url": "https://github.com/volchanskyi/opengate/commit/e652546c8f1121c64239d0062a4092241e1c7358"
+        },
+        "date": 1780088875788,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.12051955479043,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.2733518396972,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 737.9528410492104,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 298.73604447823004,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.86566045915427,
             "unit": "ns/iter"
           }
         ]
