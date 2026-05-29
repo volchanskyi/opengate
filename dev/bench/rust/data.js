@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780088875864,
+  "lastUpdate": 1780091623460,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15067,6 +15067,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.86566045915427,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "85a116e6483a738af661d185bd0ec699fcebf1d5",
+          "message": "refactor(api): ADR-020 §9 OpenAPI — new usecase orchestration layer + SessionService.Delete pilot\n\nThe remaining 4 domains (session, device, auth, updater) didn't fit the\nin-domain Handlers pattern that audit/amt/notifications used: their\nhandlers orchestrate across multiple aggregates (e.g. session.Delete\nneeds session.Repository + audit.Repository + notifications.Notifier;\nsession.Create adds device + agents + signaling on top). Forcing these\ninto a single domain module would create cross-leaf-module imports —\nexplicit ADR-021 violation (every per-aggregate module is declared a\nleaf with `mayDependOn: []` in server/.go-arch-lint.yml).\n\nNew `server/internal/usecase/` package solves this. usecase is the\ncomposer that imports leaf-domain ports; leaf modules do not import each\nother. Per .go-arch-lint.yml the usecase component carries an explicit\n`mayDependOn: [audit, notifications, session, other]` allowlist.\n\nPilot scope: SessionService.Delete only — the simplest of the 3 session\nmethods (single-aggregate orchestration: ownership check + persistence +\nnotification + audit write). 5 unit tests pin: NotFound, Forbidden,\nHappyPath (deletes + audits + notifies), AdminCanDeleteAnyone,\nRepositoryError-passthrough.\n\nserver/internal/api/handlers_sessions.go DeleteSession refactored to a\nthin transport translator: extracts UserID + IsAdmin from JWT claims,\ndelegates to s.sessionUC.Delete, maps domain errors (ErrSessionNotFound,\nErrSessionForbidden) to HTTP status codes. ~28 lines → ~15 lines.\n\napi.go: ServerConfig.SessionUseCase + Server.sessionUC fields;\nresolveSessionUseCase fallback auto-constructs from cfg.Sessions +\ncfg.Notifier + cfg.Audit when not explicitly set — keeps existing test\nServerConfig literals green without churn. No main.go changes needed;\nauto-resolved from the existing Repository wiring.\n\nRollout plan updated: ADR-020 §9 OpenAPI item declared structurally\ncomplete. Pure-delegation domains (audit/amt/notifications) shipped as\nin-domain Handlers; orchestration-heavy domains shift to usecase\nopportunistically when their handlers_*.go files are next touched.\nAvoids the all-or-nothing 1500-LOC reshuffle that Approach A/D would\nhave required.\n\nNext per the rollout plan: ADR-024 remaining handlers, then PMAT, then\nPhase 13b re-evaluation.",
+          "timestamp": "2026-05-29T14:52:02-07:00",
+          "tree_id": "79ae992ee894dd6243b030ac8e953a45c038fd4e",
+          "url": "https://github.com/volchanskyi/opengate/commit/85a116e6483a738af661d185bd0ec699fcebf1d5"
+        },
+        "date": 1780091623386,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.53057372376561,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.6657693015259,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 773.9426209443706,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 304.90066079877136,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.729361110574224,
             "unit": "ns/iter"
           }
         ]
