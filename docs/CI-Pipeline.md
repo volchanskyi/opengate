@@ -227,6 +227,7 @@ Branch protection uses **repository rulesets** (not legacy branch protection rul
 The **CI Gate** ruleset replaces legacy branch protection on `dev`. Key differences from the legacy approach:
 - **Bypass actors:** Repository admins can push directly without passing status checks (legacy protection had `enforce_admins: false` which achieved the same effect, but rulesets make the bypass explicit).
 - **`merge-to-main`** uses a Fine-grained PAT (`SYNC_TOKEN` secret) instead of `GITHUB_TOKEN`. On a personal repo, `github-actions[bot]` cannot be added as a ruleset bypass actor — only the admin role can bypass. The PAT authenticates as the repo owner, who has the admin bypass.
+- **Code Scanning required tools:** CodeQL only. SonarCloud was removed on 2026-05-29 because `SonarSource/sonarqube-scan-action` does not upload SARIF to GitHub Code Scanning for pull_request refs (only for push events to `dev`) — leaving every Dependabot PR `BLOCKED` waiting for SARIF that never arrived. SonarCloud's quality gate is still enforced via the `SonarCloud Analysis` required status check (which posts a regular PR check, not a Code Scanning entry). CodeQL stays as a Code Scanning required tool because it uploads SARIF correctly for both branches and PRs.
 
 ## Benchmark Workflows
 

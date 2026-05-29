@@ -8,6 +8,8 @@ crate mesh_agent_core
 ├── mod platform: pub
 ├── mod session: pub
 │   ├── mod handler: pub(self)
+│   ├── mod handlers: pub
+│   │   └── mod mouse: pub
 │   ├── mod relay: pub(crate)
 │   └── mod terminal_handle: pub(crate)
 ├── mod session_error: pub

@@ -925,7 +925,8 @@
       "Bash(sed -n '1,10p' /home/ivan/opengate/.github/workflows/cd.yml)",
       "Bash(actionlint /home/ivan/opengate/.github/workflows/ci.yml /home/ivan/opengate/.github/workflows/build-image.yml /home/ivan/opengate/.github/workflows/dependabot-auto-merge.yml)",
       "Bash(actionlint /home/ivan/opengate/.github/workflows/dependabot-auto-merge.yml)",
-      "Bash(command -v conftest)"
+      "Bash(command -v conftest)",
+      "Bash(curl -sL \"https://sonarcloud.io/api/ce/task?id=AZ5yvXeuKl6Uh_D27M7V\")"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate.wiki",

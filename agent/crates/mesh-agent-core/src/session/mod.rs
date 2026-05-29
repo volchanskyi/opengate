@@ -4,6 +4,7 @@
 //! WebSocket and streams desktop/terminal/file data to the browser.
 
 mod handler;
+pub mod handlers;
 pub(crate) mod relay;
 pub(crate) mod terminal_handle;
 
