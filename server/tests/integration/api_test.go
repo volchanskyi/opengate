@@ -30,7 +30,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
-// stubAMT is a test double for api.AMTOperator that always returns "not connected".
+// stubAMT is a test double for amt.Operator that always returns "not connected".
 type stubAMT struct{}
 
 func (s *stubAMT) PowerAction(_ context.Context, _ uuid.UUID, _ int) error {

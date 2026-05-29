@@ -310,7 +310,7 @@ No greenfield refactor PRs. Every architectural change rides on a functional cha
 
 | Trigger | Module | Governing ADR | First micro-step |
 |---|---|---|---|
-| Next AMT bug fix | `amt` + `amt/transport` (mps rename) | ADR-021 | ✅ `AMTRepository` extracted (ADR-021 #6, 2026-05-22). ✅ `internal/mps` → `internal/amt/transport` renamed (2026-05-23). ⏳ Promote `AMTOperator` → `AMTService` (still pending). |
+| Next AMT bug fix | `amt` + `amt/transport` (mps rename) | ADR-021 | ✅ `AMTRepository` extracted (ADR-021 #6, 2026-05-22). ✅ `internal/mps` → `internal/amt/transport` renamed (2026-05-23). ✅ Promote `api.AMTOperator` → `amt.Operator` inbound port (2026-05-28; renamed from `AMTService` to avoid collision with concrete `*amt.Service` per existing repo naming convention — `audit.Repository`, `device.Repository`, etc. drop the module-prefix stutter). |
 | Next session-protocol change | Rust agent | ADR-024 | Carve `MouseHandler` first (largest control-message group); add the `ControlMessageHandler` trait around it |
 | Next web feature touching >2 stores | Web state | ADR-022 | Move target stores into their feature folder; add barrel exports; enable `boundaries` rule in warn |
 | Phase 13b kickoff | `relay` + registry | ADR-023 | Wire the in-process `SessionRegistry` port; verify the Redis adapter against a docker-compose stack; run `make e2e-multiserver` |

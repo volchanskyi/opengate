@@ -105,7 +105,77 @@ assert_file_missing "--apply does not create marker without snapshot" .claude/.m
 cleanup_repo
 
 # ----------------------------------------------------------------------------
-echo "deferred + already-strict gates always listed:"
+# eslint-boundaries gate — config-severity state machine (added 2026-05-28
+# for ADR-020 §5.4 flip). State derives from web/eslint.config.js severity
+# token AND marker presence:
+#   - severity 'warn' AND no marker  → eligible
+#   - severity 'error' OR marker     → flipped
+#   - missing config file            → no config
+# `--apply` on eligible mutates the severity token to 'error' AND writes
+# the marker; idempotent re-apply is a no-op.
+# ----------------------------------------------------------------------------
+
+write_eslint_config() {
+  # $1 = severity token to embed (warn|error|<other>)
+  local sev="$1"
+  cat > web/eslint.config.js <<EOF
+export default [{
+  files: ['src/**/*.{ts,tsx}'],
+  rules: {
+    'boundaries/dependencies': ['${sev}', { default: 'disallow' }],
+  },
+}]
+EOF
+}
+
+echo "eslint-boundaries gate — no config file:"
+make_fake_repo
+out=$("$FLIP_SCRIPT" --check)
+assert_contains "reports no config" "$out" "no config"
+"$FLIP_SCRIPT" --apply >/dev/null
+assert_file_missing "--apply does not create marker without config" .claude/.markers/arch-lint-flipped/eslint-boundaries
+cleanup_repo
+
+echo "eslint-boundaries gate — eligible (severity=warn, no marker), --check:"
+make_fake_repo
+write_eslint_config "warn"
+out=$("$FLIP_SCRIPT" --check)
+assert_contains "reports eligible"        "$out" "eslint-boundaries"
+assert_contains "eligible to flip phrase" "$out" "eligible to flip"
+assert_file_missing "--check does not create marker" .claude/.markers/arch-lint-flipped/eslint-boundaries
+# config must remain at warn after --check (no mutation)
+if grep -q "'boundaries/dependencies': \['warn'" web/eslint.config.js; then
+  pass "--check does not mutate config severity"
+else
+  fail "--check mutated config severity (expected 'warn')"
+fi
+cleanup_repo
+
+echo "eslint-boundaries gate — --apply on eligible:"
+make_fake_repo
+write_eslint_config "warn"
+out=$("$FLIP_SCRIPT" --apply)
+assert_file_exists "--apply creates marker" .claude/.markers/arch-lint-flipped/eslint-boundaries
+assert_contains "summary mentions flip count" "$out" "gate(s) flipped"
+if grep -q "'boundaries/dependencies': \['error'" web/eslint.config.js; then
+  pass "--apply mutates severity warn → error"
+else
+  fail "--apply did not mutate severity to 'error' (expected error)"
+fi
+# Idempotency: severity now 'error', marker exists → flipped, no further changes.
+out2=$("$FLIP_SCRIPT" --apply)
+assert_contains "idempotent — reports flipped" "$out2" "flipped"
+cleanup_repo
+
+echo "eslint-boundaries gate — severity already 'error' (reconcile):"
+make_fake_repo
+write_eslint_config "error"
+out=$("$FLIP_SCRIPT" --check)
+assert_contains "reports flipped on error severity" "$out" "flipped"
+cleanup_repo
+
+# ----------------------------------------------------------------------------
+echo "remaining deferred + already-strict gates always listed:"
 make_fake_repo
 echo '{"warn": 0}' > web/dependency-cruiser.snapshot.json
 out=$("$FLIP_SCRIPT" --check)

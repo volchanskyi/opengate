@@ -86,9 +86,76 @@ EOF
 fi
 
 # ----------------------------------------------------------------------------
+# Gate: eslint-boundaries (ADR-020 §5.4)
+#
+# State machine driven by web/eslint.config.js's `boundaries/dependencies`
+# severity token AND the marker file:
+#
+#   - severity 'warn'  AND no marker  → eligible
+#   - severity 'error' OR  marker     → flipped
+#   - missing config                  → no config
+#
+# `--apply` on eligible mutates the severity warn → error AND writes the
+# marker atomically. Re-apply is idempotent: severity already 'error'
+# reports as flipped without further mutation.
+# ----------------------------------------------------------------------------
+eslint_config="$repo/web/eslint.config.js"
+eslint_marker="$marker_dir/eslint-boundaries"
+
+# Fixed-string patterns; anchored on the rule key so we don't match a
+# stray severity literal elsewhere in the file.
+eslint_warn_pat="'boundaries/dependencies': ['warn'"
+eslint_error_pat="'boundaries/dependencies': ['error'"
+
+eslint_state="unknown"
+if [ -f "$eslint_marker" ]; then
+  eslint_state="flipped"
+elif [ ! -f "$eslint_config" ]; then
+  eslint_state="no config"
+elif grep -qF "$eslint_error_pat" "$eslint_config"; then
+  eslint_state="flipped"
+elif grep -qF "$eslint_warn_pat" "$eslint_config"; then
+  eslint_state="eligible"
+fi
+
+case "$eslint_state" in
+  flipped)     printf 'gate: eslint-boundaries   — flipped (marker or severity=error)\n' ;;
+  eligible)    printf 'gate: eslint-boundaries   — eligible to flip (severity=warn, zero violations)\n' ;;
+  "no config") printf 'gate: eslint-boundaries   — no config at %s\n' "${eslint_config#"$repo/"}" ;;
+  *)           printf 'gate: eslint-boundaries   — %s\n' "$eslint_state" ;;
+esac
+
+if [ "$mode" = "--apply" ] && [ "$eslint_state" = "eligible" ]; then
+  # Atomic: sed into a temp, validate the token actually flipped, then mv.
+  tmp="$(mktemp)"
+  # `#` delimiter so the `/` inside `boundaries/dependencies` needs no
+  # escaping. `\[` escapes the literal `[` in the BRE pattern.
+  sed "s#'boundaries/dependencies': \\['warn'#'boundaries/dependencies': ['error'#" \
+      "$eslint_config" > "$tmp"
+  if grep -qF "$eslint_error_pat" "$tmp" && ! grep -qF "$eslint_warn_pat" "$tmp"; then
+    mv "$tmp" "$eslint_config"
+    cat >"$eslint_marker" <<EOF
+# ADR-020 §5.4 flip marker for the eslint-boundaries gate.
+#
+# Created by scripts/arch-lint-flip.sh --apply on $(date -u +%Y-%m-%dT%H:%M:%SZ).
+# Trigger: web/eslint.config.js's boundaries/dependencies severity reached
+# zero violations and was promoted from 'warn' to 'error'.
+#
+# While this file is present, the gauntlet and CI treat the eslint-boundaries
+# gate as strict. Remove the file (and revert the severity to 'warn') to
+# revert the flip.
+EOF
+    printf '  → flipped: created marker %s and mutated severity warn → error\n' "${eslint_marker#"$repo/"}"
+    flipped_count=$((flipped_count + 1))
+  else
+    rm -f "$tmp"
+    printf '  → flip aborted: sed did not produce expected severity token in %s\n' "${eslint_config#"$repo/"}" >&2
+  fi
+fi
+
+# ----------------------------------------------------------------------------
 # Deferred gates — explicitly listed so they're visible in --check output.
 # ----------------------------------------------------------------------------
-printf 'gate: eslint-boundaries   — deferred (eslint.config.js mutation required)\n'
 printf 'gate: cargo-deny          — deferred (HTTP-dep inventory pending; ADR-020 §5.4)\n'
 
 # ----------------------------------------------------------------------------
