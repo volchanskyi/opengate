@@ -1,0 +1,65 @@
+name: Dependabot Auto-Merge
+
+# Auto-merges Dependabot PRs targeting `dev` once CI is green.
+#
+# Scope: patch + minor semver updates only. Major-version bumps stay open
+# for human review (label them with `dependabot:approve-major` and merge
+# manually if you decide to ship them).
+#
+# Flow:
+#   1. Dependabot opens a PR against `dev`.
+#   2. CI (.github/workflows/ci.yml `pull_request` trigger) runs on the PR.
+#   3. This workflow fires on the same PR event, classifies the update via
+#      dependabot/fetch-metadata, and — for patch/minor — calls
+#      `gh pr merge --auto --squash`. Auto-merge waits for the required CI
+#      checks (Branch Protection on `dev`) before completing the merge.
+#   4. Once the PR lands on `dev`, the `merge-to-main` job in ci.yml
+#      forwards the commit to `main`.
+#
+# Prerequisite: repository setting "Allow auto-merge" must be enabled at
+# Settings → General. Without it, `gh pr merge --auto` errors.
+#
+# Why `pull_request_target` not `pull_request`:
+#   Dependabot-triggered `pull_request` workflows receive a read-only
+#   GITHUB_TOKEN regardless of declared `permissions:` — by GitHub design,
+#   to limit blast radius of malicious PRs. `pull_request_target` runs in
+#   the context of the base branch and gets the declared permissions, so
+#   the workflow can actually call the merge API.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    name: Auto-merge patch + minor updates
+    runs-on: ubuntu-latest
+    # `github.event.pull_request.user.login` is the immutable PR-author field
+    # set by GitHub at PR creation; `github.actor` can shift on re-runs and is
+    # flagged as forgeable by Sonar rule S8232.
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for patch + minor updates
+        if: contains(fromJSON('["version-update:semver-patch", "version-update:semver-minor"]'), steps.metadata.outputs.update-type)
+        run: gh pr merge --auto --squash "$PR_URL"
+
+      - name: Comment on major-version updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        run: |
+          gh pr comment "$PR_URL" --body \
+            "Major-version update — auto-merge deliberately skipped. Review for breaking changes; merge manually if accepted."
