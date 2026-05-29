@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780030118603,
+  "lastUpdate": 1780031930264,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14773,6 +14773,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.85825413761662,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "634d42c57432925874cb292b1345703292e81737",
+          "message": "refactor(ci): tighten dependabot-auto-merge workflow\n\nThree small improvements on the freshly added auto-merge workflow:\n\n- Hoist `PR_URL` and `GH_TOKEN` env vars from per-step to job level. The\n  patch+minor merge step and the major-version comment step both need\n  them; mutually exclusive via `if:`, so hoisting just deduplicates the\n  YAML without changing behavior.\n\n- Update `dependabot/fetch-metadata` pin from a placeholder SHA to the\n  actual v3.1.0 release SHA (25dd0e3). Verified via `gh api`.\n\n- Replace `github.actor == 'dependabot[bot]'` with\n  `github.event.pull_request.user.login == 'dependabot[bot]'`. SonarLint\n  rule S8232 flags `github.actor` as a forgeable trust check (it can\n  shift on workflow re-runs by other users). The PR author field is set\n  at PR creation by GitHub and is immutable for the workflow's lifetime —\n  same intent, restructured instead of suppressing per project policy.",
+          "timestamp": "2026-05-28T22:16:33-07:00",
+          "tree_id": "a402c26757d2339b0e013e115a2284a4005130bc",
+          "url": "https://github.com/volchanskyi/opengate/commit/634d42c57432925874cb292b1345703292e81737"
+        },
+        "date": 1780031930207,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 22.188578450626306,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.705392189823314,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 769.5927805196703,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 296.9377336957967,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.868870067255074,
             "unit": "ns/iter"
           }
         ]
