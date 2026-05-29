@@ -28,6 +28,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/updater"
+	"github.com/volchanskyi/opengate/server/internal/usecase"
 )
 
 //go:generate oapi-codegen -config ../../oapi-codegen.yaml ../../api/openapi.yaml
@@ -62,6 +63,7 @@ type ServerConfig struct {
 	AMTDevices      amt.Repository
 	AMTHandlers     *amt.Handlers
 	Sessions        session.Repository
+	SessionUseCase  *usecase.SessionService
 	Users           auth.UserRepository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
@@ -98,6 +100,7 @@ type Server struct {
 	amtDevices     amt.Repository
 	amtHandlers    *amt.Handlers
 	sessions       session.Repository
+	sessionUC      *usecase.SessionService
 	users          auth.UserRepository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
@@ -161,6 +164,22 @@ func resolveNotificationsHandlers(cfg ServerConfig) *notifications.Handlers {
 	return nil
 }
 
+// resolveSessionUseCase constructs SessionService when not explicitly
+// provided. Falls back from cfg.Sessions + cfg.Notifier + cfg.Audit
+// (existing test ServerConfig literals all set those three, so the use
+// case is silently available in tests that pre-date this commit).
+// Returns nil when prerequisites are missing — handler delegation must
+// check for that before calling.
+func resolveSessionUseCase(cfg ServerConfig) *usecase.SessionService {
+	if cfg.SessionUseCase != nil {
+		return cfg.SessionUseCase
+	}
+	if cfg.Sessions != nil && cfg.Notifier != nil && cfg.Audit != nil {
+		return usecase.NewSessionService(cfg.Sessions, cfg.Notifier, cfg.Audit)
+	}
+	return nil
+}
+
 // NewServer creates an API server with all routes registered.
 func NewServer(cfg ServerConfig) *Server {
 	s := &Server{
@@ -179,6 +198,7 @@ func NewServer(cfg ServerConfig) *Server {
 		amtDevices:     cfg.AMTDevices,
 		amtHandlers:    resolveAMTHandlers(cfg),
 		sessions:       cfg.Sessions,
+		sessionUC:      resolveSessionUseCase(cfg),
 		users:          cfg.Users,
 		jwt:       cfg.JWT,
 		agents:    cfg.Agents,
