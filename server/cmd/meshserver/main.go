@@ -174,6 +174,8 @@ func main() {
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
 	auditHandlers := audit.NewHandlers(auditRepo)
+	amtHandlers := amt.NewHandlers(amtRepo, amtSvc)
+	notifHandlers := notifications.NewHandlers(webPushRepo, notifier)
 
 	srv := api.NewServer(api.ServerConfig{
 		Store:         store,
@@ -187,7 +189,9 @@ func main() {
 		Hardware:       hardwareRepo,
 		DeviceLogs:     deviceLogsRepo,
 		WebPush:        webPushRepo,
+		NotificationsHandlers: notifHandlers,
 		AMTDevices:     amtRepo,
+		AMTHandlers:    amtHandlers,
 		Sessions:       sessionsRepo,
 		Users:          usersRepo,
 		JWT:       jwtCfg,

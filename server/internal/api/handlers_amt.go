@@ -23,7 +23,7 @@ func (s *Server) ListAMTDevices(ctx context.Context, _ ListAMTDevicesRequestObje
 		return resp, nil
 	}
 
-	devices, err := s.amtDevices.List(ctx)
+	devices, err := s.amtHandlers.ListDevices(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func (s *Server) GetAMTDevice(ctx context.Context, request GetAMTDeviceRequestOb
 		return resp, nil
 	}
 
-	d, err := s.amtDevices.Get(ctx, request.Uuid)
+	d, err := s.amtHandlers.GetDevice(ctx, request.Uuid)
 	if err != nil {
 		if errors.Is(err, amt.ErrAMTDeviceNotFound) {
 			return GetAMTDevice404JSONResponse{Error: "device not found"}, nil
@@ -62,7 +62,7 @@ func (s *Server) AmtPowerAction(ctx context.Context, request AmtPowerActionReque
 		return AmtPowerAction409JSONResponse{Error: "unknown power action"}, nil
 	}
 
-	if err := s.amt.PowerAction(ctx, request.Uuid, state); err != nil {
+	if err := s.amtHandlers.PowerAction(ctx, request.Uuid, state); err != nil {
 		if errors.Is(err, amt.ErrDeviceNotConnected) {
 			return AmtPowerAction409JSONResponse{Error: "device not connected"}, nil
 		}

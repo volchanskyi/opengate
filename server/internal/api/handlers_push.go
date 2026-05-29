@@ -16,7 +16,7 @@ func (s *Server) SubscribePush(ctx context.Context, request SubscribePushRequest
 		P256dh:   request.Body.P256dh,
 		Auth:     request.Body.Auth,
 	}
-	if err := s.webPush.Upsert(ctx, sub); err != nil {
+	if err := s.notifHandlers.Subscribe(ctx, sub); err != nil {
 		return nil, err
 	}
 
@@ -25,7 +25,7 @@ func (s *Server) SubscribePush(ctx context.Context, request SubscribePushRequest
 
 // UnsubscribePush implements StrictServerInterface.
 func (s *Server) UnsubscribePush(ctx context.Context, request UnsubscribePushRequestObject) (UnsubscribePushResponseObject, error) {
-	if err := s.webPush.Delete(ctx, request.Body.Endpoint); err != nil {
+	if err := s.notifHandlers.Unsubscribe(ctx, request.Body.Endpoint); err != nil {
 		return nil, err
 	}
 
@@ -35,6 +35,6 @@ func (s *Server) UnsubscribePush(ctx context.Context, request UnsubscribePushReq
 // GetVapidKey implements StrictServerInterface.
 func (s *Server) GetVapidKey(ctx context.Context, _ GetVapidKeyRequestObject) (GetVapidKeyResponseObject, error) {
 	return GetVapidKey200JSONResponse{
-		PublicKey: s.notifier.VAPIDPublicKey(),
+		PublicKey: s.notifHandlers.VAPIDPublicKey(),
 	}, nil
 }
