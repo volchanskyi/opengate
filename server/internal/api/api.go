@@ -49,6 +49,7 @@ type CertProvider interface {
 type ServerConfig struct {
 	Store           *db.PostgresStore
 	Audit           audit.Repository
+	AuditHandlers   *audit.Handlers
 	DeviceUpdates   updater.DeviceUpdateRepository
 	Enrollment      updater.EnrollmentTokenRepository
 	SecurityGroups  auth.SecurityGroupRepository
@@ -82,6 +83,7 @@ type ServerConfig struct {
 type Server struct {
 	store          *db.PostgresStore
 	audit          audit.Repository
+	auditHandlers  *audit.Handlers
 	deviceUpdates  updater.DeviceUpdateRepository
 	enrollment     updater.EnrollmentTokenRepository
 	securityGroups auth.SecurityGroupRepository
@@ -112,11 +114,28 @@ type Server struct {
 	metrics         *appmetrics.Metrics
 }
 
+// resolveAuditHandlers returns the per-domain Handlers from cfg, or
+// wraps the legacy Audit Repository to satisfy the new transport
+// boundary. Per ADR-020 §9 / plan §4.1, the api package consumes audit
+// operations through audit.Handlers; tests that still wire only `Audit:`
+// stay green via this fallback. main.go and new test code should pass
+// AuditHandlers explicitly.
+func resolveAuditHandlers(cfg ServerConfig) *audit.Handlers {
+	if cfg.AuditHandlers != nil {
+		return cfg.AuditHandlers
+	}
+	if cfg.Audit != nil {
+		return audit.NewHandlers(cfg.Audit)
+	}
+	return nil
+}
+
 // NewServer creates an API server with all routes registered.
 func NewServer(cfg ServerConfig) *Server {
 	s := &Server{
 		store:          cfg.Store,
 		audit:          cfg.Audit,
+		auditHandlers:  resolveAuditHandlers(cfg),
 		deviceUpdates:  cfg.DeviceUpdates,
 		enrollment:     cfg.Enrollment,
 		securityGroups: cfg.SecurityGroups,

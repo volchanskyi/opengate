@@ -33,7 +33,7 @@ func (s *Server) ListAuditEvents(ctx context.Context, request ListAuditEventsReq
 		q.UserID = &uid
 	}
 
-	events, err := s.audit.Query(ctx, q)
+	events, err := s.auditHandlers.ListEvents(ctx, q)
 	if err != nil {
 		return nil, err
 	}
