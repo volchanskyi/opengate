@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780007012912,
+  "lastUpdate": 1780023775334,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14675,6 +14675,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.845381865327848,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "01856edb1e75fdc7e188d1db42ca71edd0b170bc",
+          "message": "refactor(arch): ADR-020 §5.4 eslint-boundaries flip + ADR-021 §9 amt.Operator port-promotion\n\n§5.4 flip: web/eslint.config.js boundaries/dependencies severity\nwarn → error (zero existing violations); marker recorded at\n.claude/.markers/arch-lint-flipped/eslint-boundaries. arch-lint-flip.sh\ngains a state-aware gate replacing the prior hardcoded \"deferred\" line:\nflipped if marker or severity=error, eligible if severity=warn AND no\nmarker, no config if file missing; --apply atomically mutates the\nseverity token (sed via temp + mv with grep validation) and writes the\nmarker. 9 new bash tests cover dirty/eligible/apply/idempotent/\nreconcile/no-config paths (18 → 27 total).\n\n§9 AMT port-promotion: new server/internal/amt/operator.go declares the\namt.Operator inbound port (PowerAction / QueryDeviceInfo /\nConnectedDeviceCount). The §9 row's \"AMTService\" name renamed to\nOperator to avoid colliding with the existing concrete *amt.Service and\nto match repo convention (audit.Repository, device.Repository,\nnotifications.Notifier — interfaces drop the module-prefix stutter).\noperator_test.go pins the contract via a compile-time\nvar _ Operator = (*Service)(nil) assertion. api.go drops its local\nAMTOperator declaration plus the now-unused google/uuid +\namt/transport/wsman imports; ServerConfig.AMT and Server.amt retype to\namt.Operator. Test stub comments updated; stubAMTOperator / stubAMT\ncontinue to satisfy the new interface via structural typing.\n\nphases.md row appended; modular-monolith plan §9 trigger row marks the\nAMT promotion done with the naming-deviation rationale.",
+          "timestamp": "2026-05-28T19:56:38-07:00",
+          "tree_id": "e359246320f8e0de05486399b030840b94c98915",
+          "url": "https://github.com/volchanskyi/opengate/commit/01856edb1e75fdc7e188d1db42ca71edd0b170bc"
+        },
+        "date": 1780023775265,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.23785388618805,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.286123341494672,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 736.1121354814213,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 307.3241202157549,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.029873378230022,
             "unit": "ns/iter"
           }
         ]
