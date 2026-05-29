@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780041489551,
+  "lastUpdate": 1780042829138,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14920,6 +14920,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.86637294817341,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "07178ff72570425174cb6292589c8e2a91723461",
+          "message": "refactor(agent): ADR-024 §9 MouseHandler carve-out + Code Scanning ruleset unblock\n\nADR-024 pilot carve. New agent/crates/mesh-agent-core/src/session/handlers/\nmodule with mod.rs declaring the ControlMessageHandler marker trait and\nmouse.rs implementing MouseHandler. Associated functions take &Permissions\n+ &dyn InputInjector explicitly — no per-session state. handle_control's\nMouseMove/MouseClick arms delegate to MouseHandler::*; the two fn\nhandle_mouse_* methods on SessionHandler are deleted, their bodies moved\nverbatim into MouseHandler with the permission gate restructured to\nearly-return. 11 new unit tests cover both permitted/denied paths,\ninjector failure (move + button independently), u16::MAX boundary, every\nMouseButton variant, NullInput smoke, and a compile-time\nassert_impl::<MouseHandler>() against the trait marker. 3 new integration\ntests in tests/mouse_handler_test.rs exercise the public crate surface.\nExisting 13 handler.rs inline tests covering Mouse* through the\nFrame::Control dispatch path remain green — pre-carve-out behavior\npreserved end-to-end. mesh-agent-core module-graph snapshot regenerated.\n\nCode Scanning ruleset unblock (bundled because PRs #254 + #255 were\nstuck). gh api -X PUT on the CI Gate ruleset dropped SonarCloud from the\ncode_scanning rule's code_scanning_tools (CodeQL stays). Root cause:\nSonarSource/sonarqube-scan-action uploads SARIF only on push events to\ndev (verified: 634d42c, c4ad7ad have SonarCloud SARIF; PR merge ref\ne473067 has only 3 CodeQL analyses, zero SonarCloud) — every Dependabot\nPR was blocked waiting for SARIF that never arrived. SonarCloud quality\ngate remains enforced via the SonarCloud Analysis required status check.\nBoth PRs flipped from BLOCKED to CLEAN/MERGEABLE immediately after the\nruleset update and have since auto-merged.\n\ndocs/CI-Pipeline.md ruleset table appended with the change reason +\ndate. modular-monolith plan §9 row for ADR-024 marked MouseHandler done\nwith the remaining-handlers list. New sequenced-rollout plan at\n.claude/plans/adr-020-024-pmat-phase-13b-rollout.md captures the user-\ndirected ordering: complete ADR-020 (cert + OpenAPI decomposition) →\nfinish ADR-024 (5 remaining handlers) → fully complete PMAT (4\nintegration points) → re-evaluate Phase 13b.",
+          "timestamp": "2026-05-29T01:18:06-07:00",
+          "tree_id": "cd7f72161d08d074cb96432efce4af5973410661",
+          "url": "https://github.com/volchanskyi/opengate/commit/07178ff72570425174cb6292589c8e2a91723461"
+        },
+        "date": 1780042829062,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.42439095383156,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.686093070080222,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 763.8828107030739,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 304.33632553022517,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.808642914144915,
             "unit": "ns/iter"
           }
         ]
