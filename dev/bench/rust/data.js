@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780042829138,
+  "lastUpdate": 1780067071436,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14969,6 +14969,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.808642914144915,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "08371e2c3236e3883c3406b919b2bbf547aff9d3",
+          "message": "refactor(api): ADR-020 §9 OpenAPI Approach D — audit.Handlers pilot\n\nPilot for the per-domain use-case extraction described in modular-monolith\nplan §4.1. Approach D: domain modules expose a Handlers struct returning\ndomain-native types; the api package's transport handlers translate from\nHTTP request/response to/from those calls.\n\nPilot scope: `audit` domain only (1 method — ListAuditEvents).\n\nserver/internal/audit/handlers.go (new) — Handlers struct wrapping the\nRepository port with a ListEvents passthrough. For audit specifically the\nlayer is pure delegation (the Repository IS the use case here); the\npattern is established so future audit use cases (bulk export, retention\nsweeps) have a natural home.\n\nserver/internal/audit/handlers_test.go (new) — 3 unit tests pinning the\ndelegation contract: query pass-through, error pass-through, empty-result\nshape.\n\nserver/internal/api/api.go — ServerConfig.AuditHandlers + Server.auditHandlers\nfields; resolveAuditHandlers fallback constructs from cfg.Audit when\nAuditHandlers is nil, so the ~12 existing test ServerConfig literals stay\ngreen without churn. main.go and new test code should pass AuditHandlers\nexplicitly.\n\nserver/internal/api/handlers_audit.go — single-line delegation change:\ns.audit.Query(ctx, q) → s.auditHandlers.ListEvents(ctx, q).\n\nserver/cmd/meshserver/main.go — explicit audit.NewHandlers(auditRepo)\nconstruction passed to api.NewServer.\n\nSequencing context (per .claude/plans/adr-020-024-pmat-phase-13b-rollout.md):\nthis is 1 of 7 domain handler extractions. Remaining: auth, device,\nupdater, amt, notifications, session. Each follows the same pattern.\n\nAlso bundled: new sequenced-rollout plan at\n.claude/plans/pentest-gate-semgrep-precommit.md (in-repo per ADR-020/\nplans-and-adrs.md rules) capturing the user-directed adversarial pen-test\nprecommit gate design: Semgrep + custom rules, block on HIGH-severity\nfindings, 6 starter rules covering auth gates, path traversal, token\nleak, plaintext-secret schema, IDOR approximation, OpenAPI spec drift.\nSlots in as one commit between ADR-020 OpenAPI completion and ADR-024\nremaining handlers.",
+          "timestamp": "2026-05-29T07:56:42-07:00",
+          "tree_id": "33558dfee74ac26e626b42a55c2676670e197622",
+          "url": "https://github.com/volchanskyi/opengate/commit/08371e2c3236e3883c3406b919b2bbf547aff9d3"
+        },
+        "date": 1780067071364,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.079843227785705,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.53932031394121,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 785.307521212795,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.3041977955265,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.842140292198046,
             "unit": "ns/iter"
           }
         ]
