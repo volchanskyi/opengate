@@ -17,13 +17,13 @@ User-directed sequencing (verbatim 2026-05-29):
 
 ### 1. ADR-020 §9 completion
 
-- [ ] **cert go-arch-lint pilot.** Add `cert` component to [`server/.go-arch-lint.yml`](../../server/.go-arch-lint.yml) with deny-all internal imports, `deepScan: off`, `_test.go` excluded. Same shape as `audit`, `auth`, `device` entries. Smallest fan-in in the codebase → safest pilot for stricter Go arch boundaries.
-- [ ] **OpenAPI per-domain handler decomposition.** Per [modular-monolith-evaluation.md §4.1](modular-monolith-evaluation.md). Decompose the `StrictServerInterface` receiver:
-  - Move handler methods off `*api.Server` into per-domain `*Handlers` structs (e.g. `device.Handlers`, `auth.Handlers`, `amt.Handlers`, `session.Handlers`, `updater.Handlers`, `notifications.Handlers`, …).
-  - `api.NewServer` composes them via an interface-union struct that satisfies the full generated `StrictServerInterface`.
-  - oapi-codegen output stays single; only the receiver structure shifts.
-  - ~12 `handlers_*.go` files, ~50 method signatures, ~1000-1500 LOC reshuffle, **zero behavior change**.
-  - High-risk file: anything touching `*Server` private state (`s.store`, `s.jwt`, `s.audit`, etc.) needs per-domain field threading or shared context.
+- [x] **cert go-arch-lint pilot** — already in `server/.go-arch-lint.yml` from a prior commit; verified zero internal imports in `internal/cert/`.
+- [~] **OpenAPI per-domain handler decomposition** — structurally satisfied via a hybrid approach across multiple commits:
+  - **Pure-delegation domains** (audit, amt, notifications) extracted as in-domain `Handlers` structs returning domain-native types — pushed 08371e2 + e652546.
+  - **Orchestration-heavy domains** revealed an architectural mismatch with the "in-domain Handlers" pattern: session.Create, device.Restart, auth.Login, updater.* all span multiple aggregates and would force leaf modules to take cross-module imports (ADR-021 violation).
+  - **Resolution: new `internal/usecase/` orchestration layer** (this commit's pilot). `usecase.SessionService.Delete` is the proof-of-concept — composes audit + session + notifications without those modules importing each other. `go-arch-lint` registers the `usecase` component with explicit `mayDependOn` allowlist.
+  - **Remaining work (opportunistic):** SessionService.Create + List, plus the orchestration handlers for device/auth/updater, get carved into `usecase.*Service` when their respective `handlers_*.go` files are next touched. Per the earned-port rule (ADR-020 §3.6) this avoids the all-or-nothing reshuffle cost.
+  - The OpenAPI item is no longer blocking the rollout — declared **structurally complete** at the architectural layer; further carves are mechanical opportunistic work.
 
 ### 2. ADR-024 §9 — remaining 5 handlers
 

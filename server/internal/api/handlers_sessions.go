@@ -10,6 +10,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/session"
+	"github.com/volchanskyi/opengate/server/internal/usecase"
 )
 
 // CreateSession implements StrictServerInterface.
@@ -129,31 +130,26 @@ func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestOb
 }
 
 // DeleteSession implements StrictServerInterface.
+//
+// Per ADR-028, this transport handler delegates orchestration to
+// usecase.SessionService.Delete: the use case owns the ownership check,
+// the persistence, the audit write, and the push event. The handler is a
+// thin translator — extract userID/isAdmin from JWT claims, map domain
+// errors to HTTP status codes.
 func (s *Server) DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error) {
-	sess, err := s.sessions.Get(ctx, request.Token)
-	if err != nil {
-		if errors.Is(err, session.ErrSessionNotFound) {
-			return DeleteSession404JSONResponse{Error: "session not found"}, nil
-		}
-		return nil, err
-	}
-
-	// Only the session creator or an admin can delete a session.
-	if sess.UserID != ContextUserID(ctx) && !isAdmin(ctx) {
+	err := s.sessionUC.Delete(ctx, usecase.DeleteSessionInput{
+		Token:   request.Token,
+		UserID:  ContextUserID(ctx),
+		IsAdmin: isAdmin(ctx),
+	})
+	switch {
+	case err == nil:
+		return DeleteSession204Response{}, nil
+	case errors.Is(err, usecase.ErrSessionNotFound):
+		return DeleteSession404JSONResponse{Error: "session not found"}, nil
+	case errors.Is(err, usecase.ErrSessionForbidden):
 		return DeleteSession403JSONResponse{Error: msgForbidden}, nil
-	}
-
-	if err := s.sessions.Delete(ctx, request.Token); err != nil {
+	default:
 		return nil, err
 	}
-
-	s.auditLog(ContextUserID(ctx), "session.delete", protocol.RedactToken(request.Token), "")
-	endedEvt := notifications.Event{
-		Type:      notifications.EventSessionEnded,
-		UserID:    ContextUserID(ctx),
-		Timestamp: time.Now(),
-	}
-	_ = s.notifier.Notify(ctx, endedEvt) // fire-and-forget
-
-	return DeleteSession204Response{}, nil
 }

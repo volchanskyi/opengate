@@ -89,6 +89,15 @@ components:
   session:
     in: internal/session
 
+  # Constrained: the usecase module owns cross-aggregate orchestration that
+  # would violate leaf-module boundaries if pushed into a single domain
+  # module (ADR-028). It composes per-aggregate Repository ports from the
+  # leaf modules. Pilot scope: SessionService.Delete (commit landing this
+  # rule). Future use cases (device.Restart, auth.Login, etc.) add their
+  # deps to mayDependOn opportunistically.
+  usecase:
+    in: internal/usecase
+
   # Catch-all for everything else. NOT constrained at the pilot stage — these
   # components will earn their own rules in ADR-021/022/023/024 work.
   other:
@@ -149,6 +158,20 @@ deps:
     # The Repository interface, Postgres adapter, and Instrumented
     # decorator live entirely in this package; no internal imports.
     mayDependOn: []
+    anyVendorDeps: true
+    deepScan: false
+  usecase:
+    # Composes leaf-domain ports. Allowed to import any leaf aggregate
+    # whose Repository/port it consumes. Pilot scope (ADR-028) uses
+    # audit + notifications + session + protocol. deepScan disabled
+    # because the use cases accept duck-typed interfaces (e.g.
+    # notifications.Notifier) and the concrete implementation flowing
+    # in at wiring time would otherwise be traced as a dependency.
+    mayDependOn:
+      - audit
+      - notifications
+      - session
+      - other  # protocol.RedactToken; protocol is part of the catch-all
     anyVendorDeps: true
     deepScan: false
   other:
