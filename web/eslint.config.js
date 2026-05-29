@@ -73,9 +73,9 @@ export default defineConfig([
   //                permitted as the documented exception until the migration
   //                completes.
   //
-  // Pilot severity: WARN — auto-flips to ERROR when violation count reaches
-  // zero per ADR-020 §5.4. The 81 current cross-feature imports are paid
-  // down opportunistically.
+  // Flipped to ERROR on 2026-05-28 per ADR-020 §5.4 — zero current
+  // boundaries violations, marker recorded at
+  // .claude/.markers/arch-lint-flipped/eslint-boundaries.
   {
     files: ['src/**/*.{ts,tsx}'],
     plugins: { boundaries },
@@ -91,7 +91,7 @@ export default defineConfig([
     rules: {
       // v6 object-selector syntax. `boundaries/dependencies` replaces the
       // legacy `boundaries/element-types`.
-      'boundaries/dependencies': ['warn', {
+      'boundaries/dependencies': ['error', {
         default: 'disallow',
         rules: [
           // Entry points reach everywhere.

@@ -1,0 +1,9 @@
+# ADR-020 §5.4 flip marker for the eslint-boundaries gate.
+#
+# Created by scripts/arch-lint-flip.sh --apply on 2026-05-29T02:18:30Z.
+# Trigger: web/eslint.config.js's boundaries/dependencies severity reached
+# zero violations and was promoted from 'warn' to 'error'.
+#
+# While this file is present, the gauntlet and CI treat the eslint-boundaries
+# gate as strict. Remove the file (and revert the severity to 'warn') to
+# revert the flip.
