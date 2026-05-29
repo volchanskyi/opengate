@@ -920,7 +920,10 @@
       "Bash(timeout 60 staticcheck -checks U1000 ./server/internal/relay/...)",
       "Bash(awk '/limits|reservations/{flag=1;next}/services:|^[a-z]/{flag=0}flag' /home/ivan/opengate/deploy/docker-compose.yml /home/ivan/opengate/deploy/docker-compose.monitoring.yml)",
       "Bash(awk '{print}')",
-      "Bash(npm ls *)"
+      "Bash(npm ls *)",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; head -5 {}')",
+      "Bash(sed -n '1,10p' /home/ivan/opengate/.github/workflows/cd.yml)",
+      "Bash(actionlint /home/ivan/opengate/.github/workflows/ci.yml /home/ivan/opengate/.github/workflows/build-image.yml /home/ivan/opengate/.github/workflows/dependabot-auto-merge.yml)"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate.wiki",

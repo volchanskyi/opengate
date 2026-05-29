@@ -1,8 +1,13 @@
 version: 2
+# All ecosystems target `dev` directly. Dependabot opens PRs against `dev`;
+# `.github/workflows/dependabot-auto-merge.yml` auto-merges patch + minor
+# updates once CI is green; the existing `merge-to-main` job in
+# `.github/workflows/ci.yml` then forwards `dev` → `main`. Major updates
+# stay open for human review.
 updates:
   - package-ecosystem: gomod
     directory: /server
-    target-branch: dependabot-dev
+    target-branch: dev
     schedule:
       interval: daily
     open-pull-requests-limit: 10
@@ -12,7 +17,7 @@ updates:
 
   - package-ecosystem: cargo
     directory: /agent
-    target-branch: dependabot-dev
+    target-branch: dev
     schedule:
       interval: daily
     open-pull-requests-limit: 10
@@ -22,7 +27,7 @@ updates:
 
   - package-ecosystem: npm
     directory: /web
-    target-branch: dependabot-dev
+    target-branch: dev
     schedule:
       interval: daily
     open-pull-requests-limit: 10
@@ -32,7 +37,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
-    target-branch: dependabot-dev
+    target-branch: dev
     schedule:
       interval: daily
     open-pull-requests-limit: 10

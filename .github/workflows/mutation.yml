@@ -17,7 +17,7 @@ name: Mutation Testing
 
 on:
   schedule:
-    - cron: '0 3 * * *'  # nightly 03:00 UTC (between load-test Sun 02:00 and sync-from-main daily 04:00)
+    - cron: '0 3 * * *'  # nightly 03:00 UTC (after load-test Sun 02:00)
   workflow_dispatch:
 
 concurrency:

@@ -47,17 +47,17 @@ Test fixtures with deliberate fake credentials (e.g. [`deploy/tests/fixtures/lea
 
 ### Dependabot
 
-[Dependabot](../../.github/dependabot.yml) checks all four ecosystems (Go, Cargo, npm, GitHub Actions) daily. PRs target the `dependabot-dev` integration branch (not `dev` directly) to isolate dependency updates from feature development.
+[Dependabot](../../.github/dependabot.yml) checks all four ecosystems (Go, Cargo, npm, GitHub Actions) daily. PRs target `dev` directly — same target a human contributor would use.
 
 Updates are **grouped per ecosystem** — one PR per ecosystem rather than one per package — reducing noise.
 
-A companion [auto-merge workflow](../../.github/workflows/dependabot-auto-merge.yml) approves and squash-merges Dependabot PRs automatically once CI passes. The full propagation path is:
+The [auto-merge workflow](../../.github/workflows/dependabot-auto-merge.yml) classifies each PR via `dependabot/fetch-metadata` and squash-merges patch + minor updates as soon as CI is green; major-version bumps stay open with a comment requesting human review. The full propagation path is:
 
 ```
-dependabot/* PR → dependabot-dev → (CI) → main ──► dev (auto-sync)
+dependabot/* PR → dev → (CI) → main
 ```
 
-The `merge-to-main` job merges `dependabot-dev` directly into `main` (same gate as `dev`), then immediately syncs `main` back into `dev`. A nightly `sync-from-main` workflow (04:00 UTC) also syncs `main` → both `dev` and `dependabot-dev` as a safety net.
+The existing `merge-to-main` job in [`ci.yml`](../../.github/workflows/ci.yml) forwards `dev` → `main` after the same gate any human commit clears. No separate integration branch; no nightly sync workflow.
 
 ## Supply Chain Security
 
