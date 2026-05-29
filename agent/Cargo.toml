@@ -6,6 +6,7 @@ exclude = ["crates/mesh-agent-tray"]
 [workspace.package]
 edition = "2021"
 license = "Apache-2.0"
+publish = false  # internal workspace crates; ship via GitHub Releases, not crates.io
 
 [workspace.lints.clippy]
 let_underscore_must_use = "warn"

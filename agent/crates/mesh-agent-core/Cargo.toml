@@ -3,7 +3,7 @@ name = "mesh-agent-core"
 version = "0.15.4"
 edition.workspace = true
 license.workspace = true
-publish = false  # internal workspace crate; ships via GitHub Releases, not crates.io
+publish.workspace = true
 
 [dependencies]
 mesh-protocol = { path = "../mesh-protocol" }

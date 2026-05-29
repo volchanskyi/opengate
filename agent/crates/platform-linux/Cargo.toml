@@ -3,7 +3,7 @@ name = "platform-linux"
 version = "0.15.4"
 edition.workspace = true
 license.workspace = true
-publish = false  # internal workspace crate; ships via GitHub Releases, not crates.io
+publish.workspace = true
 
 [dependencies]
 mesh-agent-core = { path = "../mesh-agent-core" }
