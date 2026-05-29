@@ -926,7 +926,15 @@
       "Bash(actionlint /home/ivan/opengate/.github/workflows/ci.yml /home/ivan/opengate/.github/workflows/build-image.yml /home/ivan/opengate/.github/workflows/dependabot-auto-merge.yml)",
       "Bash(actionlint /home/ivan/opengate/.github/workflows/dependabot-auto-merge.yml)",
       "Bash(command -v conftest)",
-      "Bash(curl -sL \"https://sonarcloud.io/api/ce/task?id=AZ5yvXeuKl6Uh_D27M7V\")"
+      "Bash(curl -sL \"https://sonarcloud.io/api/ce/task?id=AZ5yvXeuKl6Uh_D27M7V\")",
+      "Bash(pwd; cat *)",
+      "Bash(oapi-codegen --help)",
+      "Bash(grep -E \"_test\\\\.go$|_test\\\\.rs$|/tests/|\\\\.test\\\\.\")",
+      "Bash(grep -v \":0$\")",
+      "Bash(grep -E \"^  /\\(.*\\):$|^    \\(get|post|put|delete|patch\\):\" /home/ivan/opengate/api/openapi.yaml)",
+      "Bash(cat .claude/.markers/refactor.head; echo \"---HEAD---\"; git rev-parse HEAD; echo \"---rewriting---\"; git rev-parse HEAD > /home/ivan/opengate/.claude/.markers/refactor.head && cat /home/ivan/opengate/.claude/.markers/refactor.head)",
+      "Bash(curl -sL \"https://sonarcloud.io/api/qualitygates/project_status?projectKey=volchanskyi_opengate&branch=dev\")",
+      "Bash(curl -sL \"https://sonarcloud.io/api/measures/component?component=volchanskyi_opengate&metricKeys=new_coverage,new_lines_to_cover,new_uncovered_lines&branch=dev\")"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate.wiki",

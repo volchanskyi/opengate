@@ -173,9 +173,14 @@ func main() {
 	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
+	auditHandlers := audit.NewHandlers(auditRepo)
+	amtHandlers := amt.NewHandlers(amtRepo, amtSvc)
+	notifHandlers := notifications.NewHandlers(webPushRepo, notifier)
+
 	srv := api.NewServer(api.ServerConfig{
 		Store:         store,
 		Audit:         auditRepo,
+		AuditHandlers: auditHandlers,
 		DeviceUpdates: deviceUpdatesRepo,
 		Enrollment:    enrollmentRepo,
 		SecurityGroups: securityGroupsRepo,
@@ -184,7 +189,9 @@ func main() {
 		Hardware:       hardwareRepo,
 		DeviceLogs:     deviceLogsRepo,
 		WebPush:        webPushRepo,
+		NotificationsHandlers: notifHandlers,
 		AMTDevices:     amtRepo,
+		AMTHandlers:    amtHandlers,
 		Sessions:       sessionsRepo,
 		Users:          usersRepo,
 		JWT:       jwtCfg,

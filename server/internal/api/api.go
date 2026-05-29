@@ -49,6 +49,7 @@ type CertProvider interface {
 type ServerConfig struct {
 	Store           *db.PostgresStore
 	Audit           audit.Repository
+	AuditHandlers   *audit.Handlers
 	DeviceUpdates   updater.DeviceUpdateRepository
 	Enrollment      updater.EnrollmentTokenRepository
 	SecurityGroups  auth.SecurityGroupRepository
@@ -57,7 +58,9 @@ type ServerConfig struct {
 	Hardware        device.HardwareRepository
 	DeviceLogs      device.LogsRepository
 	WebPush         notifications.WebPushRepository
+	NotificationsHandlers *notifications.Handlers
 	AMTDevices      amt.Repository
+	AMTHandlers     *amt.Handlers
 	Sessions        session.Repository
 	Users           auth.UserRepository
 	JWT       *auth.JWTConfig
@@ -82,6 +85,7 @@ type ServerConfig struct {
 type Server struct {
 	store          *db.PostgresStore
 	audit          audit.Repository
+	auditHandlers  *audit.Handlers
 	deviceUpdates  updater.DeviceUpdateRepository
 	enrollment     updater.EnrollmentTokenRepository
 	securityGroups auth.SecurityGroupRepository
@@ -90,7 +94,9 @@ type Server struct {
 	hardware       device.HardwareRepository
 	deviceLogs     device.LogsRepository
 	webPush        notifications.WebPushRepository
+	notifHandlers  *notifications.Handlers
 	amtDevices     amt.Repository
+	amtHandlers    *amt.Handlers
 	sessions       session.Repository
 	users          auth.UserRepository
 	jwt       *auth.JWTConfig
@@ -112,11 +118,55 @@ type Server struct {
 	metrics         *appmetrics.Metrics
 }
 
+// resolveAuditHandlers returns the per-domain Handlers from cfg, or
+// wraps the legacy Audit Repository to satisfy the new transport
+// boundary. Per ADR-020 §9 / plan §4.1, the api package consumes audit
+// operations through audit.Handlers; tests that still wire only `Audit:`
+// stay green via this fallback. main.go and new test code should pass
+// AuditHandlers explicitly.
+func resolveAuditHandlers(cfg ServerConfig) *audit.Handlers {
+	if cfg.AuditHandlers != nil {
+		return cfg.AuditHandlers
+	}
+	if cfg.Audit != nil {
+		return audit.NewHandlers(cfg.Audit)
+	}
+	return nil
+}
+
+// resolveAMTHandlers — same pattern as resolveAuditHandlers. The amt
+// Handlers struct needs BOTH the Repository (List/Get) and the Operator
+// (PowerAction); fall back via cfg.AMTDevices + cfg.AMT when AMTHandlers
+// is nil so existing test ServerConfig literals stay green.
+func resolveAMTHandlers(cfg ServerConfig) *amt.Handlers {
+	if cfg.AMTHandlers != nil {
+		return cfg.AMTHandlers
+	}
+	if cfg.AMTDevices != nil && cfg.AMT != nil {
+		return amt.NewHandlers(cfg.AMTDevices, cfg.AMT)
+	}
+	return nil
+}
+
+// resolveNotificationsHandlers — same fallback shape; notifications.Handlers
+// requires BOTH the WebPushRepository (subscribe/unsubscribe) and the
+// Notifier (VAPID public key).
+func resolveNotificationsHandlers(cfg ServerConfig) *notifications.Handlers {
+	if cfg.NotificationsHandlers != nil {
+		return cfg.NotificationsHandlers
+	}
+	if cfg.WebPush != nil && cfg.Notifier != nil {
+		return notifications.NewHandlers(cfg.WebPush, cfg.Notifier)
+	}
+	return nil
+}
+
 // NewServer creates an API server with all routes registered.
 func NewServer(cfg ServerConfig) *Server {
 	s := &Server{
 		store:          cfg.Store,
 		audit:          cfg.Audit,
+		auditHandlers:  resolveAuditHandlers(cfg),
 		deviceUpdates:  cfg.DeviceUpdates,
 		enrollment:     cfg.Enrollment,
 		securityGroups: cfg.SecurityGroups,
@@ -125,7 +175,9 @@ func NewServer(cfg ServerConfig) *Server {
 		hardware:       cfg.Hardware,
 		deviceLogs:     cfg.DeviceLogs,
 		webPush:        cfg.WebPush,
+		notifHandlers:  resolveNotificationsHandlers(cfg),
 		amtDevices:     cfg.AMTDevices,
+		amtHandlers:    resolveAMTHandlers(cfg),
 		sessions:       cfg.Sessions,
 		users:          cfg.Users,
 		jwt:       cfg.JWT,
