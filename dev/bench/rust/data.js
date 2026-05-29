@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780023775334,
+  "lastUpdate": 1780030118603,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -14724,6 +14724,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.029873378230022,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "c4ad7ad31872e61722b1598ec48e2686093eecb4",
+          "message": "refactor(agent): hoist `publish = false` to workspace.package\n\nFive workspace crates carried identical `publish = false` declarations\nwith the same explanatory comment (added in 769db1f to enable cargo-deny's\nallow-wildcard-paths). Move the declaration to [workspace.package] in the\nroot Cargo.toml and switch each crate to `publish.workspace = true` (same\ninheritance pattern already used for `edition` and `license`). One source\nof truth; no behavior change.",
+          "timestamp": "2026-05-28T21:38:45-07:00",
+          "tree_id": "bced07054b6db6b9534ce83ebb6005ea226a2b0c",
+          "url": "https://github.com/volchanskyi/opengate/commit/c4ad7ad31872e61722b1598ec48e2686093eecb4"
+        },
+        "date": 1780030118534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.167349788262083,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.572853106311122,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 768.2559828425724,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 310.86396477328117,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.85825413761662,
             "unit": "ns/iter"
           }
         ]
