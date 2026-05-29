@@ -48,7 +48,7 @@ func (s *stubAgentGetter) ListConnectedAgents() []*agentapi.AgentConn {
 	return agents
 }
 
-// stubAMTOperator is a test double for AMTOperator.
+// stubAMTOperator is a test double for amt.Operator.
 type stubAMTOperator struct{}
 
 func (s *stubAMTOperator) PowerAction(_ context.Context, _ uuid.UUID, _ int) error {

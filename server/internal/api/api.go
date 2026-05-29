@@ -14,12 +14,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/amt"
-	"github.com/volchanskyi/opengate/server/internal/amt/transport/wsman"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
@@ -39,13 +37,6 @@ type AgentGetter interface {
 	GetAgent(deviceID db.DeviceID) *agentapi.AgentConn
 	ListConnectedAgents() []*agentapi.AgentConn
 	DeregisterAgent(ctx context.Context, deviceID db.DeviceID)
-}
-
-// AMTOperator provides high-level AMT device operations.
-type AMTOperator interface {
-	PowerAction(ctx context.Context, amtUUID uuid.UUID, state int) error
-	QueryDeviceInfo(ctx context.Context, amtUUID uuid.UUID) (*wsman.DeviceInfo, error)
-	ConnectedDeviceCount() int
 }
 
 // CertProvider gives access to the server CA certificate and agent CSR signing.
@@ -71,7 +62,7 @@ type ServerConfig struct {
 	Users           auth.UserRepository
 	JWT       *auth.JWTConfig
 	Agents    AgentGetter
-	AMT       AMTOperator
+	AMT       amt.Operator
 	Cert      CertProvider
 	Relay     *relay.Relay
 	Signaling *signaling.Tracker
@@ -104,7 +95,7 @@ type Server struct {
 	users          auth.UserRepository
 	jwt       *auth.JWTConfig
 	agents    AgentGetter
-	amt       AMTOperator
+	amt       amt.Operator
 	cert      CertProvider
 	relay     *relay.Relay
 	signaling *signaling.Tracker
