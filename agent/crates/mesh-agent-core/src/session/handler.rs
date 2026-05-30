@@ -2,11 +2,14 @@
 
 use std::sync::Arc;
 
-use mesh_protocol::{ControlMessage, Frame, KeyCode};
+use mesh_protocol::{ControlMessage, Frame};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
-use super::handlers::MouseHandler;
+use super::handlers::{
+    FileHandler, KeyboardHandler, MouseHandler, SwitchHandler, TerminalControlHandler,
+    WebRTCHandler,
+};
 use super::relay::send_frame;
 use super::terminal_handle::TerminalHandle;
 use super::SessionHandler;
@@ -76,27 +79,31 @@ impl SessionHandler {
                 );
             }
             ControlMessage::KeyPress { key, pressed } => {
-                self.handle_key_press(injector, terminal, key, pressed);
+                KeyboardHandler::handle_key_press(
+                    &self.permissions,
+                    injector,
+                    terminal,
+                    key,
+                    pressed,
+                );
             }
             ControlMessage::TerminalResize { cols, rows } => {
-                info!(cols, rows, "terminal resize requested");
-                if let Some(term) = terminal {
-                    term.resize(cols, rows);
-                }
+                TerminalControlHandler::handle_resize(terminal, cols, rows);
             }
             ControlMessage::FileListRequest { path } => {
                 info!(path, "file list requested");
-                Self::handle_file_list(file_ops, frame_tx, &path).await;
+                FileHandler::handle_list(file_ops, frame_tx, &path).await;
             }
             ControlMessage::FileDownloadRequest { path } => {
                 info!(path, "file download requested");
-                Self::handle_file_download(file_ops, frame_tx, &path);
+                FileHandler::handle_download(file_ops, frame_tx, &path);
             }
             ControlMessage::FileUploadRequest { path, total_size } => {
                 info!(
                     path,
                     total_size, "file upload request (not yet implemented)"
                 );
+                FileHandler::handle_upload(&path, total_size);
             }
             ControlMessage::ChatMessage { text, sender } => {
                 info!(sender, text, "chat message received");
@@ -110,187 +117,23 @@ impl SessionHandler {
             }
             ControlMessage::SwitchToWebRTC { sdp_offer } => {
                 info!("WebRTC switch requested");
-                self.handle_webrtc_offer(sdp_offer, frame_tx, webrtc_pc)
-                    .await;
+                WebRTCHandler::handle_offer(
+                    self.ice_servers.clone(),
+                    sdp_offer,
+                    frame_tx,
+                    webrtc_pc,
+                )
+                .await;
             }
             ControlMessage::IceCandidate { candidate, mid } => {
-                Self::handle_ice_candidate(webrtc_pc, &candidate, &mid).await;
+                WebRTCHandler::handle_candidate(webrtc_pc, &candidate, &mid).await;
             }
             ControlMessage::SwitchAck => {
                 info!("WebRTC switch ack received");
-                Self::handle_switch_ack(webrtc_pc, frame_tx).await;
+                SwitchHandler::handle_ack(webrtc_pc, frame_tx).await;
             }
             _ => {
                 debug!("unhandled control message in session");
-            }
-        }
-    }
-
-    fn handle_key_press(
-        &self,
-        injector: &dyn InputInjector,
-        terminal: Option<&TerminalHandle>,
-        key: KeyCode,
-        pressed: bool,
-    ) {
-        if self.permissions.input {
-            if let Err(e) = injector.inject_key(mesh_protocol::KeyEvent { key, pressed }) {
-                warn!(target: "input", error = %e, "inject_key failed");
-            }
-        }
-        if let Some(term) = terminal {
-            if pressed {
-                term.send_key(key);
-            }
-        }
-    }
-
-    async fn handle_file_list(
-        file_ops: &FileOpsHandler,
-        frame_tx: &mpsc::Sender<Vec<u8>>,
-        path: &str,
-    ) {
-        match file_ops.list_directory(path) {
-            Ok(response) => {
-                if let Err(e) = send_frame(frame_tx, &Frame::Control(response)).await {
-                    warn!("failed to send file list response: {e}");
-                }
-            }
-            Err(e) => {
-                warn!("file list error: {e}");
-                if let Err(e) = send_frame(
-                    frame_tx,
-                    &Frame::Control(ControlMessage::FileListError {
-                        path: path.to_string(),
-                        error: e.to_string(),
-                    }),
-                )
-                .await
-                {
-                    warn!("failed to send file list error: {e}");
-                }
-            }
-        }
-    }
-
-    fn handle_file_download(
-        file_ops: &FileOpsHandler,
-        frame_tx: &mpsc::Sender<Vec<u8>>,
-        path: &str,
-    ) {
-        let tx = frame_tx.clone();
-        let file_ops = file_ops.clone();
-        let path = path.to_owned();
-        tokio::spawn(async move {
-            if let Err(e) = file_ops.stream_download(&path, &tx).await {
-                warn!("file download error: {e}");
-            }
-        });
-    }
-
-    async fn handle_ice_candidate(
-        webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
-        candidate: &str,
-        mid: &str,
-    ) {
-        let guard = webrtc_pc.lock().await;
-        if let Some(ref pc) = *guard {
-            if let Err(e) = pc.add_ice_candidate(candidate, mid).await {
-                warn!("failed to add ICE candidate: {e}");
-            }
-        } else {
-            debug!("ICE candidate received but no WebRTC connection active");
-        }
-    }
-
-    async fn handle_switch_ack(
-        webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
-        frame_tx: &mpsc::Sender<Vec<u8>>,
-    ) {
-        let guard = webrtc_pc.lock().await;
-        if guard.is_some() {
-            info!("WebRTC switch acknowledged by browser");
-            if let Err(e) = send_frame(frame_tx, &Frame::Control(ControlMessage::SwitchAck)).await {
-                warn!("failed to send switch ack: {e}");
-            }
-        }
-    }
-
-    async fn handle_webrtc_offer(
-        &self,
-        sdp_offer: String,
-        frame_tx: &mpsc::Sender<Vec<u8>>,
-        webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
-    ) {
-        info!("received WebRTC offer, creating answer");
-        let ice_servers = self.ice_servers.clone();
-        let tx = frame_tx.clone();
-        let pc_slot = webrtc_pc.clone();
-
-        let (inbound_tx, mut inbound_rx) = mpsc::channel::<Frame>(64);
-        match AgentPeerConnection::new(ice_servers, inbound_tx).await {
-            Ok(pc) => {
-                let pc = Arc::new(pc);
-                *pc_slot.lock().await = Some(pc.clone());
-
-                match pc.handle_offer(&sdp_offer).await {
-                    Ok(answer_sdp) => {
-                        if let Err(e) = send_frame(
-                            &tx,
-                            &Frame::Control(ControlMessage::SwitchToWebRTC {
-                                sdp_offer: answer_sdp,
-                            }),
-                        )
-                        .await
-                        {
-                            warn!("failed to send WebRTC answer: {e}");
-                        }
-
-                        // Spawn ICE candidate forwarding task
-                        let pc_ice = pc.clone();
-                        let tx_ice = tx.clone();
-                        tokio::spawn(async move {
-                            while let Some((candidate, mid)) = pc_ice.next_ice_candidate().await {
-                                if let Err(e) = send_frame(
-                                    &tx_ice,
-                                    &Frame::Control(ControlMessage::IceCandidate {
-                                        candidate,
-                                        mid,
-                                    }),
-                                )
-                                .await
-                                {
-                                    warn!("failed to forward ICE candidate: {e}");
-                                }
-                            }
-                        });
-
-                        // Spawn inbound data channel frame handler
-                        let tx_inbound = tx.clone();
-                        tokio::spawn(async move {
-                            while let Some(frame) = inbound_rx.recv().await {
-                                let encoded = match frame.encode() {
-                                    Ok(e) => e,
-                                    Err(e) => {
-                                        warn!("frame encode error from WebRTC: {e}");
-                                        continue;
-                                    }
-                                };
-                                if tx_inbound.send(encoded).await.is_err() {
-                                    warn!("inbound WebRTC frame channel closed");
-                                    break;
-                                }
-                            }
-                        });
-                    }
-                    Err(e) => {
-                        warn!("failed to handle WebRTC offer: {e}");
-                        *pc_slot.lock().await = None;
-                    }
-                }
-            }
-            Err(e) => {
-                warn!("failed to create WebRTC peer connection: {e}");
             }
         }
     }
