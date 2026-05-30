@@ -123,6 +123,20 @@ if [ -z "${SONAR_TOKEN:-}" ]; then
   exit 2
 fi
 
+# Semgrep — required by the ADR-027 pen-test gate. Fail loud with the install
+# command (no silent skip per .claude/rules/editing-and-scope.md).
+if ! command -v semgrep >/dev/null 2>&1; then
+  export PATH="$HOME/.local/bin:$PATH"
+fi
+if ! command -v semgrep >/dev/null 2>&1; then
+  color "1;31"
+  echo "✗ semgrep is not installed — the ADR-027 pen-test gate cannot run." >&2
+  echo "  Provision the pinned version (idempotent):" >&2
+  echo "    bash scripts/install-semgrep.sh" >&2
+  color "0"
+  exit 2
+fi
+
 echo "✓ all prerequisites present" >&2
 
 # Phase 1: lints (fast, fail-fast for cheap signal).
@@ -165,6 +179,9 @@ run_check "depcruise"         -- bash -c '
 run_check "actionlint"        -- bash -c 'actionlint'
 run_check "taint (go)"        -- make taint-go
 run_check "taint (web)"       -- make taint-web
+# ADR-027 adversarial pen-test gate. Diff vs origin/dev so a local dev-push
+# gauntlet re-run is not blocked by pre-existing grandfathered findings.
+run_check "pentest-review"    -- bash -c 'PENTEST_BASELINE_REF=origin/dev scripts/pentest-review.sh'
 run_check "dead-code"         -- make dead-code
 run_check "gitleaks (staged)" -- gitleaks protect --staged --config .gitleaks.toml --no-banner --redact
 run_check "lint-deploy"       -- make lint-deploy
