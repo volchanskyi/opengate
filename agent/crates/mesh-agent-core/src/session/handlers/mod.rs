@@ -19,9 +19,19 @@
 //! integration test under `tests/` so coverage does not drop when the
 //! match arm becomes a one-liner delegate.
 
+pub mod file;
+pub mod keyboard;
 pub mod mouse;
+pub mod switch;
+pub mod terminal_control;
+pub mod webrtc;
 
+pub use file::FileHandler;
+pub use keyboard::KeyboardHandler;
 pub use mouse::MouseHandler;
+pub use switch::SwitchHandler;
+pub use terminal_control::TerminalControlHandler;
+pub use webrtc::WebRTCHandler;
 
 /// Marker trait implemented by every grouped `ControlMessage` handler.
 ///

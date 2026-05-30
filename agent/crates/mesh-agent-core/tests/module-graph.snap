@@ -9,7 +9,12 @@ crate mesh_agent_core
 ├── mod session: pub
 │   ├── mod handler: pub(self)
 │   ├── mod handlers: pub
-│   │   └── mod mouse: pub
+│   │   ├── mod file: pub
+│   │   ├── mod keyboard: pub
+│   │   ├── mod mouse: pub
+│   │   ├── mod switch: pub
+│   │   ├── mod terminal_control: pub
+│   │   └── mod webrtc: pub
 │   ├── mod relay: pub(crate)
 │   └── mod terminal_handle: pub(crate)
 ├── mod session_error: pub
