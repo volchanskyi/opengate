@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780091623460,
+  "lastUpdate": 1780114511992,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15116,6 +15116,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.729361110574224,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "06c2cf9945dd2849c784b9a5b9b2819551a01988",
+          "message": "refactor(agent): ADR-024 §9 carve remaining 5 ControlMessageHandler impls\n\nCompletes the ADR-024 carve started by MouseHandler in 07178ff. Each\nhandler follows the same pattern: unit struct + associated functions,\nexplicit threading of dependencies (Permissions, InputInjector,\nTerminalHandle, FileOpsHandler, AgentPeerConnection slot, frame channel),\ninline #[cfg(test)] coverage plus a tests/<name>_handler_test.rs\nintegration test pinning the crate-public surface.\n\nagent/crates/mesh-agent-core/src/session/handlers/:\n\n- terminal_control.rs — TerminalControlHandler::handle_resize for\n  ControlMessage::TerminalResize. No-op when no terminal session; forwards\n  dimensions when present. Inline tests cover both paths plus u16::MAX\n  boundary.\n\n- switch.rs — SwitchHandler::handle_ack for ControlMessage::SwitchAck.\n  Echoes a SwitchAck frame back to the browser when a peer connection is\n  held; silently drops otherwise. Peer-present path exercised at the\n  integration-test layer (real AgentPeerConnection construction).\n\n- keyboard.rs — KeyboardHandler::handle_key_press for\n  ControlMessage::KeyPress. Permission-gated injector path + pressed-only\n  terminal echo path. 6 inline tests pin permitted/denied dispatch,\n  terminal forwarding for pressed=true, suppression for pressed=false,\n  injector failure resilience, and trait-marker compile-time assertion.\n\n- file.rs — FileHandler::handle_list (async, repo lookup + response or\n  error frame), handle_download (spawned task streams to frame channel),\n  handle_upload (silent no-op — upload feature deferred per protocol).\n  5 inline tests cover the list success/error paths, download streaming\n  with tempdir-backed payload, upload silent-ack, and trait marker.\n\n- webrtc.rs — WebRTCHandler::handle_offer (peer-conn setup + offer/answer\n  + spawned ICE forwarder + spawned inbound-frame relay) and\n  handle_candidate (forwards ICE to active peer; silently drops without\n  one). Inline test for no-peer candidate path; the full offer/answer\n  dance requires a live webrtc-rs stack and lives in the E2E suite.\n\nagent/crates/mesh-agent-core/src/session/handler.rs:\n- Dispatch fan-out in handle_control now delegates each remaining arm to\n  its new owner: TerminalResize → TerminalControlHandler, KeyPress →\n  KeyboardHandler, FileList/Download/Upload → FileHandler,\n  SwitchToWebRTC → WebRTCHandler::handle_offer (with cloned\n  self.ice_servers), IceCandidate → WebRTCHandler::handle_candidate,\n  SwitchAck → SwitchHandler::handle_ack.\n- The seven previously-inline private methods (handle_key_press,\n  handle_file_list, handle_file_download, handle_ice_candidate,\n  handle_switch_ack, handle_webrtc_offer + already-removed\n  handle_mouse_*) are deleted from SessionHandler. handle_frame's outer\n  four-branch multiplexer is unchanged per ADR-024 §4.2 (\"the outer\n  4-branch dispatch does NOT become a trait — three branches are 1-3\n  lines and one fans into the new trait\").\n- Imports: drop unused KeyCode (KeyPress arm no longer constructs KeyEvent\n  here); add WebRTCHandler to the handlers use-list.\n\nagent/crates/mesh-agent-core/src/session/handlers/mod.rs: declares the\nfive new submodules and re-exports their handler structs alongside the\nexisting MouseHandler.\n\nagent/crates/mesh-agent-core/tests/module-graph.snap regenerated for the\nnew submodules.\n\nADR-024 §9 trigger row is now complete; the ControlMessageHandler trait\nhas 6 impls (Mouse + Keyboard + Terminal + Switch + File + WebRTC) — well\npast the earned-port rule's ≥2-consumer threshold from ADR-020 §3.6.\nMutation-baseline verification (must preserve the 89.5% pre-carve\nbaseline per ADR-024) lands as a follow-up cargo-mutants run.",
+          "timestamp": "2026-05-29T21:13:28-07:00",
+          "tree_id": "798239bfc89921b2fa404a4a14ea8dce35fb1333",
+          "url": "https://github.com/volchanskyi/opengate/commit/06c2cf9945dd2849c784b9a5b9b2819551a01988"
+        },
+        "date": 1780114511919,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.197648345214176,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.767640399637184,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 776.7867337712366,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 287.5471877856075,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.831889541217087,
             "unit": "ns/iter"
           }
         ]
