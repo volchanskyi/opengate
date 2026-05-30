@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780114511992,
+  "lastUpdate": 1780115599652,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15165,6 +15165,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.831889541217087,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "5c00e2050afbb078f70fa7fef8bf1c045e773eb3",
+          "message": "build(gauntlet): deterministic Postgres reachability gate\n\nMake Postgres unreachability a fail-fast prerequisite error instead of a\n~7-minute downstream test failure. The previous prereq phase verified\n$POSTGRES_TEST_URL was *set* but not that the test DB was actually\naccepting connections, so a stopped container surfaced as ~6 failing Go\ntest packages midway through the run (waste of CI / local time).\n\nscripts/lib/postgres-prereq.sh (new) — sourceable library with two\nfunctions:\n- pg_probe HOST PORT       — pure-bash TCP probe via /dev/tcp, no\n                              pg_isready/nc/psql required.\n- pg_ensure_up [HOST PORT TIMEOUT]\n                            — probe; if down, run `make postgres-test-up`,\n                              poll for readiness up to TIMEOUT seconds\n                              (default 30), return non-zero with a clear\n                              message if it still won't come up.\n\nscripts/precommit-gauntlet.sh — Prerequisites phase sources the lib and\ncalls pg_ensure_up after the existing $POSTGRES_TEST_URL check. Exit 2\non failure, same convention as the other prereqs (per CLAUDE.md: \"no\nsilent skip — prerequisites must be fixed, not skipped\"). Logic moved\nout of the gauntlet so it's testable in isolation.\n\nscripts/tests/postgres-prereq.test.sh (new) — 4 unit tests sourcing the\nlib directly:\n1. pg_probe detects an open port (uses a python3 one-shot TCP listener\n   on a randomized 40000-50000 range port, no Docker required)\n2. pg_probe correctly reports the port as unreachable after the\n   listener exits\n3. pg_probe accepts default args without syntax error\n4. pg_ensure_up is defined as a callable shell function\n\nPicked up automatically by the gauntlet's \"shell tests\" glob\n(scripts/tests/*.test.sh) so it's enforced on every commit attempt via\nthe commit-guard hook — no separate registration step.\n\nBehavior change: subsequent /precommit and commit-guard runs cannot\nproceed with the test container down. Either the container is up, or\nthe gauntlet brings it up, or the gauntlet exits 2 with the same\nmanual-start instructions you already know. No more wasted gauntlet\nruns on \"connection refused\" mid-test.",
+          "timestamp": "2026-05-29T21:31:39-07:00",
+          "tree_id": "10763f92ee14a5e5f92c59b3e8337af55f6e80af",
+          "url": "https://github.com/volchanskyi/opengate/commit/5c00e2050afbb078f70fa7fef8bf1c045e773eb3"
+        },
+        "date": 1780115599594,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.40002285002889,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.075330500371955,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 774.9895875535976,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 302.36521093137793,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.644387217046546,
             "unit": "ns/iter"
           }
         ]
