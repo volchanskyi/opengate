@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780115599652,
+  "lastUpdate": 1780184320495,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15214,6 +15214,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.644387217046546,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f44e547ea5babba14e25c4ddb33b2e96cd28741b",
+          "message": "feat(security): ADR-027 adversarial pen-test gate (Semgrep) at commit + CI\n\nAdd a fail-closed adversarial gate that runs custom Semgrep rules plus an\nOpenAPI spec-drift check over the diff, blocking on any HIGH-severity finding.\nEnforced in three places sharing one runner (scripts/pentest-review.sh): the\ncommit hook (pretooluse-pentest-gate.sh, before the commit-guard), the precommit\ngauntlet, and a blocking pentest-review CI job (required for merge-to-main — the\nonly gate covering Dependabot PRs and machines without local hooks).\n\nv1 ruleset (policy/semgrep/): missing authorization on mutating handlers,\nunchecked path traversal, secret-in-log (Go+Rust+TS), plaintext secret columns,\nIDOR (advisory), and OpenAPI mutating ops shipped without a security block.\nDiff-only via --baseline-commit grandfathers pre-existing findings. Semgrep is\npinned and provisioned by scripts/install-semgrep.sh (idempotent,\nzero-manual-install); the gauntlet fails loudly if it is absent.\n\nAuth is applied centrally (oapiAuthMiddleware via generated BearerAuthScopes),\nso the spec-drift check targets mutating ops with no security block rather than\na per-handler middleware check. The admin-gate rule recognizes all four\nauthorization forms the codebase uses (denyIfNotAdmin/isAdmin/isGroupOwner/\nisOwner), giving zero new HIGH findings on the current tree.",
+          "timestamp": "2026-05-30T16:28:35-07:00",
+          "tree_id": "9d972038ddef5c8061e71ea2a3aa119a4a0be537",
+          "url": "https://github.com/volchanskyi/opengate/commit/f44e547ea5babba14e25c4ddb33b2e96cd28741b"
+        },
+        "date": 1780184320422,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.213702717019945,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.021904642308083,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 744.3807869307842,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 291.81146064156906,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.92667057639523,
             "unit": "ns/iter"
           }
         ]
