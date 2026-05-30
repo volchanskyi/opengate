@@ -95,6 +95,25 @@ if [ -z "${POSTGRES_TEST_URL:-}" ]; then
   exit 2
 fi
 
+# Postgres reachability gate (deterministic). $POSTGRES_TEST_URL being set
+# is not enough — the test DB has to actually accept connections, otherwise
+# every DB-dependent Go test fails with "connection refused" and the rest
+# of the gauntlet wastes 10+ minutes downstream.
+#
+# Implementation lives in scripts/lib/postgres-prereq.sh so it can be
+# unit-tested via scripts/tests/postgres-prereq.test.sh. pg_ensure_up
+# auto-starts the container when unreachable, waits up to 30s for
+# readiness, and exits non-zero if it still can't connect — fail-loud
+# per CLAUDE.md "no silent skip" rule.
+# shellcheck source=lib/postgres-prereq.sh
+. "$PROJECT_ROOT/scripts/lib/postgres-prereq.sh"
+if ! pg_ensure_up; then
+  color "1;31"
+  echo "✗ Postgres prerequisite gate failed. See messages above." >&2
+  color "0"
+  exit 2
+fi
+
 if [ -z "${SONAR_TOKEN:-}" ]; then
   color "1;31"
   echo "✗ SONAR_TOKEN is unset — full SonarCloud scan is mandatory (no skip)." >&2

@@ -934,7 +934,11 @@
       "Bash(grep -E \"^  /\\(.*\\):$|^    \\(get|post|put|delete|patch\\):\" /home/ivan/opengate/api/openapi.yaml)",
       "Bash(cat .claude/.markers/refactor.head; echo \"---HEAD---\"; git rev-parse HEAD; echo \"---rewriting---\"; git rev-parse HEAD > /home/ivan/opengate/.claude/.markers/refactor.head && cat /home/ivan/opengate/.claude/.markers/refactor.head)",
       "Bash(curl -sL \"https://sonarcloud.io/api/qualitygates/project_status?projectKey=volchanskyi_opengate&branch=dev\")",
-      "Bash(curl -sL \"https://sonarcloud.io/api/measures/component?component=volchanskyi_opengate&metricKeys=new_coverage,new_lines_to_cover,new_uncovered_lines&branch=dev\")"
+      "Bash(curl -sL \"https://sonarcloud.io/api/measures/component?component=volchanskyi_opengate&metricKeys=new_coverage,new_lines_to_cover,new_uncovered_lines&branch=dev\")",
+      "Bash(grep -B 2 \"unused variable: \\\\`frame_tx\\\\`\")",
+      "Bash(awk '{s+=$4} END {print \"total passed:\", s}')",
+      "Bash(chmod +x scripts/tests/postgres-prereq.test.sh scripts/lib/postgres-prereq.sh)",
+      "Bash(./scripts/tests/postgres-prereq.test.sh)"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate.wiki",
