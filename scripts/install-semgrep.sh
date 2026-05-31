@@ -11,7 +11,7 @@
 # Docker). Docker is reserved for `make sonar` (needs a JVM); Semgrep does not.
 #
 # Exit 0 = semgrep is installed at the pinned version (newly or already).
-# Exit 1 = installation failed (python3 missing, network failure, etc.).
+# Exit 1 = installation failed (python3 missing, network failure, broken import).
 set -euo pipefail
 
 # Exact pin — treat upgrades like any other dependency (staged through dev).
@@ -19,11 +19,19 @@ set -euo pipefail
 # the ci.yml pentest-review job.
 SEMGREP_VERSION="1.108.0"
 
-# Suppress Semgrep's "a new version is available" notice. On a fresh HOME (e.g.
-# a CI runner) `semgrep --version` otherwise prints a blank line + the upgrade
-# notice BEFORE the version number — which broke a naive `head -1` parse and
-# failed the install step (see CI run 26697942185). Disabling the check also
-# avoids a network call at install time.
+# pkg_resources fix (the actual cause of the CI install failure, runs
+# 26697942185 + 26703402241): semgrep 1.108.0 transitively imports
+# `pkg_resources` (via opentelemetry-instrumentation, loaded on EVERY semgrep
+# invocation including `--version`). A fresh Py3.12 venv pulls setuptools >=82,
+# which REMOVED pkg_resources, so semgrep crashes with
+# `ModuleNotFoundError: No module named 'pkg_resources'`. Pinning setuptools<81
+# keeps pkg_resources available. See semgrep#11069 and setuptools 82.0.0
+# history. (An earlier fix mis-attributed this to the version-upgrade notice;
+# that notice does not appear in a clean CI env — the post-install smoke test
+# below now surfaces the real import error if this ever regresses.)
+SETUPTOOLS_CONSTRAINT="setuptools<81"
+
+# Avoid Semgrep's version-check network call at install time (harmless, faster).
 export SEMGREP_ENABLE_VERSION_CHECK=0
 
 VENV_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/opengate/semgrep-venv"
@@ -56,17 +64,28 @@ python3 -m venv "$VENV_DIR"
 # shellcheck disable=SC1091
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 log "installing semgrep==${SEMGREP_VERSION} (this can take a minute)"
+# Install semgrep, then constrain setuptools<81 in the same venv so the
+# pkg_resources import path semgrep relies on stays available (see header).
 "$VENV_DIR/bin/pip" install --quiet "semgrep==${SEMGREP_VERSION}"
+"$VENV_DIR/bin/pip" install --quiet "${SETUPTOOLS_CONSTRAINT}"
 
 mkdir -p "$BIN_DIR"
 ln -sf "$VENV_DIR/bin/semgrep" "$LINK"
 log "symlinked ${LINK} -> ${VENV_DIR}/bin/semgrep"
 
-# Verify the symlink resolves to the pinned version. PATH may not yet include
-# ~/.local/bin in this shell, so invoke the link directly.
-got="$(semgrep_version_of "$LINK")"
+# Post-install smoke test. Run the launcher for real (stderr VISIBLE) — a bare
+# `semgrep --version` exercises the full import chain, so a broken transitive
+# dependency (e.g. the pkg_resources/setuptools break) fails HERE with the
+# actual traceback rather than silently downstream. Do not swallow stderr.
+if ! out="$("$LINK" --version 2>&1)"; then
+  log "ERROR: 'semgrep --version' failed to run after install. Output:"
+  printf '%s\n' "$out" >&2
+  exit 1
+fi
+got="$(printf '%s\n' "$out" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
 if [ "$got" != "$SEMGREP_VERSION" ]; then
-  log "ERROR: post-install version is '${got}', expected ${SEMGREP_VERSION}."
+  log "ERROR: post-install version is '${got:-<none>}', expected ${SEMGREP_VERSION}. Full output:"
+  printf '%s\n' "$out" >&2
   exit 1
 fi
 
