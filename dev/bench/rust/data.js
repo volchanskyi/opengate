@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780184320495,
+  "lastUpdate": 1780202445459,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15263,6 +15263,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.92667057639523,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ba7ba8075f23a10a032a77d3f3d987dfd359be5a",
+          "message": "fix(ci): pen-test gate semgrep install — suppress upgrade notice, robust version parse\n\nThe pentest-review CI job failed at the \"Install pinned Semgrep\" step (run\n26697942185, exit 1). On a fresh HOME (a clean CI runner), `semgrep --version`\nprints a blank line and an \"A new version of Semgrep is available\" notice\nBEFORE the version number, so the script's `head -1` parse captured the blank\nline instead of \"1.108.0\" and the post-install version assertion failed. The\nscan never ran — this was an install bug, not a findings issue.\n\nFix both scripts/install-semgrep.sh and scripts/pentest-review.sh:\n- export SEMGREP_ENABLE_VERSION_CHECK=0 to silence the notice and skip the\n  network call it triggers at version time;\n- parse the version with `grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' | head -1`, which\n  can never select a non-version line even if a notice slips through.\n\nVerified by simulating a fresh HOME end-to-end (venv reprovision → install_rc=0\n→ \"semgrep 1.108.0 installed\"). Also renames the CI job display name\n\"Pen-Test Gate (ADR-027)\" → \"Pen-Test Gate\".",
+          "timestamp": "2026-05-30T21:27:57-07:00",
+          "tree_id": "68ffdd542540a5cb9d03bbb7f9d430f12e514acb",
+          "url": "https://github.com/volchanskyi/opengate/commit/ba7ba8075f23a10a032a77d3f3d987dfd359be5a"
+        },
+        "date": 1780202445387,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.36994181564133,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.04117301407779,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 780.043771607534,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.59726066096425,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.6278355984519,
             "unit": "ns/iter"
           }
         ]
