@@ -976,6 +976,43 @@ jobs:
           echo "::error::npm audit failed after 3 attempts"
           exit 1
 
+  pentest-review:
+    name: Pen-Test Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # need the branch base for diff-only scanning
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned Semgrep
+        run: bash scripts/install-semgrep.sh
+      - name: Run adversarial pen-test gate
+        # Diff-only: pull_request scans against the PR base SHA; push scans
+        # against the previous branch tip (github.event.before), falling back
+        # to HEAD~1 on a brand-new branch's first push. The runner blocks on
+        # any HIGH-severity finding (exit 2) — a required merge-to-main check.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            export PENTEST_BASELINE_REF="$PR_BASE_SHA"
+          elif [ -n "${PUSH_BEFORE:-}" ] && ! printf '%s' "$PUSH_BEFORE" | grep -qE '^0+$'; then
+            export PENTEST_BASELINE_REF="$PUSH_BEFORE"
+          else
+            export PENTEST_BASELINE_REF="HEAD~1"
+          fi
+          echo "pen-test baseline ref: $PENTEST_BASELINE_REF"
+          bash scripts/pentest-review.sh
+
   sonarcloud:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
@@ -1360,6 +1397,7 @@ jobs:
       - codeql-js
       - codeql-rust
       - security-audit
+      - pentest-review
       - sonarcloud
       - e2e
       - go-bench

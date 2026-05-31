@@ -59,6 +59,29 @@ dependabot/* PR → dev → (CI) → main
 
 The existing `merge-to-main` job in [`ci.yml`](../../.github/workflows/ci.yml) forwards `dev` → `main` after the same gate any human commit clears. No separate integration branch; no nightly sync workflow.
 
+## Adversarial Pen-Test Gate
+
+[ADR-027](adr/ADR-027-adversarial-pentest-precommit-gate.md) adds a fail-closed
+adversarial gate that runs custom [Semgrep](https://semgrep.dev) rules plus an
+OpenAPI spec-drift check over the diff. It is enforced in three places sharing
+one runner ([`scripts/pentest-review.sh`](../scripts/pentest-review.sh)): the
+commit hook ([`pretooluse-pentest-gate.sh`](../.claude/hooks/pretooluse-pentest-gate.sh)),
+the precommit gauntlet, and a blocking `pentest-review` job in
+[`ci.yml`](../.github/workflows/ci.yml) (a required `merge-to-main` check — the
+only gate covering Dependabot PRs and machines without the local hooks).
+
+Rules live in [`policy/semgrep/`](../policy/semgrep/): missing authorization on
+mutating handlers, unchecked path traversal, secret-in-log, plaintext secret
+columns, IDOR (advisory), and OpenAPI mutating ops shipped without a `security:`
+block. HIGH findings block; MEDIUM are advisory. Diff-only scanning
+(`--baseline-commit`) grandfathers pre-existing findings — only new ones block.
+Semgrep is provisioned by [`scripts/install-semgrep.sh`](../scripts/install-semgrep.sh)
+(pinned, idempotent). False positives are handled via per-rule `paths.exclude:`
+or [`policy/semgrep/.semgrepignore`](../policy/semgrep/.semgrepignore), never
+inline suppressions (banned per [`.claude/rules/sonarcloud.md`](../.claude/rules/sonarcloud.md)).
+The [`/pentest-review`](../.claude/skills/pentest-review/SKILL.md) skill runs the
+same check on demand.
+
 ## Supply Chain Security
 
 Container images are signed and attested to ensure artifact integrity from build to deploy:

@@ -7,6 +7,7 @@
 
 | Phase | Summary | Version | Plan |
 |-------|---------|---------|------|
+| ADR-027 Adversarial Pen-Test Gate | Semgrep custom-rule gate (6 rules) + OpenAPI spec-drift over the diff; enforced at commit hook + precommit gauntlet + blocking CI job (required `merge-to-main` check); `semgrep==1.108.0` pinned, diff-only via `--baseline-commit`; HIGH blocks / MEDIUM advisory; `/pentest-review` skill | — | [pentest-gate-semgrep-precommit.md](plans/pentest-gate-semgrep-precommit.md) |
 | Phase 0: Scaffolding | Rust workspace, Go module, React/Vite app, CI, Makefile | — | — |
 | Phase 1: Shared Protocol | mesh-protocol crate (Rust) + internal/protocol (Go), golden file cross-lang tests | — | — |
 | Phase 2: Server Infrastructure | SQLite WAL db (golang-migrate, 8 tables), ECDSA P-256 CA, mTLS, TLS 1.3 | — | — |

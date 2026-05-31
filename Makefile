@@ -1,5 +1,5 @@
 .PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick \
-	mutate mutate-rust mutate-go mutate-web taint-go taint-web dead-code \
+	mutate mutate-rust mutate-go mutate-web taint-go taint-web pentest-review dead-code \
 	terraform-test terraform-drift \
 	secrets-scan iac-policy iac-policy-fix iac-policy-custom lint-dockerfile \
 	test-parse-tfplan \
@@ -52,7 +52,7 @@ postgres-test-up:
 postgres-test-down:
 	docker rm -f opengate-pg-test 2>/dev/null || true
 
-lint: lint-deploy
+lint: lint-deploy pentest-review
 	cd agent && cargo clippy --workspace -- -D warnings
 	cd server && go vet ./...
 	cd web && npx eslint src/
@@ -289,6 +289,13 @@ taint-go:
 
 taint-web:
 	cd web && npx eslint --config eslint.security.config.js src/
+
+# Adversarial pen-test gate (ADR-027): custom Semgrep rules + OpenAPI
+# spec-drift over the diff. Full scan by default (no baseline → every finding
+# evaluated); the gauntlet and CI pass PENTEST_BASELINE_REF for diff-only mode.
+pentest-review:
+	@command -v semgrep >/dev/null 2>&1 || [ -x "$$HOME/.local/bin/semgrep" ] || { echo "ERROR: semgrep not found. Install with: bash scripts/install-semgrep.sh"; exit 1; }
+	bash scripts/pentest-review.sh
 
 # Dead-code & unused-symbol sweep across all three languages.
 dead-code:

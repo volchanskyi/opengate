@@ -1,0 +1,37 @@
+# .semgrepignore — permanent file-glob exclusions for the pen-test gate.
+#
+# This is for files that are PERMANENTLY out of scope for the custom ruleset
+# (generated code, vendored deps, test fixtures). Pre-existing findings in
+# in-scope code are NOT listed here — those are grandfathered automatically by
+# diff-only scanning (--baseline-commit in scripts/pentest-review.sh), so they
+# never block while any NEW finding does.
+#
+# Each entry carries a `# reason:` so a reviewer can audit why. ADR-027.
+
+# reason: generated from api/openapi.yaml; hand-edits are overwritten. The
+#         spec-drift check (Rule 6) covers the YAML source of truth instead.
+server/internal/api/openapi_gen.go
+*_gen.go
+*.pb.go
+
+# reason: generated TypeScript API types (npm run generate:api).
+web/src/types/api.d.ts
+
+# reason: test code exercises adversarial shapes deliberately (fixtures,
+#         negative-path assertions); scanning it produces noise, not signal.
+*_test.go
+*.test.ts
+*.test.tsx
+*.spec.ts
+**/tests/**
+**/__tests__/**
+**/e2e/**
+
+# reason: vendored / third-party — not our code to gate.
+node_modules/
+**/target/**
+vendor/
+
+# reason: the pen-test test harness creates intentionally-vulnerable ephemeral
+#         fixtures; never scan them in a real run.
+scripts/tests/

@@ -1,0 +1,65 @@
+# og-idor-missing-ownership-check — read-by-id without an ownership derivation.
+#
+# Catches gap class (approximate): a handler fetches a resource by a
+# caller-supplied id (s.<repo>.Get(ctx, request.Id)) without first deriving the
+# acting user (ContextUserID) or asserting ownership (isOwner / isGroupOwner).
+# This is the IDOR shape — any authenticated user reading another tenant's
+# object by guessing its id.
+#
+# Ships as WARNING (MEDIUM): the pattern legitimately over-fires on admin-only
+# handlers (already gated by denyIfNotAdmin) and on global resources with no
+# ownership semantic. It is a ratchet signal surfaced in /pentest-review, not a
+# hard commit block. Promote individual findings to a fix; do not blanket-
+# suppress.
+rules:
+  - id: og-idor-missing-ownership-check
+    languages: [go]
+    severity: WARNING
+    message: >-
+      Resource fetched by caller-supplied id ("$REQ.$IDF") with no ownership
+      derivation in this handler (no ContextUserID / isOwner / isGroupOwner /
+      denyIfNotAdmin). Confirm the caller is authorized for this specific
+      object, not just authenticated. If this is an admin-only or global
+      resource, gate it explicitly. ADR-027 (MEDIUM — review, not blocking).
+    metadata:
+      category: security
+      cwe: "CWE-639: Authorization Bypass Through User-Controlled Key"
+      owasp: "A01:2021 - Broken Access Control"
+      confidence: LOW
+      adr: ADR-027
+    paths:
+      include:
+        - "server/internal/api/handlers_*.go"
+    patterns:
+      - pattern-inside: |
+          func ($RECV $TYPE) $NAME(...) (...) {
+            ...
+          }
+      - pattern: $S.$REPO.Get($CTX, $REQ.$IDF)
+      - metavariable-regex:
+          metavariable: $IDF
+          regex: '^(Id|ID|.*Id|.*ID)$'
+      - pattern-not-inside: |
+          func ($RECV $TYPE) $NAME(...) (...) {
+            ...
+            ContextUserID(...)
+            ...
+          }
+      - pattern-not-inside: |
+          func ($RECV $TYPE) $NAME(...) (...) {
+            ...
+            $S.isOwner(...)
+            ...
+          }
+      - pattern-not-inside: |
+          func ($RECV $TYPE) $NAME(...) (...) {
+            ...
+            $S.isGroupOwner(...)
+            ...
+          }
+      - pattern-not-inside: |
+          func ($RECV $TYPE) $NAME(...) (...) {
+            ...
+            denyIfNotAdmin(...)
+            ...
+          }

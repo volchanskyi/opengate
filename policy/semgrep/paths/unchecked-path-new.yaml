@@ -1,0 +1,49 @@
+# og-path-traversal-unchecked — reject user-influenced paths without `..` guard.
+#
+# Catches gap class: building a std::path::Path / PathBuf directly from a value
+# that has not been screened for parent-directory traversal ("..") before it
+# reaches a filesystem call. This is the shape of the file_ops.rs path-handling
+# surface (FileListRequest / FileDownloadRequest carry a caller-supplied path).
+#
+# Approximate by design: fires on Path::new($X) / PathBuf::from($X) where $X is
+# a bare binding (not a chained expression that already normalized the path) and
+# the enclosing function body contains no `$X.contains("..")` screen. A genuine
+# normalization (canonicalize + prefix check, or an explicit contains("..")
+# rejection) clears the finding.
+rules:
+  - id: og-path-traversal-unchecked
+    languages: [rust]
+    severity: ERROR
+    message: >-
+      Path built from "$X" without a parent-directory ("..") screen. A
+      caller-supplied path reaching the filesystem must be rejected when it
+      contains ".." (or canonicalized and prefix-checked) before use. Add e.g.
+      `if $X.contains("..") { return Err(...) }` before constructing the Path.
+      ADR-027.
+    metadata:
+      category: security
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      confidence: MEDIUM
+      adr: ADR-027
+    patterns:
+      - pattern-either:
+          - pattern: Path::new($X)
+          - pattern: PathBuf::from($X)
+      # Only bare identifiers — skip literals and already-derived expressions
+      # like `base.join(name)` or `foo.canonicalize()`.
+      - metavariable-regex:
+          metavariable: $X
+          regex: '^[a-z_][a-z0-9_]*$'
+      # Cleared when a `..` rejection guards the path anywhere earlier in the
+      # enclosing function. The `if <... .contains("..") ...> { ... }` shape
+      # matches the check in condition position (a bare statement pattern would
+      # not). A separate `pattern-inside: fn {...}` is intentionally omitted —
+      # it caused the metavariable binding to conflict with this not-inside and
+      # the suppression stopped applying.
+      - pattern-not-inside: |
+          fn $FN(...) -> $RET {
+            ...
+            if <... $X.contains("..") ...> { ... }
+            ...
+          }

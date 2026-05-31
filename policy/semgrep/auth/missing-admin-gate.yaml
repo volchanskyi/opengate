@@ -1,0 +1,55 @@
+# og-auth-missing-admin-gate — mutating handlers must carry an authorization check.
+#
+# Catches gap class: a new mutating handler (Create*/Update*/Delete*/Promote*/
+# Demote*/Revoke*/Grant*) added to the API surface with NO authorization check,
+# leaving a privileged operation reachable by any authenticated caller.
+#
+# OpenGate authorizes a mutating handler in one of these valid forms (all
+# accepted — the rule fires only when NONE appears in the function body):
+#   * denyIfNotAdmin(ctx, ...)  — admin-only gate (middleware.go:102)
+#   * isAdmin(ctx)              — inline admin branch / passed to a usecase
+#   * s.isGroupOwner(ctx, ...)  — group-ownership gate (middleware.go:112)
+#   * s.isOwner(ctx, ...)       — per-resource ownership gate
+#
+# These calls appear in non-statement positions (if-init: `if r, d :=
+# denyIfNotAdmin(...); d {`, if-condition: `if !s.isGroupOwner(...) {`, struct
+# field: `IsAdmin: isAdmin(ctx)`). A structural `pattern-not` keyed on statement
+# form misses those, so the exemption is a `pattern-not-regex` over the matched
+# function text — robust to position. This is approximate by design (a mention
+# of the identifier anywhere in the body clears the finding), matching the
+# advisory nature of the rule.
+#
+# Scoped to handlers_*.go so repository/usecase methods named Create*/Delete*
+# (not the auth boundary) do not over-fire. Pure read handlers (List*/Get*) are
+# out of scope — the IDOR rule covers reads.
+rules:
+  - id: og-auth-missing-admin-gate
+    languages: [go]
+    severity: ERROR
+    message: >-
+      Mutating handler "$NAME" has no authorization check. A
+      Create/Update/Delete/Promote/Demote/Revoke/Grant endpoint must gate on
+      admin (denyIfNotAdmin / isAdmin) or ownership (isGroupOwner / isOwner)
+      before acting — see server/internal/api/middleware.go. Add the guard and
+      early-return the typed 403, or — if this endpoint is intentionally
+      unauthenticated — rename it so it is not mutation-verb-prefixed. ADR-027.
+    metadata:
+      category: security
+      cwe: "CWE-862: Missing Authorization"
+      owasp: "A01:2021 - Broken Access Control"
+      confidence: MEDIUM
+      adr: ADR-027
+    paths:
+      include:
+        - "server/internal/api/handlers_*.go"
+    patterns:
+      - pattern: |
+          func ($RECV $TYPE) $NAME(...) (...) {
+            ...
+          }
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: '^(Create|Update|Delete|Promote|Demote|Revoke|Grant)'
+      # Cleared when the function body mentions ANY authorization helper, in any
+      # syntactic position (statement, if-init, if-condition, struct field).
+      - pattern-not-regex: '\b(denyIfNotAdmin|isAdmin|isGroupOwner|isOwner)\b'
