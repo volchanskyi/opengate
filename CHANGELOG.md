@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.33.0] - 2026-05-31
+
+### Added
+- **security:** ADR-027 adversarial pen-test gate (Semgrep) at commit + CI
+
+### Fixed
+- **ci:** pin setuptools<81 so semgrep can import pkg_resources
+- **ci:** pen-test gate semgrep install — suppress upgrade notice, robust version parse
+
 ## [v0.32.1] - 2026-05-20
 
 ### Fixed
