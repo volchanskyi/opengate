@@ -777,6 +777,45 @@ mod tests {
         ));
     }
 
+    /// Pin handle_control's `ControlMessage::SwitchAck` arm with an ACTIVE peer
+    /// connection: the arm must dispatch to `SwitchHandler::handle_ack`, which
+    /// echoes a SwitchAck frame back to the browser. Deleting the arm (falling
+    /// through to the `_ => debug!` branch) would drop the confirmation — this
+    /// asserts the echo so that match-arm-deletion mutant dies. The companion
+    /// no-peer case is covered by `handle_control_ice_and_switch_ack_no_op_without_peer`.
+    #[tokio::test]
+    async fn handle_control_switch_ack_with_peer_echoes_frame() {
+        let handler = new_handler(all_perms());
+        let injector = NullInput;
+        let (frame_tx, mut frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+
+        // AgentPeerConnection::new is offline-safe: webrtc-rs only touches the
+        // network once a local description triggers ICE gathering, which the
+        // SwitchAck path never does.
+        let (inbound_tx, _inbound_rx) = mpsc::channel(8);
+        let pc = AgentPeerConnection::new(Vec::new(), inbound_tx)
+            .await
+            .expect("peer connection construction is offline-safe");
+        let webrtc_pc: Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>> =
+            Arc::new(tokio::sync::Mutex::new(Some(Arc::new(pc))));
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::SwitchAck),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                None,
+                &webrtc_pc,
+            )
+            .await;
+
+        let data = frame_rx.try_recv().expect("expected SwitchAck echo frame");
+        let frame = decode_frame(&data);
+        assert!(matches!(frame, Frame::Control(ControlMessage::SwitchAck)));
+    }
+
     #[tokio::test]
     async fn test_send_frame_closed_channel() {
         let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(1);
