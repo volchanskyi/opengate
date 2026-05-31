@@ -971,7 +971,10 @@
       "Bash(git --no-pager diff .claude/settings.json)",
       "Bash(echo \"pull_rc=$?\")",
       "Bash(echo \"push_rc=$?\")",
-      "Bash(sync)"
+      "Bash(sync)",
+      "Bash(echo \"C1B_COMMIT_EXIT=$?\")",
+      "Bash(echo \"rc=$?\")",
+      "Bash(bash /tmp/ruletest.sh)"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate.wiki",

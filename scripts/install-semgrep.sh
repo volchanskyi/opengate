@@ -19,15 +19,26 @@ set -euo pipefail
 # the ci.yml pentest-review job.
 SEMGREP_VERSION="1.108.0"
 
+# Suppress Semgrep's "a new version is available" notice. On a fresh HOME (e.g.
+# a CI runner) `semgrep --version` otherwise prints a blank line + the upgrade
+# notice BEFORE the version number — which broke a naive `head -1` parse and
+# failed the install step (see CI run 26697942185). Disabling the check also
+# avoids a network call at install time.
+export SEMGREP_ENABLE_VERSION_CHECK=0
+
 VENV_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/opengate/semgrep-venv"
 BIN_DIR="${HOME}/.local/bin"
 LINK="${BIN_DIR}/semgrep"
 
 log() { printf '[install-semgrep] %s\n' "$1" >&2; }
 
+# Parse the X.Y.Z version out of `semgrep --version`, robust to any extra
+# notice lines the tool may emit. grep -oE never selects a non-version line.
+semgrep_version_of() { "$1" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1; }
+
 # Already at the pinned version on PATH? No-op.
 if command -v semgrep >/dev/null 2>&1; then
-  have="$(semgrep --version 2>/dev/null | head -1 | tr -d '[:space:]')"
+  have="$(semgrep_version_of semgrep)"
   if [ "$have" = "$SEMGREP_VERSION" ]; then
     log "semgrep ${SEMGREP_VERSION} already present — nothing to do."
     exit 0
@@ -53,7 +64,7 @@ log "symlinked ${LINK} -> ${VENV_DIR}/bin/semgrep"
 
 # Verify the symlink resolves to the pinned version. PATH may not yet include
 # ~/.local/bin in this shell, so invoke the link directly.
-got="$("$LINK" --version 2>/dev/null | head -1 | tr -d '[:space:]')"
+got="$(semgrep_version_of "$LINK")"
 if [ "$got" != "$SEMGREP_VERSION" ]; then
   log "ERROR: post-install version is '${got}', expected ${SEMGREP_VERSION}."
   exit 1

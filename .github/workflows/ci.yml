@@ -977,7 +977,7 @@ jobs:
           exit 1
 
   pentest-review:
-    name: Pen-Test Gate (ADR-027)
+    name: Pen-Test Gate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
