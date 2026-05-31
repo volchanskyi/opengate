@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780202445459,
+  "lastUpdate": 1780205211347,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15312,6 +15312,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.6278355984519,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d3f03735b96ace9da70f3684828e5787cbcdc41a",
+          "message": "fix(ci): pin setuptools<81 so semgrep can import pkg_resources\n\nThis is the actual fix for the pentest-review CI install failure; the prior\nattempt (ba7ba80) mis-diagnosed it as a version-parse / upgrade-notice issue\nand did not change the failure.\n\nRoot cause (reproduced in a clean python:3.12-slim container): semgrep 1.108.0\ntransitively imports pkg_resources via opentelemetry-instrumentation, which it\nloads on EVERY invocation — including `semgrep --version`. A fresh Python 3.12\nvenv installs setuptools >=82, which removed pkg_resources, so every semgrep run\ncrashes with `ModuleNotFoundError: No module named 'pkg_resources'` and exits 1.\nCI builds the venv fresh each run, so it failed every time; it passed locally\nonly because the local venv predated setuptools 82. The script's `2>/dev/null`\nhid the traceback, which is what led to the wrong first diagnosis. See\nsemgrep#11069 and the setuptools 82.0.0 history.\n\nFix in scripts/install-semgrep.sh:\n- after installing semgrep, `pip install \"setuptools<81\"` into the same venv so\n  pkg_resources stays importable;\n- replace the silent version probe with a post-install smoke test that runs\n  `semgrep --version` with stderr VISIBLE, so any future broken-import failure\n  surfaces here with the real traceback instead of failing opaquely downstream.\n\nVerified end-to-end in a clean container mirroring the CI runner (fresh HOME,\nbash, no pre-existing venv): install exits 0 with setuptools 80.10.2 +\nsemgrep 1.108.0, and scripts/pentest-review.sh then exits 0.",
+          "timestamp": "2026-05-30T22:23:13-07:00",
+          "tree_id": "542e9b9509a87542789cdd90f9a42bed9c59e29b",
+          "url": "https://github.com/volchanskyi/opengate/commit/d3f03735b96ace9da70f3684828e5787cbcdc41a"
+        },
+        "date": 1780205211283,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.399898573310345,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.72339711460729,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 758.9145136695565,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.15151516068977,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.73486328670966,
             "unit": "ns/iter"
           }
         ]
