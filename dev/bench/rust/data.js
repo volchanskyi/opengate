@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780205211347,
+  "lastUpdate": 1780276187031,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15361,6 +15361,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.73486328670966,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "fe2aff23fbe1dba0aa0138c597618765fb4c992f",
+          "message": "feat(quality): PMAT overlay (ADR-019/028) + Phase 13b re-eval\n\nAll four ADR-019 PMAT integration points, implemented against pinned\npmat@3.17.0 whose CLI/MCP surface differs from ADR-019's literal text;\nthe verified mapping is recorded in the immutable ADR-028 (decisions.md\nrepointed ADR-019 -> ADR-028).\n\n- C3 baseline: repo-score 64.5/100 (C) on dev HEAD; 8 prod files <B+.\n- C4 MCP: track .mcp.json (pmat server def, no credentials) + settings.json\n  read-only allow-list (7 analyze_* allowed, 3 file-writers denied) +\n  enabledMcpjsonServers; pmat serve has no server-side tool filter.\n- C5 precommit: scripts/pmat-precommit.sh gates changed code (incl. tests,\n  excl. generated) at B+ via `tdg check-quality`; tdd-check.sh gains is-code;\n  appended last in the gauntlet. +22 shell tests.\n- C6 nightly: pmat-trend.yml -> pmat-summarize.sh -> Loki -> Grafana\n  (opengate-pmat-trend); Telegram on >=3-pt repo-score drop OR below-B+\n  count rise (day-over-day read from Loki).\n- C7: refreshed Phase 13b multiserver/scaling plan (k8s direct, OCI budget,\n  ADR-023 readiness); phases.md repointed.\n- Archive completed pentest-gate plan.",
+          "timestamp": "2026-05-31T18:05:52-07:00",
+          "tree_id": "5511572a1953c6825a3f95daab8ab3ef39e35fd6",
+          "url": "https://github.com/volchanskyi/opengate/commit/fe2aff23fbe1dba0aa0138c597618765fb4c992f"
+        },
+        "date": 1780276186953,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.671644495292938,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.516438488018157,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 781.5545886721737,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 289.6068527955674,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.692565696230233,
             "unit": "ns/iter"
           }
         ]
