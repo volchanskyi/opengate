@@ -72,6 +72,24 @@ assert_fail "files under /test/ not source" "$TDD_CHECK" is-source server/test/f
 assert_fail "files under __tests__/ not source" "$TDD_CHECK" is-source web/src/__tests__/foo.ts
 
 echo
+echo "is-code classifier (tests INCLUDED, generated EXCLUDED):"
+assert_ok   "*.go is code"             "$TDD_CHECK" is-code server/internal/api/handlers.go
+assert_ok   "*_test.go IS code"        "$TDD_CHECK" is-code server/internal/api/handlers_test.go
+assert_ok   "*.rs is code"             "$TDD_CHECK" is-code agent/src/main.rs
+assert_ok   "build.rs is code"         "$TDD_CHECK" is-code agent/crates/mesh-agent/build.rs
+assert_ok   "*.test.tsx IS code"       "$TDD_CHECK" is-code web/src/Foo.test.tsx
+assert_ok   "*_spec.ts IS code"        "$TDD_CHECK" is-code web/src/foo_spec.ts
+assert_ok   "files under tests/ ARE code" "$TDD_CHECK" is-code server/tests/integration/foo.go
+assert_ok   "files under e2e/ ARE code"   "$TDD_CHECK" is-code web/e2e/login.spec.ts
+assert_fail "openapi_gen.go is not code"  "$TDD_CHECK" is-code server/internal/api/openapi_gen.go
+assert_fail "*_gen.go is not code"        "$TDD_CHECK" is-code server/internal/foo_gen.go
+assert_fail "*.pb.go is not code"         "$TDD_CHECK" is-code server/internal/foo.pb.go
+assert_fail "*.md is not code"            "$TDD_CHECK" is-code docs/Home.md
+assert_fail "*.json is not code"          "$TDD_CHECK" is-code package.json
+assert_fail "*.sh is not code"            "$TDD_CHECK" is-code scripts/foo.sh
+assert_fail "*.yml is not code"           "$TDD_CHECK" is-code .github/workflows/ci.yml
+
+echo
 echo "has-test-change (branch state):"
 
 # 1. Clean fresh branch off dev — no test change.

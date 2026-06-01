@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "pmat": {
+      "type": "stdio",
+      "command": "pmat",
+      "args": ["serve", "--mode", "mcp"]
+    }
+  }
+}

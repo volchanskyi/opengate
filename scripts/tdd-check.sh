@@ -6,6 +6,11 @@
 #   is-source <path>      exit 0 if <path> is a source file (per project
 #                         classifier — Go/Rust/TS/JS, excluding tests and
 #                         generated files); exit 1 otherwise.
+#   is-code <path>        exit 0 if <path> is a code file (Go/Rust/TS/JS,
+#                         excluding only generated files — tests ARE included);
+#                         exit 1 otherwise. Used by the PMAT B+ precommit gate
+#                         (ADR-019 / ADR-028), which grades all changed code
+#                         including tests, but never machine-generated output.
 #   has-test-change       exit 0 if the current branch has any test-file
 #                         change vs its merge-base with origin/dev
 #                         (committed OR staged OR unstaged OR untracked);
@@ -23,6 +28,17 @@ is_source() {
   [[ "$path" =~ $SOURCE_EXT_RE ]] || return 1
   [[ "$path" =~ $TEST_RE ]] && return 1
   [[ "$path" =~ $GEN_RE ]]  && return 1
+  return 0
+}
+
+# is_code: like is_source but KEEPS test files. Only generated files are
+# excluded. The PMAT precommit gate grades all changed code (tests included,
+# per the ADR-019/ADR-028 scope decision) but never machine-generated output,
+# which is regenerated and not hand-maintainable to a grade floor.
+is_code() {
+  local path="$1"
+  [[ "$path" =~ $SOURCE_EXT_RE ]] || return 1
+  [[ "$path" =~ $GEN_RE ]] && return 1
   return 0
 }
 
@@ -62,7 +78,8 @@ has_test_change() {
 usage() {
   cat >&2 <<'EOF'
 usage: tdd-check.sh <subcommand> [args]
-  is-source <path>     exit 0 if <path> is a source file, 1 otherwise
+  is-source <path>     exit 0 if <path> is a source file (excludes tests), 1 otherwise
+  is-code <path>       exit 0 if <path> is a code file (includes tests), 1 otherwise
   has-test-change      exit 0 if the branch has any test-file change, 1 otherwise
 EOF
   exit 2
@@ -75,6 +92,10 @@ main() {
     is-source)
       [ $# -eq 1 ] || usage
       is_source "$1"
+      ;;
+    is-code)
+      [ $# -eq 1 ] || usage
+      is_code "$1"
       ;;
     has-test-change)
       [ $# -eq 0 ] || usage

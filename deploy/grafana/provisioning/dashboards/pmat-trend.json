@@ -1,0 +1,183 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "Workflow",
+      "url": "https://github.com/volchanskyi/opengate/actions/workflows/pmat-trend.yml",
+      "targetBlank": true,
+      "type": "link"
+    },
+    {
+      "title": "ADR-019 — PMAT quality overlay",
+      "url": "https://github.com/volchanskyi/opengate/blob/main/docs/adr/ADR-019-pmat-quality-overlay.md",
+      "targetBlank": true,
+      "type": "link"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "description": "Latest PMAT repository health score (0-100). Source: Loki log lines from the nightly `pmat-trend.yml` workflow. Alert fires on a >=3-point day-over-day drop.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 65 },
+              { "color": "yellow", "value": 75 },
+              { "color": "green", "value": 85 }
+            ]
+          },
+          "unit": "none",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "title": "Latest repo score",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "last_over_time({job=\"pmat-trend\"} | json | unwrap repo_score [30d])",
+          "queryType": "instant",
+          "legendFormat": "repo score",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "description": "Count of code files currently graded below B+. Distinct from the precommit gate, which blocks only CHANGED files below B+. A rising line means quality debt is accumulating on untouched files. Alert fires when this count rises day-over-day.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "orange", "value": 25 },
+              { "color": "red", "value": 60 }
+            ]
+          },
+          "unit": "none",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "value"
+      },
+      "title": "Files below B+ (latest)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "last_over_time({job=\"pmat-trend\"} | json | unwrap below_bplus [30d])",
+          "queryType": "instant",
+          "legendFormat": "files < B+",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "description": "PMAT repository health score (0-100) over time. The B+ precommit gate, repo-score alert (>=3-pt day-over-day drop) and below-B+ alert are documented in ADR-019 / ADR-028.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "repo score",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" }
+          },
+          "unit": "none",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 4 },
+      "id": 3,
+      "options": {
+        "legend": { "calcs": ["min", "max", "lastNotNull"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Repo score over time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "last_over_time({job=\"pmat-trend\"} | json | unwrap repo_score [1d])",
+          "queryType": "range",
+          "legendFormat": "repo score",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "description": "Count of code files graded below B+ over time. Rising = quality debt accumulating on untouched files.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "axisBorderShow": false, "drawStyle": "line", "fillOpacity": 10, "lineWidth": 2, "pointSize": 5, "showPoints": "always", "spanNulls": false }
+        }
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "id": 4,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max", "min"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Files below B+ over time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "last_over_time({job=\"pmat-trend\"} | json | unwrap below_bplus [1d])",
+          "queryType": "range",
+          "legendFormat": "files < B+",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["pmat", "quality", "tdg"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "PMAT Quality Trend",
+  "uid": "opengate-pmat-trend",
+  "version": 1
+}

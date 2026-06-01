@@ -974,7 +974,28 @@
       "Bash(sync)",
       "Bash(echo \"C1B_COMMIT_EXIT=$?\")",
       "Bash(echo \"rc=$?\")",
-      "Bash(bash /tmp/ruletest.sh)"
+      "Bash(bash /tmp/ruletest.sh)",
+      "Bash(git --no-pager diff --cached --name-only)",
+      "Bash(git --no-pager diff --name-only)",
+      "Bash(git --no-pager diff --cached --stat)",
+      "Bash(echo \"CIFIX_COMMIT_EXIT=$?\")",
+      "Bash(python3 -c \"import json,sys; [print\\(r['databaseId'], r['headSha'][:8], r['status'], r['conclusion']\\) for r in json.load\\(sys.stdin\\)]\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(r['databaseId'], r['headSha'][:8], r['status'], r.get\\('conclusion'\\)\\) for r in d]\")",
+      "Bash(echo \"rc=$? lines=$\\(wc -l < /tmp/job-fix.log\\)\")",
+      "Bash(echo \"rc=$? lines=$\\(wc -l < /tmp/fail-fix.log\\)\")",
+      "Bash(echo \"DOCKER_EXIT=$?\")",
+      "mcp__pmat__analyze_complexity",
+      "mcp__pmat__analyze_code_churn",
+      "mcp__pmat__analyze_satd",
+      "mcp__pmat__analyze_duplicates_vectorized",
+      "mcp__pmat__analyze_dead_code",
+      "mcp__pmat__analyze_deep_context",
+      "mcp__pmat__get_server_info"
+    ],
+    "deny": [
+      "mcp__pmat__scaffold_project",
+      "mcp__pmat__generate_template",
+      "mcp__pmat__generate_enhanced_report"
     ],
     "additionalDirectories": [
       "/home/ivan/opengate.wiki",
@@ -991,6 +1012,9 @@
       "/home/ivan/opengate/.claude/.markers"
     ]
   },
+  "enabledMcpjsonServers": [
+    "pmat"
+  ],
   "hooks": {
     "PreToolUse": [
       {
