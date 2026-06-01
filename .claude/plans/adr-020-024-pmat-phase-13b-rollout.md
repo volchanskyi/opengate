@@ -36,17 +36,15 @@ Pattern established by `MouseHandler` (commit pending push): each handler is a u
 - [ ] **`WebRTCHandler`** — `SwitchToWebRTC`, `IceCandidate`. ~250 LOC, async + `Arc<Mutex<Option<…>>>` state. Highest mutation-coverage risk.
 - [ ] **Verify mutation baseline.** After all 5 land, run `cargo mutants -p mesh-agent-core` and confirm score stays ≥89.5% (per [mutation.yml](../../.github/workflows/mutation.yml) trend store).
 
-### 3. PMAT — 4 integration points (ADR-019)
+### 3. PMAT — 4 integration points (ADR-019) — ✅ COMPLETE (2026-05-31)
 
-Per [pmat-adoption-evaluation.md §4](pmat-adoption-evaluation.md).
+Per [pmat-adoption-evaluation.md §4](pmat-adoption-evaluation.md). **Implementation note:** pinned `pmat@3.17.0`'s actual CLI/MCP surface differs materially from ADR-019's literal prescriptions (no `--since-commit`/`--threshold B+`; the 7 named MCP tools mostly don't exist; repo-score is 0–100). ADR-019's *decisions* are unchanged; the verified mapping is recorded in the immutable [ADR-028](../../docs/adr/ADR-028-pmat-3.17-cli-mapping.md) (decisions.md points ADR-019 → ADR-028). Scope decisions confirmed with the user 2026-05-31: amending ADR + gate scope = changed code incl. tests, excl. generated.
 
-- [ ] **Baseline run.** `pmat repo-score` + `pmat tdg` on current `dev` HEAD. Record as first datapoint in trend store + as a "Pre-decomposition baseline" entry in [phases.md](../phases.md). Satisfies ADR-020's "PMAT baseline must precede first opportunistic trigger" prerequisite (retroactively — first triggers already fired).
-- [ ] **MCP server registration.** Add `pmat mcp serve` to `.claude/settings.json` with the 7-tool allow-list (TDG, repo-score, churn, entropy, duplicates, faults, Git-history RAG). 7-tool allow-list scopes the MCP surface to read-only quality data only.
-- [ ] **Precommit step.** `pmat tdg --since-commit HEAD~1 --threshold B+` on changed files added to [`scripts/precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh). Exact pin `pmat@3.17.0` (per ADR-019 §5.5). Fails the commit if any changed file's TDG drops below B+.
-- [ ] **Nightly workflow.** New `.github/workflows/pmat-trend.yml` modelled on [mutation.yml](../../.github/workflows/mutation.yml). Full-repo nightly at off-peak. Push per-language scores to Loki via SSH+docker (`scripts/pmat-loki-push.sh` mirrors `scripts/mutation-loki-push.sh`). Grafana dashboard `opengate-pmat-trend` with stat + time-series panels. Telegram alerts on:
-  - **≥3-pt repo-score drop** day-over-day, OR
-  - **Any single file** TDG drop below B+.
-- [ ] **Kaizen disabled.** `--dry-run` only; never auto-commit (per ADR-019 §5.1 — conflicts with no-bypass commit guards).
+- [x] **Baseline run (C3).** `pmat repo-score` on `dev` HEAD `d3f0373` = **64.5/100 (C)**; `check-quality --min-grade B+` → 8 production files + ~36 server tests below B+, web clean. Recorded in [phases.md](../phases.md) (Completed row) and ADR-028 "Pre-decomposition baseline". First live Loki datapoint lands on the first nightly run.
+- [x] **MCP server registration (C4).** Server stays in [`.mcp.json`](../../.mcp.json) (`pmat serve --mode mcp`); read-only allow-list enforced in [`.claude/settings.json`](../settings.json) — `enabledMcpjsonServers:["pmat"]` + 7 read-only `analyze_*` tools in `permissions.allow` + 3 file-writers in `permissions.deny` (`pmat serve` exposes no server-side tool filter). Tool mapping in ADR-028.
+- [x] **Precommit step (C5).** [`scripts/pmat-precommit.sh`](../../scripts/pmat-precommit.sh) (+ `tdd-check.sh is-code` classifier + tests) runs `pmat tdg check-quality --min-grade B+ --fail-on-violation` per changed code file (incl. tests, excl. generated), appended last in [`scripts/precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh). Exact pin `pmat@3.17.0` enforced. Clean-as-You-Code: a sub-B+ file blocks only when edited.
+- [x] **Nightly workflow (C6).** [`.github/workflows/pmat-trend.yml`](../../.github/workflows/pmat-trend.yml) (04:00 UTC) → [`scripts/pmat-summarize.sh`](../../scripts/pmat-summarize.sh) (+tests) → Loki via [`scripts/pmat-loki-push.sh`](../../scripts/pmat-loki-push.sh) / [`pmat-loki-query.sh`](../../scripts/pmat-loki-query.sh). Grafana `opengate-pmat-trend` (stat + time-series). Telegram on **≥3-pt repo-score drop** day-over-day OR **below-B+ count rise** (proxy for "a file slipped below B+"; per-file enforcement is the C5 gate — see ADR-028).
+- [x] **Kaizen disabled.** Not wired anywhere; `--dry-run` only policy stands (per ADR-019 §5.1).
 
 ### 4. Re-evaluate Phase 13b
 

@@ -1,0 +1,197 @@
+name: PMAT Quality Trend
+
+# PMAT quality overlay as observability (ADR-019), NOT a CI gate.
+# Plan: .claude/plans/adr-020-024-pmat-phase-13b-rollout.md
+# CLI/MCP mapping vs the pinned tool: docs/adr/ADR-028-pmat-3.17-cli-mapping.md
+#
+# Nightly full-repo run. Does NOT block merges or deploys (not in
+# merge-to-main.needs[]). Pushes repo-score + below-B+ count to Loki for the
+# "PMAT Quality Trend" Grafana dashboard (opengate-pmat-trend). On regression
+# (repo-score drop >=3pt day-over-day OR a file newly below B+):
+#   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
+#   - workflow exits red (audit trail)
+# The B+ precommit gate (scripts/pmat-precommit.sh) is the per-commit
+# enforcement half; this workflow is the trend/observability half.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # nightly 04:00 UTC (after the crowded 03:00 obs batch)
+  workflow_dispatch:
+
+concurrency:
+  group: pmat-trend
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  RUST_VERSION: stable
+  PMAT_VERSION: 3.17.0  # exact pin (ADR-019 §5.5); keep in sync with .mcp.json + scripts/pmat-precommit.sh
+
+jobs:
+  pmat-trend:
+    name: PMAT trend + alert on regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 40  # cold `cargo install pmat` compiles from source; cached thereafter
+    # The observability environment scopes the Telegram + OCI secrets to
+    # unattended alerting workflows (identical to mutation.yml's publish job).
+    environment: observability
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      # -- Install pmat (exact pin), caching the compiled binary by version ----
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - name: Cache pmat binary
+        id: cache-pmat
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/pmat
+          key: pmat-${{ runner.os }}-${{ env.PMAT_VERSION }}
+      - name: Install pmat
+        if: steps.cache-pmat.outputs.cache-hit != 'true'
+        run: cargo install --locked --version "${PMAT_VERSION}" pmat
+      - name: Verify pmat version
+        run: |
+          set -euo pipefail
+          got="$(pmat --version)"
+          if [ "$got" != "pmat ${PMAT_VERSION}" ]; then
+            echo "::error::pmat version drift: '$got' != 'pmat ${PMAT_VERSION}'"
+            exit 1
+          fi
+
+      # -- Run pmat over the full repo -----------------------------------------
+      - name: Run pmat repo-score + tdg check-quality
+        run: |
+          set -uo pipefail
+          # repo-score JSON has no banner; check-quality prints a banner before
+          # its JSON object (the summarizer slices from the first '{'). The TDG
+          # surface matches the precommit gate: code incl. tests, not yaml/sh/md.
+          pmat repo-score --format json > repo-score.json 2>/dev/null
+          pmat tdg check-quality -p . --min-grade B+ --format json > tdg-check.json 2>/dev/null || true
+          echo "repo-score (head):"; head -c 160 repo-score.json; echo
+
+      # -- Loki transport (read previous, then push current) -------------------
+      - name: OCI + SSH setup
+        id: infra
+        uses: ./.github/actions/oci-ssh-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          deploy-host: ${{ secrets.DEPLOY_HOST }}
+          run-id: ${{ github.run_id }}
+
+      - name: Read previous values from Loki (day-over-day baseline)
+        id: prev
+        run: |
+          set -uo pipefail
+          {
+            echo "repo_score=$(./scripts/pmat-loki-query.sh repo_score)"
+            echo "below_bplus=$(./scripts/pmat-loki-query.sh below_bplus)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Summarize + regression check
+        id: summarize
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          PREV_REPO_SCORE: ${{ steps.prev.outputs.repo_score }}
+          PREV_BELOW_BPLUS: ${{ steps.prev.outputs.below_bplus }}
+        run: |
+          set -uo pipefail
+          OUTPUT="$(./scripts/pmat-summarize.sh 2>&1)" && REGRESSION=0 || REGRESSION=1
+          echo "$OUTPUT"
+          echo "--- end ---"
+          echo "regression=$REGRESSION" >> "$GITHUB_OUTPUT"
+          CANONICAL_ROW="$(echo "$OUTPUT" | grep -E '^\{' | tail -n 1)"
+          echo "$CANONICAL_ROW" > canonical-row.json
+          ALERT_TEXT="$(echo "$OUTPUT" | grep '^REGRESSION_ALERT:' | sed 's/^REGRESSION_ALERT://' || true)"
+          {
+            echo "alert_text<<EOF"
+            echo "$ALERT_TEXT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload canonical row artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pmat-canonical-row
+          path: canonical-row.json
+          retention-days: 90
+
+      - name: Push to Loki
+        run: ./scripts/pmat-loki-push.sh canonical-row.json
+
+      - name: OCI + SSH teardown
+        if: always()
+        uses: ./.github/actions/oci-ssh-teardown
+        with:
+          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
+          rule-id: ${{ steps.infra.outputs.rule-id }}
+
+      - name: Write GITHUB_STEP_SUMMARY
+        run: |
+          {
+            echo "# PMAT quality run"
+            echo ""
+            echo "Commit: \`${{ github.sha }}\`"
+            echo ""
+            echo "## Canonical row"
+            echo '```json'
+            python3 -m json.tool < canonical-row.json || cat canonical-row.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Telegram alert on regression
+        # Never fails the step — Telegram is a notification channel, not a gate.
+        # The "Fail workflow on regression" step below carries the real signal.
+        if: steps.summarize.outputs.regression == '1'
+        env:
+          BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          ALERT_TEXT: ${{ steps.summarize.outputs.alert_text }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
+            echo "::warning::Telegram secrets not set; skipping alert (regression still reported via workflow exit)."
+            exit 0
+          fi
+          # Validate the bot token via getMe first so a revoked token surfaces
+          # as a clear diagnosis rather than an opaque sendMessage 404.
+          getme_http=$(curl -sS --max-time 10 -o /tmp/telegram-getme.json -w '%{http_code}' \
+            "https://api.telegram.org/bot${BOT}/getMe" 2>/dev/null || echo "curl_error")
+          if [ "$getme_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-getme.json >/dev/null 2>&1; then
+            echo "::error::Telegram getMe HTTP ${getme_http} — DEPLOY_TELEGRAM_BOT_TOKEN invalid or revoked."
+            cat /tmp/telegram-getme.json 2>/dev/null || echo "(no body)"
+            exit 0
+          fi
+          MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard "PMAT Quality Trend" (opengate-pmat-trend)' \
+            "$ALERT_TEXT" "$RUN_URL")"
+          send_http=$(curl -sS --max-time 30 -o /tmp/telegram-send.json -w '%{http_code}' \
+            -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT}" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "disable_web_page_preview=true" 2>/dev/null || echo "curl_error")
+          if [ "$send_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-send.json >/dev/null 2>&1; then
+            echo "::error::Telegram sendMessage returned HTTP ${send_http} — check DEPLOY_TELEGRAM_CHAT_ID."
+            cat /tmp/telegram-send.json 2>/dev/null || echo "(no body)"
+            exit 0
+          fi
+          echo "Telegram alert delivered ✓"
+
+      - name: Fail workflow red on regression
+        if: always() && steps.summarize.outputs.regression == '1'
+        run: |
+          echo "Regression detected — see workflow summary and Telegram alert (if delivered) above."
+          exit 1

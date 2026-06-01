@@ -1,13 +1,14 @@
 # Implementation Phases
 
-<!-- Last updated: 2026-05-19 -->
+<!-- Last updated: 2026-05-31 -->
 <!-- Update this file after completing or starting any significant phase of work. -->
 
 ## Completed
 
 | Phase | Summary | Version | Plan |
 |-------|---------|---------|------|
-| ADR-027 Adversarial Pen-Test Gate | Semgrep custom-rule gate (6 rules) + OpenAPI spec-drift over the diff; enforced at commit hook + precommit gauntlet + blocking CI job (required `merge-to-main` check); `semgrep==1.108.0` pinned, diff-only via `--baseline-commit`; HIGH blocks / MEDIUM advisory; `/pentest-review` skill | — | [pentest-gate-semgrep-precommit.md](plans/pentest-gate-semgrep-precommit.md) |
+| PMAT Quality Overlay (ADR-019 / ADR-028) | All 4 ADR-019 integration points, implemented against pinned `pmat@3.17.0` whose CLI/MCP surface differs from ADR-019's literal text (full mapping in [ADR-028](../docs/adr/ADR-028-pmat-3.17-cli-mapping.md)). **C3 pre-decomposition baseline** (dev HEAD `d3f0373`): repo-score **64.5/100 (C)**; 8 production files + ~36 server tests below B+, web clean. **C4 MCP allow-list**: [`.claude/settings.json`](settings.json) gains `enabledMcpjsonServers:["pmat"]`, 7 read-only `analyze_*` tools allowed, 3 file-writers (`scaffold_project`/`generate_template`/`generate_enhanced_report`) denied — `pmat serve` has no server-side tool filter. **C5 precommit gate**: [`scripts/pmat-precommit.sh`](../scripts/pmat-precommit.sh) runs `pmat tdg check-quality --min-grade B+` on changed code (incl. tests, excl. generated — new `tdd-check.sh is-code` classifier), appended last in [`scripts/precommit-gauntlet.sh`](../scripts/precommit-gauntlet.sh); Clean-as-You-Code (a sub-B+ file blocks only when edited). **C6 nightly**: [`.github/workflows/pmat-trend.yml`](../.github/workflows/pmat-trend.yml) (04:00 UTC) → [`scripts/pmat-summarize.sh`](../scripts/pmat-summarize.sh) → Loki (`scripts/pmat-loki-push.sh` / `pmat-loki-query.sh`); Grafana `opengate-pmat-trend`; Telegram on ≥3-pt repo-score drop OR below-B+ count rise (day-over-day from Loki). New shell tests: pmat-precommit (9), pmat-summarize (13), tdd-check is-code (+15). Kaizen not enabled (`--dry-run` policy). | — | [adr-020-024-pmat-phase-13b-rollout.md](plans/adr-020-024-pmat-phase-13b-rollout.md) |
+| ADR-027 Adversarial Pen-Test Gate | Semgrep custom-rule gate (6 rules) + OpenAPI spec-drift over the diff; enforced at commit hook + precommit gauntlet + blocking CI job (required `merge-to-main` check); `semgrep==1.108.0` pinned, diff-only via `--baseline-commit`; HIGH blocks / MEDIUM advisory; `/pentest-review` skill | — | [pentest-gate-semgrep-precommit.md](plans/archive/pentest-gate-semgrep-precommit.md) |
 | Phase 0: Scaffolding | Rust workspace, Go module, React/Vite app, CI, Makefile | — | — |
 | Phase 1: Shared Protocol | mesh-protocol crate (Rust) + internal/protocol (Go), golden file cross-lang tests | — | — |
 | Phase 2: Server Infrastructure | SQLite WAL db (golang-migrate, 8 tables), ECDSA P-256 CA, mTLS, TLS 1.3 | — | — |
@@ -91,7 +92,7 @@ _None currently._
 
 | Phase | Summary | Priority | Notes |
 |-------|---------|----------|-------|
-| Phase 13b: Multiserver & Scaling | Cross-server routing, relay pool, Kubernetes | High | Deferred from Phase 13 until after 13a |
+| Phase 13b: Multiserver & Scaling | Cross-server routing, relay pool, Kubernetes (direct, no k3s) | High | Re-evaluated 2026-05-31 → [phase-13b-multiserver-scaling.md](plans/phase-13b-multiserver-scaling.md). Sequenced A–E: wire InProcessRegistry live → k8s (OKE) → RedisRegistry + cross-server proxy → e2e-multiserver + load test → HPA. Budget-bound to 4 OCPU/24 GB (pilot-then-cutover). Spine: ADR-023. Open decisions: k8s flavor, Postgres placement, migration path, Redis durability |
 | Phase 15: Advanced Features | MFA/TOTP, API keys, Prometheus metrics, session recordings, group permissions CRUD | Low | |
 | CD Phase E (remaining) | Secrets management, network policies | Deprioritized | Cosign + Trivy already done |
 | CD Phase G: Testing & Retention | Testing strategy, release notes, 20-day retention policy | Low | |

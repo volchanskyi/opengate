@@ -137,6 +137,17 @@ if ! command -v semgrep >/dev/null 2>&1; then
   exit 2
 fi
 
+# pmat — required by the ADR-019 TDG gate (the exact-version pin is enforced
+# by scripts/pmat-precommit.sh; here we only check presence, fail-loud).
+if ! command -v pmat >/dev/null 2>&1; then
+  color "1;31"
+  echo "✗ pmat is not installed — the ADR-019 TDG gate cannot run." >&2
+  echo "  Install the pinned version (ADR-019 §5.5):" >&2
+  echo "    cargo install --locked --version 3.17.0 pmat" >&2
+  color "0"
+  exit 2
+fi
+
 echo "✓ all prerequisites present" >&2
 
 # Phase 1: lints (fast, fail-fast for cheap signal).
@@ -266,6 +277,13 @@ banner "SonarCloud"
 # not wired in: a quality-gate evaluation against stale coverage was the gap
 # that let new_coverage regressions reach CI undetected.
 run_check "make sonar"         -- make sonar
+
+# Phase 8: PMAT TDG gate (ADR-019 §"Integration point 2" / ADR-028). Appended
+# last so it never masks faster checks. Grades ONLY changed code files at the
+# B+ floor (Clean-as-You-Code) and passes trivially on docs-only / CI-only
+# commits. Wrapper owns the changed-file resolution + exact-version pin.
+banner "PMAT TDG gate"
+run_check "pmat tdg ≥ B+ (changed code)" -- bash scripts/pmat-precommit.sh
 
 # Summary.
 ELAPSED=$(( $(date +%s) - START_EPOCH ))
