@@ -31,13 +31,20 @@ case "$path" in
     ;;
 esac
 
-# 2. ADR immutability.
+# 2. ADR immutability + no plan-file links.
 if printf '%s' "$path" | grep -qE '(^|/)docs/adr/ADR-[0-9]+.*\.md$'; then
   if [ "$tool" = "Edit" ] || [ "$tool" = "MultiEdit" ]; then
     block adr-immutable "Edit refused: $path is an ADR. ADRs are immutable — supersede with a new file. .claude/rules/plans-and-adrs.md."
   fi
   if [ "$tool" = "Write" ] && [ -e "$path" ]; then
     block adr-immutable "Write refused: $path is an existing ADR. ADRs are immutable — supersede with a new ADR file. .claude/rules/plans-and-adrs.md."
+  fi
+  # New ADRs must not link plan files. ADRs are immutable but plans move
+  # (archived/renamed), so an ADR→plan link rots into a dead link that can
+  # never be repaired. Fold the rationale inline or point at the mutable
+  # .claude/decisions.md index instead. .claude/rules/plans-and-adrs.md.
+  if [ "$tool" = "Write" ] && printf '%s' "${HOOK_TOOL_INPUT_CONTENT:-}" | grep -qE '\]\([^)]*plans/[^)]*\.md'; then
+    block adr-plan-link "Write refused: $path links a plan file ( ](…plans/….md) ). ADRs must not link plans — the link rots when the plan is archived and the ADR can't be edited to fix it. Fold the rationale inline or reference .claude/decisions.md. .claude/rules/plans-and-adrs.md."
   fi
 fi
 

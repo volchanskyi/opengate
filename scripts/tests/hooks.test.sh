@@ -458,6 +458,23 @@ run_hook pretooluse-write-guard.sh "$envelope"
 assert_exit "Write new ADR file: allow" 0
 cleanup_repo
 
+# 4b. Write a NEW ADR that links a plan file: BLOCK (links rot; ADRs immutable).
+make_repo
+mkdir -p docs/adr
+envelope="$(build_envelope Write '{"file_path":"docs/adr/ADR-098-bad.md","content":"# ADR-098\n\nSee [plan](../../.claude/plans/foo.md) for detail."}')"
+run_hook pretooluse-write-guard.sh "$envelope"
+assert_exit "New ADR with plan link: BLOCK" 2
+assert_stderr_contains "ADR plan-link: stderr cites decisions.md" "decisions.md"
+cleanup_repo
+
+# 4c. Write a NEW ADR with non-plan links (other ADR + decisions index): allow.
+make_repo
+mkdir -p docs/adr
+envelope="$(build_envelope Write '{"file_path":"docs/adr/ADR-097-ok.md","content":"# ADR-097\n\nSupersedes [ADR-013](ADR-013-foo.md); see [index](../../.claude/decisions.md)."}')"
+run_hook pretooluse-write-guard.sh "$envelope"
+assert_exit "New ADR with non-plan links: allow" 0
+cleanup_repo
+
 # 5. Edit adds NOSONAR: BLOCK.
 make_repo
 envelope="$(build_envelope Edit '{"file_path":"server/internal/api/handlers.go","old_string":"a","new_string":"a // NOSONAR (rationale)"}')"

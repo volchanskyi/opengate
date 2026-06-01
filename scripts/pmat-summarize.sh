@@ -36,9 +36,44 @@ REPO_SCORE_DROP_THRESHOLD="${REPO_SCORE_DROP_THRESHOLD:-3.0}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# slice_json FILE — print the JSON object from FILE, skipping any progress
-# banner pmat prints before it (`check-quality` does; `repo-score` does not).
-slice_json() { sed -n '/^{/,$p' "$1"; }
+# slice_json FILE — print exactly ONE clean JSON object from FILE.
+#
+# pmat's `check-quality` output is hostile to naive slicing: it prints a
+# progress banner first, colours it with ANSI escapes that `--color never`
+# does NOT suppress, AND (on `-p .`) emits the result object *twice*. A
+# `sed '/^{/,$p'` grab therefore yields banner-free but DOUBLE JSON, which
+# `jq --argjson` rejects as "invalid JSON text" (it wants a single value).
+# This was the CI failure in pmat-trend run 26730207721.
+#
+# On `-p .` check-quality emits TWO result objects: an F-grade-cap gate first
+# (violations = F-grade files) and the MIN-GRADE gate last (violations = files
+# below B+ — what `below_bplus` must count). So: strip ANSI, then raw_decode
+# every top-level object and keep the LAST one (the min-grade gate in pinned
+# 3.17.0). repo-score's clean single object passes through unchanged.
+slice_json() {
+  python3 - "$1" <<'PY'
+import json, re, sys
+try:
+    raw = open(sys.argv[1]).read()
+except OSError:
+    sys.exit(1)
+raw = re.sub(r'\x1b\[[0-9;]*m', '', raw)   # strip ANSI colour escapes
+dec = json.JSONDecoder()
+i, last = 0, None
+while i < len(raw):
+    j = raw.find('{', i)
+    if j < 0:
+        break
+    try:
+        obj, end = dec.raw_decode(raw[j:])
+        last, i = obj, j + end
+    except ValueError:
+        i = j + 1
+if last is None:
+    sys.exit(1)
+json.dump(last, sys.stdout)
+PY
+}
 
 # build_row → canonical JSON row for the current run.
 build_row() {
