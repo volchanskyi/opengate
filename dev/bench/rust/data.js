@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780276187031,
+  "lastUpdate": 1780280160784,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15410,6 +15410,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.692565696230233,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "1b71e7397c82707e74dbdac10b38ebdecc6b1c3a",
+          "message": "fix(ci): pmat-trend JSON parse (ANSI + dual-object) + ADR plan-link guard\n\n- pmat-trend was red (run 26730207721): `pmat tdg check-quality -p .` emits an\n  ANSI-coloured banner plus TWO result objects (F-grade-cap first, min-grade\n  last), so the naive `sed '/^{/,$p'` slice fed `jq --argjson` invalid/double\n  JSON. scripts/pmat-summarize.sh slice_json now strips ANSI and raw_decodes\n  the LAST (min-grade) object, so below_bplus counts files below B+. The\n  regression test mirrors the real 2-object + ANSI output.\n\n- ADR<->plan link rot: the write-guard now blocks a NEW ADR whose content\n  contains a `](...plans/....md)` link (adr-plan-link); rule documented in\n  .claude/rules/plans-and-adrs.md. ADRs link only stable targets; rationale\n  goes inline, evolving pointers in the mutable decisions.md. Existing ADRs\n  are left as-is (immutable). +2 hooks tests.\n\n- Archive completed plans (pmat-adoption-evaluation,\n  adr-020-024-pmat-phase-13b-rollout, modular-monolith-evaluation) to\n  plans/archive/; fix mutable backlinks in phases.md + BASELINE.md.",
+          "timestamp": "2026-05-31T19:13:34-07:00",
+          "tree_id": "97403fad5b6e5a6c3937161f425026f263360975",
+          "url": "https://github.com/volchanskyi/opengate/commit/1b71e7397c82707e74dbdac10b38ebdecc6b1c3a"
+        },
+        "date": 1780280160703,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.2360799564073,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.33170921712012,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 749.8607728345421,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 288.2829676763569,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.884143393710143,
             "unit": "ns/iter"
           }
         ]
