@@ -31,11 +31,21 @@ cat > "$WORK/repo-score.json" <<'JSON'
 }
 JSON
 
-# tdg-check.json — leading banner before the JSON object, like the real
-# `check-quality` output. 3 files below B+.
-cat > "$WORK/tdg-check.json" <<'JSON'
-🔍 Checking quality thresholds...
-✓ Baseline saved to: /tmp/pmat-quality-check.json
+# tdg-check.json — mirrors REAL `check-quality -p .` output (regression for
+# pmat-trend run 26730207721): an ANSI-coloured banner, then TWO JSON objects
+# — the F-grade-cap gate FIRST (1 violation) and the MIN-GRADE gate LAST
+# (3 violations = files below B+). slice_json must strip the ANSI and pick the
+# LAST (min-grade) object, so below_bplus must be 3, not the F-cap's 1.
+{
+  printf '\033[1m\033[4m🔍 Checking quality thresholds...\033[0m\n'
+  printf '\033[36m✓ Baseline saved to: /tmp/pmat-quality-check.json\033[0m\n'
+  cat <<'JSON'
+{
+  "passed": false,
+  "gate_name": "FGradeCapGate",
+  "violations": [ { "path": "build.rs", "new_grade": "F" } ],
+  "message": "1 F-grade file(s) detected (max allowed: 0)"
+}
 {
   "passed": false,
   "gate_name": "MinimumGradeGate",
@@ -44,9 +54,10 @@ cat > "$WORK/tdg-check.json" <<'JSON'
     { "path": "b.go", "new_grade": "B-" },
     { "path": "c.rs", "new_grade": "F" }
   ],
-  "message": "3 files below threshold"
+  "message": "3 file(s) below minimum grade threshold"
 }
 JSON
+} > "$WORK/tdg-check.json"
 
 run() { # run the summarizer with the fixtures + given env; capture row + rc.
   REPO_SCORE_JSON="$WORK/repo-score.json" TDG_CHECK_JSON="$WORK/tdg-check.json" \
@@ -59,7 +70,7 @@ ROW="$(printf '%s\n' "$OUT" | grep -E '^\{' | tail -n1)"
 assert_eq "first run exits 0 (no prev → no alert)" "0" "$RC"
 assert_eq "repo_score parsed"  "64.5" "$(jq -r '.repo_score'  <<<"$ROW")"
 assert_eq "repo_grade parsed"  "C"    "$(jq -r '.repo_grade'  <<<"$ROW")"
-assert_eq "below_bplus counted" "3"   "$(jq -r '.below_bplus' <<<"$ROW")"
+assert_eq "below_bplus = min-grade gate (3), not F-cap (1)" "3" "$(jq -r '.below_bplus' <<<"$ROW")"
 assert_eq "commit tagged"      "deadbeef" "$(jq -r '.commit'  <<<"$ROW")"
 assert_eq "category percentage flattened" "66.7" "$(jq -r '.categories.documentation' <<<"$ROW")"
 

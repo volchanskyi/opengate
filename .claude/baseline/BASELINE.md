@@ -50,7 +50,7 @@ Snapshots used to detect quality regressions during the modular-monolith decompo
 
 ## Re-baseline policy
 
-Per [PMAT plan §5.3](../plans/pmat-adoption-evaluation.md), re-baseline at the end of each modular-monolith phase — i.e. each time one of the 12 modules listed in ADR-020 finishes its hexagonal extraction. File-naming: `pmat-tdg-baseline-YYYY-MM-DD.json` and `pmat-repo-score-YYYY-MM-DD.json`. Keep prior baselines for trend visibility; do not overwrite.
+Per [PMAT plan §5.3](../plans/archive/pmat-adoption-evaluation.md), re-baseline at the end of each modular-monolith phase — i.e. each time one of the 12 modules listed in ADR-020 finishes its hexagonal extraction. File-naming: `pmat-tdg-baseline-YYYY-MM-DD.json` and `pmat-repo-score-YYYY-MM-DD.json`. Keep prior baselines for trend visibility; do not overwrite.
 
 PMAT's nightly Loki/Grafana workflow (ADR-019, future opportunistic trigger) is the **trend store**; this directory is just the named-snapshot store referenced by ADRs.
 
