@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780280160784,
+  "lastUpdate": 1780375199354,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15459,6 +15459,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.884143393710143,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ea41a61becfd307cb57f5818459f422119a5cfc2",
+          "message": "fix(pentest): make the gate see unstaged changes (no /precommit false-green)\n\nsemgrep --baseline-commit, when scanning a directory, limits itself to files git\nreports as changed vs the baseline — committed + STAGED only — and silently\nskips unstaged-only working-tree edits (\"Scan was limited to files changed since\nbaseline commit\"). Because /precommit runs before `git add`, its pen-test step\nwas systematically blind to the very changes the commit-guard (which runs after\nstaging) would flag — a false green, then a wasted full-gauntlet commit attempt.\n\nscripts/pentest-review.sh now snapshots the whole work tree (staged + unstaged +\nuntracked) into a throwaway git index (git add -A into a copy of the real index)\nand points only the semgrep invocation at it via GIT_INDEX_FILE. The real index,\nthe `.` target, and .semgrepignore handling are all unchanged; this mirrors the\nstaged∪unstaged∪untracked change set the pmat gate already evaluates.\n\nRegression test in scripts/tests/pentest-review.test.sh (\"Unstaged-change\nvisibility\") pins both halves: a bare --baseline-commit . scan MISSES an unstaged\nleak (the gap), the throwaway-index snapshot CATCHES it (the fix). 14/14 pass.",
+          "timestamp": "2026-06-01T21:35:56-07:00",
+          "tree_id": "6f12404da7a8bff883089ea62b1e8e200f5d65a5",
+          "url": "https://github.com/volchanskyi/opengate/commit/ea41a61becfd307cb57f5818459f422119a5cfc2"
+        },
+        "date": 1780375199279,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.202164865152042,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 26.42045195291697,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 752.5753493852161,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 320.11038376541865,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 25.173845685805873,
             "unit": "ns/iter"
           }
         ]
