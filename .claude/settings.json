@@ -1027,6 +1027,10 @@
           {
             "type": "command",
             "command": ".claude/hooks/pretooluse-write-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/pretooluse-test-skip-guard.sh"
           }
         ]
       },

@@ -15,17 +15,14 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/testpg"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
 // TestHandlerStoreFailures verifies that every handler returns 500 when the store is unavailable.
 func TestHandlerStoreFailures(t *testing.T) {
 	t.Parallel()
-	pgURL := os.Getenv("POSTGRES_TEST_URL")
-	if pgURL == "" {
-		t.Skip("POSTGRES_TEST_URL not set; skipping Postgres tests")
-	}
-	store, err := db.NewPostgresStore(t.Context(), pgURL)
+	store, err := db.NewPostgresStore(t.Context(), testpg.BaseURL(t))
 	require.NoError(t, err)
 
 	cfg := &auth.JWTConfig{

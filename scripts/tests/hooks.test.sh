@@ -527,6 +527,88 @@ fi
 cleanup_repo
 
 # -------------------------------------------------------------------
+# pretooluse-test-skip-guard.sh
+# -------------------------------------------------------------------
+echo
+echo "## pretooluse-test-skip-guard.sh"
+
+# Go: t.Skip in a *_test.go file: BLOCK.
+envelope="$(build_envelope Edit '{"file_path":"server/internal/api/foo_test.go","old_string":"a","new_string":"func TestX(t *testing.T){ t.Skip(\"no db\") }"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Go t.Skip in _test.go: BLOCK" 2
+assert_stderr_contains "Go skip: stderr cites determinism rule" "tests-determinism.md"
+
+# Go: t.Skipf in a *_test.go file: BLOCK.
+envelope="$(build_envelope Write '{"file_path":"server/internal/db/x_test.go","content":"t.Skipf(\"%s unset\", env)"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Go t.Skipf in _test.go: BLOCK" 2
+
+# Go: t.SkipNow in a *_test.go file: BLOCK.
+envelope="$(build_envelope Edit '{"file_path":"server/x_test.go","old_string":"a","new_string":"t.SkipNow()"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Go t.SkipNow in _test.go: BLOCK" 2
+
+# Go: no skip in a *_test.go file: allow.
+envelope="$(build_envelope Edit '{"file_path":"server/internal/api/foo_test.go","old_string":"a","new_string":"require.NoError(t, err)"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Go _test.go without skip: allow" 0
+
+# Go: .Skip( in a NON-test .go file: allow (not a test file).
+envelope="$(build_envelope Write '{"file_path":"server/internal/api/foo.go","content":"scanner.Skip()"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Go non-test file with .Skip(: allow" 0
+
+# Web: it.skip in a *.test.tsx file: BLOCK.
+envelope="$(build_envelope Write '{"file_path":"web/src/foo.test.tsx","content":"it.skip(\"x\", () => {})"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Web it.skip in .test.tsx: BLOCK" 2
+
+# Web: test.only in a *.spec.ts file: BLOCK.
+envelope="$(build_envelope Write '{"file_path":"web/e2e/foo.spec.ts","content":"test.only(\"x\", async () => {})"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Web test.only in .spec.ts: BLOCK" 2
+
+# Web: describe.skip in a *.test.ts file: BLOCK.
+envelope="$(build_envelope Edit '{"file_path":"web/src/foo.test.ts","old_string":"a","new_string":"describe.skip(\"grp\", () => {})"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Web describe.skip in .test.ts: BLOCK" 2
+
+# Web: xit( focus-skip marker: BLOCK.
+envelope="$(build_envelope Write '{"file_path":"web/src/foo.test.ts","content":"xit(\"x\", () => {})"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Web xit( in .test.ts: BLOCK" 2
+
+# Web: plain it()/expect in a *.test.ts file: allow.
+envelope="$(build_envelope Write '{"file_path":"web/src/foo.test.ts","content":"it(\"x\", () => { expect(1).toBe(1) })"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Web .test.ts without skip: allow" 0
+
+# Rust: #[ignore] attribute: BLOCK.
+envelope="$(build_envelope Edit '{"file_path":"agent/crates/mesh-protocol/src/codec.rs","old_string":"a","new_string":"#[ignore]\n#[test]\nfn t() {}"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Rust #[ignore]: BLOCK" 2
+
+# Rust: #[ignore = \"reason\"] attribute: BLOCK.
+envelope="$(build_envelope Write '{"file_path":"agent/src/lib.rs","content":"#[ignore = \"flaky\"]\n#[test]\nfn t() {}"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Rust #[ignore = reason]: BLOCK" 2
+
+# Rust: ordinary test without #[ignore]: allow.
+envelope="$(build_envelope Edit '{"file_path":"agent/src/lib.rs","old_string":"a","new_string":"#[test]\nfn t() { assert!(true) }"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Rust #[test] without ignore: allow" 0
+
+# Non-test file types containing the words: allow (docs/markdown).
+envelope="$(build_envelope Write '{"file_path":"docs/Testing.md","content":"do not use t.Skip() or it.skip or #[ignore]"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Markdown mentioning skip words: allow" 0
+
+# Non-Write/Edit tool: allow (guard only fires on writes).
+envelope="$(build_envelope Bash '{"command":"go test ./...","description":"run"}')"
+run_hook pretooluse-test-skip-guard.sh "$envelope"
+assert_exit "Bash tool: allow (not a write)" 0
+
+# -------------------------------------------------------------------
 # Summary
 # -------------------------------------------------------------------
 echo

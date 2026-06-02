@@ -15,6 +15,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/testpg"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
@@ -32,11 +33,7 @@ func TestHealthHandler(t *testing.T) {
 	})
 
 	t.Run("returns 503 when database is unreachable", func(t *testing.T) {
-		pgURL := os.Getenv("POSTGRES_TEST_URL")
-		if pgURL == "" {
-			t.Skip("POSTGRES_TEST_URL not set")
-		}
-		store, err := db.NewPostgresStore(t.Context(), pgURL)
+		store, err := db.NewPostgresStore(t.Context(), testpg.BaseURL(t))
 		require.NoError(t, err)
 		cfg := &auth.JWTConfig{Secret: "test-secret-key-at-least-32-bytes!", Issuer: "test", Duration: 15 * time.Minute}
 		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
