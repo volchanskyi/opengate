@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780379296274,
+  "lastUpdate": 1780438388597,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15557,6 +15557,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.825302948831837,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "74009b1680117673e6a3847209851bd0703d0be5",
+          "message": "feat(k8s): Phase 13b PR-B — OKE Helm charts + terraform + dormant CD cutover\n\nAdditive Kubernetes adoption (ADR-030). The live single-VM compose stack is\nbyte-for-byte unchanged; the k8s deploy path is dormant until the K8S_CUTOVER\nrepo variable is set at cutover.\n\n- deploy/helm/opengate: server Deployment (serves the SPA itself via -web-dir,\n  dropping web-init/web-assets), Postgres StatefulSet + oci-bv PVC + pg_dump\n  CronJob, ingress-nginx Ingress + cert-manager ClusterIssuer (Caddy security\n  headers ported to more_set_headers), QUIC/MPS via hostPort, external\n  existingSecret\n- policy/k8s Rego gate (11 conftest tests) + make lint-k8s (helm lint +\n  kubeconform + conftest), wired into lint-deploy + CI config-lint; Checkov\n  helm framework with documented skip-check residuals; .trivyignore entries\n- deploy/terraform/modules/oke: BASIC cluster + A1.Flex node pool + 6\n  free-tier tftest invariants, wired into make terraform-test\n- deploy/helm/monitoring: 7-service observability stack on k8s (VM/Grafana/Loki\n  + promtail/node-exporter DaemonSets + exporters + uptime-kuma)\n- cd.yml dual-path: deploy-{staging,production}-k8s jobs gated on K8S_CUTOVER;\n  oci-kube-setup composite; staging E2E via kubectl port-forward (reuses\n  smoke-test + playwright config unchanged); loki-push shared transport\n  (scripts/lib/loki-push.sh, LOKI_PUSH_MODE default ssh-docker)\n- ADR-030, docs/Kubernetes.md, docs/Kubernetes-Migration.md (cutover runbook),\n  techdebt: per-replica CA/VAPID blocks multi-replica",
+          "timestamp": "2026-06-02T14:57:34-07:00",
+          "tree_id": "d48da8911e2a87f1bdf4f971dd4a489a177e4900",
+          "url": "https://github.com/volchanskyi/opengate/commit/74009b1680117673e6a3847209851bd0703d0be5"
+        },
+        "date": 1780438388518,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.148643867093163,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.494885740811437,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 790.4790409477339,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 310.24936541044417,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.822513306754487,
             "unit": "ns/iter"
           }
         ]
