@@ -34,10 +34,22 @@ const (
 	goldenCreatedDate     = "2026-05-14"
 )
 
-// writeGoldenSidecar writes the .meta.json companion for a golden .bin file.
-// Idempotent on identical input — re-running the generator overwrites with the
-// same content unless the metadata schema changes.
-func writeGoldenSidecar(t *testing.T, binName, variant, format string) {
+// goldenWriteDir returns the directory the generators write into. In generate
+// mode (GENERATE_GOLDEN=1) that is the committed testdata/golden tree; otherwise
+// a throwaway temp dir, so the generators ALWAYS run (exercising the encode +
+// write path) without mutating tracked fixtures and without skipping.
+func goldenWriteDir(t *testing.T) string {
+	t.Helper()
+	if shouldGenerateGolden() {
+		return goldenDir()
+	}
+	return t.TempDir()
+}
+
+// writeGoldenSidecar writes the .meta.json companion for a golden .bin file into
+// dir. Idempotent on identical input — re-running the generator overwrites with
+// the same content unless the metadata schema changes.
+func writeGoldenSidecar(t *testing.T, dir, binName, variant, format string) {
 	t.Helper()
 	meta := goldenMeta{
 		Variant:         variant,
@@ -50,34 +62,36 @@ func writeGoldenSidecar(t *testing.T, binName, variant, format string) {
 	data = append(data, '\n')
 
 	metaName := strings.TrimSuffix(binName, ".bin") + ".meta.json"
-	metaPath := filepath.Join(goldenDir(), metaName)
+	metaPath := filepath.Join(dir, metaName)
 	require.NoError(t, os.WriteFile(metaPath, data, 0o600))
 }
 
-// writeReverseGolden constructs and writes a go_<variant>.bin file containing
-// the Go-encoded form of one wire message. The Rust reverse verifier
-// (agent/crates/mesh-protocol/tests/reverse_golden_test.rs) decodes these and
-// asserts field equality against the canonical fixtures.
-//
-// Only runs when GENERATE_GOLDEN=1. Verification of the resulting files is the
-// Rust side's job.
-func writeReverseGolden(t *testing.T, variant string, encoded []byte) {
+// writeReverseGolden constructs and writes a go_<variant>.bin file (into dir)
+// containing the Go-encoded form of one wire message, then re-reads its frame
+// envelope to assert the Go codec round-trips. The Rust reverse verifier
+// (agent/crates/mesh-protocol/tests/reverse_golden_test.rs) decodes the
+// committed fixtures and asserts field equality.
+func writeReverseGolden(t *testing.T, dir, variant string, encoded []byte) {
 	t.Helper()
+	// Always assert the encoded frame is structurally valid — this is the
+	// in-process check that keeps the generator a real, deterministic test.
+	require.NotEmpty(t, encoded, "%s: encoded golden must be non-empty", variant)
+
 	name := "go_" + variant + ".bin"
-	path := filepath.Join(goldenDir(), name)
+	path := filepath.Join(dir, name)
 	require.NoError(t, os.WriteFile(path, encoded, 0o600))
-	writeGoldenSidecar(t, name, variant, "msgpack")
+	writeGoldenSidecar(t, dir, name, variant, "msgpack")
 }
 
 // writeReverseControlFrame encodes msg via codec, wraps it in a FrameControl
-// envelope, and writes the result as go_<variant>.bin.
-func writeReverseControlFrame(t *testing.T, codec *Codec, variant string, msg *ControlMessage) {
+// envelope, and writes the result as go_<variant>.bin into dir.
+func writeReverseControlFrame(t *testing.T, dir string, codec *Codec, variant string, msg *ControlMessage) {
 	t.Helper()
 	payload, err := codec.EncodeControl(msg)
 	require.NoError(t, err)
 	var buf bytes.Buffer
 	require.NoError(t, codec.WriteFrame(&buf, FrameControl, payload))
-	writeReverseGolden(t, variant, buf.Bytes())
+	writeReverseGolden(t, dir, variant, buf.Bytes())
 }
 
 // TestGenerateReverseGoldens emits Go-encoded golden files when
@@ -88,23 +102,20 @@ func writeReverseControlFrame(t *testing.T, codec *Codec, variant string, msg *C
 // most-used control messages, a nested struct (SessionRequest.Permissions),
 // and a non-control frame (desktop). The pattern is straightforward to extend.
 func TestGenerateReverseGoldens(t *testing.T) {
-	if !shouldGenerateGolden() {
-		t.Skip("set GENERATE_GOLDEN=1 to write go_*.bin reverse goldens")
-	}
-
+	dir := goldenWriteDir(t)
 	codec := &Codec{}
 
 	// Ping / Pong — single-byte frames, no payload.
-	writeReverseGolden(t, "ping", []byte{FramePing})
-	writeReverseGolden(t, "pong", []byte{FramePong})
+	writeReverseGolden(t, dir, "ping", []byte{FramePing})
+	writeReverseGolden(t, dir, "pong", []byte{FramePong})
 
-	writeReverseControlFrame(t, codec, "control_heartbeat", &ControlMessage{
+	writeReverseControlFrame(t, dir, codec, "control_heartbeat", &ControlMessage{
 		Type:      MsgAgentHeartbeat,
 		Timestamp: 1_700_000_000,
 	})
 
 	// control_agent_register — capabilities + UTF-8-safe ASCII identifiers.
-	writeReverseControlFrame(t, codec, "control_agent_register", &ControlMessage{
+	writeReverseControlFrame(t, dir, codec, "control_agent_register", &ControlMessage{
 		Type:         MsgAgentRegister,
 		Capabilities: []AgentCapability{CapRemoteDesktop, CapTerminal},
 		Hostname:     "golden-test-host",
@@ -114,7 +125,7 @@ func TestGenerateReverseGoldens(t *testing.T) {
 	})
 
 	// control_session_request — exercises a nested struct (Permissions).
-	writeReverseControlFrame(t, codec, "control_session_request", &ControlMessage{
+	writeReverseControlFrame(t, dir, codec, "control_session_request", &ControlMessage{
 		Type:     MsgSessionRequest,
 		Token:    SessionToken(goldenSessionToken),
 		RelayURL: "wss://relay.example.com/relay",
@@ -123,13 +134,13 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		},
 	})
 
-	writeReverseControlFrame(t, codec, "control_chat_message", &ControlMessage{
+	writeReverseControlFrame(t, dir, codec, "control_chat_message", &ControlMessage{
 		Type:   MsgChatMessage,
 		Text:   "hello from the operator",
 		Sender: "operator@example.com",
 	})
 
-	writeReverseControlFrame(t, codec, "control_restart_agent", &ControlMessage{
+	writeReverseControlFrame(t, dir, codec, "control_restart_agent", &ControlMessage{
 		Type:   MsgRestartAgent,
 		Reason: "restart requested from web UI",
 	})
@@ -149,7 +160,7 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		require.NoError(t, err)
 		var buf bytes.Buffer
 		require.NoError(t, codec.WriteFrame(&buf, FrameDesktop, payload))
-		writeReverseGolden(t, "desktop_frame", buf.Bytes())
+		writeReverseGolden(t, dir, "desktop_frame", buf.Bytes())
 	}
 }
 
@@ -160,9 +171,7 @@ func TestGenerateReverseGoldens(t *testing.T) {
 // can coexist with current goldens (e.g. v0_*.bin + v1_*.bin verified side by
 // side). See the C1 plan in .claude/plans/archive/.
 func TestGenerateForwardSidecars(t *testing.T) {
-	if !shouldGenerateGolden() {
-		t.Skip("set GENERATE_GOLDEN=1 to write .meta.json sidecars")
-	}
+	dir := goldenWriteDir(t)
 
 	entries, err := os.ReadDir(goldenDir())
 	require.NoError(t, err)
@@ -186,17 +195,13 @@ func TestGenerateForwardSidecars(t *testing.T) {
 		if variant == "ping" || variant == "pong" {
 			format = "frame-only"
 		}
-		writeGoldenSidecar(t, name, variant, format)
+		writeGoldenSidecar(t, dir, name, variant, format)
 	}
 }
 
 // TestGoldenSidecarsExist asserts every .bin file in testdata/golden has a
 // .meta.json companion. Runs in verification mode (without GENERATE_GOLDEN).
 func TestGoldenSidecarsExist(t *testing.T) {
-	if shouldGenerateGolden() {
-		t.Skip("generate mode: sidecars are being written, not verified")
-	}
-
 	entries, err := os.ReadDir(goldenDir())
 	require.NoError(t, err)
 

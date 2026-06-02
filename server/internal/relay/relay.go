@@ -8,9 +8,19 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
+
+// DefaultAffinityTTL bounds how long a dead owner's affinity claim survives
+// before another server may reclaim it. Ignored by InProcessRegistry (single
+// server); honored by RedisRegistry (Phase 13b PR-C, ADR-023).
+const DefaultAffinityTTL = 30 * time.Second
+
+// defaultServerID is the serverID used when NewRelay is called without
+// WithRegistry. Any non-empty stable value satisfies the in-process adapter.
+const defaultServerID = "local"
 
 var (
 	// ErrDuplicateSide is returned when the same side of a session is registered twice.
@@ -55,14 +65,47 @@ type Relay struct {
 	sessions sync.Map // map[protocol.SessionToken]*session
 	count    atomic.Int64
 	logger   *slog.Logger
+
+	// registry tracks session affinity/ownership through the SessionRegistry
+	// port (ADR-023). The live Conn pair stays in the sessions map above; the
+	// registry only tracks token → owning serverID so a relay pool can route
+	// cross-server. With InProcessRegistry this is a single-server shadow.
+	registry    SessionRegistry
+	serverID    string
+	affinityTTL time.Duration
+
 	// OnSessionEnd is called when a session finishes piping (both sides disconnected).
 	// It can be used to clean up external state such as DB sessions.
 	OnSessionEnd func(token protocol.SessionToken)
 }
 
-// NewRelay creates a new Relay.
-func NewRelay(logger *slog.Logger) *Relay {
-	return &Relay{logger: logger}
+// Option configures a Relay at construction.
+type Option func(*Relay)
+
+// WithRegistry injects the SessionRegistry adapter and the caller's stable
+// serverID. Without it, NewRelay defaults to an in-process registry with
+// serverID "local". RedisRegistry is swapped in here at Phase 13b (PR-C).
+func WithRegistry(reg SessionRegistry, serverID string) Option {
+	return func(r *Relay) {
+		r.registry = reg
+		r.serverID = serverID
+	}
+}
+
+// NewRelay creates a new Relay. By default the relay is backed by an in-process
+// SessionRegistry so the live path is always registry-driven; pass WithRegistry
+// to inject a distributed adapter.
+func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
+	r := &Relay{
+		logger:      logger,
+		registry:    NewInProcessRegistry(),
+		serverID:    defaultServerID,
+		affinityTTL: DefaultAffinityTTL,
+	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // Register registers one side of a session identified by token.
@@ -89,11 +132,38 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 		s.browser = conn
 	}
 
-	// If this is the first side, increment count.
+	// If this is the first side, increment count and claim affinity.
+	firstSide := false
 	if !s.started {
 		s.started = true
 		r.count.Add(1)
+		firstSide = true
 	}
+
+	// Express the session lifecycle through the SessionRegistry port. With the
+	// in-process adapter these calls shadow the live sessions map and never
+	// alter routing; RedisRegistry (Phase 13b PR-C) makes ownership cross-server.
+	// Registry failures are logged, not fatal — the live relay remains the
+	// source of truth for the in-process Conn pair. token_prefix is redacted
+	// inline at each call site (ADR-027 pen-test gate).
+	if firstSide {
+		if owner, err := r.registry.ClaimAffinity(ctx, token, r.serverID, r.affinityTTL); err != nil {
+			r.logger.Error("registry claim affinity", "token_prefix", protocol.RedactToken(string(token)), "error", err)
+		} else if owner != r.serverID {
+			// Cross-server ownership is a PR-C concern; with InProcessRegistry
+			// the caller always wins its first claim.
+			r.logger.Warn("session owned by another server", "token_prefix", protocol.RedactToken(string(token)), "owner", owner)
+		}
+		if err := r.registry.SaveSession(ctx, token, SessionMeta{
+			CreatedAt:     time.Now(),
+			ExpectedSides: []Side{SideAgent, SideBrowser},
+			ServerID:      r.serverID,
+		}); err != nil {
+			r.logger.Error("registry save session", "token_prefix", protocol.RedactToken(string(token)), "error", err)
+		}
+		_ = r.registry.PublishEvent(ctx, SessionEvent{Kind: EventCreated, Token: token, ServerID: r.serverID})
+	}
+	_ = r.registry.PublishEvent(ctx, SessionEvent{Kind: EventSideJoined, Token: token, ServerID: r.serverID, Side: &side})
 
 	// If both sides are now present, start piping.
 	if s.agent != nil && s.browser != nil {
@@ -164,6 +234,12 @@ func (r *Relay) pipe(ctx context.Context, cancel context.CancelFunc, token proto
 		cancel()
 		r.sessions.Delete(token)
 		r.count.Add(-1)
+		// Release the affinity claim and notify peers the session ended. Use a
+		// background context — the originating request context is long gone.
+		if err := r.registry.DeleteSession(context.Background(), token); err != nil {
+			r.logger.Error("registry delete session", "token_prefix", protocol.RedactToken(string(token)), "error", err)
+		}
+		_ = r.registry.PublishEvent(context.Background(), SessionEvent{Kind: EventEnded, Token: token, ServerID: r.serverID})
 		r.logger.Info("relay session ended", "token_prefix", tp)
 		if r.OnSessionEnd != nil {
 			r.OnSessionEnd(token)

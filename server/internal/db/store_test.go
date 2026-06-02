@@ -10,10 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/testpg"
 )
-
-// postgresTestURLEnv selects the test database for the PostgresStore tests.
-const postgresTestURLEnv = "POSTGRES_TEST_URL"
 
 // --- Postgres factory (shared store + per-test TRUNCATE) ---
 
@@ -24,14 +22,18 @@ const postgresTestURLEnv = "POSTGRES_TEST_URL"
 // stays green.
 var pgTestDB *PostgresStore
 
-// TestMain provisions the shared Postgres store once per package run.
+// TestMain provisions the shared Postgres store once per package run. The base
+// database comes from POSTGRES_TEST_URL or an auto-provisioned container; either
+// way the tests run — they never skip on a missing database.
 func TestMain(m *testing.M) {
-	baseURL := os.Getenv(postgresTestURLEnv)
-	if baseURL != "" {
-		if err := setupPostgresTestDB(baseURL); err != nil {
-			fmt.Fprintf(os.Stderr, "postgres test setup failed: %v\n", err)
-			os.Exit(1)
-		}
+	baseURL, err := testpg.URL()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "postgres test setup failed: %v\n", err)
+		os.Exit(1)
+	}
+	if err := setupPostgresTestDB(baseURL); err != nil {
+		fmt.Fprintf(os.Stderr, "postgres test setup failed: %v\n", err)
+		os.Exit(1)
 	}
 	code := m.Run()
 	if pgTestDB != nil {
@@ -81,9 +83,7 @@ func setupPostgresTestDB(baseURL string) error {
 // Tests run sequentially (no t.Parallel), so a shared pool is safe.
 func newPostgresTestStore(t *testing.T) *PostgresStore {
 	t.Helper()
-	if pgTestDB == nil {
-		t.Skipf("%s not set; skipping Postgres tests", postgresTestURLEnv)
-	}
+	require.NotNil(t, pgTestDB, "shared Postgres store not initialised by TestMain")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	require.NoError(t, truncatePostgresTestDB(ctx, pgTestDB))

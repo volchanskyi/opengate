@@ -77,12 +77,12 @@ func TestSPA_SymlinkEscape_Refused(t *testing.T) {
 	webDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(webDir, "index.html"), []byte("<html>SPA</html>"), 0644))
 
-	// Create a symlink inside webDir that points outside (to /etc/hostname,
-	// which exists on Linux runners and is harmless to read).
-	outsideTarget := "/etc/hostname"
-	if _, err := os.Stat(outsideTarget); err != nil {
-		t.Skipf("test target %s missing on this platform: %v", outsideTarget, err)
-	}
+	// Create a symlink inside webDir that points at a file OUTSIDE webDir. We
+	// create that target ourselves (in a sibling temp dir) so the test runs
+	// deterministically on any platform — no reliance on /etc/hostname existing.
+	outsideDir := t.TempDir()
+	outsideTarget := filepath.Join(outsideDir, "secret.txt")
+	require.NoError(t, os.WriteFile(outsideTarget, []byte("outside-the-root"), 0644))
 	symlinkPath := filepath.Join(webDir, "escape.txt")
 	require.NoError(t, os.Symlink(outsideTarget, symlinkPath))
 

@@ -140,8 +140,12 @@ func main() {
 	baseURL := os.Getenv("OPENGATE_BASE_URL")
 	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
 
-	// Create relay and agent server
-	agentRelay := relay.NewRelay(logger)
+	// Create relay and agent server. The relay tracks session affinity through
+	// the SessionRegistry port (ADR-023); single-server today via the in-process
+	// adapter, swapped to Redis at Phase 13b. serverID identifies this node in
+	// the (future) relay pool — hostname by default, overridable for k8s pods.
+	sessionRegistry := relay.NewInProcessRegistry()
+	agentRelay := relay.NewRelay(logger, relay.WithRegistry(sessionRegistry, resolveServerID()))
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -276,4 +280,18 @@ func main() {
 	}
 
 	logger.Info("server stopped")
+}
+
+// resolveServerID returns this node's stable identifier in the relay pool.
+// OPENGATE_SERVER_ID wins (set per-pod under k8s); otherwise the OS hostname;
+// otherwise a fixed fallback so the value is never empty (the registry rejects
+// empty serverIDs).
+func resolveServerID() string {
+	if id := os.Getenv("OPENGATE_SERVER_ID"); id != "" {
+		return id
+	}
+	if hostname, err := os.Hostname(); err == nil && hostname != "" {
+		return hostname
+	}
+	return "meshserver"
 }

@@ -5,10 +5,7 @@ package testutil
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -23,10 +20,9 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/session"
+	"github.com/volchanskyi/opengate/server/internal/testpg"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
-
-const postgresTestURLEnv = "POSTGRES_TEST_URL"
 
 // Per-test connection pool caps. Tight enough to let many parallel tests
 // share a single Postgres instance — combined with the maxLiveStores
@@ -71,45 +67,18 @@ func openAdminSQL(ctx context.Context, url string) (*sql.DB, error) {
 	return d, nil
 }
 
-var (
-	pgBaseURLOnce  sync.Once
-	pgBaseURL      string
-	pgBaseSetupErr error
-)
-
-// initPostgresBaseURL caches the base test database URL after a one-time
-// connectivity check. Migrations are NOT run here — they are run per test
-// against each test's own schema. The base URL is used only for short-lived
-// CREATE/DROP SCHEMA operations via openAdminSQL.
-func initPostgresBaseURL() {
-	pgBaseURL = os.Getenv(postgresTestURLEnv)
-	if pgBaseURL == "" {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	d, err := openAdminSQL(ctx, pgBaseURL)
-	if err != nil {
-		pgBaseSetupErr = fmt.Errorf("base postgres ping: %w", err)
-		return
-	}
-	_ = d.Close()
-}
-
 // NewTestStore returns a Postgres-backed store backed by a fresh per-test
 // schema. The schema is created on entry, migrations run against it, and
 // it is dropped on test cleanup. Each test gets full isolation, so tests
 // using this helper MAY call t.Parallel().
 //
-// Requires POSTGRES_TEST_URL to be set; skips the test otherwise.
+// The backing Postgres comes from POSTGRES_TEST_URL when set; otherwise a
+// throwaway container is auto-provisioned (see internal/testpg). The test
+// always runs — it never skips on a missing database.
 func NewTestStore(t testing.TB) *db.PostgresStore {
 	t.Helper()
 
-	pgBaseURLOnce.Do(initPostgresBaseURL)
-	if pgBaseURL == "" {
-		t.Skipf("%s not set; skipping Postgres tests", postgresTestURLEnv)
-	}
-	require.NoError(t, pgBaseSetupErr, "postgres base setup")
+	pgBaseURL := testpg.BaseURL(t)
 
 	// Throttle concurrent live stores to stay under Postgres max_connections.
 	// Register the release via t.Cleanup IMMEDIATELY after acquiring — before

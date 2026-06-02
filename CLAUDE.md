@@ -22,6 +22,7 @@ After completing significant work, update [`phases.md`](.claude/phases.md), [`te
 |---|---|---|
 | [`rules/git.md`](.claude/rules/git.md) | branching (`dev` only), identity, commits, push | `pretooluse-git-commit-guard.sh`, `pretooluse-git-push-guard.sh` |
 | [`rules/tdd.md`](.claude/rules/tdd.md) | write failing test before source code | `pretooluse-tdd-gate.sh`, `pretooluse-bash-source-write-guard.sh` |
+| [`rules/tests-determinism.md`](.claude/rules/tests-determinism.md) | tests always run — no silent skips (Go/web/Rust) | `pretooluse-test-skip-guard.sh` |
 | [`rules/precommit-refactor.md`](.claude/rules/precommit-refactor.md) | `/precommit` before commit; `/refactor` before push | commit/push guards via marker files |
 | [`rules/sonarcloud.md`](.claude/rules/sonarcloud.md) | quality-gate workflow; no suppressions without approval | `pretooluse-write-guard.sh` |
 | [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, ADR immutability | `pretooluse-write-guard.sh` |
