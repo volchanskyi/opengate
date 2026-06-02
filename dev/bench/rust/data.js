@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780375199354,
+  "lastUpdate": 1780379296274,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15508,6 +15508,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 25.173845685805873,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "6797d63576e261ab2fdc6043140dbf2d99c4bd04",
+          "message": "fix(ci): restore new_coverage gate (exclude testpg, cover relay registry errors)\n\nThe dev SonarCloud gate failed on new_coverage 58.1% < 80%. Two causes:\n\n- server/internal/testpg is test-support infrastructure (like testutil, already\n  excluded): its container-provisioning path is dead code in CI, where\n  POSTGRES_TEST_URL is set, so startContainer/initBaseURL scored ~0%. Added\n  **/testpg/** to sonar.exclusions + sonar.coverage.exclusions, alongside the\n  existing **/testutil/** entry. (cmd/meshserver/main.go was never in scope —\n  sonar.sources is server/internal, and coverage runs ./internal/... only.)\n\n- relay.go's new SessionRegistry error branches (ClaimAffinity/SaveSession/\n  DeleteSession failures, and the cross-server owner!=serverID warn) were\n  uncovered defensive paths. Added a configurable stubRegistry +\n  TestRelay_RegistryErrors_AreNonFatal and TestRelay_ForeignOwner_Logged:\n  Register 86.7%->96.7%, pipe 85.7%->89.3%. relay_test.go stays B+.\n\nVerified locally: make sonar gate OK, new_coverage 91.4%.\n\nAlso records the resolved Phase 13b section 6 decisions (OKE; in-cluster\nPostgres StatefulSet+PVC on oci-bv; in-place convert of the prod VM to k8s\nnode 1; Redis Sentinel HA from the start, with the ≥2-3-node caveat) in the\nplan and phases In-Progress note — PR-B (OKE manifests) is next.",
+          "timestamp": "2026-06-01T22:45:58-07:00",
+          "tree_id": "b89bfdd869b392492740664f095d42317c43a7e4",
+          "url": "https://github.com/volchanskyi/opengate/commit/6797d63576e261ab2fdc6043140dbf2d99c4bd04"
+        },
+        "date": 1780379296198,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.29858141592232,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.38086447102241,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 733.2750630290357,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 307.534902856011,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.825302948831837,
             "unit": "ns/iter"
           }
         ]
