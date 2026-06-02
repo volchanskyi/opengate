@@ -87,7 +87,7 @@
 
 | Phase | Summary | Plan |
 |-------|---------|------|
-| Phase 13b: Multiserver & Scaling | **PR-A landed** — `InProcessRegistry` wired onto the live relay path (`relay.go` expresses session lifecycle via the `SessionRegistry` port: `WithRegistry` option, `ClaimAffinity`/`SaveSession`/`PublishEvent` on first side, `DeleteSession`/`EventEnded` on teardown; `cmd/meshserver/main.go` constructs the registry + `serverID` from `OPENGATE_SERVER_ID`→hostname). Behavior identical (registry shadows the in-memory pair). **PR-B (k8s adoption) is blocked on the §6 open decisions** — k8s flavor (OKE recommended), Postgres placement, migration path (pilot-then-cutover recommended), Redis durability. | [phase-13b-multiserver-scaling.md](plans/phase-13b-multiserver-scaling.md) |
+| Phase 13b: Multiserver & Scaling | **PR-A landed** — `InProcessRegistry` wired onto the live relay path (`relay.go` expresses session lifecycle via the `SessionRegistry` port: `WithRegistry` option, `ClaimAffinity`/`SaveSession`/`PublishEvent` on first side, `DeleteSession`/`EventEnded` on teardown; `cmd/meshserver/main.go` constructs the registry + `serverID` from `OPENGATE_SERVER_ID`→hostname). Behavior identical (registry shadows the in-memory pair). **§6 decisions resolved 2026-06-01** (OKE; in-cluster Postgres StatefulSet+PVC on `oci-bv`; **in-place convert** of the prod VM to k8s node 1; **Redis Sentinel HA from the start** — with the caveat that real failover needs ≥2–3 nodes, so node growth sequences with Sentinel). **PR-B (k8s adoption / OKE manifests) is next.** | [phase-13b-multiserver-scaling.md](plans/phase-13b-multiserver-scaling.md) |
 
 ---
 

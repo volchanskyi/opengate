@@ -443,3 +443,69 @@ func TestRelay_Register_PublishesLifecycleEvents(t *testing.T) {
 	require.Len(t, ended, 1)
 	assert.Equal(t, EventEnded, ended[0].Kind)
 }
+
+// stubRegistry is a configurable SessionRegistry for exercising the relay's
+// error-handling branches — registry failures must be logged, never fatal.
+type stubRegistry struct {
+	claimOwner string // owner ClaimAffinity reports (default: the caller's serverID)
+	claimErr   error
+	saveErr    error
+	deleteErr  error
+}
+
+func (s *stubRegistry) ClaimAffinity(_ context.Context, _ protocol.SessionToken, serverID string, _ time.Duration) (string, error) {
+	if s.claimErr != nil {
+		return "", s.claimErr
+	}
+	if s.claimOwner != "" {
+		return s.claimOwner, nil
+	}
+	return serverID, nil
+}
+func (s *stubRegistry) LookupOwner(context.Context, protocol.SessionToken) (string, error) {
+	return "", ErrRegistryNotFound
+}
+func (s *stubRegistry) SaveSession(context.Context, protocol.SessionToken, SessionMeta) error {
+	return s.saveErr
+}
+func (s *stubRegistry) DeleteSession(context.Context, protocol.SessionToken) error {
+	return s.deleteErr
+}
+func (s *stubRegistry) SubscribeEvents(context.Context) (<-chan SessionEvent, error) {
+	return make(chan SessionEvent), nil
+}
+func (s *stubRegistry) PublishEvent(context.Context, SessionEvent) error { return nil }
+
+// TestRelay_RegistryErrors_AreNonFatal asserts that failures on the claim, save,
+// and delete registry paths are logged but never break the live relay: data
+// still flows and the session tears down cleanly.
+func TestRelay_RegistryErrors_AreNonFatal(t *testing.T) {
+	boom := errors.New("registry boom")
+	reg := &stubRegistry{claimErr: boom, saveErr: boom, deleteErr: boom}
+	r := NewRelay(slog.Default(), WithRegistry(reg, testServerID))
+	_, agentLocal, browserLocal := registerSession(t, r)
+
+	msg := []byte("still flows")
+	require.NoError(t, agentLocal.WriteMessage(msg))
+	got, err := browserLocal.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, msg, got)
+
+	agentLocal.Close()
+	require.Eventually(t, func() bool {
+		return r.ActiveSessionCount() == 0
+	}, time.Second, 10*time.Millisecond)
+}
+
+// TestRelay_ForeignOwner_Logged covers the cross-server-ownership warn path:
+// when ClaimAffinity reports a different owner (a PR-C condition), the relay
+// logs and proceeds — the session still becomes active.
+func TestRelay_ForeignOwner_Logged(t *testing.T) {
+	reg := &stubRegistry{claimOwner: "other-server"}
+	r := NewRelay(slog.Default(), WithRegistry(reg, testServerID))
+	token := protocol.GenerateSessionToken()
+
+	_, agentRelay := newMockConnPair(t)
+	require.NoError(t, r.Register(context.Background(), token, agentRelay, SideAgent))
+	assert.Equal(t, 1, r.ActiveSessionCount())
+}

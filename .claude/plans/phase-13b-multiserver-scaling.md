@@ -53,12 +53,12 @@ The current VM uses ~2/12 of 4/24; the cluster cannot run *beside* it at the tar
 
 Budget at steady state (full 4/24 to the cluster): 2–3 server replicas (~0.5 OCPU / 1–2 GB each), Redis (~0.25 OCPU / 0.5–1 GB), Postgres (keep colocated or move to its own node), monitoring. **Tight but feasible for a 2–3 replica pilot.** Postgres placement (in-cluster StatefulSet vs the current colocated container vs a future managed DB) is the biggest budget swing — flag for the user.
 
-## 6. Open decisions for the user (resolve before PR-B)
+## 6. Decisions — RESOLVED 2026-06-01
 
-1. **k8s flavor:** OKE (free control plane, recommended) vs self-managed kubeadm on A1.Flex vs another managed offering.
-2. **Postgres placement** under k8s: in-cluster StatefulSet, keep the colocated container on a node, or accept a (non-free) managed DB. Drives the budget math in §5.
-3. **Migration path:** Path 1 (pilot-then-cutover) vs Path 2 (in-place convert).
-4. **Redis durability** for the pilot: ephemeral (sessions are reclaimable via TTL anyway) vs AOF-persisted. ADR-023 left HA out of scope; this is just the single-instance durability knob.
+1. **k8s flavor: OKE.** Free control plane; workers on the Always-Free A1.Flex. (kubeadm rejected — control plane eats the 4-OCPU budget; non-OCI managed rejected — leaves the free tier.)
+2. **Postgres placement: in-cluster StatefulSet + PVC** (OCI block volume via the `oci-bv` CSI driver). k8s-native, survives node reschedule, plays with node-pool upgrades; the in-place convert migrates data via a one-time `pg_dump`→restore onto the new PVC (Phase 13a ships that path). Node-pinned colocated pod rejected (node-local SPOF that fights node-pool upgrades); OCI Managed Postgres rejected (not Always-Free).
+3. **Migration path: in-place convert** — the existing prod VM becomes k8s node 1 and the stack redeploys onto it. Note: even with in-place compute, the DB data still does a `pg_dump`→restore→cutover onto the StatefulSet PVC (a mini data-side pilot-then-cutover).
+4. **Redis: Sentinel HA from the start** (1 primary + 2 replicas + 3 sentinels, pod anti-affinity), chosen over the staged ephemeral→Sentinel path. **Caveat to honor in PR-C/PR-E:** Sentinel auto-failover only yields *real* HA once the cluster spans **≥2–3 nodes** (anti-affinity must place primary/replicas/sentinels on separate nodes); on the single-node in-place-convert pilot it gives no node-failure protection. So sequence node-pool growth to ≥2 nodes *with* enabling Sentinel. This supersedes ADR-023's "HA out of scope" — record a new ADR (superseding ADR-023's Redis-HA deferral) when PR-C lands the `RedisRegistry`.
 
 ## 7. Risk re-check (vs ADR-023 §"Recovery posture")
 
