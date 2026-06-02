@@ -1,0 +1,47 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "opengate.fullname" . }}
+  labels:
+    {{- include "opengate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+  annotations:
+    {{- if and .Values.certManager.create .Values.ingress.tls }}
+    cert-manager.io/cluster-issuer: {{ .Values.certManager.issuerName }}
+    {{- end }}
+    # WebSocket-friendly timeouts for /ws.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # Security headers ported verbatim from deploy/caddy/Caddyfile (headers-more
+    # module ships with ingress-nginx). Requires the controller to be installed
+    # with controller.allowSnippetAnnotations=true — see NOTES.txt.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Content-Security-Policy: {{ .Values.ingress.csp }}";
+      more_set_headers "Permissions-Policy: {{ .Values.ingress.permissionsPolicy }}";
+      {{- if .Values.ingress.hsts }}
+      more_set_headers "Strict-Transport-Security: max-age=63072000; includeSubDomains; preload";
+      {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - {{ .Values.domain }}
+      secretName: {{ include "opengate.fullname" . }}-tls
+  {{- end }}
+  rules:
+    - host: {{ .Values.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "opengate.fullname" . }}-server
+                port:
+                  name: http
+{{- end }}

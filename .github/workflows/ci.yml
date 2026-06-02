@@ -727,12 +727,41 @@ jobs:
       - name: Hadolint Dockerfile
         run: make lint-dockerfile
 
-      # L4 — Built-in policy scanning across terraform/dockerfile/github_actions.
+      # Kubernetes tooling (Phase 13b PR-B): helm renders deploy/helm/** charts
+      # (Checkov's helm framework + `make lint-k8s` both need it); kubeconform
+      # schema-validates the rendered manifests; conftest runs the k8s Rego.
+      - name: Install helm, kubeconform, conftest
+        env:
+          HELM_VERSION: 3.16.3
+          KUBECONFORM_VERSION: 0.6.7
+          CONFTEST_VERSION: 0.55.0
+        run: |
+          set -euo pipefail
+          curl --fail --retry 3 --retry-delay 5 --connect-timeout 10 --max-time 120 \
+            -sSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tgz
+          tar -xzf /tmp/helm.tgz -C /tmp linux-amd64/helm
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          curl --fail --retry 3 --retry-delay 5 --connect-timeout 10 --max-time 120 \
+            -sSL "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" -o /tmp/kc.tgz
+          tar -xzf /tmp/kc.tgz -C /tmp kubeconform
+          sudo install -m 0755 /tmp/kubeconform /usr/local/bin/kubeconform
+          curl --fail --retry 3 --retry-delay 5 --connect-timeout 10 --max-time 120 \
+            -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o /tmp/conftest.tgz
+          tar -xzf /tmp/conftest.tgz -C /tmp conftest
+          sudo install -m 0755 /tmp/conftest /usr/local/bin/conftest
+          helm version --short && kubeconform -v && conftest --version
+
+      # L4 — Built-in policy scanning across terraform/dockerfile/github_actions/helm.
       # Baseline at .checkov.baseline pins the currently-accepted findings; see ADR-015.
       - name: Install checkov
         run: pipx install checkov
       - name: Run checkov
         run: make iac-policy
+
+      # L4 — Helm chart validation: helm lint + kubeconform schema + the k8s
+      # Rego policy (policy/k8s) against every rendered overlay.
+      - name: Validate Helm charts
+        run: make lint-k8s
 
       # YAML lint (deploy configs, cloud-init)
       - run: pip install --user yamllint

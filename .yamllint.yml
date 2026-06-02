@@ -2,6 +2,7 @@ extends: default
 
 ignore:
   - deploy/terraform/cloud-init.yaml  # #cloud-config magic header must be line 1
+  - deploy/helm/*/templates/          # Helm Go-template syntax, not valid YAML (validated via `make lint-k8s`)
 
 rules:
   line-length:

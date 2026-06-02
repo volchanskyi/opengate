@@ -1,0 +1,78 @@
+{{- $name := include "mon.componentName" (list . "uptime-kuma") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "mon.selectorLabels" (list . "uptime-kuma") | nindent 4 }}
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.uptimeKuma.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "mon.selectorLabels" (list . "uptime-kuma") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mon.selectorLabels" (list . "uptime-kuma") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: uptime-kuma
+          image: {{ .Values.uptimeKuma.image }}
+          ports:
+            - name: http
+              containerPort: 3001
+          livenessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 30
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            initialDelaySeconds: 15
+          resources:
+            {{- toYaml .Values.uptimeKuma.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}

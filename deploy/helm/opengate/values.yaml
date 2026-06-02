@@ -1,0 +1,105 @@
+# Default values for the opengate chart.
+# Overlays: values-staging.yaml / values-production.yaml (CD picks one via -f).
+# Secrets are NEVER set here — see `existingSecret` and secrets.example.yaml.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Public hostname the ingress answers on. Overridden per environment.
+domain: opengate.example.com
+
+image:
+  repository: ghcr.io/volchanskyi/opengate-server
+  # Overridden by CD (`--set image.tag=sha-…`). Concrete tags only — the k8s
+  # policy (policy/k8s/security.rego) denies `:latest`.
+  tag: v0.24.0
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+
+server:
+  replicas: 1                # single replica in PR-B; HPA/multi-replica = PR-E
+  httpPort: 8080            # HTTP API + SPA (behind ingress)
+  quicPort: 9090            # QUIC agent transport (UDP, L4)
+  mpsPort: 4433            # Intel AMT CIRA / MPS (TCP, L4)
+  webDir: /srv/web          # server serves the SPA itself (api.go os.OpenRoot)
+  amtUser: admin
+  # L4 exposure: bind QUIC+MPS straight to the node IP via hostPort. On the
+  # single-node start this is budget-free (no OCI LB) and preserves the client
+  # source IP that AMT CIRA / QUIC need. Multi-node (PR-E) switches to an OCI
+  # NLB or ingress-nginx tcp/udp-services (see .Values.l4 below).
+  hostPortL4: true
+  # Secret with keys: JWT_SECRET, POSTGRES_PASSWORD, AMT_PASS, VAPID_CONTACT.
+  # Created out-of-band (kubectl / sealed-secrets); see secrets.example.yaml.
+  existingSecret: opengate-secrets
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  # /data holds the server's self-signed CA + VAPID keys. Single-replica PVC
+  # keeps them stable across restarts. NOTE: multi-replica (PR-E) must promote
+  # the CA + VAPID material to a shared Secret — see techdebt.md.
+  dataVolume:
+    storageClass: oci-bv
+    size: 1Gi
+
+postgres:
+  image: postgres:17-alpine
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  storage:
+    storageClass: oci-bv
+    size: 10Gi
+  backup:
+    enabled: true
+    schedule: "@daily"
+    keepDays: 7
+    storage:
+      storageClass: oci-bv
+      size: 5Gi
+    resources:
+      requests:
+        cpu: 50m
+        memory: 32Mi
+      limits:
+        cpu: 250m
+        memory: 64Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  # Production terminates TLS and sends HSTS; staging runs behind the prod
+  # proxy on plain HTTP and disables HSTS (mirrors Caddyfile vs Caddyfile.staging).
+  tls: true
+  hsts: true
+  # Security headers ported verbatim from deploy/caddy/Caddyfile. Folded (>-)
+  # so it stays under the yamllint line-length cap; breaks fall on existing
+  # single-space boundaries, so it reassembles to the identical CSP string.
+  csp: >-
+    default-src 'self'; script-src 'self' 'wasm-unsafe-eval';
+    style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;
+    font-src 'self'; connect-src 'self' wss:; frame-ancestors 'none'
+  permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=()"
+
+certManager:
+  create: true
+  issuerName: letsencrypt-prod
+  email: admin@opengate.example.com   # ACME registration contact; override per environment
+  server: https://acme-v02.api.letsencrypt.org/directory
+
+# Multi-node alternative to server.hostPortL4: emit ingress-nginx
+# tcp-services/udp-services ConfigMaps so the controller forwards 9090/udp +
+# 4433/tcp to the server Service. Off by default (single-node uses hostPort).
+l4:
+  ingressNginxConfigMaps: false
+  ingressNginxNamespace: ingress-nginx

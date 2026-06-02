@@ -1,0 +1,157 @@
+{{- $name := include "mon.componentName" (list . "grafana") -}}
+{{- $vm := include "mon.componentName" (list . "victoriametrics") -}}
+{{- $loki := include "mon.componentName" (list . "loki") -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-datasources
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+data:
+  # Templated from deploy/grafana/provisioning/datasources/datasources.yml with
+  # URLs repointed at the in-cluster Services (ADR-030 §4).
+  datasources.yml: |
+    apiVersion: 1
+    datasources:
+      - uid: VictoriaMetrics
+        name: VictoriaMetrics
+        type: prometheus
+        access: proxy
+        url: http://{{ $vm }}:8428
+        isDefault: true
+        editable: false
+      - uid: Loki
+        name: Loki
+        type: loki
+        access: proxy
+        url: http://{{ $loki }}:3100
+        editable: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "mon.selectorLabels" (list . "grafana") | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.grafana.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "mon.selectorLabels" (list . "grafana") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mon.selectorLabels" (list . "grafana") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroup: 472
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: grafana
+          image: {{ .Values.grafana.image }}
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: GF_SECURITY_ADMIN_PASSWORD
+            - name: GF_SERVER_ROOT_URL
+              value: {{ .Values.grafana.rootUrl | default (printf "https://%s/grafana" .Values.domain) | quote }}
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_UNIFIED_ALERTING_ENABLED
+              value: "true"
+            - name: GF_ALERTING_ENABLED
+              value: "false"
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: TELEGRAM_BOT_TOKEN
+            - name: TELEGRAM_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: TELEGRAM_CHAT_ID
+          ports:
+            - name: http
+              containerPort: 3000
+          livenessProbe:
+            httpGet: { path: /api/health, port: http }
+            initialDelaySeconds: 20
+          readinessProbe:
+            httpGet: { path: /api/health, port: http }
+            initialDelaySeconds: 10
+          resources:
+            {{- toYaml .Values.grafana.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: tmp
+              mountPath: /tmp
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+            - name: dashboards
+              mountPath: /etc/grafana/provisioning/dashboards
+              readOnly: true
+            - name: alerting
+              mountPath: /etc/grafana/provisioning/alerting
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+        - name: tmp
+          emptyDir: {}
+        - name: datasources
+          configMap:
+            name: {{ $name }}-datasources
+        # Created out-of-band from the canonical files so the 5 dashboard JSONs
+        # + alerting rules are not duplicated into the chart (see NOTES.txt).
+        - name: dashboards
+          configMap:
+            name: {{ .Values.grafana.dashboardsConfigMap }}
+        - name: alerting
+          configMap:
+            name: grafana-alerting

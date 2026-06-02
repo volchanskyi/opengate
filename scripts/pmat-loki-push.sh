@@ -35,13 +35,8 @@ PAYLOAD="$(jq -c \
     }
   ' <<< "{}")"
 
-# Push via SSH + docker run on the monitoring bridge network (Loki has no host
-# port). Compose project opengate-monitoring → network opengate-monitoring_monitoring.
-printf '%s' "$PAYLOAD" \
-  | ssh -o StrictHostKeyChecking=accept-new deploy-target \
-      'docker run --rm -i --network opengate-monitoring_monitoring \
-        curlimages/curl:latest \
-        -sS --fail --max-time 30 \
-        -X POST http://loki:3100/loki/api/v1/push \
-        -H "Content-Type: application/json" \
-        --data-binary @-'
+# Push the payload (stdin) to Loki via the shared transport. Default
+# (LOKI_PUSH_MODE=ssh-docker) keeps the pre-cutover path; cutover sets kubectl.
+# shellcheck source=lib/loki-push.sh
+source "$(dirname "$0")/lib/loki-push.sh"
+printf '%s' "$PAYLOAD" | loki_push

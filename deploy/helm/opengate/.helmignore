@@ -1,0 +1,7 @@
+# Patterns to exclude from the packaged chart.
+.git
+*.tmp
+*.bak
+# Operator-facing examples that are NOT chart templates.
+secrets.example.yaml
+ci/

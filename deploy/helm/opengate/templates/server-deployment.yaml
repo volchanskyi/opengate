@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opengate.fullname" . }}-server
+  labels:
+    {{- include "opengate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicas }}
+  # /data is an RWO PVC (server CA + VAPID keys); Recreate avoids two pods
+  # contending for it during a rollout.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "opengate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        {{- include "opengate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+    spec:
+      serviceAccountName: {{ include "opengate.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: server
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "-listen"
+            - ":{{ .Values.server.httpPort }}"
+            - "-quic-listen"
+            - ":{{ .Values.server.quicPort }}"
+            - "-mps-listen"
+            - ":{{ .Values.server.mpsPort }}"
+            - "-data-dir"
+            - "/data"
+            - "-web-dir"
+            - "{{ .Values.server.webDir }}"
+            - "-amt-user"
+            - "{{ .Values.server.amtUser }}"
+            - "-amt-pass"
+            - "$(AMT_PASS)"
+            - "-vapid-contact"
+            - "$(VAPID_CONTACT)"
+          env:
+            # POSTGRES_PASSWORD must precede DATABASE_URL so k8s resolves the
+            # $(POSTGRES_PASSWORD) reference below.
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: POSTGRES_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: JWT_SECRET
+            - name: AMT_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: AMT_PASS
+            - name: VAPID_CONTACT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: VAPID_CONTACT
+            - name: DATABASE_URL
+              value: "postgres://opengate:$(POSTGRES_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.httpPort }}
+              protocol: TCP
+            - name: quic
+              containerPort: {{ .Values.server.quicPort }}
+              protocol: UDP
+              {{- if .Values.server.hostPortL4 }}
+              hostPort: {{ .Values.server.quicPort }}
+              {{- end }}
+            - name: mps
+              containerPort: {{ .Values.server.mpsPort }}
+              protocol: TCP
+              {{- if .Values.server.hostPortL4 }}
+              hostPort: {{ .Values.server.mpsPort }}
+              {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "opengate.fullname" . }}-server-data
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,23 @@
+opengate-monitoring ({{ .Release.Name }}) deployed to namespace {{ .Release.Namespace }}.
+
+Out-of-band objects this chart references (create BEFORE / alongside install):
+
+  1. Secret with Grafana + Telegram + Postgres credentials:
+       kubectl -n {{ .Release.Namespace }} create secret generic {{ .Values.existingSecret }} \
+         --from-literal=GF_SECURITY_ADMIN_PASSWORD=... \
+         --from-literal=POSTGRES_PASSWORD=... \
+         --from-literal=TELEGRAM_BOT_TOKEN=... \
+         --from-literal=TELEGRAM_CHAT_ID=...
+
+  2. Grafana dashboards + alerting ConfigMaps, built from the canonical files
+     (NOT duplicated into the chart):
+       kubectl -n {{ .Release.Namespace }} create configmap {{ .Values.grafana.dashboardsConfigMap }} \
+         --from-file=deploy/grafana/provisioning/dashboards
+       kubectl -n {{ .Release.Namespace }} create configmap grafana-alerting \
+         --from-file=deploy/grafana/provisioning/alerting
+
+Validate (runbook §4 — these need a live OKE node):
+  - promtail reads pod logs: if /var/log/pods is root-only on the node OS, set
+    promtail.runAsRoot=true.
+  - Grafana dashboards render and datasources resolve the in-cluster Services.
+  - Retarget scripts/*-loki-push.sh to the in-cluster Loki Service.

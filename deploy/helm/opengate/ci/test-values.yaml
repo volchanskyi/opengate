@@ -1,0 +1,7 @@
+# Values used only by `helm template` in lint-deploy / CI to render the chart
+# for kubeconform + conftest validation. Dummy but render-complete; no secrets.
+domain: ci.opengate.test
+certManager:
+  email: ci@opengate.test
+image:
+  tag: v0.0.0-ci

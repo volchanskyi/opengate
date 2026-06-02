@@ -1,0 +1,30 @@
+# Staging overlay — coexists with production (separate release + namespace).
+# Mirrors docker-compose.staging.yml: smaller footprint, no HSTS, ACME staging.
+
+domain: staging.opengate.example.com
+
+ingress:
+  tls: false
+  hsts: false
+
+certManager:
+  issuerName: letsencrypt-staging
+  server: https://acme-staging-v02.api.letsencrypt.org/directory
+
+server:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 500m
+      memory: 384Mi
+  dataVolume:
+    size: 1Gi
+
+postgres:
+  storage:
+    size: 5Gi
+  backup:
+    # Staging is ephemeral E2E state; no scheduled backups needed.
+    enabled: false

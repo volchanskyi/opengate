@@ -1,0 +1,39 @@
+{{- if .Values.ingress.enabled -}}
+{{- $kuma := include "mon.componentName" (list . "uptime-kuma") -}}
+# Only the status page is exposed publicly (status.<domain> → uptime-kuma),
+# mirroring deploy/caddy/Caddyfile. Grafana stays internal (reach it via
+# `kubectl port-forward` / the OCI Bastion) — same posture as the compose
+# 127.0.0.1:3000 bind.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "mon.fullname" . }}-status
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.ingress.tls }}
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.certIssuer }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=63072000; includeSubDomains; preload";
+      more_set_headers "X-Content-Type-Options: nosniff";
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    - hosts:
+        - status.{{ .Values.domain }}
+      secretName: {{ include "mon.fullname" . }}-status-tls
+  {{- end }}
+  rules:
+    - host: status.{{ .Values.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $kuma }}
+                port:
+                  name: http
+{{- end }}

@@ -8,6 +8,22 @@ _None currently._
 
 ## Severity: Medium
 
+### Phase 13b k8s — server CA + VAPID keys are per-replica (blocks multi-replica)
+
+The Helm chart (`deploy/helm/opengate`, ADR-030) mounts the server's `-data-dir`
+`/data` — which holds the self-signed enrollment CA and the VAPID push keypair —
+on a per-replica `ReadWriteOnce` PVC. This is correct for the **single-replica**
+PR-B (the keys survive restarts), but a second replica would generate its **own**
+CA + VAPID keys, so agents enrolled against replica A would fail mTLS against
+replica B, and push subscriptions would split.
+
+**Pay-down trigger:** before scaling the server past one replica (PR-C cross-server
+proxy / PR-E HPA). Promote the CA + VAPID material to a shared `Secret` mounted
+read-only into every replica (generated once at install, e.g. by a pre-install
+Job or out-of-band like `existingSecret`), and drop the `/data` PVC to an
+`emptyDir`. Until then `server.replicas` must stay `1` and a `PodDisruptionBudget`
+/ HPA must not raise it.
+
 ### ADR-024 WebRTC dispatch — 3 residual uncaught mutants in `handler.rs`
 
 `cargo mutants -p mesh-agent-core` leaves three uncaught mutants in

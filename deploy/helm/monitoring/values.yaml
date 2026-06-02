@@ -1,0 +1,108 @@
+# Monitoring stack values. Ports the docker-compose.monitoring.yml services
+# to Kubernetes (ADR-030). Resource limits mirror the compose `deploy.resources`.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Public hostname for the status page (status.<domain> → uptime-kuma). Matches
+# the app chart's `domain`.
+domain: opengate.example.com
+
+# Secret (created out-of-band) with keys: GF_SECURITY_ADMIN_PASSWORD,
+# POSTGRES_PASSWORD, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+existingSecret: opengate-monitoring-secrets
+
+# In-cluster Postgres the postgres-exporter scrapes (the app chart's headless svc).
+postgresHost: opengate-postgres.opengate.svc
+
+storageClass: oci-bv
+
+victoriametrics:
+  image: victoriametrics/victoria-metrics:v1.114.0
+  retention: 30d
+  storage: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+loki:
+  image: grafana/loki:3.5.0
+  storage: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+grafana:
+  image: grafana/grafana-oss:11.6.0
+  storage: 2Gi
+  rootUrl: ""    # set to https://<domain>/grafana when fronted by the ingress
+  # The five dashboard JSONs are NOT duplicated into the chart. Create the
+  # ConfigMap from the canonical files at deploy time (see NOTES.txt):
+  #   kubectl -n <ns> create configmap <name> \
+  #     --from-file=deploy/grafana/provisioning/dashboards
+  dashboardsConfigMap: grafana-dashboards
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+promtail:
+  image: grafana/promtail:3.5.0
+  # promtail reads node pod logs. If the node OS makes /var/log/pods
+  # root-only, flip runAsRoot=true at cutover (validate on OKE — runbook §4).
+  runAsRoot: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+nodeExporter:
+  image: prom/node-exporter:v1.9.1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 16Mi
+    limits:
+      cpu: 250m
+      memory: 64Mi
+
+postgresExporter:
+  image: prometheuscommunity/postgres-exporter:v0.16.0
+  resources:
+    requests:
+      cpu: 50m
+      memory: 16Mi
+    limits:
+      cpu: 250m
+      memory: 64Mi
+
+uptimeKuma:
+  image: louislam/uptime-kuma:1.23.16   # digest/tag pinned (policy denies :latest / bare `1`)
+  storage: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+ingress:
+  enabled: true
+  className: nginx
+  tls: true
+  certIssuer: letsencrypt-prod

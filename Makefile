@@ -1,7 +1,7 @@
 .PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick \
 	mutate mutate-rust mutate-go mutate-web taint-go taint-web pentest-review dead-code \
 	terraform-test terraform-drift \
-	secrets-scan iac-policy iac-policy-fix iac-policy-custom lint-dockerfile \
+	secrets-scan iac-policy iac-policy-fix iac-policy-custom lint-dockerfile lint-k8s \
 	test-parse-tfplan \
 	tunnel ssh
 
@@ -69,6 +69,7 @@ lint-deploy:
 	@$(MAKE) lint-dockerfile
 	@$(MAKE) iac-policy
 	@$(MAKE) iac-policy-custom
+	@$(MAKE) lint-k8s
 	@$(MAKE) test-parse-tfplan
 	terraform -chdir=deploy/terraform fmt -check -recursive
 	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null 2>&1
@@ -107,6 +108,8 @@ terraform-test:
 	terraform -chdir=deploy/terraform/modules/compute test
 	terraform -chdir=deploy/terraform/modules/bastion init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform/modules/bastion test
+	terraform -chdir=deploy/terraform/modules/oke init -backend=false -input=false >/dev/null
+	terraform -chdir=deploy/terraform/modules/oke test
 	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform test
 
@@ -163,6 +166,8 @@ secrets-scan:
 # disabled because gitleaks already owns that surface — see .checkov.yaml).
 iac-policy:
 	@command -v checkov >/dev/null 2>&1 || { echo "ERROR: checkov not found. Install: pipx install checkov"; exit 1; }
+	@# The `helm` framework renders deploy/helm/** charts before scanning.
+	@command -v helm >/dev/null 2>&1 || { echo "ERROR: helm not found (required by Checkov's helm framework). Install from: https://helm.sh/docs/intro/install/"; exit 1; }
 	checkov --config-file .checkov.yaml
 
 # Triage helper: same surface, --soft-fail so the operator can review findings
@@ -193,6 +198,28 @@ iac-policy-custom:
 	else \
 	  echo "(skipping terraform Rego check: /tmp/tfplan.json not present)"; \
 	fi
+
+# Helm chart validation (Phase 13b PR-B). helm lint → schema-validate the
+# rendered manifests (kubeconform, ignoring CRDs) → unit-test the k8s Rego
+# policy → run it against every overlay's rendered output. Checkov's helm
+# framework runs separately via `make iac-policy`.
+lint-k8s:
+	@command -v helm >/dev/null 2>&1 || { echo "ERROR: helm not found. Install from: https://helm.sh/docs/intro/install/"; exit 1; }
+	@command -v kubeconform >/dev/null 2>&1 || { echo "ERROR: kubeconform not found. Install from: https://github.com/yannh/kubeconform/releases"; exit 1; }
+	@command -v conftest >/dev/null 2>&1 || { echo "ERROR: conftest not found. Install: https://github.com/open-policy-agent/conftest/releases"; exit 1; }
+	helm lint deploy/helm/opengate -f deploy/helm/opengate/ci/test-values.yaml
+	conftest verify --policy policy/k8s
+	@for vals in ci/test-values values-staging values-production; do \
+	  echo "==> opengate ($$vals)"; \
+	  helm template og deploy/helm/opengate -f deploy/helm/opengate/$$vals.yaml > /tmp/og-k8s-render.yaml; \
+	  kubeconform -strict -ignore-missing-schemas -summary /tmp/og-k8s-render.yaml; \
+	  conftest test -p policy/k8s /tmp/og-k8s-render.yaml; \
+	done
+	helm lint deploy/helm/monitoring
+	@echo "==> opengate-monitoring"
+	helm template mon deploy/helm/monitoring > /tmp/mon-k8s-render.yaml
+	kubeconform -strict -ignore-missing-schemas -summary /tmp/mon-k8s-render.yaml
+	conftest test -p policy/k8s /tmp/mon-k8s-render.yaml
 
 fmt:
 	cd agent && cargo fmt --all
