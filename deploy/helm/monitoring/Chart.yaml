@@ -1,0 +1,12 @@
+apiVersion: v2
+name: opengate-monitoring
+description: OpenGate observability stack on Kubernetes (Phase 13b PR-B, ADR-030)
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - opengate
+  - observability
+home: https://github.com/volchanskyi/opengate
+sources:
+  - https://github.com/volchanskyi/opengate

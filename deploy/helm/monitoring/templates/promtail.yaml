@@ -1,0 +1,118 @@
+{{- $name := include "mon.componentName" (list . "promtail") -}}
+{{- $loki := include "mon.componentName" (list . "loki") -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+rules:
+  # Least privilege: the config uses kubernetes_sd `role: pod` and reads logs
+  # from the host's /var/log/pods, so only pod metadata is needed — no
+  # nodes/proxy (avoids the node-proxy privilege-escalation finding, KSV0047).
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+data:
+  # LOKI_URL substituted at template time with the in-cluster Loki Service.
+  promtail-config.yaml: |
+{{ .Files.Get "files/promtail-config.yaml" | replace "LOKI_URL" (printf "%s:3100" $loki) | indent 4 }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "mon.selectorLabels" (list . "promtail") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mon.selectorLabels" (list . "promtail") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $name }}
+      securityContext:
+        {{- if .Values.promtail.runAsRoot }}
+        runAsUser: 0
+        {{- else }}
+        runAsNonRoot: true
+        runAsUser: 10001
+        {{- end }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: promtail
+          image: {{ .Values.promtail.image }}
+          args: ["-config.file=/etc/promtail/promtail-config.yaml"]
+          ports:
+            - name: http
+              containerPort: 9080
+          livenessProbe:
+            httpGet: { path: /ready, port: http }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            initialDelaySeconds: 5
+          resources:
+            {{- toYaml .Values.promtail.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/promtail
+              readOnly: true
+            - name: run
+              mountPath: /run/promtail
+            - name: pods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: containers
+              mountPath: /var/log/containers
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        - name: run
+          emptyDir: {}
+        - name: pods
+          hostPath:
+            path: /var/log/pods
+        - name: containers
+          hostPath:
+            path: /var/log/containers

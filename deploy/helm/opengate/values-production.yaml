@@ -1,0 +1,17 @@
+# Production overlay — real domain, HSTS on, Let's Encrypt prod, full backups.
+# Most values inherit from values.yaml; this overlay pins the env-specific knobs.
+
+domain: opengate.example.com
+
+ingress:
+  tls: true
+  hsts: true
+
+certManager:
+  issuerName: letsencrypt-prod
+  server: https://acme-v02.api.letsencrypt.org/directory
+
+postgres:
+  backup:
+    enabled: true
+    keepDays: 7

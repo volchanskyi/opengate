@@ -19,6 +19,26 @@ framework:
   - terraform
   - dockerfile
   - github_actions
+  - helm            # renders deploy/helm/** charts and scans the output
+
+# Accepted-by-design Kubernetes findings (Phase 13b PR-B). Checkov's helm
+# framework renders to ephemeral temp dirs, so path-based .checkov.baseline is
+# unstable for these — skip-check (with justification) is the right mechanism,
+# consistent with ADR-015's documented-suppression model. The conftest gate
+# (policy/k8s/security.rego) is the primary k8s policy; these are residuals it
+# does not cover.
+skip-check:
+  - CKV_K8S_43    # image digest pin — deferred repo-wide (see policy/docker_compose/images.rego); we pin concrete tags
+  - CKV_K8S_15    # imagePullPolicy: Always — intentionally IfNotPresent on pinned/sha tags
+  - CKV_K8S_26    # hostPort — deliberate single-node L4 path for QUIC/MPS (server.hostPortL4); preserves client source IP
+  - CKV_K8S_40    # high UID — server runs 65532; postgres must run uid 70 (official image)
+  - CKV_K8S_35    # secrets as env — the server consumes JWT_SECRET/DATABASE_URL via env, mirroring docker-compose
+  - CKV_K8S_22    # read-only rootfs — server + backup comply; the official postgres image writes runtime files
+  - CKV_K8S_21    # default namespace — false positive of static render; deployed with --namespace opengate/staging
+  - CKV_K8S_153   # ingress snippet annotation (CVE-2021-25742) — chart-controlled headers, single-tenant cluster, gated by allowSnippetAnnotations
+  - CKV2_K8S_6    # default-deny NetworkPolicy — CD Phase E (network policies), deprioritized
+  - CKV_K8S_17    # hostPID — node-exporter requires the host PID namespace to read per-process node metrics
+  - CKV_K8S_38    # SA token mount — promtail needs the token for kubernetes_sd log discovery; app pods set automountServiceAccountToken:false explicitly
 
 # Output: compact terminal table, exits non-zero on any failed check.
 compact: true

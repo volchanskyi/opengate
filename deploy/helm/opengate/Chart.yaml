@@ -1,0 +1,14 @@
+apiVersion: v2
+name: opengate
+description: OpenGate remote device management platform — server + Postgres + ingress (Phase 13b PR-B)
+type: application
+# Chart version tracks the chart; appVersion tracks the server image and is
+# overridden at deploy time via `--set image.tag` (CD) — see docs/Kubernetes.md.
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - opengate
+  - remote-management
+home: https://github.com/volchanskyi/opengate
+sources:
+  - https://github.com/volchanskyi/opengate

@@ -165,7 +165,11 @@ jobs:
     # the cached prior deploy AND deploy/** is unchanged. The on-VPS sentinel
     # remains the source of truth (deploy.sh would skip the compose restart
     # anyway); this gate avoids the ~2-3 min of OCI/SSH/scp setup before that.
-    if: needs.resolve-tag.outputs.should_skip_staging != 'true'
+    #
+    # K8S_CUTOVER (repo variable, ADR-030): unset/false → this compose job runs
+    # and deploy-staging-k8s skips; 'true' → this skips and the k8s job runs.
+    # deploy-production needs deploy-staging, so it auto-skips on the k8s path.
+    if: needs.resolve-tag.outputs.should_skip_staging != 'true' && vars.K8S_CUTOVER != 'true'
     runs-on: ubuntu-latest
     environment: staging
     env:
@@ -407,6 +411,104 @@ jobs:
   # --------------------------------------------------------------------------
   # Job 3: Deploy to production (manual approval required)
   # --------------------------------------------------------------------------
+  # --------------------------------------------------------------------------
+  # Job 2b (cutover-gated, ADR-030): deploy staging to OKE via Helm. Dormant
+  # until the K8S_CUTOVER repo variable is 'true'. Mirrors deploy-staging but
+  # targets the cluster; reuses smoke-test.sh + playwright.staging.config.ts
+  # unchanged by port-forwarding the server Service to localhost:18080 (the
+  # k8s analogue of the SSH tunnel).
+  # --------------------------------------------------------------------------
+  deploy-staging-k8s:
+    name: Deploy staging (k8s)
+    needs: resolve-tag
+    if: needs.resolve-tag.outputs.should_skip_staging != 'true' && vars.K8S_CUTOVER == 'true'
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
+      NAMESPACE: opengate-staging
+      RELEASE: opengate-staging
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Playwright dependencies
+        working-directory: web
+        run: npm ci && npx playwright install --with-deps chromium
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      - name: Sync namespace + secret
+        env:
+          JWT_SECRET: ${{ secrets.DEPLOY_STAGING_JWT_SECRET }}
+          AMT_PASS: ${{ secrets.DEPLOY_STAGING_AMT_PASS }}
+          VAPID_CONTACT: ${{ secrets.DEPLOY_STAGING_VAPID_CONTACT }}
+          POSTGRES_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
+        run: |
+          kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            --from-literal=AMT_PASS="$AMT_PASS" \
+            --from-literal=VAPID_CONTACT="$VAPID_CONTACT" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Helm upgrade (staging)
+        run: |
+          helm upgrade --install "$RELEASE" deploy/helm/opengate -n "$NAMESPACE" \
+            -f deploy/helm/opengate/values-staging.yaml \
+            --set image.tag="${IMAGE_TAG}" \
+            --set domain="${{ secrets.DEPLOY_STAGING_DOMAIN }}" \
+            --set certManager.create=false \
+            --wait --timeout 5m
+          kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
+
+      - name: Port-forward server → localhost:18080
+        run: |
+          kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 >/tmp/pf.log 2>&1 &
+          echo $! > /tmp/pf.pid
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:18080/api/v1/health >/dev/null && break
+            sleep 1
+          done
+
+      - name: Run smoke tests
+        run: bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 18080 --mode staging --scheme http
+
+      - name: Reset staging DB for E2E (fresh user state)
+        run: |
+          kubectl -n "$NAMESPACE" exec "statefulset/${RELEASE}-postgres" -- \
+            psql -U opengate -d opengate -c "
+            TRUNCATE TABLE
+              security_group_members, device_logs, device_hardware, device_updates,
+              enrollment_tokens, amt_devices, audit_events, web_push_subscriptions,
+              agent_sessions, devices, groups_, security_groups, users
+            RESTART IDENTITY CASCADE;
+            INSERT INTO security_groups (id, name, description, is_system)
+            VALUES ('00000000-0000-0000-0000-000000000001', 'Administrators', 'Full system access', TRUE)
+            ON CONFLICT (id) DO NOTHING;"
+
+      - name: Run Playwright E2E against staging
+        working-directory: web
+        run: npx playwright test --config=playwright.staging.config.ts
+
+      - name: Stop port-forward
+        if: always()
+        run: kill "$(cat /tmp/pf.pid)" 2>/dev/null || true
+
   deploy-production:
     name: Deploy production
     needs: [resolve-tag, deploy-staging]
@@ -541,9 +643,73 @@ jobs:
   # --------------------------------------------------------------------------
   # Job 4: Notify on failure via GitHub Issues
   # --------------------------------------------------------------------------
+  # --------------------------------------------------------------------------
+  # Job 3b (cutover-gated, ADR-030): deploy production to OKE via Helm. Dormant
+  # until K8S_CUTOVER == 'true'; auto-skips otherwise (needs deploy-staging-k8s).
+  # --------------------------------------------------------------------------
+  deploy-production-k8s:
+    name: Deploy production (k8s)
+    needs: [resolve-tag, deploy-staging-k8s]
+    if: vars.K8S_CUTOVER == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      IMAGE_TAG: ${{ needs.resolve-tag.outputs.image_tag }}
+      NAMESPACE: opengate
+      RELEASE: opengate
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      - name: Sync namespace + secret
+        env:
+          JWT_SECRET: ${{ secrets.DEPLOY_JWT_SECRET }}
+          AMT_PASS: ${{ secrets.DEPLOY_AMT_PASS }}
+          VAPID_CONTACT: ${{ secrets.DEPLOY_VAPID_CONTACT }}
+          POSTGRES_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_PASSWORD }}
+        run: |
+          kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            --from-literal=AMT_PASS="$AMT_PASS" \
+            --from-literal=VAPID_CONTACT="$VAPID_CONTACT" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Helm upgrade (production)
+        run: |
+          helm upgrade --install "$RELEASE" deploy/helm/opengate -n "$NAMESPACE" \
+            -f deploy/helm/opengate/values-production.yaml \
+            --set image.tag="${IMAGE_TAG}" \
+            --set server.replicas=1 \
+            --set domain="${{ secrets.DEPLOY_DOMAIN }}" \
+            --set certManager.email="${{ secrets.DEPLOY_ACME_EMAIL }}" \
+            --wait --timeout 5m
+          kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
+
+      - name: Port-forward + smoke test
+        run: |
+          kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 >/tmp/pf.log 2>&1 &
+          PF_PID=$!
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:18080/api/v1/health >/dev/null && break
+            sleep 1
+          done
+          bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 18080 --mode production --scheme http
+          kill "$PF_PID" 2>/dev/null || true
+
   notify-failure:
     name: Create failure issue
-    needs: [resolve-tag, deploy-staging, deploy-production]
+    needs: [resolve-tag, deploy-staging, deploy-staging-k8s, deploy-production, deploy-production-k8s]
     if: failure()
     runs-on: ubuntu-latest
     steps:

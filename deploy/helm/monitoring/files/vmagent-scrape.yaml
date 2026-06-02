@@ -1,0 +1,44 @@
+# VictoriaMetrics scrape config — replaces the static compose targets in
+# deploy/victoriametrics/scrape.yml with Kubernetes service discovery. Scrapes
+# pods/endpoints annotated with prometheus.io/scrape, plus the node-exporter
+# and postgres-exporter Services in this namespace.
+
+global:
+  scrape_interval: 30s
+  external_labels:
+    cluster: opengate
+
+scrape_configs:
+  - job_name: kubernetes-nodes
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+
+  - job_name: kubernetes-pods
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: "true"
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: (.+)
+        target_label: __address__
+        replacement: ${1}
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+
+  - job_name: opengate-server
+    kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names: [opengate, opengate-staging]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_component]
+        action: keep
+        regex: server

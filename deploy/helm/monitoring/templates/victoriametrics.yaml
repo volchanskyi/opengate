@@ -1,0 +1,92 @@
+{{- $name := include "mon.componentName" (list . "victoriametrics") -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-scrape
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+data:
+  scrape.yml: |
+{{ .Files.Get "files/vmagent-scrape.yaml" | indent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "mon.selectorLabels" (list . "victoriametrics") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8428
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mon.selectorLabels" (list . "victoriametrics") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mon.selectorLabels" (list . "victoriametrics") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: victoriametrics
+          image: {{ .Values.victoriametrics.image }}
+          args:
+            - "-storageDataPath=/storage"
+            - "-retentionPeriod={{ .Values.victoriametrics.retention }}"
+            - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+            - "-httpListenAddr=:8428"
+          ports:
+            - name: http
+              containerPort: 8428
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+          resources:
+            {{- toYaml .Values.victoriametrics.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: storage
+              mountPath: /storage
+            - name: scrape
+              mountPath: /etc/victoriametrics
+              readOnly: true
+      volumes:
+        - name: scrape
+          configMap:
+            name: {{ $name }}-scrape
+  volumeClaimTemplates:
+    - metadata:
+        name: storage
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.victoriametrics.storage }}

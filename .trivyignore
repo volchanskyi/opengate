@@ -1,2 +1,19 @@
 # Trivy IaC scan suppressions.
 # Format: one check ID per line, with a comment justifying the suppression.
+
+# KSV0024 (host ports): the opengate server Deployment publishes QUIC (9090/udp)
+# and Intel AMT MPS (4433/tcp) via hostPort on the single OKE node — a deliberate
+# L4 design decision (ADR-030 §5: budget-free, source-IP preserving). Restricted
+# to those two known ports; the multi-node path moves them off hostPort.
+KSV-0024
+
+# Monitoring stack (deploy/helm/monitoring) — findings inherent to host-level
+# exporters (ADR-030 §4). node-exporter must share the host PID namespace and
+# mount host /proc /sys / to read node metrics; uptime-kuma (a Node app) writes
+# beyond its data PVC so a read-only root filesystem is not feasible.
+#
+# KSV-0014 (readOnlyRootFilesystem) also covers the postgres StatefulSet — the
+# official postgres image writes to several runtime paths beyond PGDATA.
+KSV-0010   # node-exporter hostPID — required to read per-process node metrics
+KSV-0121   # node-exporter hostPath /proc /sys / — required for node metrics
+KSV-0014   # readOnlyRootFilesystem — uptime-kuma + postgres write beyond their volumes

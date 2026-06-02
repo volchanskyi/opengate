@@ -1,0 +1,31 @@
+opengate ({{ .Release.Name }}) deployed to namespace {{ .Release.Namespace }}.
+
+Prerequisites (install once per cluster, outside this chart):
+  1. ingress-nginx — with snippet annotations enabled so the security headers
+     in templates/ingress.yaml take effect:
+       helm install ingress-nginx ingress-nginx/ingress-nginx \
+         --namespace ingress-nginx --create-namespace \
+         --set controller.allowSnippetAnnotations=true
+  2. cert-manager (CRDs + controller) for the ClusterIssuer:
+       helm install cert-manager jetstack/cert-manager \
+         --namespace cert-manager --create-namespace --set crds.enabled=true
+
+Required Secret (NOT created by this chart — see secrets.example.yaml):
+  kubectl create secret generic {{ .Values.server.existingSecret }} \
+    --namespace {{ .Release.Namespace }} \
+    --from-literal=JWT_SECRET=... \
+    --from-literal=POSTGRES_PASSWORD=... \
+    --from-literal=AMT_PASS=... \
+    --from-literal=VAPID_CONTACT=mailto:ops@example.com
+
+DNS:
+  - Point {{ .Values.domain }} A/AAAA at the ingress-nginx external IP.
+{{- if .Values.server.hostPortL4 }}
+  - QUIC ({{ .Values.server.quicPort }}/udp) and MPS/AMT ({{ .Values.server.mpsPort }}/tcp)
+    are published via hostPort on the node — open them in the node's security
+    list / NSG and point agents/AMT at the node's public IP.
+{{- end }}
+
+Verify:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "opengate.fullname" . }}-server
+  kubectl -n {{ .Release.Namespace }} get ingress {{ include "opengate.fullname" . }}

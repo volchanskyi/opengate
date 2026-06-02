@@ -1,0 +1,81 @@
+{{- $name := include "mon.componentName" (list . "node-exporter") -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9100"
+spec:
+  selector:
+    {{- include "mon.selectorLabels" (list . "node-exporter") | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "mon.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "mon.selectorLabels" (list . "node-exporter") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mon.selectorLabels" (list . "node-exporter") | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      hostPID: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: node-exporter
+          image: {{ .Values.nodeExporter.image }}
+          args:
+            - "--path.procfs=/host/proc"
+            - "--path.sysfs=/host/sys"
+            - "--path.rootfs=/host/root"
+            - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($|/)"
+          ports:
+            - name: metrics
+              containerPort: 9100
+          livenessProbe:
+            httpGet: { path: /, port: metrics }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /, port: metrics }
+            initialDelaySeconds: 5
+          resources:
+            {{- toYaml .Values.nodeExporter.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              readOnly: true
+      volumes:
+        - name: proc
+          hostPath: { path: /proc }
+        - name: sys
+          hostPath: { path: /sys }
+        - name: root
+          hostPath: { path: / }
