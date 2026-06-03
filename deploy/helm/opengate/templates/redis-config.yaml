@@ -1,0 +1,80 @@
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opengate.redis.fullname" . }}
+  labels:
+    {{- include "opengate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+data:
+  redis.conf: |
+    port 6379
+    dir /data
+    appendonly yes
+    appendfsync everysec
+    # Replicas keep serving (stale) reads while syncing rather than erroring.
+    replica-serve-stale-data yes
+
+  # Redis node entrypoint: discover the live master from Sentinel (which may
+  # have failed over to a replica) and start as master or replica accordingly.
+  # On first boot Sentinel knows no master yet, so pod-0 bootstraps as master.
+  redis-entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    SENTINEL_SVC="{{ include "opengate.redisSentinel.fullname" . }}"
+    MASTER_NAME="{{ .Values.redis.masterName }}"
+    MASTER_FQDN="{{ include "opengate.redis.masterFQDN" . }}"
+    MY_FQDN="${HOSTNAME}.{{ include "opengate.redis.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local"
+    ORDINAL="${HOSTNAME##*-}"
+    {{- if .Values.redis.auth.enabled }}
+    AUTH="-a ${REDIS_PASSWORD} --no-auth-warning"
+    {{- else }}
+    AUTH=""
+    {{- end }}
+
+    master_host=""
+    i=0
+    while [ "$i" -lt 10 ]; do
+      master_host=$(redis-cli $AUTH -h "$SENTINEL_SVC" -p 26379 \
+        sentinel get-master-addr-by-name "$MASTER_NAME" 2>/dev/null | head -1 || true)
+      [ -n "$master_host" ] && break
+      i=$((i + 1)); sleep 2
+    done
+
+    set -- redis-server /etc/redis/redis.conf
+    {{- if .Values.redis.auth.enabled }}
+    set -- "$@" --requirepass "$REDIS_PASSWORD" --masterauth "$REDIS_PASSWORD"
+    {{- end }}
+
+    if [ -z "$master_host" ]; then
+      # Bootstrap: no master elected yet. pod-0 is the initial master.
+      [ "$ORDINAL" = "0" ] || set -- "$@" --replicaof "$MASTER_FQDN" 6379
+    elif [ "$master_host" != "$MY_FQDN" ]; then
+      set -- "$@" --replicaof "$master_host" 6379
+    fi
+
+    exec "$@"
+
+  # Sentinel entrypoint: Sentinel rewrites its own config at runtime, so render
+  # a fresh copy into the writable /data emptyDir and start from there.
+  sentinel-entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    MASTER_NAME="{{ .Values.redis.masterName }}"
+    MASTER_FQDN="{{ include "opengate.redis.masterFQDN" . }}"
+    CONF=/data/sentinel.conf
+    {
+      echo "port 26379"
+      echo "dir /data"
+      echo "sentinel resolve-hostnames yes"
+      echo "sentinel announce-hostnames yes"
+      echo "sentinel monitor ${MASTER_NAME} ${MASTER_FQDN} 6379 {{ .Values.redis.sentinel.quorum }}"
+      echo "sentinel down-after-milliseconds ${MASTER_NAME} {{ .Values.redis.sentinel.downAfterMs }}"
+      echo "sentinel failover-timeout ${MASTER_NAME} {{ .Values.redis.sentinel.failoverTimeoutMs }}"
+      echo "sentinel parallel-syncs ${MASTER_NAME} 1"
+    {{- if .Values.redis.auth.enabled }}
+      echo "sentinel auth-pass ${MASTER_NAME} ${REDIS_PASSWORD}"
+    {{- end }}
+    } > "$CONF"
+    exec redis-server "$CONF" --sentinel
+{{- end }}

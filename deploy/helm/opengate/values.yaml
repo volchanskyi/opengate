@@ -75,6 +75,49 @@ postgres:
         cpu: 250m
         memory: 64Mi
 
+# Redis Sentinel HA — backing store for the distributed SessionRegistry
+# (REGISTRY_BACKEND=redis), per ADR-031. DORMANT by default: with redis.enabled
+# false the server keeps the in-process registry and none of these objects
+# render. When enabled, the server is wired to the Sentinel service via
+# REGISTRY_BACKEND=redis + REDIS_SENTINEL_ADDRS + REDIS_MASTER_NAME (see
+# server-deployment.yaml). HA topology: a StatefulSet of Redis nodes (pod-0 is
+# the bootstrap master, the rest replicate; on restart every node rediscovers
+# the live master from Sentinel) and a StatefulSet of Sentinels that elect a new
+# master on failure.
+redis:
+  enabled: false
+  image: redis:7.4-alpine
+  # The Sentinel master group name; must match REDIS_MASTER_NAME on the server.
+  masterName: opengate
+  replicas: 3            # 1 bootstrap master + 2 replicas
+  # Optional AUTH. When enabled, REDIS_PASSWORD must exist in server.existingSecret
+  # and is used for requirepass + masterauth + sentinel auth-pass.
+  auth:
+    enabled: false
+  data:
+    storageClass: oci-bv
+    size: 1Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  sentinel:
+    replicas: 3          # quorum = (replicas/2)+1 = 2
+    quorum: 2
+    # Failure-detection / failover tuning (milliseconds).
+    downAfterMs: 5000
+    failoverTimeoutMs: 10000
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
 ingress:
   enabled: true
   className: nginx

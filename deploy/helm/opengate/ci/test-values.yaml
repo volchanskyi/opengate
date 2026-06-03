@@ -5,3 +5,10 @@ certManager:
   email: ci@opengate.test
 image:
   tag: v0.0.0-ci
+# Exercise the (default-dormant) Redis Sentinel HA manifests under lint so
+# kubeconform + the k8s security policy validate them. auth on covers the
+# REDIS_PASSWORD secret wiring path too.
+redis:
+  enabled: true
+  auth:
+    enabled: true

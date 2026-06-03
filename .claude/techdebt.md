@@ -35,6 +35,29 @@ Job or out-of-band like `existingSecret`), and drop the `/data` PVC to an
 
 The two cheaply-killable mutants from the original 7-mutant gap were closed with tests (`switch.rs::handle_ack` body + the `SwitchAck` dispatch arm), and the `session/handlers/webrtc.rs` bodies were added to `agent/.cargo/mutants.toml` `exclude_globs` (same live-stack rationale as the long-standing `webrtc.rs` exclusion — ADR-024 §9 merely relocated that code). These three remain because the `mutants.toml` glob mechanism cannot exclude individual match arms within an otherwise well-covered function. **Pay-down trigger:** revisit when file upload is implemented (closes the equivalent mutant) or when a headless WebRTC offer/answer harness exists (closes the two live-stack arms).
 
+### Phase 13b PR-C — Redis Sentinel operational surface + dormant-untested HA
+
+PR-C C1 (ADR-031) introduces a Redis Sentinel cluster as the backing store for
+the distributed `SessionRegistry`. Two debts ride in with it:
+
+1. **New operational surface.** Redis adds persistence (AOF+RDB), Sentinel quorum
+   health, connection pooling, and backup/restore — none of which the in-process
+   adapter needed. There is no Redis backup CronJob (the Postgres one is the
+   model), no pool-size tuning, and no Redis monitoring/alerting yet.
+2. **Dormant HA is lint-validated but not runtime-tested.** The Sentinel topology
+   in [`deploy/helm/opengate`](../deploy/helm/opengate) is gated `redis.enabled`
+   (default false) and renders clean under `make lint-k8s`, but master rediscovery
+   on pod restart, automatic failover, and replica re-pointing have never run
+   against a live cluster. The adapter's own logic is covered by miniredis unit
+   tests; the gap is the **chart's** runtime behaviour.
+
+**Pay-down trigger:** before flipping any environment overlay to
+`REGISTRY_BACKEND=redis` (the multi-replica cutover, gated behind PR-C's C2
+cross-server proxy + C3 readiness/degraded-mode). At that point: add a real-Redis
+testcontainers integration test (mirrors [`testpg`](../server/internal/testpg/testpg.go)),
+a Redis backup CronJob, Redis monitoring, and a kill-the-master failover drill in
+a staging cluster. Until then the backend stays `inprocess` in every overlay.
+
 ## Severity: Low
 
 ### Go mutation score is sensitive to gremlins' runner-derived per-mutant timeout

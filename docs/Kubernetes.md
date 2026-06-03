@@ -49,6 +49,19 @@ cannot ride the ingress. On the single-node start they bind to the node's
 public IP via `hostPort` (`server.hostPortL4`) — see ADR-030 §5 for the
 rationale and the multi-node alternative.
 
+### Redis (distributed SessionRegistry)
+
+The chart ships a **Redis Sentinel HA** topology (data StatefulSet + Sentinel
+StatefulSet + headless Services) backing the multiserver `SessionRegistry`. It
+is **dormant by default**: gated behind `redis.enabled` (off), with the server
+defaulting to the in-process registry (`REGISTRY_BACKEND=inprocess`). When
+enabled, the server is wired to the Sentinel service via `REGISTRY_BACKEND=redis`
++ `REDIS_SENTINEL_ADDRS` + `REDIS_MASTER_NAME`. The design, key schema, and the
+"do not flip any overlay to `redis` until the C2 cross-server proxy lands"
+constraint are recorded in
+[ADR-031](./adr/ADR-031-redis-sentinel-session-registry.md); the tunables live in
+[`values.yaml`](../deploy/helm/opengate/values.yaml) under `redis`.
+
 ## Validation
 
 `make lint-k8s` is the chart gate (wired into `make lint-deploy`, the precommit
