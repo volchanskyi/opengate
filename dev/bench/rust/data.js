@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780438388597,
+  "lastUpdate": 1780467069993,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15606,6 +15606,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.822513306754487,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "47cb0762b37e92f07dad1370a2a2dc7d08e9d1e9",
+          "message": "fix(ci): unblock dev — Go 1.26.4 (stdlib CVEs) + resilient SonarCloud + /refactor for deploy/ & scripts/\n\nGo toolchain (server/go.mod): bump toolchain go1.26.3 → go1.26.4. Two newly\npublished Go standard-library advisories — GO-2026-5039 (net/textproto) and\nGO-2026-5037 (crypto/x509), both fixed in go1.26.4 — were failing the\ngovulncheck gate on every commit (advisory-DB gate, unrelated to any diff). CI\nand the Dockerfile already track the latest 1.26.x; only the explicit toolchain\npin lagged. govulncheck now reports 0 affecting vulnerabilities.\n\nSonarCloud (ci.yml): the official action downloads its scanner CLI from\nbinaries.sonarsource.com, which returned a transient HTTP 403 and failed the\ngate on 74009b1 (no code issue — the gate itself was green). Keep the action as\nthe primary path (continue-on-error) and explicitly fall back to the Docker\nscanner image on its failure — pulled from the container registry, not the CDN,\nthe same path `make sonar` uses — with the repo's retry-with-backoff loop on the\nimage pull. Real quality-gate failures still propagate. The job stays skipped on\nscheduled runs and when SONAR_TOKEN is empty.\n\npush-guard hook: the /refactor marker is now required when commits since\norigin/dev touch the project-root deploy/ or scripts/ folders, in addition to\nGo/Rust/TS/JS source. +3 hooks tests; rule doc updated.",
+          "timestamp": "2026-06-02T23:02:56-07:00",
+          "tree_id": "69a482979c206838bcba34c3f72e1510cbb32519",
+          "url": "https://github.com/volchanskyi/opengate/commit/47cb0762b37e92f07dad1370a2a2dc7d08e9d1e9"
+        },
+        "date": 1780467069908,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.367095479109254,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.868702140573706,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 597.1095117330865,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 287.8837867497067,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.028955526474586,
             "unit": "ns/iter"
           }
         ]
