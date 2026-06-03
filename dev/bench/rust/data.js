@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780468603049,
+  "lastUpdate": 1780509384436,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15704,6 +15704,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.331755642070334,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "8d5c971b3963140263e5cfd62a727b2080a42558",
+          "message": "fix(ci): stop Go mutation false-timeouts dragging the nightly red\n\ngremlins derives each mutant's timeout from coverage-dry-run-elapsed x\ntimeout-coefficient (default 5). The dry-run elapsed is a single,\nrunner-load-sensitive measurement, so a fast/partial coverage phase shrinks\nthe per-mutant budget below what the Postgres-backed packages need (each\nre-pays container/migration setup, ~20-40s per mutant). Legitimate\nwould-be-KILLED mutants then false-time-out and gremlins drops them from the\nkill count, collapsing the reported score with no real change in test quality.\n\nObserved 2026-06-03 (run 26870189012): 590 TIMED OUT vs 7 the prior night,\nGo 85.5% -> 76.0% (below the 85% alert floor), same 907 mutants planned both\nnights -- only the execution budget changed.\n\n- server/.gremlins.yaml: set unleash.timeout-coefficient: 10 (2x default\n  headroom) so slow-but-legitimate DB-backed runs complete as KILLED\n- .github/workflows/mutation.yml: pin gremlins to v0.6.0 for reproducibility\n  (matches CARGO_MUTANTS_VERSION) and raise the matrix job cap 60 -> 90min so\n  a slow full Go run completes instead of hitting the job timeout\n- Makefile: pin the gremlins install hint to v0.6.0\n- .claude/techdebt.md: record the residual timeout/floor fragility (Low)",
+          "timestamp": "2026-06-03T10:20:42-07:00",
+          "tree_id": "a5ccadb87d532a207448cee79f2fad425fc741bb",
+          "url": "https://github.com/volchanskyi/opengate/commit/8d5c971b3963140263e5cfd62a727b2080a42558"
+        },
+        "date": 1780509384362,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 21.62496050995904,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 24.48776994114188,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 736.727798607279,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 291.791602276416,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.869995533244634,
             "unit": "ns/iter"
           }
         ]
