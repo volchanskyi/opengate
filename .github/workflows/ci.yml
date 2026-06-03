@@ -1071,11 +1071,46 @@ jobs:
         with:
           name: rust-coverage
           path: agent/
+      # Primary path: the official action (fast, signature-verified). It
+      # downloads the scanner CLI from binaries.sonarsource.com, which has
+      # 403'd transiently (observed 2026-06-02). continue-on-error lets the
+      # Docker fallback below take over instead of failing the gate on a CDN
+      # blip; a real quality-gate failure still propagates (the fallback
+      # re-runs the same scan and fails too).
       - name: SonarCloud Scan
+        id: sonar_action
         if: env.SONAR_TOKEN != ''
+        continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8
         with:
           args: -Dsonar.qualitygate.wait=true
+      # Fallback: only when the action failed. Runs the scanner via the Docker
+      # image (pulled from the container registry, NOT binaries.sonarsource.com
+      # — the same path `make sonar` uses), with the repo's retry-with-backoff
+      # pattern on the image pull. This is the explicit handling of the CDN 403.
+      - name: SonarCloud Scan (Docker fallback on CDN failure)
+        if: env.SONAR_TOKEN != '' && steps.sonar_action.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          echo "::warning::SonarCloud action failed (likely the binaries.sonarsource.com CDN); falling back to the Docker scanner."
+          for attempt in 1 2 3; do
+            if docker pull sonarsource/sonar-scanner-cli:latest; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::scanner image pull failed after 3 attempts"
+              exit 1
+            fi
+            echo "::warning::scanner image pull attempt $attempt failed; retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          docker run --rm \
+            -e SONAR_TOKEN="$SONAR_TOKEN" \
+            -v "$(pwd):/usr/src" -w /usr/src \
+            sonarsource/sonar-scanner-cli:latest \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.qualitygate.wait=true \
+            -Dsonar.branch.name=dev
 
   bench-publish:
     name: Publish Benchmarks

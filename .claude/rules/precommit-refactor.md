@@ -12,7 +12,7 @@ Run `/precommit` before EVERY commit. Including docs-only commits and CI-only co
 
 Run `/refactor` after `/precommit` passes. Before pushing.
 
-The marker file `.claude/.markers/refactor.head` (= `git rev-parse HEAD` after `/refactor` finishes) is checked by the push guard. The hook blocks `git push` when commits since `origin/dev` touch source files unless this marker equals HEAD. Doc-only pushes are exempt.
+The marker file `.claude/.markers/refactor.head` (= `git rev-parse HEAD` after `/refactor` finishes) is checked by the push guard. The hook blocks `git push` when commits since `origin/dev` touch **source files (Go/Rust/TS/JS) or anything under the project-root `deploy/` or `scripts/` folders** unless this marker equals HEAD. Doc-only / CI-only pushes are exempt.
 
 ## Multi-PR rollouts
 

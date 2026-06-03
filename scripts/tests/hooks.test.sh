@@ -417,6 +417,45 @@ run_hook pretooluse-git-push-guard.sh "$envelope"
 assert_exit "git push source commits w/ refactor marker: PASS" 0
 cleanup_repo
 
+# 6b. Push branch with a deploy/ change (no Go/Rust/TS) but no refactor marker:
+# BLOCK. A non-source file under deploy/ requires /refactor by the folder rule.
+make_repo
+mkdir -p deploy
+echo "services: {}" > deploy/docker-compose.yml
+git add deploy/docker-compose.yml
+git commit --quiet -m "tweak compose"
+envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
+run_hook pretooluse-git-push-guard.sh "$envelope"
+assert_exit "git push deploy/ no marker: BLOCK" 2
+assert_stderr_contains "deploy/ no marker: stderr cites /refactor" "/refactor"
+cleanup_repo
+
+# 6c. Push branch with a scripts/ change (no Go/Rust/TS) but no refactor marker:
+# BLOCK. A .sh under scripts/ is not is-source, so the folder rule requires it.
+make_repo
+mkdir -p scripts
+echo "echo hi" > scripts/foo.sh
+git add scripts/foo.sh
+git commit --quiet -m "tweak script"
+envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
+run_hook pretooluse-git-push-guard.sh "$envelope"
+assert_exit "git push scripts/ no marker: BLOCK" 2
+assert_stderr_contains "scripts/ no marker: stderr cites /refactor" "/refactor"
+cleanup_repo
+
+# 6d. Push branch with a scripts/ change and a matching refactor marker: PASS.
+make_repo
+mkdir -p scripts
+echo "echo hi" > scripts/foo.sh
+git add scripts/foo.sh
+git commit --quiet -m "tweak script"
+mkdir -p .claude/.markers
+git rev-parse HEAD > .claude/.markers/refactor.head
+envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
+run_hook pretooluse-git-push-guard.sh "$envelope"
+assert_exit "git push scripts/ w/ refactor marker: PASS" 0
+cleanup_repo
+
 # -------------------------------------------------------------------
 # pretooluse-write-guard.sh
 # -------------------------------------------------------------------
