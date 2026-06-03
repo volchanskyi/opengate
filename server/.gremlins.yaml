@@ -12,3 +12,16 @@ unleash:
     - "cmd/meshserver/main\\.go"
     - "tests/loadtest/main\\.go"
     - "internal/testutil/"
+  # Per-mutant test timeout = coverage-dry-run-elapsed * timeout-coefficient
+  # (gremlins default coefficient is 5). The dry-run elapsed is a single,
+  # runner-load-sensitive measurement: when the coverage phase happens to run
+  # fast (e.g. a partial/contended run — observed 2026-06-03, coverage 78% vs
+  # the usual 92%), the derived budget shrinks below what the Postgres-backed
+  # packages need per mutant (each re-pays container/migration setup, ~20-40s).
+  # That false-times-out hundreds of would-be-KILLED mutants, which gremlins
+  # drops from the kill count — collapsing the reported score (770 kills -> 241,
+  # 85.5% -> 76.0%) with no real change in test quality. A coefficient of 10
+  # doubles the default headroom so these legitimate slow runs complete and are
+  # scored as KILLED instead of TIMED OUT. Genuine infinite-loop mutants are
+  # still caught — they simply get a longer (still-bounded) leash.
+  timeout-coefficient: 10

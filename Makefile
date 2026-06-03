@@ -298,7 +298,7 @@ mutate-rust:
 	cd agent && OPENGATE_GOLDEN_DIR=$(CURDIR)/testdata/golden cargo mutants --workspace --no-shuffle
 
 mutate-go:
-	@command -v gremlins >/dev/null 2>&1 || { echo "ERROR: gremlins not found. Install with: go install github.com/go-gremlins/gremlins/cmd/gremlins@latest"; exit 1; }
+	@command -v gremlins >/dev/null 2>&1 || { echo "ERROR: gremlins not found. Install with: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"; exit 1; }
 	@if [ -z "$$POSTGRES_TEST_URL" ]; then \
 	  echo "WARNING: POSTGRES_TEST_URL not set; api/db tests will skip and many mutants will be NOT COVERED."; \
 	  echo "         Start a test Postgres (see .github/workflows/ci.yml) and set:"; \
