@@ -1,0 +1,76 @@
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "opengate.redisSentinel.fullname" . }}
+  labels:
+    {{- include "opengate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis-sentinel
+spec:
+  serviceName: {{ include "opengate.redisSentinel.fullname" . }}
+  replicas: {{ .Values.redis.sentinel.replicas }}
+  selector:
+    matchLabels:
+      {{- include "opengate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis-sentinel
+  template:
+    metadata:
+      labels:
+        {{- include "opengate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: redis-sentinel
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: sentinel
+          image: {{ .Values.redis.image }}
+          command: ["sh", "/etc/redis/sentinel-entrypoint.sh"]
+          {{- if .Values.redis.auth.enabled }}
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: REDIS_PASSWORD
+          {{- end }}
+          ports:
+            - name: sentinel
+              containerPort: 26379
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: sentinel
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            tcpSocket:
+              port: sentinel
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.redis.sentinel.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config
+              mountPath: /etc/redis
+              readOnly: true
+            # Sentinel rewrites its config at runtime — needs a writable dir.
+            - name: state
+              mountPath: /data
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "opengate.redis.fullname" . }}
+        - name: state
+          emptyDir: {}
+{{- end }}

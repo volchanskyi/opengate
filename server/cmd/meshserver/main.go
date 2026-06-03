@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"flag"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -141,10 +143,12 @@ func main() {
 	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
 
 	// Create relay and agent server. The relay tracks session affinity through
-	// the SessionRegistry port (ADR-023); single-server today via the in-process
-	// adapter, swapped to Redis at Phase 13b. serverID identifies this node in
-	// the (future) relay pool — hostname by default, overridable for k8s pods.
-	sessionRegistry := relay.NewInProcessRegistry()
+	// the SessionRegistry port (ADR-023 / ADR-031). REGISTRY_BACKEND selects the
+	// adapter: "inprocess" (default, single-server) or "redis" (multi-server
+	// pool with cross-server affinity). serverID identifies this node in the
+	// relay pool — hostname by default, overridable for k8s pods.
+	sessionRegistry, registryCloser := initSessionRegistry(logger)
+	defer func() { _ = registryCloser.Close() }()
 	agentRelay := relay.NewRelay(logger, relay.WithRegistry(sessionRegistry, resolveServerID()))
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -294,4 +298,43 @@ func resolveServerID() string {
 		return hostname
 	}
 	return "meshserver"
+}
+
+// initSessionRegistry builds the SessionRegistry adapter selected by
+// REGISTRY_BACKEND (see relay.SessionRegistryFromConfig): "inprocess" (default)
+// or "redis", configured via REDIS_ADDR / REDIS_SENTINEL_ADDRS /
+// REDIS_MASTER_NAME. A misconfiguration is fatal. The returned io.Closer
+// releases backend resources on shutdown.
+func initSessionRegistry(logger *slog.Logger) (relay.SessionRegistry, io.Closer) {
+	backend := os.Getenv("REGISTRY_BACKEND")
+	reg, closer, err := relay.SessionRegistryFromConfig(backend, relay.RedisConfig{
+		Addr:          os.Getenv("REDIS_ADDR"),
+		SentinelAddrs: splitCSV(os.Getenv("REDIS_SENTINEL_ADDRS")),
+		MasterName:    os.Getenv("REDIS_MASTER_NAME"),
+		Password:      os.Getenv("REDIS_PASSWORD"),
+	})
+	if err != nil {
+		logger.Error("init session registry", "error", err, "backend", backend)
+		os.Exit(1)
+	}
+	if backend == "" {
+		backend = "inprocess"
+	}
+	logger.Info("session registry initialized", "backend", backend)
+	return reg, closer
+}
+
+// splitCSV splits a comma-separated env value into trimmed, non-empty entries.
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

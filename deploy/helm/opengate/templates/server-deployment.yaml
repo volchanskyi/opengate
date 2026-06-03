@@ -76,6 +76,23 @@ spec:
                   key: VAPID_CONTACT
             - name: DATABASE_URL
               value: "postgres://opengate:$(POSTGRES_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
+            {{- if .Values.redis.enabled }}
+            # Distributed SessionRegistry over Redis Sentinel (ADR-031). The
+            # failover client is given every Sentinel pod's stable FQDN.
+            - name: REGISTRY_BACKEND
+              value: redis
+            - name: REDIS_MASTER_NAME
+              value: {{ .Values.redis.masterName | quote }}
+            - name: REDIS_SENTINEL_ADDRS
+              value: "{{- $s := include "opengate.redisSentinel.fullname" . }}{{- range $i := until (int .Values.redis.sentinel.replicas) }}{{- if $i }},{{ end }}{{ $s }}-{{ $i }}.{{ $s }}.{{ $.Release.Namespace }}.svc.cluster.local:26379{{- end }}"
+            {{- if .Values.redis.auth.enabled }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: REDIS_PASSWORD
+            {{- end }}
+            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.server.httpPort }}

@@ -42,3 +42,20 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- define "opengate.postgres.fullname" -}}
 {{- printf "%s-postgres" (include "opengate.fullname" .) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
+
+{{- define "opengate.redis.fullname" -}}
+{{- printf "%s-redis" (include "opengate.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "opengate.redisSentinel.fullname" -}}
+{{- printf "%s-redis-sentinel" (include "opengate.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+opengate.redis.masterFQDN — stable in-cluster DNS of the bootstrap master
+(redis pod-0) via the headless Redis service. Sentinel monitors this name and
+nodes fall back to it before Sentinel knows a master.
+*/}}
+{{- define "opengate.redis.masterFQDN" -}}
+{{- printf "%s-0.%s.%s.svc.cluster.local" (include "opengate.redis.fullname" .) (include "opengate.redis.fullname" .) .Release.Namespace -}}
+{{- end -}}
