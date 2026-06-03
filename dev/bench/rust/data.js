@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780467069993,
+  "lastUpdate": 1780468603049,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15655,6 +15655,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.028955526474586,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d93ecc1d7c3899e54e3313f6cec2914a5a8c6701",
+          "message": "fix(ci): pin Security Audit job to go1.26.4 for govulncheck\n\nThe Security Audit job used setup-go go-version: '1.26', which resolved to a\npre-1.26.4 patch in CI (the minor-version manifest entry lags a fresh patch\nrelease), so govulncheck still saw the vulnerable stdlib (GO-2026-5039,\nGO-2026-5037) even though server/go.mod was bumped to toolchain go1.26.4 in\n47cb076. Pin that job to the exact patch go1.26.4 so the analysis runs against\nthe fixed standard library. Other Go jobs keep '1.26' (they don't run\ngovulncheck).",
+          "timestamp": "2026-06-02T23:34:25-07:00",
+          "tree_id": "8049a224bd252789421f389aef23f052129476f1",
+          "url": "https://github.com/volchanskyi/opengate/commit/d93ecc1d7c3899e54e3313f6cec2914a5a8c6701"
+        },
+        "date": 1780468602967,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.439019238532522,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.862342520788925,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 603.1715562640999,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 288.0342996493415,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.331755642070334,
             "unit": "ns/iter"
           }
         ]
