@@ -51,7 +51,7 @@ $summary"
   fi
 fi
 
-# 4. Refactor marker (only required when source files changed since base).
+# 4. Refactor marker (required when source files OR deploy/ OR scripts/ changed since base).
 base=""
 if git rev-parse --verify --quiet origin/dev >/dev/null 2>&1; then
   base="$(git merge-base HEAD origin/dev 2>/dev/null || true)"
@@ -72,7 +72,9 @@ if [ -n "$base" ] && [ "$base" != "$(git rev-parse HEAD 2>/dev/null || echo .)" 
   if [ -n "$changed_files" ]; then
     while IFS= read -r f; do
       [ -n "$f" ] || continue
-      if "$TDD_CHECK" is-source "$f"; then
+      # Refactor is required for source-language changes (Go/Rust/TS/JS) and for
+      # any change under the project-root deploy/ or scripts/ folders.
+      if "$TDD_CHECK" is-source "$f" || [[ "$f" == deploy/* ]] || [[ "$f" == scripts/* ]]; then
         has_source=true
         break
       fi
@@ -83,7 +85,7 @@ if [ -n "$base" ] && [ "$base" != "$(git rev-parse HEAD 2>/dev/null || echo .)" 
     marker_file="$(project_root)/.claude/.markers/refactor.head"
     head_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
     if [ ! -f "$marker_file" ]; then
-      block git-refactor-marker "git push refused: branch has source-file commits but .claude/.markers/refactor.head is missing. Run /refactor; it writes the marker on success."
+      block git-refactor-marker "git push refused: branch has source-file, deploy/ or scripts/ commits but .claude/.markers/refactor.head is missing. Run /refactor; it writes the marker on success."
     fi
     expected="$(cat "$marker_file" 2>/dev/null || echo "")"
     if [ "$expected" != "$head_sha" ]; then
