@@ -958,7 +958,12 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.26'
+          # Pinned to the exact patch (not the '1.26' minor) so govulncheck
+          # analyzes against the patched standard library: GO-2026-5039 and
+          # GO-2026-5037 are fixed in go1.26.4, and the '1.26' manifest entry
+          # can lag a fresh patch release. Keep in sync with the toolchain
+          # directive in server/go.mod.
+          go-version: '1.26.4'
           cache-dependency-path: server/go.sum
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: actions/setup-node@v6
