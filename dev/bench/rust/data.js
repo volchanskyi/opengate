@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780509384436,
+  "lastUpdate": 1780527463325,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15753,6 +15753,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.869995533244634,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "14fe845e36c4a690a501566077a3c4d7ff06670c",
+          "message": "feat(relay): Phase 13b PR-C C1 — Redis Sentinel SessionRegistry + backend selection (ADR-031)\n\nPicks the concrete distributed-registry backend ADR-023 deferred: a Redis-backed\nSessionRegistry plus Redis Sentinel HA in the Helm chart. Dormant by default\n(REGISTRY_BACKEND=inprocess); the multiserver path is a config swap, not a relay\nrewrite. The cross-server WebSocket proxy (C2) and /healthz+readiness+degraded\nwiring (C3) follow under PR-C.\n\nGo:\n- RedisRegistry adapter (redis/go-redis/v9) implementing the 6-method\n  SessionRegistry: atomic claim-or-get Lua script, JSON SessionMeta, Pub/Sub\n  events. Keys under opengate:relay:{affinity,meta,events}.\n- relay.SessionRegistryFromConfig — tested selection seam returning the adapter\n  + an io.Closer; RedisUniversalOptions assembles single-instance vs Sentinel\n  (failover) options, with optional REDIS_PASSWORD.\n- main.go selects the backend by REGISTRY_BACKEND and reads REDIS_ADDR /\n  REDIS_SENTINEL_ADDRS / REDIS_MASTER_NAME / REDIS_PASSWORD; client closed on\n  shutdown. WithRegistry unchanged.\n- Always-run unit tests via miniredis (no Docker, no skips per ADR-029);\n  real-Redis testcontainers test deferred to C2/C3. Tests split into cohesive\n  files (CRUD contract / Pub-Sub / Redis semantics / backend) — all >= B+ pmat.\n\nHelm (gated redis.enabled, dormant):\n- Full Redis Sentinel HA: data StatefulSet (pod-0 bootstrap master + on-restart\n  master rediscovery via Sentinel), Sentinel StatefulSet (quorum 2), headless\n  services, config ConfigMap. server-deployment wired to the Sentinel service\n  when enabled. ci/test-values exercises it (incl. the REDIS_PASSWORD path).\n  make lint-k8s + make lint-deploy green.\n\nDocs/records: ADR-031, decisions row 031, techdebt (Redis operational surface +\ndormant-untested HA), Kubernetes.md Redis subsection.",
+          "timestamp": "2026-06-03T15:53:02-07:00",
+          "tree_id": "68380e18237886d77811ad43257cb5be312b8abf",
+          "url": "https://github.com/volchanskyi/opengate/commit/14fe845e36c4a690a501566077a3c4d7ff06670c"
+        },
+        "date": 1780527463243,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.13030316673638,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.10576024419086,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 766.8102793856676,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 292.59079103425483,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.734837150296844,
             "unit": "ns/iter"
           }
         ]
