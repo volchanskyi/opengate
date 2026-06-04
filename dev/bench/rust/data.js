@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780527463325,
+  "lastUpdate": 1780540116291,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15802,6 +15802,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.734837150296844,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "65d25b4f45b979e7f2bb5608a6789728991b3111",
+          "message": "chore(deps): bump the actions-deps group with 3 updates (#268)\n\nBumps the actions-deps group with 3 updates: [imjasonh/setup-crane](https://github.com/imjasonh/setup-crane), [actions/cache](https://github.com/actions/cache) and [taiki-e/install-action](https://github.com/taiki-e/install-action).\n\n\nUpdates `imjasonh/setup-crane` from 0.5 to 0.6\n- [Release notes](https://github.com/imjasonh/setup-crane/releases)\n- [Commits](https://github.com/imjasonh/setup-crane/compare/6da1ae018866400525525ce74ff892880c099987...59c71e96a00b28651f10369ba3359a6d730740a0)\n\nUpdates `actions/cache` from 4 to 5\n- [Release notes](https://github.com/actions/cache/releases)\n- [Changelog](https://github.com/actions/cache/blob/main/RELEASES.md)\n- [Commits](https://github.com/actions/cache/compare/v4...v5)\n\nUpdates `taiki-e/install-action` from 2.79.14 to 2.81.3\n- [Release notes](https://github.com/taiki-e/install-action/releases)\n- [Changelog](https://github.com/taiki-e/install-action/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/taiki-e/install-action/compare/873c7452cadb7c034694a1282227095d93fbdf92...25435dc8dd3baed7417e0c96d3fe89013a5b2e09)\n\n---\nupdated-dependencies:\n- dependency-name: imjasonh/setup-crane\n  dependency-version: '0.6'\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: actions-deps\n- dependency-name: actions/cache\n  dependency-version: '5'\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n  dependency-group: actions-deps\n- dependency-name: taiki-e/install-action\n  dependency-version: 2.81.3\n  dependency-type: direct:production\n  update-type: version-update:semver-minor\n  dependency-group: actions-deps\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-03T19:26:54-07:00",
+          "tree_id": "df6b5f161900e1ff72bd670575124fbaf336d4ea",
+          "url": "https://github.com/volchanskyi/opengate/commit/65d25b4f45b979e7f2bb5608a6789728991b3111"
+        },
+        "date": 1780540116212,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.30114862054874,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.364910722674196,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.5107519530236,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.4609397088135,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.886953190791516,
             "unit": "ns/iter"
           }
         ]
