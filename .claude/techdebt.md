@@ -58,6 +58,21 @@ testcontainers integration test (mirrors [`testpg`](../server/internal/testpg/te
 a Redis backup CronJob, Redis monitoring, and a kill-the-master failover drill in
 a staging cluster. Until then the backend stays `inprocess` in every overlay.
 
+### Phase 13b PR-C C2 — internal relay listener has no NetworkPolicy
+
+The cross-server proxy (ADR-033) opens a private listener (`:9091` by default) on
+every server pod for proxied peer connections. It is never fronted by the public
+router or ingress, and carries a required `X-OpenGate-Proxy` loop-guard header
+plus an optional `OPENGATE_PROXY_SECRET`, but there is **no NetworkPolicy**
+restricting who may reach it — on a flat cluster overlay any pod can dial it. The
+shared secret is the only in-band control when enabled.
+
+**Pay-down trigger:** at the multi-replica cutover (same gate as the Redis
+operational-surface item above), add a NetworkPolicy that admits the internal
+port only from sibling server pods (podSelector on the server label), and make
+`OPENGATE_PROXY_SECRET` mandatory rather than optional in production overlays.
+Until then the proxy path is inert (`redis.enabled=false`, owner is always self).
+
 ## Severity: Low
 
 ### Go mutation score is sensitive to gremlins' runner-derived per-mutant timeout
@@ -65,3 +80,27 @@ a staging cluster. Until then the backend stays `inprocess` in every overlay.
 gremlins sets each mutant's timeout to `coverage-dry-run-elapsed × timeout-coefficient`. The dry-run elapsed is a single, runner-load-sensitive measurement, so a fast/partial coverage phase shrinks the per-mutant budget and the Postgres-backed packages (which re-pay container/migration setup, ~20-40s each) false-time-out. Timed-out mutants are dropped from gremlins' kill count, so the reported Go score collapses with no real change in test quality — observed 2026-06-03 (run 26870189012): 770→241 kills, 85.5%→76.0%, below the 85% alert floor, all from 590 false timeouts vs 7 the night before.
 
 Mitigated by pinning `timeout-coefficient: 10` in [`server/.gremlins.yaml`](../server/.gremlins.yaml) (2× default headroom) + pinning the gremlins version + a 90-min job cap. This is a mitigation, not a guarantee: a sufficiently slow/partial coverage run can still tighten the budget. Two residual fragilities remain: (1) Go's true score (~85.5%) sits razor-thin above the 85% alert floor in [`scripts/mutation-summarize.sh`](../scripts/mutation-summarize.sh) — a few extra surviving/timed-out mutants re-trip the alert; (2) if recurrence persists, consider isolating the slow DB-backed packages or feeding gremlins a stable baseline duration rather than the live dry-run.
+
+### Test-technique gaps — Go property libs, Rust fuzz targets, web property/fuzz
+
+Property-based and fuzz testing exist only on the wire protocol, split by language:
+Go fuzzing ([`server/internal/protocol/codec_fuzz_test.go`](../server/internal/protocol/codec_fuzz_test.go))
+and Rust `proptest` ([`agent/crates/mesh-protocol/tests/property_test.rs`](../agent/crates/mesh-protocol/tests/property_test.rs)).
+Three gaps remain:
+
+1. **Go property-based testing** — no `pgregory.net/rapid`, `leanovate/gopter`, or
+   `testing/quick`. Server invariants (converters, pagination math, APF/AMT
+   parsers, relay framing) rely on table-driven tests + the single protocol fuzz
+   target.
+2. **Rust dedicated fuzzing** — no `cargo-fuzz`/libfuzzer fuzz targets
+   (`libfuzzer-sys` appears only transitively via webrtc-rs benches per
+   [`agent/deny.toml`](../agent/deny.toml)). The agent's decoders have `proptest`
+   but no continuous fuzz corpus.
+3. **Web property/fuzz** — no `fast-check` or fuzzing for the TS client
+   (form validation, Zustand reducers, API-response handling).
+
+**Pay-down trigger:** expand opportunistically with the next substantial
+test/hardening commit — `rapid` property tests for the Go protocol/parser
+surfaces, a `cargo-fuzz` target for `mesh-protocol` decode, and `fast-check` for
+the web store/validation logic. Prioritize parsing/boundary surfaces (highest
+defect density), where the existing fuzz/proptest already focus.

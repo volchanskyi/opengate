@@ -92,6 +92,22 @@ spec:
                   name: {{ .Values.server.existingSecret }}
                   key: REDIS_PASSWORD
             {{- end }}
+            # Cross-server relay proxy (ADR-033). serverID = this pod's IP via the
+            # Downward API; peers are dialed directly on the flat overlay at the
+            # shared internal port. The listener is pod-to-pod only (never ingress).
+            - name: OPENGATE_SERVER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: OPENGATE_INTERNAL_LISTEN
+              value: ":{{ .Values.server.internalPort }}"
+            {{- if .Values.server.proxySecretEnabled }}
+            - name: OPENGATE_PROXY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: OPENGATE_PROXY_SECRET
+            {{- end }}
             {{- end }}
           ports:
             - name: http
@@ -109,6 +125,11 @@ spec:
               {{- if .Values.server.hostPortL4 }}
               hostPort: {{ .Values.server.mpsPort }}
               {{- end }}
+            {{- if .Values.redis.enabled }}
+            - name: internal
+              containerPort: {{ .Values.server.internalPort }}
+              protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

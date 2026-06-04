@@ -24,6 +24,11 @@ server:
   httpPort: 8080            # HTTP API + SPA (behind ingress)
   quicPort: 9090            # QUIC agent transport (UDP, L4)
   mpsPort: 4433            # Intel AMT CIRA / MPS (TCP, L4)
+  internalPort: 9091        # cross-server relay proxy (ADR-033); pod-to-pod only, never ingress
+  # Optional shared secret on the internal relay proxy (defense-in-depth atop the
+  # private-network boundary). When true, OPENGATE_PROXY_SECRET must exist in
+  # server.existingSecret. Only meaningful with redis.enabled (multi-server).
+  proxySecretEnabled: false
   webDir: /srv/web          # server serves the SPA itself (api.go os.OpenRoot)
   amtUser: admin
   # L4 exposure: bind QUIC+MPS straight to the node IP via hostPort. On the
