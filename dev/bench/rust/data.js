@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780545895723,
+  "lastUpdate": 1780551181575,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15900,6 +15900,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.83705494546086,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "55fe95a645c53f0b56db2169844d9585d3548eab",
+          "message": "fix(ci): cover mps OpenChannel to clear new_coverage gate + local 80.0-boundary guardrail\n\nCI run 26929821908 failed the SonarCloud gate: new_coverage 79.95% (LT 80). The 0cf4b24 gofmt reformat turned many lines into 'new code', and under-covered lines in the mps file split dragged new-code coverage just under 80 (it displays as '80.0', so it passed locally and flipped red in CI).\n\nCoverage fix: new server/internal/amt/transport/mps_conn_test.go covers Conn.OpenChannel (0%->90%) plus its rejected / unexpected-response / write-error paths. new_coverage 79.95% -> 90.65%; gate PASSED. (Tests live in mps_conn_test.go, mirroring the mps_conn.go split, so mps_test.go stays >= B+.)\n\nGuardrail (must-not-recur): scripts/sonar-coverage-guard.sh queries the exact new_coverage after 'make sonar' and fails the gauntlet unless it clears a buffer (default 82%) above the 80 gate floor, so a borderline local pass cannot become a CI failure. Wired into precommit-gauntlet.sh; unit-tested in scripts/tests/sonar-coverage-guard.test.sh (15 cases).\n\nResilience: 'make sonar' now retries transient scanner failures (e.g. SonarCloud plugin-CDN EOFException, seen in this very gauntlet run) up to 3x with backoff, but does NOT retry a real QUALITY GATE FAILED result.\n\nsettings.json: consolidated permissions (allow 990->85, additionalDirectories 12->2; hooks/deny preserved). docs: Phase 13b PR-C C2 cross-server-proxy design recorded in the plan.",
+          "timestamp": "2026-06-03T22:29:27-07:00",
+          "tree_id": "58cb6678640239dbdfd23a17cc5e67304d5b76fe",
+          "url": "https://github.com/volchanskyi/opengate/commit/55fe95a645c53f0b56db2169844d9585d3548eab"
+        },
+        "date": 1780551181488,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.336216740297456,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.434477291893295,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 742.530669673941,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 295.5980318131618,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.860713136966773,
             "unit": "ns/iter"
           }
         ]
