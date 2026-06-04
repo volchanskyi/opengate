@@ -286,6 +286,11 @@ banner "SonarCloud"
 # not wired in: a quality-gate evaluation against stale coverage was the gap
 # that let new_coverage regressions reach CI undetected.
 run_check "make sonar"         -- make sonar
+# new_coverage margin guard: `make sonar` enforces the gate at 80, but a value
+# like 79.95% displays as "80.0" and flips green→red between local and CI due to
+# sub-line coverage nondeterminism. This fails locally unless new_coverage clears
+# a buffer above 80, keeping the result off the boundary (CI run 26929821908).
+run_check "sonar new-coverage margin" -- bash scripts/sonar-coverage-guard.sh
 
 # Phase 8: PMAT TDG gate (ADR-019 §"Integration point 2" / ADR-028). Appended
 # last so it never masks faster checks. Grades ONLY changed code files at the

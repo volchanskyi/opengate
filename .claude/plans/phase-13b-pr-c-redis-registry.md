@@ -24,7 +24,19 @@ The contract `RedisRegistry` must satisfy is the existing 6-method [`SessionRegi
 - **ADR-031** (supersedes ADR-023's Redis-HA deferral) + decisions row + techdebt (Medium: new Redis operational surface — AOF+RDB backups, pooling) per plan §7.
 
 ### C2 — cross-server WebSocket proxy
-- At [relay.go:150-156](../../server/internal/relay/relay.go#L150), when `owner != serverID`, dial the owner's internal relay endpoint, set `X-OpenGate-Proxy: {serverID}`, and splice frames in the same `relay.Conn` wire format. Loop-guard via the header. Affinity routing keeps same-server sessions zero-hop.
+
+**Peer addressing (decided 2026-06-03):** `serverID` = **Pod IP** via the k8s Downward API (`OPENGATE_SERVER_ID` ← `status.podIP` in the Deployment). A peer is dialed **directly** at `http://{owner}:{internalPort}/internal/relay/{token}?side={side}` over the flat cluster overlay — no headless Service, no DNS (pod IPs are routable container-to-container). Pod IPs churn on restart, which the affinity TTL already tolerates. Same `internalPort` cluster-wide (homogeneous pods), so a dialer knows the peer's port = its own.
+
+**Internal relay endpoint.** A **separate internal HTTP listener** (`-internal-listen`, default `:9091`; `OPENGATE_INTERNAL_LISTEN`), distinct from the public `:8080` and **never** behind the ingress. Route `GET /internal/relay/{token}?side={agent|browser}`:
+- Requires header `X-OpenGate-Proxy: {callerServerID}` (loop-guard + identity) and, when `OPENGATE_PROXY_SECRET` is set, `X-OpenGate-Proxy-Secret` must match (defense-in-depth on top of network isolation; ADR-023 §"cross-server auth" = network boundary, this adds a cheap shared secret).
+- Accepts the WS, wraps in the existing `WSConn`, and registers it into the **local** relay via a new `RegisterLocal` path that **skips the affinity/proxy decision** — a proxied conn never re-proxies (the loop guard). The owner then pipes agent↔proxied-side with the unchanged `pipe()`.
+
+**Relay proxy splice.** New injectable port `PeerDialer` (`Dial(ctx, owner, token, side) (Conn, error)`), wired via `WithPeerDialer`; production adapter dials the URL above with the headers and returns a `WSConn`. At [relay.go:150](../../server/internal/relay/relay.go#L150), when `ClaimAffinity` returns `owner != serverID` and a dialer is set:
+- Do **not** pair locally. Store a `proxied` session entry (so `WaitForPeer` unblocks once the peer dial succeeds), skip the owner-only registry writes (`SaveSession`/`EventCreated`), then bidirectionally `copyMessages(local, peer)`; close both + delete the entry on either end. Dial failure → close the local conn (both sides reconnect with a fresh token per ADR-023). Same-server sessions stay zero-hop (owner == serverID → existing path untouched).
+
+**Tests (TDD, no Docker).** Relay: fake `PeerDialer` returning an in-memory `Conn` pair proves owner!=self → splice both directions, dial-failure closes the conn, owner==self stays local (zero dial). Internal endpoint: `httptest` server + real `WSConn` proves header-required, secret-required-when-set, side-parse, and register-local-skips-proxy (loop guard). Mirror the existing relay test style.
+
+**Config/Helm.** `main.go`: start the internal listener; build the production `PeerDialer`; `OPENGATE_INTERNAL_LISTEN`/`OPENGATE_PROXY_SECRET`. Helm `server-deployment.yaml`: `OPENGATE_SERVER_ID` ← `fieldRef: status.podIP`, internal containerPort, `OPENGATE_PROXY_SECRET` from the existing secret; `make lint-k8s` green. **ADR-033** (cross-server proxy wire protocol + pod-IP addressing; the detail ADR-023 deferred) + decisions row.
 
 ### C3 — `/healthz` Redis + readiness
 - `/healthz` reports Redis status; k8s readinessProbe drains the pod on Redis loss; degraded-mode + Telegram alert wiring (ADR-023 §"Recovery posture", plan §7).
