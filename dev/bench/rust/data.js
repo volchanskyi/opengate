@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780551181575,
+  "lastUpdate": 1780615976605,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15949,6 +15949,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.860713136966773,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "02f60860cb8cbc7746433c132f874ca6422f1fa3",
+          "message": "feat(relay): Phase 13b PR-C C2 — cross-server WS proxy + internal listener (ADR-033)\n\nSplice foreign-owned relay sessions through the affinity owner so an agent\non server A and a browser on server B relay end-to-end. Completes the data\npath C1 (ADR-031) left inert.\n\nRelay (server/internal/relay/relay.go):\n- PeerDialer port + WithPeerDialer; Register splices when ClaimAffinity\n  reports a foreign owner and a dialer is set — synchronous dial outside the\n  session lock, fail-fast on dial error (close + reconnect, ADR-023), no\n  retry state. Same-server sessions stay zero-hop.\n- RegisterLocal loop-guard path (no affinity/proxy decision → a proxied conn\n  never re-proxies) with a bounded affinityTTL half-open teardown; WithAffinityTTL.\n\nInternal endpoint + dialer (server/internal/api/internal_relay.go):\n- Private :9091 listener, GET /internal/relay/{token}; required X-OpenGate-Proxy\n  loop-guard header + optional constant-time secret, all checked pre-upgrade.\n- HTTPPeerDialer dials the owner's pod IP directly over the flat overlay.\n\nWiring: main.go starts the internal listener + builds the dialer\n(OPENGATE_INTERNAL_LISTEN/OPENGATE_PROXY_SECRET), kept main complexity below\nbaseline via helpers. Helm wires OPENGATE_SERVER_ID←status.podIP, the :9091\ncontainerPort, and the optional secret (redis.enabled-gated; lint-k8s green).\n\nTests are deterministic (fake PeerDialer + httptest/real WS, no Docker).\nADR-033 + decisions row + phases; techdebt notes the internal-listener\nNetworkPolicy gap. Redis stays inprocess in every overlay until C3.",
+          "timestamp": "2026-06-04T16:19:07-07:00",
+          "tree_id": "7c18a3175f76c5c781072dbdb4d24dc2f3ef2717",
+          "url": "https://github.com/volchanskyi/opengate/commit/02f60860cb8cbc7746433c132f874ca6422f1fa3"
+        },
+        "date": 1780615976519,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.39199007576009,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.68219065037067,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 759.3833178559984,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 300.00641777648127,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.814192099000003,
             "unit": "ns/iter"
           }
         ]
