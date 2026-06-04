@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780540116291,
+  "lastUpdate": 1780545895723,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15851,6 +15851,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.886953190791516,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "0cf4b24db152906f54fbf307f0343385d9ba2e84",
+          "message": "style(server): gofmt-clean tree + gofmt gate; TDG skips fmt-only test files (ADR-032)\n\nAdd a 'go fmt' check to the precommit gauntlet and reformat the 36 gofmt-drifted server Go files so the tree is gofmt-clean. The reformat collided with the PMAT TDG gate (ADR-028 graded changed code incl. tests), which pulled 13 fmt-only *_test.go below B+ and blocked the commit.\n\nADR-032: pmat-precommit.sh now drops a Go *test* file from the TDG changed-set when its only change is gofmt formatting (symmetric gofmt(baseline)==gofmt(current); GOFMT_BIN-injectable; fail-safe to graded for non-test/new/no-gofmt). Source files stay enforced. Unit-tested in scripts/tests/pmat-precommit.test.sh. Those test files are maxed on every TDG component except duplication_ratio (only lever = harmful test de-dup) and pmat --explain itself skips test files.\n\nSource held to B+ via genuine refactoring: apf.go and mps.go (both C+ 66.2) deduplicated (readAPFString/writeUint32Msg) then split by concern (apf.go -> apf{,_messages,_write}.go; mps.go -> mps{,_handshake,_handlers,_conn}.go), since structural_complexity is file-size driven. Two errcheck lint-suppression directives replaced with explicit defer _= closures.\n\ndecisions.md: add ADR-032 index row.",
+          "timestamp": "2026-06-03T20:43:27-07:00",
+          "tree_id": "6e5b0fa116a75a4a64702869f5eef37a48067957",
+          "url": "https://github.com/volchanskyi/opengate/commit/0cf4b24db152906f54fbf307f0343385d9ba2e84"
+        },
+        "date": 1780545895645,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.189017763778537,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.29533865341365,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 752.8472562754495,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.88030516525015,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.83705494546086,
             "unit": "ns/iter"
           }
         ]
