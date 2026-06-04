@@ -21,7 +21,7 @@ type mockConn struct {
 	readCh  <-chan []byte
 	writeCh chan<- []byte
 	done    chan struct{} // shared between paired conns
-	closeFn func()       // shared once-close of done
+	closeFn func()        // shared once-close of done
 }
 
 // newMockConnPair returns two connected mockConns: messages written to one

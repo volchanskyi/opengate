@@ -20,8 +20,8 @@ func newTestServerWithWebDir(t *testing.T, webDir string) *Server {
 	store := testutil.NewTestStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	return NewServer(ServerConfig{
-		Store:    store,
-		Audit:    testutil.NewTestAudit(t, store),
+		Store:          store,
+		Audit:          testutil.NewTestAudit(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
 		Groups:         testutil.NewTestGroups(t, store),
@@ -31,13 +31,13 @@ func newTestServerWithWebDir(t *testing.T, webDir string) *Server {
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
-		JWT:      testJWTConfig(),
-		Agents:   &stubAgentGetter{},
-		AMT:      &stubAMTOperator{},
-		Relay:    relay.NewRelay(slog.Default()),
-		Notifier: &notifications.NoopNotifier{},
-		Logger:   logger,
-		WebDir:   webDir,
+		JWT:            testJWTConfig(),
+		Agents:         &stubAgentGetter{},
+		AMT:            &stubAMTOperator{},
+		Relay:          relay.NewRelay(slog.Default()),
+		Notifier:       &notifications.NoopNotifier{},
+		Logger:         logger,
+		WebDir:         webDir,
 	})
 }
 
@@ -146,8 +146,8 @@ func TestSPA_DisabledWhenWebDirEmpty(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{
-		Store:    store,
-		Audit:    testutil.NewTestAudit(t, store),
+		Store:          store,
+		Audit:          testutil.NewTestAudit(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
 		Groups:         testutil.NewTestGroups(t, store),
@@ -157,12 +157,12 @@ func TestSPA_DisabledWhenWebDirEmpty(t *testing.T) {
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
-		JWT:      &auth.JWTConfig{Secret: "test-secret-key-at-least-32-bytes!", Issuer: "test", Duration: 60},
-		Agents:   &stubAgentGetter{},
-		AMT:      &stubAMTOperator{},
-		Relay:    relay.NewRelay(slog.Default()),
-		Notifier: &notifications.NoopNotifier{},
-		Logger:   logger,
+		JWT:            &auth.JWTConfig{Secret: "test-secret-key-at-least-32-bytes!", Issuer: "test", Duration: 60},
+		Agents:         &stubAgentGetter{},
+		AMT:            &stubAMTOperator{},
+		Relay:          relay.NewRelay(slog.Default()),
+		Notifier:       &notifications.NoopNotifier{},
+		Logger:         logger,
 		// WebDir deliberately empty
 	})
 

@@ -45,8 +45,8 @@ func TestHandlerStoreFailures(t *testing.T) {
 	require.NoError(t, err)
 
 	srv := NewServer(ServerConfig{
-		Store:    store,
-		Audit:    audit.NewPostgres(store.DB()),
+		Store:          store,
+		Audit:          audit.NewPostgres(store.DB()),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
 		Groups:         testutil.NewTestGroups(t, store),
@@ -56,12 +56,12 @@ func TestHandlerStoreFailures(t *testing.T) {
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
-		JWT:      cfg,
-		Agents:   &stubAgentGetter{},
-		AMT:      &stubAMTOperator{},
-		Relay:    relay.NewRelay(slog.Default()),
-		Notifier: &notifications.NoopNotifier{},
-		Logger:   logger,
+		JWT:            cfg,
+		Agents:         &stubAgentGetter{},
+		AMT:            &stubAMTOperator{},
+		Relay:          relay.NewRelay(slog.Default()),
+		Notifier:       &notifications.NoopNotifier{},
+		Logger:         logger,
 	})
 	store.Close() // force all subsequent store calls to fail
 

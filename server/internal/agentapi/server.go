@@ -28,15 +28,15 @@ type AgentServer struct {
 	hardware      device.HardwareRepository
 	deviceLogs    device.LogsRepository
 	deviceUpdates updater.DeviceUpdateRepository
-	relay      *relay.Relay
-	notifier   notifications.Notifier
-	quicHost   string // extra DNS SAN for the server certificate
-	conns      sync.Map // map[protocol.DeviceID]*AgentConn
-	count      atomic.Int64
-	tombstones sync.Map // map[protocol.DeviceID]struct{} — deleted devices
-	logger     *slog.Logger
-	addrCh     chan string // signals the actual listen address
-	addrOnce   sync.Once
+	relay         *relay.Relay
+	notifier      notifications.Notifier
+	quicHost      string   // extra DNS SAN for the server certificate
+	conns         sync.Map // map[protocol.DeviceID]*AgentConn
+	count         atomic.Int64
+	tombstones    sync.Map // map[protocol.DeviceID]struct{} — deleted devices
+	logger        *slog.Logger
+	addrCh        chan string // signals the actual listen address
+	addrOnce      sync.Once
 }
 
 // AgentServerConfig groups the AgentServer constructor's dependencies. A
@@ -62,11 +62,11 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		hardware:      cfg.Hardware,
 		deviceLogs:    cfg.DeviceLogs,
 		deviceUpdates: cfg.DeviceUpdates,
-		relay:    cfg.Relay,
-		notifier: cfg.Notifier,
-		quicHost: cfg.QuicHost,
-		logger:   cfg.Logger,
-		addrCh:   make(chan string, 1),
+		relay:         cfg.Relay,
+		notifier:      cfg.Notifier,
+		quicHost:      cfg.QuicHost,
+		logger:        cfg.Logger,
+		addrCh:        make(chan string, 1),
 	}
 }
 
@@ -335,4 +335,3 @@ func (s *AgentServer) lookupDeviceMeta(ctx context.Context, deviceID uuid.UUID) 
 	}
 	return groupID, hostname
 }
-

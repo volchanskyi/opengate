@@ -112,4 +112,3 @@ func (s *PostgresStore) Size(ctx context.Context) (int64, error) {
 	}
 	return size, nil
 }
-

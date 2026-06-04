@@ -102,9 +102,9 @@ func TestParseGlobalRequest(t *testing.T) {
 
 func TestParseChannelOpen(t *testing.T) {
 	data := encodeAPFString("forwarded-tcpip")
-	data = append(data, encodeUint32(1)...)         // sender channel
-	data = append(data, encodeUint32(0x8000)...)     // window
-	data = append(data, encodeUint32(0x8000)...)     // max packet
+	data = append(data, encodeUint32(1)...)      // sender channel
+	data = append(data, encodeUint32(0x8000)...) // window
+	data = append(data, encodeUint32(0x8000)...) // max packet
 
 	co, err := ParseChannelOpen(data)
 	require.NoError(t, err)

@@ -24,11 +24,11 @@ const (
 	MsgTerminalResize ControlMessageType = "TerminalResize"
 
 	// File operations
-	MsgFileListRequest    ControlMessageType = "FileListRequest"
-	MsgFileListResponse   ControlMessageType = "FileListResponse"
-	MsgFileListError      ControlMessageType = "FileListError"
+	MsgFileListRequest     ControlMessageType = "FileListRequest"
+	MsgFileListResponse    ControlMessageType = "FileListResponse"
+	MsgFileListError       ControlMessageType = "FileListError"
 	MsgFileDownloadRequest ControlMessageType = "FileDownloadRequest"
-	MsgFileUploadRequest  ControlMessageType = "FileUploadRequest"
+	MsgFileUploadRequest   ControlMessageType = "FileUploadRequest"
 
 	// Chat
 	MsgChatMessage ControlMessageType = "ChatMessage"

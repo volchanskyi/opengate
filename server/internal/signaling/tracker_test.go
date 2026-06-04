@@ -41,8 +41,8 @@ func TestTrackerRecordAck(t *testing.T) {
 	require.NoError(t, state.Transition(PhaseAnswered))
 	require.NoError(t, state.Transition(PhaseICEGathering))
 
-	assert.False(t, tr.RecordAck("tok-1"))  // first ack
-	assert.True(t, tr.RecordAck("tok-1"))   // second ack — complete
+	assert.False(t, tr.RecordAck("tok-1")) // first ack
+	assert.True(t, tr.RecordAck("tok-1"))  // second ack — complete
 	assert.Equal(t, PhaseConnected, state.Phase())
 	assert.Equal(t, int64(1), tr.SuccessCount())
 }

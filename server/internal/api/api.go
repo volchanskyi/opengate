@@ -48,75 +48,75 @@ type CertProvider interface {
 
 // ServerConfig holds all dependencies for the API server.
 type ServerConfig struct {
-	Store           *db.PostgresStore
-	Audit           audit.Repository
-	AuditHandlers   *audit.Handlers
-	DeviceUpdates   updater.DeviceUpdateRepository
-	Enrollment      updater.EnrollmentTokenRepository
-	SecurityGroups  auth.SecurityGroupRepository
-	Devices         device.Repository
-	Groups          device.GroupRepository
-	Hardware        device.HardwareRepository
-	DeviceLogs      device.LogsRepository
-	WebPush         notifications.WebPushRepository
+	Store                 *db.PostgresStore
+	Audit                 audit.Repository
+	AuditHandlers         *audit.Handlers
+	DeviceUpdates         updater.DeviceUpdateRepository
+	Enrollment            updater.EnrollmentTokenRepository
+	SecurityGroups        auth.SecurityGroupRepository
+	Devices               device.Repository
+	Groups                device.GroupRepository
+	Hardware              device.HardwareRepository
+	DeviceLogs            device.LogsRepository
+	WebPush               notifications.WebPushRepository
 	NotificationsHandlers *notifications.Handlers
-	AMTDevices      amt.Repository
-	AMTHandlers     *amt.Handlers
-	Sessions        session.Repository
-	SessionUseCase  *usecase.SessionService
-	Users           auth.UserRepository
-	JWT       *auth.JWTConfig
-	Agents    AgentGetter
-	AMT       amt.Operator
-	Cert      CertProvider
-	Relay     *relay.Relay
-	Signaling *signaling.Tracker
-	Notifier  notifications.Notifier
-	Signing   *updater.SigningKeys
-	Manifests  *updater.ManifestStore
-	GitHubRepo string // GitHub repo for manifest auto-sync (e.g. "owner/repo")
-	BaseURL    string // public base URL for install script (e.g. "https://opengate.example.com")
-	QuicHost   string // override hostname for QUIC address in enrollment (bypasses CDN proxy)
-	Logger          *slog.Logger
-	WebDir          string // directory containing SPA static assets (optional)
-	MetricsRegistry *prometheus.Registry
-	Metrics         *appmetrics.Metrics
+	AMTDevices            amt.Repository
+	AMTHandlers           *amt.Handlers
+	Sessions              session.Repository
+	SessionUseCase        *usecase.SessionService
+	Users                 auth.UserRepository
+	JWT                   *auth.JWTConfig
+	Agents                AgentGetter
+	AMT                   amt.Operator
+	Cert                  CertProvider
+	Relay                 *relay.Relay
+	Signaling             *signaling.Tracker
+	Notifier              notifications.Notifier
+	Signing               *updater.SigningKeys
+	Manifests             *updater.ManifestStore
+	GitHubRepo            string // GitHub repo for manifest auto-sync (e.g. "owner/repo")
+	BaseURL               string // public base URL for install script (e.g. "https://opengate.example.com")
+	QuicHost              string // override hostname for QUIC address in enrollment (bypasses CDN proxy)
+	Logger                *slog.Logger
+	WebDir                string // directory containing SPA static assets (optional)
+	MetricsRegistry       *prometheus.Registry
+	Metrics               *appmetrics.Metrics
 }
 
 // Server is the HTTP API server.
 type Server struct {
-	store          *db.PostgresStore
-	audit          audit.Repository
-	auditHandlers  *audit.Handlers
-	deviceUpdates  updater.DeviceUpdateRepository
-	enrollment     updater.EnrollmentTokenRepository
-	securityGroups auth.SecurityGroupRepository
-	devices        device.Repository
-	groups         device.GroupRepository
-	hardware       device.HardwareRepository
-	deviceLogs     device.LogsRepository
-	webPush        notifications.WebPushRepository
-	notifHandlers  *notifications.Handlers
-	amtDevices     amt.Repository
-	amtHandlers    *amt.Handlers
-	sessions       session.Repository
-	sessionUC      *usecase.SessionService
-	users          auth.UserRepository
-	jwt       *auth.JWTConfig
-	agents    AgentGetter
-	amt       amt.Operator
-	cert      CertProvider
-	relay     *relay.Relay
-	signaling *signaling.Tracker
-	notifier  notifications.Notifier
-	signing   *updater.SigningKeys
-	manifests  *updater.ManifestStore
-	githubRepo string
-	baseURL    string
-	quicHost   string
-	router     chi.Router
-	logger     *slog.Logger
-	webDir     string
+	store           *db.PostgresStore
+	audit           audit.Repository
+	auditHandlers   *audit.Handlers
+	deviceUpdates   updater.DeviceUpdateRepository
+	enrollment      updater.EnrollmentTokenRepository
+	securityGroups  auth.SecurityGroupRepository
+	devices         device.Repository
+	groups          device.GroupRepository
+	hardware        device.HardwareRepository
+	deviceLogs      device.LogsRepository
+	webPush         notifications.WebPushRepository
+	notifHandlers   *notifications.Handlers
+	amtDevices      amt.Repository
+	amtHandlers     *amt.Handlers
+	sessions        session.Repository
+	sessionUC       *usecase.SessionService
+	users           auth.UserRepository
+	jwt             *auth.JWTConfig
+	agents          AgentGetter
+	amt             amt.Operator
+	cert            CertProvider
+	relay           *relay.Relay
+	signaling       *signaling.Tracker
+	notifier        notifications.Notifier
+	signing         *updater.SigningKeys
+	manifests       *updater.ManifestStore
+	githubRepo      string
+	baseURL         string
+	quicHost        string
+	router          chi.Router
+	logger          *slog.Logger
+	webDir          string
 	metricsRegistry *prometheus.Registry
 	metrics         *appmetrics.Metrics
 }
@@ -183,35 +183,35 @@ func resolveSessionUseCase(cfg ServerConfig) *usecase.SessionService {
 // NewServer creates an API server with all routes registered.
 func NewServer(cfg ServerConfig) *Server {
 	s := &Server{
-		store:          cfg.Store,
-		audit:          cfg.Audit,
-		auditHandlers:  resolveAuditHandlers(cfg),
-		deviceUpdates:  cfg.DeviceUpdates,
-		enrollment:     cfg.Enrollment,
-		securityGroups: cfg.SecurityGroups,
-		devices:        cfg.Devices,
-		groups:         cfg.Groups,
-		hardware:       cfg.Hardware,
-		deviceLogs:     cfg.DeviceLogs,
-		webPush:        cfg.WebPush,
-		notifHandlers:  resolveNotificationsHandlers(cfg),
-		amtDevices:     cfg.AMTDevices,
-		amtHandlers:    resolveAMTHandlers(cfg),
-		sessions:       cfg.Sessions,
-		sessionUC:      resolveSessionUseCase(cfg),
-		users:          cfg.Users,
-		jwt:       cfg.JWT,
-		agents:    cfg.Agents,
-		amt:       cfg.AMT,
-		cert:      cfg.Cert,
-		relay:     cfg.Relay,
-		signaling: cfg.Signaling,
-		notifier:  cfg.Notifier,
-		signing:   cfg.Signing,
-		manifests:  cfg.Manifests,
-		githubRepo: cfg.GitHubRepo,
-		baseURL:    strings.TrimRight(cfg.BaseURL, "/"),
-		quicHost:   cfg.QuicHost,
+		store:           cfg.Store,
+		audit:           cfg.Audit,
+		auditHandlers:   resolveAuditHandlers(cfg),
+		deviceUpdates:   cfg.DeviceUpdates,
+		enrollment:      cfg.Enrollment,
+		securityGroups:  cfg.SecurityGroups,
+		devices:         cfg.Devices,
+		groups:          cfg.Groups,
+		hardware:        cfg.Hardware,
+		deviceLogs:      cfg.DeviceLogs,
+		webPush:         cfg.WebPush,
+		notifHandlers:   resolveNotificationsHandlers(cfg),
+		amtDevices:      cfg.AMTDevices,
+		amtHandlers:     resolveAMTHandlers(cfg),
+		sessions:        cfg.Sessions,
+		sessionUC:       resolveSessionUseCase(cfg),
+		users:           cfg.Users,
+		jwt:             cfg.JWT,
+		agents:          cfg.Agents,
+		amt:             cfg.AMT,
+		cert:            cfg.Cert,
+		relay:           cfg.Relay,
+		signaling:       cfg.Signaling,
+		notifier:        cfg.Notifier,
+		signing:         cfg.Signing,
+		manifests:       cfg.Manifests,
+		githubRepo:      cfg.GitHubRepo,
+		baseURL:         strings.TrimRight(cfg.BaseURL, "/"),
+		quicHost:        cfg.QuicHost,
 		router:          chi.NewRouter(),
 		logger:          cfg.Logger,
 		webDir:          cfg.WebDir,

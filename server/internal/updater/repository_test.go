@@ -58,12 +58,12 @@ func (m *memDeviceUpdates) ListByVersion(_ context.Context, _ string) ([]*update
 
 // memEnrollments is an in-memory EnrollmentTokenRepository for the decorator test.
 type memEnrollments struct {
-	createErr  error
-	getErr     error
-	listErr    error
-	deleteErr  error
-	incErr     error
-	items      []*updater.EnrollmentToken
+	createErr error
+	getErr    error
+	listErr   error
+	deleteErr error
+	incErr    error
+	items     []*updater.EnrollmentToken
 }
 
 func (m *memEnrollments) Create(_ context.Context, t *updater.EnrollmentToken) error {
@@ -91,7 +91,7 @@ func (m *memEnrollments) List(_ context.Context, _ uuid.UUID) ([]*updater.Enroll
 	return m.items, nil
 }
 
-func (m *memEnrollments) Delete(_ context.Context, _ uuid.UUID) error      { return m.deleteErr }
+func (m *memEnrollments) Delete(_ context.Context, _ uuid.UUID) error            { return m.deleteErr }
 func (m *memEnrollments) IncrementUseCount(_ context.Context, _ uuid.UUID) error { return m.incErr }
 
 func TestPostgresDeviceUpdates_CRUD(t *testing.T) {

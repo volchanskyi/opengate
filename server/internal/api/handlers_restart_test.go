@@ -23,14 +23,14 @@ import (
 
 // deviceTestEnv holds common setup for restart and hardware handler tests.
 type deviceTestEnv struct {
-	store       *db.PostgresStore
-	devices     device.Repository
-	hardware    device.HardwareRepository
-	deviceLogs  device.LogsRepository
-	device      *device.Device
-	srv         *Server
-	ownerToken  string
-	agentStream *bytes.Buffer
+	store         *db.PostgresStore
+	devices       device.Repository
+	hardware      device.HardwareRepository
+	deviceLogs    device.LogsRepository
+	device        *device.Device
+	srv           *Server
+	ownerToken    string
+	agentStream   *bytes.Buffer
 	generateToken func(userID uuid.UUID, email string, isAdmin bool) (string, error)
 }
 

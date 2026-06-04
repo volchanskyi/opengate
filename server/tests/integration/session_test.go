@@ -3,9 +3,9 @@ package integration
 import (
 	"bytes"
 	"context"
-	"log/slog"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -41,16 +41,16 @@ type sessionTestEnv struct {
 	store         *db.PostgresStore
 	devices       device.Repository
 	deviceUpdates updater.DeviceUpdateRepository
-	certMgr    *cert.Manager
-	relay      *relay.Relay
-	agentSrv   *agentapi.AgentServer
-	agentAddr  string
-	httpSrv    *httptest.Server
-	jwt        *auth.JWTConfig
-	sigTracker *signaling.Tracker
-	signing    *updater.SigningKeys
-	manifests  *updater.ManifestStore
-	cancel     context.CancelFunc
+	certMgr       *cert.Manager
+	relay         *relay.Relay
+	agentSrv      *agentapi.AgentServer
+	agentAddr     string
+	httpSrv       *httptest.Server
+	jwt           *auth.JWTConfig
+	sigTracker    *signaling.Tracker
+	signing       *updater.SigningKeys
+	manifests     *updater.ManifestStore
+	cancel        context.CancelFunc
 }
 
 func newSessionTestEnv(t *testing.T) *sessionTestEnv {
@@ -95,27 +95,27 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	manifestStore := updater.NewManifestStore(t.TempDir())
 
 	apiSrv := api.NewServer(api.ServerConfig{
-		Store:         store,
-		Audit:         testutil.NewTestAudit(t, store),
-		DeviceUpdates: deviceUpdates,
-		Enrollment:    testutil.NewTestEnrollment(t, store),
+		Store:          store,
+		Audit:          testutil.NewTestAudit(t, store),
+		DeviceUpdates:  deviceUpdates,
+		Enrollment:     testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
-		Devices:       testutil.NewTestDevices(t, store),
-		Groups:        testutil.NewTestGroups(t, store),
-		Hardware:      testutil.NewTestHardware(t, store),
-		DeviceLogs:    testutil.NewTestLogs(t, store),
-		WebPush:       testutil.NewTestWebPush(t, store),
-		AMTDevices:    testutil.NewTestAMTDevices(t, store),
-		Sessions:      testutil.NewTestSessions(t, store),
-		Users:         testutil.NewTestUsers(t, store),
-		JWT:       jwtCfg,
-		Agents:    agentSrv,
-		Relay:     r,
-		Signaling: sigTracker,
-		Notifier:  &notifications.NoopNotifier{},
-		Signing:   signingKeys,
-		Manifests: manifestStore,
-		Logger:    logger,
+		Devices:        testutil.NewTestDevices(t, store),
+		Groups:         testutil.NewTestGroups(t, store),
+		Hardware:       testutil.NewTestHardware(t, store),
+		DeviceLogs:     testutil.NewTestLogs(t, store),
+		WebPush:        testutil.NewTestWebPush(t, store),
+		AMTDevices:     testutil.NewTestAMTDevices(t, store),
+		Sessions:       testutil.NewTestSessions(t, store),
+		Users:          testutil.NewTestUsers(t, store),
+		JWT:            jwtCfg,
+		Agents:         agentSrv,
+		Relay:          r,
+		Signaling:      sigTracker,
+		Notifier:       &notifications.NoopNotifier{},
+		Signing:        signingKeys,
+		Manifests:      manifestStore,
+		Logger:         logger,
 	})
 	ts := httptest.NewServer(apiSrv)
 
@@ -134,16 +134,16 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 		store:         store,
 		devices:       testutil.NewTestDevices(t, store),
 		deviceUpdates: deviceUpdates,
-		certMgr:    cm,
-		relay:      r,
-		agentSrv:   agentSrv,
-		agentAddr:  agentAddr,
-		httpSrv:    ts,
-		jwt:        jwtCfg,
-		sigTracker: sigTracker,
-		signing:    signingKeys,
-		manifests:  manifestStore,
-		cancel:     cancel,
+		certMgr:       cm,
+		relay:         r,
+		agentSrv:      agentSrv,
+		agentAddr:     agentAddr,
+		httpSrv:       ts,
+		jwt:           jwtCfg,
+		sigTracker:    sigTracker,
+		signing:       signingKeys,
+		manifests:     manifestStore,
+		cancel:        cancel,
 	}
 }
 

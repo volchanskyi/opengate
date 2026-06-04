@@ -44,10 +44,10 @@ func (s *stubAMT) QueryDeviceInfo(_ context.Context, _ uuid.UUID) (*wsman.Device
 func (s *stubAMT) ConnectedDeviceCount() int { return 0 }
 
 const (
-	pathUsersMe   = "/api/v1/users/me"
-	pathGroups    = "/api/v1/groups"
-	aliceEmail    = "alice@example.com"
-	webServer01   = "web-server-01"
+	pathUsersMe = "/api/v1/users/me"
+	pathGroups  = "/api/v1/groups"
+	aliceEmail  = "alice@example.com"
+	webServer01 = "web-server-01"
 )
 
 // testEnv holds a running test server and its dependencies.
@@ -75,24 +75,24 @@ func newTestEnv(t *testing.T) *testEnv {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := api.NewServer(api.ServerConfig{
-		Store:         store,
-		Audit:         testutil.NewTestAudit(t, store),
-		DeviceUpdates: deviceUpdates,
-		Enrollment:    testutil.NewTestEnrollment(t, store),
+		Store:          store,
+		Audit:          testutil.NewTestAudit(t, store),
+		DeviceUpdates:  deviceUpdates,
+		Enrollment:     testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
-		Devices:       devicesRepo,
-		Groups:        groupsRepo,
-		Hardware:      hardwareRepo,
-		DeviceLogs:    deviceLogsRepo,
-		WebPush:       testutil.NewTestWebPush(t, store),
-		AMTDevices:    testutil.NewTestAMTDevices(t, store),
-		Sessions:      testutil.NewTestSessions(t, store),
-		Users:         testutil.NewTestUsers(t, store),
-		JWT:      jwtCfg,
-		AMT:      &stubAMT{},
-		Relay:    relay.NewRelay(slog.Default()),
-		Notifier: &notifications.NoopNotifier{},
-		Logger:   logger,
+		Devices:        devicesRepo,
+		Groups:         groupsRepo,
+		Hardware:       hardwareRepo,
+		DeviceLogs:     deviceLogsRepo,
+		WebPush:        testutil.NewTestWebPush(t, store),
+		AMTDevices:     testutil.NewTestAMTDevices(t, store),
+		Sessions:       testutil.NewTestSessions(t, store),
+		Users:          testutil.NewTestUsers(t, store),
+		JWT:            jwtCfg,
+		AMT:            &stubAMT{},
+		Relay:          relay.NewRelay(slog.Default()),
+		Notifier:       &notifications.NoopNotifier{},
+		Logger:         logger,
 	})
 
 	ts := httptest.NewServer(srv)

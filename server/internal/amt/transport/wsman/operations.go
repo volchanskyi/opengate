@@ -9,11 +9,11 @@ import (
 
 // WSMAN resource URIs for AMT operations.
 const (
-	PowerMgmtResourceURI     = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_PowerManagementService"
-	PowerMgmtAction          = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_PowerManagementService/RequestPowerStateChange"
+	PowerMgmtResourceURI      = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_PowerManagementService"
+	PowerMgmtAction           = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_PowerManagementService/RequestPowerStateChange"
 	ComputerSystemResourceURI = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ComputerSystem"
-	AMTSetupResourceURI      = "http://intel.com/wbem/wscim/1/amt-schema/1/AMT_SetupAndConfigurationService"
-	TransferGetAction        = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get"
+	AMTSetupResourceURI       = "http://intel.com/wbem/wscim/1/amt-schema/1/AMT_SetupAndConfigurationService"
+	TransferGetAction         = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get"
 )
 
 // PowerState represents an AMT power state for CIM_PowerManagementService.

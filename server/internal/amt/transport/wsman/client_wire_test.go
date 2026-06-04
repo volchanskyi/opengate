@@ -40,9 +40,9 @@ import (
 
 // fakeMPSConn implements MPSConn for tests.
 type fakeMPSConn struct {
-	netConn   net.Conn      // wsman client writes APF here
-	ch        *transport.Channel  // returned by OpenChannel
-	openErr   error         // optional: simulate OpenChannel failure
+	netConn   net.Conn           // wsman client writes APF here
+	ch        *transport.Channel // returned by OpenChannel
+	openErr   error              // optional: simulate OpenChannel failure
 	openCalls int
 }
 

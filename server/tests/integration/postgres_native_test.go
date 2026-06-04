@@ -154,8 +154,8 @@ func TestPostgresUUIDRejectsMalformedAtBoundary(t *testing.T) {
 		raw  string
 	}{
 		{"empty", ""},
-		{"too short", "11111111-1111-1111-1111-11111111111"},   // 35 hex chars
-		{"too long", "11111111-1111-1111-1111-1111111111111"},  // 37 hex chars
+		{"too short", "11111111-1111-1111-1111-11111111111"},  // 35 hex chars
+		{"too long", "11111111-1111-1111-1111-1111111111111"}, // 37 hex chars
 		{"non-hex char", "gggggggg-gggg-gggg-gggg-gggggggggggg"},
 		{"missing dashes", "1111111111111111111111111111111111111"},
 		{"garbage", "definitely-not-a-uuid"},
@@ -311,4 +311,3 @@ func TestPostgresMalformedUUIDInsertRollbackable(t *testing.T) {
 	require.NoError(t, sqlDB.QueryRowContext(ctx, `SELECT 1`).Scan(&n))
 	assert.Equal(t, 1, n)
 }
-

@@ -7,8 +7,12 @@
 # it, at which point it must be lifted to the floor.
 #
 # Scope of "changed code": all changed code files INCLUDING tests, excluding
-# machine-generated output (classified by scripts/tdd-check.sh `is-code`).
-# Changed = union of (BASELINE_REF..HEAD) + staged + unstaged + untracked,
+# machine-generated output (classified by scripts/tdd-check.sh `is-code`) and
+# Go *test* files whose only change is gofmt formatting (ADR-032). Rationale:
+# gofmt churn is not "changed code", and pmat itself skips test files in its
+# analysis (`pmat tdg --explain` prints "Skipping test file"). Source files are
+# never exempted — production quality is enforced on every touch, even a fmt-only
+# one. Changed = union of (BASELINE_REF..HEAD) + staged + unstaged + untracked,
 # matching the TDD gate's change detection.
 #
 # === Why not the literal ADR-019 command? ===
@@ -31,6 +35,8 @@
 #   PMAT_BASELINE_REF  diff baseline ref (default: origin/dev).
 #   PMAT_PIN           required pmat version (default: 3.17.0). Set empty to
 #                      disable the version check (tests do this).
+#   GOFMT_BIN          gofmt binary (default: gofmt) used by the ADR-032 fmt-only
+#                      test-file exclusion. Stubbed in tests.
 #
 # Exit codes: 0 = all changed code meets the floor (or none changed);
 #             1 = at least one changed file is below the floor;
@@ -42,6 +48,7 @@ PMAT_MIN_GRADE="${PMAT_MIN_GRADE:-B+}"
 PMAT_BASELINE_REF="${PMAT_BASELINE_REF:-origin/dev}"
 # ${VAR-default}: an explicitly-empty PMAT_PIN disables the check; unset → pin.
 PMAT_PIN="${PMAT_PIN-3.17.0}"
+GOFMT_BIN="${GOFMT_BIN:-gofmt}"
 
 PMAT_PRECOMMIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TDD_CHECK="$PMAT_PRECOMMIT_DIR/tdd-check.sh"
@@ -66,9 +73,28 @@ pmat_resolve_base() {
   git rev-list --max-parents=0 HEAD 2>/dev/null | head -1
 }
 
+# pmat_is_gofmt_only_test <file> <base> — true iff <file> is a Go *test* file
+# whose only change versus <base> is gofmt formatting (ADR-032). Such files are
+# dropped from the TDG changed-set. The check is symmetric — gofmt(baseline) ==
+# gofmt(current) — so any real edit (which changes the formatted form) keeps the
+# file graded. Fail-safe: a non-test file, a missing baseline blob (new file), or
+# an unavailable gofmt all return non-zero, so the file is graded rather than
+# silently skipped.
+pmat_is_gofmt_only_test() {
+  local f="$1" base="$2"
+  case "$f" in *_test.go) ;; *) return 1 ;; esac
+  [ -n "$base" ] || return 1
+  command -v "$GOFMT_BIN" >/dev/null 2>&1 || return 1
+  git cat-file -e "$base:$f" 2>/dev/null || return 1
+  local baseline_fmt current_fmt
+  baseline_fmt="$(git show "$base:$f" 2>/dev/null | "$GOFMT_BIN" 2>/dev/null)" || return 1
+  current_fmt="$("$GOFMT_BIN" "$f" 2>/dev/null)" || return 1
+  [ "$baseline_fmt" = "$current_fmt" ]
+}
+
 # pmat_changed_code_files — print changed code files (one per line), filtered
-# through tdd-check.sh is-code and restricted to files that still exist (a
-# deleted file cannot be graded).
+# through tdd-check.sh is-code, restricted to files that still exist (a deleted
+# file cannot be graded), and minus gofmt-only Go test files (ADR-032).
 pmat_changed_code_files() {
   local base; base="$(pmat_resolve_base 2>/dev/null || true)"
   {
@@ -79,7 +105,9 @@ pmat_changed_code_files() {
   } | sort -u | while IFS= read -r f; do
     [ -n "$f" ] || continue
     [ -f "$f" ] || continue
-    if "$TDD_CHECK" is-code "$f"; then printf '%s\n' "$f"; fi
+    "$TDD_CHECK" is-code "$f" || continue
+    pmat_is_gofmt_only_test "$f" "$base" && continue
+    printf '%s\n' "$f"
   done
 }
 

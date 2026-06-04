@@ -154,6 +154,15 @@ echo "✓ all prerequisites present" >&2
 banner "Lints"
 run_check "rust fmt"          -- bash -c 'cd agent && cargo fmt --all -- --check'
 run_check "rust clippy"       -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'
+run_check "go fmt"            -- bash -c '
+  cd server
+  unformatted=$(gofmt -l .)
+  if [ -n "$unformatted" ]; then
+    echo "::error::gofmt: files not formatted. Fix: cd server && gofmt -w ."
+    printf "%s\n" "$unformatted"
+    exit 1
+  fi
+'
 run_check "go vet"            -- bash -c 'cd server && go vet ./...'
 run_check "go-arch-lint"      -- bash -c 'cd server && go-arch-lint check'
 run_check "cargo modules"     -- bash -c '

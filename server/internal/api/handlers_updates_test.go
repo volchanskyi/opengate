@@ -27,10 +27,10 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 	manifests := updater.NewManifestStore(dir)
 
 	srv := NewServer(ServerConfig{
-		Store:         store,
-		Audit:         testutil.NewTestAudit(t, store),
-		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
-		Enrollment:    testutil.NewTestEnrollment(t, store),
+		Store:          store,
+		Audit:          testutil.NewTestAudit(t, store),
+		DeviceUpdates:  testutil.NewTestDeviceUpdates(t, store),
+		Enrollment:     testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
 		Groups:         testutil.NewTestGroups(t, store),
@@ -40,14 +40,14 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
-		JWT:       cfg,
-		Agents:    &stubAgentGetter{},
-		AMT:       &stubAMTOperator{},
-		Relay:     relay.NewRelay(slog.Default()),
-		Notifier:  &notifications.NoopNotifier{},
-		Signing:   signing,
-		Manifests: manifests,
-		Logger:    logger,
+		JWT:            cfg,
+		Agents:         &stubAgentGetter{},
+		AMT:            &stubAMTOperator{},
+		Relay:          relay.NewRelay(slog.Default()),
+		Notifier:       &notifications.NoopNotifier{},
+		Signing:        signing,
+		Manifests:      manifests,
+		Logger:         logger,
 	})
 
 	_, adminToken := seedTestUser(t, srv, cfg, "admin@test.com", true)
