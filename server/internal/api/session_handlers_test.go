@@ -284,7 +284,7 @@ func TestListSessions(t *testing.T) {
 		srv, cfg := newTestServer(t)
 		_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
-		w := doRequest(srv, http.MethodGet, testQueryDeviceID + "not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodGet, testQueryDeviceID+"not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
@@ -345,7 +345,7 @@ func TestDeleteSession(t *testing.T) {
 	t.Parallel()
 	t.Run("unauthenticated", func(t *testing.T) {
 		srv, _ := newTestServer(t)
-		w := doRequest(srv, http.MethodDelete, testPathSessionsS + "sometoken", "", nil)
+		w := doRequest(srv, http.MethodDelete, testPathSessionsS+"sometoken", "", nil)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
@@ -353,7 +353,7 @@ func TestDeleteSession(t *testing.T) {
 		srv, cfg := newTestServer(t)
 		_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 
-		w := doRequest(srv, http.MethodDelete, testPathSessionsS + "nonexistent-token", token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathSessionsS+"nonexistent-token", token, nil)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 

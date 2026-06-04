@@ -17,15 +17,15 @@ type GaugeSource struct {
 	ActiveSessions      func() int
 	ConnectedAgents     func() int
 	ConnectedMPSDevices func() int
-	SignalingSuccesses   func() int64
-	SignalingFailures    func() int64
+	SignalingSuccesses  func() int64
+	SignalingFailures   func() int64
 }
 
 // Metrics holds all Prometheus metric descriptors for the OpenGate server.
 type Metrics struct {
 	// HTTP
-	HTTPRequestsTotal    *prometheus.CounterVec
-	HTTPRequestDuration  *prometheus.HistogramVec
+	HTTPRequestsTotal   *prometheus.CounterVec
+	HTTPRequestDuration *prometheus.HistogramVec
 
 	// Relay
 	RelayActiveSessions prometheus.Gauge

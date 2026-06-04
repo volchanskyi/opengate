@@ -154,6 +154,15 @@ echo "✓ all prerequisites present" >&2
 banner "Lints"
 run_check "rust fmt"          -- bash -c 'cd agent && cargo fmt --all -- --check'
 run_check "rust clippy"       -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'
+run_check "go fmt"            -- bash -c '
+  cd server
+  unformatted=$(gofmt -l .)
+  if [ -n "$unformatted" ]; then
+    echo "::error::gofmt: files not formatted. Fix: cd server && gofmt -w ."
+    printf "%s\n" "$unformatted"
+    exit 1
+  fi
+'
 run_check "go vet"            -- bash -c 'cd server && go vet ./...'
 run_check "go-arch-lint"      -- bash -c 'cd server && go-arch-lint check'
 run_check "cargo modules"     -- bash -c '
@@ -277,6 +286,11 @@ banner "SonarCloud"
 # not wired in: a quality-gate evaluation against stale coverage was the gap
 # that let new_coverage regressions reach CI undetected.
 run_check "make sonar"         -- make sonar
+# new_coverage margin guard: `make sonar` enforces the gate at 80, but a value
+# like 79.95% displays as "80.0" and flips green→red between local and CI due to
+# sub-line coverage nondeterminism. This fails locally unless new_coverage clears
+# a buffer above 80, keeping the result off the boundary (CI run 26929821908).
+run_check "sonar new-coverage margin" -- bash scripts/sonar-coverage-guard.sh
 
 # Phase 8: PMAT TDG gate (ADR-019 §"Integration point 2" / ADR-028). Appended
 # last so it never masks faster checks. Grades ONLY changed code files at the

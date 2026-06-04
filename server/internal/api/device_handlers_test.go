@@ -35,7 +35,7 @@ func TestDeviceHandlers(t *testing.T) {
 	require.NoError(t, srv.devices.Upsert(t.Context(), dev))
 
 	t.Run("list devices", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, testPathDevices + "?group_id="+group.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevices+"?group_id="+group.ID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var devices []*device.Device
@@ -98,22 +98,22 @@ func TestDeviceHandlers(t *testing.T) {
 	})
 
 	t.Run("list devices invalid group_id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, testPathDevices + "?group_id=not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevices+"?group_id=not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("get device invalid id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, testPathDevicesS + "not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevicesS+"not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("delete device invalid id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodDelete, testPathDevicesS + "not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathDevicesS+"not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("requires auth", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, testPathDevices + "?group_id="+group.ID.String(), "", nil)
+		w := doRequest(srv, http.MethodGet, testPathDevices+"?group_id="+group.ID.String(), "", nil)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 }

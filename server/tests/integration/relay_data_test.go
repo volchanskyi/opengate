@@ -87,7 +87,7 @@ func TestRelayBinaryPayloadIntegrity(t *testing.T) {
 	// by sending individually and reading each message back.
 	payloads := [][]byte{
 		[]byte("hello-from-agent"),
-		make([]byte, 1024),   // 1 KB zeros
+		make([]byte, 1024),    // 1 KB zeros
 		make([]byte, 16*1024), // 16 KB zeros
 	}
 	// Fill with recognizable patterns

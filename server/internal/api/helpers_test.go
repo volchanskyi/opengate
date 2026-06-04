@@ -78,10 +78,10 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{
-		Store:         store,
-		Audit:         testutil.NewTestAudit(t, store),
-		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
-		Enrollment:    testutil.NewTestEnrollment(t, store),
+		Store:          store,
+		Audit:          testutil.NewTestAudit(t, store),
+		DeviceUpdates:  testutil.NewTestDeviceUpdates(t, store),
+		Enrollment:     testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
 		Groups:         testutil.NewTestGroups(t, store),
@@ -91,12 +91,12 @@ func newTestServer(t *testing.T) (*Server, *auth.JWTConfig) {
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
-		JWT:      cfg,
-		Agents:   &stubAgentGetter{},
-		AMT:      &stubAMTOperator{},
-		Relay:    relay.NewRelay(slog.Default()),
-		Notifier: &notifications.NoopNotifier{},
-		Logger:   logger,
+		JWT:            cfg,
+		Agents:         &stubAgentGetter{},
+		AMT:            &stubAMTOperator{},
+		Relay:          relay.NewRelay(slog.Default()),
+		Notifier:       &notifications.NoopNotifier{},
+		Logger:         logger,
 	})
 	return srv, cfg
 }
@@ -109,10 +109,10 @@ func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agen
 	cfg := testJWTConfig()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{
-		Store:         store,
-		Audit:         testutil.NewTestAudit(t, store),
-		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
-		Enrollment:    testutil.NewTestEnrollment(t, store),
+		Store:          store,
+		Audit:          testutil.NewTestAudit(t, store),
+		DeviceUpdates:  testutil.NewTestDeviceUpdates(t, store),
+		Enrollment:     testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
 		Groups:         testutil.NewTestGroups(t, store),
@@ -122,12 +122,12 @@ func newTestServerWithStoreAndAgents(t *testing.T, store *db.PostgresStore, agen
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
-		JWT:      cfg,
-		Agents:   agents,
-		AMT:      &stubAMTOperator{},
-		Relay:    r,
-		Notifier: &notifications.NoopNotifier{},
-		Logger:   logger,
+		JWT:            cfg,
+		Agents:         agents,
+		AMT:            &stubAMTOperator{},
+		Relay:          r,
+		Notifier:       &notifications.NoopNotifier{},
+		Logger:         logger,
 	})
 	return srv, cfg
 }

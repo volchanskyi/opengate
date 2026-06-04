@@ -39,8 +39,8 @@ func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfi
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv := NewServer(ServerConfig{
-		Store:    store,
-		Audit:    testutil.NewTestAudit(t, store),
+		Store:          store,
+		Audit:          testutil.NewTestAudit(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
 		Groups:         testutil.NewTestGroups(t, store),
@@ -50,12 +50,12 @@ func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfi
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
-		JWT:      cfg,
-		Agents:   &stubAgentGetter{},
-		AMT:      &stubAMTOperator{},
-		Relay:    r,
-		Notifier: &notifications.NoopNotifier{},
-		Logger:   logger,
+		JWT:            cfg,
+		Agents:         &stubAgentGetter{},
+		AMT:            &stubAMTOperator{},
+		Relay:          r,
+		Notifier:       &notifications.NoopNotifier{},
+		Logger:         logger,
 	})
 
 	ts := httptest.NewServer(srv)

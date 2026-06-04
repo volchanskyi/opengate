@@ -174,4 +174,3 @@ func TestControlStream_SendAfterStreamCloseFailsAndReconciles(t *testing.T) {
 	// nil-pointer dereference or other unexpected wrap.
 	assert.NotEmpty(t, err.Error(), "error must carry a message")
 }
-

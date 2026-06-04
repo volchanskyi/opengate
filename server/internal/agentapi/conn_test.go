@@ -127,14 +127,14 @@ func TestAgentConn_HandleRegister(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID: deviceID,
-		GroupID:  group.ID,
-		stream:   &frameBuf,
-		codec:    codec,
+		DeviceID:   deviceID,
+		GroupID:    group.ID,
+		stream:     &frameBuf,
+		codec:      codec,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
-		logger:   testLogger(),
+		logger:     testLogger(),
 	}
 
 	err = ac.handleControl(ctx)
@@ -171,14 +171,14 @@ func TestAgentConn_HandleHeartbeat(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID: d.ID,
-		GroupID:  group.ID,
-		stream:   &frameBuf,
-		codec:    codec,
+		DeviceID:   d.ID,
+		GroupID:    group.ID,
+		stream:     &frameBuf,
+		codec:      codec,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
-		logger:   testLogger(),
+		logger:     testLogger(),
 	}
 
 	err = ac.handleControl(ctx)
@@ -303,14 +303,14 @@ func TestAgentConn_HandleDeviceLogsResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID: d.ID,
-		GroupID:  group.ID,
-		stream:   &frameBuf,
-		codec:    codec,
+		DeviceID:   d.ID,
+		GroupID:    group.ID,
+		stream:     &frameBuf,
+		codec:      codec,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
-		logger:   testLogger(),
+		logger:     testLogger(),
 	}
 
 	err = ac.handleControl(ctx)
@@ -372,14 +372,14 @@ func TestAgentConn_HandleHardwareReport(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID: d.ID,
-		GroupID:  group.ID,
-		stream:   &frameBuf,
-		codec:    codec,
+		DeviceID:   d.ID,
+		GroupID:    group.ID,
+		stream:     &frameBuf,
+		codec:      codec,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
-		logger:   testLogger(),
+		logger:     testLogger(),
 	}
 
 	err = ac.handleControl(ctx)
@@ -419,14 +419,14 @@ func TestAgentConn_HandleRegister_NormalizesOS(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID: deviceID,
-		GroupID:  group.ID,
-		stream:   &frameBuf,
-		codec:    codec,
+		DeviceID:   deviceID,
+		GroupID:    group.ID,
+		stream:     &frameBuf,
+		codec:      codec,
 		devices:    testutil.NewTestDevices(t, store),
 		hardware:   testutil.NewTestHardware(t, store),
 		deviceLogs: testutil.NewTestLogs(t, store),
-		logger:   testLogger(),
+		logger:     testLogger(),
 	}
 
 	err = ac.handleControl(ctx)
@@ -531,9 +531,9 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 			GroupID:       group.ID,
 			stream:        &frameBuf,
 			codec:         codec,
-			devices:    testutil.NewTestDevices(t, store),
-			hardware:   testutil.NewTestHardware(t, store),
-			deviceLogs: testutil.NewTestLogs(t, store),
+			devices:       testutil.NewTestDevices(t, store),
+			hardware:      testutil.NewTestHardware(t, store),
+			deviceLogs:    testutil.NewTestLogs(t, store),
 			deviceUpdates: deviceUpdates,
 			logger:        testLogger(),
 		}
@@ -566,9 +566,9 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 			GroupID:       group.ID,
 			stream:        &frameBuf,
 			codec:         codec,
-			devices:    testutil.NewTestDevices(t, store),
-			hardware:   testutil.NewTestHardware(t, store),
-			deviceLogs: testutil.NewTestLogs(t, store),
+			devices:       testutil.NewTestDevices(t, store),
+			hardware:      testutil.NewTestHardware(t, store),
+			deviceLogs:    testutil.NewTestLogs(t, store),
 			deviceUpdates: deviceUpdates,
 			logger:        testLogger(),
 		}

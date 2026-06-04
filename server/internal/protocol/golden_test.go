@@ -55,9 +55,9 @@ func TestGoldenHandshakeServerHello(t *testing.T) {
 func TestGoldenFrameWireFormat(t *testing.T) {
 	// All framed golden files share the wire format: [type][4-byte-BE-length][msgpack-payload]
 	tests := []struct {
-		name          string
-		file          string
-		expectedType  byte
+		name         string
+		file         string
+		expectedType byte
 	}{
 		{"AgentRegister", "control_agent_register.bin", FrameControl},
 		{"Heartbeat", "control_heartbeat.bin", FrameControl},

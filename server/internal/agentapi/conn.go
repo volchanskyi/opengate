@@ -346,4 +346,3 @@ func (a *AgentConn) handleHeartbeat(ctx context.Context, msg *protocol.ControlMe
 
 	return nil
 }
-

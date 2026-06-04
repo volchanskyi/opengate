@@ -191,4 +191,3 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 		slog.Debug("failed to write error response", "error", err)
 	}
 }
-
