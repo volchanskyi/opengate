@@ -376,14 +376,28 @@ run_hook pretooluse-git-push-guard.sh "$envelope"
 assert_exit "git push --force main: BLOCK" 2
 cleanup_repo
 
-# 4. Push doc-only branch without refactor marker: allow.
+# 4. Push doc-only branch WITHOUT refactor marker: BLOCK. Every commit since
+# origin/dev requires the marker — no doc-only / CI-only exemption.
 make_repo
 echo "# new" > newdoc.md
 git add newdoc.md
 git commit --quiet -m "docs"
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
 run_hook pretooluse-git-push-guard.sh "$envelope"
-assert_exit "git push doc-only no marker: allow" 0
+assert_exit "git push doc-only no marker: BLOCK" 2
+assert_stderr_contains "doc-only no marker: stderr cites /refactor" "/refactor"
+cleanup_repo
+
+# 4b. Push doc-only branch WITH a matching refactor marker: PASS.
+make_repo
+echo "# new" > newdoc.md
+git add newdoc.md
+git commit --quiet -m "docs"
+mkdir -p .claude/.markers
+git rev-parse HEAD > .claude/.markers/refactor.head
+envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
+run_hook pretooluse-git-push-guard.sh "$envelope"
+assert_exit "git push doc-only w/ marker: PASS" 0
 cleanup_repo
 
 # 5. Push branch with source commits but no refactor marker: BLOCK.

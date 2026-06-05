@@ -6,8 +6,9 @@
 #   1. No push to main.
 #   2. No force-push to main (any form).
 #   3. Not behind upstream (best-effort; offline → skip).
-#   4. /refactor marker matches HEAD when branch commits since origin/dev
-#      touch source files. Doc-only / CI-only pushes are exempt.
+#   4. /refactor marker matches HEAD for ANY commits since origin/dev,
+#      regardless of the files they touch. A push is a push — there is no
+#      doc-only / CI-only exemption.
 #
 # NO BYPASS.
 set -euo pipefail
@@ -51,7 +52,9 @@ $summary"
   fi
 fi
 
-# 4. Refactor marker (required when source files OR deploy/ OR scripts/ changed since base).
+# 4. Refactor marker — required for ANY commit on the branch since origin/dev,
+#    no matter what files it touches (no doc-only / CI-only exemption). The
+#    auto-push hook and /refactor both write the marker = HEAD.
 base=""
 if git rev-parse --verify --quiet origin/dev >/dev/null 2>&1; then
   base="$(git merge-base HEAD origin/dev 2>/dev/null || true)"
@@ -67,30 +70,14 @@ if [ -z "$base" ]; then
 fi
 
 if [ -n "$base" ] && [ "$base" != "$(git rev-parse HEAD 2>/dev/null || echo .)" ]; then
-  changed_files="$(git diff --name-only "$base"..HEAD 2>/dev/null || true)"
-  has_source=false
-  if [ -n "$changed_files" ]; then
-    while IFS= read -r f; do
-      [ -n "$f" ] || continue
-      # Refactor is required for source-language changes (Go/Rust/TS/JS) and for
-      # any change under the project-root deploy/ or scripts/ folders.
-      if "$TDD_CHECK" is-source "$f" || [[ "$f" == deploy/* ]] || [[ "$f" == scripts/* ]]; then
-        has_source=true
-        break
-      fi
-    done <<<"$changed_files"
+  marker_file="$(project_root)/.claude/.markers/refactor.head"
+  head_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+  if [ ! -f "$marker_file" ]; then
+    block git-refactor-marker "git push refused: branch has commits since origin/dev but .claude/.markers/refactor.head is missing. Run /refactor; it writes the marker on success."
   fi
-
-  if [ "$has_source" = "true" ]; then
-    marker_file="$(project_root)/.claude/.markers/refactor.head"
-    head_sha="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
-    if [ ! -f "$marker_file" ]; then
-      block git-refactor-marker "git push refused: branch has source-file, deploy/ or scripts/ commits but .claude/.markers/refactor.head is missing. Run /refactor; it writes the marker on success."
-    fi
-    expected="$(cat "$marker_file" 2>/dev/null || echo "")"
-    if [ "$expected" != "$head_sha" ]; then
-      block git-refactor-marker "git push refused: refactor marker ($expected) does not match HEAD ($head_sha). Re-run /refactor after the latest commit."
-    fi
+  expected="$(cat "$marker_file" 2>/dev/null || echo "")"
+  if [ "$expected" != "$head_sha" ]; then
+    block git-refactor-marker "git push refused: refactor marker ($expected) does not match HEAD ($head_sha). Re-run /refactor after the latest commit."
   fi
 fi
 

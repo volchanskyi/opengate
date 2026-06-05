@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -260,4 +261,43 @@ func TestRelayWebSocket(t *testing.T) {
 		_, _, err = browserConn.Read(readCtx)
 		assert.Error(t, err) // context deadline exceeded
 	})
+}
+
+// alwaysDownRegistry is a SessionRegistry whose health probe always fails,
+// driving the relay into degraded mode. It embeds InProcessRegistry for the
+// other five methods so the live (non-Ping) path stays functional.
+type alwaysDownRegistry struct{ *relay.InProcessRegistry }
+
+func (alwaysDownRegistry) Ping(context.Context) error {
+	return errors.New("registry unreachable")
+}
+
+// TestRelayWebSocket_RegistryDegraded asserts that once the relay is in degraded
+// mode (session registry unreachable past the threshold), a new session is
+// refused with WebSocket close code 1013 (Try Again Later) — a retryable signal
+// — rather than a generic internal error. ADR-023 recovery posture, Phase 13b
+// PR-C C3b.
+func TestRelayWebSocket_RegistryDegraded(t *testing.T) {
+	t.Parallel()
+	reg := alwaysDownRegistry{relay.NewInProcessRegistry()}
+	r := relay.NewRelay(slog.Default(),
+		relay.WithRegistry(reg, "test-server"),
+		relay.WithDegradedThreshold(0),
+	)
+	go r.MonitorRegistryHealth(t.Context(), 5*time.Millisecond)
+	require.Eventually(t, r.RegistryDegraded, 2*time.Second, 10*time.Millisecond,
+		"relay should enter degraded mode after failed health probes")
+
+	ts, srv, cfg := newRelayTestServerWith(t, r)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	token, _ := seedRelaySession(t, ctx, srv, cfg)
+
+	conn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, nil)
+	defer conn.Close(websocket.StatusNormalClosure, "")
+
+	_, _, err := conn.Read(ctx)
+	require.Error(t, err)
+	assert.Equal(t, websocket.StatusTryAgainLater, websocket.CloseStatus(err),
+		"degraded relay should refuse with a retryable close code")
 }
