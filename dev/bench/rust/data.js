@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780615976605,
+  "lastUpdate": 1780642807425,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -15998,6 +15998,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.814192099000003,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "7f0d1b6d578fb4d428349c05b9adddae06dda4a6",
+          "message": "feat(relay): Phase 13b PR-C C3a — registry health + readiness drain (ADR-023)\n\nImplement the ADR-023 recovery posture's health surface: drain a pod from the\nService when it loses its distributed session store, without restarting it.\n\n- SessionRegistry.Ping(ctx) + Relay.PingRegistry — InProcessRegistry always\n  healthy; RedisRegistry pings Redis.\n- New dependency-free /healthz LIVENESS route. Fixes a latent bug: the Helm\n  liveness probe targeted /healthz, which the server never served — a Postgres\n  or Redis blip must never restart the pod, so liveness checks nothing but\n  process-up.\n- /api/v1/health READINESS now returns 503 (drains the pod) when Postgres OR\n  the session registry (Redis) is unreachable, so k8s removes it from the\n  Service while in-flight sessions continue. Helm probe paths already matched,\n  so no chart change.\n\nDeterministic tests (miniredis + httptest, no Docker): registry Ping up/down,\nPingRegistry, /healthz always-200, readiness 200-healthy / 503-registry-down.\n\nC3b/c (relay-level degraded-mode refuse + registry_up metric + Telegram alert)\nremain; Redis stays inprocess in every overlay until C3 completes.",
+          "timestamp": "2026-06-04T23:25:44-07:00",
+          "tree_id": "b5af0aa7d116f7aeacf8b2c5e6e22b30f492266a",
+          "url": "https://github.com/volchanskyi/opengate/commit/7f0d1b6d578fb4d428349c05b9adddae06dda4a6"
+        },
+        "date": 1780642807346,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.357262610828638,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.419780326891058,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 760.1204360920315,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 316.09389443414887,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.96798358053765,
             "unit": "ns/iter"
           }
         ]
