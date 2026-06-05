@@ -1092,7 +1092,16 @@ jobs:
       # Fallback: only when the action failed. Runs the scanner via the Docker
       # image (pulled from the container registry, NOT binaries.sonarsource.com
       # — the same path `make sonar` uses), with the repo's retry-with-backoff
-      # pattern on the image pull. This is the explicit handling of the CDN 403.
+      # pattern on the image pull.
+      #
+      # CRITICAL: pass -Dsonar.scanner.skipJreProvisioning=true. SonarScanner CLI
+      # 8.x bootstraps by downloading a JRE from scanner.sonarcloud.io/jres/… —
+      # a SECOND SonarSource CDN, which has 403'd in CI (observed repeatedly). A
+      # fallback that re-downloads from a SonarSource CDN does not actually
+      # survive a SonarSource-CDN outage. The scanner image already bundles a
+      # compatible JRE (Corretto 21), so skipping provisioning makes the fallback
+      # fully self-contained (image from docker.io only). Without this flag the
+      # fallback fails on the JRE 403 — the recurring breakage this fixes.
       - name: SonarCloud Scan (Docker fallback on CDN failure)
         if: env.SONAR_TOKEN != '' && steps.sonar_action.outcome == 'failure'
         run: |
@@ -1115,6 +1124,7 @@ jobs:
             sonarsource/sonar-scanner-cli:latest \
             -Dsonar.host.url=https://sonarcloud.io \
             -Dsonar.qualitygate.wait=true \
+            -Dsonar.scanner.skipJreProvisioning=true \
             -Dsonar.branch.name=dev
 
   bench-publish:

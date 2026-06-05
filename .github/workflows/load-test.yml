@@ -2,7 +2,7 @@ name: Load Tests
 
 on:
   schedule:
-    - cron: '0 2 * * 0'  # Weekly on Sunday at 02:00 UTC
+    - cron: '0 5 * * *'  # Nightly at 05:00 UTC — clear of the 03:00 obs batch (terraform-drift/mutation/e2e-cross-browser) and the 04:00 pmat-trend (mutation runs to ~04:30, pmat-trend to ~04:40)
   workflow_dispatch:
     inputs:
       agents:
