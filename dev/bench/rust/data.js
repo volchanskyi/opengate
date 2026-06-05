@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780660452790,
+  "lastUpdate": 1780673410633,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16145,6 +16145,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 28.6332163419567,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "9dee57c5ee1282c7236ccc96200e9e203568d712",
+          "message": "fix(hooks): deterministic commit⇒push via git native post-commit hook\n\nThe auto-push lived in a Claude PostToolUse hook (posttooluse-git-commit-push.sh)\nwhich does NOT fire after a BACKGROUNDED `git commit` tool call — the tool\n\"returns\" at launch, before the commit object exists — so the push silently\nno-op'd whenever the commit ran in the background (the standard gauntlet-\nmonitoring flow). The previous commit (1f386d3) had to be pushed by hand for\nexactly this reason.\n\nReplace it with git's NATIVE post-commit hook, which git runs synchronously,\nin-process, after EVERY successful commit — foreground OR background — so the\npush is deterministic and independent of harness tool-return timing.\n\n- .claude/hooks/git-post-commit.sh — version-controlled push logic. Acts only on\n  branch dev; CI-guarded; re-entrancy-guarded; drops git's hook env (GIT_DIR\n  etc.) before pull/push; refreshes the refactor marker to HEAD and re-points it\n  after a rebase that moved HEAD; never fails the commit (always exit 0).\n- .claude/hooks/sessionstart-install-git-hooks.sh — SessionStart hook that\n  installs .git/hooks/post-commit (a thin shim exec-ing the logic above)\n  idempotently every session. Zero manual install (.git/hooks is local and\n  cannot be version-controlled directly, so it is regenerated each session).\n- .claude/settings.json — register the installer under SessionStart; remove the\n  PostToolUse auto-push registration.\n- Delete the superseded posttooluse-git-commit-push.sh.\n- scripts/tests/hooks.test.sh — +8 deterministic tests against a local bare\n  remote: installer writes an executable hook; commit on dev pushes + refreshes\n  the marker; non-dev branch skips; re-entrancy skips; CI skips; divergent\n  upstream rebases, re-points the marker, and pushes. 77 -> 85 tests.",
+          "timestamp": "2026-06-05T08:28:30-07:00",
+          "tree_id": "3696452b73ecc12279a019aca0fb56e8692a4c58",
+          "url": "https://github.com/volchanskyi/opengate/commit/9dee57c5ee1282c7236ccc96200e9e203568d712"
+        },
+        "date": 1780673410551,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.143201736781506,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.68104297742994,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 759.7727824264232,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.5841701658426,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.94321394477291,
             "unit": "ns/iter"
           }
         ]
