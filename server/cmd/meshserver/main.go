@@ -5,6 +5,7 @@ import (
 	"flag"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -34,6 +35,7 @@ func main() {
 	listen := flag.String("listen", ":8080", "HTTP listen address")
 	quicListen := flag.String("quic-listen", ":9090", "QUIC listen address for agent connections")
 	mpsListen := flag.String("mps-listen", ":4433", "MPS TLS listen address for Intel AMT CIRA connections")
+	internalListen := flag.String("internal-listen", ":9091", "internal cross-server relay listen address (or OPENGATE_INTERNAL_LISTEN env); never exposed via ingress")
 	dataDir := flag.String("data-dir", "./data", "directory for database and certificates")
 	databaseURL := flag.String("database-url", "", "PostgreSQL connection URL (or DATABASE_URL env); required")
 	jwtSecret := flag.String("jwt-secret", "", "JWT signing secret (or JWT_SECRET env)")
@@ -149,7 +151,20 @@ func main() {
 	// relay pool — hostname by default, overridable for k8s pods.
 	sessionRegistry, registryCloser := initSessionRegistry(logger)
 	defer func() { _ = registryCloser.Close() }()
-	agentRelay := relay.NewRelay(logger, relay.WithRegistry(sessionRegistry, resolveServerID()))
+	// Cross-server proxy (Phase 13b PR-C, ADR-033): when a distributed registry
+	// reports a foreign owner, the relay splices the session through the owner's
+	// internal listener instead of pairing locally. All pods are homogeneous, so
+	// the dialer reuses this node's internal port to reach any peer (pod IP via
+	// the Downward API → OPENGATE_SERVER_ID). The secret is optional
+	// defense-in-depth on top of the private-network boundary.
+	internalAddr := envOr("OPENGATE_INTERNAL_LISTEN", *internalListen)
+	serverID := resolveServerID()
+	proxySecret := os.Getenv("OPENGATE_PROXY_SECRET")
+	peerDialer := api.NewHTTPPeerDialer(serverID, portOf(internalAddr), proxySecret, logger)
+	agentRelay := relay.NewRelay(logger,
+		relay.WithRegistry(sessionRegistry, serverID),
+		relay.WithPeerDialer(peerDialer),
+	)
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -227,6 +242,14 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
+	// Internal cross-server relay listener (ADR-033): private port for proxied
+	// peer connections, never fronted by the public router/ingress.
+	internalSrv := &http.Server{
+		Addr:              internalAddr,
+		Handler:           api.NewInternalRelayServer(agentRelay, serverID, proxySecret, logger).Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
 	// Use a cancellable context for graceful shutdown of all servers
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -249,13 +272,8 @@ func main() {
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
-	go func() {
-		logger.Info("HTTP server starting", "addr", *listen)
-		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("HTTP server error", "error", err)
-			os.Exit(1)
-		}
-	}()
+	serveBackground("HTTP server", httpSrv, logger)
+	serveBackground("internal relay server", internalSrv, logger)
 
 	go func() {
 		logger.Info("agent QUIC server starting", "addr", *quicListen)
@@ -282,8 +300,42 @@ func main() {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP shutdown error", "error", err)
 	}
+	if err := internalSrv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("internal relay shutdown error", "error", err)
+	}
 
 	logger.Info("server stopped")
+}
+
+// envOr returns the environment value for key, or fallback when it is unset or
+// empty.
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// portOf extracts the port from a listen address, tolerating both the ":port"
+// and bare "port" forms. The HTTPPeerDialer reuses this port to reach
+// homogeneous peers on the flat cluster overlay (ADR-033).
+func portOf(addr string) string {
+	if _, port, err := net.SplitHostPort(addr); err == nil {
+		return port
+	}
+	return strings.TrimPrefix(addr, ":")
+}
+
+// serveBackground starts srv.ListenAndServe in a goroutine, logging startup and
+// treating any non-graceful failure as fatal (matching the public HTTP listener).
+func serveBackground(name string, srv *http.Server, logger *slog.Logger) {
+	go func() {
+		logger.Info(name+" starting", "addr", srv.Addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error(name+" error", "error", err)
+			os.Exit(1)
+		}
+	}()
 }
 
 // resolveServerID returns this node's stable identifier in the relay pool.
