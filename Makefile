@@ -270,6 +270,7 @@ sonar: sonar-coverage
 			-w /usr/src \
 			sonarsource/sonar-scanner-cli:latest \
 			-Dsonar.qualitygate.wait=true \
+			-Dsonar.scanner.skipJreProvisioning=true \
 			-Dsonar.branch.name=dev 2>&1); rc=$$?; \
 		printf '%s\n' "$$out"; \
 		[ $$rc -eq 0 ] && exit 0; \
@@ -289,6 +290,7 @@ sonar-quick:
 		-w /usr/src \
 		sonarsource/sonar-scanner-cli:latest \
 		-Dsonar.qualitygate.wait=true \
+		-Dsonar.scanner.skipJreProvisioning=true \
 		-Dsonar.branch.name=dev
 
 clean:

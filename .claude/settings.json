@@ -125,6 +125,14 @@
         "hooks": [
           {
             "type": "command",
+            "command": ".claude/hooks/pretooluse-gauntlet-nudge.sh",
+            "if": "Bash(git commit:*)",
+            "asyncRewake": true,
+            "rewakeSummary": "Gauntlet 10-min check-in",
+            "rewakeMessage": "Gauntlet 10-minute nudge:"
+          },
+          {
+            "type": "command",
             "command": ".claude/hooks/pretooluse-bash-source-write-guard.sh"
           },
           {
@@ -140,6 +148,19 @@
             "type": "command",
             "command": ".claude/hooks/pretooluse-git-push-guard.sh",
             "timeout": 600
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/posttooluse-git-commit-push.sh",
+            "if": "Bash(git commit:*)",
+            "timeout": 300
           }
         ]
       }
