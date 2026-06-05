@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780673410633,
+  "lastUpdate": 1780676873750,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16194,6 +16194,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.94321394477291,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "4c825704e6bbc7d238425c362d6165b20c8baa6b",
+          "message": "feat(relay): Phase 13b PR-D — make e2e-multiserver + cross-server load baseline\n\nTwo-replica + Redis + shared-Postgres e2e harness proving the cross-server\nrelay proxy (ADR-033) and the Redis-loss degraded-mode posture (ADR-023)\nend-to-end — behaviours the unit tests (miniredis, fake dialer, httptest)\ncould only approximate — plus a proxied-vs-direct relay latency baseline.\n\nHarness (host-side wire driver, gated OPENGATE_MULTISERVER_E2E=1):\n- deploy/docker-compose.multiserver.yml: server-a/server-b + redis + shared postgres\n- server/tests/e2e-multiserver/: three ADR-023 scenarios, all green —\n  * cross-server frame-flow through the proxy (agent@A, browser@B)\n  * owner-death: SIGKILL the owner so its affinity claim survives, then\n    same-token reclaim on the survivor once the TTL lapses (re-seeds the\n    row since the non-owner's proxy teardown fires OnSessionEnd)\n  * redis-death: opengate_registry_up to 0 + in-flight drains + new-session\n    WS 1013 refusal + recovery on Redis return\n- load mode (E2E_LOAD_SAMPLES): proxied vs direct p50 +70us / p99 +633us\n  (loopback) -> 30s DefaultAffinityTTL confirmed adequate, closing the\n  ADR-023 \"revisit TTL after first load test\" item\n\nPlumbing:\n- OPENGATE_DEGRADED_THRESHOLD / OPENGATE_AFFINITY_TTL env knobs via a new\n  buildRelayOptions helper (TDD'd; keeps main() complexity down)\n- make e2e-multiserver / load-test-multiserver + scripts/e2e-multiserver.sh\n  (build -> up --wait -> driver -> guaranteed teardown, logs on failure)\n- nightly .github/workflows/e2e-multiserver.yml (off the merge-to-main path)\n- docs/Testing.md + docs/Kubernetes.md\n- archived completed PR-B/PR-C/PR-D plans; phases/decisions pointers updated",
+          "timestamp": "2026-06-05T09:26:13-07:00",
+          "tree_id": "ae1081685ef5969d80a60b2f901eccd296535d0d",
+          "url": "https://github.com/volchanskyi/opengate/commit/4c825704e6bbc7d238425c362d6165b20c8baa6b"
+        },
+        "date": 1780676873671,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.064765211208787,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.44988438082513,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 769.7148904222357,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 321.8207117634254,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.856833407912628,
             "unit": "ns/iter"
           }
         ]
