@@ -152,22 +152,14 @@
         ]
       }
     ],
-    "PostToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/posttooluse-git-commit-push.sh",
-            "if": "Bash(git commit:*)",
-            "timeout": 300
-          }
-        ]
-      }
-    ],
     "SessionStart": [
       {
         "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/sessionstart-install-git-hooks.sh",
+            "timeout": 8
+          },
           {
             "type": "command",
             "command": ".claude/hooks/session-start-fetch.sh",

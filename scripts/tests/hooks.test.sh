@@ -76,6 +76,10 @@ cleanup_repo() {
     rm -rf "$REPO"
     REPO=""
   fi
+  if [ -n "${REMOTE:-}" ]; then
+    rm -rf "$REMOTE"
+    REMOTE=""
+  fi
   return 0
 }
 trap 'cleanup_repo' EXIT
@@ -660,6 +664,99 @@ assert_exit "Markdown mentioning skip words: allow" 0
 envelope="$(build_envelope Bash '{"command":"go test ./...","description":"run"}')"
 run_hook pretooluse-test-skip-guard.sh "$envelope"
 assert_exit "Bash tool: allow (not a write)" 0
+
+# -------------------------------------------------------------------
+# git-post-commit.sh (deterministic auto-push) + its SessionStart installer
+# -------------------------------------------------------------------
+echo
+echo "## git-post-commit.sh (auto-push) + installer"
+
+# Set up a dev-branch repo wired to a bare origin remote, with the git native
+# post-commit auto-push hook installed exactly as SessionStart installs it (copy
+# the logic into the repo, then run the real installer). Pushes are to a local
+# bare remote, so every test is deterministic and offline.
+REMOTE=""
+setup_autopush_repo() {
+  REPO="$(mktemp -d)"
+  REMOTE="$(mktemp -d)"
+  git init --quiet --bare --initial-branch=dev "$REMOTE"
+  cd "$REPO"
+  git init --quiet --initial-branch=dev
+  git config user.email "ivan.volchanskyi@gmail.com"
+  git config user.name "Ivan Volchanskyi"
+  git remote add origin "$REMOTE"
+  echo base > base.txt
+  git add base.txt
+  git commit --quiet -m init
+  git push --quiet -u origin dev
+  mkdir -p .claude/hooks
+  cp "$HOOKS_DIR/git-post-commit.sh" .claude/hooks/git-post-commit.sh
+  chmod +x .claude/hooks/git-post-commit.sh
+  "$HOOKS_DIR/sessionstart-install-git-hooks.sh" </dev/null >/dev/null 2>&1
+}
+remote_ref() { git --git-dir="$REMOTE" rev-parse "$1" 2>/dev/null || echo none; }
+
+# 1. Installer writes an executable post-commit hook.
+setup_autopush_repo
+if [ -x .git/hooks/post-commit ]; then pass "installer: .git/hooks/post-commit is executable"
+else fail "installer: .git/hooks/post-commit missing or not executable"; fi
+cleanup_repo
+
+# 2. Commit on dev auto-pushes AND refreshes the refactor marker to HEAD.
+setup_autopush_repo
+echo change > f.txt; git add f.txt; git commit -q -m "feat: x" >/dev/null 2>&1
+head="$(git rev-parse HEAD)"
+if [ "$(remote_ref dev)" = "$head" ]; then pass "auto-push: commit on dev pushed to origin/dev"
+else fail "auto-push: origin/dev=$(remote_ref dev) != HEAD=$head"; fi
+if [ "$(cat .claude/.markers/refactor.head 2>/dev/null || echo none)" = "$head" ]; then
+  pass "auto-push: refactor marker refreshed to HEAD"
+else fail "auto-push: marker != HEAD"; fi
+cleanup_repo
+
+# 3. Commit on a NON-dev branch does not push (skip).
+setup_autopush_repo
+git checkout --quiet -b feat/side
+echo s > s.txt; git add s.txt; git commit -q -m "feat: side" >/dev/null 2>&1
+if git --git-dir="$REMOTE" rev-parse --verify --quiet feat/side >/dev/null 2>&1; then
+  fail "auto-push: non-dev branch should NOT be pushed"
+else pass "auto-push: non-dev branch not pushed (skip)"; fi
+cleanup_repo
+
+# 4. Re-entrancy guard: OPENGATE_AUTOPUSH_ACTIVE set => no push.
+setup_autopush_repo
+before="$(remote_ref dev)"
+echo r > r.txt; git add r.txt
+OPENGATE_AUTOPUSH_ACTIVE=1 git commit -q -m "feat: r" >/dev/null 2>&1
+if [ "$(remote_ref dev)" = "$before" ]; then pass "auto-push: re-entrancy guard skips push"
+else fail "auto-push: re-entrancy guard failed (origin advanced)"; fi
+cleanup_repo
+
+# 5. CI guard: CI set => no push.
+setup_autopush_repo
+before="$(remote_ref dev)"
+echo c > c.txt; git add c.txt
+CI=1 git commit -q -m "feat: c" >/dev/null 2>&1
+if [ "$(remote_ref dev)" = "$before" ]; then pass "auto-push: CI guard skips push"
+else fail "auto-push: CI guard failed (origin advanced)"; fi
+cleanup_repo
+
+# 6. Divergent upstream: hook rebases, re-points the marker to the post-rebase
+#    HEAD, and pushes (the "flawless" marker-after-rebase path).
+setup_autopush_repo
+tmpclone="$(mktemp -d)"
+git clone --quiet "$REMOTE" "$tmpclone"
+( cd "$tmpclone" && git config user.email o@o && git config user.name o \
+    && echo other > other.txt && git add other.txt && git commit -q -m other \
+    && git push -q origin dev )
+rm -rf "$tmpclone"
+echo m > m.txt; git add m.txt; git commit -q -m "feat: m" >/dev/null 2>&1
+head="$(git rev-parse HEAD)"
+if [ "$(remote_ref dev)" = "$head" ]; then pass "auto-push: rebased onto divergent upstream and pushed"
+else fail "auto-push: divergent push failed (origin=$(remote_ref dev) HEAD=$head)"; fi
+if [ "$(cat .claude/.markers/refactor.head 2>/dev/null || echo none)" = "$head" ]; then
+  pass "auto-push: marker re-pointed to post-rebase HEAD"
+else fail "auto-push: marker stale after rebase"; fi
+cleanup_repo
 
 # -------------------------------------------------------------------
 # Summary
