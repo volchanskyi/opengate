@@ -125,6 +125,14 @@ type Relay struct {
 	serverID    string
 	affinityTTL time.Duration
 
+	// registryUnhealthySince holds the UnixNano timestamp of the first failed
+	// registry health probe in the current unhealthy streak, or 0 when healthy.
+	// Written by MonitorRegistryHealth, read locklessly by Register's degraded
+	// gate and the opengate_registry_up gauge (RegistryUp). degradedThreshold is
+	// how long that streak must last before Register fails closed.
+	registryUnhealthySince atomic.Int64
+	degradedThreshold      time.Duration
+
 	// peerDialer, when set, makes the relay splice foreign-owned sessions across
 	// servers instead of pairing them locally (Phase 13b PR-C, ADR-033). Nil in
 	// single-server deployments.
@@ -171,10 +179,11 @@ func WithAffinityTTL(ttl time.Duration) Option {
 // to inject a distributed adapter.
 func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
 	r := &Relay{
-		logger:      logger,
-		registry:    NewInProcessRegistry(),
-		serverID:    defaultServerID,
-		affinityTTL: DefaultAffinityTTL,
+		logger:            logger,
+		registry:          NewInProcessRegistry(),
+		serverID:          defaultServerID,
+		affinityTTL:       DefaultAffinityTTL,
+		degradedThreshold: DefaultDegradedThreshold,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -187,6 +196,16 @@ func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
 // reports a foreign owner and a PeerDialer is set, the side is instead spliced to
 // that owner across servers (Phase 13b PR-C, ADR-033).
 func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn Conn, side Side) error {
+	// Degraded-mode gate (ADR-023 recovery posture): once the session registry
+	// has been unreachable past degradedThreshold, refuse to start a *new* session
+	// — its affinity can't be claimed, so a cross-server pair could silently
+	// split-brain. A session already in flight (entry present) is unaffected: its
+	// second side still pairs and existing traffic continues. InProcessRegistry
+	// never reports unhealthy, so single-server deployments never reach here.
+	if _, inFlight := r.sessions.Load(token); !inFlight && r.RegistryDegraded() {
+		return ErrRegistryDegraded
+	}
+
 	val, _ := r.sessions.LoadOrStore(token, &session{
 		ready: make(chan struct{}),
 	})

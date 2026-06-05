@@ -101,7 +101,7 @@ All monitoring containers have memory and CPU limits:
 
 **VictoriaMetrics** (:8428) — Time-series metrics database. Pulls (scrapes) numeric metrics from three targets every 15s: OpenGate server at `:8080/metrics` (HTTP rates, latencies, connected agents, relay sessions, DB stats, Go runtime), Node Exporter at `:9100` (host CPU, memory, disk, network), and Postgres Exporter at `:9187` (connections, transactions, cache hit ratio, database size). Also scrapes itself every 30s for self-monitoring. 30-day retention.
 
-**Grafana** (:3000) — Visualization and alerting engine. Queries VictoriaMetrics (PromQL) and Loki (LogQL) to render three provisioned dashboards (OpenGate Overview, DB Performance, and PostgreSQL). Runs 6 alert rules evaluated every 1m against VictoriaMetrics data. Sends alert notifications to Telegram. Accessed via SSH tunnel only (localhost-bound, no Caddy proxy).
+**Grafana** (:3000) — Visualization and alerting engine. Queries VictoriaMetrics (PromQL) and Loki (LogQL) to render three provisioned dashboards (OpenGate Overview, DB Performance, and PostgreSQL). Runs 7 alert rules evaluated every 1m against VictoriaMetrics data. Sends alert notifications to Telegram. Accessed via SSH tunnel only (localhost-bound, no Caddy proxy).
 
 **Loki** (:3100) — Log aggregation database. Receives log streams pushed by Promtail and stores them with 14-day retention. Grafana queries Loki to display and search container logs. Uses TSDB schema (v13) with filesystem storage.
 
@@ -162,6 +162,7 @@ The server exposes a `/metrics` endpoint on port `:8080` (same router as the RES
 | `opengate_http_requests_total` | Counter | `method`, `route`, `status_code` | HTTP middleware |
 | `opengate_http_request_duration_seconds` | Histogram | `method`, `route` | HTTP middleware |
 | `opengate_relay_active_sessions` | Gauge | — | Relay session count |
+| `opengate_registry_up` | Gauge | — | Relay session-registry (Redis) reachability (1 up / 0 down) |
 | `opengate_agents_connected` | Gauge | — | Connected agent count |
 | `opengate_mps_connected_devices` | Gauge | — | MPS device count |
 | `opengate_signaling_upgrades_total` | Counter | `result` | Signaling tracker |
@@ -194,7 +195,7 @@ Grafana Unified Alerting routes alerts to Telegram:
 
 | Severity | Channel | Pending | Repeat | Examples |
 |----------|---------|---------|--------|----------|
-| Critical (P1) | Telegram | 1 min | 1 hour | Health check failing, disk >90% |
+| Critical (P1) | Telegram | 1 min | 1 hour | Health check failing, disk >90%, session registry unreachable |
 | Warning (P2) | Telegram | 5 min | 4 hours | p99 latency >2s, error rate >5%, disk >75%, memory >80% |
 
 Alert rules are provisioned from `deploy/grafana/provisioning/alerting/alert-rules.yml`.

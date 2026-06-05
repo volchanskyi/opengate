@@ -261,8 +261,12 @@ func main() {
 		ConnectedMPSDevices: amtSvc.ConnectedDeviceCount,
 		SignalingSuccesses:  sigTracker.SuccessCount,
 		SignalingFailures:   sigTracker.FailureCount,
+		RegistryUp:          agentRelay.RegistryUp,
 	}, 15*time.Second)
 	go appmetrics.StartDBSizeUpdater(ctx, appMetrics, store, logger, 60*time.Second)
+	// Probe the session registry every 5s so the relay can drain new sessions
+	// (degraded mode) and the opengate_registry_up gauge stays fresh (ADR-023).
+	go agentRelay.MonitorRegistryHealth(ctx, 5*time.Second)
 
 	// Periodically sync agent manifests from GitHub releases (default: every hour).
 	if githubRepo != "" {

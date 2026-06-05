@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -509,6 +510,114 @@ func TestRelay_PingRegistry(t *testing.T) {
 	down := errors.New("registry unreachable")
 	degraded := NewRelay(slog.Default(), WithRegistry(&stubRegistry{pingErr: down}, testServerID))
 	require.ErrorIs(t, degraded.PingRegistry(context.Background()), down)
+}
+
+// pingToggleRegistry is an in-process registry whose Ping health can be flipped
+// atomically from a test goroutine while the health monitor reads it — a plain
+// mutable field would race the monitor. It embeds InProcessRegistry for the
+// other five methods.
+type pingToggleRegistry struct {
+	*InProcessRegistry
+	healthy atomic.Bool
+}
+
+func (p *pingToggleRegistry) Ping(context.Context) error {
+	if p.healthy.Load() {
+		return nil
+	}
+	return errors.New("registry unreachable")
+}
+
+// TestRelay_RegistryHealth_DegradedAfterThreshold pins the degraded-mode state
+// machine (ADR-023 recovery posture): a first failure flips RegistryUp to false
+// immediately, but the relay only enters degraded mode once the outage exceeds
+// the threshold; the window is measured from the first failure; recovery clears
+// both. Driven with explicit timestamps so it is fully deterministic.
+func TestRelay_RegistryHealth_DegradedAfterThreshold(t *testing.T) {
+	r := NewRelay(slog.Default(), WithRegistry(&stubRegistry{}, testServerID))
+	t0 := time.Now()
+
+	// Healthy by default — before any probe.
+	assert.True(t, r.RegistryUp())
+	assert.False(t, r.registryDegraded(t0))
+
+	// First failure: down now, but not yet degraded.
+	r.observeRegistryHealth(false, t0)
+	assert.False(t, r.RegistryUp())
+	assert.False(t, r.registryDegraded(t0))
+	// Boundary is exclusive (>, not >=): exactly at the threshold is not degraded.
+	assert.False(t, r.registryDegraded(t0.Add(DefaultDegradedThreshold)))
+	assert.True(t, r.registryDegraded(t0.Add(DefaultDegradedThreshold+time.Nanosecond)))
+
+	// A later failure keeps the original first-failure time — the window does not
+	// reset on every probe.
+	r.observeRegistryHealth(false, t0.Add(10*time.Second))
+	assert.True(t, r.registryDegraded(t0.Add(DefaultDegradedThreshold+time.Nanosecond)))
+
+	// Recovery clears both immediately.
+	r.observeRegistryHealth(true, t0.Add(40*time.Second))
+	assert.True(t, r.RegistryUp())
+	assert.False(t, r.registryDegraded(t0.Add(100*time.Second)))
+}
+
+// TestRelay_Register_RefusesWhenDegraded asserts a brand-new session is refused
+// with ErrRegistryDegraded once the registry outage exceeds the threshold, and
+// no active-session slot is taken. WithDegradedThreshold(0) + a backdated failure
+// makes the gate trip deterministically without a sleep.
+func TestRelay_Register_RefusesWhenDegraded(t *testing.T) {
+	r := NewRelay(slog.Default(), WithRegistry(&stubRegistry{}, testServerID), WithDegradedThreshold(0))
+	r.observeRegistryHealth(false, time.Now().Add(-time.Second))
+	require.True(t, r.RegistryDegraded())
+
+	_, conn := newMockConnPair(t)
+	err := r.Register(context.Background(), protocol.GenerateSessionToken(), conn, SideAgent)
+	require.ErrorIs(t, err, ErrRegistryDegraded)
+	assert.Equal(t, 0, r.ActiveSessionCount())
+}
+
+// TestRelay_Register_DegradedAllowsInFlightSecondSide asserts degraded mode only
+// refuses *new* sessions: an in-flight session (first side already registered)
+// still pairs its second side so existing traffic is never interrupted.
+func TestRelay_Register_DegradedAllowsInFlightSecondSide(t *testing.T) {
+	r := NewRelay(slog.Default(), WithRegistry(&stubRegistry{}, testServerID), WithDegradedThreshold(0))
+	token := protocol.GenerateSessionToken()
+	ctx := context.Background()
+
+	// First side registers while the registry is healthy.
+	_, agentRelay := newMockConnPair(t)
+	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
+
+	// Registry goes degraded.
+	r.observeRegistryHealth(false, time.Now().Add(-time.Second))
+	require.True(t, r.RegistryDegraded())
+
+	// A brand-new session is refused...
+	_, other := newMockConnPair(t)
+	require.ErrorIs(t, r.Register(ctx, protocol.GenerateSessionToken(), other, SideAgent), ErrRegistryDegraded)
+
+	// ...but the in-flight session's second side still pairs and pipes.
+	_, browserRelay := newMockConnPair(t)
+	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
+	require.NoError(t, r.WaitForPeer(ctx, token))
+}
+
+// TestRelay_MonitorRegistryHealth_FlipsAndRecovers drives the background monitor
+// against a toggleable registry: a failing probe flips RegistryUp to false, and
+// once the registry recovers a later probe flips it back to true. No fixed sleep
+// — require.Eventually waits on the monitor goroutine.
+func TestRelay_MonitorRegistryHealth_FlipsAndRecovers(t *testing.T) {
+	reg := &pingToggleRegistry{InProcessRegistry: NewInProcessRegistry()} // starts unhealthy
+	r := NewRelay(slog.Default(), WithRegistry(reg, testServerID))
+	require.True(t, r.RegistryUp()) // healthy until the first probe runs
+
+	go r.MonitorRegistryHealth(t.Context(), 5*time.Millisecond)
+
+	require.Eventually(t, func() bool { return !r.RegistryUp() }, time.Second, 5*time.Millisecond,
+		"monitor should mark the registry down after a failed probe")
+
+	reg.healthy.Store(true)
+	require.Eventually(t, func() bool { return r.RegistryUp() }, time.Second, 5*time.Millisecond,
+		"monitor should mark the registry back up after it recovers")
 }
 
 // TestRelay_ForeignOwner_Logged covers the cross-server-ownership warn path:

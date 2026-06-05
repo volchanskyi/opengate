@@ -75,6 +75,18 @@ func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn r
 	tp := protocol.RedactToken(token)
 
 	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {
+		// Degraded mode (ADR-023): the session registry has been unreachable past
+		// the threshold, so new sessions are refused. Signal the client to retry
+		// with 1013 (Try Again Later) rather than a generic error — in-flight
+		// sessions are unaffected, and a reconnect may land on a healthy server.
+		if errors.Is(err, relay.ErrRegistryDegraded) {
+			// Redact inline at the log site (ADR-027 pen-test gate), matching the
+			// convention in relay.go — the gate requires the redaction call to be
+			// visible here, not a pre-redacted variable.
+			s.logger.Warn("relay refused new session: registry degraded", "token_prefix", protocol.RedactToken(token))
+			_ = wsConn.Close(websocket.StatusTryAgainLater, "registry degraded")
+			return
+		}
 		s.logger.Error("relay register failed", "error", err, "token_prefix", tp)
 		_ = wsConn.Close(websocket.StatusInternalError, "relay error")
 		return
