@@ -244,6 +244,14 @@ func (s *Server) routes() {
 		r.Handle("/metrics", promhttp.HandlerFor(s.metricsRegistry, promhttp.HandlerOpts{}))
 	}
 
+	// Liveness probe — reports only that the process is up. Deliberately
+	// dependency-free: a Postgres or Redis blip must NOT restart the pod, which
+	// is readiness' job (/api/v1/health, GetHealth) (ADR-023 recovery posture).
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
 	strictHandler := NewStrictHandlerWithOptions(s, []StrictMiddlewareFunc{requestContextMiddleware}, StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			s.logger.Warn("request validation error", "error", err, "path", r.URL.Path)

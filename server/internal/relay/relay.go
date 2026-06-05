@@ -413,6 +413,14 @@ func (r *Relay) ActiveSessionCount() int {
 	return int(r.count.Load())
 }
 
+// PingRegistry reports whether the relay's SessionRegistry backing store is
+// reachable. The readiness probe uses it to drain a pod that has lost its
+// distributed store (ADR-023 recovery posture). Always nil with the in-process
+// adapter.
+func (r *Relay) PingRegistry(ctx context.Context) error {
+	return r.registry.Ping(ctx)
+}
+
 // copyMessages reads complete messages from src and writes them to dst,
 // preserving message boundaries. Returns when either side errors.
 func (r *Relay) copyMessages(dst, src Conn, direction string, tp string) {

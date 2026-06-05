@@ -30,8 +30,14 @@ const (
 
 func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfig) {
 	t.Helper()
+	return newRelayTestServerWith(t, relay.NewRelay(slog.Default()))
+}
+
+// newRelayTestServerWith is newRelayTestServer with a caller-supplied relay, so
+// tests can inject a relay backed by a degraded registry (readiness probe).
+func newRelayTestServerWith(t *testing.T, r *relay.Relay) (*httptest.Server, *Server, *auth.JWTConfig) {
+	t.Helper()
 	store := testutil.NewTestStore(t)
-	r := relay.NewRelay(slog.Default())
 	cfg := &auth.JWTConfig{
 		Secret:   "test-secret-key-at-least-32-bytes!",
 		Issuer:   "opengate-test",
@@ -84,6 +90,20 @@ func waitForRelayWired(t *testing.T, ctx context.Context, srv *Server, token pro
 	}, 3*time.Second, 25*time.Millisecond, "relay should wire both sides of session %s", token)
 }
 
+// seedRelaySession seeds a user → group → device → agent session and returns the
+// session token plus a browser JWT for that user — the common fixture for the
+// relay WebSocket subtests.
+func seedRelaySession(t *testing.T, ctx context.Context, srv *Server, cfg *auth.JWTConfig) (token, jwtToken string) {
+	t.Helper()
+	user := testutil.SeedUser(t, ctx, srv.store)
+	group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
+	device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
+	jwt, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	require.NoError(t, err)
+	return sess.Token, jwt
+}
+
 func TestRelayWebSocket(t *testing.T) {
 	t.Parallel()
 	t.Run("token_not_in_db", func(t *testing.T) {
@@ -103,17 +123,13 @@ func TestRelayWebSocket(t *testing.T) {
 	})
 
 	t.Run("invalid_side_param", func(t *testing.T) {
-		ts, srv, _ := newRelayTestServer(t)
+		ts, srv, cfg := newRelayTestServer(t)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		// Seed a valid session
-		user := testutil.SeedUser(t, ctx, srv.store)
-		group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
-		device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
-		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
+		token, _ := seedRelaySession(t, ctx, srv, cfg)
 
-		wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + testPathWSRelay + sess.Token + "?side=invalid"
+		wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + testPathWSRelay + token + "?side=invalid"
 		conn, _, err := websocket.Dial(ctx, wsURL, nil)
 		if err != nil {
 			return
@@ -127,30 +143,24 @@ func TestRelayWebSocket(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		user := testutil.SeedUser(t, ctx, srv.store)
-		group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
-		device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
-		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
-
-		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
-		require.NoError(t, err)
+		token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
 
 		// Agent connects
 		agentHeaders := http.Header{}
-		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideAgent, agentHeaders)
+		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, agentHeaders)
 		defer agentConn.Close(websocket.StatusNormalClosure, "")
 
 		// Browser connects with JWT
 		browserHeaders := http.Header{}
 		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
-		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideBrowser, browserHeaders)
+		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
 		// Wait for relay pipe to start (both sides registered).
-		waitForRelayWired(t, ctx, srv, protocol.SessionToken(sess.Token))
+		waitForRelayWired(t, ctx, srv, protocol.SessionToken(token))
 
 		// Agent sends "hello" → browser receives it
-		err = agentConn.Write(ctx, websocket.MessageBinary, []byte("hello"))
+		err := agentConn.Write(ctx, websocket.MessageBinary, []byte("hello"))
 		require.NoError(t, err)
 
 		_, data, err := browserConn.Read(ctx)
@@ -171,22 +181,16 @@ func TestRelayWebSocket(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		user := testutil.SeedUser(t, ctx, srv.store)
-		group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
-		device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
-		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
+		token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
 
-		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
-		require.NoError(t, err)
-
-		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideAgent, nil)
+		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, nil)
 
 		browserHeaders := http.Header{}
 		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
-		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideBrowser, browserHeaders)
+		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
 
 		// Wait for relay pipe to start (both sides registered).
-		waitForRelayWired(t, ctx, srv, protocol.SessionToken(sess.Token))
+		waitForRelayWired(t, ctx, srv, protocol.SessionToken(token))
 
 		// Disconnect agent
 		agentConn.Close(websocket.StatusNormalClosure, "bye")
@@ -194,7 +198,7 @@ func TestRelayWebSocket(t *testing.T) {
 		// Browser should get an error on read within reasonable time
 		readCtx, readCancel := context.WithTimeout(ctx, 3*time.Second)
 		defer readCancel()
-		_, _, err = browserConn.Read(readCtx)
+		_, _, err := browserConn.Read(readCtx)
 		assert.Error(t, err)
 	})
 
@@ -203,26 +207,20 @@ func TestRelayWebSocket(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		user := testutil.SeedUser(t, ctx, srv.store)
-		group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
-		device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
-		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
-
-		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
-		require.NoError(t, err)
+		token, jwtToken := seedRelaySession(t, ctx, srv, cfg)
 
 		// Agent connects
-		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+testSideAgent, nil)
+		agentConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+testSideAgent, nil)
 		defer agentConn.Close(websocket.StatusNormalClosure, "")
 
 		// Browser connects with JWT via query param (no Authorization header)
-		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+sess.Token+"?side=browser&auth="+jwtToken, nil)
+		browserConn := dialWS(t, ctx, ts.URL, testPathWSRelay+token+"?side=browser&auth="+jwtToken, nil)
 		defer browserConn.Close(websocket.StatusNormalClosure, "")
 
-		waitForRelayWired(t, ctx, srv, protocol.SessionToken(sess.Token))
+		waitForRelayWired(t, ctx, srv, protocol.SessionToken(token))
 
 		// Verify data flows
-		err = agentConn.Write(ctx, websocket.MessageBinary, []byte("from-agent"))
+		err := agentConn.Write(ctx, websocket.MessageBinary, []byte("from-agent"))
 		require.NoError(t, err)
 
 		_, data, err := browserConn.Read(ctx)

@@ -128,3 +128,9 @@ func (r *InProcessRegistry) removeSubscriber(target chan SessionEvent) {
 		}
 	}
 }
+
+// Ping reports the in-process registry as always reachable — it keeps state in
+// local memory with no external dependency to lose.
+func (r *InProcessRegistry) Ping(context.Context) error {
+	return nil
+}

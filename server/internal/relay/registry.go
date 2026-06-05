@@ -89,4 +89,10 @@ type SessionRegistry interface {
 	// PublishEvent broadcasts a session-lifecycle event to subscribers.
 	// Returns no error when there are no subscribers.
 	PublishEvent(ctx context.Context, evt SessionEvent) error
+
+	// Ping reports whether the registry's backing store is reachable. It returns
+	// nil when healthy and an error otherwise; the readiness probe uses it to
+	// drain a pod that has lost its distributed store (ADR-023 recovery posture).
+	// The in-process adapter has no external dependency and always returns nil.
+	Ping(ctx context.Context) error
 }
