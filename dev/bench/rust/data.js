@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780655025951,
+  "lastUpdate": 1780660452790,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16096,6 +16096,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.91419822608123,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "1f386d3ff0bae7cff89c47dd6476ff59bc77b160",
+          "message": "feat(relay): Phase 13b PR-C C3b/c — degraded-mode refuse + registry_up metric + Telegram alert (ADR-023)\n\nComplete PR-C's ADR-023 recovery posture: when the session registry (Redis)\nstays unreachable past 30s, the relay enters degraded mode and refuses NEW\nsessions (fail closed) while in-flight sessions drain. C3a already drained the\npod via readiness; C3b/c add the relay-level refuse, the metric, and the alert.\n\n- relay: a background MonitorRegistryHealth probe tracks registry health in the\n  new server/internal/relay/health.go (extracted from relay.go to keep both\n  files >= B+). Register fails closed with ErrRegistryDegraded once the outage\n  exceeds DefaultDegradedThreshold (30s); a session already in flight (entry\n  present) still pairs its second side. InProcessRegistry never reports\n  unhealthy, so single-server deployments never degrade.\n- api: handleRelayWebSocket maps ErrRegistryDegraded to WebSocket close 1013\n  (Try Again Later) so the client retries rather than seeing a generic error.\n- metrics: new opengate_registry_up gauge (1 up / 0 down) flows through the\n  existing GaugeSource/StartGaugeUpdater; main.go starts the 5s monitor and\n  wires the gauge source.\n- alerting: new Grafana session-registry-down critical rule (Telegram) firing\n  on opengate_registry_up == 0 for 30s.\n- docs/phases: Monitoring.md gains the metric row + alert count; phases.md marks\n  PR-C complete (C1-C3) with PR-D/E remaining.\n\nNo new ADR — ADR-031 records that C3's degraded-mode shape is already fixed by\nADR-023 (immutable). Deterministic tests (miniredis/httptest, no Docker): health\nstate machine + exclusive boundary, Register refuse + in-flight allowance,\nmonitor flip/recover, gauge up/down wiring, handler 1013 close code.\n\nAlso bundled (separate concerns, committed together per request):\n- hooks: pretooluse-git-push-guard now requires the /refactor marker for ANY\n  commit since origin/dev — no doc-only / CI-only exemption (a push is a push) —\n  plus the matching rule text and hooks.test.sh cases.\n- plans: service-extraction-roadmap.md records the Balanced-Coupling lens for\n  future service extractions.",
+          "timestamp": "2026-06-05T04:42:09-07:00",
+          "tree_id": "57ca2ce9a7b6258e4bf718fa1d539b96b4756087",
+          "url": "https://github.com/volchanskyi/opengate/commit/1f386d3ff0bae7cff89c47dd6476ff59bc77b160"
+        },
+        "date": 1780660452711,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.354261651010837,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.721349742866433,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 763.3533281769398,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.4642432932339,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 28.6332163419567,
             "unit": "ns/iter"
           }
         ]
