@@ -1,6 +1,6 @@
 # Phase 13b PR-C — RedisRegistry + cross-server proxy
 
-**Created:** 2026-06-02 · **Parent:** [phase-13b-multiserver-scaling.md](phase-13b-multiserver-scaling.md) §4 PR-C · **Status:** In progress
+**Created:** 2026-06-02 · **Parent:** [phase-13b-multiserver-scaling.md](phase-13b-multiserver-scaling.md) §4 PR-C · **Status:** Completed (C1–C3 landed). Archived 2026-06-05.
 
 ## Context
 

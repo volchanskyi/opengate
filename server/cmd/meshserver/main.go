@@ -161,10 +161,7 @@ func main() {
 	serverID := resolveServerID()
 	proxySecret := os.Getenv("OPENGATE_PROXY_SECRET")
 	peerDialer := api.NewHTTPPeerDialer(serverID, portOf(internalAddr), proxySecret, logger)
-	agentRelay := relay.NewRelay(logger,
-		relay.WithRegistry(sessionRegistry, serverID),
-		relay.WithPeerDialer(peerDialer),
-	)
+	agentRelay := relay.NewRelay(logger, buildRelayOptions(sessionRegistry, serverID, peerDialer, logger)...)
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -354,6 +351,46 @@ func resolveServerID() string {
 		return hostname
 	}
 	return "meshserver"
+}
+
+// parsePositiveDuration interprets an optional Go-duration override (e.g. from
+// OPENGATE_DEGRADED_THRESHOLD or OPENGATE_AFFINITY_TTL). It returns ok=true only
+// for a parseable, strictly-positive duration; an empty, malformed, or
+// non-positive value leaves the relay default in place (ok=false). These
+// overrides exist so the multiserver e2e can shorten the 30s timers (degraded
+// mode, affinity reclaim) without waiting them out in real time.
+func parsePositiveDuration(v string) (time.Duration, bool) {
+	if v == "" {
+		return 0, false
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0, false
+	}
+	return d, true
+}
+
+// buildRelayOptions assembles the relay.Option set for the agent relay: the
+// session-registry + serverID binding, the cross-server peer dialer, and
+// optional timer overrides — OPENGATE_DEGRADED_THRESHOLD (how long the registry
+// must be unreachable before new sessions are refused) and OPENGATE_AFFINITY_TTL
+// (how long a dead owner's affinity claim survives before reclaim). Both are used
+// by the multiserver e2e to trip the relevant behavior quickly. Keeping this out
+// of main keeps the entry point's cognitive complexity down.
+func buildRelayOptions(reg relay.SessionRegistry, serverID string, dialer relay.PeerDialer, logger *slog.Logger) []relay.Option {
+	opts := []relay.Option{
+		relay.WithRegistry(reg, serverID),
+		relay.WithPeerDialer(dialer),
+	}
+	if d, ok := parsePositiveDuration(os.Getenv("OPENGATE_DEGRADED_THRESHOLD")); ok {
+		opts = append(opts, relay.WithDegradedThreshold(d))
+		logger.Info("degraded-mode threshold overridden", "threshold", d.String())
+	}
+	if d, ok := parsePositiveDuration(os.Getenv("OPENGATE_AFFINITY_TTL")); ok {
+		opts = append(opts, relay.WithAffinityTTL(d))
+		logger.Info("affinity TTL overridden", "ttl", d.String())
+	}
+	return opts
 }
 
 // initSessionRegistry builds the SessionRegistry adapter selected by

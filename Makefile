@@ -1,4 +1,4 @@
-.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick \
+.PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e e2e-multiserver load-test load-test-quic load-test-multiserver sonar sonar-coverage sonar-quick \
 	mutate mutate-rust mutate-go mutate-web taint-go taint-web pentest-review dead-code \
 	terraform-test terraform-drift \
 	secrets-scan iac-policy iac-policy-fix iac-policy-custom lint-dockerfile lint-k8s \
@@ -248,12 +248,23 @@ e2e:
 	cd web && npx playwright test
 	cd deploy && docker compose -f docker-compose.test.yml down -v
 
+# Multiserver e2e (Phase 13b PR-D): two server replicas + Redis + shared Postgres,
+# exercising the cross-server proxy and Redis-loss degraded mode. The script owns
+# the full lifecycle (build → up --wait → driver → guaranteed teardown).
+e2e-multiserver:
+	./scripts/e2e-multiserver.sh
+
 load-test:
 	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/api-baseline.js
 	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/relay-throughput.js
 
 load-test-quic:
 	cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
+
+# Proxied-vs-direct relay latency baseline on the multiserver topology (Phase 13b
+# PR-D). Reuses the e2e stack + harness; E2E_LOAD_SAMPLES switches it to load mode.
+load-test-multiserver:
+	E2E_LOAD_SAMPLES=200 ./scripts/e2e-multiserver.sh
 
 sonar-coverage:
 	cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
