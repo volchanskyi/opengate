@@ -38,7 +38,7 @@ Containerize the stack onto k8s. **Key open decision (§6): OKE vs self-managed 
 ### PR-C — `RedisRegistry` adapter + cross-server proxy (the ADR-023 Phase-13b PR)
 Implement `RedisRegistry` satisfying `SessionRegistry`: `SETNX`-based `ClaimAffinity` with TTL, Pub/Sub for `Publish/Subscribe`, metadata in Redis hashes. Wire the **cross-server WebSocket proxy** (losing-affinity server proxies frames to the owner; `X-OpenGate-Proxy: serverID` header; same `relay.Conn` wire format). Backend selected by `REGISTRY_BACKEND=redis|inprocess` (config swap, per ADR-023 §"affinity routing"). Add a Redis pod/Service to `deploy/k8s/`. **This is the one PR ADR-023 scoped the extraction to.**
 
-### PR-D — `make e2e-multiserver` + baseline load test
+### PR-D — `make e2e-multiserver` + baseline load test  ✅ landed 2026-06-05 (see archived [phase-13b-pr-d-e2e-multiserver.md](archive/phase-13b-pr-d-e2e-multiserver.md))
 Per ADR-023 §"Phase 13b integration test": two server containers + one Redis + one shared Postgres. Three scenarios — (1) A-agent/B-browser frames flow; (2) owner killed → reclaim within TTL → both reconnect; (3) Redis killed → in-flight drains, new sessions rejected, **Telegram alert fires**. Gated behind `OPENGATE_MULTISERVER_E2E=1` so it stays out of the default precommit run. Re-run the k6 load test (Phase 12) against the 2-server cluster for a latency/throughput baseline; record the TTL tuning result.
 
 ### PR-E — scale-out policy

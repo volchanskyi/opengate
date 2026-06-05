@@ -1,0 +1,35 @@
+name: E2E Multiserver
+
+# Phase 13b PR-D: brings up two server replicas + Redis + shared Postgres and runs
+# the cross-server-proxy / Redis-loss-degraded-mode scenarios (ADR-031 / ADR-033 /
+# ADR-023). Gated behind workflow_dispatch + a nightly cron (distinct hour from the
+# 03:00 mutation/cross-browser/drift jobs and the 04:00 pmat-trend job) so PR CI
+# stays fast and this never blocks merges — it is NOT in merge-to-main.needs[].
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * *'
+
+permissions: {}
+
+jobs:
+  e2e-multiserver:
+    name: E2E Multiserver (2 replicas + Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+      - name: Run multiserver e2e
+        run: make e2e-multiserver
+      - name: Run proxied-vs-direct latency baseline
+        # Informational: records the cross-server hop cost. Never fails the job —
+        # a regression here is reviewed via the logged p50/p99 table, not gated.
+        if: always()
+        run: make load-test-multiserver || true

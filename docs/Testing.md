@@ -242,6 +242,25 @@ cd web && npx playwright test
 cd deploy && docker compose -f docker-compose.test.yml down -v
 ```
 
+## Multiserver E2E (Phase 13b PR-D)
+
+The multiserver harness proves the cross-server relay proxy ([ADR-033](./Architecture-Decision-Records.md)) and the Redis-loss degraded-mode posture ([ADR-023](./Architecture-Decision-Records.md)) end-to-end against **two real server replicas** sharing one Redis and one Postgres — behaviours that unit tests (miniredis, fake dialer, `httptest`) can only approximate. The topology is `deploy/docker-compose.multiserver.yml`; the host-side wire driver is `server/tests/e2e-multiserver/`.
+
+It is a `main` package (not `*_test.go`), so it stays out of `go test ./...` and is driven only by the Makefile target — mirroring how Playwright E2E lives outside the unit suite. The driver refuses to run unless `OPENGATE_MULTISERVER_E2E=1` (set by the orchestration script).
+
+| Scenario | Asserts |
+|----------|---------|
+| `cross-server-frame-flow` | Agent on replica A + browser on replica B relay bytes both directions through the affinity owner's internal listener |
+| `owner-death-ttl-reclaim` | SIGKILL the affinity owner mid-session; a same-token pair reclaims on the surviving replica once the stale affinity claim's TTL lapses (reconnect-with-fresh-token contract — no live migration) |
+| `redis-death-degraded-refuse` | On Redis loss the `opengate_registry_up` gauge flips to 0 (the alert signal), the in-flight session keeps relaying (drains), new sessions are refused with WebSocket close `1013`, and the system recovers when Redis returns |
+
+```bash
+# Build + up --wait + run all three scenarios + guaranteed teardown
+make e2e-multiserver
+```
+
+`scripts/e2e-multiserver.sh` owns the lifecycle (it shortens the relay's 30s degraded/affinity timers via `OPENGATE_DEGRADED_THRESHOLD` / `OPENGATE_AFFINITY_TTL` env so the fault scenarios run in seconds, and dumps container logs on failure before teardown). CI runs it nightly via `.github/workflows/e2e-multiserver.yml` (`workflow_dispatch` + cron) — **not** on the `merge-to-main` path.
+
 ## Security & Middleware Tests
 
 The codebase audit added targeted tests for security hardening:
@@ -345,11 +364,26 @@ cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
 cd server && go run ./tests/loadtest/ -agents=500 -addr=staging.example.com:9090
 ```
 
+### Multiserver relay latency baseline (Phase 13b PR-D)
+
+`make load-test-multiserver` reuses the multiserver topology and harness (`E2E_LOAD_SAMPLES` switches the driver into load mode) to measure steady-state **one-way relay latency** for two routing modes, quantifying the extra intra-cluster hop the cross-server proxy adds — the answer to [ADR-023](./Architecture-Decision-Records.md)'s "revisit the affinity TTL after the first load test".
+
+First baseline (2026-06-05, single-host loopback, 200 samples each — network RTT is ~0, so these isolate the relay/proxy software cost, not real inter-node latency):
+
+| Mode | p50 | p95 | p99 |
+|------|-----|-----|-----|
+| direct (same replica, zero-hop) | 253µs | 390µs | 580µs |
+| proxied (cross replica) | 324µs | 627µs | 1.21ms |
+| **proxied − direct delta** | **+70µs** | — | **+633µs** |
+
+**TTL verdict:** the proxy software overhead is sub-millisecond and the proxied p99 (~1.2ms) sits far under the `relay-throughput.js` 50ms threshold, so the 30s `DefaultAffinityTTL` needs no change — it is orders of magnitude larger than any per-frame proxy cost, and the `owner-death-ttl-reclaim` scenario confirms reclaim works correctly. On a real multi-node cluster the proxied delta grows by one intra-VCN network RTT (same-region, typically sub-millisecond), which remains well within budget.
+
 ### CI integration
 
 - **E2E** runs on every push and gates `merge-to-main` (includes Lighthouse CI audits)
 - **Bundle size** runs on every push and gates `merge-to-main` (size-limit gzip check)
 - **Load tests** run on `workflow_dispatch` and weekly schedule only (not on every push)
+- **Multiserver E2E** runs on `workflow_dispatch` and a nightly schedule only (not on `merge-to-main`)
 - **PageSpeed Insights** runs during staging CD deploy (requires `PSI_API_KEY`)
 
 ## Investigating Test Failures in Production

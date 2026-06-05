@@ -60,7 +60,11 @@ enabled, the server is wired to the Sentinel service via `REGISTRY_BACKEND=redis
 "do not flip any overlay to `redis` until the C2 cross-server proxy lands"
 constraint are recorded in
 [ADR-031](./adr/ADR-031-redis-sentinel-session-registry.md); the tunables live in
-[`values.yaml`](../deploy/helm/opengate/values.yaml) under `redis`.
+[`values.yaml`](../deploy/helm/opengate/values.yaml) under `redis`. The
+cross-server WebSocket proxy that the `redis` backend enables
+([ADR-033](./adr/ADR-033-cross-server-relay-proxy-pod-ip.md)) and its Redis-loss
+degraded-mode posture are exercised end-to-end by the multiserver harness —
+see [Testing § Multiserver E2E](./Testing.md#multiserver-e2e-phase-13b-pr-d).
 
 ## Validation
 

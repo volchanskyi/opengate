@@ -1,0 +1,111 @@
+# Multiserver e2e topology (Phase 13b PR-D): two homogeneous server replicas
+# sharing one Postgres and one Redis, exercising the cross-server WebSocket proxy
+# (ADR-033) and the Redis-backed SessionRegistry (ADR-031). Driven by the
+# host-run harness at server/tests/e2e-multiserver via `make e2e-multiserver`.
+#
+# Not a production topology: single-node Redis (no Sentinel), tmpfs storage, and
+# shortened relay timers (OPENGATE_DEGRADED_THRESHOLD / OPENGATE_AFFINITY_TTL) so
+# the degraded-mode and affinity-reclaim scenarios run in seconds, not 30s.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: opengate-ms-postgres
+    environment:
+      - POSTGRES_USER=opengate
+      - POSTGRES_PASSWORD=e2e-test-password
+      - POSTGRES_DB=opengate
+    tmpfs:
+      - /var/lib/postgresql/data
+    ports:
+      # Published so the host-run e2e driver can seed session rows directly.
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opengate -d opengate"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: opengate-ms-redis
+    # No persistence: a throwaway registry. The driver kills/restarts this
+    # container to exercise the degraded-mode posture (ADR-023).
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  server-a:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: opengate-ms-server-a
+    hostname: server-a
+    environment:
+      - JWT_SECRET=e2e-test-secret-minimum-32-bytes!
+      - DATABASE_URL=postgres://opengate:e2e-test-password@postgres:5432/opengate?sslmode=disable
+      - REGISTRY_BACKEND=redis
+      - REDIS_ADDR=redis:6379
+      # serverID = the compose DNS name, so the peer dialer reaches this node at
+      # http://server-a:9091 over the compose network (ADR-033 pod-IP analogue).
+      - OPENGATE_SERVER_ID=server-a
+      - OPENGATE_INTERNAL_LISTEN=:9091
+      - OPENGATE_DEGRADED_THRESHOLD=3s
+      - OPENGATE_AFFINITY_TTL=5s
+    ports:
+      - "18081:8080"
+    healthcheck:
+      # /healthz is the dependency-free liveness route; it stays green even when
+      # Redis is down (the readiness route /api/v1/health is what 503s), so the
+      # container does not flap during the Redis-kill scenario.
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    tmpfs:
+      - /data:mode=1777
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  server-b:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: opengate-ms-server-b
+    hostname: server-b
+    environment:
+      - JWT_SECRET=e2e-test-secret-minimum-32-bytes!
+      - DATABASE_URL=postgres://opengate:e2e-test-password@postgres:5432/opengate?sslmode=disable
+      - REGISTRY_BACKEND=redis
+      - REDIS_ADDR=redis:6379
+      - OPENGATE_SERVER_ID=server-b
+      - OPENGATE_INTERNAL_LISTEN=:9091
+      - OPENGATE_DEGRADED_THRESHOLD=3s
+      - OPENGATE_AFFINITY_TTL=5s
+    ports:
+      - "18082:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+      start_period: 10s
+    tmpfs:
+      - /data:mode=1777
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # Serialize migrations: server-a runs them first, server-b then sees a
+      # fully-migrated schema (avoids a concurrent golang-migrate race).
+      server-a:
+        condition: service_healthy

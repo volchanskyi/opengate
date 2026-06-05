@@ -1,6 +1,6 @@
 # Phase 13b PR-B — Kubernetes Adoption (OKE)
 
-**Created:** 2026-06-02 · **Parent:** [phase-13b-multiserver-scaling.md](phase-13b-multiserver-scaling.md) §4 PR-B · **Status:** In progress
+**Created:** 2026-06-02 · **Parent:** [phase-13b-multiserver-scaling.md](phase-13b-multiserver-scaling.md) §4 PR-B · **Status:** Completed — repo-safe slice landed; cluster cutover is deploy-time (runbook `docs/Kubernetes-Migration.md`). Archived 2026-06-05.
 
 ## Progress (2026-06-02)
 
