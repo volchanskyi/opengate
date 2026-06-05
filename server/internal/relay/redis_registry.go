@@ -153,3 +153,9 @@ func (r *RedisRegistry) PublishEvent(ctx context.Context, evt SessionEvent) erro
 	}
 	return r.client.Publish(ctx, redisEventsChannel, data).Err()
 }
+
+// Ping reports whether Redis is reachable. The readiness probe drains the pod
+// when this fails (ADR-023 recovery posture).
+func (r *RedisRegistry) Ping(ctx context.Context) error {
+	return r.client.Ping(ctx).Err()
+}

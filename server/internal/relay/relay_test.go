@@ -451,6 +451,7 @@ type stubRegistry struct {
 	claimErr   error
 	saveErr    error
 	deleteErr  error
+	pingErr    error
 }
 
 func (s *stubRegistry) ClaimAffinity(_ context.Context, _ protocol.SessionToken, serverID string, _ time.Duration) (string, error) {
@@ -475,6 +476,7 @@ func (s *stubRegistry) SubscribeEvents(context.Context) (<-chan SessionEvent, er
 	return make(chan SessionEvent), nil
 }
 func (s *stubRegistry) PublishEvent(context.Context, SessionEvent) error { return nil }
+func (s *stubRegistry) Ping(context.Context) error                       { return s.pingErr }
 
 // TestRelay_RegistryErrors_AreNonFatal asserts that failures on the claim, save,
 // and delete registry paths are logged but never break the live relay: data
@@ -495,6 +497,18 @@ func TestRelay_RegistryErrors_AreNonFatal(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return r.ActiveSessionCount() == 0
 	}, time.Second, 10*time.Millisecond)
+}
+
+// TestRelay_PingRegistry surfaces the registry's health through the relay: nil
+// when the backing store is reachable, the registry's error when it is not (the
+// readiness probe drains the pod on that error).
+func TestRelay_PingRegistry(t *testing.T) {
+	healthy := NewRelay(slog.Default())
+	require.NoError(t, healthy.PingRegistry(context.Background()))
+
+	down := errors.New("registry unreachable")
+	degraded := NewRelay(slog.Default(), WithRegistry(&stubRegistry{pingErr: down}, testServerID))
+	require.ErrorIs(t, degraded.PingRegistry(context.Background()), down)
 }
 
 // TestRelay_ForeignOwner_Logged covers the cross-server-ownership warn path:

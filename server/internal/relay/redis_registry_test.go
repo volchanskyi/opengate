@@ -166,3 +166,14 @@ func TestRedisRegistry_OperationsErrorWhenRedisUnavailable(t *testing.T) {
 	require.Error(t, lookupErr)
 	require.NotErrorIs(t, lookupErr, relay.ErrRegistryNotFound, "transport error must not look like not-found")
 }
+
+// TestRedisRegistry_Ping reports health from the underlying Redis: nil while the
+// server is up, an error once it is gone (readiness drains the pod on that).
+func TestRedisRegistry_Ping(t *testing.T) {
+	t.Parallel()
+	r, mr := newRedisRegistry(t)
+	require.NoError(t, r.Ping(context.Background()))
+
+	mr.Close() // simulate Redis loss
+	require.Error(t, r.Ping(context.Background()))
+}
