@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780642807425,
+  "lastUpdate": 1780655025951,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16047,6 +16047,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.96798358053765,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "ae1eb890bbd212460ebec0454c6785f655c140d0",
+          "message": "fix(ci): self-contained Sonar Docker fallback + nightly load-test + commit→push hooks\n\nThree changes bundled:\n\n1. Sonar Docker fallback is now CDN-independent (ci.yml + Makefile sonar/\n   sonar-quick). Pass -Dsonar.scanner.skipJreProvisioning=true so the scanner\n   uses the JRE already bundled in sonar-scanner-cli:latest (Corretto 21,\n   verified) instead of downloading one from scanner.sonarcloud.io — a SECOND\n   SonarSource CDN that 403'd in CI and broke the \"CDN fallback\" repeatedly. A\n   fallback that re-downloads from a SonarSource CDN cannot survive a\n   SonarSource-CDN outage; it now depends only on docker.io.\n\n2. Load tests run nightly at 05:00 UTC (was weekly Sun 02:00), clear of the\n   03:00 observability batch (terraform-drift/mutation/e2e-cross-browser, which\n   runs to ~04:30) and the 04:00 pmat-trend (~04:40). mutation.yml cross-ref\n   comment updated.\n\n3. Commit pipeline automation (.claude): pretooluse-gauntlet-nudge.sh\n   (asyncRewake — wakes the model ~10 min into a backgrounded commit to post a\n   status update) and posttooluse-git-commit-push.sh (after a commit lands on\n   dev, refreshes the refactor marker, pull --rebase, and pushes) — \"commit ⇒\n   push, no pause\".",
+          "timestamp": "2026-06-05T03:20:33-07:00",
+          "tree_id": "eda6c13b5f41eaabe2781cd81cd28b9e009e137a",
+          "url": "https://github.com/volchanskyi/opengate/commit/ae1eb890bbd212460ebec0454c6785f655c140d0"
+        },
+        "date": 1780655025871,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.224844699614774,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.579471128458366,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 808.4946950771601,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.9008789526349,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.91419822608123,
             "unit": "ns/iter"
           }
         ]
