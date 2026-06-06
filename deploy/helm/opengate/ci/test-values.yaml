@@ -12,3 +12,15 @@ redis:
   enabled: true
   auth:
     enabled: true
+# Exercise the (default-dormant) PR-E scale-out path under lint: shared-keys
+# Deployment (emptyDir /data + secret subPath mounts, no PVC, RollingUpdate),
+# KEDA ScaledObject, and the PodDisruptionBudget all render here so kubeconform +
+# the k8s policy validate them. staging/production keep the defaults (off), so the
+# single-replica PVC/Recreate path is still validated across the value matrix.
+server:
+  sharedKeys:
+    enabled: true
+  autoscaling:
+    enabled: true
+  podDisruptionBudget:
+    enabled: true

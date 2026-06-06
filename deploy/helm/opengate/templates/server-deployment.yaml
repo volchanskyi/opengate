@@ -6,11 +6,21 @@ metadata:
     {{- include "opengate.labels" . | nindent 4 }}
     app.kubernetes.io/component: server
 spec:
+  {{- if not .Values.server.autoscaling.enabled }}
+  # When autoscaling.enabled, KEDA's ScaledObject owns the replica count, so
+  # spec.replicas is intentionally omitted (setting it would fight the autoscaler).
   replicas: {{ .Values.server.replicas }}
-  # /data is an RWO PVC (server CA + VAPID keys); Recreate avoids two pods
-  # contending for it during a rollout.
+  {{- end }}
   strategy:
+    {{- if .Values.server.sharedKeys.enabled }}
+    # Keys live in a shared Secret and /data is an emptyDir, so replicas no longer
+    # contend for an RWO PVC — a rolling update is safe (and required for HA).
+    type: RollingUpdate
+    {{- else }}
+    # /data is an RWO PVC (server CA + VAPID + signing keys); Recreate avoids two
+    # pods contending for it during a rollout.
     type: Recreate
+    {{- end }}
   selector:
     matchLabels:
       {{- include "opengate.selectorLabels" . | nindent 6 }}
@@ -153,11 +163,50 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- if .Values.server.sharedKeys.enabled }}
+            # Shared keypairs mounted read-only over the emptyDir /data, so every
+            # replica serves the same CA / VAPID / update-signing material. The
+            # rest of /data stays writable (manifest cache).
+            - name: keys
+              mountPath: /data/ca.crt
+              subPath: ca.crt
+              readOnly: true
+            - name: keys
+              mountPath: /data/ca.key
+              subPath: ca.key
+              readOnly: true
+            - name: keys
+              mountPath: /data/vapid.json
+              subPath: vapid.json
+              readOnly: true
+            - name: keys
+              mountPath: /data/update-signing.json
+              subPath: update-signing.json
+              readOnly: true
+            {{- end }}
             - name: tmp
               mountPath: /tmp
       volumes:
         - name: data
+          {{- if .Values.server.sharedKeys.enabled }}
+          emptyDir: {}
+          {{- else }}
           persistentVolumeClaim:
             claimName: {{ include "opengate.fullname" . }}-server-data
+          {{- end }}
+        {{- if .Values.server.sharedKeys.enabled }}
+        - name: keys
+          secret:
+            secretName: {{ .Values.server.existingSecret }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+              - key: ca.key
+                path: ca.key
+              - key: vapid.json
+                path: vapid.json
+              - key: update-signing.json
+                path: update-signing.json
+        {{- end }}
         - name: tmp
           emptyDir: {}

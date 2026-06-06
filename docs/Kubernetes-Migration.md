@@ -155,7 +155,28 @@ Swap the compose deploy in [`cd.yml`](../.github/workflows/cd.yml) for Helm
 3. Stop the compose stack on the VM (`docker compose down`, app **and**
    monitoring) once traffic is fully served by the cluster.
 4. Reclaim the freed budget: grow the node pool toward the full 4 OCPU / 24 GB,
-   then (PR-C/PR-E) enable Redis Sentinel + ≥2 server replicas.
+   then (PR-C/PR-E) enable Redis Sentinel + ≥2 server replicas (step 7).
+
+## 7. Scale out (PR-E — after the node pool spans ≥2 nodes)
+
+Multi-replica is gated on three things landing together (ADR-034); do **not**
+raise replicas until all three hold:
+
+1. **Shared keys.** While still single-replica, extract the four key files from
+   the running server's `/data` and fold them into the existing Secret (recipe in
+   [`secrets.example.yaml`](../deploy/helm/opengate/secrets.example.yaml)), then
+   set `server.sharedKeys.enabled=true`. This flips `/data` to an `emptyDir` +
+   read-only secret mounts and the rollout to `RollingUpdate`. Verify a fresh
+   agent enrolls and web push works after the roll.
+2. **KEDA.** Install the KEDA operator (`helm install keda kedacore/keda -n keda`),
+   then set `server.autoscaling.enabled=true`. Confirm the `ScaledObject` reports
+   `READY=True` and that `sum(opengate_relay_active_sessions)` resolves in
+   VictoriaMetrics.
+3. **PDB.** Set `server.podDisruptionBudget.enabled=true`.
+
+Watch the **Active Relay Sessions by Replica** panel (OpenGate Overview) to
+confirm sessions spread across pods (cross-server proxy working) and KEDA scales
+between `minReplicas`/`maxReplicas` under load.
 
 ## Rollback
 
