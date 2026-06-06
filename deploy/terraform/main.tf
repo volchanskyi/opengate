@@ -85,6 +85,27 @@ module "bastion" {
   target_subnet_id = module.networking.subnet_id
 }
 
+# OKE cluster (Phase 13b cutover, ADR-030 / ADR-034). Stands up the BASIC
+# control plane + a single Always-Free A1.Flex worker node *beside* the compose
+# VM during the pilot (the 1×2 OCPU/12 GB defaults fit the remaining budget;
+# plan §5). Networking (subnets + NSGs) comes from the networking module's OKE
+# additions. node/version/image/AD are resolved live (see variables.tf defaults).
+module "oke" {
+  source = "./modules/oke"
+
+  compartment_id         = local.compartment_id
+  kubernetes_version     = var.oke_kubernetes_version
+  vcn_id                 = module.networking.vcn_id
+  api_endpoint_subnet_id = module.networking.oke_api_endpoint_subnet_id
+  node_subnet_id         = module.networking.oke_node_subnet_id
+  service_lb_subnet_ids  = [module.networking.oke_lb_subnet_id]
+  api_nsg_ids            = [module.networking.oke_cp_nsg_id]
+  node_nsg_ids           = [module.networking.oke_node_nsg_id]
+  availability_domain    = var.oke_availability_domain
+  node_image_id          = var.oke_node_image_id
+  ssh_public_key_path    = var.ssh_public_key_path
+}
+
 # Reconcile pre-decomposition state addresses with the new module-prefixed
 # addresses. Without these blocks Terraform would plan to destroy + recreate
 # every resource on the next apply. Data sources do not need `moved` — they
