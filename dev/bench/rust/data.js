@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780704297488,
+  "lastUpdate": 1780706638672,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16292,6 +16292,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.88592039575875,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "4cfc025cb3f2493cc0c9a2c993411206316374a6",
+          "message": "feat(infra): wire OKE module into root terraform (Phase 13b cutover step 1)\n\nAdds OKE-compliant networking to the networking module (public API-endpoint /\nworker / load-balancer subnets + Oracle's flannel control-plane↔worker NSG rule\nmatrix + an LB-subnet security list) and wires the oke module into the root\nstack, so `terraform apply` provisions the BASIC control plane + a single\nAlways-Free A1.Flex worker beside the compose VM (pilot — the 1×2 OCPU/12 GB\ndefaults fit the remaining budget; plan §5).\n\n- live-resolved defaults (us-sanjose-1, 2026-06-06): k8s v1.34.2,\n  OL8.10-aarch64-OKE-1.34.2 image, AD pQib:US-SANJOSE-1-AD-1\n- root output oke_cluster_id (feeds the OKE_CLUSTER_ID GitHub secret)\n- additive only — terraform plan = 22 to add, 0 to change, 0 to destroy\n  (VM / compute / bastion / public subnet untouched; bastion access intact)\n- terraform validate clean; all 19 terraform-test invariants pass\n  (networking 5, bastion 5, oke free-tier 6, integration 3)\n\nCluster not yet applied — apply is the gated next step (runbook §1).",
+          "timestamp": "2026-06-05T17:42:14-07:00",
+          "tree_id": "8ad86016da241b0a75a4e93e8705f9f1e62519e2",
+          "url": "https://github.com/volchanskyi/opengate/commit/4cfc025cb3f2493cc0c9a2c993411206316374a6"
+        },
+        "date": 1780706638587,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.379037075206252,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.57080861080734,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 759.2898215931725,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 301.8347069353022,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.83210329159721,
             "unit": "ns/iter"
           }
         ]
