@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780676873750,
+  "lastUpdate": 1780704297488,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16243,6 +16243,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.856833407912628,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "665633d7ee4443974609c0c0a25a4da8435da9cf",
+          "message": "feat(k8s): Phase 13b PR-E — scale-out (KEDA autoscaling + shared keys + PDB)\n\nCompletes Phase 13b (PRs A-E) and Phase 13. Lets the server Deployment run\n>1 replica and autoscale, paying down the per-replica-keys techdebt that\nblocked it. All flags default-off / cutover-gated; no Go change (the server\nalready loads keys if present). ADR-034.\n\nShared keys (server.sharedKeys.enabled, the multi-replica prerequisite):\n- /data switches from the per-replica RWO PVC to a writable emptyDir; the\n  enrollment CA (ca.crt/ca.key), VAPID (vapid.json), and agent-update signing\n  (update-signing.json) keypairs mount read-only via subPath from\n  existingSecret, so every replica serves identical key material\n- rollout strategy flips Recreate -> RollingUpdate; the per-replica PVC is\n  skipped; secrets.example.yaml documents the one-time key-extraction recipe\n\nAutoscaling (server.autoscaling.enabled):\n- a single KEDA ScaledObject scales the Deployment on CPU utilization AND\n  sum(opengate_relay_active_sessions) from VictoriaMetrics; KEDA owns the\n  replica count so the Deployment omits spec.replicas. (Metric name is\n  opengate_relay_active_sessions, not opengate_active_sessions.)\n\nPodDisruptionBudget (server.podDisruptionBudget.enabled): policy/v1, minAvailable 1.\n\nValidation + observability:\n- policy/k8s: new ScaledObject (min<=max, >=1 trigger) + PDB (bounds) Rego\n  rules + tests (16 conftest tests). ci/test-values.yaml enables all three\n  flags so `make lint-k8s` validates the scale-out path while staging/production\n  keep the single-replica PVC path -> both paths covered. lint-k8s green.\n- Grafana overview: \"Active Relay Sessions by Replica\" panel\n  (opengate_relay_active_sessions by instance)\n\nDocs: ADR-034 + decisions row; Kubernetes.md scale-out section; migration\nrunbook step 7 (KEDA install + keys-secret population). techdebt: per-replica\nkeys debt marked largely paid (mechanism shipped + lint-validated; runtime\nverification at cutover). phases.md: Phase 13b COMPLETE; PR-E plan archived.",
+          "timestamp": "2026-06-05T17:03:13-07:00",
+          "tree_id": "cad4349bdcd11366dcd2e5ec614ec9500a22263f",
+          "url": "https://github.com/volchanskyi/opengate/commit/665633d7ee4443974609c0c0a25a4da8435da9cf"
+        },
+        "date": 1780704297405,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.265566878605204,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 20.62928361431107,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 591.8016205031236,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 300.991700525102,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.88592039575875,
             "unit": "ns/iter"
           }
         ]
