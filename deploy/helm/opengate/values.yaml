@@ -20,7 +20,7 @@ serviceAccount:
   name: ""
 
 server:
-  replicas: 1                # single replica in PR-B; HPA/multi-replica = PR-E
+  replicas: 1                # used only when autoscaling.enabled is false (PR-E)
   httpPort: 8080            # HTTP API + SPA (behind ingress)
   quicPort: 9090            # QUIC agent transport (UDP, L4)
   mpsPort: 4433            # Intel AMT CIRA / MPS (TCP, L4)
@@ -46,12 +46,39 @@ server:
     limits:
       cpu: "1"
       memory: 512Mi
-  # /data holds the server's self-signed CA + VAPID keys. Single-replica PVC
-  # keeps them stable across restarts. NOTE: multi-replica (PR-E) must promote
-  # the CA + VAPID material to a shared Secret — see techdebt.md.
+  # /data holds the server's self-signed CA + VAPID keys + agent-update signing
+  # keys. Single-replica PVC keeps them stable across restarts.
   dataVolume:
     storageClass: oci-bv
     size: 1Gi
+  # Shared keys (PR-E): for multi-replica every replica must serve the SAME
+  # enrollment CA, VAPID keypair, and update-signing keypair, else mTLS
+  # enrollment, web push, and update verification split across pods. When
+  # enabled, /data becomes an emptyDir (writable manifest cache) and the four key
+  # files are mounted read-only via subPath from existingSecret; the per-replica
+  # PVC is dropped and the rollout switches Recreate→RollingUpdate. The server
+  # loads keys if present (no code change). Populate the secret once at install —
+  # see secrets.example.yaml. REQUIRED before scaling past one replica.
+  sharedKeys:
+    enabled: false
+  # Autoscaling (PR-E): KEDA ScaledObject driving the server Deployment on CPU
+  # utilization AND the custom opengate_relay_active_sessions gauge (queried from
+  # VictoriaMetrics). KEDA owns the replica count, so spec.replicas is omitted
+  # when enabled. Requires the KEDA operator installed in the cluster and
+  # sharedKeys.enabled (multi-replica correctness). Budget: 4 OCPU / 24 GB total.
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    cpuUtilization: 70           # % of the request, averaged across pods
+    activeSessionsPerReplica: "50"  # scale out above this many sessions/replica
+    # In-cluster VictoriaMetrics query endpoint for the prometheus trigger.
+    prometheusServerAddress: http://victoria-metrics:8428
+  # PodDisruptionBudget (PR-E): keep at least minAvailable server pods up during
+  # voluntary disruptions (node drain, rollout). Only meaningful multi-replica.
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
 
 postgres:
   image: postgres:17-alpine

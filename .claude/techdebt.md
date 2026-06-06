@@ -8,21 +8,26 @@ _None currently._
 
 ## Severity: Medium
 
-### Phase 13b k8s — server CA + VAPID keys are per-replica (blocks multi-replica)
+### Phase 13b k8s — shared CA/VAPID/signing keys: mechanism shipped, runtime-unverified
 
-The Helm chart (`deploy/helm/opengate`, ADR-030) mounts the server's `-data-dir`
-`/data` — which holds the self-signed enrollment CA and the VAPID push keypair —
-on a per-replica `ReadWriteOnce` PVC. This is correct for the **single-replica**
-PR-B (the keys survive restarts), but a second replica would generate its **own**
-CA + VAPID keys, so agents enrolled against replica A would fail mTLS against
-replica B, and push subscriptions would split.
+**Largely paid down by PR-E (ADR-034).** The three per-replica keypairs the server
+keeps under `/data` — enrollment CA (`ca.crt`/`ca.key`), VAPID (`vapid.json`), and
+agent-update signing (`update-signing.json`) — can now be shared across replicas:
+`server.sharedKeys.enabled` switches `/data` to an `emptyDir` and mounts the four
+files read-only via `subPath` from `server.existingSecret` (the server loads keys
+if present, so no code change), flipping the rollout to `RollingUpdate` and
+dropping the per-replica PVC. The mechanism renders + validates under
+`make lint-k8s` (enabled in `ci/test-values.yaml`).
 
-**Pay-down trigger:** before scaling the server past one replica (PR-C cross-server
-proxy / PR-E HPA). Promote the CA + VAPID material to a shared `Secret` mounted
-read-only into every replica (generated once at install, e.g. by a pre-install
-Job or out-of-band like `existingSecret`), and drop the `/data` PVC to an
-`emptyDir`. Until then `server.replicas` must stay `1` and a `PodDisruptionBudget`
-/ HPA must not raise it.
+**Residual:** the shared-keys path has only been **lint-validated**, never run on a
+live multi-replica cluster — key loading from the secret mounts, rolling updates
+with shared material, and cross-replica mTLS/push/update-verify are unproven at
+runtime. **Pay-down trigger:** at the multi-replica cutover (same gate as the Redis
+operational-surface and internal-listener-NetworkPolicy items), populate the
+`existingSecret` with the four key files (runbook recipe in
+`secrets.example.yaml`), install KEDA, and verify enrollment + push + update
+verification across replicas. Until then staging/production keep
+`sharedKeys.enabled=false` (single-replica PVC) and autoscaling off.
 
 ### ADR-024 WebRTC dispatch — 3 residual uncaught mutants in `handler.rs`
 

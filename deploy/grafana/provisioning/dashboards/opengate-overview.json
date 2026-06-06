@@ -171,6 +171,20 @@
         },
         "overrides": []
       }
+    },
+    {
+      "title": "Active Relay Sessions by Replica",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Per-replica relay session distribution (Phase 13b PR-E HPA/KEDA scale-out). One series per server pod; persistent skew points to affinity-routing imbalance, and total drives the KEDA prometheus trigger.",
+      "targets": [
+        { "expr": "opengate_relay_active_sessions", "legendFormat": "{{instance}}" }
+      ],
+      "fieldConfig": {
+        "defaults": { "custom": { "drawStyle": "line", "fillOpacity": 10, "stacking": { "mode": "normal" } } },
+        "overrides": []
+      }
     }
   ],
   "refresh": "30s",

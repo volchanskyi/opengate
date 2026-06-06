@@ -41,7 +41,7 @@ Implement `RedisRegistry` satisfying `SessionRegistry`: `SETNX`-based `ClaimAffi
 ### PR-D — `make e2e-multiserver` + baseline load test  ✅ landed 2026-06-05 (see archived [phase-13b-pr-d-e2e-multiserver.md](archive/phase-13b-pr-d-e2e-multiserver.md))
 Per ADR-023 §"Phase 13b integration test": two server containers + one Redis + one shared Postgres. Three scenarios — (1) A-agent/B-browser frames flow; (2) owner killed → reclaim within TTL → both reconnect; (3) Redis killed → in-flight drains, new sessions rejected, **Telegram alert fires**. Gated behind `OPENGATE_MULTISERVER_E2E=1` so it stays out of the default precommit run. Re-run the k6 load test (Phase 12) against the 2-server cluster for a latency/throughput baseline; record the TTL tuning result.
 
-### PR-E — scale-out policy
+### PR-E — scale-out policy  ✅ landed 2026-06-05 (ADR-034; see archived [phase-13b-pr-e-scale-out.md](archive/phase-13b-pr-e-scale-out.md)) — completes Phase 13b
 HPA on the server Deployment (CPU + a custom `opengate_active_sessions` metric already in the monitoring surface); PodDisruptionBudget; relay-pool sizing within budget. Grafana panel for per-replica session distribution. This is the "pool" half of "relay pool."
 
 ## 5. Sequencing & budget math (the real tension)

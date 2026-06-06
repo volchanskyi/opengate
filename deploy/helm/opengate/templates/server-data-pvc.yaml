@@ -1,3 +1,6 @@
+{{- if not .Values.server.sharedKeys.enabled }}
+# Skipped when sharedKeys.enabled: keys come from a shared Secret and /data is an
+# emptyDir, so no per-replica RWO PVC is needed (PR-E multi-replica).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -12,3 +15,4 @@ spec:
   resources:
     requests:
       storage: {{ .Values.server.dataVolume.size }}
+{{- end }}

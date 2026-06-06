@@ -66,6 +66,32 @@ cross-server WebSocket proxy that the `redis` backend enables
 degraded-mode posture are exercised end-to-end by the multiserver harness —
 see [Testing § Multiserver E2E](./Testing.md#multiserver-e2e-phase-13b-pr-d).
 
+### Scale-out (HPA/KEDA + shared keys)
+
+Horizontal scale-out ([ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md)) is
+three default-off flags under `server` in
+[`values.yaml`](../deploy/helm/opengate/values.yaml):
+
+- **`sharedKeys.enabled`** — multi-replica correctness prerequisite. Switches
+  `/data` from the per-replica RWO PVC to an `emptyDir` and mounts the enrollment
+  CA, VAPID, and agent-update signing keypairs read-only from `existingSecret`, so
+  every replica serves identical key material (the server loads keys if present —
+  no code change). Generate the four key files once and fold them into the secret;
+  recipe in [`secrets.example.yaml`](../deploy/helm/opengate/secrets.example.yaml).
+- **`autoscaling.enabled`** — renders a KEDA `ScaledObject` scaling the server
+  Deployment on CPU utilization **and** `sum(opengate_relay_active_sessions)` from
+  VictoriaMetrics. KEDA owns the replica count (the Deployment omits
+  `spec.replicas`). Requires the KEDA operator installed in the cluster.
+- **`podDisruptionBudget.enabled`** — keeps `minAvailable` server pods up during
+  drains/rollouts.
+
+All three are off in the staging/production overlays (single-replica PVC path) and
+on in [`ci/test-values.yaml`](../deploy/helm/opengate/ci/test-values.yaml) so
+`make lint-k8s` validates both paths. Per-replica session distribution is on the
+Grafana **OpenGate Overview** dashboard ("Active Relay Sessions by Replica"); the
+cutover steps (KEDA install + keys-secret population) are in
+[Kubernetes Migration](./Kubernetes-Migration.md).
+
 ## Validation
 
 `make lint-k8s` is the chart gate (wired into `make lint-deploy`, the precommit
