@@ -18,7 +18,7 @@ postgresHost: opengate-postgres.opengate.svc
 storageClass: oci-bv
 
 victoriametrics:
-  image: victoriametrics/victoria-metrics:v1.114.0
+  image: docker.io/victoriametrics/victoria-metrics:v1.114.0
   retention: 30d
   storage: 10Gi
   resources:
@@ -30,7 +30,7 @@ victoriametrics:
       memory: 512Mi
 
 loki:
-  image: grafana/loki:3.5.0
+  image: docker.io/grafana/loki:3.5.0
   storage: 10Gi
   resources:
     requests:
@@ -41,7 +41,7 @@ loki:
       memory: 256Mi
 
 grafana:
-  image: grafana/grafana-oss:11.6.0
+  image: docker.io/grafana/grafana-oss:11.6.0
   storage: 2Gi
   rootUrl: ""    # set to https://<domain>/grafana when fronted by the ingress
   # The five dashboard JSONs are NOT duplicated into the chart. Create the
@@ -58,7 +58,7 @@ grafana:
       memory: 256Mi
 
 promtail:
-  image: grafana/promtail:3.5.0
+  image: docker.io/grafana/promtail:3.5.0
   # promtail reads node pod logs. If the node OS makes /var/log/pods
   # root-only, flip runAsRoot=true at cutover (validate on OKE — runbook §4).
   runAsRoot: false
@@ -71,7 +71,7 @@ promtail:
       memory: 128Mi
 
 nodeExporter:
-  image: prom/node-exporter:v1.9.1
+  image: docker.io/prom/node-exporter:v1.9.1
   resources:
     requests:
       cpu: 50m
@@ -81,7 +81,7 @@ nodeExporter:
       memory: 64Mi
 
 postgresExporter:
-  image: prometheuscommunity/postgres-exporter:v0.16.0
+  image: docker.io/prometheuscommunity/postgres-exporter:v0.16.0
   resources:
     requests:
       cpu: 50m
@@ -91,7 +91,7 @@ postgresExporter:
       memory: 64Mi
 
 uptimeKuma:
-  image: louislam/uptime-kuma:1.23.16   # digest/tag pinned (policy denies :latest / bare `1`)
+  image: docker.io/louislam/uptime-kuma:1.23.16   # digest/tag pinned (policy denies :latest / bare `1`)
   storage: 1Gi
   resources:
     requests:

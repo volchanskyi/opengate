@@ -459,12 +459,18 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
         run: |
           kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-          kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
-            --from-literal=JWT_SECRET="$JWT_SECRET" \
-            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            --from-literal=AMT_PASS="$AMT_PASS" \
-            --from-literal=VAPID_CONTACT="$VAPID_CONTACT" \
-            --dry-run=client -o yaml | kubectl apply -f -
+          # Create the base env secret ONLY if absent. The shared enrollment CA /
+          # VAPID / update-signing keys are added to this secret out-of-band
+          # (ADR-034) so every replica + redeploy keeps the same material; a
+          # destructive re-apply here would drop them and regenerate the CA,
+          # breaking enrolled agents. Rotating env values is a deliberate manual op.
+          if ! kubectl -n "$NAMESPACE" get secret opengate-secrets >/dev/null 2>&1; then
+            kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
+              --from-literal=JWT_SECRET="$JWT_SECRET" \
+              --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+              --from-literal=AMT_PASS="$AMT_PASS" \
+              --from-literal=VAPID_CONTACT="$VAPID_CONTACT"
+          fi
 
       - name: Helm upgrade (staging)
         run: |
@@ -678,12 +684,18 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_PASSWORD }}
         run: |
           kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-          kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
-            --from-literal=JWT_SECRET="$JWT_SECRET" \
-            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            --from-literal=AMT_PASS="$AMT_PASS" \
-            --from-literal=VAPID_CONTACT="$VAPID_CONTACT" \
-            --dry-run=client -o yaml | kubectl apply -f -
+          # Create the base env secret ONLY if absent. The shared enrollment CA /
+          # VAPID / update-signing keys are added to this secret out-of-band
+          # (ADR-034) so every replica + redeploy keeps the same material; a
+          # destructive re-apply here would drop them and regenerate the CA,
+          # breaking enrolled agents. Rotating env values is a deliberate manual op.
+          if ! kubectl -n "$NAMESPACE" get secret opengate-secrets >/dev/null 2>&1; then
+            kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
+              --from-literal=JWT_SECRET="$JWT_SECRET" \
+              --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+              --from-literal=AMT_PASS="$AMT_PASS" \
+              --from-literal=VAPID_CONTACT="$VAPID_CONTACT"
+          fi
 
       - name: Helm upgrade (production)
         run: |

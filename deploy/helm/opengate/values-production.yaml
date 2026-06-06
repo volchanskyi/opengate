@@ -1,7 +1,15 @@
 # Production overlay — real domain, HSTS on, Let's Encrypt prod, full backups.
 # Most values inherit from values.yaml; this overlay pins the env-specific knobs.
 
-domain: opengate.example.com
+domain: opengate.cloudisland.net
+
+server:
+  # Multi-replica-correct key sharing is REQUIRED in production: the enrollment
+  # CA / VAPID / update-signing keys come from the (out-of-band) existingSecret,
+  # so every replica — and every redeploy — serves the same material and existing
+  # agents keep mTLS. Do not disable without re-carrying the keys (ADR-034).
+  sharedKeys:
+    enabled: true
 
 ingress:
   tls: true
