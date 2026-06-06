@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780722755855,
+  "lastUpdate": 1780741751542,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16390,6 +16390,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.094644283367973,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "3e64d19bbe711bd0ab1ba95a5d2ab15b4f06a818",
+          "message": "fix(deploy): harden k8s CD for cutover — sharedKeys/domain in prod, non-destructive secret sync, qualified monitoring images\n\nMakes the k8s CD path safe to enable (K8S_CUTOVER) against the live cluster:\n- values-production.yaml: pin domain=opengate.cloudisland.net + server.sharedKeys.enabled=true\n  so a CD redeploy keeps serving the carried enrollment CA (else it regenerates\n  the CA and breaks enrolled agents).\n- cd.yml (staging-k8s + production-k8s): the opengate-secrets sync is now\n  create-if-absent, not a destructive re-apply — the shared CA/VAPID/signing keys\n  are operator-managed (ADR-034) and must survive redeploys.\n- deploy/helm/monitoring: fully-qualify all 7 images to docker.io/... (OKE cri-o\n  short-name-mode rejects bare names — same fix as the app chart).\n\nmake lint-k8s green; actionlint clean.",
+          "timestamp": "2026-06-06T03:27:33-07:00",
+          "tree_id": "0339f4f1e885b1af5ade4b4d14a32c3568229212",
+          "url": "https://github.com/volchanskyi/opengate/commit/3e64d19bbe711bd0ab1ba95a5d2ab15b4f06a818"
+        },
+        "date": 1780741751454,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.386483216450827,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.640113872030728,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 753.4620275054185,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 326.9890133803869,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.8945655655775,
             "unit": "ns/iter"
           }
         ]
