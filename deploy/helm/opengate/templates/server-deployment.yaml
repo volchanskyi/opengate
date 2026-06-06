@@ -12,13 +12,14 @@ spec:
   replicas: {{ .Values.server.replicas }}
   {{- end }}
   strategy:
-    {{- if .Values.server.sharedKeys.enabled }}
-    # Keys live in a shared Secret and /data is an emptyDir, so replicas no longer
-    # contend for an RWO PVC — a rolling update is safe (and required for HA).
+    {{- if and .Values.server.sharedKeys.enabled (not .Values.server.hostPortL4) }}
+    # Shared keys (no RWO PVC) AND LB-based L4 (no node-bound hostPorts) — pods can
+    # overlap across nodes, so a rolling update is safe (and wanted for HA).
     type: RollingUpdate
     {{- else }}
-    # /data is an RWO PVC (server CA + VAPID + signing keys); Recreate avoids two
-    # pods contending for it during a rollout.
+    # Recreate (old pod fully released before the new one starts) is required when
+    # either: hostPortL4 binds node ports a second pod can't duplicate on the same
+    # node, or /data is an RWO PVC (non-shared-keys) that can't be co-mounted.
     type: Recreate
     {{- end }}
   selector:

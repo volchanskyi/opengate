@@ -81,7 +81,9 @@ server:
     minAvailable: 1
 
 postgres:
-  image: postgres:17-alpine
+  # Fully-qualified registry path: OKE's cri-o nodes run short-name-mode=enforcing
+  # and reject bare names like `postgres:17-alpine` (ImageInspectError).
+  image: docker.io/library/postgres:17-alpine
   resources:
     requests:
       cpu: 100m
@@ -118,7 +120,7 @@ postgres:
 # master on failure.
 redis:
   enabled: false
-  image: redis:7.4-alpine
+  image: docker.io/library/redis:7.4-alpine   # fully-qualified for OKE cri-o (see postgres.image)
   # The Sentinel master group name; must match REDIS_MASTER_NAME on the server.
   masterName: opengate
   replicas: 3            # 1 bootstrap master + 2 replicas
