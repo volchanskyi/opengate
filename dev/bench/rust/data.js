@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780706638672,
+  "lastUpdate": 1780722755855,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16341,6 +16341,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.83210329159721,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "3b3beb22266da9428087a4fb1a8ff0fd3b5724e0",
+          "message": "fix(helm): OKE cutover fixes — qualified image names + hostPort-aware strategy\n\nDiscovered live during the compose→OKE cutover:\n- OKE cri-o nodes enforce short-name-mode and reject bare image names\n  (postgres:17-alpine → ImageInspectError). Qualify postgres.image and\n  redis.image to docker.io/library/...\n- Deployment strategy must be Recreate whenever hostPortL4 binds node ports\n  (a second pod can't duplicate them on the same node) — not only the RWO-PVC\n  case. RollingUpdate is now reserved for sharedKeys AND LB-based L4. Previously\n  sharedKeys alone forced RollingUpdate, deadlocking the single-node pilot on\n  the QUIC/MPS hostPorts.\n- NOTES.txt: ingress-nginx needs annotations-risk-level=Critical (beyond\n  allowSnippetAnnotations) for the configuration-snippet security headers, plus\n  the OCI flexible-LB Service annotations.\n\nmake lint-k8s green (16 conftest + kubeconform across all value files).",
+          "timestamp": "2026-06-05T22:10:43-07:00",
+          "tree_id": "6095c23666f294c05d9b4c250b3d4315dd5aa8f0",
+          "url": "https://github.com/volchanskyi/opengate/commit/3b3beb22266da9428087a4fb1a8ff0fd3b5724e0"
+        },
+        "date": 1780722755789,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.44335503230308,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.89285288735099,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 595.2003388366279,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 298.2608799907646,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.094644283367973,
             "unit": "ns/iter"
           }
         ]
