@@ -35,3 +35,17 @@ output "bastion_id" {
   value       = module.bastion.bastion_id
   sensitive   = true
 }
+
+# --- OKE (Phase 13b cutover) — feed to the OKE_CLUSTER_ID GitHub secret ------
+# gh secret set OKE_CLUSTER_ID --body "$(terraform -chdir=deploy/terraform output -raw oke_cluster_id)"
+
+output "oke_cluster_id" {
+  description = "OCID of the OKE cluster — `oci ce cluster create-kubeconfig` + the OKE_CLUSTER_ID GitHub secret (oci-kube-setup, cd.yml)"
+  value       = module.oke.cluster_id
+}
+
+output "oke_node_pool_id" {
+  description = "OCID of the OKE node pool"
+  value       = module.oke.node_pool_id
+  sensitive   = true
+}

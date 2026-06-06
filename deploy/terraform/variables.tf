@@ -75,3 +75,27 @@ variable "boot_volume_gb" {
   type        = number
   default     = 50
 }
+
+# --- OKE (Phase 13b cutover) -------------------------------------------------
+# Defaults are the live values resolved at wiring time (region us-sanjose-1,
+# 2026-06-06): `oci ce cluster-options get` for the version and
+# `oci ce node-pool-options get` for the aarch64 OKE image. Refresh when OCI
+# deprecates the image (the node pool will report an unavailable-image error).
+
+variable "oke_kubernetes_version" {
+  description = "OKE control-plane + node-pool Kubernetes version. Resolve via `oci ce cluster-options get --cluster-option-id all`."
+  type        = string
+  default     = "v1.34.2"
+}
+
+variable "oke_node_image_id" {
+  description = "OCID of the aarch64 OKE worker image matching oke_kubernetes_version. Resolve via `oci ce node-pool-options get --node-pool-option-id all`."
+  type        = string
+  default     = "ocid1.image.oc1.us-sanjose-1.aaaaaaaalih7kqgecormb75syw4mwchfbzfjxtz4skym66ansmw2utfxjnsq"
+}
+
+variable "oke_availability_domain" {
+  description = "Availability domain for the OKE node pool. Resolve via `oci iam availability-domain list`."
+  type        = string
+  default     = "pQib:US-SANJOSE-1-AD-1"
+}
