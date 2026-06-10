@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781069593665,
+  "lastUpdate": 1781082526526,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16488,6 +16488,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.870869370946956,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "826918ab57ccc306e2fe3f60d9c42fe7367c3be6",
+          "message": "fix(monitoring): make the OKE monitoring stack fully functional (promtail logs, uptime-kuma, grafana)\n\nThe cutover monitoring migration left three services broken on OKE; all now\nverified healthy on the live cluster:\n\n- promtail shipped NOTHING to Loki (0 active targets). The scrape config relabels\n  __host__ to the pod's node name and promtail keeps only targets whose __host__\n  equals its own hostname — which defaulted to the *pod* name, filtering every\n  target out. Set HOSTNAME from the Downward API spec.nodeName so they match.\n  Also decouple liveness from readiness: liveness is now a tcpSocket check, since\n  promtail's /ready returns 500 until the first target sync and gating liveness on\n  it crash-looped a healthy shipper (readiness keeps /ready, failureThreshold 12).\n- uptime-kuma crash-looped: its entrypoint unconditionally `chown -R`s /app/data\n  and exits non-zero when it can't (non-root, no CAP_CHOWN, OKE ext4 root-owned\n  volume root). fsGroup=1000 already makes it writable, so bypass the entrypoint\n  (`command: [node, server/server.js]`).\n- grafana hung ContainerCreating for days waiting on a `grafana-alerting`\n  ConfigMap the runbook forgot to list (only `grafana-dashboards` was). Document\n  creating BOTH in docs/Kubernetes-Migration.md §4.\n\nmake lint-k8s green. All 7 monitoring services now Running; Loki receiving pod\nlogs; status page (uptime-kuma) serving; Grafana up.",
+          "timestamp": "2026-06-10T02:06:58-07:00",
+          "tree_id": "1b7a7dfdc2d63641edc34afbf83a0154b2f8292b",
+          "url": "https://github.com/volchanskyi/opengate/commit/826918ab57ccc306e2fe3f60d9c42fe7367c3be6"
+        },
+        "date": 1781082526393,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.404510657046963,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.76390953766245,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 753.0674964175023,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 303.645249093139,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.869518814846707,
             "unit": "ns/iter"
           }
         ]
