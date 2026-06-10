@@ -819,7 +819,7 @@ jobs:
         run: make terraform-test
       - name: Output sensitivity grep
         run: |
-          for out in instance_id cd_nsg_id; do
+          for out in cd_nsg_id; do
             grep -A3 "output \"$out\"" deploy/terraform/outputs.tf | grep -q "sensitive *= *true" \
               || { echo "::error::output \"$out\" must have sensitive = true in deploy/terraform/outputs.tf"; exit 1; }
           done

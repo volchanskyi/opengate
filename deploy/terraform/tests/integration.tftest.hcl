@@ -46,25 +46,13 @@ run "subnet_uses_security_list_from_networking" {
   }
 }
 
-# The compute instance VNIC must attach exactly the cd_deploy NSG. cd.yml
-# mutates that NSG's ingress rules at deploy time for just-in-time SSH (see
-# .github/actions/oci-ssh-setup); if the wiring breaks, those rules land on
-# the wrong NSG and CD fails silently.
-run "instance_attached_to_cd_nsg" {
-  command = plan
-
-  assert {
-    condition     = length(module.compute.instance_nsg_ids) == 1
-    error_message = "Instance VNIC must attach exactly one NSG (the cd_deploy NSG from networking). Multiple NSGs would split cd.yml's runtime mutations across NSGs."
-  }
-}
-
-# Bastion must attach to the same subnet as the compute instance — otherwise
-# the bastion's /28 service endpoint lands in a different subnet's data
-# plane and the SSH-from-bastion ingress rule (sourced from the public
-# subnet CIDR) does not cover its traffic. The integration runs `apply`
-# rather than `plan` because the subnet ID is computed.
-run "bastion_targets_compute_subnet" {
+# The bastion's /28 service endpoint must sit in the OKE worker-node subnet —
+# the compose VM it formerly fronted was decommissioned once the OKE cutover
+# stabilised (Phase 13b), so `make ssh` now reaches the node. The target subnet
+# isn't directly assertable from the root scope, so we pin the display name the
+# wrapper script (deploy/scripts/bastion-session.sh) greps for. The integration
+# runs `apply` rather than `plan` because the subnet ID is computed.
+run "bastion_targets_node_subnet" {
   command = apply
 
   assert {

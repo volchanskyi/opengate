@@ -52,29 +52,11 @@ variable "ssh_allowed_cidr" {
   }
 }
 
-variable "instance_shape" {
-  description = "OCI compute shape"
-  type        = string
-  default     = "VM.Standard.A1.Flex"
-}
-
-variable "instance_ocpus" {
-  description = "Number of OCPUs for the instance"
-  type        = number
-  default     = 2
-}
-
-variable "instance_memory_gb" {
-  description = "Memory in GB for the instance"
-  type        = number
-  default     = 12
-}
-
-variable "boot_volume_gb" {
-  description = "Boot volume size in GB"
-  type        = number
-  default     = 50
-}
+# Note: the instance_shape / instance_ocpus / instance_memory_gb / boot_volume_gb
+# variables were removed when the compute VM was decommissioned (their only
+# consumer was the now-removed module.compute instantiation). The compute module
+# still declares its own equivalents in modules/compute/variables.tf, so a
+# rollback that re-adds the module block re-introduces these root inputs.
 
 # --- OKE (Phase 13b cutover) -------------------------------------------------
 # Defaults are the live values resolved at wiring time (region us-sanjose-1,

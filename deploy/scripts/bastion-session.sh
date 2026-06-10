@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# OCI Bastion session wrapper. Creates (or reuses) a Managed SSH session and
-# either opens an interactive shell (`ssh`), forwards Grafana + Uptime Kuma
-# (`tunnel`), or runs read-only sanity checks (`diagnose`).
+# OCI Bastion session wrapper. Creates (or reuses) a Managed SSH session to the
+# OKE worker node and either opens an interactive shell (`ssh`) or runs
+# read-only sanity checks (`diagnose`).
 #
-# Invoked via the root Makefile's `make ssh` / `make tunnel` targets.
+# Invoked via the root Makefile's `make ssh` target. (`make tunnel` moved to
+# `kubectl port-forward` post-cutover — the monitoring UIs are ClusterIP
+# services, not host ports reachable over the bastion.)
 #
 # Caching: the active session OCID + canonical ssh-metadata.command +
 # expiry are persisted at ~/.cache/opengate/bastion-session.json.
@@ -15,8 +17,7 @@
 # `tail -n 100 ~/.cache/opengate/bastion-session.log`.
 #
 # Subcommands:
-#   tunnel       SSH + -L 3000 -L 3001 (Grafana + Uptime Kuma)
-#   ssh          interactive shell
+#   ssh          interactive shell on the OKE worker node
 #   diagnose     read-only checks: bastion state, plugin status, active
 #                sessions on the bastion, cache state. No state changes.
 #   purge        delete the local cache file; next run creates a fresh
@@ -24,12 +25,16 @@
 #
 # Env knobs:
 #   OPENGATE_BASTION_DEBUG=1       # set -x + OCI CLI --debug; very verbose
-#   BASTION_OCID                   # override terraform output
-#   INSTANCE_OCID                  # override terraform output
-#   INSTANCE_PRIVATE_IP            # override terraform output
-#   BASTION_TARGET_USER            # default: ubuntu
+#   BASTION_OCID                   # override terraform output (bastion_id)
+#   INSTANCE_OCID                  # override the OKE node OCID (else node pool)
+#   INSTANCE_PRIVATE_IP            # override the OKE node private IP
+#   BASTION_TARGET_USER            # default: opc (Oracle Linux OKE nodes)
 #   BASTION_SSH_KEY                # default: ~/.ssh/id_ed25519
 #   OPENGATE_TERRAFORM_DIR         # default: deploy/terraform
+#
+# The SSH target is the OKE worker node (the compose VM it formerly fronted was
+# decommissioned). The node's OCID + private IP are resolved live from the
+# cluster node pool (oke_node_pool_id terraform output) via `oci ce node-pool get`.
 #
 # Prerequisites: oci CLI, jq, terraform (if not pre-setting the OCIDs).
 # IAM: `manage bastion-session` on the compartment + `read instance` on the
@@ -47,7 +52,7 @@ CACHE_FILE="$CACHE_DIR/bastion-session.json"
 LOG_FILE="$CACHE_DIR/bastion-session.log"
 LOG_MAX_BYTES=$(( 5 * 1024 * 1024 ))
 TERRAFORM_DIR="${OPENGATE_TERRAFORM_DIR:-deploy/terraform}"
-TARGET_USER="${BASTION_TARGET_USER:-ubuntu}"
+TARGET_USER="${BASTION_TARGET_USER:-opc}"
 SSH_KEY="${BASTION_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 SSH_PUBKEY="${SSH_KEY}.pub"
 # 5 minutes of headroom on the session TTL so a session about to expire
@@ -110,10 +115,10 @@ fi
 # Subcommand dispatch (validated before doing any real work)
 # ──────────────────────────────────────────────────────────────────────────
 
-MODE="${1:-tunnel}"
+MODE="${1:-ssh}"
 case "$MODE" in
-  tunnel|ssh|diagnose|purge) ;;
-  *) err "unknown subcommand '$MODE' (expected: tunnel | ssh | diagnose | purge)" ;;
+  ssh|diagnose|purge) ;;
+  *) err "unknown subcommand '$MODE' (expected: ssh | diagnose | purge)" ;;
 esac
 
 if [[ "$MODE" == "purge" ]]; then
@@ -135,19 +140,31 @@ command -v jq  >/dev/null 2>&1 || err "jq not found. Install: apt install jq | b
 [[ -f "$SSH_KEY"    ]] || err "SSH private key not found at $SSH_KEY (set BASTION_SSH_KEY to override)"
 [[ -f "$SSH_PUBKEY" ]] || err "SSH public key not found at $SSH_PUBKEY (must sit next to the private key as .pub)"
 
-# Resolve identifiers from terraform output unless caller pre-set them.
+# Resolve identifiers unless the caller pre-set them. BASTION_OCID and the node
+# pool OCID come from terraform outputs; the SSH target is the OKE worker node,
+# whose OCID + private IP are read live from the node pool (OKE owns node
+# identity — there is no terraform output for them). `oci` is invoked directly
+# here because the oci_cmd wrapper is defined further down the file.
 if [[ -z "${BASTION_OCID:-}" || -z "${INSTANCE_OCID:-}" || -z "${INSTANCE_PRIVATE_IP:-}" ]]; then
   command -v terraform >/dev/null 2>&1 || err "terraform not found (and BASTION_OCID/INSTANCE_OCID/INSTANCE_PRIVATE_IP not pre-set)"
   [[ -d "$TERRAFORM_DIR" ]] || err "terraform dir not found at $TERRAFORM_DIR (set OPENGATE_TERRAFORM_DIR to override)"
-  debug "resolving identifiers from $TERRAFORM_DIR"
+  debug "resolving identifiers from $TERRAFORM_DIR + OKE node pool"
   BASTION_OCID="${BASTION_OCID:-$(terraform -chdir="$TERRAFORM_DIR" output -raw bastion_id 2>/dev/null || true)}"
-  INSTANCE_OCID="${INSTANCE_OCID:-$(terraform -chdir="$TERRAFORM_DIR" output -raw instance_id 2>/dev/null || true)}"
-  INSTANCE_PRIVATE_IP="${INSTANCE_PRIVATE_IP:-$(terraform -chdir="$TERRAFORM_DIR" output -raw instance_private_ip 2>/dev/null || true)}"
+
+  if [[ -z "${INSTANCE_OCID:-}" || -z "${INSTANCE_PRIVATE_IP:-}" ]]; then
+    node_pool_id=$(terraform -chdir="$TERRAFORM_DIR" output -raw oke_node_pool_id 2>/dev/null || true)
+    [[ -n "$node_pool_id" ]] || err "oke_node_pool_id is empty. Run 'terraform -chdir=$TERRAFORM_DIR apply' or pre-set INSTANCE_OCID + INSTANCE_PRIVATE_IP."
+    debug "resolving worker node from node pool $node_pool_id"
+    node_json=$(oci ce node-pool get --node-pool-id "$node_pool_id" --query 'data.nodes' 2>/dev/null) \
+      || err "oci ce node-pool get failed — cannot resolve the worker node. Check IAM (read on the node pool) and the node pool id."
+    INSTANCE_OCID="${INSTANCE_OCID:-$(jq -r 'map(select(."lifecycle-state"=="ACTIVE")) | first | .id // empty' <<<"$node_json")}"
+    INSTANCE_PRIVATE_IP="${INSTANCE_PRIVATE_IP:-$(jq -r 'map(select(."lifecycle-state"=="ACTIVE")) | first | ."private-ip" // empty' <<<"$node_json")}"
+  fi
 fi
 
 [[ -n "$BASTION_OCID"        ]] || err "bastion_id is empty. Run 'terraform -chdir=$TERRAFORM_DIR apply' or set BASTION_OCID."
-[[ -n "$INSTANCE_OCID"       ]] || err "instance_id is empty. Run 'terraform -chdir=$TERRAFORM_DIR apply' or set INSTANCE_OCID."
-[[ -n "$INSTANCE_PRIVATE_IP" ]] || err "instance_private_ip is empty. Run 'terraform -chdir=$TERRAFORM_DIR apply' or set INSTANCE_PRIVATE_IP."
+[[ -n "$INSTANCE_OCID"       ]] || err "could not resolve an ACTIVE OKE worker-node OCID from the node pool. Set INSTANCE_OCID to override."
+[[ -n "$INSTANCE_PRIVATE_IP" ]] || err "could not resolve the OKE worker-node private IP from the node pool. Set INSTANCE_PRIVATE_IP to override."
 
 debug "BASTION_OCID=$BASTION_OCID"
 debug "INSTANCE_OCID=$INSTANCE_OCID"
@@ -428,13 +445,8 @@ patched_command=$(echo "$raw_command" | sed -E "s|-i [^ \"]+|-i $SSH_KEY|g")
 debug "patched ssh command: $patched_command"
 
 case "$MODE" in
-  tunnel)
-    log "Opening Grafana (http://localhost:3000) + Uptime Kuma (http://localhost:3001) tunnels"
-    log "ctrl-C to exit"
-    exec bash -c "$patched_command -L 3000:localhost:3000 -L 3001:localhost:3001"
-    ;;
   ssh)
-    log "Opening interactive shell on $TARGET_USER@$INSTANCE_PRIVATE_IP"
+    log "Opening interactive shell on $TARGET_USER@$INSTANCE_PRIVATE_IP (OKE worker node)"
     exec bash -c "$patched_command"
     ;;
 esac

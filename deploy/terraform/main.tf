@@ -59,30 +59,22 @@ module "networking" {
   ssh_allowed_cidr = var.ssh_allowed_cidr
 }
 
-module "compute" {
-  source = "./modules/compute"
+# The compose VM (oci_core_instance.opengate) was decommissioned once the OKE
+# cutover stabilised (Phase 13b, ADR-030/ADR-034). The `compute` module is left
+# in the tree, tested and reusable, as the documented rollback path
+# (docs/Kubernetes-Migration.md → Rollback: re-instantiate it + restore a
+# pg_dump) — it is simply no longer instantiated here.
 
-  compartment_id      = local.compartment_id
-  tenancy_ocid        = var.tenancy_ocid
-  subnet_id           = module.networking.subnet_id
-  nsg_ids             = [module.networking.nsg_id]
-  instance_shape      = var.instance_shape
-  instance_ocpus      = var.instance_ocpus
-  instance_memory_gb  = var.instance_memory_gb
-  boot_volume_gb      = var.boot_volume_gb
-  ssh_public_key_path = var.ssh_public_key_path
-  cloud_init_path     = "${path.module}/cloud-init.yaml"
-}
-
-# OCI Bastion service — operator access plane. Replaces the static
-# `var.ssh_allowed_cidr` ingress rule for human SSH + monitoring-UI tunnels.
-# CI still uses the just-in-time NSG-rule pattern (see
+# OCI Bastion service — operator access plane. Since the VM was decommissioned
+# its target is the OKE worker-node subnet, so `make ssh` reaches the node for
+# node-level debugging (deploy/scripts/bastion-session.sh resolves the node IP
+# from the node pool). CI still uses the just-in-time NSG-rule pattern (see
 # .github/actions/oci-ssh-setup). See ADR-018 for the decision rationale.
 module "bastion" {
   source = "./modules/bastion"
 
   compartment_id   = local.compartment_id
-  target_subnet_id = module.networking.subnet_id
+  target_subnet_id = module.networking.oke_node_subnet_id
 }
 
 # OKE cluster (Phase 13b cutover, ADR-030 / ADR-034). Stands up the BASIC
@@ -139,9 +131,4 @@ moved {
 moved {
   from = oci_core_subnet.opengate_public
   to   = module.networking.oci_core_subnet.opengate_public
-}
-
-moved {
-  from = oci_core_instance.opengate
-  to   = module.compute.oci_core_instance.opengate
 }

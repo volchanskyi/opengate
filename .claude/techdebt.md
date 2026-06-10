@@ -4,9 +4,49 @@
 
 ## Severity: High
 
-_None currently._
+### OKE in-cluster metrics scraping broken — VictoriaMetrics has 0 series
+
+VictoriaMetrics scrapes via `-promscrape.config=/etc/victoriametrics/scrape.yml`
+using `kubernetes_sd_configs` (pod/endpoints/nodes/services discovery), but its
+pod has **no serviceaccount token mounted**, so every discovery call to the API
+server fails with `cannot read ".../serviceaccount/token": no such file or
+directory`. It discovers zero targets and stores zero series — every Grafana
+metric panel and every metric-based alert (host CPU/mem/disk, HTTP error-rate,
+p95 latency, `opengate_agents_connected`, DB metrics) has been blind since
+cluster bring-up. Logs (Loki/promtail) and external probing (uptime-kuma) are
+unaffected, so the blindness is metrics-only. Discovered during the VM
+decommission — the metric path the `/observe` skill now targets returned empty.
+
+**Fix (mirror the shipped promtail pattern in
+[`deploy/helm/monitoring/templates/promtail.yaml`](../deploy/helm/monitoring/templates/promtail.yaml)):**
+give VictoriaMetrics a dedicated `ServiceAccount`, a `ClusterRole` granting
+`get/list/watch` on `pods`/`endpoints`/`nodes`/`nodes/metrics`/`services`, a
+`ClusterRoleBinding`, and set the StatefulSet pod's `serviceAccountName` +
+`automountServiceAccountToken: true`. `helm upgrade monitoring`, then confirm
+`count({__name__=~".+"}) > 0` and that `opengate_agents_connected` resolves.
+
+**Pay-down trigger:** the focused follow-up commit immediately after the
+VM-decommission change (kept separate so the monitoring-chart RBAC change is
+reviewed on its own).
 
 ## Severity: Medium
+
+### Cutover doc drift — Monitoring.md / Continuous-Deployment.md still describe the VPS path
+
+The compose→OKE cutover (executed 2026-06-10) moved the app, monitoring, and CD
+onto the OKE cluster and decommissioned the compose VM, but several canonical
+docs still document the old VPS/compose access path:
+[`docs/Monitoring.md`](../docs/Monitoring.md) (Grafana/Kuma/Loki access via
+`ssh ubuntu@<VPS>` + `docker-compose.monitoring.yml`) and
+[`docs/Continuous-Deployment.md`](../docs/Continuous-Deployment.md) (`/opt/opengate`
+paths, `ssh ubuntu@<VPS>` rollback). Those commands no longer work — the VM is
+gone. [`docs/Infrastructure.md`](../docs/Infrastructure.md)'s "Operator access"
+section was updated as part of the decommission; the residual compose-deployment
+references there describe the dormant rollback path and remain accurate.
+
+**Pay-down trigger:** a focused [`/wiki-audit`](../.claude/skills/wiki-audit/) pass
+repointing the monitoring + CD docs at the cluster (`kubectl` access, `helm` /
+`cd.yml` k8s deploy jobs) — out of scope for the VM-decommission change.
 
 ### Phase 13b k8s — shared CA/VAPID/signing keys: mechanism shipped, runtime-unverified
 
