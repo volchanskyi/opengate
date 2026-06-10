@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781101244758,
+  "lastUpdate": 1781102739092,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16586,6 +16586,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 29.729555890925614,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "bc6d9f1dc173a90e05a057e7de7b898d3bfb91ec",
+          "message": "fix(monitoring): give VictoriaMetrics a serviceaccount for kubernetes_sd\n\nVictoriaMetrics scrapes via -promscrape.config with kubernetes_sd discovery\n(node/pod/endpoints roles), but its pod ran with automountServiceAccountToken:\nfalse and no serviceAccount, so every discovery call to the API server failed\n(\"cannot read .../serviceaccount/token: no such file or directory\") and it\nstored zero series. Grafana metric panels and every metric-based alert had been\nblind since cluster bring-up; logs (Loki/promtail) and external probing\n(uptime-kuma) were unaffected, so the outage was metrics-only.\n\nAdd a dedicated ServiceAccount + ClusterRole (get/list/watch on\nnodes/pods/endpoints/services; no nodes/proxy, avoiding KSV0047) +\nClusterRoleBinding, and bind the StatefulSet pod to the SA\n(automountServiceAccountToken left at its default of true, matching promtail).\n\nhelm upgrade applied to the live cluster: series count 0 -> 760, 4 scrape\ntargets up, opengate_agents_connected resolves. Pays down the High techdebt\nfiled in the VM-decommission commit.",
+          "timestamp": "2026-06-10T07:43:47-07:00",
+          "tree_id": "53d7ebcf86ea91ced507d26f776e488c1fb4157a",
+          "url": "https://github.com/volchanskyi/opengate/commit/bc6d9f1dc173a90e05a057e7de7b898d3bfb91ec"
+        },
+        "date": 1781102738960,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.43150713527698,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.741446137980823,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 755.5856676130725,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 314.089779654973,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.91493616155894,
             "unit": "ns/iter"
           }
         ]
