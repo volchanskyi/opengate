@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1780741751542,
+  "lastUpdate": 1781069593665,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16439,6 +16439,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.8945655655775,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "8e4ea9d328560c6e35f6e8b61b2ad2a252741395",
+          "message": "fix(ci): resolve post-cutover CI failures + clear two pre-existing gauntlet breaks\n\nCI failures surfaced after the OKE cutover (K8S_CUTOVER=true) and PR-D:\n\n1. CD staging k8s deploy timed out (`helm --wait`: context deadline exceeded).\n   Staging shares the single-node pilot cluster with production, which already\n   binds the QUIC/MPS hostPorts (9090/udp, 4433/tcp); a second pod can't\n   duplicate them, so staging hung Pending. values-staging.yaml now sets\n   server.hostPortL4=false (staging E2E reaches the app via port-forward).\n\n2. Nightly mutation testing went red on Go (86.4% -> 77.4%, below the 85 floor).\n   PR-D's server/tests/e2e-multiserver/ driver has no unit tests by design (like\n   tests/loadtest); its 105 mutants all counted NOT-COVERED. Carve it out in\n   .gremlins.yaml and bump timeout-coefficient 10->15 so runner-load TIMED-OUT\n   mutants score KILLED. The 85 floor is unchanged and still enforced for Go,\n   Rust, and Web.\n\n3. terraform-drift false-failed on `terraform init` (504 Gateway Timeout from\n   github.com fetching the oracle/oci provider) — transient, outlasted the\n   3-attempt/~90s retry. Widen to 5 attempts / ~5 min. Lockfile untouched.\n\nTwo pre-existing breaks the full gauntlet surfaced (fixed on the spot):\n\n4. gosec G706 (log injection) in tests/e2e-multiserver/main.go: the logf wrapper\n   forwarded a dynamic format to log.Printf. Pass log.Printf directly (matching\n   signature) — no wrapper, no finding.\n\n5. Flaky platform-linux runtime tests: they mutated process-global NOTIFY_SOCKET\n   (racing other threads; set_var is unsound under concurrency), so an assertion\n   panicked and poisoned the shared mutex, cascading a PoisonError. Extract the\n   pure `decide_runtime(in_container, has_notify_socket)` and test it with\n   explicit inputs in tests/runtime_test.rs — no global state, deterministic.",
+          "timestamp": "2026-06-09T22:31:10-07:00",
+          "tree_id": "b4ae28c9c97a6d40e0af06dd6b2be5953da21cb4",
+          "url": "https://github.com/volchanskyi/opengate/commit/8e4ea9d328560c6e35f6e8b61b2ad2a252741395"
+        },
+        "date": 1781069593534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.1990317466743,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.311050162847728,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 734.788999675163,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 315.02668922278315,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.870869370946956,
             "unit": "ns/iter"
           }
         ]
