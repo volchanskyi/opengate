@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781102739092,
+  "lastUpdate": 1781106331611,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16635,6 +16635,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.91493616155894,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b2bce376f98052b1eefef4bd1480a01634c9da65",
+          "message": "ci(e2e): retry test-server bring-up on Docker Hub registry flakes\n\nThe E2E \"Start test server\" step pulls postgres:17-alpine plus the golang/node\nbuild base images from Docker Hub, which intermittently times out on hosted\nrunners (run 27284370131 failed on the postgres pull: registry-1.docker.io\nconnection timeout). Wrap `docker compose up --build --wait` in a 3-attempt\nretry with a clean slate (down -v) between attempts so a transient registry\nflake no longer fails the job. Mirrors the existing tflint-init retry pattern.\n\nAlso saves two deferred-work plans under .claude/plans/ (no behavior change):\n- oke-block-volume-free-tier: trim cluster block storage 450->200 GB to fit the\n  Always-Free cap (audit found no orphaned OCI resources; the overage is the\n  8x50 GB-minimum PVCs from the cutover, not the decommission).\n- sonarcloud-helm-render-then-scan: scan rendered helm (not raw templates) only\n  if it beats the existing Checkov+conftest coverage; raw-template scanning\n  proved ~17/20 false-positives (toYaml / {{ $name }} can't resolve) + redundant.",
+          "timestamp": "2026-06-10T08:43:38-07:00",
+          "tree_id": "2e2907a5a1754a007e642a6db40f0cf3a6d8057f",
+          "url": "https://github.com/volchanskyi/opengate/commit/b2bce376f98052b1eefef4bd1480a01634c9da65"
+        },
+        "date": 1781106331481,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.3933536443315,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.908267245839223,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 759.3176178601814,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 300.6909456839557,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.827572782903072,
             "unit": "ns/iter"
           }
         ]
