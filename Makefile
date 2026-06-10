@@ -77,10 +77,10 @@ lint-deploy:
 	@command -v tflint >/dev/null 2>&1 || { echo "ERROR: tflint not found. Install from: https://github.com/terraform-linters/tflint"; exit 1; }
 	tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact
 	@# Output-sensitivity grep — cheaper and more deterministic than asserting in tftest.
-	@# instance_id and cd_nsg_id contain OCIDs consumed via GitHub Secrets — they MUST
-	@# stay marked `sensitive = true` in deploy/terraform/outputs.tf so they never appear
-	@# in plan/apply logs.
-	@for out in instance_id cd_nsg_id; do \
+	@# cd_nsg_id contains an OCID consumed via GitHub Secrets — it MUST stay marked
+	@# `sensitive = true` in deploy/terraform/outputs.tf so it never appears in
+	@# plan/apply logs. (instance_id was dropped when the compute VM was decommissioned.)
+	@for out in cd_nsg_id; do \
 	  grep -A3 "output \"$$out\"" deploy/terraform/outputs.tf | grep -q "sensitive *= *true" \
 	    || { echo "ERROR: output \"$$out\" must have sensitive = true in deploy/terraform/outputs.tf"; exit 1; }; \
 	done
@@ -128,13 +128,18 @@ terraform-drift:
 # access via OCI Bastion".
 # ----------------------------------------------------------------------------
 
-# `make tunnel` — create (or reuse) a Managed SSH session and forward
-# Grafana :3000 + Uptime Kuma :3001 to localhost. Operator browses to
-# http://localhost:3000 / http://localhost:3001 once the session is up.
+# `make tunnel` — port-forward the in-cluster Grafana :3000 + Uptime Kuma :3001
+# to localhost via kubectl. Post-OKE-cutover the monitoring UIs are ClusterIP
+# services (not host ports on the decommissioned VM), so the bastion can no
+# longer reach them. Operator browses to http://localhost:3000 /
+# http://localhost:3001; Ctrl-C tears both forwards down.
 tunnel:
-	@deploy/scripts/bastion-session.sh tunnel
+	@echo "Grafana -> http://localhost:3000 | Uptime Kuma -> http://localhost:3001 (Ctrl-C to stop)"
+	@kubectl -n monitoring port-forward svc/monitoring-grafana 3000:3000 & p1=$$!; \
+	 kubectl -n monitoring port-forward svc/monitoring-uptime-kuma 3001:3001 & p2=$$!; \
+	 trap 'kill $$p1 $$p2 2>/dev/null' INT TERM; wait || true
 
-# `make ssh` — same session machinery, interactive shell.
+# `make ssh` — Managed SSH session to the OKE worker node (interactive shell).
 ssh:
 	@deploy/scripts/bastion-session.sh ssh
 

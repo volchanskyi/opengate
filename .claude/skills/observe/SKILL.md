@@ -2,49 +2,57 @@
 name: observe
 description: |
   Autonomous investigation of product and infrastructure issues.
-  Query metrics (PromQL), logs (LogQL), container health, and local WSL agent
-  diagnostics without user intervention.
+  Query metrics (PromQL), logs (LogQL), pod/container health, and local WSL
+  agent diagnostics without user intervention.
 ---
 
 # Observe — Autonomous Diagnostics
 
-Investigate product and infrastructure issues by querying metrics, logs, container health, and local agent state.
+Investigate product and infrastructure issues by querying metrics, logs, pod
+health, and local agent state. The stack runs on the **OKE cluster** (Phase 13b
+cutover) — all remote queries go through `kubectl` against the cluster context;
+there is no VPS to SSH into anymore.
 
 ## Prerequisites
 
-SSH connectivity to the VPS is required for remote queries. Verify before proceeding:
+A working kubectl context for the OKE cluster. Verify before proceeding:
 
 ```bash
-ssh -o ConnectTimeout=5 ubuntu@163.192.34.124 "echo ok"
+kubectl config current-context     # expect the OKE context (context-c23expbbogq)
+kubectl get nodes                  # worker node Ready
+kubectl -n monitoring get pods     # victoriametrics / loki / grafana / promtail Running
 ```
 
-If this fails, check `~/.ssh/config` for the `ubuntu@163.192.34.124` host alias.
-
-Verify the monitoring stack is running:
-
-```bash
-ssh ubuntu@163.192.34.124 "docker ps --filter name=opengate- --format 'table {{.Names}}\t{{.Status}}'"
-```
+Namespaces: `opengate` (prod app), `opengate-staging` (staging app),
+`monitoring` (observability stack), `ingress-nginx` (edge).
 
 ---
 
 ## 1. Metrics — PromQL (VictoriaMetrics)
 
-VictoriaMetrics is not published to the VPS host. Query via `docker exec`:
+VictoriaMetrics is a ClusterIP service (`monitoring-victoriametrics:8428`), not
+exposed outside the cluster. Query via `kubectl exec` into its pod:
 
 ### Instant query
 
 ```bash
-ssh ubuntu@163.192.34.124 "docker exec opengate-victoriametrics wget -qO- 'http://127.0.0.1:8428/api/v1/query?query=URL_ENCODED_PROMQL'"
+kubectl -n monitoring exec statefulset/monitoring-victoriametrics -- \
+  wget -qO- 'http://127.0.0.1:8428/api/v1/query?query=URL_ENCODED_PROMQL'
 ```
 
 ### Range query
 
 ```bash
-ssh ubuntu@163.192.34.124 "docker exec opengate-victoriametrics wget -qO- 'http://127.0.0.1:8428/api/v1/query_range?query=URL_ENCODED_PROMQL&start=UNIX_START&end=UNIX_END&step=60s'"
+kubectl -n monitoring exec statefulset/monitoring-victoriametrics -- \
+  wget -qO- 'http://127.0.0.1:8428/api/v1/query_range?query=URL_ENCODED_PROMQL&start=UNIX_START&end=UNIX_END&step=60s'
 ```
 
-URL-encode the query locally before passing it through SSH. Use single quotes around the full URL to avoid shell expansion.
+URL-encode the query before passing it through. **If a query returns an empty
+`result`, check scrape health first:** `query=up` should list every target with
+value `1`. If `up` itself is empty, the scrape pipeline is down — inspect
+`kubectl -n monitoring logs statefulset/monitoring-victoriametrics` (a missing
+serviceaccount token there means the `kubernetes_sd` discovery can't reach the
+API server).
 
 ### Key queries
 
@@ -73,7 +81,7 @@ URL-encode the query locally before passing it through SSH. Use single quotes ar
 | DB errors | `sum(rate(opengate_db_queries_total{status="error"}[5m])) by (operation)` |
 | DB size | `opengate_db_size_bytes` |
 
-**Host (Node Exporter)**
+**Host (Node Exporter — the OKE worker node)**
 
 | Name | PromQL |
 |------|--------|
@@ -86,67 +94,72 @@ URL-encode the query locally before passing it through SSH. Use single quotes ar
 
 ## 2. Logs — LogQL (Loki)
 
-Loki is not published to the VPS host. Query via `docker exec`:
+Loki is a ClusterIP service (`monitoring-loki:3100`). Query via `kubectl exec`:
 
 ```bash
-ssh ubuntu@163.192.34.124 "docker exec opengate-loki wget -qO- 'http://127.0.0.1:3100/loki/api/v1/query_range?query=URL_ENCODED_LOGQL&start=NANO_START&end=NANO_END&limit=50'"
+kubectl -n monitoring exec statefulset/monitoring-loki -- \
+  wget -qO- 'http://127.0.0.1:3100/loki/api/v1/query_range?query=URL_ENCODED_LOGQL&start=NANO_START&end=NANO_END&limit=50'
 ```
 
-Note: Loki timestamps are **nanoseconds** (Unix epoch * 1e9). Use `date +%s%N` for current time.
+Loki timestamps are **nanoseconds** (Unix epoch * 1e9). Use `date +%s%N`.
 
-### Container labels
+### Stream labels
 
-Promtail scrapes only `opengate-*` Docker containers:
+Promtail discovers **pods** (not docker containers), so streams are labelled by
+`namespace` / `pod` / `container` / `app`:
 
-- `{container="opengate-server"}` — production server
-- `{container="opengate-server-staging"}` — staging server
-- `{container="opengate-caddy"}` — production reverse proxy
-- `{container="opengate-caddy-staging"}` — staging reverse proxy
+- `{namespace="opengate", container="server"}` — production server
+- `{namespace="opengate-staging", container="server"}` — staging server
+- `{namespace="opengate", container="postgres"}` — production Postgres
+- `{namespace="ingress-nginx", container="controller"}` — edge proxy (replaces
+  the old Caddy)
 
-Server logs are JSON (`slog`). Caddy logs are JSON (access log format).
+Server logs are JSON (`slog`) with fields `time`, `level`, `msg`, `method`,
+`path`, `status`, `duration`.
 
 ### Key queries
 
 | Name | LogQL |
 |------|-------|
-| Server errors | `{container="opengate-server"} \|= "ERROR"` |
-| Auth failures | `{container="opengate-server"} \| json \| msg=~".*auth.*fail.*"` |
-| Caddy 5xx | `{container="opengate-caddy"} \| json \| status >= 500` |
-| Agent events | `{container="opengate-server"} \| json \| msg=~".*agent.*"` |
-| Relay events | `{container="opengate-server"} \| json \| msg=~".*relay.*\|.*session.*"` |
-| Enrollment | `{container="opengate-server"} \| json \| msg=~".*enroll.*"` |
+| Server errors | `{namespace="opengate", container="server"} \| json \| level="ERROR"` |
+| Auth failures | `{namespace="opengate", container="server"} \| json \| msg=~".*auth.*fail.*"` |
+| Slow/!2xx requests | `{namespace="opengate", container="server"} \| json \| status>=400` |
+| Agent events | `{namespace="opengate", container="server"} \| json \| msg=~".*agent.*"` |
+| Relay/session | `{namespace="opengate", container="server"} \| json \| msg=~".*relay.*\|.*session.*"` |
+| Enrollment | `{namespace="opengate", container="server"} \| json \| msg=~".*enroll.*"` |
+| Edge 5xx | `{namespace="ingress-nginx", container="controller"} \|~ " (5[0-9][0-9]) "` |
 
-For staging, replace `opengate-server` with `opengate-server-staging`.
+For staging, swap `namespace="opengate"` → `namespace="opengate-staging"`.
 
 ---
 
-## 3. Container Health (Remote via SSH)
+## 3. Pod & Container Health (kubectl)
 
 ```bash
-# All container status
-ssh ubuntu@163.192.34.124 "docker ps --filter name=opengate- --format 'table {{.Names}}\t{{.Status}}'"
+# App pods (prod + staging) — Running, restart count, age
+kubectl -n opengate get pods -o wide
+kubectl -n opengate-staging get pods -o wide
 
-# API health — production
-ssh ubuntu@163.192.34.124 "docker exec opengate-server wget -qO- http://127.0.0.1:8080/api/v1/health"
+# API health — production, in-cluster
+kubectl -n opengate exec deploy/opengate-server -- wget -qO- http://127.0.0.1:8080/api/v1/health
+# ... or externally through the ingress:
+curl -fsS https://opengate.cloudisland.net/healthz
 
-# API health — staging
-ssh ubuntu@163.192.34.124 "docker exec opengate-server-staging wget -qO- http://127.0.0.1:8080/api/v1/health"
+# Recent server logs (last 50 lines)
+kubectl -n opengate logs deploy/opengate-server --tail 50
 
-# Container resource usage
-ssh ubuntu@163.192.34.124 "docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' \$(docker ps -q --filter name=opengate-)"
+# Pod resource usage (needs metrics-server; else use the Host PromQL in §1)
+kubectl -n opengate top pods 2>/dev/null || echo "metrics-server absent — use node-exporter PromQL"
 
-# Recent container logs (last 50 lines)
-ssh ubuntu@163.192.34.124 "docker logs --tail 50 opengate-server 2>&1"
-
-# Current image version
-ssh ubuntu@163.192.34.124 "docker inspect opengate-server --format '{{.Config.Image}}'"
+# Running image digest (matches the deployed release?)
+kubectl -n opengate get deploy/opengate-server -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
 ---
 
 ## 4. Local Agent Diagnostics (WSL)
 
-These commands run directly on the WSL host — no SSH needed.
+These commands run directly on the WSL host — no remote access needed.
 
 ### Service and process
 
@@ -190,10 +203,10 @@ openssl verify -CAfile /etc/opengate-agent/ca.pem /var/lib/opengate-agent/agent.
 ### Connectivity
 
 ```bash
-# DNS resolution
+# DNS resolution — points at the OKE worker node's public IP
 dig +short quic.opengate.cloudisland.net
 
-# QUIC port reachability (UDP 9090)
+# QUIC port reachability (UDP 9090, hostPort on the node)
 timeout 3 bash -c 'echo | nc -u quic.opengate.cloudisland.net 9090 && echo "reachable" || echo "unreachable"'
 ```
 
@@ -205,31 +218,31 @@ timeout 3 bash -c 'echo | nc -u quic.opengate.cloudisland.net 9090 && echo "reac
 
 1. `systemctl status mesh-agent --no-pager` — if failed, check journal for exit reason
 2. Tail agent log for errors: connection refused, cert errors, DNS failures
-3. Test QUIC connectivity (UDP 9090)
-4. Check VPS server container is running
-5. Check server logs for agent-related errors in Loki
+3. Test QUIC connectivity (UDP 9090) to the node
+4. Check the server pod is Running: `kubectl -n opengate get pods`
+5. Check server logs for agent-related errors in Loki (§2)
 
 ### Why are requests slow?
 
-1. Query p95/p99 latency and slowest routes (PromQL)
+1. Query p95/p99 latency and slowest routes (PromQL §1)
 2. Query DB latency by operation
-3. Check host CPU/memory/disk utilization
-4. Check container resource usage via `docker stats`
+3. Check host CPU/memory/disk utilization (node-exporter PromQL)
+4. Check pod resource usage (`kubectl top pods`)
 5. Correlate with error logs in Loki
 
 ### Check deployment health
 
-1. All `opengate-*` containers running?
+1. All app pods Running, low restart count? (`kubectl get pods`)
 2. Health endpoint returns 200?
 3. Connected agents gauge > 0?
 4. Error rate < 5%?
-5. Caddy access logs — any 5xx?
+5. Edge (ingress-nginx) logs — any 5xx?
 6. Disk and memory within thresholds?
 
 ### Post-deploy verification
 
-1. Container uptime shorter than deploy window? (`docker ps` STATUS column)
+1. Pod age shorter than the deploy window? (`kubectl get pods` AGE column)
 2. Health endpoint OK?
 3. New errors in Loki since deploy timestamp?
-4. Agent reconnection — `agents_connected` gauge recovering?
-5. Image tag matches expected version? (`docker inspect`)
+4. Agent reconnection — `opengate_agents_connected` gauge recovering?
+5. Image digest matches expected release? (`kubectl get deploy -o jsonpath=...`)

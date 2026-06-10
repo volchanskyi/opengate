@@ -220,18 +220,22 @@ The Loki stream feeds the existing monitoring stack. Recommended panels (provisi
 
 ### Operator access via OCI Bastion
 
-Daily operator access to the VPS (SSH shell + Grafana/Uptime Kuma tunnels) goes through the OCI Bastion service, not the static `ssh_allowed_cidr` rule. The dev machine sits on a dynamic ISP-issued IP and updating the CIDR after every ISP rebind was the original pain point — bastion sessions are gated by OCI IAM instead of L4 CIDR, so the dev-machine IP is irrelevant.
+Operator SSH access to the **OKE worker node** goes through the OCI Bastion service, not the static `ssh_allowed_cidr` rule. The dev machine sits on a dynamic ISP-issued IP and updating the CIDR after every ISP rebind was the original pain point — bastion sessions are gated by OCI IAM instead of L4 CIDR, so the dev-machine IP is irrelevant. (Before the Phase 13b cutover the bastion fronted the compose VM; that VM was decommissioned and the bastion was repointed at the worker-node subnet.)
+
+The Grafana + Uptime Kuma UIs are now ClusterIP services, so they are reached with `kubectl port-forward` (`make tunnel`), not an SSH tunnel.
 
 CI keeps the just-in-time NSG-rule pattern in [`.github/actions/oci-ssh-setup`](../.github/actions/oci-ssh-setup/) — the bastion is for **human** access only. See [ADR-018](adr/ADR-018-oci-bastion-operator-access.md) for the decision rationale.
 
 #### Daily flow
 
 ```bash
-make tunnel   # creates (or reuses) a Managed SSH session, forwards Grafana :3000 + Uptime Kuma :3001
-make ssh      # same session, plain shell
+make tunnel   # kubectl port-forward: Grafana :3000 + Uptime Kuma :3001 → localhost (Ctrl-C to stop)
+make ssh      # Managed SSH shell on the OKE worker node
 ```
 
-Browse to `http://localhost:3000` (Grafana) and `http://localhost:3001` (Uptime Kuma) once the tunnel is up. First invocation takes 5–10 s (session create); subsequent invocations within the 3 h TTL skip the create step thanks to a cache at `~/.cache/opengate/bastion-session.json`.
+Browse to `http://localhost:3000` (Grafana) and `http://localhost:3001` (Uptime Kuma) once `make tunnel` is up. `make ssh` resolves the node + bastion automatically and caches the session at `~/.cache/opengate/bastion-session.json` (5–10 s on first create, instant within the 3 h TTL).
+
+> **Node-SSH prerequisite:** the OCI Cloud Agent **Bastion plugin** must be `RUNNING` on the worker node for `make ssh`. On OKE *managed* nodes it is not enabled by default — until it is (tracked as a follow-up), use the break-glass path: direct `ssh opc@<node-public-ip>` (the node NSG allows TCP 22 from `ssh_allowed_cidr`).
 
 #### One-time operator onboarding
 
@@ -249,17 +253,17 @@ Per-user — repeat once per new team member.
    - Verify with `oci iam region list`.
 3. **SSH key** (operator-side):
    - `~/.ssh/id_ed25519` + `.pub` (default path used by the wrapper; override via `BASTION_SSH_KEY` if your key lives elsewhere).
-4. **Run** `make tunnel` from a fresh checkout. The wrapper resolves the bastion + instance OCIDs via `terraform output`; no hand-copied identifiers.
+4. **Run** `make ssh` from a fresh checkout. The wrapper resolves the bastion OCID via `terraform output` and the worker-node OCID + private IP from the cluster node pool (`oci ce node-pool get`); no hand-copied identifiers.
 
 #### Plumbing
 
 | File | Purpose |
 |---|---|
-| [`deploy/terraform/modules/bastion/`](../deploy/terraform/modules/bastion/) | Provisions `oci_bastion_bastion.opengate` targeting `opengate-public-subnet`. STANDARD type, `client_cidr_block_allow_list = ["0.0.0.0/0"]`, `max_session_ttl_in_seconds = 10800`. |
-| [`deploy/terraform/modules/networking/main.tf`](../deploy/terraform/modules/networking/main.tf) | Security list has two TCP 22 ingress rules: `var.ssh_allowed_cidr` (operator break-glass — set to `127.0.0.1/32` in `terraform.tfvars` to disable) and `local.public_subnet_cidr` (allows the bastion's /28 service endpoint). |
-| [`deploy/terraform/modules/compute/main.tf`](../deploy/terraform/modules/compute/main.tf) | `agent_config.plugins_config` enables the OCI Cloud Agent **Bastion plugin**. Without it, Managed SSH sessions fail because the agent's outbound tunnel is the path the bastion uses to reach the VM. |
-| [`deploy/scripts/bastion-session.sh`](../deploy/scripts/bastion-session.sh) | Pure-bash + OCI CLI wrapper. Caches the active session at `~/.cache/opengate/bastion-session.json` with a 5-min headroom over the 3 h TTL. |
-| `Makefile` `tunnel` + `ssh` targets | Shell into the wrapper with the right mode. |
+| [`deploy/terraform/modules/bastion/`](../deploy/terraform/modules/bastion/) | Provisions `oci_bastion_bastion.opengate` targeting the **OKE worker-node subnet** (`module.networking.oke_node_subnet_id`). STANDARD type, `client_cidr_block_allow_list = ["0.0.0.0/0"]`, `max_session_ttl_in_seconds = 10800`. |
+| [`deploy/terraform/modules/networking/oke.tf`](../deploy/terraform/modules/networking/oke.tf) | The worker-node NSG rule `node_ingress_ssh` allows TCP 22 from `var.ssh_allowed_cidr` (operator break-glass — set to `127.0.0.1/32` in `terraform.tfvars` to disable). The bastion's /28 service endpoint reaches the node intra-subnet. |
+| OCI Cloud Agent **Bastion plugin** (on the node) | Managed SSH rides the node agent's outbound tunnel, so the plugin must be `RUNNING`. On OKE managed nodes it is not enabled by default — see the node-SSH prerequisite above. |
+| [`deploy/scripts/bastion-session.sh`](../deploy/scripts/bastion-session.sh) | Pure-bash + OCI CLI wrapper (`ssh` / `diagnose` / `purge`). Resolves the node from the node pool; caches the active session at `~/.cache/opengate/bastion-session.json` with a 5-min headroom over the 3 h TTL. |
+| `Makefile` `ssh` target | Shells into the wrapper. `make tunnel` is separate — `kubectl port-forward` of the in-cluster monitoring services. |
 
 #### Verification (after `terraform apply`)
 
@@ -268,35 +272,35 @@ Per-user — repeat once per new team member.
 oci bastion bastion get --bastion-id "$(terraform -chdir=deploy/terraform output -raw bastion_id)" \
   | jq -r '.data."lifecycle-state"'  # → ACTIVE
 
-# 2. Cloud Agent Bastion plugin is RUNNING on the VM
-oci instance-agent plugin get \
-  --instanceagent-id "$(terraform -chdir=deploy/terraform output -raw instance_id)" \
+# 2. Cloud Agent Bastion plugin status on the worker node
+NODE_OCID=$(oci ce node-pool get \
+  --node-pool-id "$(terraform -chdir=deploy/terraform output -raw oke_node_pool_id)" \
+  --query 'data.nodes[0].id' --raw-output)
+oci instance-agent plugin get --instanceagent-id "$NODE_OCID" \
   --plugin-name Bastion --compartment-id "$OCI_COMPARTMENT_OCID" \
-  | jq -r '.data.status'  # → RUNNING
+  | jq -r '.data.status'  # → RUNNING (if STOPPED, see the node-SSH prerequisite)
 
-# 3. End-to-end tunnel
-make tunnel  # first run < 15 s; subsequent runs within 3 h < 2 s
-curl -sf http://localhost:3000 | head -1   # Grafana HTML
-curl -sf http://localhost:3001 | head -1   # Uptime Kuma admin HTML
+# 3. Monitoring UIs via kubectl port-forward
+make tunnel &                                # backgrounds the forwards
+curl -sf http://localhost:3000 | head -1     # Grafana HTML
+curl -sf http://localhost:3001 | head -1     # Uptime Kuma admin HTML
+kill %1                                       # stop the forwards
 
 # 4. IAM audit trail — confirms the session is attributed to YOUR user
 oci audit event list --compartment-id "$OCI_COMPARTMENT_OCID" \
   --start-time "$(date -u -d '1 hour ago' +%FT%TZ)" \
   --end-time   "$(date -u +%FT%TZ)" \
   | jq -r '.data[] | select(."event-name" == "CreateManagedSshSession") | ."identity"."principal-name"'
-
-# 5. Public SSH path is closed (run from an off-network host or an IP not in ssh_allowed_cidr)
-nmap -p 22 "$(terraform -chdir=deploy/terraform output -raw instance_public_ip)"  # filtered/closed
 ```
 
 #### Failure modes
 
 | Symptom | Likely cause | Resolution |
 |---|---|---|
-| `make tunnel` exits with `oci bastion session create-managed-ssh failed` | IAM policies not attached to your group | Re-check the three policies in step 1 above. |
-| Session creates, but `ssh` hangs | Bastion plugin not RUNNING on the VM | `oci instance-agent plugin get ...` (verification step 2). If `STOPPED`, re-enable via OCI Console → Instance → Oracle Cloud Agent. |
+| `make ssh` exits with `oci bastion session create-managed-ssh failed` | IAM policies not attached to your group | Re-check the three policies in step 1 above. |
+| Session creates, but `ssh` hangs | Bastion plugin not RUNNING on the node | `deploy/scripts/bastion-session.sh diagnose` (or verification step 2). If `STOPPED`, enable it on the node via OCI Console → Instance → Oracle Cloud Agent, or use the direct-SSH break-glass path. |
 | `terraform output -raw bastion_id` returns empty | `terraform apply` not run since the bastion module landed | Re-run `terraform apply`. |
-| Tunnel works but Grafana returns 502 | Monitoring stack down on the VPS | `make ssh` → `cd /opt/opengate && docker compose -f docker-compose.monitoring.yml ps`. |
+| `make tunnel` works but Grafana returns 502 | Monitoring pod not Ready | `kubectl -n monitoring get pods`; `kubectl -n monitoring logs deploy/monitoring-grafana`. |
 
 #### Risks (and what we accepted)
 

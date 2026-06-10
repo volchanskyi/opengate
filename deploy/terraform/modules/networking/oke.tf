@@ -273,6 +273,18 @@ resource "oci_core_security_list" "oke_lb" {
     }
     stateless = false
   }
+
+  # The OCI Cloud Controller Manager owns this LB subnet's security-list rules at
+  # runtime: for the ingress-nginx LoadBalancer Service (seclist-management-mode
+  # "All") it replaces the egress set with specific node-subnet NodePort +
+  # 10256 health-check rules. Terraform must not revert them, or it fights the
+  # CCM on every reconcile and the nightly drift job flaps. The static rules
+  # above are only the create-time seed; live rule management is delegated to the
+  # CCM (this security list is dedicated to the LB subnet, so nothing else relies
+  # on Terraform enforcing its rules).
+  lifecycle {
+    ignore_changes = [egress_security_rules, ingress_security_rules]
+  }
 }
 
 # --- Subnets ----------------------------------------------------------------
