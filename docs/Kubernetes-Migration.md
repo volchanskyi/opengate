@@ -102,8 +102,13 @@ The seven-service [observability stack](./Monitoring.md) moves into a
   (`datasources/`, the five `dashboards/`, `alerting/` with the Telegram contact
   point) is mounted as ConfigMaps; **datasource URLs change** from
   `http://victoriametrics:8428` / `http://loki:3100` to the in-cluster Service
-  DNS. Create the dashboard ConfigMap from the canonical files
-  (`kubectl -n monitoring create configmap grafana-dashboards --from-file=deploy/grafana/provisioning/dashboards`)
+  DNS. Create **both** the dashboards **and the alerting** ConfigMaps from the
+  canonical files (the Grafana pod mounts both and stays `ContainerCreating`
+  until each exists — the `grafana-alerting` one is easy to forget):
+  ```sh
+  kubectl -n monitoring create configmap grafana-dashboards --from-file=deploy/grafana/provisioning/dashboards
+  kubectl -n monitoring create configmap grafana-alerting   --from-file=deploy/grafana/provisioning/alerting
+  ```
   so they are not duplicated into the chart.
 
 **Loki-push retarget.** The nightly trend pipelines push to Loki via

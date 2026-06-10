@@ -76,15 +76,32 @@ spec:
         - name: promtail
           image: {{ .Values.promtail.image }}
           args: ["-config.file=/etc/promtail/promtail-config.yaml"]
+          env:
+            # The scrape config relabels __host__ to the pod's node name and
+            # promtail keeps only targets whose __host__ equals its own hostname.
+            # Default hostname is the *pod* name, so without this every target is
+            # filtered out (0 active targets, nothing shipped to Loki). Set the
+            # hostname to the node name via the Downward API so they match.
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           ports:
             - name: http
               containerPort: 9080
+          # Liveness is a plain port check, NOT /ready: promtail's /ready returns
+          # 500 until its first scrape-target sync completes, and on a busy/large
+          # node that can lag past the probe's failure window. Gating liveness on
+          # readiness there crash-loops a healthy shipper (killed → re-synced from
+          # scratch → killed). Readiness still uses /ready so it only joins once
+          # it is actually tailing.
           livenessProbe:
-            httpGet: { path: /ready, port: http }
+            tcpSocket: { port: http }
             initialDelaySeconds: 10
           readinessProbe:
             httpGet: { path: /ready, port: http }
             initialDelaySeconds: 5
+            failureThreshold: 12
           resources:
             {{- toYaml .Values.promtail.resources | nindent 12 }}
           securityContext:
