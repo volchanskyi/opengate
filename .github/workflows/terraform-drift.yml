@@ -89,20 +89,24 @@ jobs:
           # supported`. Forcing `when_required` skips it. Required on every
           # terraform invocation against this backend.
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-        # The S3-compat endpoint hostname `<ns>.compat.objectstorage.<region>.oraclecloud.com`
-        # has occasionally failed DNS resolution on GHA runners (observed:
-        # `dial tcp: lookup …: no such host`, 2026-05-15 06:37). Retry with
-        # exponential backoff before failing the gate.
+        # init reaches two flaky externals: the S3-compat backend endpoint
+        # `<ns>.compat.objectstorage.<region>.oraclecloud.com` (occasional GHA DNS
+        # miss — `dial tcp: lookup …: no such host`, 2026-05-15) and the Terraform
+        # provider registry, which redirects to github.com for the oracle/oci
+        # provider and can return `504 Gateway Timeout` during a GitHub blip
+        # (2026-06-08 — outlasted the old 3-attempt/~90s window and false-failed
+        # the nightly). Widen to 5 attempts with longer backoff (~5 min total) so a
+        # transient registry/DNS outage rides through instead of red-flagging drift.
         run: |
           set -e
-          for attempt in 1 2 3; do
+          for attempt in 1 2 3 4 5; do
             if terraform -chdir=deploy/terraform init -backend-config=/tmp/backend.tfbackend -input=false; then
               exit 0
             fi
-            echo "::warning::terraform init attempt $attempt/3 failed; retrying in $((attempt * 15))s"
-            sleep $((attempt * 15))
+            echo "::warning::terraform init attempt $attempt/5 failed; retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
           done
-          echo "::error::terraform init failed after 3 attempts"
+          echo "::error::terraform init failed after 5 attempts"
           exit 1
 
       - name: Terraform plan (refresh-only, detailed exit)
