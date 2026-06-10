@@ -70,7 +70,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@4bc351f7f2614e48088386e2a0ad917ca3a7e4ba # v2
+      - uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2
         with:
           tool: cargo-nextest
       - name: Tests
@@ -104,7 +104,7 @@ jobs:
           path: testdata/golden/
           retention-days: 20
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@4bc351f7f2614e48088386e2a0ad917ca3a7e4ba # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov
       - name: Generate Rust coverage
@@ -1086,7 +1086,7 @@ jobs:
         id: sonar_action
         if: env.SONAR_TOKEN != ''
         continue-on-error: true
-        uses: SonarSource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8
+        uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8
         with:
           args: -Dsonar.qualitygate.wait=true
       # Fallback: only when the action failed. Runs the scanner via the Docker

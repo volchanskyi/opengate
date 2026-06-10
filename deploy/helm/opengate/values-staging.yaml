@@ -12,6 +12,12 @@ certManager:
   server: https://acme-staging-v02.api.letsencrypt.org/directory
 
 server:
+  # Staging shares the single-node pilot cluster with production, which already
+  # binds the QUIC/MPS hostPorts (9090/udp, 4433/tcp) on the node. A second pod
+  # can't duplicate them, so staging would hang Pending and time out `helm --wait`.
+  # Staging E2E reaches the app via kubectl port-forward, not L4, so disable
+  # hostPort here (the server still serves HTTP on :8080).
+  hostPortL4: false
   resources:
     requests:
       cpu: 50m

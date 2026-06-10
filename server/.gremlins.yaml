@@ -4,6 +4,10 @@
 #  - openapi_gen.go: generated code; mutants here are noise.
 #  - cmd/meshserver/main.go and tests/loadtest/main.go: entry-point binaries
 #    with no unit tests by design.
+#  - tests/e2e-multiserver/: a host-side Docker/WebSocket e2e driver (run via
+#    `make e2e-multiserver`, gated OPENGATE_MULTISERVER_E2E=1), not unit-tested
+#    by design — same rationale as tests/loadtest. Without this carve-out all of
+#    its mutants count as NOT-COVERED and collapse the Go score (86.4% -> 77.4%).
 #  - internal/testutil/: shared test helpers; mutating tests' own scaffolding
 #    produces meaningless results.
 unleash:
@@ -11,6 +15,7 @@ unleash:
     - "openapi_gen\\.go"
     - "cmd/meshserver/main\\.go"
     - "tests/loadtest/main\\.go"
+    - "tests/e2e-multiserver/"
     - "internal/testutil/"
   # Per-mutant test timeout = coverage-dry-run-elapsed * timeout-coefficient
   # (gremlins default coefficient is 5). The dry-run elapsed is a single,
@@ -18,10 +23,11 @@ unleash:
   # fast (e.g. a partial/contended run — observed 2026-06-03, coverage 78% vs
   # the usual 92%), the derived budget shrinks below what the Postgres-backed
   # packages need per mutant (each re-pays container/migration setup, ~20-40s).
-  # That false-times-out hundreds of would-be-KILLED mutants, which gremlins
-  # drops from the kill count — collapsing the reported score (770 kills -> 241,
-  # 85.5% -> 76.0%) with no real change in test quality. A coefficient of 10
-  # doubles the default headroom so these legitimate slow runs complete and are
-  # scored as KILLED instead of TIMED OUT. Genuine infinite-loop mutants are
-  # still caught — they simply get a longer (still-bounded) leash.
-  timeout-coefficient: 10
+  # That false-times-out would-be-KILLED mutants, which gremlins drops from the
+  # kill count — depressing the reported score with no real change in test
+  # quality. Coefficient 10 was not always enough: the 2026-06-09 run still left
+  # 13 mutants TIMED OUT (7 in relay.go alone), trimming Go to a razor-thin 85.0%.
+  # 15 gives those Postgres-backed slow mutants more headroom so they score KILLED
+  # and the floor margin is restored. Genuine infinite-loop mutants are still
+  # caught — they simply get a longer (still-bounded) leash.
+  timeout-coefficient: 15
