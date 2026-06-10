@@ -54,6 +54,12 @@ spec:
       containers:
         - name: uptime-kuma
           image: {{ .Values.uptimeKuma.image }}
+          # Bypass the image entrypoint, which unconditionally `chown -R`s
+          # /app/data and exits non-zero when it can't (the pod runs as non-root
+          # without CAP_CHOWN, and OKE's ext4 block volume root is root-owned).
+          # fsGroup=1000 already makes the volume writable, so run the server
+          # directly and skip the chown.
+          command: ["node", "server/server.js"]
           ports:
             - name: http
               containerPort: 3001
