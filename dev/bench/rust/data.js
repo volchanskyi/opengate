@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781082526526,
+  "lastUpdate": 1781101244758,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16537,6 +16537,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.869518814846707,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "be98b5e75a2b426e9ee46931ebf3525ea7f5ca1f",
+          "message": "chore(infra): decommission compose VM, finalize OKE cutover\n\nDestroy the Phase 13b compose VM (oci_core_instance.opengate, 163.192.34.124)\nnow that the OKE cluster has served all traffic for 4 days (app + monitoring\nin-cluster, DNS + quic.* cut over, K8S_CUTOVER=true). Runbook\ndocs/Kubernetes-Migration.md section 6.\n\nterraform: drop the compute module instantiation, its moved block, and the\nthree instance_* outputs (the compute module dir is kept as a tested, reusable\nrollback path); repoint the bastion at the OKE worker-node subnet. Add\nignore_changes to the CCM-managed oke_lb security list so Terraform stops\nreverting the OCI Cloud Controller Manager's NodePort/health-check rules.\n\noperator tooling: bastion-session.sh resolves the worker node from the node\npool (oci ce node-pool get), TARGET_USER ubuntu->opc, drop the dead tunnel\nsubcommand; make tunnel -> kubectl port-forward (Grafana/Kuma are ClusterIP).\n\n/observe: rewrite from VM docker-exec to cluster kubectl-exec (VictoriaMetrics\nand Loki StatefulSets, pod-based Loki labels, ingress-nginx in place of Caddy).\n\nci.yml output-sensitivity loop and integration.tftest.hcl updated for the\nremoved outputs; docs/Infrastructure.md operator-access section repointed to the\nnode; phases.md and techdebt.md updated.\n\nFiled High techdebt: in-cluster metrics scraping is broken (the VictoriaMetrics\npod has no serviceaccount token for kubernetes_sd discovery -> 0 series). Fixed\nin a separate follow-up commit.",
+          "timestamp": "2026-06-10T07:18:54-07:00",
+          "tree_id": "c077919e1ca31d83a7f9deb5ec9f280825d09f04",
+          "url": "https://github.com/volchanskyi/opengate/commit/be98b5e75a2b426e9ee46931ebf3525ea7f5ca1f"
+        },
+        "date": 1781101244627,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.36016814648792,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.660872482138547,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 765.4167846850892,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 304.21522853304583,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 29.729555890925614,
             "unit": "ns/iter"
           }
         ]
