@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781185824562,
+  "lastUpdate": 1781198834055,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16929,6 +16929,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.793543174522316,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "86277271113fbe49ff04a0931a2818dfe5d186e2",
+          "message": "chore: retire VM SSH path and record follow-up plans",
+          "timestamp": "2026-06-11T10:25:02-07:00",
+          "tree_id": "349b87e921192c004aaa2d64b27e34e7e68ef033",
+          "url": "https://github.com/volchanskyi/opengate/commit/86277271113fbe49ff04a0931a2818dfe5d186e2"
+        },
+        "date": 1781198833924,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.758892418588616,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 20.003389742030365,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 591.3786135638976,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 302.463965991855,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.11272988868546,
             "unit": "ns/iter"
           }
         ]
