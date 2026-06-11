@@ -31,6 +31,12 @@ server:
   proxySecretEnabled: false
   webDir: /srv/web          # server serves the SPA itself (api.go os.OpenRoot)
   amtUser: admin
+  # GitHub repo the server syncs agent-update manifests from. When set, the server
+  # (a) starts the periodic GitHub-Releases sync that backs /api/v1/updates/manifests
+  # and (b) injects OPENGATE_GITHUB_REPO into the served install.sh so the installer
+  # resolves binaries directly. Empty disables both — which is why an unset value
+  # yields "No agent binary found for <os>/<arch>".
+  githubRepo: volchanskyi/opengate
   # L4 exposure: bind QUIC+MPS straight to the node IP via hostPort. On the
   # single-node start this is budget-free (no OCI LB) and preserves the client
   # source IP that AMT CIRA / QUIC need. Multi-node (PR-E) switches to an OCI

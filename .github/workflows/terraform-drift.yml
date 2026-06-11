@@ -26,6 +26,9 @@ permissions:
 
 env:
   TERRAFORM_VERSION: 1.9.x
+  # Loki push runs against the in-cluster Service via kubectl, not SSH to the
+  # decommissioned VM.
+  LOKI_PUSH_MODE: kubectl
 
 jobs:
   drift:
@@ -204,33 +207,23 @@ jobs:
           fi
           echo "Telegram alert delivered ✓"
 
-      # SSH / Loki push uses the existing CD-user firewall opener composite —
-      # the tf-drift-reader user is read-only and cannot mutate the NSG.
-      - name: OCI + SSH setup
+      # Loki push runs against the in-cluster Service via kubectl (the cluster API
+      # endpoint is reachable without a JIT NSG rule, so no firewall teardown).
+      - name: OCI + kubeconfig setup
         if: steps.plan.outputs.exitcode == '2'
         id: infra
-        uses: ./.github/actions/oci-ssh-setup
+        uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
           oci-user: ${{ secrets.OCI_USER_OCID }}
           oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
           oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
-          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-          deploy-host: ${{ secrets.DEPLOY_HOST }}
-          run-id: ${{ github.run_id }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
       - name: Loki push
         if: steps.plan.outputs.exitcode == '2'
         run: ./scripts/terraform-drift-loki-push.sh drift-summary.json
-
-      - name: OCI + SSH teardown
-        if: always() && steps.plan.outputs.exitcode == '2'
-        uses: ./.github/actions/oci-ssh-teardown
-        with:
-          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
-          rule-id: ${{ steps.infra.outputs.rule-id }}
 
       - name: Fail workflow on drift (audit trail)
         if: steps.plan.outputs.exitcode == '2'

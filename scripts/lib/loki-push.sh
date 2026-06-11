@@ -14,7 +14,7 @@
 #                          calling workflow must provide a kubeconfig
 #                          (.github/actions/oci-kube-setup). Tunables:
 #                          LOKI_NAMESPACE (default monitoring),
-#                          LOKI_SERVICE (default opengate-loki).
+#                          LOKI_SERVICE (default monitoring-loki).
 
 loki_push() {
   case "${LOKI_PUSH_MODE:-ssh-docker}" in
@@ -29,7 +29,7 @@ loki_push() {
       ;;
     kubectl)
       local ns="${LOKI_NAMESPACE:-monitoring}"
-      local svc="${LOKI_SERVICE:-opengate-loki}"
+      local svc="${LOKI_SERVICE:-monitoring-loki}"
       kubectl -n "$ns" run "loki-push-$$" --rm -i --restart=Never \
         --image=curlimages/curl:8.11.1 -- \
         curl -sS --fail --max-time 30 \
