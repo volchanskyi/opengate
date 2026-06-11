@@ -1,0 +1,26 @@
+name: Docker Hub pull-through mirror
+description: >-
+  Route docker.io image pulls through Google's public pull-through cache
+  (mirror.gcr.io) before any docker/compose step. Hosted runners intermittently
+  fail to reach registry-1.docker.io (connection timeouts / anonymous rate
+  limits); the mirror is reached over GitHub→Google connectivity and caches the
+  common base images (postgres, redis, golang, node), so a Docker Hub blip no
+  longer fails the job. Falls back to Docker Hub for any image the mirror lacks.
+
+runs:
+  using: composite
+  steps:
+    - name: Configure registry mirror + restart Docker
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo mkdir -p /etc/docker
+        echo '{"registry-mirrors":["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json >/dev/null
+        sudo systemctl restart docker
+        # Wait for the daemon to accept connections again before the job pulls.
+        for _ in $(seq 1 15); do
+          if docker info >/dev/null 2>&1; then echo "docker up with registry mirror"; exit 0; fi
+          sleep 1
+        done
+        echo "::error::docker daemon did not come back after configuring the registry mirror"
+        exit 1
