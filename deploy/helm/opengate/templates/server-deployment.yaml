@@ -85,6 +85,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.server.existingSecret }}
                   key: VAPID_CONTACT
+            {{- if .Values.server.githubRepo }}
+            # Drives the agent-update manifest sync + the OPENGATE_GITHUB_REPO
+            # export injected into the served install.sh. Unset → the installer
+            # reports "No agent binary found for <os>/<arch>".
+            - name: OPENGATE_GITHUB_REPO
+              value: {{ .Values.server.githubRepo | quote }}
+            {{- end }}
             - name: DATABASE_URL
               value: "postgres://opengate:$(POSTGRES_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
             {{- if .Values.redis.enabled }}

@@ -36,6 +36,9 @@ env:
   NODE_VERSION: '24'
   CARGO_MUTANTS_VERSION: 27.0.0  # pin for reproducible mutation runs (latest as of PR 9 land)
   GREMLINS_VERSION: v0.6.0  # pin Go mutation tool for reproducibility (matches cargo-mutants pinning)
+  # Loki push runs against the in-cluster Service via kubectl, not SSH to the
+  # decommissioned VM.
+  LOKI_PUSH_MODE: kubectl
 
 jobs:
   # -----------------------------------------------------------------------------
@@ -265,31 +268,21 @@ jobs:
           path: canonical-row.json
           retention-days: 90
 
-      - name: OCI + SSH setup
+      - name: OCI + kubeconfig setup
         id: infra
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        uses: ./.github/actions/oci-ssh-setup
+        uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
           oci-user: ${{ secrets.OCI_USER_OCID }}
           oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
           oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
-          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-          deploy-host: ${{ secrets.DEPLOY_HOST }}
-          run-id: ${{ github.run_id }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
       - name: Push to Loki
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: ./scripts/mutation-loki-push.sh canonical-row.json
-
-      - name: OCI + SSH teardown
-        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-        uses: ./.github/actions/oci-ssh-teardown
-        with:
-          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
-          rule-id: ${{ steps.infra.outputs.rule-id }}
 
       - name: Write GITHUB_STEP_SUMMARY
         run: |
