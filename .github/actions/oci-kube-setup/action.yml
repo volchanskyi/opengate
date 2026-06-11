@@ -1,5 +1,5 @@
 name: OCI + kubeconfig Setup
-description: Configure OCI credentials and fetch an OKE kubeconfig so kubectl/helm can reach the cluster. Cutover-gated companion to oci-ssh-setup (ADR-030).
+description: Configure OCI credentials and fetch an OKE kubeconfig so kubectl and Helm can reach the cluster.
 
 inputs:
   oci-tenancy:

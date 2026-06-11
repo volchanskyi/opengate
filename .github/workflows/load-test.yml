@@ -2,7 +2,7 @@ name: Load Tests
 
 on:
   schedule:
-    - cron: '0 5 * * *'  # Nightly at 05:00 UTC — clear of the 03:00 obs batch (terraform-drift/mutation/e2e-cross-browser) and the 04:00 pmat-trend (mutation runs to ~04:30, pmat-trend to ~04:40)
+    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       agents:
@@ -15,8 +15,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEPLOY_DIR: /opt/opengate
   K6_VERSION: v1.6.1
+  NAMESPACE: opengate-staging
+  RELEASE: opengate-staging
 
 permissions:
   contents: read
@@ -25,14 +26,9 @@ jobs:
   load-test:
     name: Load Tests (k6 + QUIC)
     runs-on: ubuntu-latest
-    # NOTE: deliberately NOT using `environment: staging`. The CD workflow's
-    # staging environment enforces required_reviewers, which would block the
-    # weekly cron and any workflow_dispatch run behind a manual approval
-    # click. Load testing is observability that must run unattended. All
-    # secrets the job reads (OCI_*, DEPLOY_SSH_PRIVATE_KEY, DEPLOY_HOST) are
-    # already exposed as repo-level secrets, so removing the environment does
-    # not lose any input. Mirrors the same decision in
-    # [.github/workflows/mutation.yml](mutation.yml) for the publish job.
+    # Deliberately avoid `environment: staging`: its required reviewers would
+    # block the scheduled run. This read-only workload uses repository-level OCI
+    # credentials and creates only short-lived port-forwards and test pods.
     steps:
       - uses: actions/checkout@v6
 
@@ -41,89 +37,116 @@ jobs:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
 
-      - name: OCI + SSH setup
-        id: infra
-        uses: ./.github/actions/oci-ssh-setup
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
         with:
           oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
           oci-user: ${{ secrets.OCI_USER_OCID }}
           oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
           oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
-          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
-          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
-          deploy-host: ${{ secrets.DEPLOY_HOST }}
-          run-id: ${{ github.run_id }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      # --- Phase 1: k6 HTTP/WebSocket load tests --------------------------------
+      # --- Phase 1: k6 HTTP/WebSocket load tests ------------------------------
 
-      - name: Detect VPS architecture
-        id: arch
+      - name: Install k6
         run: |
-          VPS_ARCH=$(ssh deploy-target "uname -m")
-          case "$VPS_ARCH" in
-            aarch64) K6_ARCH=arm64; GO_ARCH=arm64 ;;
-            *)       K6_ARCH=amd64; GO_ARCH=amd64 ;;
-          esac
-          echo "k6=$K6_ARCH" >> "$GITHUB_OUTPUT"
-          echo "go=$GO_ARCH" >> "$GITHUB_OUTPUT"
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz -C /tmp
+          install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
+          /tmp/k6 version
 
-      - name: Install k6 on VPS
+      - name: Port-forward staging server
         run: |
-          ARCH=${{ steps.arch.outputs.k6 }}
-          VER=${{ env.K6_VERSION }}
-          # shellcheck disable=SC2029  # intentional client-side expansion
-          ssh deploy-target "curl -fsSL https://github.com/grafana/k6/releases/download/${VER}/k6-${VER}-linux-${ARCH}.tar.gz | tar xz && mv k6-${VER}-linux-${ARCH}/k6 /tmp/k6 && chmod +x /tmp/k6 && rm -rf k6-${VER}-linux-${ARCH}"
-
-      - name: Verify k6 binary
-        run: ssh deploy-target "file /tmp/k6 && /tmp/k6 version"
-
-      - name: Copy k6 scenarios to VPS
-        run: scp load/k6/scenarios/*.js deploy-target:/tmp/
+          kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 >/tmp/loadtest-pf.log 2>&1 &
+          echo "$!" >/tmp/loadtest-pf.pid
+          for _ in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:18080/api/v1/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/loadtest-pf.log
+          exit 1
 
       - name: Run k6 API baseline
-        run: ssh deploy-target "/tmp/k6 run --env BASE_URL=http://127.0.0.1:18080 /tmp/api-baseline.js"
+        run: /tmp/k6 run --env BASE_URL=http://127.0.0.1:18080 load/k6/scenarios/api-baseline.js
 
       - name: Run k6 concurrent agents
-        run: ssh deploy-target "/tmp/k6 run --env BASE_URL=http://127.0.0.1:18080 /tmp/concurrent-agents.js"
+        run: /tmp/k6 run --env BASE_URL=http://127.0.0.1:18080 load/k6/scenarios/concurrent-agents.js
 
       - name: Run k6 relay throughput
-        run: ssh deploy-target "/tmp/k6 run --env BASE_URL=http://127.0.0.1:18080 /tmp/relay-throughput.js"
+        run: /tmp/k6 run --env BASE_URL=http://127.0.0.1:18080 load/k6/scenarios/relay-throughput.js
 
-      - name: Cleanup k6 files on VPS
+      - name: Stop staging port-forward
         if: always()
-        run: ssh deploy-target "rm -f /tmp/k6 /tmp/api-baseline.js /tmp/concurrent-agents.js /tmp/relay-throughput.js" || true
+        run: kill "$(cat /tmp/loadtest-pf.pid)" 2>/dev/null || true
 
-      # --- Phase 2: Go QUIC agent load test --------------------------------------
+      # --- Phase 2: Go QUIC agent load test ----------------------------------
+
+      - name: Resolve staging QUIC target
+        run: |
+          set -euo pipefail
+          kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=120s
+          SERVER_POD="$(kubectl -n "$NAMESPACE" get pods \
+            -l "app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=server" \
+            -o jsonpath='{.items[0].metadata.name}')"
+          SERVER_POD_IP="$(kubectl -n "$NAMESPACE" get pod "$SERVER_POD" \
+            -o jsonpath='{.status.podIP}')"
+          SERVER_NODE="$(kubectl -n "$NAMESPACE" get pod "$SERVER_POD" \
+            -o jsonpath='{.spec.nodeName}')"
+          LOADTEST_GOARCH="$(kubectl get node "$SERVER_NODE" \
+            -o jsonpath='{.status.nodeInfo.architecture}')"
+          case "$LOADTEST_GOARCH" in
+            amd64|arm64) ;;
+            *) echo "::error::Unsupported OKE node architecture: $LOADTEST_GOARCH"; exit 1 ;;
+          esac
+          test -n "$SERVER_POD_IP"
+          {
+            echo "SERVER_POD=$SERVER_POD"
+            echo "SERVER_POD_IP=$SERVER_POD_IP"
+            echo "LOADTEST_GOARCH=$LOADTEST_GOARCH"
+          } >>"$GITHUB_ENV"
 
       - name: Build QUIC load test harness
-        run: cd server && CGO_ENABLED=0 GOOS=linux GOARCH=${{ steps.arch.outputs.go }} go build -trimpath -o /tmp/loadtest ./tests/loadtest/
+        working-directory: server
+        run: CGO_ENABLED=0 GOOS=linux GOARCH="$LOADTEST_GOARCH" go build -trimpath -o /tmp/loadtest ./tests/loadtest/
 
-      - name: Copy harness to VPS
-        run: scp /tmp/loadtest deploy-target:/tmp/loadtest
-
-      - name: Tune UDP buffers for QUIC
-        run: ssh deploy-target "sudo sysctl -w net.core.rmem_max=7340032 net.core.wmem_max=7340032"
-
-      - name: Copy server CA for mTLS
+      - name: Stage QUIC harness in cluster
         run: |
-          ssh deploy-target "mkdir -p /tmp/loadtest-data && docker cp opengate-server-staging:/data/ca.crt /tmp/loadtest-data/ca.crt && docker cp opengate-server-staging:/data/ca.key /tmp/loadtest-data/ca.key"
+          set -euo pipefail
+          LOADTEST_POD="quic-loadtest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "LOADTEST_POD=$LOADTEST_POD" >>"$GITHUB_ENV"
 
-      - name: Run QUIC load test
+          install -d -m 0700 /tmp/loadtest-data
+          kubectl -n "$NAMESPACE" exec "$SERVER_POD" -- cat /data/ca.crt > /tmp/loadtest-data/ca.crt
+          kubectl -n "$NAMESPACE" exec "$SERVER_POD" -- cat /data/ca.key > /tmp/loadtest-data/ca.key
+          chmod 0600 /tmp/loadtest-data/ca.key
+
+          kubectl -n "$NAMESPACE" run "$LOADTEST_POD" \
+            --image=docker.io/library/alpine:3.21.3 \
+            --restart=Never \
+            --command -- sleep 900
+          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_POD" --timeout=120s
+          kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- mkdir -p /tmp/loadtest-data
+          kubectl -n "$NAMESPACE" cp /tmp/loadtest "$LOADTEST_POD:/tmp/loadtest"
+          kubectl -n "$NAMESPACE" cp /tmp/loadtest-data/. "$LOADTEST_POD:/tmp/loadtest-data"
+          kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- chmod 0755 /tmp/loadtest
+
+      - name: Run QUIC load test in cluster
         run: |
           AGENTS="${{ inputs.agents || '100' }}"
-          # shellcheck disable=SC2029
-          ssh deploy-target "/tmp/loadtest -agents=${AGENTS} -addr=127.0.0.1:19090 -data-dir=/tmp/loadtest-data"
+          kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- \
+            /tmp/loadtest \
+              -agents="$AGENTS" \
+              -addr="${SERVER_POD_IP}:9090" \
+              -data-dir=/tmp/loadtest-data
 
-      - name: Cleanup harness on VPS
+      - name: Cleanup QUIC load test pod
         if: always()
-        run: ssh deploy-target "rm -rf /tmp/loadtest /tmp/loadtest-data" || true
-
-      # --- Teardown --------------------------------------------------------------
-
-      - name: OCI + SSH teardown
-        if: always()
-        uses: ./.github/actions/oci-ssh-teardown
-        with:
-          nsg-id: ${{ secrets.OCI_CD_NSG_ID }}
-          rule-id: ${{ steps.infra.outputs.rule-id }}
+        run: |
+          if [[ -n "${LOADTEST_POD:-}" ]]; then
+            kubectl -n "$NAMESPACE" delete pod "$LOADTEST_POD" --ignore-not-found --wait=false
+          fi
+          rm -rf /tmp/loadtest /tmp/loadtest-data /tmp/k6 /tmp/k6-"${K6_VERSION}"-linux-amd64

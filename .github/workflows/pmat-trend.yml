@@ -28,11 +28,6 @@ permissions:
 env:
   RUST_VERSION: stable
   PMAT_VERSION: 3.17.0  # exact pin (ADR-019 §5.5); keep in sync with .mcp.json + scripts/pmat-precommit.sh
-  # Loki read/push run against the in-cluster Service via kubectl, not SSH to the
-  # decommissioned VM. Read+push both honor this via loki-push.sh /
-  # pmat-loki-query.sh.
-  LOKI_PUSH_MODE: kubectl
-
 jobs:
   pmat-trend:
     name: PMAT trend + alert on regression
