@@ -37,6 +37,17 @@ server:
   # resolves binaries directly. Empty disables both — which is why an unset value
   # yields "No agent binary found for <os>/<arch>".
   githubRepo: volchanskyi/opengate
+  # Public hostname agents reach the QUIC listener on (bypasses the CDN/ingress —
+  # QUIC is L4 hostPort straight to the node). Added to the server TLS cert SAN;
+  # if empty, the cert is localhost-only and agents fail the QUIC handshake with
+  # "certificate not valid for name <host>". Set per environment.
+  quicHost: ""
+  # Public base URL baked into the served install.sh as SERVER_URL (manifest
+  # fetches). Empty leaves SERVER_URL blank, breaking the server-manifest install
+  # path. Set per environment, e.g. https://<domain>.
+  baseURL: ""
+  # Server log verbosity; "debug" enables verbose logging, anything else is info.
+  logLevel: ""
   # L4 exposure: bind QUIC+MPS straight to the node IP via hostPort. On the
   # single-node start this is budget-free (no OCI LB) and preserves the client
   # source IP that AMT CIRA / QUIC need. Multi-node (PR-E) switches to an OCI

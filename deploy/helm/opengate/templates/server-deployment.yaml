@@ -92,6 +92,22 @@ spec:
             - name: OPENGATE_GITHUB_REPO
               value: {{ .Values.server.githubRepo | quote }}
             {{- end }}
+            {{- if .Values.server.quicHost }}
+            # Added to the server TLS cert SAN so agents reaching the QUIC listener
+            # at this public host pass the handshake. Unset → localhost-only cert →
+            # "certificate not valid for name <host>".
+            - name: OPENGATE_QUIC_HOST
+              value: {{ .Values.server.quicHost | quote }}
+            {{- end }}
+            {{- if .Values.server.baseURL }}
+            # SERVER_URL baked into the served install.sh for manifest fetches.
+            - name: OPENGATE_BASE_URL
+              value: {{ .Values.server.baseURL | quote }}
+            {{- end }}
+            {{- if .Values.server.logLevel }}
+            - name: LOG_LEVEL
+              value: {{ .Values.server.logLevel | quote }}
+            {{- end }}
             - name: DATABASE_URL
               value: "postgres://opengate:$(POSTGRES_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
             {{- if .Values.redis.enabled }}

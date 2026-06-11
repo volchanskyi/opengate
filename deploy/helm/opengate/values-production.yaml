@@ -10,6 +10,11 @@ server:
   # agents keep mTLS. Do not disable without re-carrying the keys (ADR-034).
   sharedKeys:
     enabled: true
+  # Public endpoints agents reach directly (QUIC bypasses the CDN/ingress). Must
+  # match DNS: agents dial quicHost:quicPort and validate the server cert against
+  # quicHost. baseURL is the HTTPS origin baked into the served install.sh.
+  quicHost: quic.opengate.cloudisland.net
+  baseURL: https://opengate.cloudisland.net
 
 ingress:
   tls: true
