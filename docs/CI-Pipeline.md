@@ -136,9 +136,29 @@ The `merge-to-main` job updates three coverage badges on every successful `dev` 
 
 Each CI job posts a native Markdown summary (pass/fail counts, failed test names) to the GitHub Actions job summary tab for quick triage without digging into logs.
 
+## Docker Hub Pull Resilience
+
+Jobs that start Docker Hub images first invoke the local
+[`docker-hub-mirror` composite action](../.github/actions/docker-hub-mirror/action.yml).
+The action owns the daemon mirror configuration and optionally authenticates
+the direct Docker Hub fallback when the repository credentials passed by the
+workflows are available. Pull requests without secret access skip the login
+step and retain the mirror plus anonymous fallback behavior.
+
+The executable
+[`docker-hub-mirror.test.sh`](../scripts/tests/docker-hub-mirror.test.sh)
+regression test enforces one canonical mirror definition, verifies the
+composite precedes every covered image pull, and requires every consumer to
+pass the optional credentials.
+
 ## SonarCloud Quality Gate
 
-The `sonarcloud` job runs after Go unit, Rust test, and Web test jobs complete. It downloads all three coverage artifacts and runs `SonarSource/sonarqube-scan-action@v7` against the full codebase. The scan is skipped on scheduled runs.
+The [`sonarcloud` job](../.github/workflows/ci.yml) runs after Go unit, Rust
+test, and Web test jobs complete. It downloads all three coverage artifacts
+and runs the pinned SonarQube scan action against the full codebase. If the
+action download path fails, the job retries the same analysis through the
+Docker scanner image using the shared Docker Hub pull protection. The scan is
+skipped on scheduled runs.
 
 Configuration lives in `sonar-project.properties` at the repo root (organization: `volchanskyi`, project key: `volchanskyi`).
 
