@@ -181,6 +181,7 @@ jobs:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/docker-hub-mirror
       - name: Start Postgres with max_connections=400
         working-directory: .
         run: |
@@ -294,6 +295,7 @@ jobs:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
       - uses: actions/checkout@v6
+      - uses: ./.github/actions/docker-hub-mirror
       - name: Start Postgres with max_connections=400
         working-directory: .
         run: |
@@ -598,12 +600,13 @@ jobs:
       - name: Install Playwright Chromium
         working-directory: web
         run: npx playwright install --with-deps chromium
+      - uses: ./.github/actions/docker-hub-mirror
       - name: Start test server
         run: |
           cd deploy
-          # Docker Hub pulls (postgres:17-alpine + the golang/node build base images)
-          # intermittently time out on hosted runners. Retry the whole bring-up with a
-          # clean slate between attempts so a transient registry flake doesn't fail E2E.
+          # Primary defense against Docker Hub flakes is the pull-through mirror above;
+          # the retry below is a secondary net for transient build (non-registry)
+          # failures, with a clean slate between attempts.
           for attempt in 1 2 3; do
             if docker compose -f docker-compose.test.yml up -d --build --wait; then
               exit 0
@@ -1120,6 +1123,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "::warning::SonarCloud action failed (likely the binaries.sonarsource.com CDN); falling back to the Docker scanner."
+          # Route docker.io pulls through GCR's mirror so the scanner image pull
+          # does not depend on direct Docker Hub reachability.
+          sudo mkdir -p /etc/docker
+          echo '{"registry-mirrors":["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json >/dev/null
+          sudo systemctl restart docker
+          for _ in $(seq 1 15); do docker info >/dev/null 2>&1 && break; sleep 1; done
           for attempt in 1 2 3; do
             if docker pull sonarsource/sonar-scanner-cli:latest; then
               break
