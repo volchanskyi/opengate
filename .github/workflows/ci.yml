@@ -600,7 +600,20 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Start test server
         run: |
-          cd deploy && docker compose -f docker-compose.test.yml up -d --build --wait
+          cd deploy
+          # Docker Hub pulls (postgres:17-alpine + the golang/node build base images)
+          # intermittently time out on hosted runners. Retry the whole bring-up with a
+          # clean slate between attempts so a transient registry flake doesn't fail E2E.
+          for attempt in 1 2 3; do
+            if docker compose -f docker-compose.test.yml up -d --build --wait; then
+              exit 0
+            fi
+            echo "::warning::test server bring-up attempt $attempt/3 failed; cleaning up, retrying in $((attempt * 20))s"
+            docker compose -f docker-compose.test.yml down -v || true
+            sleep $((attempt * 20))
+          done
+          echo "::error::test server failed to start after 3 attempts"
+          exit 1
       - name: Wait for server
         run: bash deploy/scripts/wait-for-server.sh http://localhost:8080 60
       - name: Run Playwright tests

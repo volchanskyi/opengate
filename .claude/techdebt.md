@@ -4,30 +4,7 @@
 
 ## Severity: High
 
-### OKE in-cluster metrics scraping broken — VictoriaMetrics has 0 series
-
-VictoriaMetrics scrapes via `-promscrape.config=/etc/victoriametrics/scrape.yml`
-using `kubernetes_sd_configs` (pod/endpoints/nodes/services discovery), but its
-pod has **no serviceaccount token mounted**, so every discovery call to the API
-server fails with `cannot read ".../serviceaccount/token": no such file or
-directory`. It discovers zero targets and stores zero series — every Grafana
-metric panel and every metric-based alert (host CPU/mem/disk, HTTP error-rate,
-p95 latency, `opengate_agents_connected`, DB metrics) has been blind since
-cluster bring-up. Logs (Loki/promtail) and external probing (uptime-kuma) are
-unaffected, so the blindness is metrics-only. Discovered during the VM
-decommission — the metric path the `/observe` skill now targets returned empty.
-
-**Fix (mirror the shipped promtail pattern in
-[`deploy/helm/monitoring/templates/promtail.yaml`](../deploy/helm/monitoring/templates/promtail.yaml)):**
-give VictoriaMetrics a dedicated `ServiceAccount`, a `ClusterRole` granting
-`get/list/watch` on `pods`/`endpoints`/`nodes`/`nodes/metrics`/`services`, a
-`ClusterRoleBinding`, and set the StatefulSet pod's `serviceAccountName` +
-`automountServiceAccountToken: true`. `helm upgrade monitoring`, then confirm
-`count({__name__=~".+"}) > 0` and that `opengate_agents_connected` resolves.
-
-**Pay-down trigger:** the focused follow-up commit immediately after the
-VM-decommission change (kept separate so the monitoring-chart RBAC change is
-reviewed on its own).
+_None currently._
 
 ## Severity: Medium
 
