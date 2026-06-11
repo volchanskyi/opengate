@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781171939286,
+  "lastUpdate": 1781185824562,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16880,6 +16880,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.324820404419285,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f0950377a0884606cddbb796a6f4e2f577ba250f",
+          "message": "fix(helm): restore server env vars the compose->OKE cutover dropped\n\nThe cutover ported the server to Helm but did not carry several env vars the\ncompose .env set, so the OKE server ran without them:\n\n- OPENGATE_QUIC_HOST — added to the server TLS cert SAN. Unset leaves a\n  localhost-only cert, so agents reaching quic.<domain> fail the QUIC handshake\n  (\"certificate not valid for name ...\"). This took production agents down after\n  a server restart regenerated the cert.\n- OPENGATE_BASE_URL — SERVER_URL baked into the served install.sh for manifest\n  fetches; unset leaves it blank.\n- LOG_LEVEL — debug verbosity toggle.\n\nAdd server.quicHost / server.baseURL / server.logLevel (default empty, opt-in),\nwire them into the Deployment, and set quicHost + baseURL in the production\noverlay. A live `kubectl set env OPENGATE_QUIC_HOST` already restored agents;\nthis makes the whole set durable across redeploys. (OPENGATE_GITHUB_REPO was the\nfirst of these gaps, fixed separately.)",
+          "timestamp": "2026-06-11T06:47:19-07:00",
+          "tree_id": "c220afaa1dbcc456d582575056cf8dc4642a40b8",
+          "url": "https://github.com/volchanskyi/opengate/commit/f0950377a0884606cddbb796a6f4e2f577ba250f"
+        },
+        "date": 1781185824427,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.115388283589844,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.102705667184104,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 758.2840860324524,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 326.82746168350616,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.793543174522316,
             "unit": "ns/iter"
           }
         ]
