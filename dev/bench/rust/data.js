@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781170508716,
+  "lastUpdate": 1781171939286,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16831,6 +16831,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.70938481189944,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "473d7fae98b5f0f65c92ab79cd711f910fa1a5a6",
+          "message": "ci: route Docker Hub pulls through a pull-through mirror (flake guard)\n\nHosted-runner jobs intermittently fail pulling postgres / scanner images from\nregistry-1.docker.io (connection timeouts and anonymous rate limits). The E2E\n\"Start test server\" retry loop is not a real guard — it cannot help when Docker\nHub is unreachable for the whole retry window (which is exactly what failed CI\nrun 27337622613).\n\nAdd a docker-hub-mirror composite action that points the daemon at GCR's\npull-through cache (registry-mirrors=[mirror.gcr.io]) and restarts it, and apply\nit to every job that pulls from Docker Hub: ci E2E + both pg-ci legs and\ne2e-cross-browser + e2e-multiserver via the action; mutation pg-ci (runs before\ncheckout) and the sonar Docker fallback (conditional) inline the same config.\nPulls now resolve via GCR — reliably reachable from runners and caching the\ncommon base images — falling back to Docker Hub only for uncached images.",
+          "timestamp": "2026-06-11T02:57:01-07:00",
+          "tree_id": "79cea1a7dde76bbb66102c434e193fcc3799abed",
+          "url": "https://github.com/volchanskyi/opengate/commit/473d7fae98b5f0f65c92ab79cd711f910fa1a5a6"
+        },
+        "date": 1781171939137,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.398768976033207,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.97184156042366,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 589.7950665205847,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.9156518415944,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.324820404419285,
             "unit": "ns/iter"
           }
         ]
