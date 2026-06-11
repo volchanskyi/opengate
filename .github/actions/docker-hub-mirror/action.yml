@@ -5,7 +5,19 @@ description: >-
   fail to reach registry-1.docker.io (connection timeouts / anonymous rate
   limits); the mirror is reached over GitHub→Google connectivity and caches the
   common base images (postgres, redis, golang, node), so a Docker Hub blip no
-  longer fails the job. Falls back to Docker Hub for any image the mirror lacks.
+  longer fails the job. Falls back to Docker Hub for any image the mirror lacks,
+  using optional credentials to avoid anonymous limits. Additional caches can
+  be appended to the daemon's mirror list.
+
+inputs:
+  dockerhub-username:
+    description: Docker Hub username for authenticated fallback pulls. Optional.
+    required: false
+    default: ""
+  dockerhub-token:
+    description: Docker Hub read-only access token. Optional.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -24,3 +36,13 @@ runs:
         done
         echo "::error::docker daemon did not come back after configuring the registry mirror"
         exit 1
+    - name: Authenticated Docker Hub login
+      if: inputs.dockerhub-token != ''
+      shell: bash
+      env:
+        DH_USER: ${{ inputs.dockerhub-username }}
+        DH_TOKEN: ${{ inputs.dockerhub-token }}
+      run: |
+        set -euo pipefail
+        echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
+        echo "authenticated to Docker Hub; fallback pulls bypass the anonymous limit"

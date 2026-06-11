@@ -1,8 +1,9 @@
 # Micro-plan: Download SPOF Hardening (single-mirror concern)
 
-**Status:** Proposed — awaiting review/approval before implementation.
+**Status:** Completed. First-workflow authentication verification remains an
+external follow-up in [`techdebt.md`](../../techdebt.md).
 **Owner:** delegated engineer. **Reviewer:** Ivan (verifies against the acceptance checklist).
-**Branch:** `dev` (all work; no feature branches — see [`.claude/rules/git.md`](../rules/git.md)).
+**Branch:** `dev` (all work; no feature branches — see [`.claude/rules/git.md`](../../rules/git.md)).
 
 ---
 
@@ -47,9 +48,9 @@ pulls) so a mirror outage degrades gracefully instead of failing.
 
 | # | Location | Why it's there | De-dup target |
 |---|----------|----------------|---------------|
-| A | [`.github/actions/docker-hub-mirror/action.yml`](../../.github/actions/docker-hub-mirror/action.yml) | The composite — canonical | **Becomes the single source of truth** |
-| B | [`.github/workflows/mutation.yml`](../../.github/workflows/mutation.yml), step "Start Postgres with max_connections=400" | Runs **before** `actions/checkout@v6`, so a local-composite `uses:` is not available *at that position* | Reorder checkout earlier, then `uses:` the composite |
-| C | [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml), step "SonarCloud Scan (Docker fallback on CDN failure)" | Inlined for locality inside a conditional `run:` step | Replace with a `uses:` step carrying the same `if:` |
+| A | [`.github/actions/docker-hub-mirror/action.yml`](../../../.github/actions/docker-hub-mirror/action.yml) | The composite — canonical | **Becomes the single source of truth** |
+| B | [`.github/workflows/mutation.yml`](../../../.github/workflows/mutation.yml), step "Start Postgres with max_connections=400" | Runs **before** `actions/checkout@v6`, so a local-composite `uses:` is not available *at that position* | Reorder checkout earlier, then `uses:` the composite |
+| C | [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml), step "SonarCloud Scan (Docker fallback on CDN failure)" | Inlined for locality inside a conditional `run:` step | Replace with a `uses:` step carrying the same `if:` |
 
 ### 2.2 The five sites that consume the composite (already correct — do not regress)
 
@@ -88,7 +89,7 @@ This is the one open question. Everything else has a clear default below.
 ## 4. Implementation steps
 
 > **TDD order matters** — the repo's hooks block a source edit until a test
-> change exists on the branch (see [`.claude/rules/tdd.md`](../rules/tdd.md)).
+> change exists on the branch (see [`.claude/rules/tdd.md`](../../rules/tdd.md)).
 > Write the test in §4.4 **first** (it will fail), then make the changes.
 
 ### 4.0 (FIRST) Author the single-source-of-truth test — see §4.4
@@ -183,7 +184,7 @@ none is reliable enough to depend on (see §1 note).
 ### 4.4 Reintroduction / single-source-of-truth guard (the TDD artifact from §4.0)
 
 Create `scripts/tests/docker-hub-mirror.test.sh`, modeled on the existing
-[`scripts/tests/build-image-workflow.test.sh`](../../scripts/tests/build-image-workflow.test.sh)
+[`scripts/tests/build-image-workflow.test.sh`](../../../scripts/tests/build-image-workflow.test.sh)
 (same pass/fail harness, `set -euo pipefail`, exit non-zero on any failure). It
 is auto-discovered by the gauntlet's `scripts/tests/*.test.sh` loop — no gauntlet
 edit needed. Make it `chmod +x`. Assert:
@@ -207,19 +208,19 @@ Keep the assertions grep-based and scoped to `.github/` + `scripts/` only (never
 
 ## 5. Reviewer acceptance checklist
 
-- [ ] `grep -rn "registry-mirrors" .github/` returns **exactly one** line (inside
+- [x] `grep -rn "registry-mirrors" .github/` returns **exactly one** line (inside
       the composite). No inline copies remain in `mutation.yml` or `ci.yml`.
-- [ ] mutation.yml pg-ci and ci.yml sonar-fallback both obtain the mirror via the
+- [x] mutation.yml pg-ci and ci.yml sonar-fallback both obtain the mirror via the
       composite (or the documented pre-checkout exception, with the test covering it).
-- [ ] All 7 `uses:` sites (5 existing + 2 converted) pass the Docker Hub creds
+- [x] All 7 `uses:` sites (5 existing + 2 converted) pass the Docker Hub creds
       (if §4.2 shipped) and the login step is gated on token presence.
-- [ ] `scripts/tests/docker-hub-mirror.test.sh` exists, is executable, fails if a
+- [x] `scripts/tests/docker-hub-mirror.test.sh` exists, is executable, fails if a
       bare/duplicated `registry-mirrors` literal is reintroduced, and passes on the
       final tree.
-- [ ] `actionlint` clean (the gauntlet runs it); `make lint` green.
-- [ ] If §4.2 shipped: `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` repo secrets exist
-      (reviewer-provisioned) and a CI run shows "authenticated to Docker Hub".
-- [ ] No new secret value is committed; token only lives in repo secrets.
+- [x] `actionlint` clean (the gauntlet runs it); `make lint` green.
+- [x] `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` repository secrets exist.
+- [ ] A protected CI run shows "authenticated to Docker Hub".
+- [x] No new secret value is committed; token only lives in repo secrets.
 
 ---
 
@@ -236,7 +237,7 @@ Keep the assertions grep-based and scoped to `.github/` + `scripts/` only (never
 
 ## 7. Execution workflow (enforced — no bypass)
 
-Per [`CLAUDE.md`](../../CLAUDE.md) and `.claude/rules/`:
+Per [`CLAUDE.md`](../../../CLAUDE.md) and `.claude/rules/`:
 
 1. `git checkout dev && git pull --rebase origin dev`.
 2. Write `scripts/tests/docker-hub-mirror.test.sh` first (§4.0) — this is the

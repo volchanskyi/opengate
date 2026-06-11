@@ -56,19 +56,17 @@ jobs:
     # false-timing-out in ~6min, so the cap must clear a slow full run.
     timeout-minutes: 90
     steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/docker-hub-mirror
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
       # Only the Go matrix leg needs Postgres, but launch is cheap (~5s)
       # and uniform across legs simplifies the conditional. `-c
       # max_connections=400` is required so the parallel per-schema test
       # store pattern in testutil.NewTestStore stays within the conn budget.
       - name: Start Postgres with max_connections=400
         run: |
-          # Route docker.io pulls through GCR's mirror (Docker Hub flake guard);
-          # this step runs before checkout, so the config is inlined rather than
-          # using the .github/actions/docker-hub-mirror composite.
-          sudo mkdir -p /etc/docker
-          echo '{"registry-mirrors":["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json >/dev/null
-          sudo systemctl restart docker
-          for _ in $(seq 1 15); do docker info >/dev/null 2>&1 && break; sleep 1; done
           docker run -d --rm --name pg-ci \
             -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
             -p 5432:5432 postgres:17-alpine -c max_connections=400
@@ -79,7 +77,6 @@ jobs:
             sleep 1
           done
           echo "::error::postgres never became ready"; docker logs pg-ci; exit 1
-      - uses: actions/checkout@v6
 
       # -- Rust --------------------------------------------------------------
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable

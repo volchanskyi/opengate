@@ -135,6 +135,18 @@ Until then the proxy path is inert (`redis.enabled=false`, owner is always self)
 
 ## Severity: Low
 
+### Docker Hub authenticated fallback awaits workflow verification
+
+The shared
+[`docker-hub-mirror` action](../.github/actions/docker-hub-mirror/action.yml)
+now supports authenticated direct Docker Hub fallback, and every protected
+workflow passes the optional repository credentials. The repository has both
+`DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`; the login intentionally skips when
+credentials are unavailable so forked pull requests remain runnable.
+
+**Pay-down trigger:** confirm a protected workflow logs the successful
+authenticated-login message without exposing either value.
+
 ### Go mutation score is sensitive to gremlins' runner-derived per-mutant timeout
 
 gremlins sets each mutant's timeout to `coverage-dry-run-elapsed × timeout-coefficient`. The dry-run elapsed is a single, runner-load-sensitive measurement, so a fast/partial coverage phase shrinks the per-mutant budget and the Postgres-backed packages (which re-pay container/migration setup, ~20-40s each) false-time-out. Timed-out mutants are dropped from gremlins' kill count, so the reported Go score collapses with no real change in test quality — observed 2026-06-03 (run 26870189012): 770→241 kills, 85.5%→76.0%, below the 85% alert floor, all from 590 false timeouts vs 7 the night before.
