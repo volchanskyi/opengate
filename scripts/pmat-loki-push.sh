@@ -1,14 +1,10 @@
 #!/usr/bin/env bash
-# pmat-loki-push.sh — push the canonical pmat-trend row to Loki on the
-# production VPS via the deploy SSH tunnel + monitoring docker network.
-# Mirrors scripts/mutation-loki-push.sh. Invoked by .github/workflows/
-# pmat-trend.yml after summarize.
+# pmat-loki-push.sh — push the canonical pmat-trend row to the in-cluster Loki
+# Service. Mirrors scripts/mutation-loki-push.sh and is invoked by
+# .github/workflows/pmat-trend.yml after summarize.
 #
 # Inputs:
 #   $1   path to the canonical row JSON file (one object, single line)
-# Required env (set by .github/actions/oci-ssh-setup in the workflow):
-#   DEPLOY_SSH_PRIVATE_KEY, DEPLOY_HOST
-#
 # ONE stream with labels {job="pmat-trend", env="ci"} whose log line is the
 # full row JSON. Labels are intentionally low-cardinality (no commit/grade) so
 # pmat-loki-query.sh can read the latest value as a single series; commit and
@@ -35,8 +31,7 @@ PAYLOAD="$(jq -c \
     }
   ' <<< "{}")"
 
-# Push the payload (stdin) to Loki via the shared transport. Default
-# (LOKI_PUSH_MODE=ssh-docker) keeps the pre-cutover path; cutover sets kubectl.
+# Push the payload to Loki via the shared kubectl transport.
 # shellcheck source=lib/loki-push.sh
 source "$(dirname "$0")/lib/loki-push.sh"
 printf '%s' "$PAYLOAD" | loki_push

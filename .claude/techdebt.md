@@ -8,18 +8,14 @@ _None currently._
 
 ## Severity: Medium
 
-### Cutover doc drift — Monitoring.md / Continuous-Deployment.md still describe the VPS path
+### Cutover doc drift — Monitoring.md still describes the compose stack
 
-The compose→OKE cutover (executed 2026-06-10) moved the app, monitoring, and CD
-onto the OKE cluster and decommissioned the compose VM, but several canonical
-docs still document the old VPS/compose access path:
-[`docs/Monitoring.md`](../docs/Monitoring.md) (Grafana/Kuma/Loki access via
-`ssh ubuntu@<VPS>` + `docker-compose.monitoring.yml`) and
-[`docs/Continuous-Deployment.md`](../docs/Continuous-Deployment.md) (`/opt/opengate`
-paths, `ssh ubuntu@<VPS>` rollback). Those commands no longer work — the VM is
-gone. [`docs/Infrastructure.md`](../docs/Infrastructure.md)'s "Operator access"
-section was updated as part of the decommission; the residual compose-deployment
-references there describe the dormant rollback path and remain accurate.
+The compose→OKE cutover moved the app, monitoring, and CD onto the OKE cluster,
+but [`docs/Monitoring.md`](../docs/Monitoring.md) still documents the old
+compose access and deployment path. [`docs/Continuous-Deployment.md`](../docs/Continuous-Deployment.md)
+now describes the Kubernetes-only workflow. Residual compose references in
+[`docs/Infrastructure.md`](../docs/Infrastructure.md) describe the dormant
+rollback artifacts and remain accurate.
 
 The block-volume remediation ([ADR-035](../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md))
 further changed the *cluster* monitoring topology the stale compose doc must be
@@ -34,8 +30,8 @@ in place; the deferred sweep owns the full compose→OKE rewrite of Monitoring.m
 those individual lines.
 
 **Pay-down trigger:** a focused [`/wiki-audit`](../.claude/skills/wiki-audit/) pass
-repointing the monitoring + CD docs at the cluster (`kubectl` access, `helm` /
-`cd.yml` k8s deploy jobs, the ADR-035 monitoring topology) — out of scope for the
+repointing the monitoring docs at the cluster and the ADR-035 monitoring
+topology — out of scope for the
 VM-decommission and block-volume changes.
 
 ### ADR-035 block-volume remediation — reclaim DONE; residual external follow-ups (Low)

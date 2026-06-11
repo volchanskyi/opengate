@@ -2,8 +2,6 @@
 
 This file is a one-page index. Each rule lives in its own focused file under [`.claude/rules/`](.claude/rules/). MANDATORY rules are enforced deterministically by [`.claude/hooks/`](.claude/hooks/) — **no bypass mechanism exists**.
 
-`AGENT.MD` at the repo root is a symlink to this file for cross-tool compatibility.
-
 ## Project State — Read Before Starting Work
 
 **MANDATORY.** Read these three files at session start:
@@ -30,6 +28,7 @@ After completing significant work, update [`phases.md`](.claude/phases.md), [`te
 ## Code and Process Conventions
 
 - [`rules/code.md`](.claude/rules/code.md) — Rust / Go / TypeScript conventions + wire protocol
+- [`rules/cross-agent.md`](.claude/rules/cross-agent.md) — shared entry point, skills, hooks, and client-specific configuration
 - [`rules/editing-and-scope.md`](.claude/rules/editing-and-scope.md) — numbered-list edit protocol, no silent SKIP, zero-manual-install, audit/refactor scope, `/docs` is canonical
 - [`rules/tooling.md`](.claude/rules/tooling.md) — `make` targets, `make e2e` rule, past lessons
 

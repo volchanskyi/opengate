@@ -205,6 +205,7 @@ run_check "pentest-review"    -- bash -c 'PENTEST_BASELINE_REF=origin/dev script
 run_check "dead-code"         -- make dead-code
 run_check "gitleaks (staged)" -- gitleaks protect --staged --config .gitleaks.toml --no-banner --redact
 run_check "lint-deploy"       -- make lint-deploy
+run_check "no-vm-ssh-guard"   -- bash scripts/no-vm-ssh-guard.sh
 
 # Phase 2: codegen sync — would be a CI failure otherwise.
 banner "Codegen sync"

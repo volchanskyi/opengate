@@ -26,10 +26,6 @@ permissions:
 
 env:
   TERRAFORM_VERSION: 1.9.x
-  # Loki push runs against the in-cluster Service via kubectl, not SSH to the
-  # decommissioned VM.
-  LOKI_PUSH_MODE: kubectl
-
 jobs:
   drift:
     name: Refresh-only plan + alert

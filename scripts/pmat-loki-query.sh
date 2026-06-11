@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # pmat-loki-query.sh — read the most recent value of a pmat-trend field from
-# Loki on the production VPS, so pmat-trend.yml can compute day-over-day
-# regressions. Mirrors the SSH+docker transport of pmat-loki-push.sh but issues
-# a read-only instant query.
+# the in-cluster Loki Service so pmat-trend.yml can compute day-over-day
+# regressions.
 #
 # Usage: $0 <repo_score|below_bplus>
 # Prints the scalar value, or nothing when absent.
@@ -25,24 +24,11 @@ esac
 
 QUERY="last_over_time({job=\"pmat-trend\"} | json | unwrap ${FIELD} [14d])"
 
-# LOKI_PUSH_MODE selects the transport, mirroring scripts/lib/loki-push.sh so the
-# read and write halves stay symmetric. kubectl runs a throwaway curl pod against
-# the in-cluster Loki Service; ssh-docker is the pre-cutover default.
-case "${LOKI_PUSH_MODE:-ssh-docker}" in
-  kubectl)
-    ns="${LOKI_NAMESPACE:-monitoring}"
-    svc="${LOKI_SERVICE:-monitoring-loki}"
-    RESP="$(kubectl -n "$ns" run "loki-query-$$" --rm -i --restart=Never \
-      --image=curlimages/curl:8.11.1 -- \
-      curl -sS --max-time 30 -G "http://${svc}.${ns}.svc:3100/loki/api/v1/query" \
-      --data-urlencode "query=${QUERY}" </dev/null 2>/dev/null || true)"
-    ;;
-  *)
-    RESP="$(ssh -o StrictHostKeyChecking=accept-new deploy-target \
-      "docker run --rm --network opengate-monitoring_monitoring curlimages/curl:latest \
-         -sS --max-time 30 -G http://loki:3100/loki/api/v1/query \
-         --data-urlencode 'query=${QUERY}'" 2>/dev/null || true)"
-    ;;
-esac
+ns="${LOKI_NAMESPACE:-monitoring}"
+svc="${LOKI_SERVICE:-monitoring-loki}"
+RESP="$(kubectl -n "$ns" run "loki-query-$$" --rm -i --restart=Never \
+  --image=curlimages/curl:8.11.1 -- \
+  curl -sS --max-time 30 -G "http://${svc}.${ns}.svc:3100/loki/api/v1/query" \
+  --data-urlencode "query=${QUERY}" </dev/null 2>/dev/null || true)"
 
 printf '%s' "$RESP" | jq -r '.data.result[0].value[1] // empty' 2>/dev/null || true

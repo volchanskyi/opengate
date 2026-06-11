@@ -1,19 +1,12 @@
 #!/usr/bin/env bash
-# Pushes the canonical mutation-test row to Loki on the production VPS via
-# the existing deploy SSH tunnel + monitoring docker network. No new ingress
-# route or Caddy auth needed — runs `curl` from a throwaway container attached
-# to the Compose monitoring network so it can resolve `loki:3100`.
+# Pushes the canonical mutation-test row to the in-cluster Loki Service through
+# a throwaway curl pod. Loki remains private; no ingress route is required.
 #
 # Invoked by .github/workflows/mutation.yml after summarize and JSONL append.
 # Per the PR 9 plan: .claude/plans/pr9-mutation-testing-as-observability.md
 #
 # Inputs:
 #   $1   path to the canonical row JSON file (one object, single line)
-# Required env:
-#   DEPLOY_SSH_PRIVATE_KEY   private key for the deploy user (already set by
-#                            .github/actions/oci-ssh-setup in the workflow)
-#   DEPLOY_HOST              ssh target hostname (also set by oci-ssh-setup)
-#
 # Loki receives one stream per language with labels
 # {job="mutation-testing", language="<lang>", env="ci"} and a single log line
 # whose value is the per-language `scores.<lang>` JSON.
@@ -51,9 +44,7 @@ PAYLOAD="$(jq -c \
     }
   ' <<< "{}")"
 
-# Push the payload (stdin) to Loki via the shared transport. The default
-# (LOKI_PUSH_MODE=ssh-docker) keeps the pre-cutover SSH + docker-run path on the
-# compose monitoring network; the cutover sets LOKI_PUSH_MODE=kubectl (ADR-030).
+# Push the payload to Loki via the shared kubectl transport.
 # shellcheck source=lib/loki-push.sh
 source "$(dirname "$0")/lib/loki-push.sh"
 printf '%s' "$PAYLOAD" | loki_push

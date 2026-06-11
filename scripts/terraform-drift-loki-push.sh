@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Pushes the canonical terraform-drift summary to Loki on the production VPS
-# via the existing deploy SSH tunnel + monitoring docker network. Mirrors
-# scripts/mutation-loki-push.sh — only the stream labels differ.
+# Pushes the canonical terraform-drift summary to the in-cluster Loki Service.
+# Mirrors scripts/mutation-loki-push.sh — only the stream labels differ.
 #
 # Invoked by .github/workflows/terraform-drift.yml after a drift is detected
-# (refresh-only exit code 2). The SSH `deploy-target` alias is configured by
-# the .github/actions/oci-ssh-setup composite earlier in the workflow.
+# (refresh-only exit code 2). The workflow configures cluster access before
+# invoking this script.
 #
 # Inputs:
 #   $1   path to the drift summary JSON file (single-line object from terraform-drift-summarize.sh)
@@ -41,8 +40,7 @@ PAYLOAD="$(jq -c \
     }
   ' <<< "{}")"
 
-# Push the payload (stdin) to Loki via the shared transport. Default
-# (LOKI_PUSH_MODE=ssh-docker) keeps the pre-cutover path; cutover sets kubectl.
+# Push the payload to Loki via the shared kubectl transport.
 # shellcheck source=lib/loki-push.sh
 source "$(dirname "$0")/lib/loki-push.sh"
 printf '%s' "$PAYLOAD" | loki_push

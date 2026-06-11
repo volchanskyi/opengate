@@ -150,7 +150,7 @@ Some skill `SKILL.md` files reference CLAUDE.md sections or specific phrases (e.
 
 **Modified:**
 - [`CLAUDE.md`](../../CLAUDE.md) — rewritten as ~40-line index
-- [`AGENT.MD`](../../AGENT.MD) — replaced with symlink → `CLAUDE.md` (tracked in git)
+- [`AGENTS.md`](../../AGENTS.md) — symlink → `CLAUDE.md` (tracked in git)
 - [`.claude/hooks/session-start-context-load.sh`](../hooks/session-start-context-load.sh) — repoint conventions.md references to `.claude/rules/`
 - [`.claude/hooks/pretooluse-tdd-gate.sh`](../hooks/pretooluse-tdd-gate.sh) — error-message repoint
 - [`.claude/hooks/pretooluse-git-commit-guard.sh`](../hooks/pretooluse-git-commit-guard.sh) — error-message repoint
