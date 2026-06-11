@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781147855468,
+  "lastUpdate": 1781170508716,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16782,6 +16782,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.02942555753715,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b436302a9d21c4f8fa4883be021194520a8bfdc2",
+          "message": "fix: restore post-cutover agent manifest + Loki trend pipelines; record reclaim\n\nThree post-cutover items batched into one commit:\n\n- Agent install: the OKE server had no OPENGATE_GITHUB_REPO set, so it served no\n  agent-update manifest and the installer reported \"No agent binary found for\n  linux/amd64\" even though the binaries exist in Releases. Add server.githubRepo\n  to the Helm chart (default volchanskyi/opengate) and wire the env into the\n  server Deployment; the server then runs the manifest sync and injects the repo\n  into the served install.sh.\n\n- Loki trend pipelines: pmat-trend / mutation / terraform-drift pushed (and pmat\n  read) to Loki over SSH to the decommissioned compose VM, so every scheduled run\n  failed at ssh-keyscan. Retarget all three to the in-cluster Loki Service via\n  kubectl (oci-kube-setup + LOKI_PUSH_MODE=kubectl), add a kubectl read mode to\n  pmat-loki-query.sh, fix the stale monitoring-loki service default, and drop the\n  now-unneeded SSH/NSG teardown.\n\n- Record the block-volume free-tier reclaim as executed in techdebt; archive the\n  reclaim runbook.",
+          "timestamp": "2026-06-11T02:33:25-07:00",
+          "tree_id": "2fb9883705c8e18d3f7f4b97aba015cbf0d76b4a",
+          "url": "https://github.com/volchanskyi/opengate/commit/b436302a9d21c4f8fa4883be021194520a8bfdc2"
+        },
+        "date": 1781170508584,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.079362748230732,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.034685400755716,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 775.5307966123743,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 313.62497434986795,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.70938481189944,
             "unit": "ns/iter"
           }
         ]
