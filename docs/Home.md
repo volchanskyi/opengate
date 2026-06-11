@@ -19,7 +19,7 @@ Developer documentation for the OpenGate remote device management platform.
 | [CI Pipeline](./CI-Pipeline.md) | Workflows, job graph, branch protection, auto-merge |
 | [Continuous Deployment](./Continuous-Deployment.md) | CD pipeline, staging/production deploys, smoke tests, rollback |
 | [Container Images](./Container-Images.md) | Dockerfile, GHCR registry, multi-arch builds, image tags |
-| [Monitoring](./Monitoring.md) | Observability stack — VictoriaMetrics, Grafana, Loki, Uptime Kuma |
+| [Monitoring](./Monitoring.md) | Observability stack — VictoriaMetrics, Grafana, Loki (uptime via external SaaS) |
 | [Infrastructure](./Infrastructure.md) | Terraform IaC, Docker Compose, Caddy, firewall, secrets management |
 | [Kubernetes](./Kubernetes.md) | OKE cluster, Helm chart, ingress-nginx + cert-manager, chart validation |
 | [Kubernetes Migration](./Kubernetes-Migration.md) | One-time compose → OKE cutover runbook (pg_dump restore, DNS, monitoring) |

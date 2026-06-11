@@ -48,7 +48,12 @@ server:
       memory: 512Mi
   # /data holds the server's self-signed CA + VAPID keys + agent-update signing
   # keys. Single-replica PVC keeps them stable across restarts.
+  # `persistent: false` swaps the RWO PVC for an emptyDir (the CA/keys reset on
+  # restart) — used by staging only to stay under the OCI free-tier block-volume
+  # cap (ADR-035). Production keeps these keys in the shared Secret (sharedKeys),
+  # so its /data is already an emptyDir regardless of this flag.
   dataVolume:
+    persistent: true
     storageClass: oci-bv
     size: 1Gi
   # Shared keys (PR-E): for multi-replica every replica must serve the SAME
@@ -92,15 +97,23 @@ postgres:
       cpu: "1"
       memory: 512Mi
   storage:
+    # `persistent: false` swaps the StatefulSet's RWO volumeClaimTemplate for an
+    # emptyDir (DB resets on pod restart) — staging only, to stay under the OCI
+    # free-tier block-volume cap (ADR-035). Production keeps the block volume.
+    persistent: true
     storageClass: oci-bv
     size: 10Gi
   backup:
     enabled: true
     schedule: "@daily"
+    # Off-cluster to OCI Object Storage via a write-only PAR URL (ADR-035): no
+    # backups PVC. The dump runs in the postgres image (pg_dump, no curl); the
+    # upload runs in this image (curl, no pg_dump). Fully-qualified for OKE cri-o.
+    uploadImage: docker.io/curlimages/curl:8.11.1
+    # Retention is enforced by an OCI Object Storage lifecycle policy on the bucket
+    # (delete objects older than keepDays), created out-of-band — see NOTES.txt.
+    # The CronJob no longer prunes; keepDays only documents the policy's threshold.
     keepDays: 7
-    storage:
-      storageClass: oci-bv
-      size: 5Gi
     resources:
       requests:
         cpu: 50m

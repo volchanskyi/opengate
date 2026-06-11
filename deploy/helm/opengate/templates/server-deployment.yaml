@@ -189,7 +189,10 @@ spec:
               mountPath: /tmp
       volumes:
         - name: data
-          {{- if .Values.server.sharedKeys.enabled }}
+          {{- if or .Values.server.sharedKeys.enabled (not .Values.server.dataVolume.persistent) }}
+          # emptyDir when keys are shared via Secret (sharedKeys, prod) OR when
+          # persistence is off (staging, ADR-035 free-tier cap — CA/keys reset on
+          # restart, acceptable for the deploy-test env).
           emptyDir: {}
           {{- else }}
           persistentVolumeClaim:

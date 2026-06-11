@@ -21,9 +21,47 @@ gone. [`docs/Infrastructure.md`](../docs/Infrastructure.md)'s "Operator access"
 section was updated as part of the decommission; the residual compose-deployment
 references there describe the dormant rollback path and remain accurate.
 
+The block-volume remediation ([ADR-035](../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md))
+further changed the *cluster* monitoring topology the stale compose doc must be
+rewritten against: `uptime-kuma` is **gone** (external uptime SaaS) — yet
+[`docs/Monitoring.md`](../docs/Monitoring.md) still carries an Architecture diagram,
+"Uptime Kuma" component/limit/retention rows, an access table, and an "Uptime Kuma
+Monitors" section for it, plus `status.<domain>` references — and Grafana /
+staging-Postgres / staging-`/data` now ride `emptyDir`. The narrowly-stale facts my
+change actively *broke* (`make tunnel`, the Kubernetes.md backup row, Database.md
+§Backups, the Home.md index line, the migration runbook's service count) were fixed
+in place; the deferred sweep owns the full compose→OKE rewrite of Monitoring.md, not
+those individual lines.
+
 **Pay-down trigger:** a focused [`/wiki-audit`](../.claude/skills/wiki-audit/) pass
 repointing the monitoring + CD docs at the cluster (`kubectl` access, `helm` /
-`cd.yml` k8s deploy jobs) — out of scope for the VM-decommission change.
+`cd.yml` k8s deploy jobs, the ADR-035 monitoring topology) — out of scope for the
+VM-decommission and block-volume changes.
+
+### ADR-035 block-volume remediation — manual reclaim + SaaS wiring still pending
+
+The chart changes ([ADR-035](../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md))
+that bring block storage from 450 GB to the 200 GB cap are merged, but the storage
+overage **bills until the cluster-side reclaim is performed** — the code change
+alone does not free volumes. Pending manual steps (commands in the chart
+[`NOTES.txt`](../deploy/helm/opengate/templates/NOTES.txt)):
+
+1. **External uptime SaaS** — create UptimeRobot/Better Stack monitors on
+   `https://opengate.cloudisland.net/healthz` (+ optional TCP on QUIC 9090 / MPS
+   4433), point the alert contact at the existing Telegram/email, enable the hosted
+   status page. Retire or CNAME `status.opengate.cloudisland.net` in Cloudflare.
+2. **OCI Object Storage backups** — `oci os bucket create opengate-pg-backups`, a
+   long-expiry write-only PAR, and a delete-after-`keepDays` lifecycle policy; put
+   the PAR base URL in the `opengate-secrets` Secret key `BACKUP_PAR_URL`.
+3. **Reclaim** — `helm upgrade` monitoring + prod + staging, then `kubectl delete`
+   the **5 freed PVCs** (StatefulSet PVCs are retained, not auto-removed) so the CSI
+   `reclaimPolicy: Delete` deletes the underlying OCI volumes. **Verify each PVC
+   before deleting — prod `data-opengate-postgres-0` must NOT be in the set.**
+   Confirm `oci bv volume list` shows 3 volumes (150 GB) → 200 GB tally with boot.
+
+**Pay-down trigger:** the next live-cluster operator session (needs the OCI CLI +
+`kubectl` context). Until then the cluster still runs the pre-ADR-035 layout and
+bills the overage; the merged chart is what a fresh `helm install` would deploy.
 
 ### Phase 13b k8s — shared CA/VAPID/signing keys: mechanism shipped, runtime-unverified
 

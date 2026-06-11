@@ -1,5 +1,7 @@
 # Decommission the compose VM — finalize the OKE cutover
 
+**Status:** Completed — compose VM decommissioned 2026-06-10 (commit `be98b5e`). Archived 2026-06-10.
+
 ## Context
 
 Phase 13b (compose→OKE cutover, ADR-030/ADR-034) is effectively complete and has

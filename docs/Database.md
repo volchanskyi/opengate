@@ -230,12 +230,22 @@ sequentially numbered `.up.sql` / `.down.sql` pairs in the same directory.
 
 ## Backups
 
-Daily `pg_dump` backups run inside the `postgres-backup` sidecar defined in
-[`deploy/docker-compose.yml`](../deploy/docker-compose.yml). Output is
-written to the `postgres-backups` Docker volume, with 7-day local
-retention. Off-host replication (e.g. to OCI Object Storage via rclone) is
-tracked as a follow-up and is not configured by default. See
-[Infrastructure](Infrastructure.md) for VPS placement details.
+On the cluster a daily `pg_dump` runs as the
+[`postgres-backup` CronJob](../deploy/helm/opengate/templates/postgres-backup-cronjob.yaml):
+an init container dumps + gzips the database into a shared `emptyDir`, then a
+`curl` container streams it to OCI Object Storage via a **write-only**
+pre-authenticated request (PAR) URL — there is no in-cluster backup volume, and
+the off-cluster copy survives total cluster loss. Retention is an Object Storage
+lifecycle policy on the bucket (the chart no longer prunes). The schedule,
+retention threshold, and upload image are the `postgres.backup`
+[values](../deploy/helm/opengate/values.yaml); the bucket / PAR / lifecycle setup
+commands are in the chart
+[`NOTES.txt`](../deploy/helm/opengate/templates/NOTES.txt). Rationale (and the
+50 GB block volume this frees under the OCI free-tier cap):
+[ADR-035](adr/ADR-035-oke-free-tier-block-volume-remediation.md).
+
+The decommissioned compose stack used a `postgres-backup` sidecar writing to a
+local Docker volume; that path is dormant (rollback only).
 
 ## Data directory
 

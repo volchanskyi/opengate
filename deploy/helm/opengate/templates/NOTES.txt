@@ -21,7 +21,21 @@ Required Secret (NOT created by this chart — see secrets.example.yaml):
     --from-literal=JWT_SECRET=... \
     --from-literal=POSTGRES_PASSWORD=... \
     --from-literal=AMT_PASS=... \
-    --from-literal=VAPID_CONTACT=mailto:ops@example.com
+    --from-literal=VAPID_CONTACT=mailto:ops@example.com{{ if .Values.postgres.backup.enabled }} \
+    --from-literal=BACKUP_PAR_URL=https://objectstorage.<region>.oraclecloud.com/p/<token>/n/<ns>/b/opengate-pg-backups/o/{{ end }}
+{{- if .Values.postgres.backup.enabled }}
+
+Off-cluster backups (ADR-035) — create the bucket + write-only PAR + retention
+lifecycle policy once, outside this chart, then put the PAR base URL (ending in
+`/o/`) in the Secret key BACKUP_PAR_URL above:
+  oci os bucket create --name opengate-pg-backups --compartment-id <ocid>
+  oci os preauth-request create --bucket-name opengate-pg-backups \
+    --name pg-backup-writer --access-type AnyObjectWrite \
+    --time-expires <YYYY-MM-DD> --object-name ''      # write-only, no listing
+  # Retention (replaces the old `find -mtime`): delete objects older than keepDays
+  oci os object-lifecycle-policy put --bucket-name opengate-pg-backups \
+    --items '[{"name":"expire","action":"DELETE","timeAmount":{{ .Values.postgres.backup.keepDays }},"timeUnit":"DAYS","isEnabled":true,"target":"objects"}]'
+{{- end }}
 
 DNS:
   - Point {{ .Values.domain }} A/AAAA at the ingress-nginx external IP.

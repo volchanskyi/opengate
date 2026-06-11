@@ -1,7 +1,8 @@
 # Phase 13b — Multiserver & Scaling (re-evaluation)
 
 **Created:** 2026-05-31 (re-evaluation of the long-standing High-priority Phase 13b entry)
-**Status:** Planning — not started. Supersedes the stale one-line phases.md entry ("Cross-server routing, relay pool, Kubernetes").
+**Status:** Completed (PRs A–E landed 2026-06-05; per-PR detail in the sibling `phase-13b-pr-*.md` archives). Archived 2026-06-10. _(Original planning header preserved below.)_
+**Status (original):** Planning — not started. Supersedes the stale one-line phases.md entry ("Cross-server routing, relay pool, Kubernetes").
 **Drivers:** ADR-023 (Redis session registry) is the architectural spine; this plan is the execution sequencing against *current* state and constraints.
 
 ## 1. What changed since Phase 13b was first parked

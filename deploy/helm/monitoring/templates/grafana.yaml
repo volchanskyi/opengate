@@ -41,19 +41,6 @@ spec:
       port: 3000
       targetPort: http
 ---
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- include "mon.labels" . | nindent 4 }}
-spec:
-  accessModes: [ReadWriteOnce]
-  storageClassName: {{ .Values.storageClass }}
-  resources:
-    requests:
-      storage: {{ .Values.grafana.storage }}
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -139,9 +126,12 @@ spec:
               mountPath: /etc/grafana/provisioning/alerting
               readOnly: true
       volumes:
+        # Ephemeral (ADR-035, free-tier block-volume cap): datasources, the five
+        # dashboards, and alerting are provisioned from the ConfigMaps below and
+        # the admin password re-seeds from the Secret on every start, so a restart
+        # only loses UI-created annotations / alert-state history — not config.
         - name: data
-          persistentVolumeClaim:
-            claimName: {{ $name }}
+          emptyDir: {}
         - name: tmp
           emptyDir: {}
         - name: datasources
