@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781145852740,
+  "lastUpdate": 1781147855468,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16733,6 +16733,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.878592410638245,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "df15ab3cf6e753f008f873ff6df1fd37fd8c70b3",
+          "message": "chore(deps): bump taiki-e/install-action in the actions-deps group (#285)\n\nBumps the actions-deps group with 1 update: [taiki-e/install-action](https://github.com/taiki-e/install-action).\n\n\nUpdates `taiki-e/install-action` from 2.81.8 to 2.81.9\n- [Release notes](https://github.com/taiki-e/install-action/releases)\n- [Changelog](https://github.com/taiki-e/install-action/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/taiki-e/install-action/compare/0631aa6515c7d545823c67cfae7ef4fc7f490154...fd2f5e3d644b484055ebf4268f474c565f148f25)\n\n---\nupdated-dependencies:\n- dependency-name: taiki-e/install-action\n  dependency-version: 2.81.9\n  dependency-type: direct:production\n  update-type: version-update:semver-patch\n  dependency-group: actions-deps\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-06-10T20:15:42-07:00",
+          "tree_id": "958af9b80e87a2cb9125243453fcaf5bda0ac791",
+          "url": "https://github.com/volchanskyi/opengate/commit/df15ab3cf6e753f008f873ff6df1fd37fd8c70b3"
+        },
+        "date": 1781147855336,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.36454926212552,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.83945231911296,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 599.5853958912214,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 301.1887851725954,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 20.02942555753715,
             "unit": "ns/iter"
           }
         ]
