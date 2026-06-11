@@ -134,10 +134,8 @@ terraform-drift:
 # longer reach them. Operator browses to http://localhost:3000 /
 # http://localhost:3001; Ctrl-C tears both forwards down.
 tunnel:
-	@echo "Grafana -> http://localhost:3000 | Uptime Kuma -> http://localhost:3001 (Ctrl-C to stop)"
-	@kubectl -n monitoring port-forward svc/monitoring-grafana 3000:3000 & p1=$$!; \
-	 kubectl -n monitoring port-forward svc/monitoring-uptime-kuma 3001:3001 & p2=$$!; \
-	 trap 'kill $$p1 $$p2 2>/dev/null' INT TERM; wait || true
+	@echo "Grafana -> http://localhost:3000 (Ctrl-C to stop)"
+	@kubectl -n monitoring port-forward svc/monitoring-grafana 3000:3000
 
 # `make ssh` — Managed SSH session to the OKE worker node (interactive shell).
 ssh:

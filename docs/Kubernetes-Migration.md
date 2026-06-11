@@ -85,8 +85,11 @@ point agents / AMT at the node's public IP (ADR-030 §5).
 
 ## 4. Migrate the monitoring stack
 
-The seven-service [observability stack](./Monitoring.md) moves into a
-`monitoring` namespace via the `deploy/helm/monitoring` chart:
+The [observability stack](./Monitoring.md) moves into a `monitoring` namespace
+via the `deploy/helm/monitoring` chart. (The cutover migrated a seventh service,
+`uptime-kuma`; it was subsequently removed in favour of an external uptime SaaS —
+[ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md).) The remaining
+six services:
 
 - **VictoriaMetrics** (StatefulSet) — scrape config switches from the compose
   static targets in `deploy/victoriametrics/scrape.yml` to `kubernetes_sd`
@@ -94,9 +97,8 @@ The seven-service [observability stack](./Monitoring.md) moves into a
 - **Loki** (StatefulSet) + **promtail** (DaemonSet) — promtail's config changes
   from tailing `/var/lib/docker/containers` to k8s pod-log discovery
   (`/var/log/pods` + the kubelet API; needs a ServiceAccount + read RBAC).
-- **node-exporter** (DaemonSet, hostPath `/proc` `/sys` `/`), **postgres-exporter**
-  (Deployment, `DATA_SOURCE_NAME` → the in-cluster Postgres Service),
-  **uptime-kuma** (Deployment + PVC).
+- **node-exporter** (DaemonSet, hostPath `/proc` `/sys` `/`) and **postgres-exporter**
+  (Deployment, `DATA_SOURCE_NAME` → the in-cluster Postgres Service).
 - **Grafana** (Deployment) — the existing provisioning under
   [`deploy/grafana/provisioning`](../deploy/grafana/provisioning/)
   (`datasources/`, the five `dashboards/`, `alerting/` with the Telegram contact

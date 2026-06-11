@@ -75,6 +75,13 @@ spec:
         - name: init
           configMap:
             name: {{ include "opengate.postgres.fullname" . }}-init
+        {{- if not .Values.postgres.storage.persistent }}
+        # Ephemeral DB (staging only, ADR-035): the data dir resets on restart.
+        # E2E/smoke seed their own state, so no block volume is provisioned.
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.postgres.storage.persistent }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -85,3 +92,4 @@ spec:
         resources:
           requests:
             storage: {{ .Values.postgres.storage.size }}
+  {{- end }}

@@ -26,10 +26,17 @@ server:
       cpu: 500m
       memory: 384Mi
   dataVolume:
+    # Staging is a throwaway deploy-test env: /data (CA + VAPID + update-signing
+    # keys) rides an emptyDir to avoid a 50 GB OCI block volume (ADR-035, free-tier
+    # cap). E2E/smoke re-enroll against the fresh CA each run, so the reset is fine.
+    persistent: false
     size: 1Gi
 
 postgres:
   storage:
+    # Same as the server /data above — staging DB rides an emptyDir, not a block
+    # volume (ADR-035). E2E/smoke seed their own fixtures, so the reset is fine.
+    persistent: false
     size: 5Gi
   backup:
     # Staging is ephemeral E2E state; no scheduled backups needed.

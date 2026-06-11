@@ -1,19 +1,11 @@
 {{- if .Values.postgres.backup.enabled -}}
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: {{ include "opengate.postgres.fullname" . }}-backups
-  labels:
-    {{- include "opengate.labels" . | nindent 4 }}
-    app.kubernetes.io/component: postgres-backup
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: {{ .Values.postgres.backup.storage.storageClass }}
-  resources:
-    requests:
-      storage: {{ .Values.postgres.backup.storage.size }}
----
+# Off-cluster backups (ADR-035): the dump is streamed to OCI Object Storage via a
+# write-only pre-authenticated request (PAR) URL, NOT a PVC. This removes a 50 GB
+# block volume (free-tier cap) AND means the backups survive total cluster loss.
+# Two stages share an emptyDir: an init container runs pg_dump (the postgres image
+# has no curl), then the main container PUTs the gzip to the bucket (curl image
+# has no pg_dump). Retention is an OCI Object Storage lifecycle policy on the
+# bucket (delete objects older than keepDays), created out-of-band — see NOTES.txt.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -44,8 +36,10 @@ spec:
             fsGroup: 70
             seccompProfile:
               type: RuntimeDefault
-          containers:
-            - name: backup
+          initContainers:
+            # Stage 1: dump → gzip into the shared emptyDir. postgres:17-alpine
+            # carries pg_dump but no curl, so the upload happens in stage 2.
+            - name: dump
               image: {{ .Values.postgres.image }}
               env:
                 - name: PGPASSWORD
@@ -58,10 +52,8 @@ spec:
                 - -c
                 - |
                   set -eu
-                  F="/backups/opengate-$(date +%Y%m%d-%H%M%S).sql.gz"
-                  pg_dump -h {{ include "opengate.postgres.fullname" . }} -U opengate opengate | gzip > "$F"
-                  find /backups -name 'opengate-*.sql.gz' -mtime +{{ .Values.postgres.backup.keepDays }} -delete
-                  echo "backup written: $F"
+                  pg_dump -h {{ include "opengate.postgres.fullname" . }} -U opengate opengate | gzip > /work/opengate.sql.gz
+                  echo "dump complete: $(ls -l /work/opengate.sql.gz)"
               resources:
                 {{- toYaml .Values.postgres.backup.resources | nindent 16 }}
               securityContext:
@@ -71,10 +63,43 @@ spec:
                   drop:
                     - ALL
               volumeMounts:
-                - name: backups
-                  mountPath: /backups
+                - name: work
+                  mountPath: /work
+          containers:
+            # Stage 2: PUT the gzip to the bucket. curlimages/curl carries curl but
+            # no pg_dump. The PAR URL is write-only (no listing/read), so a leaked
+            # token cannot exfiltrate existing backups. --upload-file implies PUT.
+            - name: upload
+              image: {{ .Values.postgres.backup.uploadImage }}
+              env:
+                - name: BACKUP_PAR_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.server.existingSecret }}
+                      key: BACKUP_PAR_URL
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  OBJ="opengate-$(date -u +%Y%m%d-%H%M%S).sql.gz"
+                  curl -fsS --retry 3 --retry-connrefused \
+                    -H "Content-Type: application/gzip" \
+                    --upload-file /work/opengate.sql.gz \
+                    "${BACKUP_PAR_URL}${OBJ}"
+                  echo "uploaded: ${OBJ}"
+              resources:
+                {{- toYaml .Values.postgres.backup.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+              volumeMounts:
+                - name: work
+                  mountPath: /work
           volumes:
-            - name: backups
-              persistentVolumeClaim:
-                claimName: {{ include "opengate.postgres.fullname" . }}-backups
+            - name: work
+              emptyDir: {}
 {{- end }}

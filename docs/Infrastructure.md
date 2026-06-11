@@ -222,18 +222,18 @@ The Loki stream feeds the existing monitoring stack. Recommended panels (provisi
 
 Operator SSH access to the **OKE worker node** goes through the OCI Bastion service, not the static `ssh_allowed_cidr` rule. The dev machine sits on a dynamic ISP-issued IP and updating the CIDR after every ISP rebind was the original pain point — bastion sessions are gated by OCI IAM instead of L4 CIDR, so the dev-machine IP is irrelevant. (Before the Phase 13b cutover the bastion fronted the compose VM; that VM was decommissioned and the bastion was repointed at the worker-node subnet.)
 
-The Grafana + Uptime Kuma UIs are now ClusterIP services, so they are reached with `kubectl port-forward` (`make tunnel`), not an SSH tunnel.
+Grafana is a ClusterIP service, reached with `kubectl port-forward` (`make tunnel`), not an SSH tunnel. Uptime monitoring is an external SaaS — no in-cluster status UI to tunnel to (see [ADR-035](adr/ADR-035-oke-free-tier-block-volume-remediation.md)).
 
 CI keeps the just-in-time NSG-rule pattern in [`.github/actions/oci-ssh-setup`](../.github/actions/oci-ssh-setup/) — the bastion is for **human** access only. See [ADR-018](adr/ADR-018-oci-bastion-operator-access.md) for the decision rationale.
 
 #### Daily flow
 
 ```bash
-make tunnel   # kubectl port-forward: Grafana :3000 + Uptime Kuma :3001 → localhost (Ctrl-C to stop)
+make tunnel   # kubectl port-forward: Grafana :3000 → localhost (Ctrl-C to stop)
 make ssh      # Managed SSH shell on the OKE worker node
 ```
 
-Browse to `http://localhost:3000` (Grafana) and `http://localhost:3001` (Uptime Kuma) once `make tunnel` is up. `make ssh` resolves the node + bastion automatically and caches the session at `~/.cache/opengate/bastion-session.json` (5–10 s on first create, instant within the 3 h TTL).
+Browse to `http://localhost:3000` (Grafana) once `make tunnel` is up. `make ssh` resolves the node + bastion automatically and caches the session at `~/.cache/opengate/bastion-session.json` (5–10 s on first create, instant within the 3 h TTL).
 
 > **Node-SSH prerequisite:** the OCI Cloud Agent **Bastion plugin** must be `RUNNING` on the worker node for `make ssh`. On OKE *managed* nodes it is not enabled by default — until it is (tracked as a follow-up), use the break-glass path: direct `ssh opc@<node-public-ip>` (the node NSG allows TCP 22 from `ssh_allowed_cidr`).
 
@@ -280,11 +280,10 @@ oci instance-agent plugin get --instanceagent-id "$NODE_OCID" \
   --plugin-name Bastion --compartment-id "$OCI_COMPARTMENT_OCID" \
   | jq -r '.data.status'  # → RUNNING (if STOPPED, see the node-SSH prerequisite)
 
-# 3. Monitoring UIs via kubectl port-forward
-make tunnel &                                # backgrounds the forwards
+# 3. Grafana UI via kubectl port-forward
+make tunnel &                                # backgrounds the forward
 curl -sf http://localhost:3000 | head -1     # Grafana HTML
-curl -sf http://localhost:3001 | head -1     # Uptime Kuma admin HTML
-kill %1                                       # stop the forwards
+kill %1                                       # stop the forward
 
 # 4. IAM audit trail — confirms the session is attributed to YOUR user
 oci audit event list --compartment-id "$OCI_COMPARTMENT_OCID" \

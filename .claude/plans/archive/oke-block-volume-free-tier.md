@@ -1,5 +1,7 @@
 # OKE block-volume free-tier remediation (450 GB → ≤200 GB)
 
+**Status:** Completed — chart changes landed ([ADR-035](../../../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md)); live-cluster reclaim + SaaS/bucket wiring tracked in [techdebt.md](../../techdebt.md). Archived 2026-06-10.
+
 ## Context
 
 The compose→OKE cutover (and the VM decommission, commit `be98b5e`) left the

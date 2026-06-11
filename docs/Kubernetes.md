@@ -16,7 +16,7 @@ templates translate the compose services one-for-one:
 |---|---|
 | `server` | Deployment + ClusterIP Service (HTTP) + hostPort L4 (QUIC/MPS) |
 | `postgres` | StatefulSet + headless Service + `oci-bv` PVC |
-| `postgres-backup` | CronJob (`pg_dump` → backups PVC) |
+| `postgres-backup` | CronJob (`pg_dump` → OCI Object Storage via a write-only PAR; [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md)) |
 | `caddy` | `Ingress` (ingress-nginx) + cert-manager `ClusterIssuer` |
 | `web-init` + `web-assets` volume | *removed* — the server serves the SPA itself (`-web-dir`) |
 

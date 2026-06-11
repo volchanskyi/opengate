@@ -4,8 +4,11 @@
 nameOverride: ""
 fullnameOverride: ""
 
-# Public hostname for the status page (status.<domain> → uptime-kuma). Matches
-# the app chart's `domain`.
+# Public hostname, matched to the app chart's `domain`. Used to derive Grafana's
+# root URL (GF_SERVER_ROOT_URL). Grafana itself stays internal — reach it via
+# `kubectl port-forward` / the OCI Bastion, never an ingress (same posture as the
+# compose 127.0.0.1:3000 bind). Public uptime monitoring is an external SaaS
+# (ADR-035), so this chart exposes no ingress.
 domain: opengate.example.com
 
 # Secret (created out-of-band) with keys: GF_SECURITY_ADMIN_PASSWORD,
@@ -42,8 +45,9 @@ loki:
 
 grafana:
   image: docker.io/grafana/grafana-oss:11.6.0
-  storage: 2Gi
-  rootUrl: ""    # set to https://<domain>/grafana when fronted by the ingress
+  # No PVC: /var/lib/grafana is an emptyDir (ADR-035). All config is provisioned
+  # from ConfigMaps, so the only state lost on restart is annotations/alert history.
+  rootUrl: ""    # set to https://<domain>/grafana when fronted by an ingress
   # The five dashboard JSONs are NOT duplicated into the chart. Create the
   # ConfigMap from the canonical files at deploy time (see NOTES.txt):
   #   kubectl -n <ns> create configmap <name> \
@@ -90,19 +94,7 @@ postgresExporter:
       cpu: 250m
       memory: 64Mi
 
-uptimeKuma:
-  image: docker.io/louislam/uptime-kuma:1.23.16   # digest/tag pinned (policy denies :latest / bare `1`)
-  storage: 1Gi
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 250m
-      memory: 256Mi
-
-ingress:
-  enabled: true
-  className: nginx
-  tls: true
-  certIssuer: letsencrypt-prod
+# Uptime monitoring is an external SaaS (ADR-035) — UptimeRobot/Better Stack
+# probing https://<domain>/healthz from off-cluster (also catches whole-node
+# outages an in-cluster monitor is blind to). No in-cluster uptime-kuma pod/PVC,
+# and this chart exposes no ingress.

@@ -1,6 +1,7 @@
-{{- if not .Values.server.sharedKeys.enabled }}
-# Skipped when sharedKeys.enabled: keys come from a shared Secret and /data is an
-# emptyDir, so no per-replica RWO PVC is needed (PR-E multi-replica).
+{{- if and (not .Values.server.sharedKeys.enabled) .Values.server.dataVolume.persistent }}
+# Skipped when sharedKeys.enabled (keys come from a shared Secret and /data is an
+# emptyDir — PR-E multi-replica) OR when dataVolume.persistent is false (staging
+# runs /data on an emptyDir to stay under the free-tier block-volume cap, ADR-035).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
