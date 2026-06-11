@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781198834055,
+  "lastUpdate": 1781201311806,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16978,6 +16978,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 20.11272988868546,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d0033a6875da99213adfb5ba4f96feae2b71d716",
+          "message": "ci: harden Docker Hub fallback",
+          "timestamp": "2026-06-11T11:06:33-07:00",
+          "tree_id": "7e55b16ded587d7c10b831db3be6d33a1e84b794",
+          "url": "https://github.com/volchanskyi/opengate/commit/d0033a6875da99213adfb5ba4f96feae2b71d716"
+        },
+        "date": 1781201311676,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.28181955498461,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.45719124978941,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 732.9292502498747,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 310.7853369715393,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.877461241649,
             "unit": "ns/iter"
           }
         ]
