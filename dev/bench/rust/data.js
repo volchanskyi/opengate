@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781106331611,
+  "lastUpdate": 1781145852740,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -16684,6 +16684,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.827572782903072,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "f8ea7f1e45f203e96e469234bdad6b64f6ba8701",
+          "message": "feat(infra): OKE free-tier block-volume remediation (450->200 GB)\n\nCut cluster block storage from 450 GB to the 200 GB OCI Always-Free cap by\nremoving 5 of 8 PVCs (50 GB OCI minimum -> count is the only lever):\n\n- Remove uptime-kuma entirely; uptime moves to an external SaaS. The monitoring\n  chart drops the kuma Deployment/PVC and its status.<domain> ingress and now\n  exposes no ingress (Grafana stays internal via port-forward).\n- Grafana /var/lib/grafana -> emptyDir (all config is provisioned from ConfigMaps,\n  admin pw re-seeds; only annotations/alert-history lost on restart).\n- Staging Postgres + server /data -> emptyDir via new postgres.storage.persistent\n  / server.dataVolume.persistent flags (default true; staging false, production\n  unchanged).\n- Backups -> OCI Object Storage via a write-only PAR (BACKUP_PAR_URL secret).\n  CronJob rewritten: pg_dump init container + curlimages/curl PUT container\n  sharing an emptyDir (the postgres image has no curl); retention via an OS\n  lifecycle policy instead of find -mtime.\n\nFinal tally: prod Postgres + VictoriaMetrics + Loki = 3 block volumes (150 GB)\n+ node boot (50) = 200 GB, exactly at the cap. Verified by rendering every\noverlay under make lint-k8s.\n\nAlso fixes make tunnel (dropped the deleted kuma forward) and 5 stale doc facts;\nthe full Monitoring.md compose->OKE rewrite and the live-cluster reclaim\n(helm upgrade, delete the freed PVCs, SaaS/bucket wiring) are tracked in\ntechdebt. Records ADR-035. Plan cleanup: 3 completed plans archived, the\nabandoned sonarcloud-helm-render-then-scan plan deleted.",
+          "timestamp": "2026-06-10T19:42:30-07:00",
+          "tree_id": "45bac00c937518f7a08edc4a0f9d5ee3d8bd9471",
+          "url": "https://github.com/volchanskyi/opengate/commit/f8ea7f1e45f203e96e469234bdad6b64f6ba8701"
+        },
+        "date": 1781145852609,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.17374981923116,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.236488243729237,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 755.720529876138,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 320.403979839695,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.878592410638245,
             "unit": "ns/iter"
           }
         ]
