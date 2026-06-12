@@ -63,26 +63,26 @@ service principal run it).
    Codify the IAM policy + bucket in terraform if/when the backups infra is folded
    into IaC (the PAR stays a runtime credential, out of git).
 
-### Phase 13b k8s — shared CA/VAPID/signing keys: mechanism shipped, runtime-unverified
+### Scaling readiness (> 20,000 agents) — consolidated into [`docs/Multiscale-Readiness.md`](../docs/Multiscale-Readiness.md)
 
-**Largely paid down by PR-E (ADR-034).** The three per-replica keypairs the server
-keeps under `/data` — enrollment CA (`ca.crt`/`ca.key`), VAPID (`vapid.json`), and
-agent-update signing (`update-signing.json`) — can now be shared across replicas:
-`server.sharedKeys.enabled` switches `/data` to an `emptyDir` and mounts the four
-files read-only via `subPath` from `server.existingSecret` (the server loads keys
-if present, so no code change), flipping the rollout to `RollingUpdate` and
-dropping the per-replica PVC. The mechanism renders + validates under
-`make lint-k8s` (enabled in `ci/test-values.yaml`).
+The scale-out debt — dormant Redis Sentinel HA + its operational surface,
+shared-keys multi-replica runtime proof, the `:9091` internal-listener
+NetworkPolicy, Postgres pool tuning / Redis backups, and the unbuilt QUIC
+fast-reconnect storm defense — is now tracked in one place:
+[`docs/Multiscale-Readiness.md`](../docs/Multiscale-Readiness.md), the single
+source of truth for scaling to the design's Large tier. Production was verified
+**single-node / single-replica / one connected agent on 2026-06-11**, so none of
+this is load-bearing today.
 
-**Residual:** the shared-keys path has only been **lint-validated**, never run on a
-live multi-replica cluster — key loading from the secret mounts, rolling updates
-with shared material, and cross-replica mTLS/push/update-verify are unproven at
-runtime. **Pay-down trigger:** at the multi-replica cutover (same gate as the Redis
-operational-surface and internal-listener-NetworkPolicy items), populate the
-`existingSecret` with the four key files (runbook recipe in
-`secrets.example.yaml`), install KEDA, and verify enrollment + push + update
-verification across replicas. Until then staging/production keep
-`sharedKeys.enabled=false` (single-replica PVC) and autoscaling off.
+*Correction captured by the readiness doc:* the previous shared-keys entry claimed
+production keeps `sharedKeys.enabled=false`; live verification shows production runs
+`sharedKeys.enabled=true` with the `existingSecret` populated (`ca.crt`/`ca.key`/
+`vapid.json`/`update-signing.json` present) — the residual is multi-replica runtime
+proof only, not key population.
+
+**Pay-down trigger:** real demand approaching the Medium→Large boundary. The
+storm-defense prerequisite (client-first QUIC handshake + `0x14` fast path) has its
+own master plan: [`fast-path-reconnect-fix.md`](plans/fast-path-reconnect-fix.md).
 
 ### ADR-024 WebRTC dispatch — 3 residual uncaught mutants in `handler.rs`
 
@@ -94,44 +94,6 @@ verification across replicas. Until then staging/production keep
 - `ControlMessage::IceCandidate` arm — **live-WebRTC-stack**. The peer-present path needs a remote description set (only `handle_offer` does that); without it, both the arm and `_` produce no observable effect.
 
 The two cheaply-killable mutants from the original 7-mutant gap were closed with tests (`switch.rs::handle_ack` body + the `SwitchAck` dispatch arm), and the `session/handlers/webrtc.rs` bodies were added to `agent/.cargo/mutants.toml` `exclude_globs` (same live-stack rationale as the long-standing `webrtc.rs` exclusion — ADR-024 §9 merely relocated that code). These three remain because the `mutants.toml` glob mechanism cannot exclude individual match arms within an otherwise well-covered function. **Pay-down trigger:** revisit when file upload is implemented (closes the equivalent mutant) or when a headless WebRTC offer/answer harness exists (closes the two live-stack arms).
-
-### Phase 13b PR-C — Redis Sentinel operational surface + dormant-untested HA
-
-PR-C C1 (ADR-031) introduces a Redis Sentinel cluster as the backing store for
-the distributed `SessionRegistry`. Two debts ride in with it:
-
-1. **New operational surface.** Redis adds persistence (AOF+RDB), Sentinel quorum
-   health, connection pooling, and backup/restore — none of which the in-process
-   adapter needed. There is no Redis backup CronJob (the Postgres one is the
-   model), no pool-size tuning, and no Redis monitoring/alerting yet.
-2. **Dormant HA is lint-validated but not runtime-tested.** The Sentinel topology
-   in [`deploy/helm/opengate`](../deploy/helm/opengate) is gated `redis.enabled`
-   (default false) and renders clean under `make lint-k8s`, but master rediscovery
-   on pod restart, automatic failover, and replica re-pointing have never run
-   against a live cluster. The adapter's own logic is covered by miniredis unit
-   tests; the gap is the **chart's** runtime behaviour.
-
-**Pay-down trigger:** before flipping any environment overlay to
-`REGISTRY_BACKEND=redis` (the multi-replica cutover, gated behind PR-C's C2
-cross-server proxy + C3 readiness/degraded-mode). At that point: add a real-Redis
-testcontainers integration test (mirrors [`testpg`](../server/internal/testpg/testpg.go)),
-a Redis backup CronJob, Redis monitoring, and a kill-the-master failover drill in
-a staging cluster. Until then the backend stays `inprocess` in every overlay.
-
-### Phase 13b PR-C C2 — internal relay listener has no NetworkPolicy
-
-The cross-server proxy (ADR-033) opens a private listener (`:9091` by default) on
-every server pod for proxied peer connections. It is never fronted by the public
-router or ingress, and carries a required `X-OpenGate-Proxy` loop-guard header
-plus an optional `OPENGATE_PROXY_SECRET`, but there is **no NetworkPolicy**
-restricting who may reach it — on a flat cluster overlay any pod can dial it. The
-shared secret is the only in-band control when enabled.
-
-**Pay-down trigger:** at the multi-replica cutover (same gate as the Redis
-operational-surface item above), add a NetworkPolicy that admits the internal
-port only from sibling server pods (podSelector on the server label), and make
-`OPENGATE_PROXY_SECRET` mandatory rather than optional in production overlays.
-Until then the proxy path is inert (`redis.enabled=false`, owner is always self).
 
 ## Severity: Low
 

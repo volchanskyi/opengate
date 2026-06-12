@@ -1,6 +1,8 @@
 # Shell Quality Hardening and Enforcement
 
-**Status:** Draft for review
+**Status:** Approved — master plan. Decomposed into seven micro-plans (see
+[Micro-Plan Index](#micro-plan-index)); each is independently implementable and
+reviewable.
 
 ## Executive Judgment
 
@@ -601,18 +603,82 @@ and must not introduce a second formatter policy or an unpinned CI dependency.
 - Changed-file validation meets the hook latency target.
 - No production behavior changes merely to reduce the Shell percentage.
 
-## Clarifying Decisions
+## Locked Decisions
 
-1. **Installer compatibility floor:** confirm the oldest supported Linux
-   distribution and Bash version. Recommended default: Bash 4.4-compatible
-   syntax for installer/deploy scripts until evidence supports a newer floor.
-2. **Composite-action scope:** confirm whether all multiline blocks should move
-   in the first hardening phase. Recommended: extract the two largest actions
-   first, then enforce a no-complex-inline-shell threshold.
-3. **Bats policy:** confirm whether Bats should remain opt-in for new suites.
-   Recommended: yes; do not migrate passing tests without a demonstrated
-   reduction in complexity.
-4. **Sequencing:** confirm this work should start after the hook changes in
-   [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md)
-   and before fault-injection CI implementation. Recommended: yes, to avoid
-   formatting conflicts and ensure new orchestration enters under the gate.
+Settled with the maintainer on 2026-06-11. These are inputs to the micro-plans;
+do not re-litigate them inside a micro-plan.
+
+1. **Scope:** Full Option B as written — static gates **plus** strict-mode
+   classification with a machine-enforced policy checker (`check-shell-policy.sh`
+   + exception manifest), composite-action extraction, and the risk-based
+   behavioral-test tier. Options A/C/D are not taken.
+2. **shfmt baseline timing:** land **now, ahead of all other in-progress work**
+   (the six `fast-path-*` plans and
+   [`context-driven-fault-injection.md`](context-driven-fault-injection.md)), so
+   subsequent work enters already-formatted and under the gate. See the two
+   guardrails below for the mechanics this forces.
+3. **Policy checker:** **build it** — the bespoke classifier and exception
+   manifest are in scope (Commit 3 / W3), not deferred to ShellCheck alone.
+4. **Bats:** remains opt-in only; the eleven plain-Bash harnesses are not
+   migrated (Option C stays rejected).
+5. **Installer compatibility floor:** Bash 4.4-compatible syntax for
+   installer/deploy scripts until evidence supports a newer floor.
+
+### Guardrail A — "shfmt now" mechanics
+
+The maintainer chose to land the formatting baseline ahead of the in-progress
+branches. Two repo-specific hazards must be handled, neither of which the
+external analysts noted:
+
+- **The TDD / source-write hooks gate the reformat.** A mass `.sh` reformat is a
+  source edit, so [`pretooluse-bash-source-write-guard.sh`](../hooks/pretooluse-bash-source-write-guard.sh)
+  and [`pretooluse-tdd-gate.sh`](../hooks/pretooluse-tdd-gate.sh) require a test
+  change to already exist on the branch. W1 lands its tests first; because the
+  TDD gate goes silent for the rest of the branch once any test change exists,
+  W2–W7 inherit a satisfied gate. The W2 baseline must therefore land **after**
+  W1 on the same `dev` line.
+- **shfmt is not wired into the commit gauntlet until W4.** W1 adds `make
+  shell-check` with ShellCheck enforcement only; the shfmt **diff** check is not
+  added to [`precommit-gauntlet.sh`](../scripts/precommit-gauntlet.sh) until W4,
+  which lands *after* the W2 baseline. This prevents the ~1,370-line pre-baseline
+  diff from blocking W1's own commit.
+- **Active-branch rebase:** the W2 baseline lands as a single atomic
+  formatting-only commit on `dev` so the six fast-path branches each rebase over
+  one stable, formatting-only target.
+
+### Guardrail B — behavioral tests must not become false greens
+
+Full Option B includes W6's command-stub tests for `install.sh`,
+`bastion-session.sh`, and the deploy scripts. These are held to the same bar as
+the [test-determinism rule](../rules/tests-determinism.md): a stub must let the
+script exercise **real** branching, cleanup, and idempotency logic — assert
+observable side-effects (files created/removed, exit codes, redaction) and exit
+paths, never merely "the stub was invoked." Any script where a meaningful
+offline test is impossible without live infra is flagged in the micro-plan for a
+real dependency seam, **not** given a fake-green stub test.
+
+## Micro-Plan Index
+
+Seven self-contained micro-plans, one per ordered commit. Each carries its own
+file inventory, steps, and reviewer checklist. They land in order on `dev`.
+
+| # | Micro-plan | Commit theme |
+|---|---|---|
+| W1 | [`shell-quality-w1-tooling-and-policy-tests.md`](shell-quality-w1-tooling-and-policy-tests.md) | Pinned provisioner, ShellCheck/shfmt config, `shell-quality.sh` runner, Make targets, failing policy tests, SC1091 baseline cleanup |
+| W2 | [`shell-quality-w2-shfmt-baseline.md`](shell-quality-w2-shfmt-baseline.md) | Isolated formatting-only reformat of every tracked `.sh` |
+| W3 | [`shell-quality-w3-strict-mode-classifier.md`](shell-quality-w3-strict-mode-classifier.md) | `check-shell-policy.sh` + exception manifest; de-leak the two sourced libs |
+| W4 | [`shell-quality-w4-universal-enforcement.md`](shell-quality-w4-universal-enforcement.md) | Wire `shell-check` into the gauntlet + CI; actionlint→pinned ShellCheck; changed-file fast path |
+| W5 | [`shell-quality-w5-composite-action-extraction.md`](shell-quality-w5-composite-action-extraction.md) | Extract `verify-oci-tfstate-creds` (and the next-largest) inline shell into gated `.sh` + stub tests |
+| W6 | [`shell-quality-w6-critical-behavioral-tests.md`](shell-quality-w6-critical-behavioral-tests.md) | Offline command-stub tests for installer, bastion, deploy/rollback/smoke, Loki transports |
+| W7 | [`shell-quality-w7-docs-and-migration-heuristic.md`](shell-quality-w7-docs-and-migration-heuristic.md) | `/docs` canonical commands + strict-mode classes; Bash-vs-Go migration heuristic; archive |
+
+## Sequencing Notes
+
+- This effort precedes resuming the `fast-path-*` work and
+  [`context-driven-fault-injection.md`](context-driven-fault-injection.md).
+- If
+  [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md)
+  still has unlanded hook edits, land those before W2 so the formatting baseline
+  does not collide with hook changes; otherwise W2's reformat would re-touch
+  hook files mid-flight. Coordinate, do not silently reformat over pending hook
+  work.

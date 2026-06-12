@@ -23,6 +23,7 @@ Developer documentation for the OpenGate remote device management platform.
 | [Infrastructure](./Infrastructure.md) | Terraform IaC, Docker Compose, Caddy, firewall, secrets management |
 | [Kubernetes](./Kubernetes.md) | OKE cluster, Helm chart, ingress-nginx + cert-manager, chart validation |
 | [Kubernetes Migration](./Kubernetes-Migration.md) | One-time compose → OKE cutover runbook (pg_dump restore, DNS, monitoring) |
+| [Multiscale Readiness](./Multiscale-Readiness.md) | Scaling to >20k agents — verified current state, readiness inventory, and the architecture the Large-tier cutover entails |
 | [Agent Updates](./Agent-Updates.md) | OTA update system — Ed25519 signing, rollback, GitHub Release sync |
 | [Security and Dependencies](./Security-and-Dependencies.md) | CodeQL, vulnerability scanning, Dependabot, key dependencies |
 | [Architecture Decision Records](./Architecture-Decision-Records.md) | Frozen historical ADR log (ADR-001 … ADR-012); new ADRs live as immutable per-file records in [`adr/`](./adr/) |

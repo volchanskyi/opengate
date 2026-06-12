@@ -62,26 +62,36 @@ back and edit this sentence?" If yes, replace the sentence with a link.
 When you must state a number inline (e.g. in a summary table), place it
 adjacent to the link so a reader can one-click verify it.
 
-### 2. ADRs are immutable
+### 2. Per-file ADRs are mutable; supersede only for decision *changes*
 
-An Architecture Decision Record documents a decision made at a point in time.
-**Once accepted, ADRs are not edited in place.** If the decision changes:
+An Architecture Decision Record documents a decision. Per-file ADRs in
+[`adr/`](./adr/) (ADR-013 onward) are **mutable** — edit them in place to keep
+them accurate against current state: fix a rotted link, correct a moved path,
+strip chronological noise from the body. git history (`git log --follow` per
+file) is the audit trail.
 
-1. Create a new ADR with the next available number.
-2. Set its status to `Accepted` and the old one to `Superseded by ADR-NNN`.
-3. Explain what changed and why.
+Supersession is still used for genuine **decision changes** (a reversal or
+replacement, not a correction): create a new ADR with the next number, set its
+`supersedes:` frontmatter, and update the prior ADR's `status:`. The lineage
+stays explicit so a reader asking "why was it X, and what changed?" can trace
+`ADR-014 → supersedes ADR-003`. Mutability keeps an ADR *true*; supersession
+records what *changed*.
 
-This keeps the historical record honest: a reader asking "why is this 80%?"
-can trace `ADR-013 Raise coverage threshold to 80% → supersedes ADR-012` and
-understand the reasoning, instead of seeing a silently-edited ADR-012 that
-pretends the threshold was always 80%.
+ADR bodies follow the same current-state doctrine as the rest of the docs:
+purge chronological/logistical noise, but **rewrite to preserve the fact and the
+why — never delete substantive rationale**, and keep the
+`date:`/`status:`/`supersedes:` frontmatter. An ADR may link a plan only under
+`plans/archive/…` (active plans rot); fold other pointers inline or into the
+[`index`](../.claude/decisions.md).
 
-New ADRs live as individual files in [`adr/`](./adr/) using the
-`ADR-NNN-kebab-title.md` naming convention. The combined
-[`Architecture-Decision-Records.md`](./Architecture-Decision-Records.md) is
-the historical log from before this policy and is frozen — do not append to
-it. The compact [`index`](../.claude/decisions.md) is updated for every new
-ADR.
+New ADRs live as individual files using the `ADR-NNN-kebab-title.md` naming
+convention. The combined
+[`Architecture-Decision-Records.md`](./Architecture-Decision-Records.md) is the
+historical log from before the per-file regime and stays **frozen** — never
+edited or appended to; mutability does not reach it. The compact
+[`index`](../.claude/decisions.md) is updated for every new ADR. See
+[`adr/ADR-036`](./adr/ADR-036-mutable-adrs-current-state-doctrine.md) for the
+full doctrine.
 
 ### 3. No paraphrased ADR bodies
 
@@ -111,7 +121,7 @@ docs/
 ├── Agent-Updates.md                    OTA update pipeline
 ├── Security-and-Dependencies.md        Vulnerability scanning, Dependabot
 ├── Architecture-Decision-Records.md    Frozen historical ADR log (ADR-001 … ADR-012)
-├── adr/                                Per-file immutable ADRs (ADR-013+)
+├── adr/                                Per-file mutable ADRs (ADR-013+)
 │   └── ADR-NNN-title.md
 └── api/                                Generated Scalar OpenAPI reference
     └── index.html

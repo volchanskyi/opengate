@@ -4,10 +4,10 @@
 **Date:** 2026-06-05
 **Extends:** [ADR-030](ADR-030-kubernetes-adoption-oke-helm.md) (the OKE/Helm
 substrate and the single-replica server Deployment) and
-[ADR-031](ADR-031-redis-sentinel-session-registry.md) /
-[ADR-033](ADR-033-cross-server-relay-proxy-pod-ip.md) (the distributed registry +
-cross-server proxy that make >1 replica *functionally* correct). This ADR records
-the Phase 13b PR-E scale-out decisions. Nothing in those ADRs is changed.
+[ADR-023](ADR-023-relay-extraction-redis-session-registry.md) Amendments 1–2
+(the distributed Redis registry + cross-server proxy that make >1 replica
+*functionally* correct). This ADR records the Phase 13b PR-E scale-out decisions.
+Nothing in those ADRs is changed.
 
 ## Context
 
@@ -73,5 +73,5 @@ Runtime behaviour is verified at cutover, consistent with ADR-030/031/033.
 - New cutover prerequisites: the KEDA operator must be installed, and the
   `existingSecret` must carry the four key files. Both are documented in the
   migration runbook.
-- The internal-listener NetworkPolicy gap (ADR-033 techdebt) is unchanged and
-  remains gated on the same cutover.
+- The internal-listener NetworkPolicy gap (ADR-023 Amendment 2 techdebt) is
+  unchanged and remains gated on the same cutover.

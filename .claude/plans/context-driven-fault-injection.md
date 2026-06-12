@@ -1,255 +1,151 @@
 # Context-Driven Fault Injection and Kubernetes Resilience Testing
 
-**Status:** Draft for review
+**Type:** Master plan. **Plan-only** — to be broken into micro-plans (FI1–FI6)
+per the master→micro-plan flow.
+**Status:** **Blocked on teardown.** Do **not** break into micro-plans yet.
+[`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) must complete
+first, then this plan is **re-evaluated against the post-teardown tree** — the
+fault-point inventory (§6), scenario catalog (§7), and file/path references all
+depend on the deleted packages, the slimmed `SessionRegistry` port, and the
+final relay shape. Treat everything below as the pre-re-evaluation draft.
 
-## Problem
+## 0. Decisions that shaped this plan
 
-OpenGate needs repeatable integration and fault-tolerance tests at two distinct
-boundaries:
+Settled with the user before drafting (do not re-litigate without the user):
 
-1. **Application boundaries** — HTTP requests enter the API and cross
-   hexagonal ports into repositories, relay coordination, notifications, AMT,
-   and agent connections.
-2. **Infrastructure boundaries** — traffic crosses ingress-nginx, Services,
-   pods, Redis/Sentinel, rollouts, and worker nodes.
+1. **Teardown first.** This plan is **sequenced after**
+   [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md). The
+   multi-replica machinery (Redis/Sentinel registry, cross-server proxy, KEDA,
+   PDB, multi-node L4) is being **deleted** as free-tier YAGNI. Therefore every
+   scenario that only existed to chaos-test that machinery is **out of scope
+   here** — you cannot test code that is being removed. This plan describes the
+   **post-teardown** topology: one node, one server replica, in-process
+   registry, local relay pairing, PostgreSQL.
+2. **Full compiled-in injector.** The application-level mechanism is a typed,
+   context-driven injector compiled into the server and gated off by default
+   (Option B), **not** only adapter-substitution inside Go tests. Rationale:
+   it exercises the **real wired composition** + ingress + pod path black-box,
+   reaches faults unit tests can't (panic recovery in the live process,
+   WebSocket/relay mid-stream drop), and is the centerpiece of the
+   capability-demonstration goal. Adapter-substitution integration tests remain
+   the cheaper workhorse for pure port-error mapping and run in `make test`.
+3. **Dual driver — reliability *and* capability demonstration.** Scenarios are
+   chosen for the **actual live single-node failure modes** (reconnect storms,
+   panic recovery, repository timeout, pod-kill recovery, bad-rollout rollback),
+   **and** the methodology is built to be clean, documented, deterministic, and
+   evidence-producing (a portfolio-grade resilience-engineering harness).
+
+## 1. Problem
+
+Post-teardown, OpenGate needs repeatable integration and fault-tolerance tests at
+two boundaries:
+
+1. **Application boundaries** — HTTP/WebSocket requests cross hexagonal ports
+   into repositories, **local** relay pairing, notifications, AMT, and agent
+   connections.
+2. **Infrastructure boundaries** — traffic crosses ingress-nginx, the Service,
+   the single server pod, and rollouts.
 
 The mechanism must be enabled and configured only by CI/CD, remain inert in
 normal deployments, produce deterministic evidence, and fit the OCI Always Free
-budget where possible.
+budget.
 
-## Expected Output
+## 2. Goals & non-goals
 
-- A typed, context-driven application fault-injection layer compiled into the
-  existing Go server.
-- Staging-only Helm controls for enabling named fault profiles.
-- Declarative ingress, Kubernetes, Redis, and network-chaos scenarios.
-- A CI workflow that applies one fault, runs assertions, always cleans up, and
-  proves recovery.
-- Metrics, logs, Kubernetes events, and test results that distinguish expected
-  injected failures from product regressions.
-- No persistent chaos infrastructure, additional public endpoint, or manual
-  cluster mutation.
+**Goals.** (a) Prove the **live** failure modes recover within declared SLOs:
+slow/erroring dependency, handler panic, hung dependency, pod loss, bad rollout,
+agent reconnect after a relay/WS drop. (b) Produce a **clean, documented,
+repeatable** harness whose every run yields metrics + logs + k8s events tagged
+with a scenario ID. (c) Zero overhead and zero attack surface when disabled.
 
-## Scope
+**Non-goals.** Production fault injection; an unauthenticated/user-facing chaos
+API; a literal unbounded deadlock that can leak the process; permanent
+privileged chaos workloads; a second ingress controller or billable Load
+Balancer; multi-replica / Redis / cross-server scenarios (**that code no longer
+exists after teardown**); a single-node "node outage" that deliberately takes
+production down.
 
-### Included
+## 3. Scope
 
-- HTTP latency, selected HTTP errors, request timeout, bounded blocking, and
-  panic recovery.
-- Port-level faults around current module interfaces.
-- WebSocket handshake and relay-path interruption.
-- Pod deletion, readiness loss, failed rollout, Redis failover, and Redis
-  network partition.
-- Packet delay, loss, corruption, bandwidth restriction, and partition inside
-  the staging namespace.
-- A budgeted path for genuine worker-node failure.
+### In scope
+- **App-level (Option B):** HTTP latency, selected HTTP errors, request timeout,
+  bounded blocking, panic recovery, and a selected relay/agent connection close.
+- **Port-level faults** at the post-teardown module boundaries (see §6).
+- **WebSocket handshake** failure and **relay-path** interruption (local pairing).
+- **Edge (Option A):** ingress 502/504/timeout via reviewed, version-controlled,
+  staging-only annotation templates.
+- **Kubernetes (Option C, reduced):** single-pod deletion (C1) and bad-rollout +
+  Helm rollback (C2, single-replica `Recreate`).
 
-### Excluded
+### Out of scope (was in the pre-teardown draft; removed by Decision 1)
+- Redis/Sentinel multiserver, Redis master deletion, Redis partition (**deleted**).
+- Cross-server proxy partition; the `relay.peer-dial` fault point (**deleted**).
+- The multi-replica "overlap/capacity" rollout case (single replica only).
+- The Redis `emptyDir` staging storage mode (no Redis to host).
 
-- Production fault injection.
-- An unauthenticated or user-facing chaos API.
-- A literal unbounded deadlock that can leak the server process.
-- Permanent privileged chaos workloads.
-- A second ingress controller or second Flexible Load Balancer.
-- A single-node "node outage" exercise that deliberately takes production down.
+### Deferred (documented, not built now)
+- **Chaos Mesh network faults (D1)** — packet delay/loss/corruption on the single
+  server pod's QUIC/MPS path. Real value for storm/lossy-network testing, but a
+  privileged CRI-O daemon for one pod is disproportionate today. Kept as an
+  on-demand extension behind an explicit manual profile; **not** in the core
+  suite. Pod-to-pod *partition* is permanently irrelevant (one pod).
+- **Genuine worker-node outage (C4)** — needs ≥2 workers; the free tier's 200 GB
+  block cap and shared single worker physically forbid it (readiness §3). Run
+  only in a funded/ephemeral isolated cluster.
 
-## Architectural Constraints
+## 4. Architectural constraints (verified)
 
-- The server uses chi middleware and keeps WebSocket routes outside the normal
-  request timeout wrapper; see [`api.go`](../../server/internal/api/api.go) and
-  [`middleware.go`](../../server/internal/api/middleware.go).
-- Module dependencies are already expressed as ports in `ServerConfig`; fault
-  behavior should wrap those ports rather than enter domain logic.
+- chi middleware stack confirmed at
+  [`api.go:233-270`](../../server/internal/api/api.go#L233-L270): `Recoverer` at
+  the top; `RequestTimeout(30s)` + `RateLimiter` apply **only** inside the API
+  group. WebSocket routes sit **outside** `RequestTimeout`
+  ([`middleware.go:17-24`](../../server/internal/api/middleware.go#L17-L24),
+  which documents that `http.TimeoutHandler` is not a `Hijacker`). The injector
+  slots in **after** `RequestTimeout` in the API group, with a **separate**
+  selector at the WebSocket route.
+- Module dependencies are ports in `ServerConfig`; fault behavior **wraps ports**
+  at the composition root — domain packages stay unaware of fault injection.
 - Staging deploys through the OKE job in
-  [`cd.yml`](../../.github/workflows/cd.yml).
-- Staging server and Postgres storage are ephemeral in
+  [`cd.yml`](../../.github/workflows/cd.yml); staging server + Postgres are
+  ephemeral in
   [`values-staging.yaml`](../../deploy/helm/opengate/values-staging.yaml).
-- Production and staging share one worker and the production server currently
-  binds the QUIC and MPS host ports.
-- The Redis chart is dormant but already models three Redis nodes and three
-  Sentinels in [`values.yaml`](../../deploy/helm/opengate/values.yaml).
-- The cluster runs CRI-O, so any Chaos Mesh daemon must use the CRI-O runtime
-  and socket rather than the chart's Docker default.
-- All source changes follow the repository's TDD and deterministic-test rules.
+- Production and staging share **one** worker; the production server binds the
+  QUIC and MPS host ports — so infra faults must target only the **staging**
+  namespace and never the shared node.
+- Server Deployment is `Recreate` single-replica post-teardown — C2 tests
+  rollback of a bad revision, not surge behavior.
+- All source changes follow the repo TDD + deterministic-test rules.
 
-## Quality Metrics
+## 5. Mechanism — Option B injector (primary)
 
-| Concern | Required result |
-|---|---|
-| Disabled overhead | No goroutines or timers created; middleware adds only a disabled-state branch |
-| Determinism | Every scenario has a named profile, bounded duration, fixed assertion, and cleanup |
-| Isolation | Fault selection is limited to the staging namespace and explicitly selected requests or pods |
-| Security | No public chaos endpoint; no secret values logged; least-privilege CI and controller RBAC |
-| Recovery | Baseline health and the affected operation pass after cleanup |
-| Observability | Scenario ID appears in application logs, metrics, and CI output |
-| Runtime | Smoke profile fits the staging deployment gate; deeper profiles run scheduled or manually |
-| Cost | Default implementation remains inside Always Free allocations |
-| Maintainability | Fault points and profiles are enumerated and schema-validated rather than assembled as arbitrary shell |
+Compiled into the server, **inert** unless Helm sets an explicit staging-only
+enable flag. Request flow:
 
-## Verified OCI Budget Baseline
-
-Live inspection established:
-
-- One `VM.Standard.A1.Flex` worker using 2 OCPUs and 12 GB RAM.
-- The Always Free compute allowance leaves 2 OCPUs and 12 GB RAM unallocated.
-- Kubernetes requests consume 1,180m of the node's 1,830m allocatable CPU,
-  leaving 650m request headroom.
-- The node currently has substantial memory headroom.
-- One 50 GB boot volume plus three 50 GB block volumes consume the complete
-  200 GB Always Free block-storage allowance.
-- The existing ingress uses the tenancy's one free 10 Mbps Flexible Load
-  Balancer.
-- The separate Always Free Network Load Balancer entitlement is unused.
-- The node root filesystem has limited free space, so every new `emptyDir` must
-  have a `sizeLimit` and an ephemeral-storage request/limit.
-
-Re-run the following before enabling an infrastructure profile because these
-values can change:
-
-```bash
-kubectl describe node "$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
-kubectl get pvc,pv -A
-kubectl get svc -A
-oci search resource structured-search --query-text 'query instance resources where lifecycleState != "TERMINATED"'
-oci search resource structured-search --query-text 'query loadbalancer resources'
-oci search resource structured-search --query-text 'query networkloadbalancer resources'
-```
-
-Oracle documents the relevant allowances in
-[Always Free Resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm):
-4 A1 OCPUs, 24 GB memory, 200 GB combined boot/block storage, one 10 Mbps
-Flexible Load Balancer, and one Network Load Balancer. OKE Basic Cluster
-control planes are free according to the
-[OCI price list](https://www.oracle.com/cloud/price-list/#container-engine-kubernetes).
-
-## Option A — Existing ingress-nginx and OCI Load Balancer
-
-### Design
-
-Reuse the existing ingress controller, ingress class, and Flexible Load
-Balancer. CI temporarily applies a staging-only ingress fault profile, executes
-black-box requests through the public staging hostname, then restores the
-baseline manifest.
-
-Possible HTTP-layer controls include:
-
-- proxy connect, send, and read timeouts;
-- connection and request-rate limits;
-- custom error interception;
-- a staging-only configuration snippet that returns a selected HTTP status;
-- interaction with Option B, where ingress times out while the application
-  deliberately delays the selected request.
-
-The supported annotation set is documented by
-[ingress-nginx](https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/).
-
-### Budget
-
-- Additional CPU/memory request: none.
-- Additional storage: none.
-- Additional Load Balancer: none.
-- Always Free result: **fits**.
-
-### Strengths
-
-- Exercises the real public edge, TLS termination, ingress routing, Service,
-  and server path.
-- Produces black-box behavior visible to Playwright, curl, and external probes.
-- Requires no permanent workload.
-- Can deterministically produce edge-facing timeout and error behavior when
-  paired with a controlled slow backend.
-
-### Limitations
-
-- Standard ingress annotations do not implement arbitrary packet loss,
-  corruption, or network partition.
-- A timeout annotation only changes timeout policy; it does not make a healthy
-  upstream slow by itself.
-- Snippet annotations are classified as high or critical risk. The live
-  controller currently permits them, but the plan must not expand that
-  privilege or expose arbitrary snippet content to workflow inputs.
-- Ingress cannot inject faults after a WebSocket upgrade with request-level
-  precision.
-
-### Security Posture
-
-- Store approved snippets as version-controlled templates; never interpolate
-  arbitrary workflow input into NGINX directives.
-- Restrict the fault ingress to the staging host and namespace.
-- Capture and restore the original annotations in an `always()` cleanup step.
-- Add a policy test that rejects fault annotations on production Ingress
-  objects.
-
-### Decision
-
-**Adopt for HTTP-edge scenarios only.** Do not present it as a substitute for
-real network chaos.
-
-### Rejected Variant
-
-A separate chaos ingress controller or `LoadBalancer` Service is rejected. It
-duplicates the edge, risks consuming a billable Load Balancer, and does not
-increase fault fidelity enough to justify the operational surface. The unused
-free NLB should remain available for future multi-node QUIC/MPS exposure.
-
-## Option B — Context-Driven Go Fault Injection
-
-### Design
-
-Compile the injector into the existing server and keep it inert unless Helm
-sets an explicit staging-only enable flag.
-
-The request flow is:
-
-1. Middleware validates whether fault injection is enabled.
-2. A selected request supplies a named profile and scenario ID using controlled
-   headers.
-3. Middleware resolves the profile from startup configuration and stores a
-   typed immutable specification in `context.Context`.
-4. Port decorators inspect the context at named boundaries and execute the
+1. Middleware checks whether injection is enabled (fail-closed otherwise).
+2. A selected request supplies a **named profile + scenario ID** via controlled
+   headers and an auth token — never arbitrary duration/status/module names.
+3. Middleware resolves the profile from startup config and stores a **typed,
+   immutable** spec in `context.Context`.
+4. **Port decorators** inspect the context at named boundaries and execute the
    configured action.
-5. Metrics and structured logs record the scenario, fault point, action, and
-   result.
+5. Metrics + structured logs record scenario, fault point, action, result.
 
-The context carries only a profile reference. Arbitrary duration, status, or
-module names are not accepted from the request.
+### Supported actions
+- **Delay** — context-aware timer, exits immediately on cancellation.
+- **Timeout** — wait for context expiry or return a timeout-class error.
+- **Error** — typed boundary error, or a configured HTTP status at the API point.
+- **Panic** — at a bounded point, to verify `middleware.Recoverer` + telemetry +
+  process survival.
+- **Blocked dependency** — wait on context cancellation (emulates a hung module);
+  replaces the excluded literal deadlock.
+- **Connection close** — close a selected relay/agent connection through its
+  adapter to exercise reconnect.
 
-### Fault Points
+### Fail-closed when
+- enabled outside the staging namespace/environment;
+- profile unknown; auth token absent/invalid; fault point not allowed by profile.
 
-Initial points should cover high-value boundaries without scattering checks
-through business logic:
-
-- `api.before-handler`
-- `session.repository`
-- `device.repository`
-- `relay.registry`
-- `relay.peer-dial`
-- `notifications.dispatch`
-- `amt.operator`
-- `agent.control-write`
-- `websocket.before-upgrade`
-
-Decorators implement the existing port interfaces and are wired at the
-composition root. Domain packages remain unaware of fault injection.
-
-### Supported Actions
-
-- **Delay:** context-aware timer that exits immediately on cancellation.
-- **Timeout:** wait until the request context expires or return a timeout-class
-  error expected by the selected boundary.
-- **Error:** return a typed boundary error or a configured HTTP status at the
-  API point.
-- **Panic:** panic at a bounded point to verify `middleware.Recoverer`,
-  telemetry, and process survival.
-- **Blocked dependency:** wait on context cancellation to emulate a hung module.
-  This replaces a literal deadlock, which is intentionally excluded.
-- **Connection close:** close a selected relay or agent connection through its
-  adapter to exercise reconnect behavior.
-
-### Enablement
-
-Proposed Helm values:
-
+### Helm enablement
 ```yaml
 faultInjection:
   enabled: false
@@ -258,464 +154,156 @@ faultInjection:
   profiles: {}
 ```
 
-The server must fail closed when:
-
-- enabled outside the staging namespace/environment;
-- the profile is unknown;
-- the authentication token is absent or invalid;
-- the requested fault point is not allowed by that profile.
-
-### Budget
-
-- Additional reserved infrastructure: none.
-- Transient cost: delayed requests retain their goroutine and connection until
-  the bounded context finishes.
-- Always Free result: **fits**.
-
-### Strengths
-
-- Best match for the existing hexagonal architecture.
-- Deterministic and request-scoped.
-- Can target internal modules that ingress and pod-level tools cannot see.
-- Fully testable without Kubernetes.
-- Zero operational dependency when disabled.
-
-### Limitations
-
-- Does not reproduce kernel-level packet behavior.
-- HTTP middleware affects WebSocket setup but not the entire upgraded stream;
-  relay adapters need explicit fault points.
-- Poorly bounded delays could exhaust connections, so every profile needs a
-  maximum duration and concurrency cap.
-- Panics test recovery but should not be used where a goroutine has no recovery
-  boundary.
-
-### Decision
-
-**Adopt as the primary control plane for application-level scenarios.**
-
-## Option C — Kubernetes-Native Failure Scenarios
-
-Option C contains several materially different scenarios and budget outcomes.
-
-### C1 — Pod Deletion
-
-Delete only the selected staging server pod and assert:
-
-- Kubernetes recreates it;
-- liveness and readiness recover;
-- the public health endpoint recovers inside the SLO;
-- expected clients reconnect;
-- no production object changes.
-
-There is no steady-state resource cost.
-
-**Decision:** adopt.
-
-### C2 — Failed or Atomic Rollout
-
-The current server Deployment uses `Recreate` unless shared keys and non-hostPort
-L4 are enabled; see
-[`server-deployment.yaml`](../../deploy/helm/opengate/templates/server-deployment.yaml).
-Therefore a normal staging rollout does not create a surge replica.
-
-Test two explicit cases:
-
-1. **Bad image/readiness:** apply an invalid image or readiness behavior, assert
-   rollout failure, invoke Helm rollback, and prove the previous revision is
-   healthy.
-2. **Overlap/capacity path:** render a dedicated test configuration that permits
-   a second staging server and requests the same resources defined in
-   [`values-staging.yaml`](../../deploy/helm/opengate/values-staging.yaml).
-
-The temporary second server requests 50m CPU and 96Mi memory.
-
-**Budget:** fits Always Free.
-
-**Decision:** adopt, but describe it as an explicit test topology rather than
-the behavior of the current `Recreate` rollout.
-
-### C3 — Redis/Sentinel Multiserver
-
-Enable two staging server replicas, Redis, and Sentinel to test:
-
-- server affinity and peer proxying;
-- Redis master deletion and Sentinel promotion;
-- readiness drain while the registry is unavailable;
-- degraded-mode recovery;
-- session continuity and bounded failure.
-
-The application already has local multiserver coverage through
-[`e2e-multiserver.yml`](../../.github/workflows/e2e-multiserver.yml). The OKE
-scenario extends that coverage to real scheduling, Services, readiness, and
-Sentinel behavior.
-
-#### Compute Budget
-
-- Three Redis pods: 150m CPU / 192Mi.
-- Three Sentinel pods: 75m CPU / 96Mi.
-- Redis/Sentinel total: 225m CPU / 288Mi.
-- Temporary second staging server: 50m CPU / 96Mi.
-- Full C3 addition: 275m CPU / 384Mi.
-
-This fits the available node request headroom.
-
-#### Storage Blocker
-
-[`redis-statefulset.yaml`](../../deploy/helm/opengate/templates/redis-statefulset.yaml)
-always emits three PVCs. OCI rounds each requested volume up to its minimum,
-which would consume another 150 GB while the tenancy already uses the full
-Always Free storage allowance.
-
-Add a staging-only storage mode:
-
-```yaml
-redis:
-  data:
-    persistent: false
-    sizeLimit: 1Gi
-```
-
-When persistence is false:
-
-- render one bounded `emptyDir` per Redis pod;
-- set ephemeral-storage requests and limits;
-- keep production persistence behavior unchanged;
-- document that Redis data loss is expected and useful in this test topology.
-
-**Decision:** adopt only after the `emptyDir` mode exists.
-
-### C4 — Genuine Worker-Node Outage
-
-A valid node-outage test needs at least two workers so workloads can move and
-the test can distinguish failover from total cluster loss.
-
-A second worker matching the existing worker consumes:
-
-- 2 additional A1 OCPUs;
-- 12 GB additional memory;
-- a 50 GB boot volume.
-
-The compute allocation exactly reaches the Always Free 4 OCPU / 24 GB ceiling,
-but storage reaches 250 GB and exceeds the 200 GB allowance.
-
-Testing by stopping the only current worker is rejected because production and
-staging share that worker and no in-cluster recovery path remains.
-
-**Decision:** defer from the free default. Run only in an isolated temporary
-environment after one of these gates is satisfied:
-
-- free at least 50 GB of OCI boot/block storage;
-- accept paid block storage for the test window;
-- use a separate funded tenancy or ephemeral external cluster.
-
-## Option D — Chaos Mesh
-
-### D1 — Slim Installation
-
-Install:
-
-- one controller manager;
-- one chaos daemon on the single worker;
-- no dashboard;
-- no DNS server;
-- no bundled Prometheus;
-- no persistence.
-
-Use namespace-scoped targeting for `opengate-staging`, a CRI-O runtime/socket,
-and a fixed allowlist of Chaos CRDs rendered from the repository.
-
-The current
-[Chaos Mesh chart defaults](https://raw.githubusercontent.com/chaos-mesh/chaos-mesh/master/helm/chaos-mesh/values.yaml)
-request 25m CPU / 256Mi for each controller and the light daemon profile
-requests 100m CPU / 256Mi.
-
-#### Budget
-
-- 125m CPU / 512Mi memory.
-- No storage when persistence is disabled.
-- No Load Balancer when the dashboard is disabled.
-- Always Free result: **fits**.
-
-#### Capabilities
-
-Use Chaos Mesh only where it adds kernel/network fidelity:
-
-- delay and jitter;
-- packet loss;
-- corruption and duplication;
-- bandwidth restriction;
-- partition between selected staging pods;
-- process or pod fault where Kubernetes-native deletion is insufficient.
-
-Chaos Mesh documents these actions in
-[NetworkChaos](https://chaos-mesh.org/docs/simulate-network-chaos-on-kubernetes/).
-
-#### Security
-
-- The daemon is privileged and receives host networking capabilities; install it
-  only for the scenario window.
-- Pin the chart and image versions.
-- Verify the CRI-O socket path before installation.
-- Limit controller scope and selectors to the staging namespace.
-- Reject external targets and host-network targets.
-- Delete CRDs and privileged workloads in `always()` cleanup.
-
-**Decision:** adopt for scheduled/manual high-fidelity network scenarios.
-
-### D2 — Default Installation
-
-The default chart creates three controllers, one daemon per node, dashboard,
-and DNS server. On the current one-node cluster this requests approximately:
-
-- 300m CPU;
-- 1.3 GB memory.
-
-Dashboard persistence is disabled by default and bundled Prometheus is disabled,
-so storage can remain zero.
-
-#### Strengths
-
-- Full UI and DNSChaos feature set.
-- Controller redundancy.
-
-#### Weaknesses
-
-- Redundant controller replicas on one worker do not provide node-level
-  availability.
-- Dashboard and DNS expand the attack surface without serving the selected
-  scenarios.
-- Combined with C3, only about 75m of CPU request headroom remains.
-
-**Decision:** reject for this cluster.
-
-## Comparative Decision Matrix
-
-| Option | Layer | Fidelity | Added request | Storage/LB | Always Free | Decision |
-|---|---|---|---:|---|---|---|
-| A | Public HTTP edge | HTTP errors, throttling, timeout policy | 0 | Reuses LB | Yes | Adopt narrowly |
-| B | API and module ports | Deterministic internal delay/error/panic/block | 0 reserved | None | Yes | Primary mechanism |
-| C1 | Kubernetes pod | Real pod loss/restart | 0 steady | None | Yes | Adopt |
-| C2 | Kubernetes rollout | Real rollout failure and rollback | 50m / 96Mi transient | None | Yes | Adopt |
-| C3 | Multiserver/Redis | Real Sentinel, readiness, peer routing | 275m / 384Mi | Needs bounded `emptyDir` | Yes after fix | Adopt conditionally |
-| C4 | Worker node | Real node failure/rescheduling | 2 OCPU / 12 GB | Adds 50 GB boot | No | Isolated paid test |
-| D1 | Pod network/kernel | Real delay/loss/partition/corruption | 125m / 512Mi | None | Yes | Adopt on demand |
-| D2 | Full Chaos Mesh | D1 plus dashboard/DNS/redundancy | 300m / ~1.3Gi | None if ephemeral | Yes but tight | Reject |
-
-## Recommended Composite
-
-No single option covers the required fault model. Use:
-
-1. **Option B** as the request-scoped selector and application-boundary
-   injector.
-2. **Option A** for black-box ingress behavior and edge timeout/error
-   assertions.
-3. **Option C1/C2** for routine Kubernetes recovery tests.
-4. **Option C3** after Redis receives a staging `emptyDir` mode.
-5. **Option D1** for packet-level faults that A and B cannot reproduce.
-6. **Option C4** only in an isolated environment with an explicit storage
-   budget.
-
-The maximum recommended in-cluster addition is C3 plus D1:
-
-- 400m CPU requests;
-- 896Mi memory requests;
-- about 250m CPU request headroom remaining.
-
-Do not combine C3 with the default D2 topology; it leaves insufficient CPU
-request margin for comfortable scheduling and system workload variance.
-
-## Scenario Catalog
+## 6. Fault points (post-teardown)
+
+High-value boundaries that survive teardown, wired as port decorators at the
+composition root:
+
+- `api.before-handler`
+- `session.repository`
+- `device.repository`
+- `relay.registry` (now the **slimmed single-server** `InProcessRegistry`)
+- `relay.session-drop` (close a live local-pairing relay connection)
+- `notifications.dispatch`
+- `amt.operator`
+- `agent.control-write`
+- `websocket.before-upgrade`
+
+(Removed vs. the pre-teardown draft: `relay.peer-dial` — the `PeerDialer` is
+deleted.)
+
+## 7. Scenario catalog (reliability-focused)
 
 | Scenario | Executor | Expected assertion |
 |---|---|---|
-| Slow API handler | B | Client timeout/error is bounded; server remains healthy |
-| Repository timeout | B | Typed error mapping; no leaked transaction/goroutine |
-| Handler panic | B | 500 response; process and subsequent request survive |
-| Hung module | B | Request context cancels and goroutine exits |
-| Edge 502 | A or A+B | Public client receives configured status; cleanup restores 2xx |
-| Edge 504 | A+B | Backend delay exceeds ingress timeout; public client receives timeout |
-| WebSocket handshake failure | A/B | Client receives bounded failure and reconnects |
-| Relay connection drop | B | Both sides close cleanly and reconnect path activates |
-| Packet latency/loss | D1 | Error/latency budget changes match profile and recover |
-| Pod deletion | C1 | Replacement pod becomes ready within the SLO |
-| Bad rollout | C2 | Rollout fails, rollback succeeds, prior image is healthy |
-| Redis master deletion | C3 | Sentinel promotes a replica and readiness recovers |
-| Redis partition | C3+D1 | Server drains or degrades according to registry policy |
-| Worker loss | C4 | Pods reschedule and externally observed service recovers |
+| Slow API handler | B | Client timeout/error bounded; server stays healthy |
+| Repository timeout | B | Typed error mapping; no leaked txn/goroutine |
+| Handler panic | B | 500 response; process + next request survive |
+| Hung dependency | B | Request context cancels; goroutine exits |
+| Agent control-write fault | B | Agent reconnects; session re-establishes |
+| Relay connection drop | B | Both sides close cleanly; reconnect path activates |
+| WebSocket handshake failure | A/B | Client gets bounded failure and reconnects |
+| Edge 502 | A | Public client gets configured status; cleanup restores 2xx |
+| Edge 504 | A+B | Backend delay exceeds ingress timeout; public client times out |
+| Pod deletion | C1 | Replacement pod ready within SLO; clients reconnect |
+| Bad rollout | C2 | Rollout fails; Helm rollback succeeds; prior image healthy |
+| *(deferred)* Packet latency/loss | D1 | Error/latency budget changes per profile and recovers |
 
-## CI/CD Control Model
+## 8. CI/CD control model
 
-### Workflow Entry
+Add `.github/workflows/fault-tolerance.yml`:
 
-Add a dedicated workflow, for example
-`.github/workflows/fault-tolerance.yml`, with:
-
-- `workflow_dispatch` inputs restricted to an enumerated profile;
-- an optional schedule for the deeper profile;
-- a reusable workflow entry callable after staging E2E;
+- `workflow_dispatch` inputs restricted to an **enumerated** profile;
+- a reusable entry callable **after** staging E2E;
 - the existing OCI/kubeconfig action;
-- concurrency that prevents two staging fault runs from overlapping;
+- concurrency guard (no two overlapping staging fault runs);
 - a hard timeout longer than the longest bounded scenario.
 
-Repository configuration controls activation:
+Activation by repository variable only (no manual app mutation):
+- `STAGING_FAULT_TESTS=false` disables the staging CD invocation;
+- `STAGING_FAULT_PROFILE=smoke` selects the bounded post-deploy subset;
+- the deferred `network` profile (D1) is manual/scheduled only.
 
-- `STAGING_FAULT_TESTS=false` disables the staging CD invocation.
-- `STAGING_FAULT_PROFILE=smoke` selects the bounded post-deploy subset.
-- Scheduled/manual runs select `network` or `multiserver`.
+**Execution order:** verify baseline + budget → enable only what the profile
+needs → start observation + record scenario ID → apply one fault → run black-box
++ internal assertions → remove fault in a shell `trap` **and** workflow
+`always()` → verify baseline health, rollout state, pod count, zero residue →
+upload assertions, logs, metrics, events.
 
-No application setting is changed manually.
+**Profiles:**
+- **smoke:** B (delay/panic/timeout), C1 pod deletion, C2 bad rollout — runs in
+  staging CD after E2E, gates production promotion.
+- **network (deferred):** D1 packet faults — manual/scheduled, never gates
+  promotion.
 
-### Execution Order
+## 9. Observability & evidence (capability-demonstration goal)
 
-1. Verify namespace, cluster, resource budget, scrape health, and baseline
-   staging health.
-2. Install or enable only the resources required by the selected profile.
-3. Start observation and record the scenario ID.
-4. Apply one fault.
-5. Run black-box and internal assertions.
-6. Remove the fault in a shell `trap` and workflow `always()` step.
-7. Uninstall temporary privileged resources.
-8. Verify baseline health, rollout state, pod count, and absence of Chaos CRs.
-9. Upload test output and relevant logs/events.
+- Scenario ID appears in application logs, a dedicated metric label, and CI output.
+- Reuse existing HTTP/latency/DB/relay/connected-agent metrics; query ingress
+  logs for edge 5xx.
+- Capture `kubectl get events`, rollout status, pod restarts, readiness
+  transitions per run as uploaded artifacts.
+- Keep an **external** health assertion for scenarios that can remove all
+  in-cluster observers.
+- **Prerequisite:** the live node scrape currently fails in VictoriaMetrics —
+  restore node metrics before any infra scenario relies on CPU/mem/disk
+  assertions (readiness doc, Observability).
 
-### Profiles
+## 10. Quality metrics / NFRs
 
-- **smoke:** B delay/panic, C1 pod deletion, C2 failed rollout; suitable for
-  staging CD after normal E2E.
-- **multiserver:** C3 Redis/Sentinel scenarios; manual or scheduled.
-- **network:** D1 delay/loss/partition plus B/A assertions; manual or scheduled.
-- **node:** C4 only, guarded by an explicit isolated-cluster input and budget
-  check.
+| Concern | Required result |
+|---|---|
+| Disabled overhead | No goroutines/timers created; only a disabled-state branch. Benchmark enabled vs disabled paths. |
+| Determinism | Every scenario: named profile, bounded duration, fixed assertion, cleanup. |
+| Isolation | Fault selection limited to staging namespace + explicitly selected requests/pods. |
+| Security | No public chaos endpoint; no secret logged; least-privilege CI/RBAC; token required; production-deny enforced by policy test. |
+| Recovery | Baseline health + affected operation pass after cleanup. |
+| Runtime | Smoke profile fits the staging deploy gate; deeper profiles manual/scheduled. |
+| Cost | Stays inside Always Free (no added reserved infra; delayed requests hold only their own goroutine/connection until the bounded context ends). |
+| Maintainability | Fault points + profiles enumerated and schema-validated, not assembled as arbitrary shell. |
 
-## Observability Requirements
+## 11. Workstreams → micro-plans (FI1–FI6, broken out after approval)
 
-Before infrastructure chaos becomes a gate:
+- **FI1 — Specification & safety contract.** Fault points, actions, profile
+  schema, max duration, concurrency caps, staging-only/production-deny
+  invariants, expected HTTP + typed errors per scenario. Record an ADR (this
+  introduces a privileged testing system + a cross-cutting app mechanism).
+- **FI2 — Application injector (TDD first).** `server/internal/faultinject/`
+  typed config + context helpers; API selection middleware **after**
+  `RequestTimeout`; separate WS-route selector; port decorators at the
+  composition root; metrics + logs; benchmarks. Tests for disabled behavior,
+  token validation, unknown profiles, context cancellation, bounded blocking,
+  panic recovery, concurrent-request isolation.
+- **FI3 — Helm configuration.** `faultInjection` values + env wiring; reject
+  enablement unless namespace is staging; chart + policy tests for production
+  denial and resource limits.
+- **FI4 — Ingress profiles.** Version-controlled staging-only annotation
+  templates; save/apply/restore tooling; a policy test that production Ingress
+  cannot receive fault annotations; verify 502/504 through the public staging
+  host.
+- **FI5 — Kubernetes scenario runner.** Idempotent, cleanup-safe scripts for pod
+  deletion and bad-rollout+rollback, with exact selectors + namespace guards.
+- **FI6 — CI integration & docs.** `fault-tolerance.yml` + reusable entry; smoke
+  profile after staging E2E behind the repo variable; artifact upload; deployment
+  docs; profile ownership/cleanup/emergency-removal runbook; update project
+  state; archive this plan.
 
-- VictoriaMetrics `up` must report the node and selected application targets as
-  healthy.
-- The live node scrape currently fails that prerequisite, so restore node
-  metrics before relying on CPU, memory, or disk assertions.
-- Use existing HTTP request, latency, DB, relay, and connected-agent metrics.
-- Query ingress logs for edge 5xx and application logs for the scenario ID.
-- Capture `kubectl get events`, rollout status, pod restarts, and readiness
-  transitions.
-- Keep an external health assertion for scenarios that can remove all in-cluster
-  observers.
+*(The deferred D1 Chaos-Mesh workstream is documented in §3 but not scheduled.)*
 
-## Implementation Workstreams
+## 12. Sequencing & risk
 
-### 1. Specification and Safety Contract
+- **Hard prerequisite:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md)
+  completes first. Building this against the pre-teardown tree would wire fault
+  points (`relay.peer-dial`, Redis) that are about to be deleted.
+- Order: FI1 (spec/ADR) → FI2 (injector, the bulk) → FI3 (Helm) → FI4 (ingress)
+  → FI5 (k8s runner) → FI6 (CI/docs). Each micro-plan keeps the gauntlet green
+  per commit.
+- **Risk:** FI2 adds a cross-cutting mechanism to the live server — it must be
+  provably inert when disabled (benchmark + a test asserting no goroutine/timer
+  on the disabled path). Security-review the token + production-deny before
+  enabling in any environment.
 
-- Define fault points, actions, profile schema, maximum duration, and
-  concurrency limits.
-- Define staging-only and production-deny invariants.
-- Define expected HTTP and typed module errors per scenario.
-- Record an ADR because this introduces a privileged testing system and a
-  cross-cutting application mechanism.
+## 13. Acceptance criteria
 
-### 2. Application Injector — TDD First
-
-- Add tests for disabled behavior, token validation, unknown profiles, context
-  cancellation, bounded blocking, panic recovery, and concurrent request
-  isolation.
-- Add `server/internal/faultinject/` with typed configuration and context
-  helpers.
-- Add API fault-selection middleware inside the API group, after
-  `RequestTimeout`, so every injected delay or blocked dependency remains
-  bounded by the existing request deadline.
-- Add a separate selector at the WebSocket route because upgraded connections
-  intentionally remain outside `RequestTimeout`.
-- Add port decorators at the composition root.
-- Add WebSocket/relay-specific injection points without putting the normal
-  timeout middleware around upgrades.
-- Add metrics and structured logs.
-- Benchmark enabled and disabled middleware paths.
-
-### 3. Helm Configuration
-
-- Add `faultInjection` values and server environment wiring.
-- Reject enablement unless the release namespace is staging.
-- Add Redis `persistent`/`emptyDir` branching with size and ephemeral-storage
-  limits.
-- Add chart tests and policy tests for production denial, storage mode, and
-  resource limits.
-
-### 4. Ingress Profiles
-
-- Store approved staging-only annotation patches or templates.
-- Implement save/apply/restore tooling.
-- Add tests that production Ingress cannot receive fault annotations.
-- Verify 502/504 behavior through the public staging hostname.
-
-### 5. Kubernetes Scenario Runner
-
-- Add scripts for pod deletion, failed rollout, rollback, and Redis failover.
-- Use exact selectors and namespace guards.
-- Make every script idempotent and cleanup-safe.
-- Reuse the existing multiserver assertions where behavior overlaps.
-
-### 6. Slim Chaos Mesh
-
-- Pin the chart and images.
-- Render one controller, one light daemon, CRI-O configuration, no
-  dashboard/DNS/Prometheus/persistence.
-- Validate OKE CRI-O socket compatibility in a non-destructive probe.
-- Restrict scenario manifests to approved selectors and actions.
-- Add install, experiment, cleanup, and residue-verification scripts.
-
-### 7. CI Integration
-
-- Add the dedicated workflow and reusable entry.
-- Add the smoke profile after staging E2E behind the repository variable.
-- Keep deeper profiles outside the normal production promotion path.
-- Upload assertions, logs, metrics snapshots, and Kubernetes events.
-- Block production promotion only on the enabled smoke profile.
-
-### 8. Documentation and Operations
-
-- Document profile ownership, enablement, cleanup, and emergency removal.
-- Add the workflow and Helm controls to deployment documentation.
-- Add dashboards or alert annotations only where existing telemetry cannot
-  identify an injected fault.
-- Update project state and archive this plan after implementation.
-
-## Acceptance Criteria
-
-1. Normal server and Helm deployments have fault injection disabled.
-2. Production rendering fails if fault injection or fault ingress annotations
-   are enabled.
-3. A selected request can trigger a bounded internal fault without affecting an
+1. Normal server + Helm deployments have fault injection disabled, zero overhead.
+2. Production rendering fails if fault injection or fault ingress annotations are
+   enabled.
+3. A selected request triggers a bounded internal fault without affecting an
    unselected concurrent request.
-4. Panic injection returns an error while the next request succeeds.
+4. Panic injection returns 500 while the next request succeeds.
 5. A blocked dependency exits when the request context is canceled.
-6. Public staging tests can produce and then recover from a controlled edge
-   timeout.
-7. Pod deletion and failed rollout scenarios recover within their declared
-   SLOs.
-8. Redis/Sentinel staging topology uses no OCI block volume.
-9. Redis master deletion and partition scenarios prove readiness/degraded-mode
-   behavior and recovery.
-10. Slim Chaos Mesh creates no dashboard, DNS server, Prometheus, PVC, or public
-    Service.
-11. Network delay/loss affects only selected staging pods and disappears after
-    cleanup.
-12. Every workflow failure path removes fault resources and verifies no residue.
-13. The recommended combined topology stays inside the measured node request
-    headroom.
-14. Node-outage testing cannot target the shared single-worker cluster.
-15. The full precommit gauntlet and relevant staging scenarios pass.
+6. Public staging tests produce and recover from a controlled edge timeout.
+7. Pod deletion and bad-rollout scenarios recover within declared SLOs.
+8. Every workflow failure path removes fault resources and verifies no residue.
+9. No Redis/multiserver/cross-server scenario exists (consistent with teardown).
+10. The full precommit gauntlet and the staging smoke profile pass.
 
-## Open Decisions
+## 14. Open decisions (for FI1)
 
-1. Whether the smoke profile runs after every staging deployment or only when a
-   repository variable is enabled.
-2. Which two or three module ports provide the highest-value initial Option B
-   coverage.
-3. Whether ingress 502 injection should use a reviewed critical-risk snippet or
-   only a controlled application/upstream failure.
-4. Whether Redis/Sentinel is installed per scenario or kept dormant but
-   continuously deployed in staging.
-5. The recovery SLOs for pod recreation, Redis promotion, relay reconnect, and
-   rollout rollback.
-6. The funded environment to use for the genuine two-worker node-outage test.
+1. Recovery SLOs for pod recreation, relay/agent reconnect, and rollout rollback.
+2. Which 2–3 module ports get the highest-value initial coverage (candidates:
+   `session.repository`, `agent.control-write`, `relay.session-drop`).
+3. Whether ingress 502 injection uses a reviewed critical-risk snippet or only a
+   controlled application/upstream failure (prefer the latter).
+4. Whether the smoke profile runs after every staging deploy or only when the
+   repository variable is set.

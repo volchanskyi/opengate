@@ -23,7 +23,7 @@ func scenarios() []scenario {
 }
 
 // scenarioFrameFlow proves a session whose two sides land on different replicas
-// relays bytes in both directions through the cross-server proxy (ADR-033): the
+// relays bytes in both directions through the cross-server proxy (ADR-023): the
 // agent connects to A, the browser to B, so exactly one side is always remote and
 // spliced through the affinity owner's internal listener.
 func scenarioFrameFlow(ctx context.Context, h *harness) error {

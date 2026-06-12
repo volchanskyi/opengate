@@ -104,7 +104,7 @@
     },
     {
       "datasource": { "type": "loki", "uid": "Loki" },
-      "description": "PMAT repository health score (0-100) over time. The B+ precommit gate, repo-score alert (>=3-pt day-over-day drop) and below-B+ alert are documented in ADR-019 / ADR-028.",
+      "description": "PMAT repository health score (0-100) over time. The B+ precommit gate, repo-score alert (>=3-pt day-over-day drop) and below-B+ alert are documented in ADR-019.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },

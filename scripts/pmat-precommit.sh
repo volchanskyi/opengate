@@ -8,7 +8,7 @@
 #
 # Scope of "changed code": all changed code files INCLUDING tests, excluding
 # machine-generated output (classified by scripts/tdd-check.sh `is-code`) and
-# Go *test* files whose only change is gofmt formatting (ADR-032). Rationale:
+# Go *test* files whose only change is gofmt formatting (ADR-019). Rationale:
 # gofmt churn is not "changed code", and pmat itself skips test files in its
 # analysis (`pmat tdg --explain` prints "Skipping test file"). Source files are
 # never exempted — production quality is enforced on every touch, even a fmt-only
@@ -23,7 +23,7 @@
 # The grade floor in 3.17.0 is `check-quality --min-grade <GRADE> \
 # --fail-on-violation`, and "changed files only" is computed here in git rather
 # than by pmat. The DECISION (gate changed code at a B+ floor, no suppressions)
-# is unchanged; only the mechanics differ. ADR-028 records the full mapping.
+# is unchanged; only the mechanics differ. ADR-019 records the full mapping.
 #
 # Invoked by scripts/precommit-gauntlet.sh. Source-able for unit testing
 # (scripts/tests/pmat-precommit.test.sh) — every step is a function and the
@@ -35,7 +35,7 @@
 #   PMAT_BASELINE_REF  diff baseline ref (default: origin/dev).
 #   PMAT_PIN           required pmat version (default: 3.17.0). Set empty to
 #                      disable the version check (tests do this).
-#   GOFMT_BIN          gofmt binary (default: gofmt) used by the ADR-032 fmt-only
+#   GOFMT_BIN          gofmt binary (default: gofmt) used by the ADR-019 fmt-only
 #                      test-file exclusion. Stubbed in tests.
 #
 # Exit codes: 0 = all changed code meets the floor (or none changed);
@@ -74,7 +74,7 @@ pmat_resolve_base() {
 }
 
 # pmat_is_gofmt_only_test <file> <base> — true iff <file> is a Go *test* file
-# whose only change versus <base> is gofmt formatting (ADR-032). Such files are
+# whose only change versus <base> is gofmt formatting (ADR-019). Such files are
 # dropped from the TDG changed-set. The check is symmetric — gofmt(baseline) ==
 # gofmt(current) — so any real edit (which changes the formatted form) keeps the
 # file graded. Fail-safe: a non-test file, a missing baseline blob (new file), or
@@ -94,7 +94,7 @@ pmat_is_gofmt_only_test() {
 
 # pmat_changed_code_files — print changed code files (one per line), filtered
 # through tdd-check.sh is-code, restricted to files that still exist (a deleted
-# file cannot be graded), and minus gofmt-only Go test files (ADR-032).
+# file cannot be graded), and minus gofmt-only Go test files (ADR-019).
 pmat_changed_code_files() {
   local base; base="$(pmat_resolve_base 2>/dev/null || true)"
   {

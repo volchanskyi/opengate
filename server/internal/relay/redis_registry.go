@@ -34,7 +34,7 @@ return ARGV[1]
 `)
 
 // RedisRegistry is the SessionRegistry adapter backed by Redis, for
-// multi-server relay pools (ADR-023 / ADR-031). Affinity ownership is an
+// multi-server relay pools (ADR-023). Affinity ownership is an
 // atomic claim-or-get with TTL; session metadata is a JSON value; lifecycle
 // events ride Redis Pub/Sub. It is the cross-server-capable replacement for
 // InProcessRegistry, selected via REGISTRY_BACKEND=redis (cmd/meshserver).

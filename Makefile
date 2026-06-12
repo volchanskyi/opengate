@@ -246,10 +246,13 @@ golden:
 
 ci: lint test build
 
+# DOCKER_CONFIG is sanitized by docker-credstore-guard.sh so a broken local
+# credential helper (e.g. WSL docker-credential-desktop.exe) cannot break pulls
+# of public base images. No-op in CI (no broken credsStore there).
 e2e:
-	cd deploy && docker compose -f docker-compose.test.yml up -d --build --wait
+	cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml up -d --build --wait
 	cd web && npx playwright test
-	cd deploy && docker compose -f docker-compose.test.yml down -v
+	cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml down -v
 
 # Multiserver e2e (Phase 13b PR-D): two server replicas + Redis + shared Postgres,
 # exercising the cross-server proxy and Redis-loss degraded mode. The script owns

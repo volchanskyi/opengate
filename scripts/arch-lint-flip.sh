@@ -154,7 +154,7 @@ EOF
 fi
 
 # ----------------------------------------------------------------------------
-# Gate: cargo-deny (ADR-020 §5.4 / ADR-026)
+# Gate: cargo-deny (ADR-020 §5.4, Amendment 1)
 #
 # State machine driven by agent/deny.toml's `multiple-versions` AND
 # `wildcards` severity tokens AND the marker file:

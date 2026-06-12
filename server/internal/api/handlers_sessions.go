@@ -131,7 +131,7 @@ func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestOb
 
 // DeleteSession implements StrictServerInterface.
 //
-// Per ADR-028, this transport handler delegates orchestration to
+// Per ADR-019, this transport handler delegates orchestration to
 // usecase.SessionService.Delete: the use case owns the ownership check,
 // the persistence, the audit write, and the push event. The handler is a
 // thin translator — extract userID/isAdmin from JWT claims, map domain

@@ -46,7 +46,7 @@ else
   pass "composite action exists"
 fi
 
-mapfile -t MIRROR_MATCHES < <(rg -n --fixed-strings 'registry-mirrors' "$REPO_ROOT/.github" || true)
+mapfile -t MIRROR_MATCHES < <(grep -rnF 'registry-mirrors' "$REPO_ROOT/.github" || true)
 if [ "${#MIRROR_MATCHES[@]}" -eq 1 ] &&
   [[ "${MIRROR_MATCHES[0]}" == "$ACTION:"* ]]; then
   pass "registry-mirrors has one canonical definition"

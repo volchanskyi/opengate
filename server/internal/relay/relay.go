@@ -31,7 +31,7 @@ var (
 	// ErrSessionProxied is returned when a second local side registers on a
 	// session this server is already proxying to a foreign owner. That side must
 	// reconnect (with a fresh token) and proxy independently rather than corrupt
-	// the in-flight cross-server splice (Phase 13b PR-C, ADR-033).
+	// the in-flight cross-server splice (Phase 13b PR-C, ADR-023).
 	ErrSessionProxied = errors.New("session already proxied to owner")
 )
 
@@ -60,7 +60,7 @@ type Conn interface {
 
 // PeerDialer establishes the cross-server tunnel to a session's affinity owner.
 // It is consulted only when a distributed SessionRegistry reports that another
-// server owns the session (Phase 13b PR-C, ADR-033); with InProcessRegistry the
+// server owns the session (Phase 13b PR-C, ADR-023); with InProcessRegistry the
 // caller always owns its own claim and the dialer is never called. Dial returns
 // a Conn carrying the proxied side's messages, framed identically to a local
 // relay Conn.
@@ -134,7 +134,7 @@ type Relay struct {
 	degradedThreshold      time.Duration
 
 	// peerDialer, when set, makes the relay splice foreign-owned sessions across
-	// servers instead of pairing them locally (Phase 13b PR-C, ADR-033). Nil in
+	// servers instead of pairing them locally (Phase 13b PR-C, ADR-023). Nil in
 	// single-server deployments.
 	peerDialer PeerDialer
 
@@ -194,7 +194,7 @@ func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
 // Register registers one side of a session identified by token. When both local
 // sides are registered, piping starts automatically; when a distributed registry
 // reports a foreign owner and a PeerDialer is set, the side is instead spliced to
-// that owner across servers (Phase 13b PR-C, ADR-033).
+// that owner across servers (Phase 13b PR-C, ADR-023).
 func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn Conn, side Side) error {
 	// Degraded-mode gate (ADR-023 recovery posture): once the session registry
 	// has been unreachable past degradedThreshold, refuse to start a *new* session
@@ -266,7 +266,7 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 // starts the pipe, waiting up to affinityTTL for that peer. If none appears
 // (stale affinity — the owner-side conn is already gone) it tears the half-open
 // session down, closes conn, and returns an error so the caller closes the
-// tunnel and the client reconnects with a fresh token (ADR-033).
+// tunnel and the client reconnects with a fresh token (ADR-023).
 func (r *Relay) RegisterLocal(ctx context.Context, token protocol.SessionToken, conn Conn, side Side) error {
 	val, _ := r.sessions.LoadOrStore(token, &session{
 		ready: make(chan struct{}),

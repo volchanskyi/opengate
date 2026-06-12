@@ -3,8 +3,9 @@
 #
 # Triggers on PreToolUse Write|Edit|MultiEdit. Enforces:
 #   1. No writes to ~/.claude/plans/ (use project .claude/plans/ instead).
-#   2. ADRs in docs/adr/ are immutable — block Edit/MultiEdit on existing,
-#      and block Write to an existing ADR. New ADR files are allowed.
+#   2. ADRs in docs/adr/ (013+) are mutable, but may only link ARCHIVED plans.
+#      A link to an active plan rots when the plan is archived/renamed; archived
+#      plans are stable targets. Applies to Write/Edit/MultiEdit on any ADR.
 #   3. No content additions matching NOSONAR, //nolint, nolint:,
 #      sonar.issue.ignore.multicriteria, or eslint-disable*.
 #
@@ -31,24 +32,7 @@ case "$path" in
     ;;
 esac
 
-# 2. ADR immutability + no plan-file links.
-if printf '%s' "$path" | grep -qE '(^|/)docs/adr/ADR-[0-9]+.*\.md$'; then
-  if [ "$tool" = "Edit" ] || [ "$tool" = "MultiEdit" ]; then
-    block adr-immutable "Edit refused: $path is an ADR. ADRs are immutable — supersede with a new file. .claude/rules/plans-and-adrs.md."
-  fi
-  if [ "$tool" = "Write" ] && [ -e "$path" ]; then
-    block adr-immutable "Write refused: $path is an existing ADR. ADRs are immutable — supersede with a new ADR file. .claude/rules/plans-and-adrs.md."
-  fi
-  # New ADRs must not link plan files. ADRs are immutable but plans move
-  # (archived/renamed), so an ADR→plan link rots into a dead link that can
-  # never be repaired. Fold the rationale inline or point at the mutable
-  # .claude/decisions.md index instead. .claude/rules/plans-and-adrs.md.
-  if [ "$tool" = "Write" ] && printf '%s' "${HOOK_TOOL_INPUT_CONTENT:-}" | grep -qE '\]\([^)]*plans/[^)]*\.md'; then
-    block adr-plan-link "Write refused: $path links a plan file ( ](…plans/….md) ). ADRs must not link plans — the link rots when the plan is archived and the ADR can't be edited to fix it. Fold the rationale inline or reference .claude/decisions.md. .claude/rules/plans-and-adrs.md."
-  fi
-fi
-
-# 3. Suppression patterns in new content.
+# Determine the new content being written, across tool variants.
 new_content=""
 case "$tool" in
   Write)     new_content="${HOOK_TOOL_INPUT_CONTENT:-}" ;;
@@ -56,6 +40,18 @@ case "$tool" in
   MultiEdit) new_content="${HOOK_TOOL_INPUT_EDITS:-}" ;;
 esac
 
+# 2. ADRs (013+) are mutable, but may only link ARCHIVED plans. A link to an
+# active plan rots when the plan is archived/renamed; archived plans
+# (plans/archive/…) are stable targets. Fold other rationale inline or point at
+# the mutable .claude/decisions.md index. Extract every plan link in the new
+# content and block if any is not under plans/archive/.
+if printf '%s' "$path" | grep -qE '(^|/)docs/adr/ADR-[0-9]+.*\.md$'; then
+  if printf '%s' "$new_content" | grep -oE '\]\([^)]*plans/[^)]*\.md' | grep -qvE 'plans/archive/'; then
+    block adr-plan-link "Write/Edit refused: $path links a non-archived plan file ( ](…plans/….md) ). ADRs may link only archived plans (plans/archive/…) — other plan links rot when the plan moves. Fold the rationale inline or reference .claude/decisions.md. .claude/rules/plans-and-adrs.md."
+  fi
+fi
+
+# 3. Suppression patterns in new content.
 if [ -n "$new_content" ]; then
   while IFS= read -r -d '' pattern_pair; do
     pattern="${pattern_pair%%|*}"

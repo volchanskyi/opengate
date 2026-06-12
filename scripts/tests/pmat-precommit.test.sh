@@ -104,7 +104,7 @@ assert_eq "only code files (incl _test.go), excl .md/_gen.go/.sh" "good.go helpe
 cleanup_repo
 
 echo
-echo "pmat_changed_code_files (gofmt-only Go *test* files excluded; ADR-032):"
+echo "pmat_changed_code_files (gofmt-only Go *test* files excluded; ADR-019):"
 export GOFMT_BIN="$STUB_DIR/gofmt"
 # Baseline commit holds three not-yet-formatted files (trailing blank lines);
 # the branch then "formats" them. Only the gofmt-only TEST file is dropped.

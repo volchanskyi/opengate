@@ -116,6 +116,10 @@
           },
           {
             "type": "command",
+            "command": ".claude/hooks/pretooluse-doc-link-check.sh"
+          },
+          {
+            "type": "command",
             "command": ".claude/hooks/pretooluse-test-skip-guard.sh"
           }
         ]

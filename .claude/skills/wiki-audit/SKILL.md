@@ -16,9 +16,11 @@ to the file where the fact actually lives). This skill systematically hunts
 for drift and either fixes it or rewrites the passage to use a link, per the
 convention in [`docs/README.md`](../../../docs/README.md).
 
-**Scope.** `docs/**/*.md` and the root `README.md`. `docs/adr/*.md` files are
-**immutable** — if an ADR is stale, the fix is a new superseding ADR, never an
-in-place edit. Flag, do not edit.
+**Scope.** `docs/**/*.md` and the root `README.md`. Per-file ADRs in
+`docs/adr/*.md` (013+) are **mutable** — a stale link or moved path is fixed in
+place, like any other doc. Reserve a new superseding ADR for a genuine decision
+*change*. The combined historical log `docs/Architecture-Decision-Records.md`
+(001–012) stays **frozen** — flag, never edit.
 
 **Reference:** [`docs/README.md`](../../../docs/README.md) — link-over-paraphrase rule.
 
@@ -171,19 +173,18 @@ done
 
 ---
 
-## 2. ADR immutability check
+## 2. ADR currency check
 
-ADRs in `docs/adr/` must never be edited after acceptance. Verify:
+Per-file ADRs in `docs/adr/` (013+) are mutable: fix stale links and moved
+paths in place, like any other doc. Reserve a new superseding ADR for a genuine
+decision *change* (a reversal or replacement), with `supersedes:` frontmatter
+set. When purging chronological/logistical noise from an ADR body, **rewrite to
+preserve the fact and the why — never delete substantive rationale** — and keep
+the `date:`/`status:`/`supersedes:` frontmatter.
 
-```bash
-git log --follow --format='%h %s' -- docs/adr/*.md | head -50
-```
-
-Any commit that *modifies* an existing ADR file (as opposed to adding a new
-one) is a violation. The fix is to revert the edit and write a superseding
-ADR instead. The combined historical log at
+The combined historical log at
 [`docs/Architecture-Decision-Records.md`](../../../docs/Architecture-Decision-Records.md)
-is also frozen — do not append to it; new ADRs go in `docs/adr/`.
+is **frozen** — do not edit or append to it; flag drift there, never fix it.
 
 ---
 
@@ -215,8 +216,9 @@ After running each check, produce a table:
 ```
 
 Status values: **FIXED** (edited in place with the link-over-paraphrase
-refactor), **FLAGGED** (ambiguous — requires human decision), **IMMUTABLE**
-(ADR drift — cannot edit, must supersede).
+refactor — includes per-file ADRs 013+), **FLAGGED** (ambiguous — requires
+human decision), **FROZEN** (drift in the 001–012 historical log — cannot edit;
+record only).
 
 ---
 
@@ -230,7 +232,8 @@ Only auto-fix in categories where the correct action is unambiguous:
 | Version pins             | Replace with link to pin file.              |
 | File paths               | Convert backticks to markdown links.        |
 | Broken links             | Flag only — do not guess target.            |
-| ADR content drift        | Flag only — ADRs are immutable.             |
+| ADR drift (013+ files)   | Fix in place; keep the why + frontmatter.   |
+| ADR drift (001–012 log)  | Flag only — the historical log is frozen.   |
 | Phase/techdebt drift     | Flag only — requires human judgement.       |
 | Env var drift            | Replace with link to the binary that reads. |
 
@@ -241,6 +244,6 @@ When unsure, **flag**. An unverified "fix" is drift in the opposite direction.
 ## 6. Gate criteria
 
 The audit **PASSES** if there are zero FLAGGED findings after one pass of
-auto-fixes. FIXED counts as passing (the drift is resolved). IMMUTABLE
-findings must be resolved by writing a new ADR in the same session — they
-block the gate otherwise.
+auto-fixes. FIXED counts as passing (the drift is resolved). FROZEN findings
+(drift in the 001–012 historical log) are recorded but do not block the gate —
+that log is frozen by design and cannot be edited.
