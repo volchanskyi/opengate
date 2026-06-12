@@ -10,17 +10,16 @@
 #   branch_has_test_change      # 0/1 via scripts/tdd-check.sh has-test-change
 #   block RULE MESSAGE          # log to blocks.log, print MESSAGE to stderr, exit 2
 #   warn RULE MESSAGE           # log to blocks.log with warn tag, print to stderr, exit 0
+#   enable_fail_closed_hook     # install the ERR trap for enforcement callers
 #
 # Hook contract:
 #   - Input: JSON on stdin from the Claude Code harness.
 #   - Allow: exit 0 with no stdout (or hookSpecificOutput JSON for context injection).
 #   - Block: exit 2 with a one-line stderr message (re-shown to Claude).
-#   - Fail-closed on internal error: any uncaught error → exit 2.
+#   - Enforcement hooks call enable_fail_closed_hook so uncaught errors exit 2.
 #
 # NO BYPASS. Hooks never honor environment variables like OPENGATE_HOOK_BYPASS.
 # To change enforcement, edit .claude/settings.json.
-
-set -euo pipefail
 
 # Project-root-relative paths.
 _COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -126,4 +125,7 @@ _fail_closed_handler() {
   printf 'hook %s: internal error (exit %s) — failing closed\n' "$hook_name" "$exit_code" >&2
   exit 2
 }
-trap _fail_closed_handler ERR
+
+enable_fail_closed_hook() {
+  trap _fail_closed_handler ERR
+}

@@ -7,8 +7,9 @@
 #
 # NO BYPASS.
 set -euo pipefail
-# shellcheck disable=SC1091
+# shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+enable_fail_closed_hook
 
 read_hook_input
 parse_input_fields tool_name tool_input.file_path

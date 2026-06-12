@@ -18,8 +18,8 @@
 # change enforcement.
 set -euo pipefail
 # shellcheck source=lib/common.sh
-# shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
+enable_fail_closed_hook
 
 parse_input_fields tool_name tool_input.file_path tool_input.content tool_input.new_string tool_input.edits
 

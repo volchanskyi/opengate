@@ -33,7 +33,8 @@ if [ -x "$RUNNER" ]; then
   REPO="$TMP_DIR/repo"
   BIN="$TMP_DIR/bin"
   TRACE="$TMP_DIR/trace"
-  mkdir -p "$REPO/scripts/tests" "$REPO/target" "$BIN"
+  mkdir -p "$REPO/.claude" "$REPO/scripts/tests" "$REPO/target" "$BIN"
+  : >"$REPO/.claude/shell-policy.exceptions"
 
   cat >"$BIN/shellcheck" <<'EOF'
 #!/usr/bin/env bash
@@ -81,7 +82,7 @@ EOF
   git -C "$REPO" init -q
   git -C "$REPO" config user.name test
   git -C "$REPO" config user.email test@example.com
-  git -C "$REPO" add .gitignore clean.sh other.sh
+  git -C "$REPO" add .claude/shell-policy.exceptions .gitignore clean.sh other.sh
   git -C "$REPO" commit -qm baseline
 
   : >"$TRACE"
