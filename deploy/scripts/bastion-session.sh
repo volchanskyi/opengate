@@ -304,6 +304,7 @@ find_reusable_session() {
 
 create_session() {
   local session_name session_id session_json session_ttl ssh_proxy
+  local session_created=false
 
   # First-chance: discover and reuse an orphan ACTIVE session matching our
   # target. Avoids consuming a quota slot on a duplicate after an
@@ -329,12 +330,17 @@ create_session() {
       err "session create failed. See the OCI error above. Common causes: IAM ('manage bastion-session' on compartment + 'read instance' on target), Cloud Agent Bastion plugin not RUNNING on the VM, bastion's client_cidr_block_allow_list rejecting your IP, or the bastion's active-session quota."
     fi
     [[ -n "$session_id" ]] || err "session create returned empty session id"
+    session_created=true
     log "Session created: $session_id"
   fi
 
   if ! session_json=$(oci_cmd bastion session get \
     --session-id "$session_id" \
     --query 'data'); then
+    if [[ "$session_created" == "true" ]]; then
+      warn "session metadata fetch failed; deleting newly-created session $session_id"
+      oci_cmd bastion session delete --session-id "$session_id" --force >/dev/null || true
+    fi
     err "session was created ($session_id) but session get failed. The session is live but ssh-metadata is unreachable; cache will not be written."
   fi
 
