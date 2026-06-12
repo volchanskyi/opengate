@@ -7,7 +7,7 @@ Status: Accepted
 
 [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) adopted full hexagonal architecture across OpenGate. For the React web frontend the equivalent question is state-store ownership.
 
-Current state (verified 2026-05-19 against [`web/`](../../web/)):
+Current state (verified against [`web/`](../../web/)):
 
 - **12 Zustand stores** live in [`web/src/state/`](../../web/src/state/) — one global namespace.
 - **11 feature folders** under [`web/src/features/`](../../web/src/features/) — none has a `state/` subdirectory or an `index.ts` barrel.

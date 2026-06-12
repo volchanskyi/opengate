@@ -18,13 +18,13 @@ Accepted — 2026-04-14. Supersedes [ADR-003](../Architecture-Decision-Records.m
 server onto `modernc.org/sqlite` with `MaxOpenConns(1)` because the pure-Go
 driver serialises all writes. The tech debt register had flagged this as
 Medium severity with a concrete ceiling (~20k concurrent agents) and named
-Phase 13 as the fix. Write-path latency was already visible under load, and
+the database migration as the fix. Write-path latency was already visible under load, and
 the [`Store` interface](../../server/internal/db/store.go) could not grow any
 coherent transaction support until a real RDBMS sat underneath.
 
-The original Phase 13 bundle combined PostgreSQL + multi-server routing +
+The original scaling bundle combined PostgreSQL + multi-server routing +
 relay pool + Kubernetes. That scope was split: this ADR covers the
-**PostgreSQL-only** subset (Phase 13a). Multi-server routing, relay pool, and
+**PostgreSQL-only** subset. Multi-server routing, relay pool, and
 Kubernetes are deferred to a future phase and are not touched by this
 decision.
 
