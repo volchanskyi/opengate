@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781259635319,
+  "lastUpdate": 1781269594983,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17713,6 +17713,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.736233176349874,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "6888a13d3d65a021ffca9618a434afd7901c02fa",
+          "message": "ci(hooks): trace auto-push; extract composite-action shell to files\n\nAuto-push (Config Lint) instrumentation — the auto-push hook tests fail only on\nthe GitHub Actions runner; they pass locally under git 2.34 and in a clean\ngit-2.43 container with CI/GITHUB_ACTIONS set. Add gated tracing to find the\nrunner-specific cause on the next CI run:\n- git-post-commit.sh: an OPENGATE_AUTOPUSH_DEBUG step tracer that logs each gate\n  (re-entrancy, CI guard, root, branch, marker, rebase, push) to stderr; silent\n  otherwise.\n- hooks.test.sh: capture the triggering commit's hook output and dump git/hook\n  state (branch, hooks dir, marker, hook.log) when the push/divergent cases fail.\n\nComposite-action shell extraction (shell-execution-policy) — move inline action\nshell into versioned, shellcheck/shfmt-clean .sh files with tests:\n- docker-hub-mirror, oci-kube-setup, verify-oci-tfstate-creds.",
+          "timestamp": "2026-06-12T06:05:00-07:00",
+          "tree_id": "14789fbc51875cf87ad5e125d048795323a5f460",
+          "url": "https://github.com/volchanskyi/opengate/commit/6888a13d3d65a021ffca9618a434afd7901c02fa"
+        },
+        "date": 1781269594874,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.209977109364818,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.448544688224466,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 755.1476084401712,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 305.4428317376191,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.878704433685147,
             "unit": "ns/iter"
           }
         ]
