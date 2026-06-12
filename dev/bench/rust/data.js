@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781274353437,
+  "lastUpdate": 1781275178348,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17909,6 +17909,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 21.20888867520336,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "10c68c120d5a67122cfca587fb428ca9dcefbb93",
+          "message": "fix(observability): qualify Loki transport image",
+          "timestamp": "2026-06-12T07:37:50-07:00",
+          "tree_id": "b00eab2b3994f8ddba8791e8b13c54b43661e1c6",
+          "url": "https://github.com/volchanskyi/opengate/commit/10c68c120d5a67122cfca587fb428ca9dcefbb93"
+        },
+        "date": 1781275178224,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.08081192348899,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.571272131640562,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 762.6673550854856,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 302.4262698275418,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.947111659448183,
             "unit": "ns/iter"
           }
         ]
