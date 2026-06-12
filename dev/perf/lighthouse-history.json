@@ -1,15 +1,5 @@
 [
   {
-    "date": "2026-05-13T23:37:41.863Z",
-    "sha": "ad35be8",
-    "scores": {
-      "performance": 100,
-      "accessibility": 92,
-      "best-practices": 100,
-      "seo": 82
-    }
-  },
-  {
     "date": "2026-05-14T09:34:11.210Z",
     "sha": "e7805c3",
     "scores": {
@@ -992,6 +982,16 @@
   {
     "date": "2026-06-12T10:22:26.978Z",
     "sha": "6bc5701",
+    "scores": {
+      "performance": 100,
+      "accessibility": 92,
+      "best-practices": 100,
+      "seo": 82
+    }
+  },
+  {
+    "date": "2026-06-12T13:08:24.791Z",
+    "sha": "6888a13",
     "scores": {
       "performance": 100,
       "accessibility": 92,
