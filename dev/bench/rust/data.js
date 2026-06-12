@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781257707011,
+  "lastUpdate": 1781258591220,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17615,6 +17615,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 21.539798740454838,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "e21d4962a32c07f59046addf2314497a4dfd2e1f",
+          "message": "build: enforce shell quality everywhere\n\nMeasured changed-file hook validation at 0.65s and full repository shell validation at 4s.",
+          "timestamp": "2026-06-12T03:01:15-07:00",
+          "tree_id": "8918b7f1e74fcbae7977d337774539f5518ba8f3",
+          "url": "https://github.com/volchanskyi/opengate/commit/e21d4962a32c07f59046addf2314497a4dfd2e1f"
+        },
+        "date": 1781258591085,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.37311590053437,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.83089522344998,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 766.2127322458067,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.0244647814654,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.80491590356689,
             "unit": "ns/iter"
           }
         ]
