@@ -24,25 +24,11 @@ runs:
   steps:
     - name: Configure registry mirror + restart Docker
       shell: bash
-      run: |
-        set -euo pipefail
-        sudo mkdir -p /etc/docker
-        echo '{"registry-mirrors":["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json >/dev/null
-        sudo systemctl restart docker
-        # Wait for the daemon to accept connections again before the job pulls.
-        for _ in $(seq 1 15); do
-          if docker info >/dev/null 2>&1; then echo "docker up with registry mirror"; exit 0; fi
-          sleep 1
-        done
-        echo "::error::docker daemon did not come back after configuring the registry mirror"
-        exit 1
+      run: $GITHUB_ACTION_PATH/docker-hub-mirror.sh configure
     - name: Authenticated Docker Hub login
       if: inputs.dockerhub-token != ''
       shell: bash
       env:
         DH_USER: ${{ inputs.dockerhub-username }}
         DH_TOKEN: ${{ inputs.dockerhub-token }}
-      run: |
-        set -euo pipefail
-        echo "$DH_TOKEN" | docker login -u "$DH_USER" --password-stdin
-        echo "authenticated to Docker Hub; fallback pulls bypass the anonymous limit"
+      run: $GITHUB_ACTION_PATH/docker-hub-mirror.sh login

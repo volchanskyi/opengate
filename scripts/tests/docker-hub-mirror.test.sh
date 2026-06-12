@@ -6,6 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ACTION="$REPO_ROOT/.github/actions/docker-hub-mirror/action.yml"
+SCRIPT="$REPO_ROOT/.github/actions/docker-hub-mirror/docker-hub-mirror.sh"
 WORKFLOWS="$REPO_ROOT/.github/workflows"
 
 PASS=0
@@ -55,10 +56,10 @@ fi
 
 mapfile -t MIRROR_MATCHES < <(grep -rnF 'registry-mirrors' "$REPO_ROOT/.github" || true)
 if [ "${#MIRROR_MATCHES[@]}" -eq 1 ] \
-  && [[ "${MIRROR_MATCHES[0]}" == "$ACTION:"* ]]; then
+  && [[ "${MIRROR_MATCHES[0]}" == "$SCRIPT:"* ]]; then
   pass "registry-mirrors has one canonical definition"
 else
-  fail "registry-mirrors must appear exactly once under .github, only in the composite"
+  fail "registry-mirrors must appear exactly once under .github, only in the extracted script"
 fi
 
 mapfile -t PULL_JOBS < <(
@@ -201,10 +202,96 @@ else
   fail "Docker Hub login must be gated on token presence"
 fi
 
-if grep -qF "echo \"\$DH_TOKEN\" | docker login -u \"\$DH_USER\" --password-stdin" "$ACTION"; then
+if [ -x "$SCRIPT" ]; then
+  pass "mirror script exists and is executable"
+else
+  fail "mirror script exists and is executable"
+fi
+
+# shellcheck disable=SC2016
+if grep -qF '$GITHUB_ACTION_PATH/docker-hub-mirror.sh configure' "$ACTION" \
+  && grep -qF '$GITHUB_ACTION_PATH/docker-hub-mirror.sh login' "$ACTION"; then
+  pass "composite action invokes extracted mirror modes"
+else
+  fail "composite action invokes extracted mirror modes"
+fi
+
+if grep -qF "printf '%s' \"\$DH_TOKEN\" | docker login -u \"\$DH_USER\" --password-stdin" "$SCRIPT"; then
   pass "Docker Hub token uses password-stdin"
 else
   fail "Docker Hub login must pass the token through password-stdin"
+fi
+
+if [ -x "$SCRIPT" ]; then
+  TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$TMP_DIR"' EXIT
+  BIN_DIR="$TMP_DIR/bin"
+  TRACE="$TMP_DIR/trace"
+  mkdir -p "$BIN_DIR"
+  cat >"$BIN_DIR/sudo" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  tee)
+    cat >"$DAEMON_JSON"
+    ;;
+  *)
+    printf 'sudo %s\n' "$*" >>"$TRACE"
+    ;;
+esac
+EOF
+  cat >"$BIN_DIR/docker" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  info)
+    count=0
+    [ ! -f "$INFO_COUNT" ] || count="$(cat "$INFO_COUNT")"
+    count=$((count + 1))
+    printf '%s\n' "$count" >"$INFO_COUNT"
+    [ "$count" -ge "${DOCKER_READY_AT:-1}" ]
+    ;;
+  login)
+    printf 'docker %s\n' "$*" >>"$TRACE"
+    cat >"$LOGIN_STDIN"
+    ;;
+  *)
+    exit 64
+    ;;
+esac
+EOF
+  cat >"$BIN_DIR/sleep" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "$BIN_DIR/sudo" "$BIN_DIR/docker" "$BIN_DIR/sleep"
+
+  if output="$(
+    PATH="$BIN_DIR:$PATH" \
+      TRACE="$TRACE" \
+      DAEMON_JSON="$TMP_DIR/daemon.json" \
+      INFO_COUNT="$TMP_DIR/info-count" \
+      DOCKER_READY_AT=3 \
+      "$SCRIPT" configure
+  )" \
+    && grep -qF "docker up with registry mirror" <<<"$output" \
+    && grep -qF "mirror.gcr.io" "$TMP_DIR/daemon.json"; then
+    pass "mirror configuration waits for Docker readiness"
+  else
+    fail "mirror configuration waits for Docker readiness"
+  fi
+
+  if PATH="$BIN_DIR:$PATH" \
+    TRACE="$TRACE" \
+    LOGIN_STDIN="$TMP_DIR/login-stdin" \
+    DH_USER="mirror-user" \
+    DH_TOKEN="secret-token" \
+    "$SCRIPT" login >"$TMP_DIR/login-output" \
+    && grep -qF "login -u mirror-user --password-stdin" "$TRACE" \
+    && [ "$(cat "$TMP_DIR/login-stdin")" = "secret-token" ] \
+    && ! grep -qF "secret-token" "$TMP_DIR/login-output"; then
+    pass "Docker Hub login forwards the token only on stdin"
+  else
+    fail "Docker Hub login forwards the token only on stdin"
+  fi
 fi
 
 echo

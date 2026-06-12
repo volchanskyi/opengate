@@ -34,35 +34,13 @@ runs:
         OCI_FINGERPRINT: ${{ inputs.oci-fingerprint }}
         OCI_KEY: ${{ inputs.oci-private-key }}
         OCI_REGION: ${{ inputs.oci-region }}
-      run: |
-        mkdir -p ~/.oci
-        printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
-        chmod 600 ~/.oci/key.pem
-        cat > ~/.oci/config <<EOF
-        [DEFAULT]
-        tenancy=$OCI_TENANCY
-        user=$OCI_USER
-        fingerprint=$OCI_FINGERPRINT
-        key_file=$HOME/.oci/key.pem
-        region=$OCI_REGION
-        EOF
-        chmod 600 ~/.oci/config
+      run: $GITHUB_ACTION_PATH/oci-kube-setup.sh configure-oci
 
     - name: Install kubectl + helm
       shell: bash
       env:
         HELM_VERSION: ${{ inputs.helm-version }}
-      run: |
-        set -euo pipefail
-        # kubectl
-        KVER="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
-        curl -fsSL "https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl" -o /tmp/kubectl
-        sudo install -m 0755 /tmp/kubectl /usr/local/bin/kubectl
-        # helm
-        curl -fsSL "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tgz
-        tar -xzf /tmp/helm.tgz -C /tmp linux-amd64/helm
-        sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
-        kubectl version --client && helm version --short
+      run: $GITHUB_ACTION_PATH/oci-kube-setup.sh install-kube-tools
 
     - name: Fetch kubeconfig
       shell: bash
@@ -70,18 +48,4 @@ runs:
         CLUSTER_ID: ${{ inputs.cluster-id }}
         OCI_REGION: ${{ inputs.oci-region }}
         OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
-      run: |
-        set -euo pipefail
-        if [[ -z "$CLUSTER_ID" ]]; then
-          echo "::error::cluster-id (OKE_CLUSTER_ID) is empty"
-          exit 1
-        fi
-        mkdir -p ~/.kube
-        oci ce cluster create-kubeconfig \
-          --cluster-id "$CLUSTER_ID" \
-          --file "$HOME/.kube/config" \
-          --region "$OCI_REGION" \
-          --token-version 2.0.0 \
-          --kube-endpoint PUBLIC_ENDPOINT
-        chmod 600 ~/.kube/config
-        kubectl cluster-info >/dev/null && echo "kubeconfig ready"
+      run: $GITHUB_ACTION_PATH/oci-kube-setup.sh fetch-kubeconfig

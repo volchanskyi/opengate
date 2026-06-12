@@ -20,16 +20,28 @@
 # 0 regardless) — push issues are reported, not fatal.
 set -uo pipefail
 
+# Optional step tracer: when OPENGATE_AUTOPUSH_DEBUG is set, each gate emits a
+# line to stderr so an environment we cannot reproduce locally (e.g. CI) can show
+# exactly where the hook exits. Silent otherwise.
+dbg() {
+  if [ -n "${OPENGATE_AUTOPUSH_DEBUG:-}" ]; then
+    printf 'autopush-dbg: %s\n' "$1" >&2
+  fi
+}
+dbg "enter: pwd=$(pwd) GIT_DIR=${GIT_DIR:-unset} CI=${CI:-unset} GHA=${GITHUB_ACTIONS:-unset}"
+
 # 1. Re-entrancy guard: the pull --rebase / push below must never recurse back
 #    into this hook (belt-and-suspenders — git does not run post-commit during
 #    rebase, but a future git/config might).
 if [ -n "${OPENGATE_AUTOPUSH_ACTIVE:-}" ]; then
+  dbg "exit: re-entrancy guard (OPENGATE_AUTOPUSH_ACTIVE set)"
   exit 0
 fi
 export OPENGATE_AUTOPUSH_ACTIVE=1
 
 # 2. Never auto-push from CI or other non-interactive automation.
 if [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+  dbg "exit: CI guard (CI=${CI:-} GHA=${GITHUB_ACTIONS:-})"
   exit 0
 fi
 
@@ -38,12 +50,14 @@ fi
 #    GIT_INDEX_FILE set; leaving them set would mis-target subsequent git
 #    commands (e.g. operate on the wrong index).
 root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+dbg "root='$root'"
 [ -n "$root" ] || exit 0
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX
 cd "$root" || exit 0
 
 # 4. Only ever act on dev.
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo)"
+dbg "branch='$branch'"
 if [ "$branch" != "dev" ]; then
   echo "auto-push skipped: not on dev (on '$branch')"
   exit 0
@@ -53,20 +67,25 @@ fi
 #    call passes the push-guard even if the push below cannot reach the remote.
 mkdir -p .claude/.markers
 git rev-parse HEAD >.claude/.markers/refactor.head
+dbg "marker written: $(cat .claude/.markers/refactor.head)"
 
 # 6. Rebase onto the latest dev; abort cleanly on conflict (never leave a
 #    half-rebase). A rebase that replays our commit changes HEAD, so re-point the
 #    marker afterward before pushing.
 if ! git pull --rebase origin dev; then
   git rebase --abort 2>/dev/null || true
+  dbg "exit: 'git pull --rebase origin dev' failed"
   echo "auto-push aborted: 'git pull --rebase origin dev' failed — resolve and push manually"
   exit 0
 fi
 git rev-parse HEAD >.claude/.markers/refactor.head
+dbg "rebased; marker now $(cat .claude/.markers/refactor.head)"
 
 if git push origin dev; then
+  dbg "pushed ok"
   echo "auto-push: pushed $(git rev-parse --short HEAD) to origin/dev"
 else
+  dbg "push failed"
   echo "auto-push failed at 'git push origin dev' — push manually"
 fi
 exit 0
