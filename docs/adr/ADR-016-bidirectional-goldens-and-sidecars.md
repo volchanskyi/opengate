@@ -2,7 +2,7 @@
 
 **Status**: Accepted
 **Date**: 2026-05-14
-**Phase**: C1 of [Test Coverage Phase C: Structural Hardening](../../.claude/plans/tests-coverage-phase-c-structural-hardening.md)
+**Phase**: C1 of [Test Coverage Phase C: Structural Hardening](../../.claude/plans/archive/tests-coverage-phase-c-structural-hardening.md)
 **Supersedes**: extends [ADR-002 — Golden file tests: Rust generates, Go verifies](Architecture-Decision-Records.md)
 
 ## Context

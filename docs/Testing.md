@@ -159,7 +159,7 @@ sends a Telegram alert via the existing `DEPLOY_TELEGRAM_BOT_TOKEN` /
 remains independent.
 
 The full design rationale is in
-[`.claude/plans/pr9-mutation-testing-as-observability.md`](../.claude/plans/pr9-mutation-testing-as-observability.md).
+[`.claude/plans/pr9-mutation-testing-as-observability.md`](../.claude/plans/archive/pr9-mutation-testing-as-observability.md).
 
 ## Frontend Performance
 

@@ -17,7 +17,7 @@ Current state (verified 2026-05-19 against [`web/`](../../web/)):
 
 Representative coupling: [`web/src/features/devices/DeviceDetail.tsx:3-7`](../../web/src/features/devices/DeviceDetail.tsx#L3-L7) imports 5 stores spanning 4 features.
 
-The plan ([`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/modular-monolith-evaluation.md) §4.3, R1 Q4) resolved scope; this ADR codifies it.
+The plan ([`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) §4.3, R1 Q4) resolved scope; this ADR codifies it.
 
 ## Decision
 
@@ -107,7 +107,7 @@ Per the opportunistic-trigger model (plan §9): each feature's stores move when 
 
 ## References
 
-- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/modular-monolith-evaluation.md) §2.3 (verified state), §4.3 (scope), §5.3 (tooling)
+- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) §2.3 (verified state), §4.3 (scope), §5.3 (tooling)
 - Upstream: [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) — modular-monolith scope and style
 - Tooling: [`eslint-plugin-boundaries`](https://github.com/javierbrea/eslint-plugin-boundaries), [`dependency-cruiser`](https://github.com/sverweij/dependency-cruiser)
 - Constraints: [`.claude/rules/sonarcloud.md`](../../.claude/rules/sonarcloud.md) (no-suppression rule extends here), [`.claude/hooks/pretooluse-write-guard.sh`](../../.claude/hooks/pretooluse-write-guard.sh) (already blocks inline ESLint suppression directives)
