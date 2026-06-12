@@ -10,8 +10,8 @@ import (
 
 // Handlers exposes the amt module's use cases to transport-layer callers.
 //
-// Per ADR-020 §9 + modular-monolith plan §4.1, the api package's transport
-// handlers translate HTTP requests and responses to method calls on this
+// The api package's transport handlers translate HTTP requests and responses
+// to method calls on this
 // struct. The Repository handles persistence (List, Get); the Operator
 // handles live device interaction (PowerAction). Both ports are passed in
 // at construction so tests can substitute fakes.

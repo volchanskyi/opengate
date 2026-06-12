@@ -9,8 +9,7 @@ import (
 
 // Operator is the inbound port for high-level AMT device operations.
 //
-// Promoted from api.AMTOperator per ADR-020 §4.1 / ADR-021 §9 — the amt
-// module owns the contract; the api layer consumes it. *Service is the
+// The amt module owns this contract and the api layer consumes it. *Service is the
 // canonical implementation; tests may supply their own double.
 type Operator interface {
 	PowerAction(ctx context.Context, amtUUID uuid.UUID, state int) error

@@ -8,8 +8,8 @@ import (
 
 // DefaultDegradedThreshold is how long the session registry must stay
 // unreachable before the relay enters degraded mode and refuses new sessions
-// (ADR-023 recovery posture: a sustained outage means new affinity claims can't
-// be made, so a cross-server pair could silently split-brain). In-flight
+// because a sustained outage prevents new affinity claims and could silently
+// split a cross-server pair across owners. In-flight
 // sessions are unaffected. InProcessRegistry never reports unhealthy, so
 // single-server deployments never degrade.
 const DefaultDegradedThreshold = 30 * time.Second
@@ -20,7 +20,7 @@ const registryPingTimeout = 3 * time.Second
 
 // ErrRegistryDegraded is returned by Register when the session registry has been
 // unreachable past the degraded threshold: new sessions are refused (fail
-// closed) while in-flight ones drain (Phase 13b PR-C, ADR-023 recovery posture).
+// closed) while in-flight ones drain.
 // The client should reconnect later with a fresh token.
 var ErrRegistryDegraded = errors.New("session registry degraded: refusing new sessions")
 

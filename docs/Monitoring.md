@@ -215,7 +215,7 @@ In addition to Grafana alerting, VictoriaMetrics evaluates its own alerting rule
 
 ### Mutation-test regression alerts
 
-The nightly [`mutation.yml`](../.github/workflows/mutation.yml) workflow does not route through Grafana — it calls the Telegram Bot API directly using the same `DEPLOY_TELEGRAM_BOT_TOKEN` / `DEPLOY_TELEGRAM_CHAT_ID` secrets that Grafana uses. Triggers and thresholds are documented in [Testing.md](Testing.md#mutation-testing-trend-pr-9).
+The nightly [`mutation.yml`](../.github/workflows/mutation.yml) workflow does not route through Grafana — it calls the Telegram Bot API directly using the same `DEPLOY_TELEGRAM_BOT_TOKEN` / `DEPLOY_TELEGRAM_CHAT_ID` secrets that Grafana uses. Triggers and thresholds are documented in [Testing.md](Testing.md#mutation-testing-trend).
 
 ## Data Retention
 

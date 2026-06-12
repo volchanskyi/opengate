@@ -20,7 +20,7 @@ type GaugeSource struct {
 	SignalingSuccesses  func() int64
 	SignalingFailures   func() int64
 	// RegistryUp reports whether the relay's session registry (Redis) is
-	// reachable; drives the opengate_registry_up gauge (Phase 13b PR-C, ADR-023).
+	// reachable; drives the opengate_registry_up gauge.
 	RegistryUp func() bool
 }
 

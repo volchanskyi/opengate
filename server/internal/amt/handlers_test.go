@@ -47,7 +47,7 @@ func (s *stubOperator) QueryDeviceInfo(context.Context, uuid.UUID) (*wsman.Devic
 }
 func (s *stubOperator) ConnectedDeviceCount() int { return 0 }
 
-// Per ADR-020 §9 plan §4.1: the amt module's Handlers struct is the
+// The amt module's Handlers struct is the
 // per-domain use-case layer. The api package's transport handler delegates
 // to ListDevices / GetDevice / PowerAction.
 

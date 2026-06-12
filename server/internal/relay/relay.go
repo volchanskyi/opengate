@@ -16,7 +16,7 @@ import (
 
 // DefaultAffinityTTL bounds how long a dead owner's affinity claim survives
 // before another server may reclaim it. Ignored by InProcessRegistry (single
-// server); honored by RedisRegistry (Phase 13b PR-C, ADR-023).
+// server); honored by RedisRegistry.
 const DefaultAffinityTTL = 30 * time.Second
 
 // defaultServerID is the serverID used when NewRelay is called without
@@ -31,7 +31,7 @@ var (
 	// ErrSessionProxied is returned when a second local side registers on a
 	// session this server is already proxying to a foreign owner. That side must
 	// reconnect (with a fresh token) and proxy independently rather than corrupt
-	// the in-flight cross-server splice (Phase 13b PR-C, ADR-023).
+	// the in-flight cross-server splice.
 	ErrSessionProxied = errors.New("session already proxied to owner")
 )
 
@@ -60,7 +60,7 @@ type Conn interface {
 
 // PeerDialer establishes the cross-server tunnel to a session's affinity owner.
 // It is consulted only when a distributed SessionRegistry reports that another
-// server owns the session (Phase 13b PR-C, ADR-023); with InProcessRegistry the
+// server owns the session; with InProcessRegistry the
 // caller always owns its own claim and the dialer is never called. Dial returns
 // a Conn carrying the proxied side's messages, framed identically to a local
 // relay Conn.
@@ -118,7 +118,7 @@ type Relay struct {
 	logger   *slog.Logger
 
 	// registry tracks session affinity/ownership through the SessionRegistry
-	// port (ADR-023). The live Conn pair stays in the sessions map above; the
+	// port. The live Conn pair stays in the sessions map above; the
 	// registry only tracks token → owning serverID so a relay pool can route
 	// cross-server. With InProcessRegistry this is a single-server shadow.
 	registry    SessionRegistry
@@ -134,7 +134,7 @@ type Relay struct {
 	degradedThreshold      time.Duration
 
 	// peerDialer, when set, makes the relay splice foreign-owned sessions across
-	// servers instead of pairing them locally (Phase 13b PR-C, ADR-023). Nil in
+	// servers instead of pairing them locally. Nil in
 	// single-server deployments.
 	peerDialer PeerDialer
 
@@ -148,7 +148,7 @@ type Option func(*Relay)
 
 // WithRegistry injects the SessionRegistry adapter and the caller's stable
 // serverID. Without it, NewRelay defaults to an in-process registry with
-// serverID "local". RedisRegistry is swapped in here at Phase 13b (PR-C).
+// serverID "local". Multi-server deployments inject RedisRegistry here.
 func WithRegistry(reg SessionRegistry, serverID string) Option {
 	return func(r *Relay) {
 		r.registry = reg
@@ -158,7 +158,7 @@ func WithRegistry(reg SessionRegistry, serverID string) Option {
 
 // WithPeerDialer injects the cross-server PeerDialer. Without it, a session
 // owned by another server is logged and handled locally (single-server
-// fallback); with it, such sessions are spliced to the owner (Phase 13b PR-C).
+// fallback); with it, such sessions are spliced to the owner.
 func WithPeerDialer(d PeerDialer) Option {
 	return func(r *Relay) {
 		r.peerDialer = d
@@ -167,7 +167,7 @@ func WithPeerDialer(d PeerDialer) Option {
 
 // WithAffinityTTL overrides the affinity-claim TTL, which also bounds how long
 // the owner waits for a proxied side's local peer before tearing a half-open
-// session down (Phase 13b PR-C).
+// session down.
 func WithAffinityTTL(ttl time.Duration) Option {
 	return func(r *Relay) {
 		r.affinityTTL = ttl
@@ -194,9 +194,9 @@ func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
 // Register registers one side of a session identified by token. When both local
 // sides are registered, piping starts automatically; when a distributed registry
 // reports a foreign owner and a PeerDialer is set, the side is instead spliced to
-// that owner across servers (Phase 13b PR-C, ADR-023).
+// that owner across servers.
 func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn Conn, side Side) error {
-	// Degraded-mode gate (ADR-023 recovery posture): once the session registry
+	// Once the session registry
 	// has been unreachable past degradedThreshold, refuse to start a *new* session
 	// — its affinity can't be claimed, so a cross-server pair could silently
 	// split-brain. A session already in flight (entry present) is unaffected: its
@@ -244,7 +244,7 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 	// in-process adapter these calls shadow the live sessions map and never alter
 	// routing. Registry failures are logged, not fatal — the live relay remains
 	// the source of truth for the in-process Conn pair. token_prefix is redacted
-	// inline at each call site (ADR-027 pen-test gate).
+	// inline at each call site so the full token never reaches logs.
 	if firstSide {
 		if owner != r.serverID {
 			// Foreign owner but no PeerDialer (single-server fallback): proceed
@@ -266,7 +266,7 @@ func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn 
 // starts the pipe, waiting up to affinityTTL for that peer. If none appears
 // (stale affinity — the owner-side conn is already gone) it tears the half-open
 // session down, closes conn, and returns an error so the caller closes the
-// tunnel and the client reconnects with a fresh token (ADR-023).
+// tunnel and the client reconnects with a fresh token.
 func (r *Relay) RegisterLocal(ctx context.Context, token protocol.SessionToken, conn Conn, side Side) error {
 	val, _ := r.sessions.LoadOrStore(token, &session{
 		ready: make(chan struct{}),
@@ -355,7 +355,7 @@ func (r *Relay) startPipeIfReady(token protocol.SessionToken, s *session) {
 // spliceToOwner dials the affinity owner and pipes the local conn through the
 // cross-server tunnel. The proxied session never pairs locally and never
 // re-proxies (the owner registers the tunnel via RegisterLocal). On dial failure
-// it fails fast (ADR-023): close the local conn and drop the session so the
+// it fails fast: close the local conn and drop the session so the
 // client reconnects with a fresh token. On success it marks the session ready so
 // WaitForPeer unblocks once the tunnel is up.
 func (r *Relay) spliceToOwner(ctx context.Context, token protocol.SessionToken, s *session, local Conn, side Side, owner string) error {
@@ -434,7 +434,7 @@ func (r *Relay) ActiveSessionCount() int {
 
 // PingRegistry reports whether the relay's SessionRegistry backing store is
 // reachable. The readiness probe uses it to drain a pod that has lost its
-// distributed store (ADR-023 recovery posture). Always nil with the in-process
+// distributed store. Always nil with the in-process
 // adapter.
 func (r *Relay) PingRegistry(ctx context.Context) error {
 	return r.registry.Ping(ctx)

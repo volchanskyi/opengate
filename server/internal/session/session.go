@@ -1,5 +1,5 @@
 // Package session owns the agent session aggregate (browser ↔ relay ↔ agent
-// session tokens). Per ADR-021, the Repository outbound port and its types
+// session tokens). The Repository outbound port and its types
 // live with the consuming module; the Postgres adapter lives alongside in
 // postgres.go.
 package session

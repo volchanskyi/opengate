@@ -1,4 +1,4 @@
-// Package audit owns the audit-log domain. Per ADR-021, the Repository
+// Package audit owns the audit-log domain. The Repository
 // outbound port and its types live with the consuming module; the Postgres
 // adapter lives alongside in postgres.go. The instrumented decorator
 // preserves the observability previously provided by metrics.InstrumentedStore.

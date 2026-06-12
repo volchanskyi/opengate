@@ -175,7 +175,7 @@ Quality gate thresholds (configured in the SonarCloud UI, Clean-as-You-Code mode
 
 The three rating conditions (Reliability / Security / Maintainability = A) implicitly forbid any new bugs, vulnerabilities, or code smells — any such issue flips the corresponding rating from A to worse and fails the gate. Overall project coverage is enforced separately by the per-language unit-test jobs (`Go Unit Tests`, `Rust Tests`, `Web Unit Tests`), each of which fails at < 80%. SonarCloud itself does not gate on overall coverage.
 
-Gate enforcement is done with `-Dsonar.qualitygate.wait=true` on the scan action — the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. A failed `sonarcloud` job blocks the auto-merge to `main`. SonarCloud.io itself is the authoritative console for findings; there is no SARIF export or duplication into the GitHub Code Scanning tab (a previous SARIF upload step was removed in commit [9236826](https://github.com/volchanskyi/opengate/commit/9236826) because dismissed-fingerprint matching kept new alerts invisible).
+Gate enforcement is done with `-Dsonar.qualitygate.wait=true` on the scan action — the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. A failed `sonarcloud` job blocks the auto-merge to `main`. SonarCloud.io itself is the authoritative console for findings; they are not mirrored into the GitHub Code Scanning tab (see [ADR-013](./adr/ADR-013-docs-in-repo-and-immutable-adrs.md) for why the SARIF upload was dropped).
 
 ### Local SonarCloud Analysis
 
@@ -247,7 +247,7 @@ Branch protection uses **repository rulesets** (not legacy branch protection rul
 The **CI Gate** ruleset replaces legacy branch protection on `dev`. Key differences from the legacy approach:
 - **Bypass actors:** Repository admins can push directly without passing status checks (legacy protection had `enforce_admins: false` which achieved the same effect, but rulesets make the bypass explicit).
 - **`merge-to-main`** uses a Fine-grained PAT (`SYNC_TOKEN` secret) instead of `GITHUB_TOKEN`. On a personal repo, `github-actions[bot]` cannot be added as a ruleset bypass actor — only the admin role can bypass. The PAT authenticates as the repo owner, who has the admin bypass.
-- **Code Scanning required tools:** CodeQL only. SonarCloud was removed on 2026-05-29 because `SonarSource/sonarqube-scan-action` does not upload SARIF to GitHub Code Scanning for pull_request refs (only for push events to `dev`) — leaving every Dependabot PR `BLOCKED` waiting for SARIF that never arrived. SonarCloud's quality gate is still enforced via the `SonarCloud Analysis` required status check (which posts a regular PR check, not a Code Scanning entry). CodeQL stays as a Code Scanning required tool because it uploads SARIF correctly for both branches and PRs.
+- **Code Scanning required tools:** CodeQL only. SonarCloud is not a Code Scanning tool because `SonarSource/sonarqube-scan-action` does not upload SARIF to GitHub Code Scanning for pull_request refs (only for push events to `dev`) — leaving every Dependabot PR `BLOCKED` waiting for SARIF that never arrived. SonarCloud's quality gate is still enforced via the `SonarCloud Analysis` required status check (which posts a regular PR check, not a Code Scanning entry). CodeQL stays as a Code Scanning required tool because it uploads SARIF correctly for both branches and PRs.
 
 ## Benchmark Workflows
 

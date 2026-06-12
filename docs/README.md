@@ -11,8 +11,8 @@ Start at [Home.md](./Home.md) for the chapter index.
 ## Why docs live in the repo
 
 Historically the wiki was a separate git repository. It drifted from the code
-constantly: coverage thresholds changed in CI but not in the wiki, SARIF export
-was removed in commit 9236826 but the wiki still described it weeks later,
+constantly: coverage thresholds changed in CI but not in the wiki, SARIF export was removed but the wiki still described it weeks
+later,
 ADR-012 kept accumulating in-place edits as the underlying policy shifted.
 
 The root cause was structural: a PR that touched `ci.yml` never touched the

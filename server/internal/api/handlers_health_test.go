@@ -61,7 +61,7 @@ func TestHealth_ReadyWhenRegistryHealthy(t *testing.T) {
 
 // TestHealth_DrainsWhenRegistryDown asserts the readiness probe reports 503 when
 // the session registry (Redis) is unreachable, so k8s drains the pod while
-// liveness keeps it running (ADR-023 recovery posture).
+// liveness keeps it running.
 func TestHealth_DrainsWhenRegistryDown(t *testing.T) {
 	ts := degradedRelayServer(t)
 	assert.Equal(t, http.StatusServiceUnavailable, getStatus(t, ts.URL+"/api/v1/health"))

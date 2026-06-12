@@ -21,7 +21,7 @@ type WebPushSubscription struct {
 }
 
 // WebPushRepository is the outbound persistence port for Web Push
-// subscriptions. Per ADR-021, the interface lives with the consuming module
+// subscriptions. The interface lives with the consuming module
 // (notifications); the Postgres adapter lives alongside in this package.
 type WebPushRepository interface {
 	Upsert(ctx context.Context, sub *WebPushSubscription) error

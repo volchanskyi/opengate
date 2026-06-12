@@ -1,8 +1,8 @@
-# OpenGate Go architecture lint (per ADR-020).
+# OpenGate Go architecture lint policy.
 #
-# Constrained components today:
-#   - cert  — leaf module, no internal imports (ADR-020 §"Migration order")
-#   - audit — first real per-aggregate extraction (ADR-021), no internal imports
+# Constrained components:
+#   - cert  — leaf module, no internal imports
+#   - audit — audit aggregate, no internal imports
 #
 # `audit` is intentionally narrow: it depends only on stdlib + uuid (vendor).
 # The 3rd-party pgx driver is registered as a database/sql driver in main.go,
@@ -11,12 +11,8 @@
 # The catch-all `other` component covers everything else with no restrictions,
 # so these rules do NOT gate code outside the constrained components.
 #
-# Subsequent ADR-021/022/023/024 work will tighten one component at a time.
-#
-# Mode:  Warn-only at the gauntlet integration today; auto-flips to error
-# when violation count reaches zero per ADR-020 §"Warn → error flip criterion".
-# This config file itself is invariant under that flip — only the gauntlet
-# step's exit-code handling changes.
+# Only the components listed below are constrained; `other` remains the
+# explicit catch-all. The gauntlet runs this policy in strict mode.
 
 version: 3
 workdir: .
@@ -43,22 +39,22 @@ components:
   cert:
     in: internal/cert
 
-  # Constrained: the audit module owns the audit-log aggregate (ADR-021 pilot
-  # extraction). Repository interface, Postgres adapter, and Instrumented
+  # Constrained: the audit module owns the audit-log aggregate. Repository
+  # interface, Postgres adapter, and Instrumented
   # decorator live here; no internal imports.
   audit:
     in: internal/audit
 
   # Constrained: the update module owns DeviceUpdate + EnrollmentToken
-  # aggregates (ADR-021 extraction #2). Repository interfaces, Postgres
+  # aggregates. Repository interfaces, Postgres
   # adapters, and Instrumented decorators live here. No internal imports.
   # The existing manifest/signing/github files inside internal/updater pre-
   # date the extraction; verified to import nothing project-internal.
   update:
     in: internal/updater
 
-  # Constrained: the auth module owns the SecurityGroup aggregate (ADR-021
-  # extraction #3) plus the existing JWT / password-hash helpers. Repository
+  # Constrained: the auth module owns the SecurityGroup aggregate plus the
+  # existing JWT / password-hash helpers. Repository
   # interface, Postgres adapter, and Instrumented decorator live here. No
   # internal imports — the Postgres adapter's syncIsAdmin updates the users
   # table but that coupling is local to the auth aggregate, not a cross-
@@ -66,15 +62,15 @@ components:
   auth:
     in: internal/auth
 
-  # Constrained: the device module owns the Device aggregate (ADR-021
-  # extraction #4) — Devices, Groups, Hardware inventory, and the cached log
+  # Constrained: the device module owns the Device aggregate — Devices, Groups,
+  # Hardware inventory, and the cached log
   # read model. Four Repository interfaces, their Postgres adapters, and
   # their Instrumented decorators live here. No internal imports.
   device:
     in: internal/device
 
   # Constrained: the notifications module owns the WebPushSubscription
-  # aggregate (ADR-021 extraction #5) plus the existing Notifier interface
+  # aggregate plus the existing Notifier interface
   # and VAPID key material. Repository interface, Postgres adapter, and
   # Instrumented decorator live here. The PushNotifier itself depends only
   # on WebPushRepository, not db.Store — so the module has no internal
@@ -82,8 +78,8 @@ components:
   notifications:
     in: internal/notifications
 
-  # Constrained: the session module owns the agent-session aggregate (ADR-021
-  # extraction #7) — browser ↔ relay ↔ agent session tokens. Repository
+  # Constrained: the session module owns the agent-session aggregate — browser
+  # ↔ relay ↔ agent session tokens. Repository
   # interface, Postgres adapter, and Instrumented decorator live here. No
   # internal imports (clean leaf — stdlib + uuid only).
   session:
@@ -91,15 +87,12 @@ components:
 
   # Constrained: the usecase module owns cross-aggregate orchestration that
   # would violate leaf-module boundaries if pushed into a single domain
-  # module (ADR-019). It composes per-aggregate Repository ports from the
-  # leaf modules. Pilot scope: SessionService.Delete (commit landing this
-  # rule). Future use cases (device.Restart, auth.Login, etc.) add their
-  # deps to mayDependOn opportunistically.
+  # module. It composes per-aggregate Repository ports from the leaf modules.
+  # SessionService.Delete is the current cross-aggregate use case.
   usecase:
     in: internal/usecase
 
-  # Catch-all for everything else. NOT constrained at the pilot stage — these
-  # components will earn their own rules in ADR-021/022/023/024 work.
+  # Catch-all for everything else. These components are currently unconstrained.
   other:
     in:
       - internal/**
@@ -162,8 +155,8 @@ deps:
     deepScan: false
   usecase:
     # Composes leaf-domain ports. Allowed to import any leaf aggregate
-    # whose Repository/port it consumes. Pilot scope (ADR-019) uses
-    # audit + notifications + session + protocol. deepScan disabled
+    # whose Repository/port it consumes. The current use case uses audit,
+    # notifications, session, and protocol. deepScan is disabled
     # because the use cases accept duck-typed interfaces (e.g.
     # notifications.Notifier) and the concrete implementation flowing
     # in at wiring time would otherwise be traced as a dependency.
@@ -175,6 +168,6 @@ deps:
     anyVendorDeps: true
     deepScan: false
   other:
-    # Unconstrained at the pilot stage; everything is allowed for non-pilot code.
+    # Explicit catch-all for components without dedicated dependency rules.
     anyProjectDeps: true
     anyVendorDeps: true

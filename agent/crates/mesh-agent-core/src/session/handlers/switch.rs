@@ -1,7 +1,7 @@
 //! WebRTC switch-ack control-message handler.
 //!
-//! Owns `ControlMessage::SwitchAck` dispatch. Carved out of
-//! [`super::super::handler::SessionHandler`] per ADR-024.
+//! Owns `ControlMessage::SwitchAck` dispatch so switch acknowledgements remain
+//! isolated from the [`super::super::handler::SessionHandler`] multiplexer.
 
 use std::sync::Arc;
 

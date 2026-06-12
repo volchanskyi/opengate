@@ -24,7 +24,7 @@ func (s *stubRepo) Query(_ context.Context, q audit.Query) ([]*audit.Event, erro
 	return s.events, s.err
 }
 
-// Per ADR-020 §9 plan §4.1: the audit module's Handlers struct is the
+// The audit module's Handlers struct is the
 // per-domain use-case layer. The api package's transport handler delegates
 // to ListEvents — passing the parsed query through and returning the raw
 // domain slice. These tests pin the contract (single delegation, no

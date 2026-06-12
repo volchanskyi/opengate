@@ -4,8 +4,8 @@ import "context"
 
 // Handlers exposes the audit module's use cases to transport-layer callers.
 //
-// Per ADR-020 §9 + modular-monolith plan §4.1, the api package's transport
-// handlers translate HTTP requests and responses to method calls on this
+// The api package's transport handlers translate HTTP requests and responses
+// to method calls on this
 // struct; the use-case logic lives here. For audit specifically the layer
 // is a thin delegation to the Repository — there is no permission check
 // or cross-aggregate join at the use-case level (those live in the

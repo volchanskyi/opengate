@@ -1,4 +1,4 @@
-//! Integration test for `FileHandler` (ADR-024 §9 carve).
+//! Integration test for `FileHandler`.
 
 use mesh_agent_core::file_ops::FileOpsHandler;
 use mesh_agent_core::session::handlers::FileHandler;

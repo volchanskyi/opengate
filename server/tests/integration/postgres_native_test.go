@@ -19,9 +19,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// Phase B / B4: Postgres-native integration tests.
-//
-// The migration from SQLite → PostgreSQL 17 (ADR-014, Phase 13a) introduced
+// Postgres-native integration tests pin
 // driver-specific semantics for TIMESTAMPTZ, JSONB and UUID columns that no
 // existing test pinned. A pgx/v5 upgrade or pool-config change could silently
 // regress any of these. These tests exercise the production tables directly

@@ -1,8 +1,8 @@
-//! Integration tests for the `MouseHandler` carved out of `SessionHandler::handle_control`.
+//! Integration tests for `MouseHandler` control-message dispatch.
 //!
-//! Per ADR-024, the inner control-message fan-out moves behind a
-//! `ControlMessageHandler` marker trait. `MouseHandler` is the pilot impl
-//! owning `MouseMove` + `MouseClick`. These tests pin the externally-visible
+//! The inner control-message fan-out lives behind a `ControlMessageHandler`
+//! marker trait. `MouseHandler` owns `MouseMove` + `MouseClick`. These tests pin
+//! the externally-visible
 //! contract: permission gating, dispatch order, and resilience to injector
 //! failures. Per-method unit tests live alongside the implementation in
 //! `src/session/handlers/mouse.rs`.

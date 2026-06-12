@@ -3,8 +3,8 @@ package notifications
 import "context"
 
 // Handlers exposes the notifications module's use cases to transport-layer
-// callers. Per ADR-020 §9 + plan §4.1, the api package's push/VAPID
-// handlers translate HTTP requests and responses to method calls on this
+// callers. The api package's push/VAPID handlers translate HTTP requests and
+// responses to method calls on this
 // struct. The webPush port handles subscription persistence; the notifier
 // port answers configuration-style queries (VAPID public key) and is also
 // invoked from non-transport flows (agent updates, device-state changes).

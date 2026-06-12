@@ -27,7 +27,7 @@ import (
 )
 
 // AMTStateWriter is the narrow port mps uses to persist device online/offline
-// state when CIRA connections come and go. The amt.Repository (ADR-021 #6)
+// state when CIRA connections come and go. The amt.Repository
 // satisfies this interface; mps does NOT import amt to avoid a cycle —
 // amt.Service holds a *mps.Server, so the dependency direction must stay
 // amt → mps. The method names mirror amt.Repository so the interface is

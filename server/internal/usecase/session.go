@@ -2,17 +2,15 @@
 // at the transport layer and would violate per-aggregate leaf-module
 // boundaries if pushed into a single domain module.
 //
-// Per ADR-019, transport handlers (api package) translate HTTP requests
+// Transport handlers in the api package translate HTTP requests
 // and responses to/from method calls on use-case services; the services
 // compose per-aggregate Repository ports to deliver a domain-meaningful
 // outcome. Use cases own NO HTTP types and are reusable from CLI/gRPC/
 // in-process callers.
 //
-// Pilot scope (this commit): SessionService.Delete only. Other session
-// methods (Create with 6-module orchestration, List) and other domains
-// (device, auth, updater) remain in api/handlers_*.go until an
-// opportunistic trigger moves them — same earned-port rule that
-// ADR-020 §3.6 applies to leaf-module port extraction.
+// SessionService.Delete is the current cross-aggregate use case. Other methods
+// remain in api/handlers_*.go because ports are extracted only when a concrete
+// consumer boundary earns them.
 package usecase
 
 import (
@@ -39,12 +37,12 @@ var (
 	ErrSessionForbidden = errors.New("session forbidden")
 )
 
-// SessionService orchestrates the session aggregate's use cases. Pilot
-// scope is Delete; Create and List remain in the transport layer until
-// the orchestration cost of carving them earns the move.
+// SessionService orchestrates deletion across the session aggregate, notifier,
+// and audit log. Create and List remain in the transport layer because their
+// current orchestration does not earn a separate use-case boundary.
 //
 // Composes leaf-domain ports directly (audit.Repository, session.Repository,
-// notifications.Notifier). Per ADR-019, usecase is the only component
+// notifications.Notifier). The usecase package is the only component
 // permitted to import multiple leaf aggregates.
 type SessionService struct {
 	sessions session.Repository

@@ -51,17 +51,16 @@ type SessionMeta struct {
 }
 
 // SessionRegistry is the outbound port for distributed session-affinity
-// tracking across a relay pool, per ADR-023.
+// tracking across a relay pool.
 //
 // Two adapters satisfy this port:
 //
-//  1. InProcessRegistry — single-server deployments (today). Returned by
+//  1. InProcessRegistry — single-server deployments. Returned by
 //     NewInProcessRegistry.
-//  2. RedisRegistry — multi-server deployments at Phase 13b kickoff.
-//     Wiring deferred to the Phase 13b PR per ADR-023 §"Migration triggers".
+//  2. RedisRegistry — multi-server deployments with shared affinity state.
 //
-// The relay code is agnostic about which adapter is in use — Phase 13b
-// becomes a config swap, not a code change.
+// The relay code is agnostic about which adapter is in use; deployment
+// configuration selects the adapter without changing relay behavior.
 type SessionRegistry interface {
 	// ClaimAffinity atomically claims ownership of a session token for the
 	// caller's server. Returns the owning serverID — the caller if the
@@ -92,7 +91,7 @@ type SessionRegistry interface {
 
 	// Ping reports whether the registry's backing store is reachable. It returns
 	// nil when healthy and an error otherwise; the readiness probe uses it to
-	// drain a pod that has lost its distributed store (ADR-023 recovery posture).
+	// drain a pod that has lost its distributed store.
 	// The in-process adapter has no external dependency and always returns nil.
 	Ping(ctx context.Context) error
 }

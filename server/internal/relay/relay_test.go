@@ -370,8 +370,8 @@ func registryRelay(t *testing.T) (*Relay, *InProcessRegistry) {
 
 // TestRelay_Register_ClaimsAffinityInRegistry asserts the first side of a
 // session claims affinity for the relay's serverID via the SessionRegistry
-// port (PR-A wiring, ADR-023). LookupOwner is the cross-server primitive the
-// Phase 13b proxy will consume.
+// port. LookupOwner is the cross-server primitive used to route a session to
+// its affinity owner.
 func TestRelay_Register_ClaimsAffinityInRegistry(t *testing.T) {
 	r, reg := registryRelay(t)
 	token := protocol.GenerateSessionToken()
@@ -422,7 +422,7 @@ func TestRelay_SessionEnd_DeletesRegistryEntry(t *testing.T) {
 
 // TestRelay_Register_PublishesLifecycleEvents asserts the relay broadcasts
 // EventCreated + EventSideJoined on registration and EventEnded on teardown,
-// so peer servers (Phase 13b) can observe sessions they do not own.
+// so peer servers can observe sessions they do not own.
 func TestRelay_Register_PublishesLifecycleEvents(t *testing.T) {
 	r, reg := registryRelay(t)
 
@@ -529,7 +529,7 @@ func (p *pingToggleRegistry) Ping(context.Context) error {
 }
 
 // TestRelay_RegistryHealth_DegradedAfterThreshold pins the degraded-mode state
-// machine (ADR-023 recovery posture): a first failure flips RegistryUp to false
+// machine: a first failure flips RegistryUp to false
 // immediately, but the relay only enters degraded mode once the outage exceeds
 // the threshold; the window is measured from the first failure; recovery clears
 // both. Driven with explicit timestamps so it is fully deterministic.
@@ -621,7 +621,7 @@ func TestRelay_MonitorRegistryHealth_FlipsAndRecovers(t *testing.T) {
 }
 
 // TestRelay_ForeignOwner_Logged covers the cross-server-ownership warn path:
-// when ClaimAffinity reports a different owner (a PR-C condition), the relay
+// when ClaimAffinity reports a different owner, the relay
 // logs and proceeds — the session still becomes active.
 func TestRelay_ForeignOwner_Logged(t *testing.T) {
 	reg := &stubRegistry{claimOwner: "other-server"}

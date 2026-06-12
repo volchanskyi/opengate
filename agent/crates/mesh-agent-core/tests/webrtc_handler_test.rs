@@ -1,4 +1,4 @@
-//! Integration test for `WebRTCHandler` (ADR-024 §9 carve).
+//! Integration test for `WebRTCHandler`.
 //!
 //! Covers the no-peer-conn ICE path. The full offer/answer dance and
 //! ICE-with-peer paths require a live webrtc-rs stack and are exercised

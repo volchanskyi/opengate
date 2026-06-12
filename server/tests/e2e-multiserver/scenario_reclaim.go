@@ -8,8 +8,8 @@ import (
 
 // scenarioOwnerDeathReclaim proves that when the affinity owner dies, a new pair
 // for the same token reclaims on the surviving replica once the stale affinity
-// claim expires (OPENGATE_AFFINITY_TTL). No live migration — ADR-023's contract
-// is reconnect-with-fresh-token; here the token is reused to exercise the TTL
+// claim expires (OPENGATE_AFFINITY_TTL). There is no live migration; clients
+// reconnect with a fresh token. Here the token is reused to exercise the TTL
 // reclaim path specifically.
 func scenarioOwnerDeathReclaim(ctx context.Context, h *harness) error {
 	token, err := h.seedSession(ctx)

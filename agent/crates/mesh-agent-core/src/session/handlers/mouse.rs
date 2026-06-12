@@ -1,8 +1,8 @@
 //! Mouse input control-message handler.
 //!
 //! Owns `ControlMessage::MouseMove` and `ControlMessage::MouseClick`
-//! dispatch. Carved out of [`super::super::handler::SessionHandler`] per
-//! ADR-024.
+//! dispatch so mouse input policy is independently testable outside the
+//! [`super::super::handler::SessionHandler`] multiplexer.
 
 use mesh_protocol::{MouseButton, Permissions};
 use tracing::warn;

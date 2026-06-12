@@ -93,12 +93,12 @@ func main() {
 	metricsRegistry := appmetrics.NewRegistry()
 	appMetrics := appmetrics.NewMetrics(metricsRegistry)
 
-	// Audit module owns its own outbound port (ADR-021). Wired against the
+	// The audit module owns its outbound persistence port. It is wired against the
 	// same connection pool as the main store; instrumented so audit calls
 	// land on the same db_query_* metrics as before the extraction.
 	auditRepo := audit.NewInstrumented(audit.NewPostgres(store.DB()), appMetrics)
 
-	// Update module owns DeviceUpdate + EnrollmentToken aggregates (ADR-021).
+	// The update module owns the DeviceUpdate and EnrollmentToken aggregates.
 	// Same pattern as audit: leaf module, Postgres adapter against the shared
 	// pool, Instrumented decorator preserves db_query_* metric continuity.
 	deviceUpdatesRepo := updater.NewInstrumentedDeviceUpdates(updater.NewPostgresDeviceUpdates(store.DB()), appMetrics)
@@ -145,13 +145,13 @@ func main() {
 	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
 
 	// Create relay and agent server. The relay tracks session affinity through
-	// the SessionRegistry port (ADR-023). REGISTRY_BACKEND selects the
+	// the SessionRegistry port. REGISTRY_BACKEND selects the
 	// adapter: "inprocess" (default, single-server) or "redis" (multi-server
 	// pool with cross-server affinity). serverID identifies this node in the
 	// relay pool — hostname by default, overridable for k8s pods.
 	sessionRegistry, registryCloser := initSessionRegistry(logger)
 	defer func() { _ = registryCloser.Close() }()
-	// Cross-server proxy (Phase 13b PR-C, ADR-023): when a distributed registry
+	// When a distributed registry
 	// reports a foreign owner, the relay splices the session through the owner's
 	// internal listener instead of pairing locally. All pods are homogeneous, so
 	// the dialer reuses this node's internal port to reach any peer (pod IP via
@@ -239,7 +239,7 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// Internal cross-server relay listener (ADR-023): private port for proxied
+	// The internal cross-server relay listener is a private port for proxied
 	// peer connections, never fronted by the public router/ingress.
 	internalSrv := &http.Server{
 		Addr:              internalAddr,
@@ -262,7 +262,7 @@ func main() {
 	}, 15*time.Second)
 	go appmetrics.StartDBSizeUpdater(ctx, appMetrics, store, logger, 60*time.Second)
 	// Probe the session registry every 5s so the relay can drain new sessions
-	// (degraded mode) and the opengate_registry_up gauge stays fresh (ADR-023).
+	// in degraded mode and the opengate_registry_up gauge stays fresh.
 	go agentRelay.MonitorRegistryHealth(ctx, 5*time.Second)
 
 	// Periodically sync agent manifests from GitHub releases (default: every hour).
@@ -319,7 +319,7 @@ func envOr(key, fallback string) string {
 
 // portOf extracts the port from a listen address, tolerating both the ":port"
 // and bare "port" forms. The HTTPPeerDialer reuses this port to reach
-// homogeneous peers on the flat cluster overlay (ADR-023).
+// homogeneous peers on the flat cluster overlay.
 func portOf(addr string) string {
 	if _, port, err := net.SplitHostPort(addr); err == nil {
 		return port

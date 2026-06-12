@@ -1,8 +1,8 @@
 //! File-operations control-message handler.
 //!
 //! Owns `ControlMessage::FileListRequest`, `FileDownloadRequest`, and
-//! `FileUploadRequest` dispatch. Carved out of
-//! [`super::super::handler::SessionHandler`] per ADR-024.
+//! `FileUploadRequest` dispatch so file operations remain isolated from the
+//! [`super::super::handler::SessionHandler`] multiplexer.
 
 use mesh_protocol::{ControlMessage, Frame};
 use tokio::sync::mpsc;

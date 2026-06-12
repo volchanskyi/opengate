@@ -41,7 +41,7 @@ type AgentServer struct {
 
 // AgentServerConfig groups the AgentServer constructor's dependencies. A
 // struct rather than a long parameter list keeps the call sites readable now
-// that ADR-021 has split the persistence ports across modules.
+// that persistence ports are split across their consuming modules.
 type AgentServerConfig struct {
 	Cert          *cert.Manager
 	Devices       device.Repository

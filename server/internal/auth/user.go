@@ -26,8 +26,8 @@ type User struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// UserRepository is the outbound persistence port for users. Per ADR-021,
-// the interface lives with the consuming module (auth); the Postgres
+// UserRepository is the outbound persistence port for users. The interface
+// lives with the consuming module (auth); the Postgres
 // adapter lives alongside in this package. The users table is co-owned by
 // the SecurityGroup repository (it JOINs to list group members and the
 // AddMember/RemoveMember path mirrors AdminGroupID membership into

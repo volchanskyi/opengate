@@ -53,7 +53,7 @@ type Member struct {
 }
 
 // SecurityGroupRepository is the outbound persistence port for security groups
-// and their memberships. Per ADR-021, the interface lives with the consuming
+// and their memberships. The interface lives with the consuming
 // module (auth); the Postgres implementation lives alongside in this package.
 //
 // AddMember / RemoveMember for the Administrators group atomically synchronize
