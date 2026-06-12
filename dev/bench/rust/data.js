@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781243554371,
+  "lastUpdate": 1781244880993,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17174,6 +17174,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.396710167681125,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "a2ceceba08c3f636f0e628dad966b38cc42085fa",
+          "message": "docs(adr): DD-C batch C — strip chronological/logistical noise from ADR bodies\n\nCurrent-state doctrine applied to ADR bodies (013+), keeping the fact + the why,\nand keeping decision metadata (frontmatter date:/Status/Amendment dates):\n- In-prose \"resolved/verified <date>\" provenance dropped from ADR-013/020/022/\n  023/024/027/030 (frontmatter and amendment dates kept).\n- ADR-013: SARIF-removal commit SHA dropped (behavior + dismissed-fingerprint\n  reason kept; CI-Pipeline.md already points here for the why).\n- ADR-027: directive date and derived retirement date dropped.\n- PR/phase logistics labels rephrased to the behavior in ADR-030 (PR-A/B/C/E),\n  ADR-034 (PR-B/C/D/E + \"Phase 13b PR-E\"), ADR-014 (Phase 13/13a), ADR-023\n  amendments (PR-C C1/C2). ADR-030's stale \"own ADR\" pointer repointed to\n  ADR-023 + its amendments.\n\nADR-036's matching tokens are the doctrine's own worked examples — kept.\nThe frozen 001-012 log is untouched. doc-links gate green.",
+          "timestamp": "2026-06-11T23:13:01-07:00",
+          "tree_id": "e50f245a02636ad5e6785c76876a014a213f9c00",
+          "url": "https://github.com/volchanskyi/opengate/commit/a2ceceba08c3f636f0e628dad966b38cc42085fa"
+        },
+        "date": 1781244880855,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 24.894939588929766,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.99749815706678,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 731.7610785171642,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.76686497586144,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.917949421229206,
             "unit": "ns/iter"
           }
         ]
