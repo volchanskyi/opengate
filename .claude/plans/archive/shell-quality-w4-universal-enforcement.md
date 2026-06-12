@@ -15,12 +15,12 @@ commit where shfmt drift and policy violations break a build** — it lands only
 
 **Modified:**
 
-- [`scripts/precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh) — add a
+- [`scripts/precommit-gauntlet.sh`](../../../scripts/precommit-gauntlet.sh) — add a
   `run_check "shell-check" -- make shell-check` step (full repo: syntax +
   ShellCheck + shfmt diff + `check-shell-policy.sh`). Place it in the lint phase
   near the existing `actionlint` / `lint-deploy` checks. The shfmt **diff** check
   is now active (safe post-W2).
-- [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) — extend the
+- [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) — extend the
   `config-lint` job (or add a dedicated `shell-quality` job) to: provision the
   pinned tools via `scripts/install-shell-tools.sh`, run `make shell-check` and
   `make shell-test`. Use the pinned-binary install pattern already used for

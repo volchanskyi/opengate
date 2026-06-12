@@ -18,7 +18,7 @@ A stub on `PATH` (`curl`, `systemctl`, `oci`, `ssh`, `docker`, `kubectl`,
 assert observable side-effects — files created/removed in a `t`-style
 `mktemp -d`, exit codes, redaction of secrets in output, idempotent re-runs —
 **never** merely "the stub was called." This matches the
-[test-determinism rule](../rules/tests-determinism.md): every test always runs,
+[test-determinism rule](../../rules/tests-determinism.md): every test always runs,
 deterministically, with no live infra and no silent skip. Any script where a
 meaningful offline assertion is impossible without live infra is **flagged here
 for a real dependency seam (small DI) rather than given a fake-green test** — do
@@ -28,9 +28,9 @@ not lower the bar to hit a checkbox.
 
 | Tier | Scripts | Required cases |
 |---|---|---|
-| Critical | [`install.sh`](../../server/internal/api/install.sh), [`bastion-session.sh`](../../deploy/scripts/bastion-session.sh), [`deploy.sh`](../../deploy/scripts/deploy.sh), [`rollback.sh`](../../deploy/scripts/rollback.sh) | success, malformed input, dependency failure, cleanup, idempotency, secret-redaction |
+| Critical | [`install.sh`](../../../server/internal/api/install.sh), [`bastion-session.sh`](../../../deploy/scripts/bastion-session.sh), [`deploy.sh`](../../../deploy/scripts/deploy.sh), [`rollback.sh`](../../../deploy/scripts/rollback.sh) | success, malformed input, dependency failure, cleanup, idempotency, secret-redaction |
 | Gate/parser | smoke/wait helpers, summarizers already partially covered | decision-table + malformed fixture |
-| Transport | [`pmat-loki-push.sh`](../../scripts/pmat-loki-push.sh), [`mutation-loki-push.sh`](../../scripts/mutation-loki-push.sh), [`terraform-drift-loki-push.sh`](../../scripts/terraform-drift-loki-push.sh), `pmat-loki-query.sh` | transport selection (ssh vs kubectl vs curl), cleanup, redaction |
+| Transport | [`pmat-loki-push.sh`](../../../scripts/pmat-loki-push.sh), [`mutation-loki-push.sh`](../../../scripts/mutation-loki-push.sh), [`terraform-drift-loki-push.sh`](../../../scripts/terraform-drift-loki-push.sh), `pmat-loki-query.sh` | transport selection (ssh vs kubectl vs curl), cleanup, redaction |
 
 ## File inventory
 

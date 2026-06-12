@@ -1,6 +1,6 @@
 # Shell Quality Hardening and Enforcement
 
-**Status:** Approved — master plan. Decomposed into seven micro-plans (see
+**Status:** Completed. Decomposed into seven micro-plans (see
 [Micro-Plan Index](#micro-plan-index)); each is independently implementable and
 reviewable.
 
@@ -41,7 +41,7 @@ The current repository contains:
 | Surface | Current size | Existing enforcement |
 |---|---:|---|
 | Tracked `.sh` files | 54 files / 7,342 physical lines | `bash -n` succeeds; no repository-wide ShellCheck or shfmt gate |
-| GitHub workflow `run:` blocks | 193 blocks / 1,377 physical lines | [`actionlint`](../../Makefile) checks workflows and invokes whichever ShellCheck is on `PATH` |
+| GitHub workflow `run:` blocks | 193 blocks / 1,377 physical lines | [`actionlint`](../../../Makefile) checks workflows and invokes whichever ShellCheck is on `PATH` |
 | Composite-action `run:` blocks | 14 blocks / 285 physical lines | Not covered by actionlint's workflow parser |
 | Total shell-executed surface | About 9,004 physical lines | Split across inconsistent enforcement paths |
 
@@ -51,14 +51,14 @@ embedded in workflow and composite-action YAML.
 
 The largest tracked Shell files include:
 
-- [`hooks.test.sh`](../../scripts/tests/hooks.test.sh)
-- [`bastion-session.sh`](../../deploy/scripts/bastion-session.sh)
-- [`precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh)
-- [`build-image-gate.test.sh`](../../scripts/tests/build-image-gate.test.sh)
-- [`pentest-review.test.sh`](../../scripts/tests/pentest-review.test.sh)
-- [`common.sh`](../../deploy/scripts/common.sh)
-- [`mutation-summarize.sh`](../../scripts/mutation-summarize.sh)
-- [`install.sh`](../../server/internal/api/install.sh)
+- [`hooks.test.sh`](../../../scripts/tests/hooks.test.sh)
+- [`bastion-session.sh`](../../../deploy/scripts/bastion-session.sh)
+- [`precommit-gauntlet.sh`](../../../scripts/precommit-gauntlet.sh)
+- [`build-image-gate.test.sh`](../../../scripts/tests/build-image-gate.test.sh)
+- [`pentest-review.test.sh`](../../../scripts/tests/pentest-review.test.sh)
+- [`common.sh`](../../../deploy/scripts/common.sh)
+- [`mutation-summarize.sh`](../../../scripts/mutation-summarize.sh)
+- [`install.sh`](../../../server/internal/api/install.sh)
 
 The Shell share is therefore architectural, not accidental: hooks, CI gates,
 deployment orchestration, release/install flows, and observability pipelines
@@ -70,7 +70,7 @@ Every tracked script declares Bash. Bash-specific arrays, `[[ ... ]]`,
 `BASH_SOURCE`, process substitution, and `/dev/tcp` are already used, so a POSIX
 `sh` portability mandate would be a rewrite with no current benefit.
 
-The downloaded [`install.sh`](../../server/internal/api/install.sh) has a wider
+The downloaded [`install.sh`](../../../server/internal/api/install.sh) has a wider
 runtime surface than repository-only scripts because it executes on managed
 machines. Its minimum supported Bash and Linux distribution must be explicit
 before adopting newer Bash features.
@@ -89,7 +89,7 @@ The current first-option declarations are:
 
 Several `set -uo pipefail` scripts intentionally collect multiple failures or
 inspect non-zero statuses. For example,
-[`precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh) must continue
+[`precommit-gauntlet.sh`](../../../scripts/precommit-gauntlet.sh) must continue
 after a failed check so it can report the complete failure set.
 
 The Bash manual documents that `errexit` has contextual exceptions in
@@ -98,10 +98,10 @@ therefore contain `set -e` and still require explicit status handling. See the
 official [`set` builtin documentation](https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html).
 
 Sourced libraries should not change the caller's shell options.
-[`scripts/lib/loki-push.sh`](../../scripts/lib/loki-push.sh) and
-[`scripts/lib/postgres-prereq.sh`](../../scripts/lib/postgres-prereq.sh) already
-follow that rule. [`hooks/lib/common.sh`](../hooks/lib/common.sh) and
-[`deploy/scripts/common.sh`](../../deploy/scripts/common.sh) currently set
+[`scripts/lib/loki-push.sh`](../../../scripts/lib/loki-push.sh) and
+[`scripts/lib/postgres-prereq.sh`](../../../scripts/lib/postgres-prereq.sh) already
+follow that rule. [`hooks/lib/common.sh`](../../hooks/lib/common.sh) and
+[`deploy/scripts/common.sh`](../../../deploy/scripts/common.sh) currently set
 global options despite being sourced; their callers already establish their
 own policies, so the library declarations should be removed after tests pin the
 behavior.
@@ -142,7 +142,7 @@ official [shfmt documentation](https://github.com/mvdan/sh) and
 
 ### Test Baseline
 
-[`scripts/tests/`](../../scripts/tests/) contains eleven plain-Bash test
+[`scripts/tests/`](../../../scripts/tests/) contains eleven plain-Bash test
 harnesses. The precommit gauntlet discovers them by glob, so new
 `*.test.sh` files automatically enter the commit gate.
 
@@ -157,14 +157,14 @@ Current tests are concentrated around:
 
 The main direct behavioral gaps are in:
 
-- [`install.sh`](../../server/internal/api/install.sh);
-- [`bastion-session.sh`](../../deploy/scripts/bastion-session.sh);
+- [`install.sh`](../../../server/internal/api/install.sh);
+- [`bastion-session.sh`](../../../deploy/scripts/bastion-session.sh);
 - deployment, rollback, smoke, and wait scripts under
-  [`deploy/scripts/`](../../deploy/scripts/);
+  [`deploy/scripts/`](../../../deploy/scripts/);
 - Loki transport and query helpers;
 - mutation and Terraform drift summarizers;
 - the larger composite-action shell blocks under
-  [`.github/actions/`](../../.github/actions/).
+  [`.github/actions/`](../../../.github/actions/).
 
 Bats is a capable framework, but its files are evaluated once for discovery and
 again in separate processes for each test. Its native syntax also needs special
@@ -218,8 +218,7 @@ and [release](https://github.com/bats-core/bats-core/releases/tag/v1.13.0).
   not templated source code.
 - The current-state documentation work touches hooks and should land before the
   shfmt baseline. The shell gates should land before implementing the CI/CD
-  orchestration in
-  [`context-driven-fault-injection.md`](context-driven-fault-injection.md).
+  orchestration described by `context-driven-fault-injection.md`.
 
 ## Quality Metrics
 
@@ -478,7 +477,7 @@ Add `scripts/check-shell-policy.sh` and a corresponding
 Keep workflow `run:` blocks under actionlint and explicitly point actionlint to
 the pinned ShellCheck binary.
 
-For [`.github/actions/`](../../.github/actions/):
+For [`.github/actions/`](../../../.github/actions/):
 
 - extract multiline logic into adjacent `.sh` files;
 - pass action inputs through explicit environment variables or arguments;
@@ -487,7 +486,7 @@ For [`.github/actions/`](../../.github/actions/):
 - validate the action metadata with the existing configuration gate.
 
 Prioritize
-[`verify-oci-tfstate-creds/action.yml`](../../.github/actions/verify-oci-tfstate-creds/action.yml),
+[`verify-oci-tfstate-creds/action.yml`](../../../.github/actions/verify-oci-tfstate-creds/action.yml),
 which currently contains the largest inline Shell blocks.
 
 ### Test Strategy
@@ -506,11 +505,11 @@ Classify production scripts by risk:
 
 First behavioral targets:
 
-1. [`install.sh`](../../server/internal/api/install.sh) with stubbed `curl`,
+1. [`install.sh`](../../../server/internal/api/install.sh) with stubbed `curl`,
    `systemctl`, `install`, and checksum commands.
-2. [`bastion-session.sh`](../../deploy/scripts/bastion-session.sh) with stubbed
+2. [`bastion-session.sh`](../../../deploy/scripts/bastion-session.sh) with stubbed
    OCI and SSH commands, cache fixtures, and cleanup assertions.
-3. [`deploy/scripts/`](../../deploy/scripts/) with fake Docker/Compose state.
+3. [`deploy/scripts/`](../../../deploy/scripts/) with fake Docker/Compose state.
 4. Loki push/query transports with stubbed `ssh`, `kubectl`, and `curl`.
 5. Extracted composite-action scripts.
 
@@ -554,9 +553,9 @@ and must not introduce a second formatter policy or an unpinned CI dependency.
 ### Commit 4 — Universal Enforcement
 
 - Add `make shell-check` to
-  [`precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh).
+  [`precommit-gauntlet.sh`](../../../scripts/precommit-gauntlet.sh).
 - Add a dedicated fast Shell quality job to
-  [`ci.yml`](../../.github/workflows/ci.yml).
+  [`ci.yml`](../../../.github/workflows/ci.yml).
 - Configure actionlint to invoke the pinned ShellCheck.
 - Add changed-file enforcement to the agent write/commit path while retaining
   full-repository CI enforcement.
@@ -580,7 +579,7 @@ and must not introduce a second formatter policy or an unpinned CI dependency.
 
 ### Commit 7 — Documentation and Migration Heuristic
 
-- Document canonical commands and strict-mode classes under [`docs/`](../../docs/).
+- Document canonical commands and strict-mode classes under [`docs/`](../../../docs/).
 - Update the shared agent/tooling rules with the canonical commands.
 - Record when new logic belongs in Bash and when it should move to Go.
 - Archive this plan after every acceptance criterion is met.
@@ -613,8 +612,7 @@ do not re-litigate them inside a micro-plan.
    + exception manifest), composite-action extraction, and the risk-based
    behavioral-test tier. Options A/C/D are not taken.
 2. **shfmt baseline timing:** land **now, ahead of all other in-progress work**
-   (the six `fast-path-*` plans and
-   [`context-driven-fault-injection.md`](context-driven-fault-injection.md)), so
+   (the six `fast-path-*` plans and `context-driven-fault-injection.md`), so
    subsequent work enters already-formatted and under the gate. See the two
    guardrails below for the mechanics this forces.
 3. **Policy checker:** **build it** — the bespoke classifier and exception
@@ -631,15 +629,15 @@ branches. Two repo-specific hazards must be handled, neither of which the
 external analysts noted:
 
 - **The TDD / source-write hooks gate the reformat.** A mass `.sh` reformat is a
-  source edit, so [`pretooluse-bash-source-write-guard.sh`](../hooks/pretooluse-bash-source-write-guard.sh)
-  and [`pretooluse-tdd-gate.sh`](../hooks/pretooluse-tdd-gate.sh) require a test
+  source edit, so [`pretooluse-bash-source-write-guard.sh`](../../hooks/pretooluse-bash-source-write-guard.sh)
+  and [`pretooluse-tdd-gate.sh`](../../hooks/pretooluse-tdd-gate.sh) require a test
   change to already exist on the branch. W1 lands its tests first; because the
   TDD gate goes silent for the rest of the branch once any test change exists,
   W2–W7 inherit a satisfied gate. The W2 baseline must therefore land **after**
   W1 on the same `dev` line.
 - **shfmt is not wired into the commit gauntlet until W4.** W1 adds `make
   shell-check` with ShellCheck enforcement only; the shfmt **diff** check is not
-  added to [`precommit-gauntlet.sh`](../scripts/precommit-gauntlet.sh) until W4,
+  added to [`precommit-gauntlet.sh`](../../../scripts/precommit-gauntlet.sh) until W4,
   which lands *after* the W2 baseline. This prevents the ~1,370-line pre-baseline
   diff from blocking W1's own commit.
 - **Active-branch rebase:** the W2 baseline lands as a single atomic
@@ -650,7 +648,7 @@ external analysts noted:
 
 Full Option B includes W6's command-stub tests for `install.sh`,
 `bastion-session.sh`, and the deploy scripts. These are held to the same bar as
-the [test-determinism rule](../rules/tests-determinism.md): a stub must let the
+the [test-determinism rule](../../rules/tests-determinism.md): a stub must let the
 script exercise **real** branching, cleanup, and idempotency logic — assert
 observable side-effects (files created/removed, exit codes, redaction) and exit
 paths, never merely "the stub was invoked." Any script where a meaningful
@@ -675,10 +673,8 @@ file inventory, steps, and reviewer checklist. They land in order on `dev`.
 ## Sequencing Notes
 
 - This effort precedes resuming the `fast-path-*` work and
-  [`context-driven-fault-injection.md`](context-driven-fault-injection.md).
-- If
-  [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md)
-  still has unlanded hook edits, land those before W2 so the formatting baseline
+  `context-driven-fault-injection.md`.
+- Pending documentation-doctrine hook edits land before W2 so the formatting baseline
   does not collide with hook changes; otherwise W2's reformat would re-touch
   hook files mid-flight. Coordinate, do not silently reformat over pending hook
   work.

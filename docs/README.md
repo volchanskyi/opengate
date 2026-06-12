@@ -113,6 +113,7 @@ docs/
 ├── Platform-Abstraction.md             Agent platform traits
 ├── Database.md                         PostgreSQL schema, migrations, backups
 ├── Testing.md                          Test layers, tooling
+├── Shell-Quality.md                    Bash policy, gates, behavioral tests
 ├── CI-Pipeline.md                      GitHub Actions pipeline
 ├── Continuous-Deployment.md            CD flow and rollback
 ├── Container-Images.md                 GHCR image build and signing

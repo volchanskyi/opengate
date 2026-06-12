@@ -14,8 +14,8 @@ shfmt in the commit gauntlet (that is W4, after the W2 baseline).
 - Establishes the deterministic ShellCheck/shfmt versions whose absence is the
   real defect (workstation ShellCheck is `0.8.0`; pin is `0.11.0`).
 - Lands at least one `*.test.sh` change on `dev`, which makes
-  [`pretooluse-tdd-gate.sh`](../hooks/pretooluse-tdd-gate.sh) and
-  [`pretooluse-bash-source-write-guard.sh`](../hooks/pretooluse-bash-source-write-guard.sh)
+  [`pretooluse-tdd-gate.sh`](../../hooks/pretooluse-tdd-gate.sh) and
+  [`pretooluse-bash-source-write-guard.sh`](../../hooks/pretooluse-bash-source-write-guard.sh)
   silent for the W2 mass reformat (Guardrail A in the master plan).
 
 ## File inventory
@@ -24,7 +24,7 @@ shfmt in the commit gauntlet (that is W4, after the W2 baseline).
 
 - `scripts/install-shell-tools.sh` — idempotent, checksum-verified provisioner
   for ShellCheck `0.11.0` and shfmt `3.13.1`. Model on
-  [`scripts/install-semgrep.sh`](../../scripts/install-semgrep.sh): exact pins,
+  [`scripts/install-semgrep.sh`](../../../scripts/install-semgrep.sh): exact pins,
   no-op when present, fail loudly on unsupported platform, post-install version
   smoke test. **Adds a SHA-256 check** the semgrep installer doesn't need (these
   are binary assets, not a pip wheel).

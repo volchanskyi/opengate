@@ -23,9 +23,7 @@ layout only.
 - W1 is merged on `dev` (provisioner, config, runner, and — critically — at
   least one `*.test.sh` change, which keeps the TDD/source-write hooks silent
   for this source-only reformat).
-- If
-  [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md)
-  has unlanded hook edits, land those first so this reformat does not collide
+- Pending documentation-doctrine hook edits land first so this reformat does not collide
   with pending hook work.
 
 ## File inventory
@@ -45,9 +43,9 @@ layout only.
    string); investigate before proceeding.
 5. Manually diff-review the high-risk scripts to confirm semantics are
    unchanged: heredocs (`<<-`/`<<`), `trap` lines, and nested-shell string
-   literals in [`precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh),
-   [`bastion-session.sh`](../../deploy/scripts/bastion-session.sh), and
-   [`install.sh`](../../server/internal/api/install.sh).
+   literals in [`precommit-gauntlet.sh`](../../../scripts/precommit-gauntlet.sh),
+   [`bastion-session.sh`](../../../deploy/scripts/bastion-session.sh), and
+   [`install.sh`](../../../server/internal/api/install.sh).
 6. `git diff --stat` — confirm only `.sh` files changed.
 7. `/precommit` → commit (message states "formatting only, shfmt 3.13.1 baseline,
    no behavior change") → `/refactor` → push.

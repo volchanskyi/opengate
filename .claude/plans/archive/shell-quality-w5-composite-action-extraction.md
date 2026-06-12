@@ -12,13 +12,13 @@ shell is currently entirely unlinted.
 
 ## Empirical targets (verified 2026-06-11)
 
-Three composite actions exist under [`.github/actions/`](../../.github/actions/):
+Three composite actions exist under [`.github/actions/`](../../../.github/actions/):
 
 | Action | `action.yml` size | Priority |
 |---|---:|---|
-| [`verify-oci-tfstate-creds`](../../.github/actions/verify-oci-tfstate-creds/action.yml) | 247 lines | **First** — largest inline shell |
-| [`oci-kube-setup`](../../.github/actions/oci-kube-setup/action.yml) | 87 lines | Second |
-| [`docker-hub-mirror`](../../.github/actions/docker-hub-mirror/action.yml) | 48 lines | Evaluate; extract only if multiline logic remains |
+| [`verify-oci-tfstate-creds`](../../../.github/actions/verify-oci-tfstate-creds/action.yml) | 247 lines | **First** — largest inline shell |
+| [`oci-kube-setup`](../../../.github/actions/oci-kube-setup/action.yml) | 87 lines | Second |
+| [`docker-hub-mirror`](../../../.github/actions/docker-hub-mirror/action.yml) | 48 lines | Evaluate; extract only if multiline logic remains |
 
 ## Extraction contract
 
