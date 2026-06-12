@@ -2,24 +2,13 @@
 
 **Parent:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) (§2 Docs/ADRs).
 **Execution order:** **6th / last** (after TD5 — docs reflect the final code).
-**Status:** **BLOCKED on a governance prerequisite** — see below.
-**Risk:** Low on content; the blocker is process, not code.
+**Status:** Ready; the ADR-mutability governance prerequisite is complete.
+**Risk:** Low.
 
-## ⚠ Hard prerequisite — the ADR-immutability hook will block in-place ADR edits
+## Governance prerequisite
 
-Master §0 directs ADRs to be **amended in place**. But the write-guard hook
-**refuses any `Edit`/`Write` to an existing `docs/adr/ADR-*.md`**
-([`pretooluse-write-guard.sh:35-40`](../hooks/pretooluse-write-guard.sh#L35-L40),
-`adr-immutable`). **No bypass exists.** Therefore TD6 **cannot run** until
-[`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md)
-lands and modifies that hook to permit in-place ADR amendment.
-
-**Until the flip lands, TD6 has two options — pick one with the user:**
-- **(A) Wait** for the governance flip, then amend ADRs in place (master's intent).
-- **(B) Supersede** ADRs 031/033 with new "reverted" ADR files (the *current*
-  immutability rule), splitting ADR-034. Avoids the hook, but contradicts master §0.
-
-Do not attempt to edit an ADR before the flip — the hook will hard-block the commit.
+ADR-036 and the write-guard now permit in-place ADR maintenance. TD6 can amend
+the affected records directly under the current-state documentation doctrine.
 
 ## Verified file inventory
 
@@ -41,7 +30,7 @@ Do not attempt to edit an ADR before the flip — the hook will hard-block the c
 - `docs/adr/ADR-020-*.md`, `docs/adr/ADR-027-*.md` mention these terms **in
   passing** — leave unless the mention is now factually wrong.
 
-## Steps (after the governance flip lands)
+## Steps
 
 1. Read [`docs/README.md`](../../docs/README.md) first (link-don't-paraphrase; ADR
    conventions).
@@ -56,7 +45,7 @@ Do not attempt to edit an ADR before the flip — the hook will hard-block the c
 
 ## Reviewer checklist
 
-- [ ] Governance flip confirmed landed (hook permits ADR edits) **before** any ADR was touched — or option B (supersede) was used.
+- [x] Governance flip permits in-place ADR maintenance.
 - [ ] ADRs 031/033 marked reverted; 034 split (shared keys retained); 023/030 annotated.
 - [ ] Readiness doc §3 reframed to "removed — rebuild spec"; still the SSOT.
 - [ ] `decisions.md` + `phases.md` rows updated; prose docs + README scrubbed.

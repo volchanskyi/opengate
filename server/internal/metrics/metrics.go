@@ -19,9 +19,6 @@ type GaugeSource struct {
 	ConnectedMPSDevices func() int
 	SignalingSuccesses  func() int64
 	SignalingFailures   func() int64
-	// RegistryUp reports whether the relay's session registry (Redis) is
-	// reachable; drives the opengate_registry_up gauge.
-	RegistryUp func() bool
 }
 
 // Metrics holds all Prometheus metric descriptors for the OpenGate server.
@@ -32,7 +29,6 @@ type Metrics struct {
 
 	// Relay
 	RelayActiveSessions prometheus.Gauge
-	RegistryUp          prometheus.Gauge
 
 	// Agents
 	AgentsConnected prometheus.Gauge
@@ -69,12 +65,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Namespace: "opengate",
 			Name:      "relay_active_sessions",
 			Help:      "Number of active relay sessions.",
-		}),
-
-		RegistryUp: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: "opengate",
-			Name:      "registry_up",
-			Help:      "Session registry (Redis) reachability: 1 reachable, 0 unreachable.",
 		}),
 
 		AgentsConnected: prometheus.NewGauge(prometheus.GaugeOpts{
@@ -119,7 +109,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.HTTPRequestsTotal,
 		m.HTTPRequestDuration,
 		m.RelayActiveSessions,
-		m.RegistryUp,
 		m.AgentsConnected,
 		m.MPSConnectedDevices,
 		m.SignalingUpgradesTotal,
@@ -164,11 +153,6 @@ func StartGaugeUpdater(ctx context.Context, m *Metrics, src GaugeSource, interva
 		m.RelayActiveSessions.Set(float64(src.ActiveSessions()))
 		m.AgentsConnected.Set(float64(src.ConnectedAgents()))
 		m.MPSConnectedDevices.Set(float64(src.ConnectedMPSDevices()))
-		registryUp := 0.0
-		if src.RegistryUp() {
-			registryUp = 1
-		}
-		m.RegistryUp.Set(registryUp)
 	}
 
 	// Signaling counters are monotonically increasing atomics in the Tracker.

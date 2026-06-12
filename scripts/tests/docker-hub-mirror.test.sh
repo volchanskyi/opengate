@@ -64,7 +64,7 @@ mapfile -t PULL_JOBS < <(
       }
 
       function is_pull_line(line) {
-        return line ~ /docker[[:space:]]+pull[[:space:]]/ || line ~ /docker[[:space:]]+run[[:space:]]/ || line ~ /docker[[:space:]]+compose.*[[:space:]]up([[:space:]]|$)/ || line ~ /make[[:space:]]+(e2e-multiserver|load-test-multiserver)([[:space:]]|$)/ || line ~ /^      image:[[:space:]]/ || line ~ /^        image:[[:space:]]/
+        return line ~ /docker[[:space:]]+pull[[:space:]]/ || line ~ /docker[[:space:]]+run[[:space:]]/ || line ~ /docker[[:space:]]+compose.*[[:space:]]up([[:space:]]|$)/ || line ~ /^      image:[[:space:]]/ || line ~ /^        image:[[:space:]]/
       }
 
       /^jobs:[[:space:]]*$/ {
@@ -106,10 +106,10 @@ mapfile -t PULL_JOBS < <(
   done
 )
 
-if [ "${#PULL_JOBS[@]}" -eq 7 ]; then
-  pass "expected seven Docker Hub pull-capable jobs"
+if [ "${#PULL_JOBS[@]}" -eq 6 ]; then
+  pass "expected six Docker Hub pull-capable jobs"
 else
-  fail "expected seven Docker Hub pull-capable jobs, found ${#PULL_JOBS[@]}"
+  fail "expected six Docker Hub pull-capable jobs, found ${#PULL_JOBS[@]}"
 fi
 
 UNPROTECTED_JOBS=()
@@ -170,10 +170,10 @@ read -r COMPOSITE_USES BAD_CREDENTIAL_BLOCKS < <(
   ' "$WORKFLOWS"/*.yml
 )
 
-if [ "$COMPOSITE_USES" -eq 7 ]; then
-  pass "all seven pull jobs use the composite"
+if [ "$COMPOSITE_USES" -eq 6 ]; then
+  pass "all six pull jobs use the composite"
 else
-  fail "expected seven composite uses, found $COMPOSITE_USES"
+  fail "expected six composite uses, found $COMPOSITE_USES"
 fi
 
 if [ "$BAD_CREDENTIAL_BLOCKS" -eq 0 ]; then

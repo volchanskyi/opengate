@@ -10,9 +10,6 @@
 #      securityContext.runAsNonRoot: true).
 #   4. Long-running workloads (Deployment / StatefulSet) must declare both a
 #      liveness and a readiness probe on every container.
-#   5. KEDA ScaledObject (PR-E autoscaling): minReplicaCount ≤ maxReplicaCount
-#      and at least one trigger.
-#   6. PodDisruptionBudget (PR-E): must set minAvailable or maxUnavailable.
 #
 # Input shape: a single rendered Kubernetes manifest document (kind/metadata/
 # spec…). conftest feeds each document of the multi-doc stream in turn; docs
@@ -106,27 +103,4 @@ deny[msg] {
 	c := input.spec.template.spec.containers[_]
 	not c.readinessProbe
 	msg := sprintf("%v/%v: container %q has no readinessProbe", [input.kind, input.metadata.name, c.name])
-}
-
-# --- Rule 5: KEDA ScaledObject sanity (PR-E autoscaling) -------------------
-
-deny[msg] {
-	input.kind == "ScaledObject"
-	input.spec.minReplicaCount > input.spec.maxReplicaCount
-	msg := sprintf("%v/%v: minReplicaCount (%v) exceeds maxReplicaCount (%v)", [input.kind, input.metadata.name, input.spec.minReplicaCount, input.spec.maxReplicaCount])
-}
-
-deny[msg] {
-	input.kind == "ScaledObject"
-	count(input.spec.triggers) == 0
-	msg := sprintf("%v/%v: ScaledObject declares no triggers", [input.kind, input.metadata.name])
-}
-
-# --- Rule 6: PodDisruptionBudget must bound availability (PR-E) ------------
-
-deny[msg] {
-	input.kind == "PodDisruptionBudget"
-	not input.spec.minAvailable
-	not input.spec.maxUnavailable
-	msg := sprintf("%v/%v: PodDisruptionBudget sets neither minAvailable nor maxUnavailable", [input.kind, input.metadata.name])
 }

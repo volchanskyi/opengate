@@ -46,31 +46,9 @@ The chart never embeds secret material — it references an `existingSecret`
 QUIC (agent transport, UDP) and Intel AMT CIRA (MPS, TCP) are non-HTTP and
 cannot ride the ingress. On the single-node start they bind to the node's
 public IP via `hostPort` (`server.hostPortL4`) — see ADR-030 §5 for the
-rationale and the multi-node alternative.
+rationale.
 
-### Redis (distributed SessionRegistry)
-
-The chart ships a **Redis Sentinel HA** topology (data StatefulSet + Sentinel
-StatefulSet + headless Services) backing the multiserver `SessionRegistry`. It
-is **dormant by default**: gated behind `redis.enabled` (off), with the server
-defaulting to the in-process registry (`REGISTRY_BACKEND=inprocess`). When
-enabled, the server is wired to the Sentinel service via `REGISTRY_BACKEND=redis`
-+ `REDIS_SENTINEL_ADDRS` + `REDIS_MASTER_NAME`. The design, key schema, and the
-"do not flip any overlay to `redis` until the C2 cross-server proxy lands"
-constraint are recorded in
-[ADR-023 Amendment 1](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments);
-the tunables live in
-[`values.yaml`](../deploy/helm/opengate/values.yaml) under `redis`. The
-cross-server WebSocket proxy that the `redis` backend enables
-([ADR-023 Amendment 2](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments)) and its Redis-loss
-degraded-mode posture are exercised end-to-end by the multiserver harness —
-see [Testing § Multiserver E2E](./Testing.md#multiserver-e2e).
-
-### Scale-out (HPA/KEDA + shared keys)
-
-Horizontal scale-out ([ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md)) is
-three default-off flags under `server` in
-[`values.yaml`](../deploy/helm/opengate/values.yaml):
+### Shared keys
 
 - **`sharedKeys.enabled`** — multi-replica correctness prerequisite. Switches
   `/data` from the per-replica RWO PVC to an `emptyDir` and mounts the enrollment
@@ -78,17 +56,11 @@ three default-off flags under `server` in
   every replica serves identical key material (the server loads keys if present —
   no code change). Generate the four key files once and fold them into the secret;
   recipe in [`secrets.example.yaml`](../deploy/helm/opengate/secrets.example.yaml).
-- **`autoscaling.enabled`** — renders a KEDA `ScaledObject` scaling the server
-  Deployment on CPU utilization **and** `sum(opengate_relay_active_sessions)` from
-  VictoriaMetrics. KEDA owns the replica count (the Deployment omits
-  `spec.replicas`). Requires the KEDA operator installed in the cluster.
-- **`podDisruptionBudget.enabled`** — keeps `minAvailable` server pods up during
-  drains/rollouts.
 
-All three are off in the staging/production overlays (single-replica PVC path) and
-on in [`ci/test-values.yaml`](../deploy/helm/opengate/ci/test-values.yaml) so
-`make lint-k8s` validates both paths. Per-replica session distribution is on the
-Grafana **OpenGate Overview** dashboard ("Active Relay Sessions by Replica").
+The production overlay enables shared keys. Redis, KEDA, PDB, cross-server relay,
+and multi-node ingress-nginx L4 templates are not part of the current chart.
+[`Multiscale-Readiness.md`](./Multiscale-Readiness.md) retains the requirements
+for rebuilding those capabilities when demand justifies them.
 
 ## Validation
 

@@ -1,8 +1,8 @@
 # TD2 — Remove the Redis-backed SessionRegistry
 
-**Parent:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) (§2 Server).
+**Parent:** `dormant-scale-out-teardown.md` (§2 Server).
 **Execution order:** **2nd** (after TD3, before TD1).
-**Status:** Ready (after TD3 lands).
+**Status:** Completed.
 **Risk:** Low — the redis adapter **never ran on a live cluster** (readiness §3);
 after TD3 nothing selects it.
 
@@ -22,9 +22,9 @@ Delete the `RedisRegistry` adapter and all its tests, collapse
 | `server/internal/relay/redis_registry_semantics_test.go` | **Delete**. | exists |
 | `server/internal/relay/backend.go` | Collapse `SessionRegistryFromConfig` to **inprocess-only**; remove `RedisConfig`/`RedisUniversalOptions`. | exists |
 | `server/internal/relay/backend_test.go` | Drop the redis-branch cases; keep inprocess cases green. | exists |
-| [`server/go.mod`](../../server/go.mod) | Drop `github.com/redis/go-redis/v9` (`:20`) and `github.com/alicebob/miniredis/v2` (`:9`) via `go mod tidy`. | grep-confirmed lines |
+| [`server/go.mod`](../../../server/go.mod) | Drop `github.com/redis/go-redis/v9` (`:20`) and `github.com/alicebob/miniredis/v2` (`:9`) via `go mod tidy`. | grep-confirmed lines |
 | `server/go.sum` | Shrinks via `go mod tidy`. | — |
-| [`server/.gremlins.yaml`](../../server/.gremlins.yaml) | Remove any redis/miniredis carve-out. (Note: the only carve-out found is `tests/e2e-multiserver/` at `:18` — that belongs to **TD5**; verify whether any redis-specific entry remains here.) | `:7-8,:18` |
+| [`server/.gremlins.yaml`](../../../server/.gremlins.yaml) | Remove any redis/miniredis carve-out. (Note: the only carve-out found is `tests/e2e-multiserver/` at `:18` — that belongs to **TD5**; verify whether any redis-specific entry remains here.) | `:7-8,:18` |
 
 ## Coordination
 
@@ -47,10 +47,10 @@ Delete the `RedisRegistry` adapter and all its tests, collapse
 
 ## Reviewer checklist
 
-- [ ] All four redis adapter/test files gone; `backend.go` is inprocess-only.
-- [ ] `go.mod`/`go.sum` no longer require go-redis or miniredis; `go mod tidy` is a no-op on re-run.
-- [ ] No `REDIS_*` / `RedisRegistry` references remain in `server/`.
-- [ ] `make lint` + full `/precommit` gauntlet green.
+- [x] All four Redis adapter/test files and the unused backend factory are gone.
+- [x] `go.mod`/`go.sum` no longer require go-redis or miniredis; `go mod tidy` is a no-op on re-run.
+- [x] No `REDIS_*` / `RedisRegistry` references remain in `server/`.
+- [x] `make lint` + full `/precommit` gauntlet green.
 
 ## Done when
 

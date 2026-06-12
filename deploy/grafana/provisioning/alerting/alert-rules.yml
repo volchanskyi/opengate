@@ -81,50 +81,6 @@ groups:
           summary: "Disk usage is above 90%"
           description: "Root filesystem usage has exceeded 90%. Immediate action required."
 
-      - uid: session-registry-down
-        title: Session registry unreachable
-        # opengate_registry_up is 1 when the relay's session registry (Redis) is
-        # reachable, 0 when not. ADR-023 recovery posture: a >30s outage puts the
-        # relay into degraded mode (new sessions refused, in-flight ones drain).
-        # noDataState OK — a scrape gap means the server is down, already covered
-        # by the health-check-failing rule.
-        noDataState: OK
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 300
-              to: 0
-            datasourceUid: VictoriaMetrics
-            model:
-              expr: opengate_registry_up
-              intervalMs: 1000
-              maxDataPoints: 43200
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              type: reduce
-              expression: A
-              reducer: last
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              type: threshold
-              expression: B
-              conditions:
-                - evaluator:
-                    type: lt
-                    params: [1]
-        for: 30s
-        labels:
-          severity: critical
-        annotations:
-          summary: "OpenGate session registry (Redis) is unreachable"
-          description: >-
-            The distributed session registry has been unreachable for more than
-            30s. The relay is in degraded mode: new sessions are refused while
-            in-flight sessions continue to drain.
-
   - orgId: 1
     name: OpenGate Warning
     folder: OpenGate

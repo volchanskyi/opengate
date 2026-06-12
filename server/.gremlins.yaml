@@ -4,10 +4,6 @@
 #  - openapi_gen.go: generated code; mutants here are noise.
 #  - cmd/meshserver/main.go and tests/loadtest/main.go: entry-point binaries
 #    with no unit tests by design.
-#  - tests/e2e-multiserver/: a host-side Docker/WebSocket e2e driver (run via
-#    `make e2e-multiserver`, gated OPENGATE_MULTISERVER_E2E=1), not unit-tested
-#    by design — same rationale as tests/loadtest. Without this carve-out all of
-#    its mutants count as NOT-COVERED and collapse the Go score (86.4% -> 77.4%).
 #  - internal/testutil/: shared test helpers; mutating tests' own scaffolding
 #    produces meaningless results.
 unleash:
@@ -15,7 +11,6 @@ unleash:
     - "openapi_gen\\.go"
     - "cmd/meshserver/main\\.go"
     - "tests/loadtest/main\\.go"
-    - "tests/e2e-multiserver/"
     - "internal/testutil/"
   # Per-mutant test timeout = coverage-dry-run-elapsed * timeout-coefficient
   # (gremlins default coefficient is 5). The dry-run elapsed is a single,

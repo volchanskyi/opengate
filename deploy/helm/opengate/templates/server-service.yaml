@@ -15,16 +15,3 @@ spec:
       port: {{ .Values.server.httpPort }}
       targetPort: http
       protocol: TCP
-    {{- if .Values.l4.ingressNginxConfigMaps }}
-    # Exposed through the Service only when ingress-nginx tcp/udp-services
-    # forward L4 traffic here (multi-node path). The single-node default uses
-    # hostPort and bypasses the Service.
-    - name: quic
-      port: {{ .Values.server.quicPort }}
-      targetPort: quic
-      protocol: UDP
-    - name: mps
-      port: {{ .Values.server.mpsPort }}
-      targetPort: mps
-      protocol: TCP
-    {{- end }}

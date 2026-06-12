@@ -6,11 +6,7 @@ metadata:
     {{- include "opengate.labels" . | nindent 4 }}
     app.kubernetes.io/component: server
 spec:
-  {{- if not .Values.server.autoscaling.enabled }}
-  # When autoscaling.enabled, KEDA's ScaledObject owns the replica count, so
-  # spec.replicas is intentionally omitted (setting it would fight the autoscaler).
   replicas: {{ .Values.server.replicas }}
-  {{- end }}
   strategy:
     {{- if and .Values.server.sharedKeys.enabled (not .Values.server.hostPortL4) }}
     # Shared keys (no RWO PVC) AND LB-based L4 (no node-bound hostPorts) — pods can
@@ -110,39 +106,6 @@ spec:
             {{- end }}
             - name: DATABASE_URL
               value: "postgres://opengate:$(POSTGRES_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
-            {{- if .Values.redis.enabled }}
-            # Distributed SessionRegistry over Redis Sentinel (ADR-023). The
-            # failover client is given every Sentinel pod's stable FQDN.
-            - name: REGISTRY_BACKEND
-              value: redis
-            - name: REDIS_MASTER_NAME
-              value: {{ .Values.redis.masterName | quote }}
-            - name: REDIS_SENTINEL_ADDRS
-              value: "{{- $s := include "opengate.redisSentinel.fullname" . }}{{- range $i := until (int .Values.redis.sentinel.replicas) }}{{- if $i }},{{ end }}{{ $s }}-{{ $i }}.{{ $s }}.{{ $.Release.Namespace }}.svc.cluster.local:26379{{- end }}"
-            {{- if .Values.redis.auth.enabled }}
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.server.existingSecret }}
-                  key: REDIS_PASSWORD
-            {{- end }}
-            # Cross-server relay proxy (ADR-023). serverID = this pod's IP via the
-            # Downward API; peers are dialed directly on the flat overlay at the
-            # shared internal port. The listener is pod-to-pod only (never ingress).
-            - name: OPENGATE_SERVER_ID
-              valueFrom:
-                fieldRef:
-                  fieldPath: status.podIP
-            - name: OPENGATE_INTERNAL_LISTEN
-              value: ":{{ .Values.server.internalPort }}"
-            {{- if .Values.server.proxySecretEnabled }}
-            - name: OPENGATE_PROXY_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.server.existingSecret }}
-                  key: OPENGATE_PROXY_SECRET
-            {{- end }}
-            {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.server.httpPort }}
@@ -159,11 +122,6 @@ spec:
               {{- if .Values.server.hostPortL4 }}
               hostPort: {{ .Values.server.mpsPort }}
               {{- end }}
-            {{- if .Values.redis.enabled }}
-            - name: internal
-              containerPort: {{ .Values.server.internalPort }}
-              protocol: TCP
-            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz

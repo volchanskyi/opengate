@@ -5,22 +5,8 @@ certManager:
   email: ci@opengate.test
 image:
   tag: v0.0.0-ci
-# Exercise the (default-dormant) Redis Sentinel HA manifests under lint so
-# kubeconform + the k8s security policy validate them. auth on covers the
-# REDIS_PASSWORD secret wiring path too.
-redis:
-  enabled: true
-  auth:
-    enabled: true
-# Exercise the (default-dormant) PR-E scale-out path under lint: shared-keys
-# Deployment (emptyDir /data + secret subPath mounts, no PVC, RollingUpdate),
-# KEDA ScaledObject, and the PodDisruptionBudget all render here so kubeconform +
-# the k8s policy validate them. staging/production keep the defaults (off), so the
-# single-replica PVC/Recreate path is still validated across the value matrix.
+# Exercise the production shared-keys path under lint: emptyDir /data, Secret
+# subPath mounts, and no PVC.
 server:
   sharedKeys:
-    enabled: true
-  autoscaling:
-    enabled: true
-  podDisruptionBudget:
     enabled: true

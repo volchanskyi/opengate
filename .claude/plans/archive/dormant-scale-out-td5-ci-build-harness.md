@@ -1,20 +1,20 @@
 # TD5 — Remove scale-out CI / test harness / build targets
 
-**Parent:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) (§2 CI/scripts/build).
+**Parent:** `dormant-scale-out-teardown.md` (§2 CI/scripts/build).
 **Execution order:** **5th** (after TD4).
-**Status:** Ready.
+**Status:** Completed.
 **Risk:** Low — deletes a workflow + host-side harness; no production runtime impact.
 
 ## Verified file inventory
 
 | Path | Action | Verified anchor |
 |---|---|---|
-| [`.github/workflows/e2e-multiserver.yml`](../../.github/workflows/e2e-multiserver.yml) | **Delete** (workflow_dispatch + nightly cron `0 5 * * *`). | triggers confirmed |
-| [`scripts/e2e-multiserver.sh`](../../scripts/e2e-multiserver.sh) | **Delete.** | exists |
-| [`deploy/docker-compose.multiserver.yml`](../../deploy/docker-compose.multiserver.yml) | **Delete.** | exists |
-| `server/tests/e2e-multiserver/` (`harness.go`, `load.go`, `main.go`, `scenario_reclaim.go`, `scenarios.go`) | **Delete** the whole directory. | dir exists, 5 files |
-| [`Makefile`](../../Makefile) | Remove `e2e-multiserver` (`:257-258`) + `load-test-multiserver` (`:269-270`) recipes and both names from the `.PHONY` line (`:1`). | grep-confirmed |
-| [`server/.gremlins.yaml`](../../server/.gremlins.yaml) | Remove the `tests/e2e-multiserver/` exclude (`:18`) + its comment (`:7-8`). | grep-confirmed |
+| `.github/workflows/e2e-multiserver.yml` | **Delete.** | removed |
+| `scripts/e2e-multiserver.sh` | **Delete.** | removed |
+| `deploy/docker-compose.multiserver.yml` | **Delete.** | removed |
+| `server/tests/e2e-multiserver/` (`harness.go`, `load.go`, `main.go`, `scenario_degraded.go`, `scenario_reclaim.go`, `scenarios.go`) | **Delete** the whole directory. | removed |
+| [`Makefile`](../../../Makefile) | Remove both targets and `.PHONY` entries. | completed |
+| [`server/.gremlins.yaml`](../../../server/.gremlins.yaml) | Remove the harness carve-out and comment. | completed |
 
 ## Coordination
 
@@ -43,11 +43,11 @@
 
 ## Reviewer checklist
 
-- [ ] Workflow, script, compose, and `server/tests/e2e-multiserver/` all gone.
-- [ ] `Makefile` has no `e2e-multiserver`/`load-test-multiserver` target or `.PHONY` entry.
-- [ ] `.gremlins.yaml` has no e2e-multiserver exclude; gremlins config still valid.
-- [ ] Documented false positives (docker-hub-mirror) left intact.
-- [ ] `actionlint` + full `/precommit` gauntlet green.
+- [x] Workflow, script, compose, and `server/tests/e2e-multiserver/` all gone.
+- [x] `Makefile` has no retired target or `.PHONY` entry.
+- [x] `.gremlins.yaml` has no retired harness exclude; config remains valid.
+- [x] Docker Hub mirror image examples remain intact; stale workflow detection removed.
+- [x] `actionlint` + full `/precommit` gauntlet green.
 
 ## Done when
 
