@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781241902056,
+  "lastUpdate": 1781243554371,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17125,6 +17125,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.9725574709159,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "30bc7b27f0c48d519d7b272d10d00669674011f1",
+          "message": "docs: DD-C batch B — strip chronological/logistical noise from prose docs\n\nCurrent-state doctrine applied to docs/*.md (non-ADR, non-index):\n- README.md: drop the commit SHA from the wiki-drift narrative (keep the fact).\n- CI-Pipeline.md: two SARIF/SonarCloud removal narratives rewritten to\n  current-state (CodeQL-only Code Scanning; SonarCloud findings live on\n  SonarCloud.io) — the historical \"why\" now points to ADR-013; removal date/commit\n  dropped.\n- Infrastructure.md / Testing.md: drop config-duplicated schedule \"03:00 UTC\"\n  (the workflow is already linked).\n- Testing.md: drop \"(PR 9)\" and \"(Phase 13b PR-D)\" from headings; inbound anchors\n  in Monitoring.md and Kubernetes.md updated to match.\n- Architecture.md: drop the \"Phase 13\" label from the multiserver stub note.\n\nKept (not noise): Monitoring.md's upstream Grafana issue links (#69950) and the\nexplicitly-framed point-in-time provenance dates in Multiscale-Readiness.md and\nthe Testing.md latency baseline. doc-links gate green.",
+          "timestamp": "2026-06-11T22:50:49-07:00",
+          "tree_id": "ac4b963410432eda0553df87f9f888a72a881016",
+          "url": "https://github.com/volchanskyi/opengate/commit/30bc7b27f0c48d519d7b272d10d00669674011f1"
+        },
+        "date": 1781243554266,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.19471506968172,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.373503198468505,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 738.3738037124346,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 313.1084188387539,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.396710167681125,
             "unit": "ns/iter"
           }
         ]
