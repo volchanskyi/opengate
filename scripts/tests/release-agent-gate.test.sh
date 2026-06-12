@@ -20,8 +20,15 @@ PASS=0
 FAIL=0
 FAILURES=()
 
-pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); FAILURES+=("$1"); printf '  FAIL %s\n' "$1" >&2; }
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  FAILURES+=("$1")
+  printf '  FAIL %s\n' "$1" >&2
+}
 
 # Build a temp git repo seeded with a single initial commit. Sets REPO and
 # cd's into it. Caller must trap-cleanup.
@@ -32,8 +39,8 @@ make_repo() {
   git config user.email "test@example.com"
   git config user.name "Test"
   mkdir -p agent/src server/internal
-  echo "fn main() {}" > agent/src/main.rs
-  echo "package main" > server/internal/server.go
+  echo "fn main() {}" >agent/src/main.rs
+  echo "package main" >server/internal/server.go
   git add .
   git commit --quiet -m "init"
 }
@@ -60,7 +67,7 @@ make_repo
 git tag v0.1.0
 if run_gate v0.1.0; then
   if grep -q '^agent_changed=true$' <<<"$RESULT" \
-     && grep -q '^prev_tag=$' <<<"$RESULT"; then
+    && grep -q '^prev_tag=$' <<<"$RESULT"; then
     pass "no prior v* tag → agent_changed=true, prev_tag empty"
   else
     fail "no prior v* tag → expected agent_changed=true + empty prev_tag, got: $RESULT"
@@ -74,13 +81,13 @@ cleanup_repo
 make_repo
 git tag v0.1.0
 # Land a non-agent commit and tag it.
-echo "// server-only change" >> server/internal/server.go
+echo "// server-only change" >>server/internal/server.go
 git add server/internal/server.go
 git commit --quiet -m "fix(server): tweak"
 git tag v0.1.1
 if run_gate v0.1.1; then
   if grep -q '^agent_changed=false$' <<<"$RESULT" \
-     && grep -q '^prev_tag=v0.1.0$' <<<"$RESULT"; then
+    && grep -q '^prev_tag=v0.1.0$' <<<"$RESULT"; then
     pass "agent/ unchanged → agent_changed=false, prev_tag=v0.1.0"
   else
     fail "agent/ unchanged → expected agent_changed=false + prev_tag=v0.1.0, got: $RESULT"
@@ -93,13 +100,13 @@ cleanup_repo
 # --- Case 3: prior tag exists, agent/ changed in range — must build.
 make_repo
 git tag v0.1.0
-echo "// agent change" >> agent/src/main.rs
+echo "// agent change" >>agent/src/main.rs
 git add agent/src/main.rs
 git commit --quiet -m "fix(agent): tweak"
 git tag v0.2.0
 if run_gate v0.2.0; then
   if grep -q '^agent_changed=true$' <<<"$RESULT" \
-     && grep -q '^prev_tag=v0.1.0$' <<<"$RESULT"; then
+    && grep -q '^prev_tag=v0.1.0$' <<<"$RESULT"; then
     pass "agent/ changed → agent_changed=true, prev_tag=v0.1.0"
   else
     fail "agent/ changed → expected agent_changed=true + prev_tag=v0.1.0, got: $RESULT"
@@ -134,7 +141,7 @@ cleanup_repo
 make_repo
 git tag v0.1.0
 mkdir -p agent/crates/mesh-agent/src
-echo "fn x() {}" > agent/crates/mesh-agent/src/lib.rs
+echo "fn x() {}" >agent/crates/mesh-agent/src/lib.rs
 git add agent/crates/mesh-agent/src/lib.rs
 git commit --quiet -m "feat(agent): deep file"
 git tag v0.2.0

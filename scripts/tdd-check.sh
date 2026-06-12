@@ -27,7 +27,7 @@ is_source() {
   local path="$1"
   [[ "$path" =~ $SOURCE_EXT_RE ]] || return 1
   [[ "$path" =~ $TEST_RE ]] && return 1
-  [[ "$path" =~ $GEN_RE ]]  && return 1
+  [[ "$path" =~ $GEN_RE ]] && return 1
   return 0
 }
 
@@ -64,12 +64,12 @@ has_test_change() {
   [ -n "$base" ] || return 1
 
   local files
-  files=$( {
+  files=$({
     git diff --name-only "$base"..HEAD 2>/dev/null || true
     git diff --cached --name-only 2>/dev/null || true
     git diff --name-only 2>/dev/null || true
     git ls-files --others --exclude-standard 2>/dev/null || true
-  } | sort -u | grep -v '^$' || true )
+  } | sort -u | grep -v '^$' || true)
 
   [ -n "$files" ] || return 1
   printf '%s\n' "$files" | grep -qE "$TEST_RE"
@@ -87,7 +87,8 @@ EOF
 
 main() {
   [ $# -ge 1 ] || usage
-  local cmd="$1"; shift
+  local cmd="$1"
+  shift
   case "$cmd" in
     is-source)
       [ $# -eq 1 ] || usage

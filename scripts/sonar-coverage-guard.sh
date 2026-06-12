@@ -58,7 +58,8 @@ scov_main() {
     echo "✗ sonar-coverage-guard: SONAR_TOKEN unset (and no NEW_COVERAGE_OVERRIDE)." >&2
     return 2
   fi
-  local cov; cov="$(scov_fetch)"
+  local cov
+  cov="$(scov_fetch)"
   if [ -z "$cov" ]; then
     echo "✓ sonar-coverage-guard: no new_coverage metric (no new lines to cover) — nothing to guard" >&2
     return 0

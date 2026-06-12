@@ -41,9 +41,9 @@ GO_REPORT="${GO_REPORT:-server/mutation-report.json}"
 WEB_REPORT="${WEB_REPORT:-web/reports/mutation/mutation.json}"
 HISTORY_FILE="${HISTORY_FILE:-docs/mutation-history.jsonl}"
 
-REGRESSION_DROP_PP=2.0       # alert when score drops by more than this from prev
-REGRESSION_FLOOR_PCT=85.0    # alert when absolute score crosses below this floor
-RETENTION_DAYS=90            # rolling window for HISTORY_FILE rotation
+REGRESSION_DROP_PP=2.0    # alert when score drops by more than this from prev
+REGRESSION_FLOOR_PCT=85.0 # alert when absolute score crosses below this floor
+RETENTION_DAYS=90         # rolling window for HISTORY_FILE rotation
 
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -61,7 +61,10 @@ TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # misreading it as "0 mutants without coverage".
 parse_rust() {
   local file="$1"
-  [[ -f "$file" ]] || { echo "missing: $file" >&2; return 2; }
+  [[ -f "$file" ]] || {
+    echo "missing: $file" >&2
+    return 2
+  }
   jq -e '
     {
       killed:      (.caught   // 0),
@@ -76,7 +79,10 @@ parse_rust() {
         else (((.killed + .timeout) * 1000 / .total | floor) / 10)
         end)
     | { killed, survived, timeout, no_coverage, unviable, total, score_pct }
-  ' "$file" || { echo "parse_rust failed on $file" >&2; return 2; }
+  ' "$file" || {
+    echo "parse_rust failed on $file" >&2
+    return 2
+  }
 }
 
 # parse_go FILE → JSON object {killed, survived, no_coverage, total, score_pct}
@@ -84,7 +90,10 @@ parse_rust() {
 # the denominator (gremlins' own "% caught" includes NOT COVERED).
 parse_go() {
   local file="$1"
-  [[ -f "$file" ]] || { echo "missing: $file" >&2; return 2; }
+  [[ -f "$file" ]] || {
+    echo "missing: $file" >&2
+    return 2
+  }
   jq -e '
     {
       killed:      (.mutants_killed     // 0),
@@ -99,7 +108,10 @@ parse_go() {
         else ((.killed * 1000 / .total | floor) / 10)
         end)
     | { killed, survived, timeout, no_coverage, unviable, total, score_pct }
-  ' "$file" || { echo "parse_go failed on $file" >&2; return 2; }
+  ' "$file" || {
+    echo "parse_go failed on $file" >&2
+    return 2
+  }
 }
 
 # parse_web FILE → JSON object {killed, survived, no_coverage, total, score_pct}
@@ -108,7 +120,10 @@ parse_go() {
 # TS checker; not real test signal). Matches PR 8 score convention.
 parse_web() {
   local file="$1"
-  [[ -f "$file" ]] || { echo "missing: $file" >&2; return 2; }
+  [[ -f "$file" ]] || {
+    echo "missing: $file" >&2
+    return 2
+  }
   jq -e '
     [ .files | to_entries[] | .value.mutants[] | .status ] as $statuses
     | {
@@ -124,7 +139,10 @@ parse_web() {
         else (((.killed + .timeout) * 1000 / .total | floor) / 10)
         end)
     | { killed, survived, timeout, no_coverage, unviable, total, score_pct }
-  ' "$file" || { echo "parse_web failed on $file" >&2; return 2; }
+  ' "$file" || {
+    echo "parse_web failed on $file" >&2
+    return 2
+  }
 }
 
 # --- Aggregator ---------------------------------------------------------------
@@ -153,7 +171,10 @@ build_row() {
 
 # previous_row → last row from HISTORY_FILE, or null if empty/missing
 previous_row() {
-  [[ -f "$HISTORY_FILE" ]] || { echo "null"; return 0; }
+  [[ -f "$HISTORY_FILE" ]] || {
+    echo "null"
+    return 0
+  }
   tail -n 1 "$HISTORY_FILE" 2>/dev/null || echo "null"
 }
 
@@ -189,7 +210,7 @@ regression_check() {
     ')"
 
   local any
-  any="$(jq -r '.any' <<< "$result")"
+  any="$(jq -r '.any' <<<"$result")"
 
   if [[ "$any" == "true" ]]; then
     # Build Telegram-friendly text
@@ -205,12 +226,12 @@ regression_check() {
           end;
 
       [fmt("rust"; .rust), fmt("go"; .go), fmt("web"; .web)] | join("\n")
-    ' <<< "$result")"
+    ' <<<"$result")"
     echo "REGRESSION_ALERT:⚠️ Mutation score regression on dev"
     echo "REGRESSION_ALERT:"
     while IFS= read -r line; do
       echo "REGRESSION_ALERT:$line"
-    done <<< "$lines"
+    done <<<"$lines"
     return 1
   fi
   return 0
@@ -229,13 +250,13 @@ rotate_history() {
   tmp="$(mktemp)"
   while IFS= read -r line; do
     local ts row_epoch
-    ts="$(jq -r '.timestamp // empty' <<< "$line" 2>/dev/null || true)"
+    ts="$(jq -r '.timestamp // empty' <<<"$line" 2>/dev/null || true)"
     if [[ -z "$ts" ]]; then continue; fi
     row_epoch="$(date -u -d "$ts" +%s 2>/dev/null || date -u -jf "%Y-%m-%dT%H:%M:%SZ" "$ts" +%s 2>/dev/null || echo 0)"
-    if (( row_epoch >= cutoff_epoch )); then
-      echo "$line" >> "$tmp"
+    if ((row_epoch >= cutoff_epoch)); then
+      echo "$line" >>"$tmp"
     fi
-  done < "$HISTORY_FILE"
+  done <"$HISTORY_FILE"
   mv "$tmp" "$HISTORY_FILE"
 }
 
@@ -250,7 +271,7 @@ main() {
 
   if [[ "${APPEND:-0}" == "1" ]]; then
     rotate_history
-    echo "$row" >> "$HISTORY_FILE"
+    echo "$row" >>"$HISTORY_FILE"
   fi
 
   if regression_check "$row" "$prev"; then

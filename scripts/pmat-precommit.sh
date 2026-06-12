@@ -96,7 +96,8 @@ pmat_is_gofmt_only_test() {
 # through tdd-check.sh is-code, restricted to files that still exist (a deleted
 # file cannot be graded), and minus gofmt-only Go test files (ADR-019).
 pmat_changed_code_files() {
-  local base; base="$(pmat_resolve_base 2>/dev/null || true)"
+  local base
+  base="$(pmat_resolve_base 2>/dev/null || true)"
   {
     [ -n "$base" ] && git diff --name-only "$base"..HEAD 2>/dev/null
     git diff --cached --name-only 2>/dev/null
@@ -116,7 +117,7 @@ pmat_changed_code_files() {
 pmat_check_file() {
   local f="$1" out rc
   out="$("$PMAT_BIN" tdg check-quality -p "$f" \
-          --min-grade "$PMAT_MIN_GRADE" --fail-on-violation --format json 2>/dev/null)"
+    --min-grade "$PMAT_MIN_GRADE" --fail-on-violation --format json 2>/dev/null)"
   rc=$?
   [ "$rc" -eq 0 ] && return 0
   # check-quality prints a progress banner before the JSON object; slice from
@@ -136,7 +137,8 @@ pmat_precommit_main() {
     return 2
   fi
 
-  local files; files="$(pmat_changed_code_files)"
+  local files
+  files="$(pmat_changed_code_files)"
   if [ -z "$files" ]; then
     echo "✓ PMAT TDG gate: no changed code files to grade" >&2
     return 0
@@ -147,7 +149,7 @@ pmat_precommit_main() {
     [ -n "$f" ] || continue
     count=$((count + 1))
     pmat_check_file "$f" || fail=1
-  done <<< "$files"
+  done <<<"$files"
 
   if [ "$fail" -ne 0 ]; then
     {

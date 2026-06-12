@@ -19,7 +19,7 @@ parse_input_fields tool_name tool_input.file_path tool_input.content tool_input.
 
 tool="${HOOK_TOOL_NAME:-}"
 case "$tool" in
-  Write|Edit|MultiEdit) : ;;
+  Write | Edit | MultiEdit) : ;;
   *) exit 0 ;;
 esac
 
@@ -28,7 +28,7 @@ path="${HOOK_TOOL_INPUT_FILE_PATH:-}"
 
 # 1. ~/.claude/plans/ writes.
 case "$path" in
-  /home/ivan/.claude/plans/*|"$HOME/.claude/plans/"*|~/.claude/plans/*)
+  /home/ivan/.claude/plans/* | "$HOME/.claude/plans/"* | ~/.claude/plans/*)
     block plans-wrong-dir "Write/Edit refused: $path is under the user-global ~/.claude/plans/. Plans must live in /home/ivan/opengate/.claude/plans/. .claude/rules/plans-and-adrs.md."
     ;;
 esac
@@ -36,8 +36,8 @@ esac
 # Determine the new content being written, across tool variants.
 new_content=""
 case "$tool" in
-  Write)     new_content="${HOOK_TOOL_INPUT_CONTENT:-}" ;;
-  Edit)      new_content="${HOOK_TOOL_INPUT_NEW_STRING:-}" ;;
+  Write) new_content="${HOOK_TOOL_INPUT_CONTENT:-}" ;;
+  Edit) new_content="${HOOK_TOOL_INPUT_NEW_STRING:-}" ;;
   MultiEdit) new_content="${HOOK_TOOL_INPUT_EDITS:-}" ;;
 esac
 

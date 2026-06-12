@@ -23,8 +23,15 @@ PASS=0
 FAIL=0
 FAILURES=()
 
-pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); FAILURES+=("$1"); printf '  FAIL %s\n' "$1" >&2; }
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  FAILURES+=("$1")
+  printf '  FAIL %s\n' "$1" >&2
+}
 
 # Build a temp git repo seeded with two commits — initial baseline and one
 # follow-up. The follow-up's tree is what HEAD points at; PREV_SHA points at
@@ -36,11 +43,11 @@ make_repo() {
   git config user.email "test@example.com"
   git config user.name "Test"
   mkdir -p server/internal/api web/src agent/src deploy
-  echo "fn main() {}" > agent/src/main.rs
-  echo "package main" > server/internal/api/handlers.go
-  printf '{"name": "web"}\n' > web/package.json
-  echo "import './main';" > web/src/index.ts
-  cat > Dockerfile <<'EOF'
+  echo "fn main() {}" >agent/src/main.rs
+  echo "package main" >server/internal/api/handlers.go
+  printf '{"name": "web"}\n' >web/package.json
+  echo "import './main';" >web/src/index.ts
+  cat >Dockerfile <<'EOF'
 FROM scratch
 EOF
   git add .
@@ -49,7 +56,7 @@ EOF
 
   # A no-op follow-up commit so $PREV_SHA..$HEAD is non-empty by default —
   # individual tests overwrite this with their own follow-up.
-  echo "// touch" >> agent/src/main.rs
+  echo "// touch" >>agent/src/main.rs
   git add agent/src/main.rs
   git commit --quiet -m "agent-only follow-up"
   HEAD_SHA="$(git rev-parse HEAD)"
@@ -80,7 +87,7 @@ trap 'cleanup_repo; cleanup_mock' EXIT
 # Mirrors how the gate consumes `crane config "$IMAGE:latest"`.
 install_crane_mock() {
   MOCK_DIR="$(mktemp -d)"
-  cat > "$MOCK_DIR/crane" <<'SHIM'
+  cat >"$MOCK_DIR/crane" <<'SHIM'
 #!/usr/bin/env bash
 # Test shim. Honors:
 #   CRANE_FIXTURE  - path to a JSON file printed for `crane config <ref>`.
@@ -112,7 +119,7 @@ SHIM
 # Write a fixture whose revision label is $1.
 write_fixture_with_revision() {
   CRANE_FIXTURE="$REPO/fixture.json"
-  cat > "$CRANE_FIXTURE" <<EOF
+  cat >"$CRANE_FIXTURE" <<EOF
 {
   "config": {
     "Labels": {
@@ -140,7 +147,7 @@ RESULT="$(CRANE_FAIL=1 \
   HEAD_SHA="$HEAD_SHA" \
   "$GATE" 2>/dev/null)"
 if grep -q '^image_changed=true$' <<<"$RESULT" \
-   && grep -q '^prev_sha=$' <<<"$RESULT"; then
+  && grep -q '^prev_sha=$' <<<"$RESULT"; then
   pass "no :latest in registry → image_changed=true, prev_sha empty"
 else
   fail "no :latest → expected image_changed=true + empty prev_sha, got: $RESULT"
@@ -153,7 +160,7 @@ write_fixture_with_revision "$PREV_SHA"
 # Default follow-up commit from make_repo already touches agent/ only.
 if run_gate; then
   if grep -q '^image_changed=false$' <<<"$RESULT" \
-     && grep -q "^prev_sha=${PREV_SHA}$" <<<"$RESULT"; then
+    && grep -q "^prev_sha=${PREV_SHA}$" <<<"$RESULT"; then
     pass "agent-only change → image_changed=false"
   else
     fail "agent-only change → expected image_changed=false, got: $RESULT"
@@ -166,7 +173,7 @@ cleanup_repo
 # --- Case 3: server/ changed in range → image_changed=true.
 make_repo
 write_fixture_with_revision "$PREV_SHA"
-echo "// server tweak" >> server/internal/api/handlers.go
+echo "// server tweak" >>server/internal/api/handlers.go
 git add server/internal/api/handlers.go
 git commit --quiet -m "fix(server): tweak"
 HEAD_SHA="$(git rev-parse HEAD)"
@@ -184,7 +191,7 @@ cleanup_repo
 # --- Case 4: web/ changed in range → image_changed=true.
 make_repo
 write_fixture_with_revision "$PREV_SHA"
-echo "// web tweak" >> web/src/index.ts
+echo "// web tweak" >>web/src/index.ts
 git add web/src/index.ts
 git commit --quiet -m "feat(web): tweak"
 HEAD_SHA="$(git rev-parse HEAD)"
@@ -202,7 +209,7 @@ cleanup_repo
 # --- Case 5: Dockerfile changed in range → image_changed=true.
 make_repo
 write_fixture_with_revision "$PREV_SHA"
-cat >> Dockerfile <<'EOF'
+cat >>Dockerfile <<'EOF'
 LABEL foo=bar
 EOF
 git add Dockerfile
@@ -223,7 +230,7 @@ cleanup_repo
 make_repo
 write_fixture_with_revision "$PREV_SHA"
 mkdir -p server/internal/relay/inner
-echo "package relay" > server/internal/relay/inner/deep.go
+echo "package relay" >server/internal/relay/inner/deep.go
 git add server/internal/relay/inner/deep.go
 git commit --quiet -m "feat(server): deep file"
 HEAD_SHA="$(git rev-parse HEAD)"
@@ -243,13 +250,13 @@ cleanup_repo
 # would otherwise return prev_sha="" + image_changed=false.
 make_repo
 CRANE_FIXTURE="$REPO/fixture.json"
-cat > "$CRANE_FIXTURE" <<'EOF'
+cat >"$CRANE_FIXTURE" <<'EOF'
 {"config": {"Labels": {"foo": "bar"}}}
 EOF
 export CRANE_FIXTURE
 if run_gate; then
   if grep -q '^image_changed=true$' <<<"$RESULT" \
-     && grep -q '^prev_sha=$' <<<"$RESULT"; then
+    && grep -q '^prev_sha=$' <<<"$RESULT"; then
     pass "missing revision label → image_changed=true, prev_sha empty"
   else
     fail "missing label → expected image_changed=true + empty prev_sha, got: $RESULT"

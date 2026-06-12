@@ -18,8 +18,11 @@ set -uo pipefail
 
 FIELD="${1:?Usage: $0 <repo_score|below_bplus>}"
 case "$FIELD" in
-  repo_score|below_bplus) ;;
-  *) echo "unknown field: $FIELD (want repo_score|below_bplus)" >&2; exit 2 ;;
+  repo_score | below_bplus) ;;
+  *)
+    echo "unknown field: $FIELD (want repo_score|below_bplus)" >&2
+    exit 2
+    ;;
 esac
 
 QUERY="last_over_time({job=\"pmat-trend\"} | json | unwrap ${FIELD} [14d])"

@@ -48,7 +48,8 @@ if git -C "$repo" diff --cached --name-only -- .claude/settings.json | grep -q .
   was_staged=true
 fi
 
-moved=$(python3 - "$tracked" "$local_file" <<'PYEOF' || true
+moved=$(
+  python3 - "$tracked" "$local_file" <<'PYEOF' || true
 import json, re, sys
 
 tracked_path, local_path = sys.argv[1], sys.argv[2]

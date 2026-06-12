@@ -12,8 +12,14 @@ FAIL=0
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1" >&2; }
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  printf '  FAIL %s\n' "$1" >&2
+}
 
 echo "shell-quality:"
 
@@ -79,9 +85,9 @@ EOF
   git -C "$REPO" commit -qm baseline
 
   : >"$TRACE"
-  if TRACE="$TRACE" PATH="$BIN:$PATH" SHELL_QUALITY_ROOT="$REPO" "$RUNNER" check &&
-    grep -qF "$REPO/clean.sh" "$TRACE" &&
-    ! grep -qF "$REPO/target/ignored.sh" "$TRACE"; then
+  if TRACE="$TRACE" PATH="$BIN:$PATH" SHELL_QUALITY_ROOT="$REPO" "$RUNNER" check \
+    && grep -qF "$REPO/clean.sh" "$TRACE" \
+    && ! grep -qF "$REPO/target/ignored.sh" "$TRACE"; then
     pass "check enumerates tracked scripts only"
   else
     fail "check enumerates tracked scripts only"
@@ -92,9 +98,9 @@ EOF
 printf '%s\n' changed
 EOF
   : >"$TRACE"
-  if TRACE="$TRACE" PATH="$BIN:$PATH" SHELL_QUALITY_ROOT="$REPO" "$RUNNER" changed HEAD &&
-    grep -qF "$REPO/other.sh" "$TRACE" &&
-    ! grep -qF "$REPO/clean.sh" "$TRACE"; then
+  if TRACE="$TRACE" PATH="$BIN:$PATH" SHELL_QUALITY_ROOT="$REPO" "$RUNNER" changed HEAD \
+    && grep -qF "$REPO/other.sh" "$TRACE" \
+    && ! grep -qF "$REPO/clean.sh" "$TRACE"; then
     pass "changed validates only diffed tracked scripts"
   else
     fail "changed validates only diffed tracked scripts"

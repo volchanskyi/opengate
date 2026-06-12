@@ -24,7 +24,10 @@
 set -euo pipefail
 
 PLAN_JSON="${1:?Usage: $0 <drift.json>}"
-[[ -f "$PLAN_JSON" ]] || { echo "missing plan json: $PLAN_JSON" >&2; exit 2; }
+[[ -f "$PLAN_JSON" ]] || {
+  echo "missing plan json: $PLAN_JSON" >&2
+  exit 2
+}
 
 COMMIT="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 RUN_ID="${GITHUB_RUN_ID:-local}"
@@ -57,4 +60,7 @@ jq -e -c \
         end
       )
     }
-  ' "$PLAN_JSON" || { echo "parse failure on $PLAN_JSON" >&2; exit 2; }
+  ' "$PLAN_JSON" || {
+  echo "parse failure on $PLAN_JSON" >&2
+  exit 2
+}

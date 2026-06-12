@@ -50,7 +50,7 @@ DEBUG="${OPENGATE_BASTION_DEBUG:-0}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/opengate"
 CACHE_FILE="$CACHE_DIR/bastion-session.json"
 LOG_FILE="$CACHE_DIR/bastion-session.log"
-LOG_MAX_BYTES=$(( 5 * 1024 * 1024 ))
+LOG_MAX_BYTES=$((5 * 1024 * 1024))
 TERRAFORM_DIR="${OPENGATE_TERRAFORM_DIR:-deploy/terraform}"
 TARGET_USER="${BASTION_TARGET_USER:-opc}"
 SSH_KEY="${BASTION_SSH_KEY:-$HOME/.ssh/id_ed25519}"
@@ -70,25 +70,39 @@ mkdir -p "$CACHE_DIR"
 # Logging and error handling
 # ──────────────────────────────────────────────────────────────────────────
 
-now_epoch()  { date -u +%s; }
-iso_utc()    { date -u +%Y-%m-%dT%H:%M:%SZ; }
+now_epoch() { date -u +%s; }
+iso_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # Append to the persistent log. Rotates when LOG_MAX_BYTES is exceeded.
 log_to_file() {
   if [[ -f "$LOG_FILE" ]]; then
     local size
     size=$(stat -c '%s' "$LOG_FILE" 2>/dev/null || echo 0)
-    if (( size > LOG_MAX_BYTES )); then
+    if ((size > LOG_MAX_BYTES)); then
       mv -f "$LOG_FILE" "${LOG_FILE}.1"
     fi
   fi
   printf '[%s] [pid=%s] %s\n' "$(iso_utc)" "$$" "$*" >>"$LOG_FILE"
 }
 
-log()   { printf '==> %s\n' "$*" >&2; log_to_file "INFO  $*"; }
-warn()  { printf 'WARN: %s\n' "$*" >&2; log_to_file "WARN  $*"; }
-err()   { printf 'ERROR: %s\n' "$*" >&2; log_to_file "ERROR $*"; exit 1; }
-debug() { [[ "$DEBUG" == "1" ]] && printf '... %s\n' "$*" >&2; log_to_file "DEBUG $*"; return 0; }
+log() {
+  printf '==> %s\n' "$*" >&2
+  log_to_file "INFO  $*"
+}
+warn() {
+  printf 'WARN: %s\n' "$*" >&2
+  log_to_file "WARN  $*"
+}
+err() {
+  printf 'ERROR: %s\n' "$*" >&2
+  log_to_file "ERROR $*"
+  exit 1
+}
+debug() {
+  [[ "$DEBUG" == "1" ]] && printf '... %s\n' "$*" >&2
+  log_to_file "DEBUG $*"
+  return 0
+}
 
 # ERR trap: prints the failing line + command + exit code, points the
 # operator at the persistent log. set -E (above) ensures functions inherit.
@@ -117,7 +131,7 @@ fi
 
 MODE="${1:-ssh}"
 case "$MODE" in
-  ssh|diagnose|purge) ;;
+  ssh | diagnose | purge) ;;
   *) err "unknown subcommand '$MODE' (expected: ssh | diagnose | purge)" ;;
 esac
 
@@ -136,8 +150,8 @@ fi
 # ──────────────────────────────────────────────────────────────────────────
 
 command -v oci >/dev/null 2>&1 || err "oci CLI not found. Install: https://docs.oracle.com/iaas/Content/API/SDKDocs/cliinstall.htm"
-command -v jq  >/dev/null 2>&1 || err "jq not found. Install: apt install jq | brew install jq"
-[[ -f "$SSH_KEY"    ]] || err "SSH private key not found at $SSH_KEY (set BASTION_SSH_KEY to override)"
+command -v jq >/dev/null 2>&1 || err "jq not found. Install: apt install jq | brew install jq"
+[[ -f "$SSH_KEY" ]] || err "SSH private key not found at $SSH_KEY (set BASTION_SSH_KEY to override)"
 [[ -f "$SSH_PUBKEY" ]] || err "SSH public key not found at $SSH_PUBKEY (must sit next to the private key as .pub)"
 
 # Resolve identifiers unless the caller pre-set them. BASTION_OCID and the node
@@ -162,8 +176,8 @@ if [[ -z "${BASTION_OCID:-}" || -z "${INSTANCE_OCID:-}" || -z "${INSTANCE_PRIVAT
   fi
 fi
 
-[[ -n "$BASTION_OCID"        ]] || err "bastion_id is empty. Run 'terraform -chdir=$TERRAFORM_DIR apply' or set BASTION_OCID."
-[[ -n "$INSTANCE_OCID"       ]] || err "could not resolve an ACTIVE OKE worker-node OCID from the node pool. Set INSTANCE_OCID to override."
+[[ -n "$BASTION_OCID" ]] || err "bastion_id is empty. Run 'terraform -chdir=$TERRAFORM_DIR apply' or set BASTION_OCID."
+[[ -n "$INSTANCE_OCID" ]] || err "could not resolve an ACTIVE OKE worker-node OCID from the node pool. Set INSTANCE_OCID to override."
 [[ -n "$INSTANCE_PRIVATE_IP" ]] || err "could not resolve the OKE worker-node private IP from the node pool. Set INSTANCE_PRIVATE_IP to override."
 
 debug "BASTION_OCID=$BASTION_OCID"
@@ -193,7 +207,7 @@ oci_cmd() {
   else
     if out=$(oci "$@" 2>"$stderr_file"); then rc=0; else rc=$?; fi
   fi
-  if (( rc != 0 )); then
+  if ((rc != 0)); then
     local err_payload
     err_payload=$(cat "$stderr_file")
     log_to_file "OCI failed (rc=$rc): $err_payload"
@@ -213,13 +227,16 @@ oci_cmd() {
 # Returns 0 if the cached session covers the current target AND has at
 # least TTL_HEADROOM_SECONDS remaining.
 cache_is_fresh() {
-  [[ -f "$CACHE_FILE" ]] || { debug "cache miss: $CACHE_FILE absent"; return 1; }
+  [[ -f "$CACHE_FILE" ]] || {
+    debug "cache miss: $CACHE_FILE absent"
+    return 1
+  }
   local cached_bastion cached_target cached_user expires_at session_id
   cached_bastion=$(jq -r '.bastion_id  // empty' "$CACHE_FILE")
-  cached_target=$( jq -r '.target_ocid // empty' "$CACHE_FILE")
-  cached_user=$(   jq -r '.target_user // empty' "$CACHE_FILE")
-  expires_at=$(    jq -r '.expires_at  // 0'     "$CACHE_FILE")
-  session_id=$(    jq -r '.session_id  // empty' "$CACHE_FILE")
+  cached_target=$(jq -r '.target_ocid // empty' "$CACHE_FILE")
+  cached_user=$(jq -r '.target_user // empty' "$CACHE_FILE")
+  expires_at=$(jq -r '.expires_at  // 0' "$CACHE_FILE")
+  session_id=$(jq -r '.session_id  // empty' "$CACHE_FILE")
 
   if [[ "$cached_bastion" != "$BASTION_OCID" ]]; then
     debug "cache miss: bastion changed (cached=$cached_bastion live=$BASTION_OCID)"
@@ -235,8 +252,8 @@ cache_is_fresh() {
   fi
   local now remaining
   now=$(now_epoch)
-  remaining=$(( expires_at - now ))
-  if (( remaining <= TTL_HEADROOM_SECONDS )); then
+  remaining=$((expires_at - now))
+  if ((remaining <= TTL_HEADROOM_SECONDS)); then
     debug "cache miss: session $session_id expires in ${remaining}s (<= ${TTL_HEADROOM_SECONDS}s headroom)"
     return 1
   fi
@@ -258,9 +275,9 @@ cache_is_fresh() {
 find_reusable_session() {
   local sessions_json match
   if ! sessions_json=$(oci_cmd bastion session list \
-      --bastion-id "$BASTION_OCID" \
-      --session-lifecycle-state ACTIVE \
-      --all --query 'data'); then
+    --bastion-id "$BASTION_OCID" \
+    --session-lifecycle-state ACTIVE \
+    --all --query 'data'); then
     debug "session list failed; falling through to create"
     return 1
   fi
@@ -268,7 +285,7 @@ find_reusable_session() {
   # + os-username + at-least-headroom seconds of TTL remaining.
   match=$(jq -r \
     --arg target "$INSTANCE_OCID" \
-    --arg user   "$TARGET_USER" \
+    --arg user "$TARGET_USER" \
     --argjson headroom "$TTL_HEADROOM_SECONDS" \
     --argjson now "$(now_epoch)" '
       [ .[]
@@ -332,18 +349,18 @@ create_session() {
   local now
   now=$(now_epoch)
   jq -n \
-    --arg bastion_id   "$BASTION_OCID" \
-    --arg target_ocid  "$INSTANCE_OCID" \
-    --arg target_user  "$TARGET_USER" \
-    --arg target_ip    "$INSTANCE_PRIVATE_IP" \
-    --arg session_id   "$session_id" \
-    --arg ssh_command  "$ssh_proxy" \
+    --arg bastion_id "$BASTION_OCID" \
+    --arg target_ocid "$INSTANCE_OCID" \
+    --arg target_user "$TARGET_USER" \
+    --arg target_ip "$INSTANCE_PRIVATE_IP" \
+    --arg session_id "$session_id" \
+    --arg ssh_command "$ssh_proxy" \
     --argjson created_at "$now" \
-    --argjson expires_at "$(( now + session_ttl ))" \
+    --argjson expires_at "$((now + session_ttl))" \
     '{$bastion_id, $target_ocid, $target_user, $target_ip, $session_id, $ssh_command, $created_at, $expires_at}' \
-    > "$CACHE_FILE"
+    >"$CACHE_FILE"
   chmod 600 "$CACHE_FILE"
-  log "cache written ($CACHE_FILE). Refresh in $(( session_ttl - TTL_HEADROOM_SECONDS ))s."
+  log "cache written ($CACHE_FILE). Refresh in $((session_ttl - TTL_HEADROOM_SECONDS))s."
 }
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -358,10 +375,10 @@ cmd_diagnose() {
   # which made one of the prerequisite lines appear as "(not found)"
   # even when the tool was installed. Sourcing first, slicing second.
   local oci_v jq_v tf_v ssh_v
-  oci_v=$(oci --version 2>&1)         || oci_v="(not found)"
-  jq_v=$(jq --version 2>&1)           || jq_v="(not found)"
+  oci_v=$(oci --version 2>&1) || oci_v="(not found)"
+  jq_v=$(jq --version 2>&1) || jq_v="(not found)"
   tf_v=$(terraform version 2>/dev/null) || tf_v="(not found)"
-  ssh_v=$(ssh -V 2>&1)                || ssh_v="(not found)"
+  ssh_v=$(ssh -V 2>&1) || ssh_v="(not found)"
 
   log "── prerequisites"
   printf '  oci:       %s\n' "${oci_v%%$'\n'*}"
@@ -387,9 +404,9 @@ cmd_diagnose() {
   log "── active sessions on this bastion (note: OCI caps at 10 concurrent)"
   local sessions_json
   if sessions_json=$(oci_cmd bastion session list \
-      --bastion-id "$BASTION_OCID" \
-      --session-lifecycle-state ACTIVE \
-      --all --query 'data'); then
+    --bastion-id "$BASTION_OCID" \
+    --session-lifecycle-state ACTIVE \
+    --all --query 'data'); then
     jq '[.[] | {id, "display-name", "session-ttl-in-seconds", "time-created"}]' <<<"$sessions_json"
   else
     warn "session list failed"
@@ -398,14 +415,14 @@ cmd_diagnose() {
   log "── Cloud Agent Bastion plugin status on target instance"
   local compartment_id
   if compartment_id=$(oci_cmd compute instance get \
-      --instance-id "$INSTANCE_OCID" \
-      --query 'data."compartment-id"' --raw-output 2>/dev/null); then
+    --instance-id "$INSTANCE_OCID" \
+    --query 'data."compartment-id"' --raw-output 2>/dev/null); then
     # JMESPath expression — single quotes are intentional (no shell expansion).
     # shellcheck disable=SC2016
     if ! oci_cmd instance-agent plugin list \
-        --instanceagent-id "$INSTANCE_OCID" \
-        --compartment-id "$compartment_id" \
-        --query 'data[?name==`"Bastion"`].{name:name,status:status}'; then
+      --instanceagent-id "$INSTANCE_OCID" \
+      --compartment-id "$compartment_id" \
+      --query 'data[?name==`"Bastion"`].{name:name,status:status}'; then
       warn "plugin list failed"
     fi
   else

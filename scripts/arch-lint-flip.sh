@@ -31,8 +31,11 @@ set -euo pipefail
 
 mode="${1:---check}"
 case "$mode" in
-  --check|--apply) ;;
-  *) echo "usage: $0 [--check|--apply]" >&2; exit 2 ;;
+  --check | --apply) ;;
+  *)
+    echo "usage: $0 [--check|--apply]" >&2
+    exit 2
+    ;;
 esac
 
 repo="$(git rev-parse --show-toplevel 2>/dev/null || echo "$PWD")"
@@ -63,11 +66,11 @@ else
 fi
 
 case "$depcruise_state" in
-  flipped)     printf 'gate: depcruise           — flipped (marker present)\n' ;;
-  eligible)    printf 'gate: depcruise           — eligible to flip (warn=0)\n' ;;
-  dirty)       printf 'gate: depcruise           — dirty (warn=%s)\n' "$depcruise_warn" ;;
+  flipped) printf 'gate: depcruise           — flipped (marker present)\n' ;;
+  eligible) printf 'gate: depcruise           — eligible to flip (warn=0)\n' ;;
+  dirty) printf 'gate: depcruise           — dirty (warn=%s)\n' "$depcruise_warn" ;;
   "no snapshot") printf 'gate: depcruise           — no snapshot at %s\n' "$depcruise_snapshot" ;;
-  *)           printf 'gate: depcruise           — %s\n' "$depcruise_state" ;;
+  *) printf 'gate: depcruise           — %s\n' "$depcruise_state" ;;
 esac
 
 if [ "$mode" = "--apply" ] && [ "$depcruise_state" = "eligible" ]; then
@@ -119,10 +122,10 @@ elif grep -qF "$eslint_warn_pat" "$eslint_config"; then
 fi
 
 case "$eslint_state" in
-  flipped)     printf 'gate: eslint-boundaries   — flipped (marker or severity=error)\n' ;;
-  eligible)    printf 'gate: eslint-boundaries   — eligible to flip (severity=warn, zero violations)\n' ;;
+  flipped) printf 'gate: eslint-boundaries   — flipped (marker or severity=error)\n' ;;
+  eligible) printf 'gate: eslint-boundaries   — eligible to flip (severity=warn, zero violations)\n' ;;
   "no config") printf 'gate: eslint-boundaries   — no config at %s\n' "${eslint_config#"$repo/"}" ;;
-  *)           printf 'gate: eslint-boundaries   — %s\n' "$eslint_state" ;;
+  *) printf 'gate: eslint-boundaries   — %s\n' "$eslint_state" ;;
 esac
 
 if [ "$mode" = "--apply" ] && [ "$eslint_state" = "eligible" ]; then
@@ -131,7 +134,7 @@ if [ "$mode" = "--apply" ] && [ "$eslint_state" = "eligible" ]; then
   # `#` delimiter so the `/` inside `boundaries/dependencies` needs no
   # escaping. `\[` escapes the literal `[` in the BRE pattern.
   sed "s#'boundaries/dependencies': \\['warn'#'boundaries/dependencies': ['error'#" \
-      "$eslint_config" > "$tmp"
+    "$eslint_config" >"$tmp"
   if grep -qF "$eslint_error_pat" "$tmp" && ! grep -qF "$eslint_warn_pat" "$tmp"; then
     mv "$tmp" "$eslint_config"
     cat >"$eslint_marker" <<EOF
@@ -188,17 +191,17 @@ elif grep -qF "$deny_mv_warn" "$deny_config" || grep -qF "$deny_wc_warn" "$deny_
 fi
 
 case "$deny_state" in
-  flipped)     printf 'gate: cargo-deny          — flipped (marker or both severities=deny)\n' ;;
-  eligible)    printf 'gate: cargo-deny          — eligible to flip (severity=warn)\n' ;;
+  flipped) printf 'gate: cargo-deny          — flipped (marker or both severities=deny)\n' ;;
+  eligible) printf 'gate: cargo-deny          — eligible to flip (severity=warn)\n' ;;
   "no config") printf 'gate: cargo-deny          — no config at %s\n' "${deny_config#"$repo/"}" ;;
-  *)           printf 'gate: cargo-deny          — %s\n' "$deny_state" ;;
+  *) printf 'gate: cargo-deny          — %s\n' "$deny_state" ;;
 esac
 
 if [ "$mode" = "--apply" ] && [ "$deny_state" = "eligible" ]; then
   tmp="$(mktemp)"
   sed -e 's/^multiple-versions = "warn"/multiple-versions = "deny"/' \
-      -e 's/^wildcards = "warn"/wildcards = "deny"/' \
-      "$deny_config" > "$tmp"
+    -e 's/^wildcards = "warn"/wildcards = "deny"/' \
+    "$deny_config" >"$tmp"
   if grep -qF "$deny_mv_deny" "$tmp" && grep -qF "$deny_wc_deny" "$tmp"; then
     mv "$tmp" "$deny_config"
     cat >"$deny_marker" <<EOF

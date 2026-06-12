@@ -12,7 +12,10 @@
 set -euo pipefail
 
 ROW_FILE="${1:?Usage: $0 <canonical-row.json>}"
-[[ -f "$ROW_FILE" ]] || { echo "missing canonical row file: $ROW_FILE" >&2; exit 2; }
+[[ -f "$ROW_FILE" ]] || {
+  echo "missing canonical row file: $ROW_FILE" >&2
+  exit 2
+}
 
 NS="$(date -u +%s)000000000"
 
@@ -29,7 +32,7 @@ PAYLOAD="$(jq -c \
         }
       ]
     }
-  ' <<< "{}")"
+  ' <<<"{}")"
 
 # Push the payload to Loki via the shared kubectl transport.
 # shellcheck source=lib/loki-push.sh

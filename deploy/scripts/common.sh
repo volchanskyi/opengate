@@ -51,7 +51,10 @@ read_sentinel_field() {
   local mode="$1" field="$2"
   local sf
   sf=$(sentinel_file "$mode")
-  [[ -f "$sf" ]] || { echo ""; return 0; }
+  [[ -f "$sf" ]] || {
+    echo ""
+    return 0
+  }
   grep -oP "^${field}=\K.*" "$sf" 2>/dev/null || true
 }
 
@@ -64,7 +67,7 @@ write_sentinel() {
   local sf tmp
   sf=$(sentinel_file "$mode")
   tmp="${sf}.tmp.$$"
-  cat > "$tmp" <<EOF
+  cat >"$tmp" <<EOF
 image_tag=${tag}
 image_digest=${digest}
 git_sha=${git_sha}
@@ -169,7 +172,7 @@ verify_image() {
   cosign verify \
     --certificate-identity-regexp="https://github.com/${IMAGE_OWNER}/.*" \
     --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-    "$full_ref" > /dev/null 2>&1 \
+    "$full_ref" >/dev/null 2>&1 \
     || fail "Cosign signature verification failed for ${full_ref}"
   log "Cosign signature verified"
 }
@@ -198,8 +201,8 @@ redeploy() {
   new_digest=$(inspect_digest "$tag")
   prev_digest=$(read_sentinel_field "$mode" image_digest)
 
-  if [[ -n "$new_digest" && "$new_digest" == "$prev_digest" \
-        && "$deploy_changed" == "false" ]]; then
+  if [[ -n "$new_digest" && "$new_digest" == "$prev_digest" &&
+    "$deploy_changed" == "false" ]]; then
     log "Image digest unchanged AND deploy/** unchanged — skipping compose restart."
     write_sentinel "$mode" "$tag" "$new_digest" "$git_sha"
     return 0
@@ -227,11 +230,11 @@ set_env_var() {
   local key="$1" value="$2" file="$3"
   if grep -q "^${key}=" "$file" 2>/dev/null; then
     local tmpfile="${file}.tmp.$$"
-    grep -v "^${key}=" "$file" > "$tmpfile"
-    echo "${key}=${value}" >> "$tmpfile"
+    grep -v "^${key}=" "$file" >"$tmpfile"
+    echo "${key}=${value}" >>"$tmpfile"
     mv "$tmpfile" "$file"
   else
-    echo "${key}=${value}" >> "$file"
+    echo "${key}=${value}" >>"$file"
   fi
 }
 

@@ -22,7 +22,10 @@ MODE="production"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mode) MODE="$2"; shift 2 ;;
+    --mode)
+      MODE="$2"
+      shift 2
+      ;;
     *) fail "Unknown argument: $1" ;;
   esac
 done

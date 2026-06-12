@@ -14,24 +14,24 @@ read_hook_input
 parse_input_fields tool_name tool_input.file_path
 
 case "${HOOK_TOOL_NAME:-}" in
-  Write|Edit|MultiEdit) : ;;
+  Write | Edit | MultiEdit) : ;;
   *) exit 0 ;;
 esac
 
 path="${HOOK_TOOL_INPUT_FILE_PATH:-}"
 case "$path" in
-  docs/*.md|*/docs/*.md|.claude/*.md|*/.claude/*.md) ;;
+  docs/*.md | */docs/*.md | .claude/*.md | */.claude/*.md) ;;
   *) exit 0 ;;
 esac
 
 source_dir="$PROJECT_ROOT/scripts/check-doc-links"
 cache_dir="${TMPDIR:-/tmp}/opengate-doc-link-check"
 source_key="$(
-  find "$source_dir" -type f -name '*.go' -print0 |
-    sort -z |
-    xargs -0 cksum |
-    cksum |
-    awk '{print $1 "-" $2}'
+  find "$source_dir" -type f -name '*.go' -print0 \
+    | sort -z \
+    | xargs -0 cksum \
+    | cksum \
+    | awk '{print $1 "-" $2}'
 )"
 binary="$cache_dir/check-doc-links-$source_key"
 
