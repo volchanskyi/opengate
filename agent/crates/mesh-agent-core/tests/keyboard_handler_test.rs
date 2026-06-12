@@ -1,4 +1,4 @@
-//! Integration test for `KeyboardHandler` (ADR-024 §9 carve).
+//! Integration test for `KeyboardHandler`.
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};

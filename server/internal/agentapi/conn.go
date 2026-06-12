@@ -48,7 +48,7 @@ type AgentConn struct {
 
 // AgentConnConfig bundles the dependencies an AgentConn needs. Promoted
 // from a positional argument list when the latter exceeded Sonar's
-// parameter cap during the ADR-021 residual-Store retirement.
+// parameter cap while the shared Store dependency was split into narrow ports.
 type AgentConnConfig struct {
 	DeviceID      protocol.DeviceID
 	GroupID       uuid.UUID

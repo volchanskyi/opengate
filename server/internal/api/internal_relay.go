@@ -19,7 +19,7 @@ const (
 	// proxyCallerHeader carries the dialing server's ID. It is required on every
 	// cross-server proxy request: it identifies the caller and, because only a
 	// peer relay sets it, marks the connection as already-proxied so the owner
-	// registers it through RegisterLocal (the loop guard, ADR-023).
+	// registers it through RegisterLocal to prevent proxy loops.
 	proxyCallerHeader = "X-OpenGate-Proxy"
 	// proxyAuthHeader carries the optional shared secret. When the owner is
 	// configured with a non-empty secret, this header must match it
@@ -29,7 +29,7 @@ const (
 
 // InternalRelayServer handles cross-server proxy connections from peer servers.
 // It is served on a private listener that is never exposed through the public
-// ingress (ADR-023); its only authentication is the network boundary plus the
+// ingress; its only authentication is the network boundary plus the
 // loop-guard caller header and an optional shared secret.
 type InternalRelayServer struct {
 	relay    *relay.Relay
@@ -120,7 +120,7 @@ func (s *InternalRelayServer) handleProxyConn(w http.ResponseWriter, r *http.Req
 
 // HTTPPeerDialer is the production relay.PeerDialer. It dials a session's
 // affinity owner directly at the owner's address over the flat cluster overlay
-// (ADR-023): pod IPs are routable container-to-container, so no DNS or headless
+// because pod IPs are routable container-to-container, so no DNS or headless
 // Service is needed. All pods share the same internal port (homogeneous
 // deployment), so the dialer reuses its own port to reach any peer.
 type HTTPPeerDialer struct {
@@ -138,7 +138,7 @@ func NewHTTPPeerDialer(serverID, port, secret string, logger *slog.Logger) *HTTP
 
 // Dial opens the cross-server tunnel to owner for token's session, forwarding
 // the given side. The full token rides the URL path (private overlay only); only
-// the redacted prefix is ever logged (ADR-027).
+// the redacted prefix is ever logged.
 func (d *HTTPPeerDialer) Dial(ctx context.Context, owner string, token protocol.SessionToken, side relay.Side) (relay.Conn, error) {
 	label := "agent"
 	if side == relay.SideBrowser {

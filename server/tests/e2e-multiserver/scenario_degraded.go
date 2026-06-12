@@ -8,7 +8,7 @@ import (
 	"nhooyr.io/websocket"
 )
 
-// scenarioRedisDeathDegraded proves the ADR-023 recovery posture on Redis loss:
+// scenarioRedisDeathDegraded proves the recovery behavior on Redis loss:
 // the registry_up gauge flips to 0 (the Grafana/Telegram alert keys on this), an
 // already-established session keeps relaying (drains, not dropped), new sessions
 // are refused with WebSocket 1013 (Try Again Later), and the system recovers when

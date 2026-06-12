@@ -71,8 +71,8 @@ pub async fn apply_update(
     // 0. Precheck: if the currently-running binary already hashes to the
     //    manifest's expected sha256, the update is a no-op — skip download,
     //    verify, swap, and watchdog entirely. Belt-and-suspenders for the
-    //    workflow-level gate in .github/workflows/release-agent.yml; see
-    //    ADR-005. Bypassed when `sha256_hex` is empty (legacy manifests) or
+    //    workflow-level gate in .github/workflows/release-agent.yml. Bypassed
+    //    when `sha256_hex` is empty (legacy manifests) or
     //    the current binary path doesn't exist (non-standard installs).
     if !sha256_hex.is_empty() && config.current_binary_path.exists() {
         let current_hash = sha256_file(&config.current_binary_path).await?;
@@ -557,7 +557,7 @@ mod tests {
         assert_eq!(backup, b"old binary");
     }
 
-    // ── Content-hash precheck (see ADR-005; the workflow gate in
+    // ── Content-hash precheck (the workflow gate in
     // .github/workflows/release-agent.yml is the primary defense — these
     // tests cover the belt-and-suspenders agent-side check that protects
     // against a server publishing a manifest whose sha256 already matches

@@ -15,7 +15,7 @@ import (
 )
 
 // These tests exercise every branch of every resolve<Domain>Handlers fallback
-// per ADR-020 §9 / plan §4.1. The fallbacks let existing test ServerConfig
+// across every domain boundary. The fallbacks let existing test ServerConfig
 // literals stay green (auto-wrap legacy Repository/Operator/Notifier into the
 // new Handlers struct) while main.go and new test code pass *.Handlers
 // explicitly. Each function has three branches that must be covered for

@@ -34,7 +34,7 @@ return ARGV[1]
 `)
 
 // RedisRegistry is the SessionRegistry adapter backed by Redis, for
-// multi-server relay pools (ADR-023). Affinity ownership is an
+// multi-server relay pools. Affinity ownership is an
 // atomic claim-or-get with TTL; session metadata is a JSON value; lifecycle
 // events ride Redis Pub/Sub. It is the cross-server-capable replacement for
 // InProcessRegistry, selected via REGISTRY_BACKEND=redis (cmd/meshserver).
@@ -155,7 +155,7 @@ func (r *RedisRegistry) PublishEvent(ctx context.Context, evt SessionEvent) erro
 }
 
 // Ping reports whether Redis is reachable. The readiness probe drains the pod
-// when this fails (ADR-023 recovery posture).
+// when this fails so new traffic moves to healthy replicas.
 func (r *RedisRegistry) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }

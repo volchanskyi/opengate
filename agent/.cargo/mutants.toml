@@ -16,9 +16,8 @@
 #     web-side `webrtc-transport.ts`, `use-remote-desktop.ts`, and
 #     `connection-store.ts` carve-outs (see `web/stryker.config.json`).
 
-#   * WebRTC handler carve-out (`mesh-agent-core/src/session/handlers/webrtc.rs`)
-#     — ADR-024 §9 relocated the SwitchToWebRTC offer/answer + IceCandidate
-#     forwarding logic out of `webrtc.rs` into this handler file. It is the same
+#   * WebRTC handler (`mesh-agent-core/src/session/handlers/webrtc.rs`) owns the
+#     SwitchToWebRTC offer/answer + IceCandidate forwarding logic. It is the same
 #     live-STUN/network-stack class as `webrtc.rs` above: `handle_offer` needs a
 #     valid SDP offer + ICE gathering, and `handle_candidate`'s peer-present path
 #     needs a remote description set (only `handle_offer` does that). The

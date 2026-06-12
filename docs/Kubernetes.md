@@ -65,7 +65,7 @@ the tunables live in
 cross-server WebSocket proxy that the `redis` backend enables
 ([ADR-023 Amendment 2](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments)) and its Redis-loss
 degraded-mode posture are exercised end-to-end by the multiserver harness —
-see [Testing § Multiserver E2E](./Testing.md#multiserver-e2e-phase-13b-pr-d).
+see [Testing § Multiserver E2E](./Testing.md#multiserver-e2e).
 
 ### Scale-out (HPA/KEDA + shared keys)
 

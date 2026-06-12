@@ -36,7 +36,7 @@ const (
 // Compat aliases for the not-yet-extracted callers that still spell these
 // types with a `db.` prefix. Test files, bench files, AMT code, etc. — every
 // alias here is a direct rename to its canonical home in [device]. Removed
-// once the matching modules complete their ADR-021 extraction.
+// once the matching modules own all remaining aliases.
 type (
 	Device               = device.Device
 	Group                = device.Group

@@ -10,8 +10,8 @@ import (
 
 // InProcessRegistry is the SessionRegistry adapter for single-server
 // deployments. State lives in-memory; affinity is trivial (the calling
-// server always wins its first claim). Phase 13b replaces this adapter
-// with RedisRegistry without touching consumers.
+// server always wins its first claim). Multi-server deployments replace this
+// adapter with RedisRegistry without touching consumers.
 //
 // TTL is ignored by this adapter — there is no crash-recovery scenario
 // for a single server. RedisRegistry honors TTL.

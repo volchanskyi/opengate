@@ -275,8 +275,8 @@ func (alwaysDownRegistry) Ping(context.Context) error {
 // TestRelayWebSocket_RegistryDegraded asserts that once the relay is in degraded
 // mode (session registry unreachable past the threshold), a new session is
 // refused with WebSocket close code 1013 (Try Again Later) — a retryable signal
-// — rather than a generic internal error. ADR-023 recovery posture, Phase 13b
-// PR-C C3b.
+// — rather than a generic internal error, preserving retry semantics during a
+// registry outage.
 func TestRelayWebSocket_RegistryDegraded(t *testing.T) {
 	t.Parallel()
 	reg := alwaysDownRegistry{relay.NewInProcessRegistry()}

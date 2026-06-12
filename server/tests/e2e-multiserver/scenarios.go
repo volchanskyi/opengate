@@ -13,7 +13,7 @@ type scenario struct {
 	run  func(ctx context.Context, h *harness) error
 }
 
-// scenarios returns the three ADR-023 multiserver checks in run order.
+// scenarios returns the three multiserver checks in run order.
 func scenarios() []scenario {
 	return []scenario{
 		{"cross-server-frame-flow", scenarioFrameFlow},
@@ -23,7 +23,7 @@ func scenarios() []scenario {
 }
 
 // scenarioFrameFlow proves a session whose two sides land on different replicas
-// relays bytes in both directions through the cross-server proxy (ADR-023): the
+// relays bytes in both directions through the cross-server proxy: the
 // agent connects to A, the browser to B, so exactly one side is always remote and
 // spliced through the affinity owner's internal listener.
 func scenarioFrameFlow(ctx context.Context, h *harness) error {

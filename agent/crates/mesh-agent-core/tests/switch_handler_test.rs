@@ -1,4 +1,4 @@
-//! Integration test for `SwitchHandler` (ADR-024 §9 carve).
+//! Integration test for `SwitchHandler`.
 //!
 //! Pins the externally-visible contract: SwitchAck with no active peer
 //! connection silently no-ops (no panic, no frame emission). The

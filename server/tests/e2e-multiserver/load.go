@@ -12,8 +12,7 @@ import (
 // loadBaseline measures steady-state one-way relay latency for two routing modes
 // — "direct" (both sides on replica B, zero-hop) and "proxied" (agent on A,
 // browser on B, spliced through the affinity owner) — and prints a p50/p95/p99
-// table plus the proxied-vs-direct delta. It is the PR-D answer to ADR-023's
-// "revisit the affinity TTL after the first load test": the delta quantifies the
+// table plus the proxied-vs-direct delta. The delta quantifies the
 // extra intra-cluster hop the cross-server proxy adds.
 func loadBaseline(ctx context.Context, h *harness, samples int) error {
 	direct, err := h.measureMode(ctx, "direct", samples)

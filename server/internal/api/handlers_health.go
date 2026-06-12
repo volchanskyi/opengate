@@ -5,7 +5,7 @@ import "context"
 // GetHealth implements StrictServerInterface — the readiness probe. It reports
 // 503 (draining the pod) when a backing dependency is unreachable: Postgres, or
 // the distributed session registry (Redis) when one is wired. The registry check
-// is what drains a pod that has lost Redis (ADR-023 recovery posture); liveness
+// drains a pod that has lost Redis; liveness
 // (/healthz) stays dependency-free so the pod is not restarted.
 func (s *Server) GetHealth(ctx context.Context, _ GetHealthRequestObject) (GetHealthResponseObject, error) {
 	if s.store.Ping(ctx) != nil {

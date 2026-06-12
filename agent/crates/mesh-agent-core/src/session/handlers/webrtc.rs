@@ -2,8 +2,8 @@
 //!
 //! Owns `ControlMessage::SwitchToWebRTC` (offer/answer SDP exchange +
 //! peer-connection setup + ICE candidate forwarding) and
-//! `ControlMessage::IceCandidate` dispatch. Carved out of
-//! [`super::super::handler::SessionHandler`] per ADR-024.
+//! `ControlMessage::IceCandidate` dispatch so WebRTC negotiation remains
+//! isolated from the [`super::super::handler::SessionHandler`] multiplexer.
 
 use std::sync::Arc;
 

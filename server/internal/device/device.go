@@ -1,4 +1,4 @@
-// Package device owns the device aggregate per ADR-021: managed devices and
+// Package device owns the device aggregate: managed devices and
 // their groupings, plus the hardware-inventory and cached-logs read models
 // that hang off the same aggregate root. The four outbound persistence ports
 // (Repository / GroupRepository / HardwareRepository / LogsRepository) live

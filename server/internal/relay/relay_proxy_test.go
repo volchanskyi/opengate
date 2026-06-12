@@ -123,7 +123,7 @@ func TestRelay_Proxy_TeardownOnClose(t *testing.T) {
 
 // TestRelay_Proxy_DialFailureClosesLocal asserts a dial failure fails fast: the
 // local conn is closed, the session is removed, and Register returns an error so
-// the client reconnects with a fresh token (ADR-023).
+// the client reconnects with a fresh token.
 func TestRelay_Proxy_DialFailureClosesLocal(t *testing.T) {
 	dialer := &fakePeerDialer{dialErr: errors.New("owner unreachable")}
 	r, _ := proxiedRelay(t, dialer)

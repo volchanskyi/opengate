@@ -123,8 +123,8 @@ type Server struct {
 
 // resolveAuditHandlers returns the per-domain Handlers from cfg, or
 // wraps the legacy Audit Repository to satisfy the new transport
-// boundary. Per ADR-020 §9 / plan §4.1, the api package consumes audit
-// operations through audit.Handlers; tests that still wire only `Audit:`
+// boundary. The api package consumes audit operations through audit.Handlers;
+// tests that still wire only `Audit:`
 // stay green via this fallback. main.go and new test code should pass
 // AuditHandlers explicitly.
 func resolveAuditHandlers(cfg ServerConfig) *audit.Handlers {
@@ -166,8 +166,8 @@ func resolveNotificationsHandlers(cfg ServerConfig) *notifications.Handlers {
 
 // resolveSessionUseCase constructs SessionService when not explicitly
 // provided. Falls back from cfg.Sessions + cfg.Notifier + cfg.Audit
-// (existing test ServerConfig literals all set those three, so the use
-// case is silently available in tests that pre-date this commit).
+// when those three dependencies are available, preserving the narrow
+// ServerConfig used by unit tests.
 // Returns nil when prerequisites are missing — handler delegation must
 // check for that before calling.
 func resolveSessionUseCase(cfg ServerConfig) *usecase.SessionService {
@@ -246,7 +246,7 @@ func (s *Server) routes() {
 
 	// Liveness probe — reports only that the process is up. Deliberately
 	// dependency-free: a Postgres or Redis blip must NOT restart the pod, which
-	// is readiness' job (/api/v1/health, GetHealth) (ADR-023 recovery posture).
+	// is readiness' job (/api/v1/health, GetHealth).
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

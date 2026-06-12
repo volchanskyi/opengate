@@ -1,7 +1,7 @@
 //! Terminal control-message handler.
 //!
-//! Owns `ControlMessage::TerminalResize` dispatch. Carved out of
-//! [`super::super::handler::SessionHandler`] per ADR-024.
+//! Owns `ControlMessage::TerminalResize` dispatch so terminal control remains
+//! isolated from the [`super::super::handler::SessionHandler`] multiplexer.
 
 use tracing::info;
 

@@ -1,4 +1,4 @@
-//! Integration tests for `TerminalControlHandler` (ADR-024 §9 carve).
+//! Integration tests for `TerminalControlHandler`.
 //!
 //! Pins the externally-visible contract: TerminalResize delegates to
 //! `TerminalHandle::resize` when a terminal session is active; silently

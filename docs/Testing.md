@@ -125,10 +125,10 @@ Rust runs need `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden` so golden file
 tests resolve fixtures inside cargo-mutants' temp tree. The `mutate-rust`
 make target sets this automatically.
 
-### Mutation testing trend (PR 9)
+### Mutation testing trend
 
 Mutation tests do **not** gate merges or deploys. They run **nightly** via the
-[mutation.yml workflow](../.github/workflows/mutation.yml) at 03:00 UTC and
+[mutation.yml workflow](../.github/workflows/mutation.yml) and
 emit a row per run to:
 
 - **Loki** — pushed via the existing deploy SSH tunnel into the monitoring
@@ -277,7 +277,7 @@ If you prefer a permanent local fix instead, remove the dead `credsStore` line
 from `~/.docker/config.json` (Docker then pulls public images anonymously and
 still honours any `auths` entries).
 
-## Multiserver E2E (Phase 13b PR-D)
+## Multiserver E2E
 
 The multiserver harness proves the cross-server relay proxy ([ADR-023 Amendment 2](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments)) and the Redis-loss degraded-mode posture ([ADR-023](./adr/ADR-023-relay-extraction-redis-session-registry.md)) end-to-end against **two real server replicas** sharing one Redis and one Postgres — behaviours that unit tests (miniredis, fake dialer, `httptest`) can only approximate. The topology is `deploy/docker-compose.multiserver.yml`; the host-side wire driver is `server/tests/e2e-multiserver/`.
 
@@ -399,7 +399,7 @@ cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
 cd server && go run ./tests/loadtest/ -agents=500 -addr=staging.example.com:9090
 ```
 
-### Multiserver relay latency baseline (Phase 13b PR-D)
+### Multiserver relay latency baseline
 
 `make load-test-multiserver` reuses the multiserver topology and harness (`E2E_LOAD_SAMPLES` switches the driver into load mode) to measure steady-state **one-way relay latency** for two routing modes, quantifying the extra intra-cluster hop the cross-server proxy adds — the answer to [ADR-023](./Architecture-Decision-Records.md)'s "revisit the affinity TTL after the first load test".
 

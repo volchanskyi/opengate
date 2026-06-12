@@ -4,8 +4,8 @@
 # cargo-audit covers advisories; cargo-deny additionally enforces license
 # compatibility, source URLs, and a bans surface for forbidden crates.
 #
-# Per ADR-020 §5.2. No inline crate-level suppressions; all exceptions live
-# in this file with an explicit `reason` string.
+# No inline crate-level suppressions; all exceptions live in this file with an
+# explicit `reason` string.
 
 # --- Advisories ----------------------------------------------------------------
 
@@ -24,7 +24,7 @@ ignore = [
 version = 2
 confidence-threshold = 0.93
 # Standard OSS-compatible set. Anything not here fails the check; new licenses
-# require this file's amendment + ADR cross-reference.
+# require an explicit rationale and policy review in this file.
 allow = [
   "MIT",
   "Apache-2.0",
@@ -48,28 +48,27 @@ allow = [
 # --- Bans ---------------------------------------------------------------------
 
 [bans]
-# ADR-020 §5.4 flip: warn → deny. Strict from this commit on; every transitive
-# duplicate below is enumerated with rationale (matches ADR-020 §5.1's no-bare-
-# suppression rule). ADR-020 Amendment 1 records the HTTP-stack inventory
-# and the policy that gates new direct HTTP deps via ADR amendment, not lint.
+# Strict policy: every transitive duplicate below is enumerated with rationale,
+# and bare suppressions are not allowed. The HTTP-stack inventory below defines
+# the approved direct dependencies; code review gates additions that cargo-deny
+# cannot classify as direct-only.
 multiple-versions = "deny"
 wildcards = "deny"
 # Workspace-internal deps (the mesh-* crates and platform-* shims) use
 # `version = "*"` in path dependencies. Exempt those from the wildcard check
 # so it only catches external wildcard pins, which are the real lurking
-# CVE-vector. ADR-020 §5.2.
+# CVE vector.
 allow-wildcard-paths = true
 
-# HTTP-stack inventory (ADR-020 §5.2, Amendment 1):
+# HTTP-stack inventory:
 #   Direct deps    : reqwest, tokio-tungstenite
 #   Allowed via reqwest: hyper, hyper-rustls, hyper-util, http, http-body
 #   Allowed via tokio-tungstenite: tungstenite
 # Adding a new direct HTTP crate (ureq, isahc, surf, attohttpc, hreq, …)
-# requires an ADR amendment before merge; cargo-deny cannot express a
-# "direct-only" ban, so enforcement is via code review on Cargo.toml diffs
-# and the ADR-020 Amendment 1 policy doc. The explicit deny below catches the one
-# historically problematic stale crypto/HTTP stack in case it appears
-# transitively.
+# requires architecture review before merge; cargo-deny cannot express a
+# "direct-only" ban, so enforcement is via code review on Cargo.toml diffs.
+# The explicit deny below catches the historically problematic stale
+# crypto/HTTP stack if it appears transitively.
 deny = [
   { crate = "openssl", reason = "rustls-only policy — openssl pulls system-level crypto and complicates static cross-compilation. If a transitive dep needs openssl, pin to rustls-equivalent variant or document in an ADR amendment." },
 ]

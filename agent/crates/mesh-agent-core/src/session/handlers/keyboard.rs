@@ -1,7 +1,7 @@
 //! Keyboard input control-message handler.
 //!
-//! Owns `ControlMessage::KeyPress` dispatch. Carved out of
-//! [`super::super::handler::SessionHandler`] per ADR-024.
+//! Owns `ControlMessage::KeyPress` dispatch so keyboard policy remains isolated
+//! from the [`super::super::handler::SessionHandler`] multiplexer.
 
 use mesh_protocol::{KeyCode, KeyEvent, Permissions};
 use tracing::warn;
