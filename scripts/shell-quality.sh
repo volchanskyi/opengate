@@ -6,6 +6,7 @@ set -euo pipefail
 SHELLCHECK_VERSION="0.11.0"
 SHFMT_VERSION="3.13.1"
 ROOT="${SHELL_QUALITY_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+POLICY_CHECKER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-shell-policy.sh"
 
 die() {
   printf 'shell-quality: ERROR: %s\n' "$1" >&2
@@ -69,6 +70,9 @@ check_files() {
     shellcheck --severity=style -x "${FILES[@]}"
     shfmt -d "${FILES[@]}"
   )
+  SHELL_POLICY_ROOT="$ROOT" \
+    SHELL_POLICY_MANIFEST="$ROOT/.claude/shell-policy.exceptions" \
+    "$POLICY_CHECKER"
 }
 
 format_files() {

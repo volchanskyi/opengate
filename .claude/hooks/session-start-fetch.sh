@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart hook: warn Claude if local HEAD is behind origin/dev.
 # Silent when up-to-date or offline. Does not modify the working tree.
-set -e
+set -euo pipefail
 
 repo=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$repo"

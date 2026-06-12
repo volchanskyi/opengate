@@ -2,7 +2,6 @@
 # Shared functions for OpenGate deploy scripts.
 # Sourced by deploy.sh, smoke-test.sh, and rollback.sh.
 # Runs on the VPS — pure bash, no external deps beyond docker.
-set -euo pipefail
 
 # --- Constants ----------------------------------------------------------------
 

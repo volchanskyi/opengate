@@ -133,7 +133,6 @@ fi
 # readiness, and exits non-zero if it still can't connect — fail-loud
 # per CLAUDE.md "no silent skip" rule.
 # shellcheck source=lib/postgres-prereq.sh
-# shellcheck source=lib/postgres-prereq.sh
 . "$PROJECT_ROOT/scripts/lib/postgres-prereq.sh"
 if ! pg_ensure_up; then
   color "1;31"
