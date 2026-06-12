@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781269594983,
+  "lastUpdate": 1781270512892,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17762,6 +17762,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.878704433685147,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "c9097503c7b9b82045d75bd0525cf71454b53464",
+          "message": "test(shell): drop runner-load-sensitive wall-clock thresholds\n\nThe shell-enforcement timing assertions hard-failed when full-repo validation\nran slower than 5000ms on a loaded CI runner (observed 5968ms; ~4s locally),\nturning a perf budget into a flaky red gate. Report the duration but gate only\non the correctness check (validation succeeds), matching the no-wall-clock-timing\nrule already applied to mutation and gremlins budgets.",
+          "timestamp": "2026-06-12T06:20:18-07:00",
+          "tree_id": "6d0f66f0276bcbf936d8b7683a0165d024fb6b81",
+          "url": "https://github.com/volchanskyi/opengate/commit/c9097503c7b9b82045d75bd0525cf71454b53464"
+        },
+        "date": 1781270512758,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.362270706673648,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.805584225147484,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 763.3855599556962,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 310.65587641998394,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.728126588713845,
             "unit": "ns/iter"
           }
         ]
