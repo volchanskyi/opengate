@@ -7,7 +7,7 @@ Status: Accepted
 
 [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) adopted full hexagonal architecture for the Go server, with twelve modules each owning named inbound and outbound ports. This ADR resolves how the monolithic `db.Store` interface ([`server/internal/db/store.go:16-98`](../../server/internal/db/store.go#L16-L98) — 56 methods across 13 entity groups, imported from 51 files) decomposes into per-aggregate repositories, and who owns transactions when a use case spans multiple aggregates.
 
-The plan ([`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/modular-monolith-evaluation.md) §4.6, R2 Q2) resolved transaction ownership; this ADR codifies it.
+The plan ([`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) §4.6, R2 Q2) resolved transaction ownership; this ADR codifies it.
 
 ## Decision
 
@@ -93,7 +93,7 @@ No greenfield refactor PR. Each extraction rides a real change.
 
 ## References
 
-- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/modular-monolith-evaluation.md) §4.1, §4.6, §6 (query sub-package pitfall), §7 (residual db.Store target)
+- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) §4.1, §4.6, §6 (query sub-package pitfall), §7 (residual db.Store target)
 - Upstream: [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) — modular-monolith scope and style
 - Database: [ADR-014](ADR-014-postgres-migration.md) — Postgres via pgx/v5
 - Pinch-point: [`server/internal/db/store.go:16-98`](../../server/internal/db/store.go#L16-L98)

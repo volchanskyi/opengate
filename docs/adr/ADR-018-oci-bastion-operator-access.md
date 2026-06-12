@@ -76,6 +76,6 @@ One PR-sized change: add the operator's OCI IAM user to a `bastion-users` group 
 
 ## References
 
-- Plan: [`.claude/plans/stable-dev-machine-vps-access.md`](../../.claude/plans/stable-dev-machine-vps-access.md)
+- Plan: [`.claude/plans/stable-dev-machine-vps-access.md`](../../.claude/plans/archive/stable-dev-machine-vps-access.md)
 - Operator runbook: [`docs/Infrastructure.md`](../Infrastructure.md#operator-access-via-oci-bastion)
 - Bastion submodule README: [`deploy/terraform/modules/bastion/README.md`](../../deploy/terraform/modules/bastion/README.md)

@@ -95,7 +95,7 @@ Per plan §9: the next session-protocol change is the first carve-up trigger. Th
 
 ## References
 
-- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/modular-monolith-evaluation.md) §4.2 (corrected hotspot location), §6 (mutation-score guard pitfall)
+- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) §4.2 (corrected hotspot location), §6 (mutation-score guard pitfall)
 - Upstream: [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) — earned-port rule, module-level CI gates
 - Critical files: [`agent/crates/mesh-agent-core/src/session/handler.rs`](../../agent/crates/mesh-agent-core/src/session/handler.rs), [`agent/crates/mesh-agent-core/src/session/mod.rs`](../../agent/crates/mesh-agent-core/src/session/mod.rs)
 - Mutation-score history: [`.github/workflows/mutation.yml`](../../.github/workflows/mutation.yml)

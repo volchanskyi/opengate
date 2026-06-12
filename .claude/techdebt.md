@@ -82,7 +82,7 @@ proof only, not key population.
 
 **Pay-down trigger:** real demand approaching the Medium→Large boundary. The
 storm-defense prerequisite (client-first QUIC handshake + `0x14` fast path) has its
-own master plan: [`fast-path-reconnect-fix.md`](plans/fast-path-reconnect-fix.md).
+own master plan: `.claude/plans/fast-path-reconnect-fix.md`.
 
 ### ADR-024 WebRTC dispatch — 3 residual uncaught mutants in `handler.rs`
 

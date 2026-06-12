@@ -97,7 +97,7 @@ lint-validated, runtime-unproven), **Designed-only** (specced, not built), and
 ### Designed-only — specced, not built
 | Capability | Source | Status |
 |---|---|---|
-| **QUIC fast-reconnect** (0-RTT, cached server-cert-hash, `0x14` skip-signature) | design §1 / §2.1 / §3.3 | **Not implemented.** The agent only has `reconnect_with_backoff` (full handshake every time); the server `quic.Config` has no `Allow0RTT`. The `0x14` (`MsgSkipAuth`) path is a **constant + a hardcoded-`false` `HandshakeResult.Skipped` fossil** — and is **structurally foreclosed** by the server-opens workaround (§4). This is the single highest-leverage 20k gap. See the [fast-path master plan](../.claude/plans/fast-path-reconnect-fix.md). |
+| **QUIC fast-reconnect** (0-RTT, cached server-cert-hash, `0x14` skip-signature) | design §1 / §2.1 / §3.3 | **Not implemented.** The agent only has `reconnect_with_backoff` (full handshake every time); the server `quic.Config` has no `Allow0RTT`. The `0x14` (`MsgSkipAuth`) path is a **constant + a hardcoded-`false` `HandshakeResult.Skipped` fossil** — and is **structurally foreclosed** by the server-opens workaround (§4). This is the single highest-leverage 20k gap. See the fast-path master plan (`.claude/plans/fast-path-reconnect-fix.md`). |
 | Relay-pool / QUIC-gateway tier separation | design §4.3 / §7.2 | The monolithic pod *is* all three tiers. Never separated. |
 | memberlist / gossip discovery | [ADR-023](./adr/) | Explicitly deferred "until >20 servers or Pub/Sub becomes the hot path." Direct pod-IP addressing (ADR-023 Amendment 2) is the interim. |
 
@@ -131,7 +131,7 @@ mTLS bug**; it is in fact standard QUIC stream-discovery (the stream opener must
 write first). With the server opening *and* speaking first, the agent can never
 send `0x14` first, so the designed agent-initiated fast path cannot exist. Full
 root-cause evidence (a TLS/mTLS matrix on quic-go v0.60.0, the design-doc intent,
-the git history) lives in the [fast-path master plan](../.claude/plans/fast-path-reconnect-fix.md);
+the git history) lives in the fast-path master plan (`.claude/plans/fast-path-reconnect-fix.md`);
 its empirical conclusion is summarized in §4 of that plan.
 
 > There's a real design question the fast-path work should settle: at scale, do you
@@ -306,6 +306,6 @@ test-technique gaps, Docker Hub fallback verification.
   [ADR-034](./adr/) (KEDA + shared keys), [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md)
   (block-volume budget). Index: [`.claude/decisions.md`](../.claude/decisions.md).
 - Fix plan for the storm-defense prerequisite:
-  [fast-path master plan](../.claude/plans/fast-path-reconnect-fix.md).
+  fast-path master plan (`.claude/plans/fast-path-reconnect-fix.md`).
 - Chart: [`deploy/helm/opengate`](../deploy/helm/opengate); overlays
   [`values-production.yaml`](../deploy/helm/opengate/values-production.yaml).
