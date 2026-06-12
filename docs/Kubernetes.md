@@ -1,8 +1,6 @@
 # Kubernetes
 
-OpenGate runs on **Oracle Kubernetes Engine (OKE)** via a Helm chart. This is
-the Phase 13b deployment substrate that replaces the single-VM
-[Docker Compose + Caddy stack](./Infrastructure.md) on the cluster path. The
+OpenGate runs on **Oracle Kubernetes Engine (OKE)** via a Helm chart. The
 platform decisions are recorded in
 [ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md).
 

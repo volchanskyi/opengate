@@ -16,6 +16,7 @@ Developer documentation for the OpenGate remote device management platform.
 | [Platform Abstraction](./Platform-Abstraction.md) | OS-specific traits for capture, input, and service lifecycle |
 | [Database](./Database.md) | PostgreSQL schema, driver, migrations, backups |
 | [Testing](./Testing.md) | Test layers, running tests, benchmarks |
+| [Shell Quality](./Shell-Quality.md) | Pinned linting, formatting, execution classes, behavioral tests |
 | [CI Pipeline](./CI-Pipeline.md) | Workflows, job graph, branch protection, auto-merge |
 | [Continuous Deployment](./Continuous-Deployment.md) | CD pipeline, staging/production deploys, smoke tests, rollback |
 | [Container Images](./Container-Images.md) | Dockerfile, GHCR registry, multi-arch builds, image tags |

@@ -17,7 +17,7 @@ Every tracked `.sh` is exactly one of:
 2. **Failure-aggregating executable / test** — `set -uo pipefail`; captures and
    asserts every expected status; **listed with a reason in the exception
    manifest**. Canonical member:
-   [`precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh) (38
+   [`precommit-gauntlet.sh`](../../../scripts/precommit-gauntlet.sh) (38
    `run_check` steps that must survive a failed check to report the full set).
 3. **Sourced library** — no `set`/`shopt`/`trap` at file scope; returns statuses
    rather than exiting unless its contract says otherwise.
@@ -26,17 +26,17 @@ Every tracked `.sh` is exactly one of:
 
 Two sourced libraries currently mutate caller state and must be de-leaked:
 
-- [`.claude/hooks/lib/common.sh`](../hooks/lib/common.sh) — `set -euo pipefail`
+- [`.claude/hooks/lib/common.sh`](../../hooks/lib/common.sh) — `set -euo pipefail`
   at file scope **and** `trap _fail_closed_handler ERR`. Its hook callers
   already establish their own fail-closed policy; move the `set`/`trap` into the
   callers (or a guarded init function they opt into) so sourcing the lib is
   side-effect-free.
-- [`deploy/scripts/common.sh`](../../deploy/scripts/common.sh) — `set -euo
+- [`deploy/scripts/common.sh`](../../../deploy/scripts/common.sh) — `set -euo
   pipefail` at file scope; the deploy scripts that source it already set their
   own options.
 
-The other two libs ([`scripts/lib/loki-push.sh`](../../scripts/lib/loki-push.sh),
-[`scripts/lib/postgres-prereq.sh`](../../scripts/lib/postgres-prereq.sh)) are
+The other two libs ([`scripts/lib/loki-push.sh`](../../../scripts/lib/loki-push.sh),
+[`scripts/lib/postgres-prereq.sh`](../../../scripts/lib/postgres-prereq.sh)) are
 already clean — leave them and use them as the reference contract.
 
 ## File inventory

@@ -13,6 +13,11 @@
 - `make mutate` (and `mutate-rust` / `mutate-go` / `mutate-web`) — mutation tests across all three languages (cargo-mutants / gremlins / stryker)
 - `make taint-go` / `make taint-web` — static taint linting (gosec; eslint-plugin-security + eslint-plugin-no-unsanitized via `web/eslint.security.config.js`)
 - `make dead-code` — dead-code sweep (clippy `-W dead_code`, staticcheck `U1000`, ts-prune)
+- `make shell-check` — Bash syntax, ShellCheck, shfmt drift, and execution-class policy
+- `make shell-fmt` — format tracked Bash files with the pinned shfmt
+- `make shell-test` — run deterministic Shell behavioral tests
+- `make shell-quality` — run `shell-check` and `shell-test`
+- `scripts/shell-quality.sh changed <base>` — fast validation for changed and untracked Bash files
 - `cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go` — regenerate Go API from OpenAPI spec
 - `cd web && npm run generate:api` — regenerate TypeScript types from OpenAPI spec
 

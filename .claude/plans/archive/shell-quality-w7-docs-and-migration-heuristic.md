@@ -14,28 +14,28 @@ the master plan archived.
 
 **Modified:**
 
-- [`docs/`](../../docs/) — add a Shell Quality page (canonical commands
+- [`docs/`](../../../docs/) — add a Shell Quality page (canonical commands
   `make shell-check` / `shell-fmt` / `shell-test` / `shell-quality`; the three
   strict-mode classes; where the pinned versions live). Follow
-  [`docs/README.md`](../../docs/README.md): **link, don't paraphrase** — point at
+  [`docs/README.md`](../../../docs/README.md): **link, don't paraphrase** — point at
   `.shellcheckrc`, the `.editorconfig` shfmt block, and
   `scripts/install-shell-tools.sh` for versions; do not copy version numbers into
-  prose. Link the page from [`docs/Home.md`](../../docs/Home.md).
-- [`.claude/rules/tooling.md`](../rules/tooling.md) — add the canonical
+  prose. Link the page from [`docs/Home.md`](../../../docs/Home.md).
+- [`.claude/rules/tooling.md`](../../rules/tooling.md) — add the canonical
   `make shell-*` targets to the Commands list (mirrors how `make e2e` etc. are
   documented), and the changed-file runner for the agent path.
-- [`.claude/techdebt.md`](../techdebt.md) — close any shell-quality debt rows
+- [`.claude/techdebt.md`](../../techdebt.md) — close any shell-quality debt rows
   this effort resolved; open a row for anything W6 flagged as needing a real
   dependency seam.
-- [`AGENTS.md`](../../AGENTS.md) is a symlink to CLAUDE.md — no separate edit;
+- [`AGENTS.md`](../../../AGENTS.md) is a symlink to CLAUDE.md — no separate edit;
   the rule update flows through `tooling.md`.
 
 **Possibly new:**
 
 - A short "Bash vs Go" migration heuristic — as a `/docs` section (preferred) or
   a lightweight ADR if it constitutes a real architectural decision. **If an
-  ADR:** new immutable file in [`docs/adr/`](../../docs/adr/) + an index row in
-  [`.claude/decisions.md`](../decisions.md); the ADR must **not** link this plan
+  ADR:** new mutable file in [`docs/adr/`](../../../docs/adr/) + an index row in
+  [`.claude/decisions.md`](../../decisions.md); the ADR must **not** link this plan
   file (write-guard `adr-plan-link`) — put any "see working plan" pointer in
   `decisions.md`, and the rationale inline in the ADR.
 
@@ -60,7 +60,7 @@ stays one Shell file.
 5. Run the full acceptance-criteria checklist from the master plan; confirm all
    green.
 6. Archive `shell-quality-hardening.md` and the seven micro-plans to
-   [`.claude/plans/archive/`](archive/).
+   this directory.
 7. `/precommit` → commit → `/refactor` → push.
 
 ## Master-plan acceptance criteria (verify all before archiving)
