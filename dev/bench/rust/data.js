@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781272555125,
+  "lastUpdate": 1781274353437,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17860,6 +17860,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.825091968926536,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "5b11549b2782a1b7695f2e019aae88487bc39b5c",
+          "message": "docs(shell): document policy and archive rollout",
+          "timestamp": "2026-06-12T07:24:02-07:00",
+          "tree_id": "752a577cc762753d4ec0c8bab6aad49d03dbf9da",
+          "url": "https://github.com/volchanskyi/opengate/commit/5b11549b2782a1b7695f2e019aae88487bc39b5c"
+        },
+        "date": 1781274353298,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.348747693746818,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.865417638072685,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 596.0929174082374,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 301.74355122468484,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 21.20888867520336,
             "unit": "ns/iter"
           }
         ]
