@@ -1,8 +1,8 @@
 # DD-A — ADR mutability governance flip (gating)
 
-**Parent:** [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md) (Workstream A).
+**Parent:** `current-state-docs-doctrine-and-adr-mutability.md` (Workstream A).
 **Execution order:** **1st** — gates every other DD micro-plan **and** unblocks
-teardown [`dormant-scale-out-td6-docs-adrs.md`](dormant-scale-out-td6-docs-adrs.md).
+teardown `dormant-scale-out-td6-docs-adrs.md`.
 **Status:** Executed. **ADR consolidation folded in** (maintainer request, enabled
 by the mutability flip): former amendment ADRs absorbed into their parents'
 new "Amendments" sections — ADR-028 + ADR-032 → ADR-019, ADR-026 → ADR-020,

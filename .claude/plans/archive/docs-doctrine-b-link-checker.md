@@ -1,6 +1,6 @@
 # DD-B — Deterministic Markdown link enforcement (hook)
 
-**Parent:** [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md) (Workstream B).
+**Parent:** `current-state-docs-doctrine-and-adr-mutability.md` (Workstream B).
 **Execution order:** **2nd** (after DD-A) — so DD-C/DD-D are enforced as they land.
 **Status:** Implemented.
 **Risk:** Low. Internal-only, zero-network, must stay <1.5s per the hooks posture.

@@ -1,6 +1,6 @@
 # DD-INV — Inventory pass (defines "done" for DD-C and DD-D)
 
-**Parent:** [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md) (Inventory pass).
+**Parent:** `current-state-docs-doctrine-and-adr-mutability.md` (Inventory pass).
 **Execution order:** **3rd** (after DD-B, before DD-C/DD-D).
 **Status:** Ready. Output is a scratch checklist (not a committed artifact).
 **Risk:** None (analysis only) — but skipping it lets DD-C/DD-D miss hits or

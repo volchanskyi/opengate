@@ -1,6 +1,6 @@
 # DD-D — Code-comment purge (~65 source files)
 
-**Parent:** [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md) (Workstream D).
+**Parent:** `current-state-docs-doctrine-and-adr-mutability.md` (Workstream D).
 **Execution order:** **5th** (after DD-INV; may run in parallel with DD-C — disjoint files).
 **Status:** Ready.
 **Risk:** PMAT-TDG / Go-lint regression from over-zealous deletion. **Rule:

@@ -331,160 +331,31 @@ func TestRelay_ConnectionClose(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 }
 
-// collectEvents drains up to `want` events from ch, returning early if the
-// timeout elapses first.
-func collectEvents(t *testing.T, ch <-chan SessionEvent, want int, timeout time.Duration) []SessionEvent {
-	t.Helper()
-	var got []SessionEvent
-	deadline := time.After(timeout)
-	for len(got) < want {
-		select {
-		case evt := <-ch:
-			got = append(got, evt)
-		case <-deadline:
-			return got
-		}
-	}
-	return got
-}
-
-// eventKinds projects a slice of SessionEvents down to their kinds.
-func eventKinds(events []SessionEvent) []EventKind {
-	kinds := make([]EventKind, 0, len(events))
-	for _, e := range events {
-		kinds = append(kinds, e.Kind)
-	}
-	return kinds
-}
-
 // testServerID is the fixed serverID used by registry-backed relay tests.
 const testServerID = "server-A"
-
-// registryRelay returns a relay wired to a fresh in-process registry under
-// testServerID, along with that registry for ownership/event assertions.
-func registryRelay(t *testing.T) (*Relay, *InProcessRegistry) {
-	t.Helper()
-	reg := NewInProcessRegistry()
-	return NewRelay(slog.Default(), WithRegistry(reg, testServerID)), reg
-}
-
-// TestRelay_Register_ClaimsAffinityInRegistry asserts the first side of a
-// session claims affinity for the relay's serverID via the SessionRegistry
-// port. LookupOwner is the cross-server primitive used to route a session to
-// its affinity owner.
-func TestRelay_Register_ClaimsAffinityInRegistry(t *testing.T) {
-	r, reg := registryRelay(t)
-	token := protocol.GenerateSessionToken()
-	ctx := context.Background()
-
-	_, agentRelay := newMockConnPair(t)
-	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
-
-	owner, err := reg.LookupOwner(ctx, token)
-	require.NoError(t, err)
-	assert.Equal(t, testServerID, owner)
-}
-
-// TestRelay_DefaultRegistry_TracksOwnership asserts NewRelay without options
-// still wires an in-process registry (default serverID), so the live path is
-// always registry-backed.
-func TestRelay_DefaultRegistry_TracksOwnership(t *testing.T) {
-	r := NewRelay(slog.Default())
-	token := protocol.GenerateSessionToken()
-	ctx := context.Background()
-
-	_, agentRelay := newMockConnPair(t)
-	require.NoError(t, r.Register(ctx, token, agentRelay, SideAgent))
-
-	owner, err := r.registry.LookupOwner(ctx, token)
-	require.NoError(t, err)
-	assert.NotEmpty(t, owner)
-}
-
-// TestRelay_SessionEnd_DeletesRegistryEntry asserts teardown releases the
-// affinity claim so a token does not leak ownership after both sides drop.
-func TestRelay_SessionEnd_DeletesRegistryEntry(t *testing.T) {
-	r, reg := registryRelay(t)
-	ctx := context.Background()
-	token, agentLocal, _ := registerSession(t, r)
-
-	owner, err := reg.LookupOwner(ctx, token)
-	require.NoError(t, err)
-	assert.Equal(t, testServerID, owner)
-
-	agentLocal.Close()
-
-	require.Eventually(t, func() bool {
-		_, err := reg.LookupOwner(ctx, token)
-		return errors.Is(err, ErrRegistryNotFound)
-	}, time.Second, 10*time.Millisecond, "registry entry should be deleted on session end")
-}
-
-// TestRelay_Register_PublishesLifecycleEvents asserts the relay broadcasts
-// EventCreated + EventSideJoined on registration and EventEnded on teardown,
-// so peer servers can observe sessions they do not own.
-func TestRelay_Register_PublishesLifecycleEvents(t *testing.T) {
-	r, reg := registryRelay(t)
-
-	// Subscribe before registering so the EventCreated broadcast is observed.
-	events, err := reg.SubscribeEvents(t.Context())
-	require.NoError(t, err)
-
-	_, agentLocal, _ := registerSession(t, r)
-
-	// First side: EventCreated + EventSideJoined; second side: EventSideJoined.
-	startup := collectEvents(t, events, 3, time.Second)
-	kinds := eventKinds(startup)
-	assert.Contains(t, kinds, EventCreated)
-	assert.Contains(t, kinds, EventSideJoined)
-
-	agentLocal.Close()
-
-	ended := collectEvents(t, events, 1, time.Second)
-	require.Len(t, ended, 1)
-	assert.Equal(t, EventEnded, ended[0].Kind)
-}
 
 // stubRegistry is a configurable SessionRegistry for exercising the relay's
 // error-handling branches — registry failures must be logged, never fatal.
 type stubRegistry struct {
-	claimOwner string // owner ClaimAffinity reports (default: the caller's serverID)
-	claimErr   error
-	saveErr    error
-	deleteErr  error
-	pingErr    error
+	saveErr   error
+	deleteErr error
+	pingErr   error
 }
 
-func (s *stubRegistry) ClaimAffinity(_ context.Context, _ protocol.SessionToken, serverID string, _ time.Duration) (string, error) {
-	if s.claimErr != nil {
-		return "", s.claimErr
-	}
-	if s.claimOwner != "" {
-		return s.claimOwner, nil
-	}
-	return serverID, nil
-}
-func (s *stubRegistry) LookupOwner(context.Context, protocol.SessionToken) (string, error) {
-	return "", ErrRegistryNotFound
-}
 func (s *stubRegistry) SaveSession(context.Context, protocol.SessionToken, SessionMeta) error {
 	return s.saveErr
 }
 func (s *stubRegistry) DeleteSession(context.Context, protocol.SessionToken) error {
 	return s.deleteErr
 }
-func (s *stubRegistry) SubscribeEvents(context.Context) (<-chan SessionEvent, error) {
-	return make(chan SessionEvent), nil
-}
-func (s *stubRegistry) PublishEvent(context.Context, SessionEvent) error { return nil }
-func (s *stubRegistry) Ping(context.Context) error                       { return s.pingErr }
+func (s *stubRegistry) Ping(context.Context) error { return s.pingErr }
 
-// TestRelay_RegistryErrors_AreNonFatal asserts that failures on the claim, save,
-// and delete registry paths are logged but never break the live relay: data
-// still flows and the session tears down cleanly.
+// TestRelay_RegistryErrors_AreNonFatal asserts that failures on the save and
+// delete registry paths are logged but never break the live relay: data still
+// flows and the session tears down cleanly.
 func TestRelay_RegistryErrors_AreNonFatal(t *testing.T) {
 	boom := errors.New("registry boom")
-	reg := &stubRegistry{claimErr: boom, saveErr: boom, deleteErr: boom}
+	reg := &stubRegistry{saveErr: boom, deleteErr: boom}
 	r := NewRelay(slog.Default(), WithRegistry(reg, testServerID))
 	_, agentLocal, browserLocal := registerSession(t, r)
 
@@ -618,17 +489,4 @@ func TestRelay_MonitorRegistryHealth_FlipsAndRecovers(t *testing.T) {
 	reg.healthy.Store(true)
 	require.Eventually(t, func() bool { return r.RegistryUp() }, time.Second, 5*time.Millisecond,
 		"monitor should mark the registry back up after it recovers")
-}
-
-// TestRelay_ForeignOwner_Logged covers the cross-server-ownership warn path:
-// when ClaimAffinity reports a different owner, the relay
-// logs and proceeds — the session still becomes active.
-func TestRelay_ForeignOwner_Logged(t *testing.T) {
-	reg := &stubRegistry{claimOwner: "other-server"}
-	r := NewRelay(slog.Default(), WithRegistry(reg, testServerID))
-	token := protocol.GenerateSessionToken()
-
-	_, agentRelay := newMockConnPair(t)
-	require.NoError(t, r.Register(context.Background(), token, agentRelay, SideAgent))
-	assert.Equal(t, 1, r.ActiveSessionCount())
 }

@@ -2,10 +2,55 @@
 
 **Parent:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) (§2 Server, §3, §4, §5).
 **Execution order:** **3rd** (after TD3 + TD2, before TD4).
-**Status:** Ready (after TD2 lands — nothing depends on the proxy/distributed-registry methods).
+**Status:** **Partially landed** (committed alongside TD3 + TD2). The
+cross-server-proxy removal and the SessionRegistry port slim are **done**; the
+**degraded-mode / `health.go` re-scope is deferred** — see "Done / Still pending"
+below.
 **Risk:** **Highest** — this is the **live production relay pairing path**. Hard
 constraint: single-server pairing behavior is **byte-for-byte identical** before
 and after; `relay_test.go` is green before and after.
+
+## Done / Still pending (as of the TD3+TD2+TD1 combined commit)
+
+**Done in this commit** (port-depth decision: master §3 option B — slim the seam):
+
+- `relay.go`: `Register` collapsed to **local pairing only**. Removed `PeerDialer`,
+  `WithPeerDialer`, `ErrSessionProxied`, the `proxied`/`done` session fields, the
+  `peerDialer` field, `RegisterLocal`, `dropHalfOpen`, `resolveOwner`,
+  `spliceToOwner`, `spliceProxied`, `affinityTTL`/`WithAffinityTTL`/
+  `DefaultAffinityTTL`. `writeOwnerMeta` now only `SaveSession`s; `pipe` teardown
+  only `DeleteSession`s.
+- `registry.go`: `SessionRegistry` slimmed to **`SaveSession` / `DeleteSession` /
+  `Ping`**. Dropped `ClaimAffinity`, `LookupOwner`, `SubscribeEvents`,
+  `PublishEvent`, the `SessionEvent`/`EventKind` types, and the now-unused
+  `ErrInvalidArgument` / `ErrRegistryNotFound`.
+- `inprocess_registry.go`: dropped the four removed methods + the subscriber
+  machinery; kept the `entries` map behind `SaveSession`/`DeleteSession`.
+- Tests: deleted `relay_proxy_test.go`; trimmed `relay_test.go` (dropped
+  affinity/event/foreign-owner cases, **kept** all local-pairing + degraded-mode +
+  ping cases) and rewrote `inprocess_registry_test.go` to the slimmed surface.
+- `cmd/meshserver/main.go` + `main_test.go`: dropped the `OPENGATE_AFFINITY_TTL` /
+  `WithAffinityTTL` option branch.
+
+**Still pending — the `health.go` degraded-mode re-scope (master §2/§5 risk 3).**
+Deliberately **kept intact** this round (surgical scope: proxy + the 4 distributed
+methods only) because removing it cascades beyond the relay package into the
+monitoring + docs surface, which belongs with TD6's monitoring rewrite:
+
+- `health.go`: `MonitorRegistryHealth`, `RegistryDegraded`, `RegistryUp`,
+  `ErrRegistryDegraded`, `DefaultDegradedThreshold`, `WithDegradedThreshold`,
+  `observeRegistryHealth`, `registryUnhealthySince`, `degradedThreshold` — all
+  still present (dead but harmless single-server: `InProcessRegistry.Ping` never
+  fails, so the relay never degrades).
+- Coupled surface to remove with it: the `opengate_registry_up` gauge in
+  [`metrics.go`](../../server/internal/metrics/metrics.go) + its test; the
+  `StatusTryAgainLater`/`ErrRegistryDegraded` branch in
+  [`handlers_relay.go`](../../server/internal/api/handlers_relay.go); the monitor
+  goroutine + gauge source in `main.go`; the alert rule in
+  [`deploy/grafana/provisioning/alerting/alert-rules.yml`](../../deploy/grafana/provisioning/alerting/alert-rules.yml);
+  and the `opengate_registry_up` rows in `docs/Testing.md` + `docs/Monitoring.md`.
+- The readiness probe (`PingRegistry` → `registry.Ping`, always-nil) **stays** — it
+  is what the chart's `/healthz` readiness check uses.
 
 ## Objective
 
@@ -18,7 +63,7 @@ methods, keeping the seam so a future rebuild is cheap.
 | Path | Action | Verified anchor |
 |---|---|---|
 | [`server/internal/relay/relay.go`](../../server/internal/relay/relay.go) | Remove `PeerDialer` (`:67`), `WithPeerDialer` (`:162`), `ErrSessionProxied` (`:35`), the `proxied`/`done` session fields (`:80-81`), `peerDialer` field (`:139`), and the foreign-owner/proxied branch in `Register` (`:215-264`) + the proxy teardown helpers (`:340-378`) + the `ClaimAffinity` call (`:318`). Collapse to local pairing. | grep-confirmed lines |
-| [`server/internal/relay/relay_proxy_test.go`](../../server/internal/relay/relay_proxy_test.go) | **Delete** (tests the proxy path). | exists |
+| `server/internal/relay/relay_proxy_test.go` | **Delete** (tests the proxy path). | exists |
 | [`server/internal/relay/relay_test.go`](../../server/internal/relay/relay_test.go) | Drop proxy cases; **keep/strengthen** the local-pairing assertions (these are the behavior-preservation guard). | exists |
 | [`server/internal/relay/registry.go`](../../server/internal/relay/registry.go) | **Slim the `SessionRegistry` port** (master §3 option **B**): drop `ClaimAffinity`/`LookupOwner`/`SubscribeEvents`/`PublishEvent` (`:70,:74,:87,:91`) + the `SessionEvent` type if now unused. Keep the local-pairing essentials. | grep-confirmed methods |
 | [`server/internal/relay/inprocess_registry.go`](../../server/internal/relay/inprocess_registry.go) | Remove the now-removed methods' no-op impls; shrink to what local pairing uses. | exists |

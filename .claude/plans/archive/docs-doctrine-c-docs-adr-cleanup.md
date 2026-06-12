@@ -1,8 +1,8 @@
 # DD-C — Documentation + ADR-body cleanup
 
-**Parent:** [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md) (Workstream C).
+**Parent:** `current-state-docs-doctrine-and-adr-mutability.md` (Workstream C).
 **Execution order:** **4th** (after DD-INV). **Coordinate with teardown
-[`dormant-scale-out-td6-docs-adrs.md`](dormant-scale-out-td6-docs-adrs.md)** — see Coordination.
+`dormant-scale-out-td6-docs-adrs.md`** — see Coordination.
 **Status:** Ready (after DD-A makes ADRs editable + DD-INV defines scope).
 **Risk:** **Highest-content** — purging mechanical noise from ADR *bodies* (013+)
 can gut rationale. Guardrail: **rewrite to preserve the fact + the why; never
@@ -26,7 +26,7 @@ ADR-013, ADR-023 links) and leave the five teardown ADRs for a final batch after
 ## Ordered batches (each = one commit, gauntlet green)
 
 1. **ADR-023 broken plan links** ([`:17`](../../docs/adr/ADR-023-relay-extraction-redis-session-registry.md#L17), `:136`):
-   repoint `](.claude/plans/modular-monolith-evaluation.md)` →
+   repoint `](modular-monolith-evaluation.md)` →
    `plans/archive/modular-monolith-evaluation.md` (confirm it's archived; if not,
    fold the pointer into [`decisions.md`](../decisions.md)). Drop the
    chronological "Resolved 2026-05-19" token, keep the substance.

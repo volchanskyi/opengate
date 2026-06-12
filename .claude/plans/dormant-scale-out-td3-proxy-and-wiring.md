@@ -20,9 +20,9 @@ removes that).
 
 | Path | Action | Verified anchor |
 |---|---|---|
-| [`server/internal/api/internal_relay.go`](../../server/internal/api/internal_relay.go) | **Delete** (the `/internal/relay/{token}` route + `HTTPPeerDialer`). | file exists |
-| [`server/internal/api/internal_relay_test.go`](../../server/internal/api/internal_relay_test.go) | **Delete**. | file exists |
-| [`server/internal/multiserver/multiserver.go`](../../server/internal/multiserver/multiserver.go) | **Delete** the package (only file in it). | sole file |
+| `server/internal/api/internal_relay.go` | **Delete** (the `/internal/relay/{token}` route + `HTTPPeerDialer`). | file exists |
+| `server/internal/api/internal_relay_test.go` | **Delete**. | file exists |
+| `server/internal/multiserver/multiserver.go` | **Delete** the package (only file in it). | sole file |
 | [`server/cmd/meshserver/main.go`](../../server/cmd/meshserver/main.go) | Remove `-internal-listen` flag (`:38`), `internalAddr` (`:160`), `proxySecret`/`OPENGATE_PROXY_SECRET` (`:162`), `peerDialer`/`api.NewHTTPPeerDialer` (`:163`), the internal listener `http.Server{Addr: internalAddr}` (`:245`), `OPENGATE_SERVER_ID`/`serverID` (`:347`), and the `REGISTRY_BACKEND` selection (`:397-402`). `buildRelayOptions` (`:380`) loses its `dialer relay.PeerDialer` param and the `relay.WithPeerDialer(dialer)` option (`:383`). Construct the registry as **in-process directly**. | grep-confirmed lines |
 | [`server/cmd/meshserver/main_test.go`](../../server/cmd/meshserver/main_test.go) | Drop assertions covering the removed flags/env/listener; keep the rest green. | hit in sweep |
 

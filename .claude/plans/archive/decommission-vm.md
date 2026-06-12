@@ -17,7 +17,7 @@ destroys it and repoints the operator tooling that still references it.
 
 This is **irreversible**: destroying the instance releases its boot volume + public IP.
 Post-decommission rollback = terraform-recreate the VM + `docker compose up` from git +
-restore a `pg_dump` (runbook [docs/Kubernetes-Migration.md](../../docs/Kubernetes-Migration.md) §6/Rollback).
+restore a `pg_dump` (runbook `docs/Kubernetes-Migration.md` (removed) §6/Rollback).
 In-cluster pg_dump backups already run (the `opengate-postgres-backup` CronJob, last
 success ~9h ago), so the cluster data itself is independently protected.
 

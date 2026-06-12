@@ -63,27 +63,6 @@ service principal run it).
    Codify the IAM policy + bucket in terraform if/when the backups infra is folded
    into IaC (the PAR stays a runtime credential, out of git).
 
-### Scaling readiness (> 20,000 agents) — consolidated into [`docs/Multiscale-Readiness.md`](../docs/Multiscale-Readiness.md)
-
-The scale-out debt — dormant Redis Sentinel HA + its operational surface,
-shared-keys multi-replica runtime proof, the `:9091` internal-listener
-NetworkPolicy, Postgres pool tuning / Redis backups, and the unbuilt QUIC
-fast-reconnect storm defense — is now tracked in one place:
-[`docs/Multiscale-Readiness.md`](../docs/Multiscale-Readiness.md), the single
-source of truth for scaling to the design's Large tier. Production was verified
-**single-node / single-replica / one connected agent on 2026-06-11**, so none of
-this is load-bearing today.
-
-*Correction captured by the readiness doc:* the previous shared-keys entry claimed
-production keeps `sharedKeys.enabled=false`; live verification shows production runs
-`sharedKeys.enabled=true` with the `existingSecret` populated (`ca.crt`/`ca.key`/
-`vapid.json`/`update-signing.json` present) — the residual is multi-replica runtime
-proof only, not key population.
-
-**Pay-down trigger:** real demand approaching the Medium→Large boundary. The
-storm-defense prerequisite (client-first QUIC handshake + `0x14` fast path) has its
-own master plan: `.claude/plans/fast-path-reconnect-fix.md`.
-
 ### ADR-024 WebRTC dispatch — 3 residual uncaught mutants in `handler.rs`
 
 `cargo mutants -p mesh-agent-core` leaves three uncaught mutants in
@@ -138,3 +117,13 @@ test/hardening commit — `rapid` property tests for the Go protocol/parser
 surfaces, a `cargo-fuzz` target for `mesh-protocol` decode, and `fast-check` for
 the web store/validation logic. Prioritize parsing/boundary surfaces (highest
 defect density), where the existing fuzz/proptest already focus.
+
+### Performance benchmarks — no CI regression detection
+
+Go and Rust micro-benchmarks run in the precommit gauntlet (`go test -bench` /
+`cargo bench -p mesh-protocol`) but only assert they execute — **no perf
+thresholds or cross-commit regression tracking** are enforced, and there is no CI
+benchmark workflow.
+
+**Pay-down trigger:** wire benchmark deltas into CI with a regression alert.
+Working plan: [`performance-benchmarks.md`](plans/archive/performance-benchmarks.md).
