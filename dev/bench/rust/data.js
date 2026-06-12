@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781258591220,
+  "lastUpdate": 1781259635319,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17664,6 +17664,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.80491590356689,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "6bc5701bd9240ee2e18f1a193ccec1c161ce230e",
+          "message": "test: isolate auto-push cases from CI environment",
+          "timestamp": "2026-06-12T03:18:48-07:00",
+          "tree_id": "af7c1b959c5080923b3ad31242fa5271675b0d86",
+          "url": "https://github.com/volchanskyi/opengate/commit/6bc5701bd9240ee2e18f1a193ccec1c161ce230e"
+        },
+        "date": 1781259635197,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.26912756204916,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.00474470600969,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 768.9117094588644,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 299.42159013438095,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.736233176349874,
             "unit": "ns/iter"
           }
         ]
