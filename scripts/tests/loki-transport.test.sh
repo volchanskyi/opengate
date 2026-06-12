@@ -57,6 +57,7 @@ if output="$(
     "$REPO_ROOT/scripts/pmat-loki-push.sh" "$TMP_ROOT/pmat.json" 2>&1
 )" \
   && grep -qF -- "--rm -i --restart=Never" "$TMP_ROOT/pmat.args" \
+  && grep -qF -- "--image=docker.io/curlimages/curl:8.11.1" "$TMP_ROOT/pmat.args" \
   && grep -qF "http://private-loki.observability.svc:3100/loki/api/v1/push" "$TMP_ROOT/pmat.args" \
   && jq -e '.streams[0].stream.job == "pmat-trend"' "$TMP_ROOT/pmat.stdin" >/dev/null \
   && jq -e '.streams[0].values[0][1] | fromjson | .repo_score == 91.25' "$TMP_ROOT/pmat.stdin" >/dev/null \
@@ -96,6 +97,7 @@ if value="$(
 )" \
   && [ "$value" = "91.25" ] \
   && grep -qF -- "--rm -i --restart=Never" "$TMP_ROOT/query.args" \
+  && grep -qF -- "--image=docker.io/curlimages/curl:8.11.1" "$TMP_ROOT/query.args" \
   && [ ! -s "$TMP_ROOT/query.stdin" ]; then
   pass "PMAT query returns the latest scalar through an auto-cleaned pod"
 else

@@ -29,8 +29,9 @@ QUERY="last_over_time({job=\"pmat-trend\"} | json | unwrap ${FIELD} [14d])"
 
 ns="${LOKI_NAMESPACE:-monitoring}"
 svc="${LOKI_SERVICE:-monitoring-loki}"
+image="${LOKI_CURL_IMAGE:-docker.io/curlimages/curl:8.11.1}"
 RESP="$(kubectl -n "$ns" run "loki-query-$$" --rm -i --restart=Never \
-  --image=curlimages/curl:8.11.1 -- \
+  --image="$image" -- \
   curl -sS --max-time 30 -G "http://${svc}.${ns}.svc:3100/loki/api/v1/query" \
   --data-urlencode "query=${QUERY}" </dev/null 2>/dev/null || true)"
 
