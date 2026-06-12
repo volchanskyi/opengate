@@ -7,12 +7,12 @@
 ## Context
 
 Phase 13b moves OpenGate from a single-VM `docker compose` + Caddy stack to a
-horizontally-scalable platform. PR-A wired the `SessionRegistry` port onto the
-live relay path; the remaining PRs need a real Kubernetes cluster as the
-substrate for ≥2 server replicas, a Redis session registry (PR-C), and an HPA
-(PR-E). This ADR records the **deployment-platform** decisions PR-B commits to.
+horizontally-scalable platform. The `SessionRegistry` port is already wired onto
+the live relay path; the platform now needs a real Kubernetes cluster as the
+substrate for ≥2 server replicas, a Redis session registry, and an HPA. This ADR
+records the **deployment-platform** decisions.
 The §6 platform decisions (OKE flavour, in-cluster Postgres, in-place convert,
-Redis Sentinel) were resolved 2026-06-01; the working sequencing lives in
+Redis Sentinel) were resolved; the working sequencing lives in
 `.claude/decisions.md` and the Phase 13b plan.
 
 Hard constraints carried in: the OCI Always-Free envelope is **4 OCPU / 24 GB**
@@ -43,7 +43,7 @@ protocols that cannot ride an HTTP ingress.
 
 4. **State: in-cluster Postgres StatefulSet + PVC** on the `oci-bv` block-volume
    CSI driver; daily `pg_dump` via a `CronJob`. The server's `/data` (self-signed
-   CA + VAPID keys) is a per-replica RWO PVC for the single-replica PR-B.
+   CA + VAPID keys) is a per-replica RWO PVC for the single-replica deployment.
 
 5. **L4 exposure: hostPort on the single node.** QUIC (9090/udp) and MPS
    (4433/tcp) bind directly to the node's public IP via `hostPort` — budget-free
@@ -74,11 +74,11 @@ protocols that cannot ride an HTTP ingress.
   DNS re-point — *not* a literal running-VM conversion (OKE provisions its own
   worker nodes).
 - **Multi-replica blocker recorded:** the server's CA + VAPID keys live on a
-  per-replica PVC. Scaling past one replica (PR-C/PR-E) requires promoting that
+  per-replica PVC. Scaling past one replica requires promoting that
   material to a shared Secret, else replicas would mint divergent CAs and break
   enrolled agents. Tracked in techdebt.
-- **Redis HA** (Sentinel) and the **cross-server proxy** land in PR-C with their
-  own ADR superseding ADR-023's Redis-HA deferral. This ADR does not introduce
-  Redis.
+- **Redis HA** (Sentinel) and the **cross-server proxy** are recorded in
+  [ADR-023](ADR-023-relay-extraction-redis-session-registry.md) and its
+  amendments. This ADR does not introduce Redis.
 - Caddy remains the edge for the legacy single-VM compose stack until the
   cutover completes; the two coexist only during migration.

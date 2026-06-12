@@ -7,7 +7,7 @@ Status: Accepted
 
 [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) adopted full hexagonal architecture across OpenGate. The Rust agent is already a 5-crate workspace (`mesh-agent-core`, `mesh-agent`, `mesh-protocol`, `platform-linux`, `platform-windows`) with mature trait-based platform abstraction. The only structural pinch-point identified is inside `mesh-agent-core`'s session-handling.
 
-**Corrected location** (the original plan misidentified the file — verified 2026-05-19):
+**Corrected location** (the original plan misidentified the file — corrected here):
 
 - [`agent/crates/mesh-agent-core/src/session/mod.rs::receive_loop`](../../agent/crates/mesh-agent-core/src/session/mod.rs) is the WebSocket message loop, **not** the dispatch.
 - The actual frame-type dispatch lives at [`agent/crates/mesh-agent-core/src/session/handler.rs:17-46`](../../agent/crates/mesh-agent-core/src/session/handler.rs#L17-L46) — 30 lines, 4 outer branches (`Frame::Control`, `Frame::Terminal`, `Frame::Ping`, wildcard).

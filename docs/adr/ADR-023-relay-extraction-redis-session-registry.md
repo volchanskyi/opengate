@@ -14,7 +14,7 @@ Current state ([`server/internal/relay/relay.go:45-60`](../../server/internal/re
 - State is purely per-connection and ephemeral — no database backing.
 - `relay.Conn` ([`relay.go:35-43`](../../server/internal/relay/relay.go#L35-L43)) is already a real port with the `WSConn` adapter as the production implementation.
 
-The plan's earlier "extractable to a separate binary without code changes in `api`" criterion was impossible against this code — a distributed session registry is the missing primitive. Resolved 2026-05-19 ([`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) §4.5, R2 Q4): introduce the registry now, and pick the concrete tech.
+The plan's earlier "extractable to a separate binary without code changes in `api`" criterion was impossible against this code — a distributed session registry is the missing primitive. Resolved ([`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) §4.5, R2 Q4): introduce the registry now, and pick the concrete tech.
 
 ## Decision
 
@@ -58,7 +58,7 @@ The relay code does not know which adapter is in use — phase 13b becomes a con
 
 ### Storage tech: Redis
 
-Resolved 2026-05-19 (R2 Q4). Redis was chosen over Postgres `LISTEN/NOTIFY` and over an in-process gossip protocol for the following reasons:
+Resolved (R2 Q4). Redis was chosen over Postgres `LISTEN/NOTIFY` and over an in-process gossip protocol for the following reasons:
 
 - Industry-standard for relay/session registries; well-understood failure modes.
 - Atomic `SETNX` semantics map directly to `ClaimAffinity`.
@@ -143,7 +143,7 @@ consolidated here when per-file ADRs became mutable —
 ### Amendment 1 — Redis Sentinel-backed registry, the concrete backend (2026-06-03)
 
 Resolves the "pick the concrete tech [and HA] at Phase 13b kickoff" deferral
-(PR-C C1). [ADR-030](ADR-030-kubernetes-adoption-oke-helm.md) deferred Redis to here.
+(C1). [ADR-030](ADR-030-kubernetes-adoption-oke-helm.md) deferred Redis to here.
 
 1. **Backend tech: `redis/go-redis/v9`.** Context-first and maintained; its
    `UniversalClient`/`NewFailoverClient` abstract single-instance vs Sentinel
@@ -186,7 +186,7 @@ then, and Redis is enabled in no overlay here.
 
 ### Amendment 2 — cross-server proxy: pod-IP addressing + internal listener (2026-06-04)
 
-Records the data path (PR-C C2) the spine deferred to implementation. Recording
+Records the data path (C2) the spine deferred to implementation. Recording
 ownership is inert without it; this is that path.
 
 1. **Peer addressing = pod IP via the Downward API; direct dial, no DNS.**
@@ -226,7 +226,7 @@ ownership is inert without it; this is that path.
    `HTTPPeerDialer` with `httptest` + real WebSocket dials — all always-run
    ([ADR-029](ADR-029-test-determinism-no-silent-skips.md)).
 
-Consequences: the data path completes PR-C's core (an A-agent / B-browser pair
+Consequences: the data path completes the core (an A-agent / B-browser pair
 relays through A), but `REGISTRY_BACKEND=redis` is still enabled in no overlay —
 C3 (`/healthz`-Redis, readiness drain, degraded-mode) gates the production
 cutover. The new private `:9091` listener has **no NetworkPolicy** restricting it

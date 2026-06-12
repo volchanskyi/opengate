@@ -6,23 +6,23 @@
 substrate and the single-replica server Deployment) and
 [ADR-023](ADR-023-relay-extraction-redis-session-registry.md) Amendments 1–2
 (the distributed Redis registry + cross-server proxy that make >1 replica
-*functionally* correct). This ADR records the Phase 13b PR-E scale-out decisions.
+*functionally* correct). This ADR records the scale-out decisions.
 Nothing in those ADRs is changed.
 
 ## Context
 
-PR-B shipped the server as a **single replica** with `/data` on a per-replica
+The server initially shipped as a **single replica** with `/data` on a per-replica
 `ReadWriteOnce` PVC. That `/data` holds three keypairs the server generates on
 first boot and then reads: the self-signed enrollment **CA** (`ca.crt`/`ca.key`),
 the web-push **VAPID** keypair (`vapid.json`), and the agent-update **signing**
 keypair (`update-signing.json`). Running a second replica with that layout splits
 all three: agents enrolled against replica A fail mTLS against B, push
 subscriptions fork, and an update manifest signed by A can't be verified when B
-serves it. The PR-B techdebt named PR-E as the explicit pay-down trigger:
+serves it. The original techdebt named this scale-out work as the explicit pay-down trigger:
 "`server.replicas` must stay 1 and HPA must not raise it" until the keys are
 shared.
 
-PR-C/PR-D then made cross-server sessions correct (Redis registry + proxy), so the
+The Redis registry + cross-server proxy then made cross-server sessions correct, so the
 only remaining blocker to horizontal scale is the per-replica key material plus an
 autoscaler. The monitoring stack already exposes `opengate_relay_active_sessions`
 (a per-pod gauge) in VictoriaMetrics — a natural session-aware scale signal.
@@ -36,7 +36,7 @@ writable `emptyDir` (manifest cache) and mounts the four key files **read-only v
 The server already *loads keys if present* — no Go change. The rollout strategy
 flips `Recreate`→`RollingUpdate` (no PVC contention to avoid). Keys are generated
 once out-of-band (run the single-replica PVC path once, extract `/data`, fold into
-the Secret) — the same `existingSecret` pattern PR-B uses for JWT/Postgres
+the Secret) — the same `existingSecret` pattern already used for JWT/Postgres
 credentials. A `ReadWriteMany` filesystem (OCI File Storage) was rejected: new
 infra and cost for material that is write-once-read-many and already secret-shaped.
 

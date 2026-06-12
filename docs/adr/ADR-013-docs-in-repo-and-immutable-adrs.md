@@ -17,7 +17,7 @@ Accepted — 2026-04-11.
 Developer documentation was historically maintained in a separate GitHub wiki
 repository (`volchanskyi/opengate.wiki`, cloned locally alongside the main
 repo). This produced recurring, hard-to-catch drift between what the code does
-and what the wiki claims it does. Concrete incidents over the last two weeks:
+and what the wiki claims it does. Concrete incidents:
 
 1. **Coverage threshold drift.** The per-language unit test jobs were raised
    from 70% to 80% in CI. The wiki kept describing the threshold as 70% for
@@ -25,7 +25,7 @@ and what the wiki claims it does. Concrete incidents over the last two weeks:
    wiki repo.
 
 2. **SARIF export drift.** A SARIF upload step feeding GitHub Code Scanning
-   was removed in commit 9236826 (the dismissed-fingerprint bug made new
+   was removed (the dismissed-fingerprint bug made new
    alerts invisible). The wiki continued to describe SARIF export as a
    feature long after removal — again because the commit that deleted the
    step was in the main repo and the wiki change was a separate, manual,

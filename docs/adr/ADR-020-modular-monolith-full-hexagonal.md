@@ -24,7 +24,7 @@ Adopt **full hexagonal architecture across all modules** of OpenGate. Every cros
 
 ### Style: full hexagonal (overrides "layered hybrid" from the plan)
 
-Plan §3.6 originally recommended a layered hybrid (package-by-feature floor + selective hexagonal at existing seams + DDD-lite only for Phase 13b). The 2026-05-19 resolution overrode that with **uniform hexagonal** because:
+Plan §3.6 originally recommended a layered hybrid (package-by-feature floor + selective hexagonal at existing seams + DDD-lite only for Phase 13b). The resolution overrode that with **uniform hexagonal** because:
 
 - Every existing informal seam (`AgentGetter`, `AMTOperator`, `CertProvider`, `Notifier`, `relay.Conn`) is already port-shaped with at least one real implementation. Promoting them to first-class ports is a naming-and-documentation exercise, not a redesign.
 - Phase 13b will introduce network boundaries at exactly these seams. Doing the hexagonal naming now means Phase 13b becomes a transport swap, not a redesign.
@@ -171,7 +171,7 @@ strict (`depcruise`, `eslint-boundaries`, `cargo-deny`; `go-arch-lint` and
 
 ## References
 
-- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) (resolved 2026-05-19; §11 carries the full resolution table)
+- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) (§11 carries the full resolution table)
 - Paired ADR: [ADR-019](ADR-019-pmat-quality-overlay.md) — PMAT baseline must precede first opportunistic trigger
 - Tooling: [`go-arch-lint`](https://github.com/fe3dback/go-arch-lint), [`eslint-plugin-boundaries`](https://github.com/javierbrea/eslint-plugin-boundaries), [`dependency-cruiser`](https://github.com/sverweij/dependency-cruiser)
 - Constraint sources: [`.claude/rules/sonarcloud.md`](../../.claude/rules/sonarcloud.md), [`.claude/rules/git.md`](../../.claude/rules/git.md), [`.claude/rules/tdd.md`](../../.claude/rules/tdd.md), [`.claude/hooks/pretooluse-write-guard.sh`](../../.claude/hooks/pretooluse-write-guard.sh)
