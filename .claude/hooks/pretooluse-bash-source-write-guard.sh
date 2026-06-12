@@ -25,7 +25,8 @@ cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 # Extract candidate write-target paths from the command. Sent to Python for
 # robust tokenization (handles quoting and operators that bash regex can't
 # cleanly parse).
-candidates=$(CMD="$cmd" python3 - <<'PYEOF'
+candidates=$(
+  CMD="$cmd" python3 - <<'PYEOF'
 import os, re, sys
 cmd = os.environ.get("CMD", "")
 paths = set()
@@ -79,7 +80,7 @@ while IFS= read -r raw; do
   # Resolve absolute path relative to CWD (which the harness sets to the project dir).
   case "$raw" in
     /*) abs="$raw" ;;
-    *)  abs="$PWD/$raw" ;;
+    *) abs="$PWD/$raw" ;;
   esac
   # Canonicalize without requiring the file to exist.
   abs="$(python3 -c 'import os,sys; print(os.path.normpath(sys.argv[1]))' "$abs")"
@@ -101,13 +102,14 @@ while IFS= read -r raw; do
     exit 0
   fi
 
-  msg=$(cat <<EOF
+  msg=$(
+    cat <<EOF
 TDD violation (Bash form). Per .claude/rules/tdd.md, the failing test MUST be written BEFORE the source code.
 The Bash command would modify ${rel}, a source file, on a branch that has no test files modified, added, or staged. Stage a test first.
 Detected command: ${cmd}
 There is NO bypass.
 EOF
-)
+  )
   block tdd-test-first "$msg"
 done <<<"$candidates"
 

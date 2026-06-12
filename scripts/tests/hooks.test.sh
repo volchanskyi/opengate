@@ -15,8 +15,15 @@ PASS=0
 FAIL=0
 FAILURES=()
 
-pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); FAILURES+=("$1"); printf '  FAIL %s\n' "$1" >&2; }
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  FAILURES+=("$1")
+  printf '  FAIL %s\n' "$1" >&2
+}
 
 # Build PreToolUse JSON envelope for a tool call.
 # Args: tool_name, input_json_string
@@ -64,7 +71,7 @@ make_repo() {
   git init --quiet --initial-branch=dev
   git config user.email "test@example.com"
   git config user.name "Test User"
-  echo "base" > base.txt
+  echo "base" >base.txt
   git add base.txt
   git commit --quiet -m "init"
   git checkout --quiet -b feat/test
@@ -87,14 +94,18 @@ trap 'cleanup_repo' EXIT
 # Assertion helpers.
 assert_exit() {
   local name="$1" expected="$2"
-  if [ "$HOOK_EXIT" = "$expected" ]; then pass "$name (exit $expected)"
-  else fail "$name (expected exit $expected, got $HOOK_EXIT; stderr: $(printf '%s' "$HOOK_STDERR" | head -1))"
+  if [ "$HOOK_EXIT" = "$expected" ]; then
+    pass "$name (exit $expected)"
+  else
+    fail "$name (expected exit $expected, got $HOOK_EXIT; stderr: $(printf '%s' "$HOOK_STDERR" | head -1))"
   fi
 }
 assert_stderr_contains() {
   local name="$1" needle="$2"
-  if printf '%s' "$HOOK_STDERR" | grep -qF "$needle"; then pass "$name (stderr ~ '$needle')"
-  else fail "$name (stderr missing '$needle'; got: $(printf '%s' "$HOOK_STDERR" | head -1))"
+  if printf '%s' "$HOOK_STDERR" | grep -qF "$needle"; then
+    pass "$name (stderr ~ '$needle')"
+  else
+    fail "$name (stderr missing '$needle'; got: $(printf '%s' "$HOOK_STDERR" | head -1))"
   fi
 }
 
@@ -136,7 +147,7 @@ cleanup_repo
 # 5. Source path with untracked test on branch: allow.
 make_repo
 mkdir -p server/internal/api
-echo "package api" > server/internal/api/foo_test.go
+echo "package api" >server/internal/api/foo_test.go
 envelope="$(build_envelope Edit '{"file_path":"server/internal/api/handlers.go","old_string":"a","new_string":"b"}')"
 run_hook pretooluse-tdd-gate.sh "$envelope"
 assert_exit "Edit handlers.go with untracked _test.go: allow" 0
@@ -145,7 +156,7 @@ cleanup_repo
 # 6. Source path with committed test on branch: allow.
 make_repo
 mkdir -p server/internal/api
-echo "package api" > server/internal/api/foo_test.go
+echo "package api" >server/internal/api/foo_test.go
 git add server/internal/api/foo_test.go
 git commit --quiet -m "add test"
 envelope="$(build_envelope Edit '{"file_path":"server/internal/api/handlers.go","old_string":"a","new_string":"b"}')"
@@ -167,7 +178,8 @@ HOOK_EXIT=0
 HOOK_STDERR=""
 stderr_file="$(mktemp)"
 if printf '%s' "$envelope" | OPENGATE_HOOK_BYPASS=tdd-test-first "$HOOKS_DIR/pretooluse-tdd-gate.sh" >/dev/null 2>"$stderr_file"; then HOOK_EXIT=0; else HOOK_EXIT=$?; fi
-HOOK_STDERR="$(cat "$stderr_file")"; rm -f "$stderr_file"
+HOOK_STDERR="$(cat "$stderr_file")"
+rm -f "$stderr_file"
 assert_exit "OPENGATE_HOOK_BYPASS ignored: still BLOCK" 2
 cleanup_repo
 
@@ -215,7 +227,7 @@ cleanup_repo
 # 6. Redirect to source after test exists: allow.
 make_repo
 mkdir -p server/internal/api
-echo "package api" > server/internal/api/foo_test.go
+echo "package api" >server/internal/api/foo_test.go
 envelope="$(build_envelope Bash '{"command":"echo package > server/internal/api/new.go"}')"
 run_hook pretooluse-bash-source-write-guard.sh "$envelope"
 assert_exit "Bash 'echo > new.go' with test present: allow" 0
@@ -234,7 +246,7 @@ echo "## pretooluse-git-commit-guard.sh"
 stub_gauntlet() {
   local exit_code="${1:-0}"
   mkdir -p scripts
-  cat > scripts/precommit-gauntlet.sh <<EOF
+  cat >scripts/precommit-gauntlet.sh <<EOF
 #!/usr/bin/env bash
 exit $exit_code
 EOF
@@ -247,7 +259,7 @@ setup_passing_commit_repo() {
   git config user.email "ivan.volchanskyi@gmail.com"
   # Branch tests so TDD backup check passes.
   mkdir -p server/internal/api
-  echo "package api" > server/internal/api/foo_test.go
+  echo "package api" >server/internal/api/foo_test.go
   git add server/internal/api/foo_test.go
   git commit --quiet -m "add test"
   # Stub a passing gauntlet so the commit-guard's gate runs in <100ms.
@@ -303,7 +315,7 @@ make_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 mkdir -p server/internal/api
-echo "package api" > server/internal/api/foo_test.go
+echo "package api" >server/internal/api/foo_test.go
 git add server/internal/api/foo_test.go
 git commit --quiet -m "add test"
 envelope="$(build_envelope Bash '{"command":"git commit -m feat"}')"
@@ -335,7 +347,7 @@ make_repo
 git config user.name "Ivan Volchanskyi"
 git config user.email "ivan.volchanskyi@gmail.com"
 mkdir -p server/internal/api
-echo "package api" > server/internal/api/source.go
+echo "package api" >server/internal/api/source.go
 git add server/internal/api/source.go
 git commit --quiet -m "src only"
 stub_gauntlet 0
@@ -383,7 +395,7 @@ cleanup_repo
 # 4. Push doc-only branch WITHOUT refactor marker: BLOCK. Every commit since
 # origin/dev requires the marker — no doc-only / CI-only exemption.
 make_repo
-echo "# new" > newdoc.md
+echo "# new" >newdoc.md
 git add newdoc.md
 git commit --quiet -m "docs"
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
@@ -394,11 +406,11 @@ cleanup_repo
 
 # 4b. Push doc-only branch WITH a matching refactor marker: PASS.
 make_repo
-echo "# new" > newdoc.md
+echo "# new" >newdoc.md
 git add newdoc.md
 git commit --quiet -m "docs"
 mkdir -p .claude/.markers
-git rev-parse HEAD > .claude/.markers/refactor.head
+git rev-parse HEAD >.claude/.markers/refactor.head
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
 run_hook pretooluse-git-push-guard.sh "$envelope"
 assert_exit "git push doc-only w/ marker: PASS" 0
@@ -407,10 +419,10 @@ cleanup_repo
 # 5. Push branch with source commits but no refactor marker: BLOCK.
 make_repo
 mkdir -p server/internal/api
-echo "package api" > server/internal/api/foo_test.go
+echo "package api" >server/internal/api/foo_test.go
 git add server/internal/api/foo_test.go
 git commit --quiet -m "add test"
-echo "package api" > server/internal/api/handlers.go
+echo "package api" >server/internal/api/handlers.go
 git add server/internal/api/handlers.go
 git commit --quiet -m "feat"
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
@@ -422,14 +434,14 @@ cleanup_repo
 # 6. Push branch with source commits and matching refactor marker: PASS.
 make_repo
 mkdir -p server/internal/api
-echo "package api" > server/internal/api/foo_test.go
+echo "package api" >server/internal/api/foo_test.go
 git add server/internal/api/foo_test.go
 git commit --quiet -m "add test"
-echo "package api" > server/internal/api/handlers.go
+echo "package api" >server/internal/api/handlers.go
 git add server/internal/api/handlers.go
 git commit --quiet -m "feat"
 mkdir -p .claude/.markers
-git rev-parse HEAD > .claude/.markers/refactor.head
+git rev-parse HEAD >.claude/.markers/refactor.head
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
 run_hook pretooluse-git-push-guard.sh "$envelope"
 assert_exit "git push source commits w/ refactor marker: PASS" 0
@@ -439,7 +451,7 @@ cleanup_repo
 # BLOCK. A non-source file under deploy/ requires /refactor by the folder rule.
 make_repo
 mkdir -p deploy
-echo "services: {}" > deploy/docker-compose.yml
+echo "services: {}" >deploy/docker-compose.yml
 git add deploy/docker-compose.yml
 git commit --quiet -m "tweak compose"
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
@@ -452,7 +464,7 @@ cleanup_repo
 # BLOCK. A .sh under scripts/ is not is-source, so the folder rule requires it.
 make_repo
 mkdir -p scripts
-echo "echo hi" > scripts/foo.sh
+echo "echo hi" >scripts/foo.sh
 git add scripts/foo.sh
 git commit --quiet -m "tweak script"
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
@@ -464,11 +476,11 @@ cleanup_repo
 # 6d. Push branch with a scripts/ change and a matching refactor marker: PASS.
 make_repo
 mkdir -p scripts
-echo "echo hi" > scripts/foo.sh
+echo "echo hi" >scripts/foo.sh
 git add scripts/foo.sh
 git commit --quiet -m "tweak script"
 mkdir -p .claude/.markers
-git rev-parse HEAD > .claude/.markers/refactor.head
+git rev-parse HEAD >.claude/.markers/refactor.head
 envelope="$(build_envelope Bash '{"command":"git push origin dev"}')"
 run_hook pretooluse-git-push-guard.sh "$envelope"
 assert_exit "git push scripts/ w/ refactor marker: PASS" 0
@@ -498,7 +510,7 @@ cleanup_repo
 # 3. Edit existing ADR file: allow (ADRs 013+ are mutable).
 make_repo
 mkdir -p docs/adr
-echo "# ADR-013" > docs/adr/ADR-013-foo.md
+echo "# ADR-013" >docs/adr/ADR-013-foo.md
 git add docs/adr/ADR-013-foo.md
 git commit --quiet -m "adr"
 envelope="$(build_envelope Edit '{"file_path":"docs/adr/ADR-013-foo.md","old_string":"a","new_string":"b"}')"
@@ -509,7 +521,7 @@ cleanup_repo
 # 3b. Overwrite (Write) an existing ADR file: allow (ADRs 013+ are mutable).
 make_repo
 mkdir -p docs/adr
-echo "# ADR-013" > docs/adr/ADR-013-foo.md
+echo "# ADR-013" >docs/adr/ADR-013-foo.md
 git add docs/adr/ADR-013-foo.md
 git commit --quiet -m "adr"
 envelope="$(build_envelope Write '{"file_path":"docs/adr/ADR-013-foo.md","content":"# ADR-013 revised"}')"
@@ -553,7 +565,7 @@ cleanup_repo
 # 4e. Edit an existing ADR to add an ACTIVE plan link: BLOCK.
 make_repo
 mkdir -p docs/adr
-echo "# ADR-013" > docs/adr/ADR-013-foo.md
+echo "# ADR-013" >docs/adr/ADR-013-foo.md
 git add docs/adr/ADR-013-foo.md
 git commit --quiet -m "adr"
 envelope="$(build_envelope Edit '{"file_path":"docs/adr/ADR-013-foo.md","old_string":"a","new_string":"see [plan](../../.claude/plans/foo.md)"}')"
@@ -565,7 +577,7 @@ cleanup_repo
 # 4f. Edit an existing ADR to add an ARCHIVED plan link: allow.
 make_repo
 mkdir -p docs/adr
-echo "# ADR-013" > docs/adr/ADR-013-foo.md
+echo "# ADR-013" >docs/adr/ADR-013-foo.md
 git add docs/adr/ADR-013-foo.md
 git commit --quiet -m "adr"
 envelope="$(build_envelope Edit '{"file_path":"docs/adr/ADR-013-foo.md","old_string":"a","new_string":"see [plan](../../.claude/plans/archive/foo.md)"}')"
@@ -611,10 +623,14 @@ echo "## session-start-context-load.sh"
 # 1. SessionStart in any repo: outputs additionalContext JSON, exit 0.
 make_repo
 envelope='{"session_id":"test","cwd":".","hook_event_name":"SessionStart"}'
-HOOK_EXIT=0; HOOK_STDOUT=""; HOOK_STDERR=""
-stdout_file="$(mktemp)"; stderr_file="$(mktemp)"
+HOOK_EXIT=0
+HOOK_STDOUT=""
+HOOK_STDERR=""
+stdout_file="$(mktemp)"
+stderr_file="$(mktemp)"
 if printf '%s' "$envelope" | "$HOOKS_DIR/session-start-context-load.sh" >"$stdout_file" 2>"$stderr_file"; then HOOK_EXIT=0; else HOOK_EXIT=$?; fi
-HOOK_STDOUT="$(cat "$stdout_file")"; HOOK_STDERR="$(cat "$stderr_file")"
+HOOK_STDOUT="$(cat "$stdout_file")"
+HOOK_STDERR="$(cat "$stderr_file")"
 rm -f "$stdout_file" "$stderr_file"
 assert_exit "SessionStart: exit 0" 0
 if printf '%s' "$HOOK_STDOUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert "hookSpecificOutput" in d and "additionalContext" in d["hookSpecificOutput"], d' 2>/dev/null; then
@@ -726,7 +742,7 @@ setup_autopush_repo() {
   git config user.email "ivan.volchanskyi@gmail.com"
   git config user.name "Ivan Volchanskyi"
   git remote add origin "$REMOTE"
-  echo base > base.txt
+  echo base >base.txt
   git add base.txt
   git commit --quiet -m init
   git push --quiet -u origin dev
@@ -739,15 +755,19 @@ remote_ref() { git --git-dir="$REMOTE" rev-parse "$1" 2>/dev/null || echo none; 
 
 # 1. Installer writes an executable post-commit hook.
 setup_autopush_repo
-if [ -x .git/hooks/post-commit ]; then pass "installer: .git/hooks/post-commit is executable"
+if [ -x .git/hooks/post-commit ]; then
+  pass "installer: .git/hooks/post-commit is executable"
 else fail "installer: .git/hooks/post-commit missing or not executable"; fi
 cleanup_repo
 
 # 2. Commit on dev auto-pushes AND refreshes the refactor marker to HEAD.
 setup_autopush_repo
-echo change > f.txt; git add f.txt; git commit -q -m "feat: x" >/dev/null 2>&1
+echo change >f.txt
+git add f.txt
+git commit -q -m "feat: x" >/dev/null 2>&1
 head="$(git rev-parse HEAD)"
-if [ "$(remote_ref dev)" = "$head" ]; then pass "auto-push: commit on dev pushed to origin/dev"
+if [ "$(remote_ref dev)" = "$head" ]; then
+  pass "auto-push: commit on dev pushed to origin/dev"
 else fail "auto-push: origin/dev=$(remote_ref dev) != HEAD=$head"; fi
 if [ "$(cat .claude/.markers/refactor.head 2>/dev/null || echo none)" = "$head" ]; then
   pass "auto-push: refactor marker refreshed to HEAD"
@@ -757,7 +777,9 @@ cleanup_repo
 # 3. Commit on a NON-dev branch does not push (skip).
 setup_autopush_repo
 git checkout --quiet -b feat/side
-echo s > s.txt; git add s.txt; git commit -q -m "feat: side" >/dev/null 2>&1
+echo s >s.txt
+git add s.txt
+git commit -q -m "feat: side" >/dev/null 2>&1
 if git --git-dir="$REMOTE" rev-parse --verify --quiet feat/side >/dev/null 2>&1; then
   fail "auto-push: non-dev branch should NOT be pushed"
 else pass "auto-push: non-dev branch not pushed (skip)"; fi
@@ -766,18 +788,22 @@ cleanup_repo
 # 4. Re-entrancy guard: OPENGATE_AUTOPUSH_ACTIVE set => no push.
 setup_autopush_repo
 before="$(remote_ref dev)"
-echo r > r.txt; git add r.txt
+echo r >r.txt
+git add r.txt
 OPENGATE_AUTOPUSH_ACTIVE=1 git commit -q -m "feat: r" >/dev/null 2>&1
-if [ "$(remote_ref dev)" = "$before" ]; then pass "auto-push: re-entrancy guard skips push"
+if [ "$(remote_ref dev)" = "$before" ]; then
+  pass "auto-push: re-entrancy guard skips push"
 else fail "auto-push: re-entrancy guard failed (origin advanced)"; fi
 cleanup_repo
 
 # 5. CI guard: CI set => no push.
 setup_autopush_repo
 before="$(remote_ref dev)"
-echo c > c.txt; git add c.txt
+echo c >c.txt
+git add c.txt
 CI=1 git commit -q -m "feat: c" >/dev/null 2>&1
-if [ "$(remote_ref dev)" = "$before" ]; then pass "auto-push: CI guard skips push"
+if [ "$(remote_ref dev)" = "$before" ]; then
+  pass "auto-push: CI guard skips push"
 else fail "auto-push: CI guard failed (origin advanced)"; fi
 cleanup_repo
 
@@ -786,13 +812,16 @@ cleanup_repo
 setup_autopush_repo
 tmpclone="$(mktemp -d)"
 git clone --quiet "$REMOTE" "$tmpclone"
-( cd "$tmpclone" && git config user.email o@o && git config user.name o \
-    && echo other > other.txt && git add other.txt && git commit -q -m other \
-    && git push -q origin dev )
+(cd "$tmpclone" && git config user.email o@o && git config user.name o \
+  && echo other >other.txt && git add other.txt && git commit -q -m other \
+  && git push -q origin dev)
 rm -rf "$tmpclone"
-echo m > m.txt; git add m.txt; git commit -q -m "feat: m" >/dev/null 2>&1
+echo m >m.txt
+git add m.txt
+git commit -q -m "feat: m" >/dev/null 2>&1
 head="$(git rev-parse HEAD)"
-if [ "$(remote_ref dev)" = "$head" ]; then pass "auto-push: rebased onto divergent upstream and pushed"
+if [ "$(remote_ref dev)" = "$head" ]; then
+  pass "auto-push: rebased onto divergent upstream and pushed"
 else fail "auto-push: divergent push failed (origin=$(remote_ref dev) HEAD=$head)"; fi
 if [ "$(cat .claude/.markers/refactor.head 2>/dev/null || echo none)" = "$head" ]; then
   pass "auto-push: marker re-pointed to post-rebase HEAD"

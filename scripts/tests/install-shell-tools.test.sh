@@ -12,8 +12,14 @@ FAIL=0
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); printf '  FAIL %s\n' "$1" >&2; }
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  printf '  FAIL %s\n' "$1" >&2
+}
 
 expect_failure() {
   local name="$1"
@@ -42,8 +48,8 @@ else
   fail "installer exists and is executable"
 fi
 
-if grep -q 'SHELLCHECK_VERSION="0.11.0"' "$INSTALLER" 2>/dev/null &&
-  grep -q 'SHFMT_VERSION="3.13.1"' "$INSTALLER" 2>/dev/null; then
+if grep -q 'SHELLCHECK_VERSION="0.11.0"' "$INSTALLER" 2>/dev/null \
+  && grep -q 'SHFMT_VERSION="3.13.1"' "$INSTALLER" 2>/dev/null; then
   pass "tool versions are pinned"
 else
   fail "tool versions are pinned"
@@ -108,14 +114,14 @@ EOF
       SHELL_TOOLS_CACHE="$TMP_DIR/exact-cache" \
       SHELL_TOOLS_BIN_DIR="$TMP_DIR/exact-links" \
       "$INSTALLER" 2>&1
-  )" &&
-    PATH="$TMP_DIR/exact-bin:$PATH" \
+  )" \
+    && PATH="$TMP_DIR/exact-bin:$PATH" \
       HOME="$TMP_DIR/exact-home" \
       SHELL_TOOLS_CACHE="$TMP_DIR/exact-cache" \
       SHELL_TOOLS_BIN_DIR="$TMP_DIR/exact-links" \
-      "$INSTALLER" >/dev/null 2>&1 &&
-    grep -qF "already present" <<<"$output" &&
-    [ ! -e "$TMP_DIR/curl-called" ]; then
+      "$INSTALLER" >/dev/null 2>&1 \
+    && grep -qF "already present" <<<"$output" \
+    && [ ! -e "$TMP_DIR/curl-called" ]; then
     pass "exact versions make repeated runs no-op without network"
   else
     fail "exact versions make repeated runs no-op without network"

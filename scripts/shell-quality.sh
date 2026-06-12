@@ -21,14 +21,14 @@ tool_version() {
 }
 
 require_tools() {
-  command -v shellcheck >/dev/null 2>&1 ||
-    die "ShellCheck ${SHELLCHECK_VERSION} is required; run scripts/install-shell-tools.sh"
-  command -v shfmt >/dev/null 2>&1 ||
-    die "shfmt ${SHFMT_VERSION} is required; run scripts/install-shell-tools.sh"
-  [ "$(tool_version shellcheck)" = "$SHELLCHECK_VERSION" ] ||
-    die "ShellCheck ${SHELLCHECK_VERSION} is required"
-  [ "$(tool_version shfmt)" = "$SHFMT_VERSION" ] ||
-    die "shfmt ${SHFMT_VERSION} is required"
+  command -v shellcheck >/dev/null 2>&1 \
+    || die "ShellCheck ${SHELLCHECK_VERSION} is required; run scripts/install-shell-tools.sh"
+  command -v shfmt >/dev/null 2>&1 \
+    || die "shfmt ${SHFMT_VERSION} is required; run scripts/install-shell-tools.sh"
+  [ "$(tool_version shellcheck)" = "$SHELLCHECK_VERSION" ] \
+    || die "ShellCheck ${SHELLCHECK_VERSION} is required"
+  [ "$(tool_version shfmt)" = "$SHFMT_VERSION" ] \
+    || die "shfmt ${SHFMT_VERSION} is required"
 }
 
 tracked_scripts() {

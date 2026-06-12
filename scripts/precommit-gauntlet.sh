@@ -52,34 +52,53 @@ color() {
     printf '\033[%sm' "$1" >&2
   fi
 }
-banner()  { color "1;36"; printf '\n=== %s ===\n' "$1" >&2; color "0"; }
-running() { color "1;34"; printf '▶ %s\n' "$1" >&2; color "0"; }
-ok()      { color "1;32"; printf '✓ %s (%ds)\n' "$1" "$2" >&2; color "0"; }
-fail()    { color "1;31"; printf '✗ %s (%ds)\n' "$1" "$2" >&2; color "0"; }
+banner() {
+  color "1;36"
+  printf '\n=== %s ===\n' "$1" >&2
+  color "0"
+}
+running() {
+  color "1;34"
+  printf '▶ %s\n' "$1" >&2
+  color "0"
+}
+ok() {
+  color "1;32"
+  printf '✓ %s (%ds)\n' "$1" "$2" >&2
+  color "0"
+}
+fail() {
+  color "1;31"
+  printf '✗ %s (%ds)\n' "$1" "$2" >&2
+  color "0"
+}
 
 # run_check NAME -- CMD ARGS...
 # Captures output; on failure, prints the captured output then continues
 # (so the user sees ALL failures in one pass instead of fixing one then
 # discovering the next).
 run_check() {
-  local name="$1"; shift
+  local name="$1"
+  shift
   [ "$1" = "--" ] && shift
-  local start; start="$(date +%s)"
+  local start
+  start="$(date +%s)"
   running "$name"
-  local tmpfile; tmpfile="$(mktemp)"
+  local tmpfile
+  tmpfile="$(mktemp)"
   if "$@" >"$tmpfile" 2>&1; then
-    ok "$name" "$(( $(date +%s) - start ))"
+    ok "$name" "$(($(date +%s) - start))"
     rm -f "$tmpfile"
     return 0
   fi
   local rc=$?
-  fail "$name" "$(( $(date +%s) - start ))"
+  fail "$name" "$(($(date +%s) - start))"
   # Show the last 80 lines of output — full log is at $tmpfile path.
   tail -80 "$tmpfile" >&2 || true
   printf '  (full log: %s, exit code: %s)\n' "$tmpfile" "$rc" >&2
   FAIL_COUNT=$((FAIL_COUNT + 1))
   FAILED_STEPS+=("$name")
-  return 0  # keep going so all failures surface in one pass
+  return 0 # keep going so all failures surface in one pass
 }
 
 # Prerequisites first — if missing, we cannot validly enforce the gate.
@@ -161,11 +180,11 @@ echo "✓ all prerequisites present" >&2
 
 # Phase 1: lints (fast, fail-fast for cheap signal).
 banner "Lints"
-run_check "rust fmt"          -- bash -c 'cd agent && cargo fmt --all -- --check'
-run_check "rust clippy"       -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'
+run_check "rust fmt" -- bash -c 'cd agent && cargo fmt --all -- --check'
+run_check "rust clippy" -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'
 # The variables below intentionally expand in the inner bash process.
 # shellcheck disable=SC2016
-run_check "go fmt"            -- bash -c '
+run_check "go fmt" -- bash -c '
   cd server
   unformatted=$(gofmt -l .)
   if [ -n "$unformatted" ]; then
@@ -174,11 +193,11 @@ run_check "go fmt"            -- bash -c '
     exit 1
   fi
 '
-run_check "go vet"            -- bash -c 'cd server && go vet ./...'
-run_check "go-arch-lint"      -- bash -c 'cd server && go-arch-lint check'
+run_check "go vet" -- bash -c 'cd server && go vet ./...'
+run_check "go-arch-lint" -- bash -c 'cd server && go-arch-lint check'
 # The variables below intentionally expand in the inner bash process.
 # shellcheck disable=SC2016
-run_check "cargo modules"     -- bash -c '
+run_check "cargo modules" -- bash -c '
   cd agent
   actual=$(RUST_LOG=off NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core 2>&1)
   if ! printf "%s\n" "$actual" | diff -u crates/mesh-agent-core/tests/module-graph.snap - ; then
@@ -188,11 +207,11 @@ run_check "cargo modules"     -- bash -c '
     exit 1
   fi
 '
-run_check "cargo-deny"        -- bash -c 'cd agent && cargo-deny check --hide-inclusion-graph 2>&1'
-run_check "web eslint"        -- bash -c 'cd web && npx eslint .'
+run_check "cargo-deny" -- bash -c 'cd agent && cargo-deny check --hide-inclusion-graph 2>&1'
+run_check "web eslint" -- bash -c 'cd web && npx eslint .'
 # The variables below intentionally expand in the inner bash process.
 # shellcheck disable=SC2016
-run_check "depcruise"         -- bash -c '
+run_check "depcruise" -- bash -c '
   cd web
   current=$(npx --no-install depcruise src --output-type json --no-progress 2>/dev/null | jq -r ".summary.warn")
   baseline=$(jq -r ".warn" dependency-cruiser.snapshot.json)
@@ -211,21 +230,21 @@ run_check "depcruise"         -- bash -c '
     fi
   fi
 '
-run_check "actionlint"        -- bash -c 'actionlint'
-run_check "doc links"         -- bash -c 'GO111MODULE=off go run ./scripts/check-doc-links --baseline .claude/doc-link-baseline.txt'
-run_check "taint (go)"        -- make taint-go
-run_check "taint (web)"       -- make taint-web
+run_check "actionlint" -- bash -c 'actionlint'
+run_check "doc links" -- bash -c 'GO111MODULE=off go run ./scripts/check-doc-links --baseline .claude/doc-link-baseline.txt'
+run_check "taint (go)" -- make taint-go
+run_check "taint (web)" -- make taint-web
 # ADR-027 adversarial pen-test gate. Diff vs origin/dev so a local dev-push
 # gauntlet re-run is not blocked by pre-existing grandfathered findings.
-run_check "pentest-review"    -- bash -c 'PENTEST_BASELINE_REF=origin/dev scripts/pentest-review.sh'
-run_check "dead-code"         -- make dead-code
+run_check "pentest-review" -- bash -c 'PENTEST_BASELINE_REF=origin/dev scripts/pentest-review.sh'
+run_check "dead-code" -- make dead-code
 run_check "gitleaks (staged)" -- gitleaks protect --staged --config .gitleaks.toml --no-banner --redact
-run_check "lint-deploy"       -- make lint-deploy
-run_check "no-vm-ssh-guard"   -- bash scripts/no-vm-ssh-guard.sh
+run_check "lint-deploy" -- make lint-deploy
+run_check "no-vm-ssh-guard" -- bash scripts/no-vm-ssh-guard.sh
 
 # Phase 2: codegen sync — would be a CI failure otherwise.
 banner "Codegen sync"
-run_check "verify-codegen"    -- bash -c "PATH=\"\$HOME/go/bin:\$PATH\" make verify-codegen"
+run_check "verify-codegen" -- bash -c "PATH=\"\$HOME/go/bin:\$PATH\" make verify-codegen"
 
 # Phase 3: tests (the meat).
 banner "Tests"
@@ -233,7 +252,7 @@ banner "Tests"
 # Iterate by glob so adding a new test file requires no gauntlet edit.
 # The variables below intentionally expand in the inner bash process.
 # shellcheck disable=SC2016
-run_check "shell tests"        -- bash -c '
+run_check "shell tests" -- bash -c '
   rc=0
   shopt -s nullglob
   for t in scripts/tests/*.test.sh; do
@@ -253,14 +272,14 @@ run_check "shell tests"        -- bash -c '
 run_check "go unit + coverage" -- bash -c '
   cd server && go test -race -count=1 -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
 '
-run_check "go integration"     -- bash -c 'cd server && go test -race -count=1 -timeout 5m ./tests/...'
-run_check "rust tests"         -- bash -c 'cd agent && cargo test --workspace'
-run_check "web vitest+cov"     -- bash -c 'cd web && npx vitest run --coverage'
+run_check "go integration" -- bash -c 'cd server && go test -race -count=1 -timeout 5m ./tests/...'
+run_check "rust tests" -- bash -c 'cd agent && cargo test --workspace'
+run_check "web vitest+cov" -- bash -c 'cd web && npx vitest run --coverage'
 
 # Phase 4: coverage thresholds (derived from artifacts above).
 banner "Coverage thresholds"
 # shellcheck disable=SC2016 # $pct is set and consumed inside the inner shell; outer expansion is not desired.
-run_check "go coverage ≥80%"   -- bash -c '
+run_check "go coverage ≥80%" -- bash -c '
   cd server
   grep -v -E "/(testutil|metrics|amt/transport/wsman)/|api/openapi_gen\.go" coverage.out > coverage-prod.out
   pct="$(go tool cover -func=coverage-prod.out | awk "/^total:/ {gsub(\"%\", \"\", \$NF); print \$NF}")"
@@ -282,29 +301,29 @@ run_check "rust coverage ≥80%" -- bash -c '
 
 # Phase 5: security audits — lockfile-based; fail on any reported vuln.
 banner "Security audits"
-run_check "govulncheck"        -- bash -c 'cd server && govulncheck ./...'
-run_check "npm audit"          -- bash -c 'cd web && npm audit --audit-level=high'
-run_check "cargo audit"        -- bash -c 'cd agent && cargo audit'
-run_check "cargo deny"         -- bash -c 'cd agent && cargo deny check 2>&1'
+run_check "govulncheck" -- bash -c 'cd server && govulncheck ./...'
+run_check "npm audit" -- bash -c 'cd web && npm audit --audit-level=high'
+run_check "cargo audit" -- bash -c 'cd agent && cargo audit'
+run_check "cargo deny" -- bash -c 'cd agent && cargo deny check 2>&1'
 
 # Phase 6: benchmarks — must run without errors (no perf thresholds enforced).
 if [ "${PRECOMMIT_SKIP_BENCH:-0}" = "1" ]; then
   banner "Benchmarks (SKIPPED via PRECOMMIT_SKIP_BENCH=1)"
 else
   banner "Benchmarks"
-  run_check "go benchmarks"    -- bash -c 'cd server && go test -bench=. -benchmem -count=1 -run="^$" ./internal/...'
-  run_check "rust benchmarks"  -- bash -c 'cd agent && cargo bench -p mesh-protocol'
+  run_check "go benchmarks" -- bash -c 'cd server && go test -bench=. -benchmem -count=1 -run="^$" ./internal/...'
+  run_check "rust benchmarks" -- bash -c 'cd agent && cargo bench -p mesh-protocol'
 fi
 
 # Phase 7: end-to-end + SonarCloud (the slowest).
 banner "E2E"
-run_check "make e2e"           -- make e2e
+run_check "make e2e" -- make e2e
 
 banner "SonarCloud"
 # Always the full scan with fresh coverage upload. `sonar-quick` is intentionally
 # not wired in: a quality-gate evaluation against stale coverage was the gap
 # that let new_coverage regressions reach CI undetected.
-run_check "make sonar"         -- make sonar
+run_check "make sonar" -- make sonar
 # new_coverage margin guard: `make sonar` enforces the gate at 80, but a value
 # like 79.95% displays as "80.0" and flips green→red between local and CI due to
 # sub-line coverage nondeterminism. This fails locally unless new_coverage clears
@@ -319,7 +338,7 @@ banner "PMAT TDG gate"
 run_check "pmat tdg ≥ B+ (changed code)" -- bash scripts/pmat-precommit.sh
 
 # Summary.
-ELAPSED=$(( $(date +%s) - START_EPOCH ))
+ELAPSED=$(($(date +%s) - START_EPOCH))
 banner "Summary"
 if [ "$FAIL_COUNT" -eq 0 ]; then
   color "1;32"

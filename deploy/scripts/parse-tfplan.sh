@@ -27,7 +27,10 @@ if [[ "${2:-}" == "--approve-destroy" ]]; then
   APPROVE_DESTROY="1"
 fi
 
-[[ -f "$PLAN_JSON" ]] || { echo "missing plan json: $PLAN_JSON" >&2; exit 2; }
+[[ -f "$PLAN_JSON" ]] || {
+  echo "missing plan json: $PLAN_JSON" >&2
+  exit 2
+}
 
 # Resources whose destruction has high blast radius (data loss, networking-level
 # outage, or tfstate loss). Adding to this list is a security decision — the

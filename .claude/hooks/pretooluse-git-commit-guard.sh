@@ -49,10 +49,14 @@ eff_email="${override_email:-$(git config user.email 2>/dev/null || echo "")}"
 eff_name="${override_name:-$(git config user.name 2>/dev/null || echo "")}"
 
 # Trim surrounding quotes from override values.
-eff_email="${eff_email%\"}"; eff_email="${eff_email#\"}"
-eff_email="${eff_email%\'}"; eff_email="${eff_email#\'}"
-eff_name="${eff_name%\"}"; eff_name="${eff_name#\"}"
-eff_name="${eff_name%\'}"; eff_name="${eff_name#\'}"
+eff_email="${eff_email%\"}"
+eff_email="${eff_email#\"}"
+eff_email="${eff_email%\'}"
+eff_email="${eff_email#\'}"
+eff_name="${eff_name%\"}"
+eff_name="${eff_name#\"}"
+eff_name="${eff_name%\'}"
+eff_name="${eff_name#\'}"
 
 if [ "$eff_email" != "ivan.volchanskyi@gmail.com" ] || [ "$eff_name" != "Ivan Volchanskyi" ]; then
   block git-identity "git commit refused: identity is '$eff_name <$eff_email>'. .claude/rules/git.md requires Ivan Volchanskyi <ivan.volchanskyi@gmail.com>. Fix with: git config user.name \"Ivan Volchanskyi\" && git config user.email \"ivan.volchanskyi@gmail.com\"."
@@ -98,16 +102,16 @@ fi
 if ! "$TDD_CHECK" has-test-change; then
   # Only blocks if the branch has source-language changes vs base.
   base="$(git merge-base HEAD origin/dev 2>/dev/null \
-         || git merge-base HEAD dev 2>/dev/null \
-         || git merge-base HEAD origin/main 2>/dev/null \
-         || git merge-base HEAD main 2>/dev/null \
-         || git rev-list --max-parents=0 HEAD 2>/dev/null | head -1 \
-         || echo HEAD)"
-  branch_files="$( {
+    || git merge-base HEAD dev 2>/dev/null \
+    || git merge-base HEAD origin/main 2>/dev/null \
+    || git merge-base HEAD main 2>/dev/null \
+    || git rev-list --max-parents=0 HEAD 2>/dev/null | head -1 \
+    || echo HEAD)"
+  branch_files="$({
     git diff --name-only "$base"..HEAD 2>/dev/null || true
     git diff --cached --name-only 2>/dev/null || true
     git diff --name-only 2>/dev/null || true
-  } | sort -u | grep -v '^$' || true )"
+  } | sort -u | grep -v '^$' || true)"
   has_source=false
   if [ -n "$branch_files" ]; then
     while IFS= read -r f; do

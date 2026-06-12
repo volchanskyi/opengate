@@ -77,8 +77,14 @@ PY
 
 # build_row → canonical JSON row for the current run.
 build_row() {
-  [[ -f "$REPO_SCORE_JSON" ]] || { echo "missing: $REPO_SCORE_JSON" >&2; return 2; }
-  [[ -f "$TDG_CHECK_JSON"  ]] || { echo "missing: $TDG_CHECK_JSON"  >&2; return 2; }
+  [[ -f "$REPO_SCORE_JSON" ]] || {
+    echo "missing: $REPO_SCORE_JSON" >&2
+    return 2
+  }
+  [[ -f "$TDG_CHECK_JSON" ]] || {
+    echo "missing: $TDG_CHECK_JSON" >&2
+    return 2
+  }
   local rs tg
   rs="$(slice_json "$REPO_SCORE_JSON")"
   tg="$(slice_json "$TDG_CHECK_JSON")"
@@ -95,15 +101,18 @@ build_row() {
       below_bplus: (($tg.violations // []) | length),
       categories: (($rs.categories // {}) | with_entries({ key: .key, value: (.value.percentage // 0) }))
     }' \
-    || { echo "build_row: jq failed (malformed pmat JSON?)" >&2; return 2; }
+    || {
+      echo "build_row: jq failed (malformed pmat JSON?)" >&2
+      return 2
+    }
 }
 
 # regression_check CURR_ROW → exit 1 + REGRESSION_ALERT lines if regressed.
 regression_check() {
   local curr="$1"
   local curr_score curr_grade curr_below
-  curr_score="$(jq -r '.repo_score'  <<<"$curr")"
-  curr_grade="$(jq -r '.repo_grade'  <<<"$curr")"
+  curr_score="$(jq -r '.repo_score' <<<"$curr")"
+  curr_grade="$(jq -r '.repo_grade' <<<"$curr")"
   curr_below="$(jq -r '.below_bplus' <<<"$curr")"
 
   local regressed=0
@@ -111,20 +120,20 @@ regression_check() {
 
   if [[ -n "${PREV_REPO_SCORE:-}" && "$PREV_REPO_SCORE" != "null" ]]; then
     if awk -v p="$PREV_REPO_SCORE" -v c="$curr_score" -v t="$REPO_SCORE_DROP_THRESHOLD" \
-        'BEGIN { exit !((p - c) >= t) }'; then
+      'BEGIN { exit !((p - c) >= t) }'; then
       alerts+=("Repo-score dropped ${PREV_REPO_SCORE} → ${curr_score} (≥${REPO_SCORE_DROP_THRESHOLD}-pt drop)")
       regressed=1
     fi
   fi
 
   if [[ -n "${PREV_BELOW_BPLUS:-}" && "$PREV_BELOW_BPLUS" != "null" ]]; then
-    if (( curr_below > PREV_BELOW_BPLUS )); then
+    if ((curr_below > PREV_BELOW_BPLUS)); then
       alerts+=("Files below B+ rose ${PREV_BELOW_BPLUS} → ${curr_below} (a file slipped below B+)")
       regressed=1
     fi
   fi
 
-  if (( regressed )); then
+  if ((regressed)); then
     echo "REGRESSION_ALERT:⚠️ PMAT quality regression on dev"
     echo "REGRESSION_ALERT:"
     echo "REGRESSION_ALERT:  Repo score: ${PREV_REPO_SCORE:-n/a} → ${curr_score} (grade ${curr_grade})"

@@ -21,11 +21,26 @@ SCHEME="http"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --domain) DOMAIN="$2"; shift 2 ;;
-    --host)   HOST="$2";   shift 2 ;;
-    --port)   PORT="$2";   shift 2 ;;
-    --mode)   MODE="$2";   shift 2 ;;
-    --scheme) SCHEME="$2"; shift 2 ;;
+    --domain)
+      DOMAIN="$2"
+      shift 2
+      ;;
+    --host)
+      HOST="$2"
+      shift 2
+      ;;
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --mode)
+      MODE="$2"
+      shift 2
+      ;;
+    --scheme)
+      SCHEME="$2"
+      shift 2
+      ;;
     *) fail "Unknown argument: $1" ;;
   esac
 done

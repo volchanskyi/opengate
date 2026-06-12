@@ -24,19 +24,31 @@ DEPLOY_CHANGED="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --mode) MODE="$2"; shift 2 ;;
-    --tag)  TAG="$2";  shift 2 ;;
-    --git-sha) GIT_SHA="$2"; shift 2 ;;
-    --deploy-changed) DEPLOY_CHANGED="$2"; shift 2 ;;
+    --mode)
+      MODE="$2"
+      shift 2
+      ;;
+    --tag)
+      TAG="$2"
+      shift 2
+      ;;
+    --git-sha)
+      GIT_SHA="$2"
+      shift 2
+      ;;
+    --deploy-changed)
+      DEPLOY_CHANGED="$2"
+      shift 2
+      ;;
     *) fail "Unknown argument: $1" ;;
   esac
 done
 
 [[ -z "$MODE" ]] && fail "Missing required argument: --mode <staging|production>"
-[[ -z "$TAG" ]]  && fail "Missing required argument: --tag <image_tag>"
+[[ -z "$TAG" ]] && fail "Missing required argument: --tag <image_tag>"
 validate_mode "$MODE"
 case "$DEPLOY_CHANGED" in
-  true|false) ;;
+  true | false) ;;
   *) fail "Invalid --deploy-changed value: $DEPLOY_CHANGED (expected 'true' or 'false')" ;;
 esac
 
@@ -87,6 +99,6 @@ fi
 # --- Prune old images ---------------------------------------------------------
 
 log "Pruning images older than 7 days..."
-docker image prune -f --filter "until=168h" > /dev/null 2>&1 || true
+docker image prune -f --filter "until=168h" >/dev/null 2>&1 || true
 
 log "Deploy ($MODE) complete: tag=$TAG"

@@ -17,7 +17,7 @@ parse_input_fields tool_name tool_input.file_path
 
 # Only consider Write/Edit/MultiEdit. Other tools: noop allow.
 case "${HOOK_TOOL_NAME:-}" in
-  Write|Edit|MultiEdit) : ;;
+  Write | Edit | MultiEdit) : ;;
   *) exit 0 ;;
 esac
 
@@ -35,13 +35,14 @@ if branch_has_test_change; then
 fi
 
 base="$(git merge-base HEAD origin/dev 2>/dev/null \
-       || git merge-base HEAD dev 2>/dev/null \
-       || git merge-base HEAD origin/main 2>/dev/null \
-       || git merge-base HEAD main 2>/dev/null \
-       || git rev-list --max-parents=0 HEAD 2>/dev/null | head -1 \
-       || echo unknown)"
+  || git merge-base HEAD dev 2>/dev/null \
+  || git merge-base HEAD origin/main 2>/dev/null \
+  || git merge-base HEAD main 2>/dev/null \
+  || git rev-list --max-parents=0 HEAD 2>/dev/null | head -1 \
+  || echo unknown)"
 
-msg=$(cat <<EOF
+msg=$(
+  cat <<EOF
 TDD violation. Per .claude/rules/tdd.md, the failing test MUST be written BEFORE the source code.
 This branch (since ${base}) has no test files modified, added, or staged. Before editing ${path}, do ONE of:
   - add a new test file (e.g. server/internal/<pkg>/*_test.go, agent/.../tests/, web/src/**/__tests__/),

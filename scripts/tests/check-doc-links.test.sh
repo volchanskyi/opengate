@@ -15,8 +15,15 @@ TMP_DIR="$(mktemp -d)"
 CHECKER="$TMP_DIR/check-doc-links"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); FAILURES+=("$1"); printf '  FAIL %s\n' "$1" >&2; }
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  FAILURES+=("$1")
+  printf '  FAIL %s\n' "$1" >&2
+}
 
 run_fixture() {
   local name="$1"
@@ -82,8 +89,8 @@ else
   pass "checker package exists"
 fi
 
-if [ -d "$CHECKER_PACKAGE" ] &&
-  (cd "$REPO_ROOT" && GO111MODULE=off go build -o "$CHECKER" ./scripts/check-doc-links); then
+if [ -d "$CHECKER_PACKAGE" ] \
+  && (cd "$REPO_ROOT" && GO111MODULE=off go build -o "$CHECKER" ./scripts/check-doc-links); then
   pass "checker builds without modules or network"
 else
   fail "checker builds without modules or network"
@@ -99,8 +106,8 @@ run_fixture active-plan-link 1 'links to active plan'
 run_fixture active-plan-self-anchor 0
 run_fixture archived-plan-link 0
 
-if "$CHECKER" --root "$FIXTURES/broken-file" --write-baseline "$TMP_DIR/baseline.txt" >/dev/null 2>&1 &&
-  "$CHECKER" --root "$FIXTURES/broken-file" --baseline "$TMP_DIR/baseline.txt" >/dev/null 2>&1; then
+if "$CHECKER" --root "$FIXTURES/broken-file" --write-baseline "$TMP_DIR/baseline.txt" >/dev/null 2>&1 \
+  && "$CHECKER" --root "$FIXTURES/broken-file" --baseline "$TMP_DIR/baseline.txt" >/dev/null 2>&1; then
   pass "baseline suppresses an existing problem"
 else
   fail "baseline suppresses an existing problem"
@@ -139,14 +146,14 @@ run_hook_case \
   1 \
   'docs/index.md:4: target does not exist'
 
-if grep -qF 'run_check "doc links"' "$REPO_ROOT/scripts/precommit-gauntlet.sh" &&
-  grep -qF -- '--baseline .claude/doc-link-baseline.txt' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
+if grep -qF 'run_check "doc links"' "$REPO_ROOT/scripts/precommit-gauntlet.sh" \
+  && grep -qF -- '--baseline .claude/doc-link-baseline.txt' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
   pass "gauntlet registers doc-link checker"
 else
   fail "gauntlet registers doc-link checker"
 fi
 
-if python3 - "$REPO_ROOT/.claude/settings.json" <<'PY'
+if python3 - "$REPO_ROOT/.claude/settings.json" <<'PY'; then
 import json
 import sys
 
@@ -164,7 +171,6 @@ raise SystemExit(
     0 if ".claude/hooks/pretooluse-doc-link-check.sh" in commands else 1
 )
 PY
-then
   pass "settings register doc-link hook"
 else
   fail "settings register doc-link hook"

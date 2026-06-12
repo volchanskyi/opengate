@@ -15,8 +15,15 @@ PASS=0
 FAIL=0
 FAILURES=()
 
-pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); FAILURES+=("$1"); printf '  FAIL %s\n' "$1" >&2; }
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  FAILURES+=("$1")
+  printf '  FAIL %s\n' "$1" >&2
+}
 
 assert_contains() {
   local name="$1" haystack="$2" needle="$3"
@@ -65,9 +72,9 @@ trap 'cleanup_repo' EXIT
 # ----------------------------------------------------------------------------
 echo "depcruise gate — dirty (warn>0):"
 make_fake_repo
-echo '{"warn": 5}' > web/dependency-cruiser.snapshot.json
+echo '{"warn": 5}' >web/dependency-cruiser.snapshot.json
 out=$("$FLIP_SCRIPT" --check)
-assert_contains "reports dirty state"   "$out" "dirty (warn=5)"
+assert_contains "reports dirty state" "$out" "dirty (warn=5)"
 assert_not_contains "no marker mentioned" "$out" "flipped"
 "$FLIP_SCRIPT" --apply >/dev/null
 assert_file_missing "--apply does not create marker on dirty" .claude/.markers/arch-lint-flipped/depcruise
@@ -76,7 +83,7 @@ cleanup_repo
 # ----------------------------------------------------------------------------
 echo "depcruise gate — eligible (warn=0), --check:"
 make_fake_repo
-echo '{"warn": 0}' > web/dependency-cruiser.snapshot.json
+echo '{"warn": 0}' >web/dependency-cruiser.snapshot.json
 out=$("$FLIP_SCRIPT" --check)
 assert_contains "reports eligible" "$out" "eligible to flip"
 assert_file_missing "--check does not create marker" .claude/.markers/arch-lint-flipped/depcruise
@@ -85,7 +92,7 @@ cleanup_repo
 # ----------------------------------------------------------------------------
 echo "depcruise gate — --apply on eligible:"
 make_fake_repo
-echo '{"warn": 0}' > web/dependency-cruiser.snapshot.json
+echo '{"warn": 0}' >web/dependency-cruiser.snapshot.json
 out=$("$FLIP_SCRIPT" --apply)
 assert_file_exists "--apply creates marker" .claude/.markers/arch-lint-flipped/depcruise
 assert_contains "summary mentions flip count" "$out" "1 gate(s) flipped"
@@ -118,7 +125,7 @@ cleanup_repo
 write_eslint_config() {
   # $1 = severity token to embed (warn|error|<other>)
   local sev="$1"
-  cat > web/eslint.config.js <<EOF
+  cat >web/eslint.config.js <<EOF
 export default [{
   files: ['src/**/*.{ts,tsx}'],
   rules: {
@@ -140,7 +147,7 @@ echo "eslint-boundaries gate — eligible (severity=warn, no marker), --check:"
 make_fake_repo
 write_eslint_config "warn"
 out=$("$FLIP_SCRIPT" --check)
-assert_contains "reports eligible"        "$out" "eslint-boundaries"
+assert_contains "reports eligible" "$out" "eslint-boundaries"
 assert_contains "eligible to flip phrase" "$out" "eligible to flip"
 assert_file_missing "--check does not create marker" .claude/.markers/arch-lint-flipped/eslint-boundaries
 # config must remain at warn after --check (no mutation)
@@ -189,7 +196,7 @@ write_deny_config() {
   # $1 = severity token to embed (warn|deny)
   local sev="$1"
   mkdir -p agent
-  cat > agent/deny.toml <<EOF
+  cat >agent/deny.toml <<EOF
 [bans]
 multiple-versions = "${sev}"
 wildcards = "${sev}"
@@ -209,7 +216,7 @@ echo "cargo-deny gate — eligible (severities=warn, no marker), --check:"
 make_fake_repo
 write_deny_config "warn"
 out=$("$FLIP_SCRIPT" --check)
-assert_contains "reports eligible"        "$out" "cargo-deny"
+assert_contains "reports eligible" "$out" "cargo-deny"
 assert_contains "eligible to flip phrase" "$out" "eligible to flip"
 assert_file_missing "--check does not create marker" .claude/.markers/arch-lint-flipped/cargo-deny
 if grep -q '^multiple-versions = "warn"' agent/deny.toml && grep -q '^wildcards = "warn"' agent/deny.toml; then
@@ -245,18 +252,18 @@ cleanup_repo
 # ----------------------------------------------------------------------------
 echo "remaining already-strict gates always listed:"
 make_fake_repo
-echo '{"warn": 0}' > web/dependency-cruiser.snapshot.json
+echo '{"warn": 0}' >web/dependency-cruiser.snapshot.json
 out=$("$FLIP_SCRIPT" --check)
-assert_contains "eslint-boundaries listed"  "$out" "eslint-boundaries"
-assert_contains "cargo-deny listed"         "$out" "cargo-deny"
-assert_contains "go-arch-lint listed"       "$out" "go-arch-lint"
-assert_contains "cargo-modules listed"      "$out" "cargo-modules"
+assert_contains "eslint-boundaries listed" "$out" "eslint-boundaries"
+assert_contains "cargo-deny listed" "$out" "cargo-deny"
+assert_contains "go-arch-lint listed" "$out" "go-arch-lint"
+assert_contains "cargo-modules listed" "$out" "cargo-modules"
 cleanup_repo
 
 # ----------------------------------------------------------------------------
 echo "unknown mode:"
 make_fake_repo
-echo '{"warn": 0}' > web/dependency-cruiser.snapshot.json
+echo '{"warn": 0}' >web/dependency-cruiser.snapshot.json
 rc=0
 "$FLIP_SCRIPT" --bogus >/dev/null 2>&1 || rc=$?
 if [ "$rc" = "2" ]; then

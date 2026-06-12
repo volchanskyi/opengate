@@ -98,7 +98,7 @@ _log_event() {
   local summary
   summary="$(printf '%s' "$msg" | head -1 | tr '\t' ' ' | cut -c1-200)"
   printf '%s\t%s\t%s\t%s\t%s\n' "$(date -Is 2>/dev/null || date)" "$tag" "$rule" "$hook_name" "$summary" \
-    >> "$log_dir/blocks.log" 2>/dev/null || true
+    >>"$log_dir/blocks.log" 2>/dev/null || true
 }
 
 block() {
@@ -119,7 +119,7 @@ _fail_closed_handler() {
   local exit_code=$?
   # If we already exited cleanly (0 or 2), respect that.
   case "$exit_code" in
-    0|2) exit "$exit_code" ;;
+    0 | 2) exit "$exit_code" ;;
   esac
   local hook_name
   hook_name="$(basename "${BASH_SOURCE[1]:-$0}")"

@@ -12,7 +12,7 @@ ELAPSED=0
 echo "Waiting for server at ${BASE_URL}/api/v1/health (timeout: ${TIMEOUT}s)..."
 
 while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
-  if curl -sf "${BASE_URL}/api/v1/health" > /dev/null 2>&1; then
+  if curl -sf "${BASE_URL}/api/v1/health" >/dev/null 2>&1; then
     echo "Server is ready (${ELAPSED}s elapsed)"
     exit 0
   fi

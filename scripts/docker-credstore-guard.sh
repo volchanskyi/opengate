@@ -21,7 +21,10 @@ set -euo pipefail
 src_dir="${DOCKER_CONFIG:-$HOME/.docker}"
 cfg="$src_dir/config.json"
 
-emit_src() { printf '%s\n' "$src_dir"; exit 0; }
+emit_src() {
+  printf '%s\n' "$src_dir"
+  exit 0
+}
 
 # No config or no credsStore → nothing to sanitize.
 [ -f "$cfg" ] || emit_src

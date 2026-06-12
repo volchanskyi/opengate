@@ -52,7 +52,7 @@ fi
 # 5. Refresh the refactor marker to HEAD now, so a later manual `git push` tool
 #    call passes the push-guard even if the push below cannot reach the remote.
 mkdir -p .claude/.markers
-git rev-parse HEAD > .claude/.markers/refactor.head
+git rev-parse HEAD >.claude/.markers/refactor.head
 
 # 6. Rebase onto the latest dev; abort cleanly on conflict (never leave a
 #    half-rebase). A rebase that replays our commit changes HEAD, so re-point the
@@ -62,7 +62,7 @@ if ! git pull --rebase origin dev; then
   echo "auto-push aborted: 'git pull --rebase origin dev' failed — resolve and push manually"
   exit 0
 fi
-git rev-parse HEAD > .claude/.markers/refactor.head
+git rev-parse HEAD >.claude/.markers/refactor.head
 
 if git push origin dev; then
   echo "auto-push: pushed $(git rev-parse --short HEAD) to origin/dev"

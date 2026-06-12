@@ -75,7 +75,7 @@ fi
 # - agent/**, deploy/**, docs/**, .github/** are intentionally NOT image
 #   inputs and must not appear here.
 if [ -n "$(git diff --name-only "$PREV_SHA" "$HEAD_SHA" -- \
-            'server/**' 'web/**' 'Dockerfile')" ]; then
+  'server/**' 'web/**' 'Dockerfile')" ]; then
   echo "image_changed=true"
   echo "image inputs changed between ${PREV_SHA} and ${HEAD_SHA} — building." >&2
 else

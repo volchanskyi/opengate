@@ -14,7 +14,10 @@
 set -euo pipefail
 
 ROW_FILE="${1:?Usage: $0 <canonical-row.json>}"
-[[ -f "$ROW_FILE" ]] || { echo "missing canonical row file: $ROW_FILE" >&2; exit 2; }
+[[ -f "$ROW_FILE" ]] || {
+  echo "missing canonical row file: $ROW_FILE" >&2
+  exit 2
+}
 
 # Loki accepts /loki/api/v1/push with `streams: [{stream, values: [[ns, line]]}]`.
 # `ns` is a nanosecond epoch string. We push three streams (one per language)
@@ -42,7 +45,7 @@ PAYLOAD="$(jq -c \
           values: [[ $ns, (.[1] | tostring) ]]
         })
     }
-  ' <<< "{}")"
+  ' <<<"{}")"
 
 # Push the payload to Loki via the shared kubectl transport.
 # shellcheck source=lib/loki-push.sh

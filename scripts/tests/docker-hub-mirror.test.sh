@@ -12,8 +12,15 @@ PASS=0
 FAIL=0
 FAILURES=()
 
-pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); FAILURES+=("$1"); printf '  FAIL %s\n' "$1" >&2; }
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  FAILURES+=("$1")
+  printf '  FAIL %s\n' "$1" >&2
+}
 
 input_is_optional() {
   local input_name="$1"
@@ -47,8 +54,8 @@ else
 fi
 
 mapfile -t MIRROR_MATCHES < <(grep -rnF 'registry-mirrors' "$REPO_ROOT/.github" || true)
-if [ "${#MIRROR_MATCHES[@]}" -eq 1 ] &&
-  [[ "${MIRROR_MATCHES[0]}" == "$ACTION:"* ]]; then
+if [ "${#MIRROR_MATCHES[@]}" -eq 1 ] \
+  && [[ "${MIRROR_MATCHES[0]}" == "$ACTION:"* ]]; then
   pass "registry-mirrors has one canonical definition"
 else
   fail "registry-mirrors must appear exactly once under .github, only in the composite"

@@ -18,11 +18,18 @@ PASS=0
 FAIL=0
 FAILURES=()
 
-pass() { PASS=$((PASS + 1)); printf '  ok   %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); FAILURES+=("$1"); printf '  FAIL %s\n' "$1" >&2; }
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  FAILURES+=("$1")
+  printf '  FAIL %s\n' "$1" >&2
+}
 
 echo "pg_probe — open port detection:"
-TEST_PORT=$(( (RANDOM % 10000) + 40000 ))
+TEST_PORT=$(((RANDOM % 10000) + 40000))
 python3 -c "
 import socket, sys, time
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

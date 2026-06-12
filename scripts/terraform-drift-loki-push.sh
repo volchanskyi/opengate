@@ -16,7 +16,10 @@
 set -euo pipefail
 
 SUMMARY_FILE="${1:?Usage: $0 <drift-summary.json>}"
-[[ -f "$SUMMARY_FILE" ]] || { echo "missing summary file: $SUMMARY_FILE" >&2; exit 2; }
+[[ -f "$SUMMARY_FILE" ]] || {
+  echo "missing summary file: $SUMMARY_FILE" >&2
+  exit 2
+}
 
 NS="$(date -u +%s)000000000"
 
@@ -38,7 +41,7 @@ PAYLOAD="$(jq -c \
         }
       ]
     }
-  ' <<< "{}")"
+  ' <<<"{}")"
 
 # Push the payload to Loki via the shared kubectl transport.
 # shellcheck source=lib/loki-push.sh

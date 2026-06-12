@@ -43,14 +43,14 @@ case "${OS_NAME}:${ARCH_NAME}" in
 esac
 
 shellcheck_ok=false
-if command -v shellcheck >/dev/null 2>&1 &&
-  [ "$(shellcheck_version_of shellcheck)" = "$SHELLCHECK_VERSION" ]; then
+if command -v shellcheck >/dev/null 2>&1 \
+  && [ "$(shellcheck_version_of shellcheck)" = "$SHELLCHECK_VERSION" ]; then
   shellcheck_ok=true
 fi
 
 shfmt_ok=false
-if command -v shfmt >/dev/null 2>&1 &&
-  [ "$(shfmt_version_of shfmt)" = "$SHFMT_VERSION" ]; then
+if command -v shfmt >/dev/null 2>&1 \
+  && [ "$(shfmt_version_of shfmt)" = "$SHFMT_VERSION" ]; then
   shfmt_ok=true
 fi
 
