@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781254784680,
+  "lastUpdate": 1781256055880,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17468,6 +17468,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.84471128390799,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "2ab2321bd14b4f1402f21a9b191b5114e187a42d",
+          "message": "fix: isolate cargo module snapshot logging",
+          "timestamp": "2026-06-12T02:19:06-07:00",
+          "tree_id": "31963afc44cf1b69aeda391a18633e16cbc5cea6",
+          "url": "https://github.com/volchanskyi/opengate/commit/2ab2321bd14b4f1402f21a9b191b5114e187a42d"
+        },
+        "date": 1781256055746,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.413575071516362,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.912016071251486,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 760.2476445920122,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 304.994074021324,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.904093775198586,
             "unit": "ns/iter"
           }
         ]
