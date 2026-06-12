@@ -30,9 +30,8 @@ assessment so we can pick it up without re-deriving the analysis.
 - In-memory adapters as doubles: `InProcessRegistry`, the `Null*` impls, the fake
   `PeerDialer` used in C2 tests.
 - UI-bypassing component tests already exist but are unlabeled:
-  [`relay_handler_test.go`](../../server/internal/api/relay_handler_test.go),
-  [`internal_relay_test.go`](../../server/internal/api/internal_relay_test.go) drive
-  `httptest.NewServer(srv)` + real WS and assert outcomes.
+  [`relay_handler_test.go`](../../server/internal/api/relay_handler_test.go) drives
+  `httptest.NewServer(srv)` + real WS and asserts outcomes.
 - Strong deterministic guardrails already: hook-enforced TDD, the gauntlet
   (coverage/sonar/mutation/pentest/e2e), immutable ADRs. So ATs are an
   **incremental** gain here, not the primary guardrail.

@@ -4,8 +4,7 @@ OpenGate runs on **Oracle Kubernetes Engine (OKE)** via a Helm chart. This is
 the Phase 13b deployment substrate that replaces the single-VM
 [Docker Compose + Caddy stack](./Infrastructure.md) on the cluster path. The
 platform decisions are recorded in
-[ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md); the one-time cutover
-steps live in the [Kubernetes Migration runbook](./Kubernetes-Migration.md).
+[ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md).
 
 ## Chart
 
@@ -89,9 +88,7 @@ three default-off flags under `server` in
 All three are off in the staging/production overlays (single-replica PVC path) and
 on in [`ci/test-values.yaml`](../deploy/helm/opengate/ci/test-values.yaml) so
 `make lint-k8s` validates both paths. Per-replica session distribution is on the
-Grafana **OpenGate Overview** dashboard ("Active Relay Sessions by Replica"); the
-cutover steps (KEDA install + keys-secret population) are in
-[Kubernetes Migration](./Kubernetes-Migration.md).
+Grafana **OpenGate Overview** dashboard ("Active Relay Sessions by Replica").
 
 ## Validation
 

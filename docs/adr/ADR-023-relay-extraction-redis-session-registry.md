@@ -148,7 +148,7 @@ Resolves the "pick the concrete tech [and HA] at Phase 13b kickoff" deferral
 1. **Backend tech: `redis/go-redis/v9`.** Context-first and maintained; its
    `UniversalClient`/`NewFailoverClient` abstract single-instance vs Sentinel
    behind one type, so the adapter is HA-agnostic. The
-   [`RedisRegistry`](../../server/internal/relay/redis_registry.go) implements
+   `RedisRegistry` implements
    all six `SessionRegistry` methods; `InProcessRegistry` stays the contract
    reference.
 2. **Key schema** (prefix `opengate:relay:`): `affinity:{token}` = owning
@@ -159,7 +159,7 @@ Resolves the "pick the concrete tech [and HA] at Phase 13b kickoff" deferral
    `events` = JSON `SessionEvent` over Pub/Sub (`PublishEvent` is a no-op when no
    server subscribes).
 3. **Backend selection: `REGISTRY_BACKEND`** = `inprocess` (default) | `redis`,
-   resolved by [`relay.SessionRegistryFromConfig`](../../server/internal/relay/backend.go)
+   resolved by `relay.SessionRegistryFromConfig`
    (a tested seam returning the adapter plus an `io.Closer`). Redis config:
    `REDIS_ADDR` (single) **or** `REDIS_SENTINEL_ADDRS` + `REDIS_MASTER_NAME`
    (failover), plus optional `REDIS_PASSWORD`.
@@ -199,7 +199,7 @@ ownership is inert without it; this is that path.
    ([`-internal-listen`](../../server/cmd/meshserver/main.go), default `:9091`;
    `OPENGATE_INTERNAL_LISTEN`), distinct from the public `:8080` and never fronted
    by the public router or ingress. One route:
-   [`GET /internal/relay/{token}`](../../server/internal/api/internal_relay.go).
+   `GET /internal/relay/{token}`.
 3. **Tunnel auth = network boundary + loop-guard header + optional secret.**
    Every request carries `X-OpenGate-Proxy: {callerServerID}` (identity **and**
    the loop guard — only a peer relay sets it); when `OPENGATE_PROXY_SECRET` is

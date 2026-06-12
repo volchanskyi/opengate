@@ -62,14 +62,14 @@ workstream is **not done** until:
 ### Server (Go)
 | Path | Action |
 |---|---|
-| [`server/internal/multiserver/multiserver.go`](../../server/internal/multiserver/multiserver.go) | **Delete** the package (+ its tests). |
-| [`server/internal/relay/redis_registry.go`](../../server/internal/relay/redis_registry.go) + `redis_registry_test.go`, `redis_registry_pubsub_test.go`, `redis_registry_semantics_test.go` | **Delete** all four. |
-| [`server/internal/relay/backend.go`](../../server/internal/relay/backend.go) + `backend_test.go` | Collapse `SessionRegistryFromConfig` to **inprocess-only**; remove `RedisConfig`/`RedisUniversalOptions` + their tests. |
+| `server/internal/multiserver/multiserver.go` | **Delete** the package (+ its tests). |
+| `server/internal/relay/redis_registry.go` + `redis_registry_test.go`, `redis_registry_pubsub_test.go`, `redis_registry_semantics_test.go` | **Delete** all four. |
+| `server/internal/relay/backend.go` + `backend_test.go` | Collapse `SessionRegistryFromConfig` to **inprocess-only**; remove `RedisConfig`/`RedisUniversalOptions` + their tests. |
 | [`server/internal/relay/relay.go`](../../server/internal/relay/relay.go) | Remove `PeerDialer`, `WithPeerDialer`, `ErrSessionProxied`, the `proxied` state, and the foreign-owner branch in `Register`; collapse to **local pairing**. |
 | `server/internal/relay/relay_proxy_test.go` | **Delete** (tests the proxy path). `relay_test.go` — drop proxy cases. |
 | [`server/internal/relay/registry.go`](../../server/internal/relay/registry.go) + `inprocess_registry.go` | **Registry-depth decision — see §3.** |
 | [`server/internal/relay/health.go`](../../server/internal/relay/health.go) | Re-scope: the Redis-outage *degraded-mode* posture (ADR-023 C3) is moot single-server; keep only what single-server readiness needs. |
-| [`server/internal/api/internal_relay.go`](../../server/internal/api/internal_relay.go) + `internal_relay_test.go` | **Delete** (cross-server proxy HTTP route + `HTTPPeerDialer`). |
+| `server/internal/api/internal_relay.go` + `internal_relay_test.go` | **Delete** (cross-server proxy HTTP route + `HTTPPeerDialer`). |
 | [`server/cmd/meshserver/main.go`](../../server/cmd/meshserver/main.go) + `main_test.go` | Remove `-internal-listen` flag, `internalAddr`, `peerDialer`/`NewHTTPPeerDialer`, `OPENGATE_PROXY_SECRET`, `OPENGATE_SERVER_ID`, the internal listener server, `REGISTRY_BACKEND` selection; `buildRelayOptions` loses the dialer. |
 | [`server/go.mod`](../../server/go.mod) / `go.sum` | Drop `github.com/redis/go-redis/v9` (line 20) and `github.com/alicebob/miniredis/v2` (line 9) via `go mod tidy`. |
 | [`server/.gremlins.yaml`](../../server/.gremlins.yaml) | Remove multiserver/redis carve-outs. |
@@ -111,7 +111,7 @@ workstream is **not done** until:
   rebuild spec"; it remains the SSOT.
 - [`.claude/decisions.md`](../decisions.md) rows for 023/030/034 (031/033 are now ADR-023 amendments);
   [`.claude/phases.md`](../phases.md) Phase 13b PR-C/PR-E rows.
-- `docs/Architecture.md`, `docs/Kubernetes.md`, `docs/Kubernetes-Migration.md`,
+- `docs/Architecture.md`, `docs/Kubernetes.md`,
   `docs/Testing.md`, `README.md`: remove cross-server / Redis / multiserver prose.
 
 > **Known false positives (do NOT remove):** `scripts/tests/docker-hub-mirror.test.sh`

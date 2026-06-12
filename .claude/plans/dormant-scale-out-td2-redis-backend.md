@@ -16,11 +16,11 @@ Delete the `RedisRegistry` adapter and all its tests, collapse
 
 | Path | Action | Verified anchor |
 |---|---|---|
-| [`server/internal/relay/redis_registry.go`](../../server/internal/relay/redis_registry.go) | **Delete**. | exists |
+| `server/internal/relay/redis_registry.go` | **Delete**. | exists |
 | `server/internal/relay/redis_registry_test.go` | **Delete**. | exists |
 | `server/internal/relay/redis_registry_pubsub_test.go` | **Delete**. | exists |
 | `server/internal/relay/redis_registry_semantics_test.go` | **Delete**. | exists |
-| [`server/internal/relay/backend.go`](../../server/internal/relay/backend.go) | Collapse `SessionRegistryFromConfig` to **inprocess-only**; remove `RedisConfig`/`RedisUniversalOptions`. | exists |
+| `server/internal/relay/backend.go` | Collapse `SessionRegistryFromConfig` to **inprocess-only**; remove `RedisConfig`/`RedisUniversalOptions`. | exists |
 | `server/internal/relay/backend_test.go` | Drop the redis-branch cases; keep inprocess cases green. | exists |
 | [`server/go.mod`](../../server/go.mod) | Drop `github.com/redis/go-redis/v9` (`:20`) and `github.com/alicebob/miniredis/v2` (`:9`) via `go mod tidy`. | grep-confirmed lines |
 | `server/go.sum` | Shrinks via `go mod tidy`. | — |

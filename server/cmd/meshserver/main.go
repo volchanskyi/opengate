@@ -3,13 +3,10 @@ package main
 import (
 	"context"
 	"flag"
-	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -35,7 +32,6 @@ func main() {
 	listen := flag.String("listen", ":8080", "HTTP listen address")
 	quicListen := flag.String("quic-listen", ":9090", "QUIC listen address for agent connections")
 	mpsListen := flag.String("mps-listen", ":4433", "MPS TLS listen address for Intel AMT CIRA connections")
-	internalListen := flag.String("internal-listen", ":9091", "internal cross-server relay listen address (or OPENGATE_INTERNAL_LISTEN env); never exposed via ingress")
 	dataDir := flag.String("data-dir", "./data", "directory for database and certificates")
 	databaseURL := flag.String("database-url", "", "PostgreSQL connection URL (or DATABASE_URL env); required")
 	jwtSecret := flag.String("jwt-secret", "", "JWT signing secret (or JWT_SECRET env)")
@@ -145,23 +141,11 @@ func main() {
 	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
 
 	// Create relay and agent server. The relay tracks session affinity through
-	// the SessionRegistry port. REGISTRY_BACKEND selects the
-	// adapter: "inprocess" (default, single-server) or "redis" (multi-server
-	// pool with cross-server affinity). serverID identifies this node in the
-	// relay pool — hostname by default, overridable for k8s pods.
-	sessionRegistry, registryCloser := initSessionRegistry(logger)
-	defer func() { _ = registryCloser.Close() }()
-	// When a distributed registry
-	// reports a foreign owner, the relay splices the session through the owner's
-	// internal listener instead of pairing locally. All pods are homogeneous, so
-	// the dialer reuses this node's internal port to reach any peer (pod IP via
-	// the Downward API → OPENGATE_SERVER_ID). The secret is optional
-	// defense-in-depth on top of the private-network boundary.
-	internalAddr := envOr("OPENGATE_INTERNAL_LISTEN", *internalListen)
-	serverID := resolveServerID()
-	proxySecret := os.Getenv("OPENGATE_PROXY_SECRET")
-	peerDialer := api.NewHTTPPeerDialer(serverID, portOf(internalAddr), proxySecret, logger)
-	agentRelay := relay.NewRelay(logger, buildRelayOptions(sessionRegistry, serverID, peerDialer, logger)...)
+	// the SessionRegistry port, backed by an in-process registry: this is a
+	// single-server deployment, so the relay always resolves itself as the
+	// session owner and pairs both sides locally.
+	sessionRegistry := relay.NewInProcessRegistry()
+	agentRelay := relay.NewRelay(logger, buildRelayOptions(sessionRegistry, logger)...)
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -239,14 +223,6 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// The internal cross-server relay listener is a private port for proxied
-	// peer connections, never fronted by the public router/ingress.
-	internalSrv := &http.Server{
-		Addr:              internalAddr,
-		Handler:           api.NewInternalRelayServer(agentRelay, serverID, proxySecret, logger).Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-	}
-
 	// Use a cancellable context for graceful shutdown of all servers
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -274,7 +250,6 @@ func main() {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	serveBackground("HTTP server", httpSrv, logger)
-	serveBackground("internal relay server", internalSrv, logger)
 
 	go func() {
 		logger.Info("agent QUIC server starting", "addr", *quicListen)
@@ -301,30 +276,8 @@ func main() {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("HTTP shutdown error", "error", err)
 	}
-	if err := internalSrv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("internal relay shutdown error", "error", err)
-	}
 
 	logger.Info("server stopped")
-}
-
-// envOr returns the environment value for key, or fallback when it is unset or
-// empty.
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-// portOf extracts the port from a listen address, tolerating both the ":port"
-// and bare "port" forms. The HTTPPeerDialer reuses this port to reach
-// homogeneous peers on the flat cluster overlay.
-func portOf(addr string) string {
-	if _, port, err := net.SplitHostPort(addr); err == nil {
-		return port
-	}
-	return strings.TrimPrefix(addr, ":")
 }
 
 // serveBackground starts srv.ListenAndServe in a goroutine, logging startup and
@@ -339,26 +292,15 @@ func serveBackground(name string, srv *http.Server, logger *slog.Logger) {
 	}()
 }
 
-// resolveServerID returns this node's stable identifier in the relay pool.
-// OPENGATE_SERVER_ID wins (set per-pod under k8s); otherwise the OS hostname;
-// otherwise a fixed fallback so the value is never empty (the registry rejects
-// empty serverIDs).
-func resolveServerID() string {
-	if id := os.Getenv("OPENGATE_SERVER_ID"); id != "" {
-		return id
-	}
-	if hostname, err := os.Hostname(); err == nil && hostname != "" {
-		return hostname
-	}
-	return "meshserver"
-}
+// localServerID identifies this node to the in-process session registry. The
+// single-server relay always resolves itself as the session owner, so any
+// stable non-empty value satisfies the registry (which rejects empty IDs).
+const localServerID = "meshserver"
 
 // parsePositiveDuration interprets an optional Go-duration override (e.g. from
 // OPENGATE_DEGRADED_THRESHOLD or OPENGATE_AFFINITY_TTL). It returns ok=true only
 // for a parseable, strictly-positive duration; an empty, malformed, or
-// non-positive value leaves the relay default in place (ok=false). These
-// overrides exist so the multiserver e2e can shorten the 30s timers (degraded
-// mode, affinity reclaim) without waiting them out in real time.
+// non-positive value leaves the relay default in place (ok=false).
 func parsePositiveDuration(v string) (time.Duration, bool) {
 	if v == "" {
 		return 0, false
@@ -371,63 +313,17 @@ func parsePositiveDuration(v string) (time.Duration, bool) {
 }
 
 // buildRelayOptions assembles the relay.Option set for the agent relay: the
-// session-registry + serverID binding, the cross-server peer dialer, and
-// optional timer overrides — OPENGATE_DEGRADED_THRESHOLD (how long the registry
-// must be unreachable before new sessions are refused) and OPENGATE_AFFINITY_TTL
-// (how long a dead owner's affinity claim survives before reclaim). Both are used
-// by the multiserver e2e to trip the relevant behavior quickly. Keeping this out
-// of main keeps the entry point's cognitive complexity down.
-func buildRelayOptions(reg relay.SessionRegistry, serverID string, dialer relay.PeerDialer, logger *slog.Logger) []relay.Option {
+// in-process session-registry binding plus the optional OPENGATE_DEGRADED_THRESHOLD
+// override (how long the registry must be unreachable before new sessions are
+// refused). Keeping this out of main keeps the entry point's cognitive
+// complexity down.
+func buildRelayOptions(reg relay.SessionRegistry, logger *slog.Logger) []relay.Option {
 	opts := []relay.Option{
-		relay.WithRegistry(reg, serverID),
-		relay.WithPeerDialer(dialer),
+		relay.WithRegistry(reg, localServerID),
 	}
 	if d, ok := parsePositiveDuration(os.Getenv("OPENGATE_DEGRADED_THRESHOLD")); ok {
 		opts = append(opts, relay.WithDegradedThreshold(d))
 		logger.Info("degraded-mode threshold overridden", "threshold", d.String())
 	}
-	if d, ok := parsePositiveDuration(os.Getenv("OPENGATE_AFFINITY_TTL")); ok {
-		opts = append(opts, relay.WithAffinityTTL(d))
-		logger.Info("affinity TTL overridden", "ttl", d.String())
-	}
 	return opts
-}
-
-// initSessionRegistry builds the SessionRegistry adapter selected by
-// REGISTRY_BACKEND (see relay.SessionRegistryFromConfig): "inprocess" (default)
-// or "redis", configured via REDIS_ADDR / REDIS_SENTINEL_ADDRS /
-// REDIS_MASTER_NAME. A misconfiguration is fatal. The returned io.Closer
-// releases backend resources on shutdown.
-func initSessionRegistry(logger *slog.Logger) (relay.SessionRegistry, io.Closer) {
-	backend := os.Getenv("REGISTRY_BACKEND")
-	reg, closer, err := relay.SessionRegistryFromConfig(backend, relay.RedisConfig{
-		Addr:          os.Getenv("REDIS_ADDR"),
-		SentinelAddrs: splitCSV(os.Getenv("REDIS_SENTINEL_ADDRS")),
-		MasterName:    os.Getenv("REDIS_MASTER_NAME"),
-		Password:      os.Getenv("REDIS_PASSWORD"),
-	})
-	if err != nil {
-		logger.Error("init session registry", "error", err, "backend", backend)
-		os.Exit(1)
-	}
-	if backend == "" {
-		backend = "inprocess"
-	}
-	logger.Info("session registry initialized", "backend", backend)
-	return reg, closer
-}
-
-// splitCSV splits a comma-separated env value into trimmed, non-empty entries.
-func splitCSV(s string) []string {
-	if s == "" {
-		return nil
-	}
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

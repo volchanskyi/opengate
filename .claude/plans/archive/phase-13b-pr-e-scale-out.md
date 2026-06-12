@@ -31,7 +31,7 @@ Decisions (2026-06-05): **scaffold + shared-keys paydown** (make scale-out actua
 - `policy/k8s/security.rego` + `security_test.rego`: rules for `ScaledObject` (min ≤ max, ≥1 trigger) and `PodDisruptionBudget` (declares minAvailable or maxUnavailable). New conftest unit tests.
 - `ci/test-values.yaml` enables `sharedKeys` + `autoscaling` (keda) + `podDisruptionBudget` so the scale-out path renders under `make lint-k8s`; staging/production keep the defaults (single-replica PVC path) so **both** code paths are validated across the 3-file matrix.
 - New **ADR-034** (scale-out: KEDA autoscaler + shared-keys-via-Secret) + [decisions.md](../decisions.md) row.
-- [docs/Kubernetes.md](../../docs/Kubernetes.md) scale-out section + [docs/Kubernetes-Migration.md](../../docs/Kubernetes-Migration.md) cutover steps (install KEDA, populate the keys secret).
+- [docs/Kubernetes.md](../../docs/Kubernetes.md) scale-out section + `docs/Kubernetes-Migration.md` (removed) cutover steps (install KEDA, populate the keys secret).
 - [techdebt.md](../techdebt.md): mark the per-replica CA/VAPID/signing-keys debt **paid** (mechanism shipped + lint-validated; runtime-verified at cutover like the rest of the dormant k8s path).
 
 ## Out of scope

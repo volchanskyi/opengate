@@ -33,7 +33,7 @@ Do not attempt to edit an ADR before the flip — the hook will hard-block the c
 | [`docs/Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md) | **Reframe** §3 from "dormant (built)" to "removed — design retained here as the rebuild spec"; remains the SSOT. | exists |
 | [`.claude/decisions.md`](../decisions.md) | Update rows for ADR-023/030/031/033/034. | sweep |
 | [`.claude/phases.md`](../phases.md) | Update Phase 13b PR-C/PR-E rows. | sweep |
-| `docs/Architecture.md`, `docs/Kubernetes.md`, `docs/Kubernetes-Migration.md`, `docs/Testing.md`, `README.md` | Remove cross-server / Redis / multiserver prose. | sweep hits |
+| `docs/Architecture.md`, `docs/Kubernetes.md`, `docs/Testing.md`, `README.md` | Remove cross-server / Redis / multiserver prose. | sweep hits |
 | [`.claude/techdebt.md`](../techdebt.md) | Drop entries now resolved by removal; keep the intentionally-retained items (readiness §10). | review |
 
 ## Known false positives (do NOT edit as part of the teardown)
