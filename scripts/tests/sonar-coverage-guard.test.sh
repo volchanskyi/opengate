@@ -24,6 +24,8 @@ cat > "$STUB_DIR/curl" <<'STUB'
 printf '%s' "${STUB_JSON:-}"
 STUB
 chmod +x "$STUB_DIR/curl"
+# Invoked through the EXIT trap.
+# shellcheck disable=SC2329
 cleanup() { rm -rf "$STUB_DIR"; }
 trap cleanup EXIT
 

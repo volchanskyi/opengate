@@ -1,0 +1,9 @@
+shell=bash
+severity=style
+external-sources=true
+source-path=SCRIPTDIR
+enable=all
+# Optional preference checks below would require repository-wide cosmetic
+# rewrites or duplicate W3's explicit strict-mode classifier. They do not
+# identify defects in the current orchestration contracts.
+disable=SC2248,SC2249,SC2250,SC2292,SC2310,SC2311,SC2312

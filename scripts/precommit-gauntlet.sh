@@ -114,6 +114,7 @@ fi
 # readiness, and exits non-zero if it still can't connect — fail-loud
 # per CLAUDE.md "no silent skip" rule.
 # shellcheck source=lib/postgres-prereq.sh
+# shellcheck source=lib/postgres-prereq.sh
 . "$PROJECT_ROOT/scripts/lib/postgres-prereq.sh"
 if ! pg_ensure_up; then
   color "1;31"
@@ -162,6 +163,8 @@ echo "✓ all prerequisites present" >&2
 banner "Lints"
 run_check "rust fmt"          -- bash -c 'cd agent && cargo fmt --all -- --check'
 run_check "rust clippy"       -- bash -c 'cd agent && cargo clippy --workspace -- -D warnings'
+# The variables below intentionally expand in the inner bash process.
+# shellcheck disable=SC2016
 run_check "go fmt"            -- bash -c '
   cd server
   unformatted=$(gofmt -l .)
@@ -173,6 +176,8 @@ run_check "go fmt"            -- bash -c '
 '
 run_check "go vet"            -- bash -c 'cd server && go vet ./...'
 run_check "go-arch-lint"      -- bash -c 'cd server && go-arch-lint check'
+# The variables below intentionally expand in the inner bash process.
+# shellcheck disable=SC2016
 run_check "cargo modules"     -- bash -c '
   cd agent
   actual=$(NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core 2>&1)
@@ -185,6 +190,8 @@ run_check "cargo modules"     -- bash -c '
 '
 run_check "cargo-deny"        -- bash -c 'cd agent && cargo-deny check --hide-inclusion-graph 2>&1'
 run_check "web eslint"        -- bash -c 'cd web && npx eslint .'
+# The variables below intentionally expand in the inner bash process.
+# shellcheck disable=SC2016
 run_check "depcruise"         -- bash -c '
   cd web
   current=$(npx --no-install depcruise src --output-type json --no-progress 2>/dev/null | jq -r ".summary.warn")
@@ -224,6 +231,8 @@ run_check "verify-codegen"    -- bash -c "PATH=\"\$HOME/go/bin:\$PATH\" make ver
 banner "Tests"
 # Shell tests for CI gates / hooks / helper scripts (scripts/tests/*.test.sh).
 # Iterate by glob so adding a new test file requires no gauntlet edit.
+# The variables below intentionally expand in the inner bash process.
+# shellcheck disable=SC2016
 run_check "shell tests"        -- bash -c '
   rc=0
   shopt -s nullglob

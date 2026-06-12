@@ -68,7 +68,11 @@ make_repo() {
   git commit --quiet -m init
   git checkout --quiet -b feat/test
 }
+# Invoked through cleanup_all and the EXIT trap.
+# shellcheck disable=SC2329
 cleanup_repo() { if [ -n "${REPO:-}" ]; then rm -rf "$REPO"; REPO=""; fi; return 0; }
+# Invoked through the EXIT trap.
+# shellcheck disable=SC2329
 cleanup_all()  { cleanup_repo; rm -rf "$STUB_DIR"; return 0; }
 trap 'cleanup_all' EXIT
 

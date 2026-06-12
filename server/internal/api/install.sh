@@ -12,7 +12,7 @@ readonly BINARY_NAME="mesh-agent"
 # --- Helpers ----------------------------------------------------------------
 
 log()  { printf '[opengate] %s\n' "$*"; return 0; }
-fail() { printf '[opengate] ERROR: %s\n' "$*" >&2; exit 1; return 1; }
+fail() { printf '[opengate] ERROR: %s\n' "$*" >&2; exit 1; }
 
 # --- Pre-flight checks ------------------------------------------------------
 
