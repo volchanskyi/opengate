@@ -12,6 +12,7 @@
 # Always exit 0; SessionStart hooks must never block.
 set -euo pipefail
 # shellcheck source=lib/common.sh
+# shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 # Discard stdin — we don't need any field from it.

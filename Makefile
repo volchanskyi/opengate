@@ -2,7 +2,7 @@
 	mutate mutate-rust mutate-go mutate-web taint-go taint-web pentest-review dead-code \
 	terraform-test terraform-drift \
 	secrets-scan iac-policy iac-policy-fix iac-policy-custom lint-dockerfile lint-k8s \
-	test-parse-tfplan \
+	test-parse-tfplan shell-check shell-fmt shell-test shell-quality \
 	tunnel ssh
 
 build:
@@ -57,6 +57,20 @@ lint: lint-deploy pentest-review
 	cd server && go vet ./...
 	cd web && npx eslint src/
 	actionlint
+
+shell-check:
+	@command -v shellcheck >/dev/null 2>&1 || { echo "ERROR: shellcheck not found. Run scripts/install-shell-tools.sh"; exit 1; }
+	@command -v shfmt >/dev/null 2>&1 || { echo "ERROR: shfmt not found. Run scripts/install-shell-tools.sh"; exit 1; }
+	scripts/shell-quality.sh check
+
+shell-fmt:
+	@command -v shfmt >/dev/null 2>&1 || { echo "ERROR: shfmt not found. Run scripts/install-shell-tools.sh"; exit 1; }
+	scripts/shell-quality.sh format
+
+shell-test:
+	scripts/shell-quality.sh test
+
+shell-quality: shell-check shell-test
 
 DEPLOY_DUMMY_ENV := JWT_SECRET=dummy AMT_USER=admin AMT_PASS=dummy \
 	VAPID_CONTACT=dummy IMAGE_TAG=latest DOMAIN=example.com \

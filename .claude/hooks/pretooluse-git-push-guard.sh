@@ -13,6 +13,7 @@
 # NO BYPASS.
 set -euo pipefail
 # shellcheck source=lib/common.sh
+# shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
 parse_input_fields tool_name tool_input.command

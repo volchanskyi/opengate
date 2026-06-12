@@ -63,6 +63,8 @@ cleanup_repo() {
   return 0
 }
 
+# Invoked through the EXIT trap.
+# shellcheck disable=SC2329
 cleanup_mock() {
   if [ -n "${MOCK_DIR:-}" ]; then
     rm -rf "$MOCK_DIR"

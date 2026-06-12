@@ -42,5 +42,6 @@ PAYLOAD="$(jq -c \
 
 # Push the payload to Loki via the shared kubectl transport.
 # shellcheck source=lib/loki-push.sh
+# shellcheck source=lib/loki-push.sh
 source "$(dirname "$0")/lib/loki-push.sh"
 printf '%s' "$PAYLOAD" | loki_push
