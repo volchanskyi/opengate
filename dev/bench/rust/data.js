@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781239107396,
+  "lastUpdate": 1781241902056,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17076,6 +17076,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.932145821472318,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "fe60a6492fdb53ebdc5a8e45216450ed5d3a3827",
+          "message": "docs: DD-C batch A — repoint rotted plan links to archive; de-link active plan\n\nFixes the plan-link debt the DD-INV inventory surfaced (docs/ADR/phases/techdebt\nscope; .claude/plans/** cross-links are out of scope):\n- Rotted links to now-archived plans repointed to plans/archive/:\n  ADR-016 (tests-coverage-phase-c), ADR-018 (stable-dev-machine-vps-access),\n  ADR-021/022/024 (modular-monolith-evaluation), phases.md\n  (tests-coverage-phase-b, performance-benchmarks), Testing.md (pr9-mutation).\n- Active master plan (fast-path-reconnect-fix) de-linked to an inline-code path\n  in Multiscale-Readiness.md + techdebt.md (active plans must not be linked).\n- Regenerated .claude/doc-link-baseline.txt (538 -> 528) to reflect paid-down debt.\n- Adds the DD-INV results handoff checklist for DD-C/DD-D.",
+          "timestamp": "2026-06-11T22:23:24-07:00",
+          "tree_id": "e6eff055f2dd109400d82e5e6b06630cac0ec9e9",
+          "url": "https://github.com/volchanskyi/opengate/commit/fe60a6492fdb53ebdc5a8e45216450ed5d3a3827"
+        },
+        "date": 1781241901924,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.20332318957759,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.37368277751485,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.5746778639606,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 312.0796208764587,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.9725574709159,
             "unit": "ns/iter"
           }
         ]
