@@ -764,7 +764,7 @@ cleanup_repo
 setup_autopush_repo
 echo change >f.txt
 git add f.txt
-git commit -q -m "feat: x" >/dev/null 2>&1
+CI='' git commit -q -m "feat: x" >/dev/null 2>&1
 head="$(git rev-parse HEAD)"
 if [ "$(remote_ref dev)" = "$head" ]; then
   pass "auto-push: commit on dev pushed to origin/dev"
@@ -818,7 +818,7 @@ git clone --quiet "$REMOTE" "$tmpclone"
 rm -rf "$tmpclone"
 echo m >m.txt
 git add m.txt
-git commit -q -m "feat: m" >/dev/null 2>&1
+CI='' git commit -q -m "feat: m" >/dev/null 2>&1
 head="$(git rev-parse HEAD)"
 if [ "$(remote_ref dev)" = "$head" ]; then
   pass "auto-push: rebased onto divergent upstream and pushed"
