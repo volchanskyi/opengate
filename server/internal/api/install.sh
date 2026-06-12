@@ -3,9 +3,11 @@
 # Usage: curl -sL https://<server>/api/v1/server/install.sh | sudo bash -s -- <ENROLLMENT_TOKEN>
 set -euo pipefail
 
-readonly INSTALL_DIR="/usr/local/bin"
-readonly CONFIG_DIR="/etc/opengate-agent"
-readonly DATA_DIR="/var/lib/opengate-agent"
+readonly INSTALL_DIR="${OPENGATE_INSTALL_DIR:-/usr/local/bin}"
+readonly CONFIG_DIR="${OPENGATE_CONFIG_DIR:-/etc/opengate-agent}"
+readonly DATA_DIR="${OPENGATE_DATA_DIR:-/var/lib/opengate-agent}"
+readonly SYSTEMD_DIR="${OPENGATE_SYSTEMD_DIR:-/etc/systemd/system}"
+readonly TMP_PARENT="${OPENGATE_TMP_PARENT:-${TMPDIR:-/tmp}}"
 readonly SERVICE_NAME="mesh-agent"
 readonly BINARY_NAME="mesh-agent"
 
@@ -22,7 +24,7 @@ fail() {
 
 # --- Pre-flight checks ------------------------------------------------------
 
-[[ $EUID -eq 0 ]] || fail "This script must be run as root (use sudo)"
+[[ ${OPENGATE_EFFECTIVE_UID:-$EUID} -eq 0 ]] || fail "This script must be run as root (use sudo)"
 command -v curl >/dev/null 2>&1 || fail "curl is required but not installed"
 command -v systemctl >/dev/null 2>&1 || fail "systemd is required but not found"
 
@@ -160,15 +162,15 @@ log "Downloading agent from: ${DOWNLOAD_URL}"
 
 # --- Download binary --------------------------------------------------------
 
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+WORK_DIR=$(mktemp -d "$TMP_PARENT/opengate-agent.XXXXXX")
+trap 'rm -rf "$WORK_DIR"' EXIT
 
-curl -fL --max-time 300 -o "${TMPDIR}/${BINARY_NAME}" "$DOWNLOAD_URL" \
+curl -fL --max-time 300 -o "${WORK_DIR}/${BINARY_NAME}" "$DOWNLOAD_URL" \
   || fail "Failed to download agent binary"
 
 # Verify SHA256 if available.
 if [[ -n "$EXPECTED_SHA256" ]]; then
-  ACTUAL_SHA256=$(sha256sum "${TMPDIR}/${BINARY_NAME}" | awk '{print $1}')
+  ACTUAL_SHA256=$(sha256sum "${WORK_DIR}/${BINARY_NAME}" | awk '{print $1}')
   if [[ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]]; then
     fail "SHA256 mismatch: expected ${EXPECTED_SHA256}, got ${ACTUAL_SHA256}"
   fi
@@ -180,7 +182,7 @@ fi
 log "Installing agent..."
 
 # Binary
-install -m 0755 "${TMPDIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+install -m 0755 "${WORK_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
 
 # Config + data directories
 mkdir -p "$CONFIG_DIR"
@@ -191,7 +193,8 @@ mkdir -p "$DATA_DIR"
 # CA-signed certificate via CSR enrollment. On subsequent restarts, the agent
 # loads the saved identity from DATA_DIR and ignores the enrollment flags.
 
-cat >"/etc/systemd/system/${SERVICE_NAME}.service" <<UNIT
+mkdir -p "$SYSTEMD_DIR"
+cat >"${SYSTEMD_DIR}/${SERVICE_NAME}.service" <<UNIT
 [Unit]
 Description=OpenGate Agent
 After=network-online.target
