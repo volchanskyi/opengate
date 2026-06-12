@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781246044793,
+  "lastUpdate": 1781251708807,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17272,6 +17272,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.76577522524014,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "b10d8dfd7599c98efdf4b14ebcf39982819c1d85",
+          "message": "refactor: remove dormant server scale-out paths",
+          "timestamp": "2026-06-12T01:06:44-07:00",
+          "tree_id": "e9df04b1aa8e994cac1f359b6c851c74ee0c3625",
+          "url": "https://github.com/volchanskyi/opengate/commit/b10d8dfd7599c98efdf4b14ebcf39982819c1d85"
+        },
+        "date": 1781251708669,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.2190983658412,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.25547718513181,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 742.9153943612791,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 311.69361382590677,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.931999731533278,
             "unit": "ns/iter"
           }
         ]
