@@ -108,5 +108,11 @@ EOF
   fi
 fi
 
+if grep -qF 'RUST_LOG=off NO_COLOR=1 cargo modules structure' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
+  pass "cargo module snapshot disables ambient tracing filters"
+else
+  fail "cargo module snapshot disables ambient tracing filters"
+fi
+
 printf '\nSummary: %d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

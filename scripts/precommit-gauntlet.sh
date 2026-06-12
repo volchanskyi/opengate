@@ -180,7 +180,7 @@ run_check "go-arch-lint"      -- bash -c 'cd server && go-arch-lint check'
 # shellcheck disable=SC2016
 run_check "cargo modules"     -- bash -c '
   cd agent
-  actual=$(NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core 2>&1)
+  actual=$(RUST_LOG=off NO_COLOR=1 cargo modules structure --no-fns --no-types --no-traits --package mesh-agent-core 2>&1)
   if ! printf "%s\n" "$actual" | diff -u crates/mesh-agent-core/tests/module-graph.snap - ; then
     echo "::error::mesh-agent-core module graph diverged from the ADR-020 §5.2 snapshot."
     echo "Review the diff above. If the change is intentional, regenerate:"
