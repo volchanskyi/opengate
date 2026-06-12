@@ -3,7 +3,7 @@
 **Type:** Master plan. **Plan-only** — to be broken into micro-plans (FI1–FI6)
 per the master→micro-plan flow.
 **Status:** **Blocked on teardown.** Do **not** break into micro-plans yet.
-[`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) must complete
+[`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md) is complete
 first, then this plan is **re-evaluated against the post-teardown tree** — the
 fault-point inventory (§6), scenario catalog (§7), and file/path references all
 depend on the deleted packages, the slimmed `SessionRegistry` port, and the
@@ -14,7 +14,7 @@ final relay shape. Treat everything below as the pre-re-evaluation draft.
 Settled with the user before drafting (do not re-litigate without the user):
 
 1. **Teardown first.** This plan is **sequenced after**
-   [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md). The
+   [`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md). The
    multi-replica machinery (Redis/Sentinel registry, cross-server proxy, KEDA,
    PDB, multi-node L4) is being **deleted** as free-tier YAGNI. Therefore every
    scenario that only existed to chaos-test that machinery is **out of scope
@@ -272,7 +272,7 @@ upload assertions, logs, metrics, events.
 
 ## 12. Sequencing & risk
 
-- **Hard prerequisite:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md)
+- **Hard prerequisite:** [`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md)
   completes first. Building this against the pre-teardown tree would wire fault
   points (`relay.peer-dial`, Redis) that are about to be deleted.
 - Order: FI1 (spec/ADR) → FI2 (injector, the bulk) → FI3 (Helm) → FI4 (ingress)

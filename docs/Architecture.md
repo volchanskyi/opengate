@@ -96,8 +96,6 @@ Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed 
 - **AgentAPI** handles QUIC connections: handshake, registration, heartbeat, disconnect
 - **REST API** serves device/group/user management and authentication endpoints
 - **PostgreSQL 17** (via `pgx/v5` stdlib adapter) is the shared persistence layer — see [Database](Database.md) and [ADR-014](adr/ADR-014-postgres-migration.md)
-- **Multiserver** (`server/internal/multiserver/`) is a stub package for future multiserver routing — peer server discovery and agent routing across multiple instances (not yet implemented)
-
 ## WebSocket Relay
 
 The server includes a message-oriented WebSocket relay (`server/internal/relay/`) for browser↔agent sessions:

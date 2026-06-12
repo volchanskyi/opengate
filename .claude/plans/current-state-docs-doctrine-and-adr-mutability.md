@@ -3,7 +3,7 @@
 **Status:** Broken into micro-plans (re-evaluated against the live tree). Order
 **DD-A → DD-B → DD-INV → DD-C ∥ DD-D → DD-E**:
 
-- [`docs-doctrine-a-governance-flip.md`](archive/docs-doctrine-a-governance-flip.md) — **done** (archived; ADR consolidation folded in); **unblocks teardown [TD6](dormant-scale-out-td6-docs-adrs.md)**
+- [`docs-doctrine-a-governance-flip.md`](archive/docs-doctrine-a-governance-flip.md) — **done** (archived; ADR consolidation folded in); teardown [TD6](archive/dormant-scale-out-td6-docs-adrs.md) is complete
 - [`docs-doctrine-b-link-checker.md`](archive/docs-doctrine-b-link-checker.md) — link-enforcement hook — **done** (archived)
 - [`docs-doctrine-inv-inventory-pass.md`](archive/docs-doctrine-inv-inventory-pass.md) — enumerate scope; defines "done" for C/D — **done** (archived)
 - [`docs-doctrine-c-docs-adr-cleanup.md`](archive/docs-doctrine-c-docs-adr-cleanup.md) — docs + ADR-body cleanup (**coordinate with teardown TD6**) — **done** (archived)

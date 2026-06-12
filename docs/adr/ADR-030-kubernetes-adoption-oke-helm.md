@@ -1,84 +1,61 @@
-# ADR-030: Kubernetes Adoption — OKE, Helm, ingress-nginx + cert-manager
+# ADR-030: Kubernetes adoption — OKE, Helm, ingress-nginx, and cert-manager
 
 **Status:** Accepted
 **Date:** 2026-06-02
-**Supersedes:** none (extends the deployment posture; ADR-023 remains the registry/multiserver spine)
+**Supersedes:** none
 
 ## Context
 
-Phase 13b moves OpenGate from a single-VM `docker compose` + Caddy stack to a
-horizontally-scalable platform. The `SessionRegistry` port is already wired onto
-the live relay path; the platform now needs a real Kubernetes cluster as the
-substrate for ≥2 server replicas, a Redis session registry, and an HPA. This ADR
-records the **deployment-platform** decisions.
-The §6 platform decisions (OKE flavour, in-cluster Postgres, in-place convert,
-Redis Sentinel) were resolved; the working sequencing lives in
-`.claude/decisions.md` and the Phase 13b plan.
+OpenGate runs on Oracle Kubernetes Engine within the OCI free-tier envelope.
+The deployment needs a managed control plane, reproducible packaging, automated
+TLS, persistent PostgreSQL, and direct L4 exposure for QUIC and Intel AMT MPS.
 
-Hard constraints carried in: the OCI Always-Free envelope is **4 OCPU / 24 GB**
-total; deployment starts on a single node and grows toward the full budget; the
-agent transport (QUIC, UDP) and Intel AMT CIRA (MPS, TCP) are **non-HTTP L4**
-protocols that cannot ride an HTTP ingress.
+The current topology is one worker node and one server replica. Scale-out
+requirements are retained separately in
+[`Multiscale-Readiness.md`](../Multiscale-Readiness.md).
 
 ## Decision
 
-1. **Cluster: OKE, BASIC tier.** The OKE control plane is free on BASIC;
-   workers are the Always-Free A1.Flex. (kubeadm rejected — a self-managed
-   control plane eats the 4-OCPU budget; non-OCI managed k8s leaves the free
-   tier. ENHANCED OKE rejected — it bills per cluster-hour.)
+1. **Cluster: OKE BASIC.** The managed BASIC control plane preserves worker
+   capacity for the application. Worker configuration lives in the
+   [`oke` Terraform module](../../deploy/terraform/modules/oke/).
 
-2. **Packaging: Helm.** One chart, `deploy/helm/opengate`, with
-   `values-staging.yaml` / `values-production.yaml` overlays mirroring the
-   `docker-compose.yml` / `docker-compose.staging.yml` split. CD deploys via
-   `helm upgrade --install`.
+2. **Packaging: Helm.** The application chart and its environment overlays live
+   under [`deploy/helm/opengate`](../../deploy/helm/opengate/). CD deploys the
+   chart with `helm upgrade --install` in
+   [`cd.yml`](../../.github/workflows/cd.yml).
 
-3. **Edge: ingress-nginx + cert-manager.** An `Ingress` terminates TLS and
-   proxies `/`, `/api`, `/ws` to the server; cert-manager (`ClusterIssuer`,
-   Let's Encrypt HTTP-01) automates ACME. The security headers (CSP, HSTS,
-   X-Frame-Options, …) previously set by Caddy are ported **verbatim** to
-   `more_set_headers` snippets on the ingress. Caddy is retired from the k8s
-   path. The server already serves the SPA itself (`-web-dir`, `os.OpenRoot`
-   fallback), so the former `web-init` initContainer + shared `web-assets`
-   volume are dropped — the edge serves nothing static.
+3. **HTTP edge: ingress-nginx + cert-manager.** The
+   [`Ingress`](../../deploy/helm/opengate/templates/ingress.yaml) terminates TLS,
+   routes the SPA and API, and applies the security headers owned by the chart.
+   The server serves the SPA from its image.
 
-4. **State: in-cluster Postgres StatefulSet + PVC** on the `oci-bv` block-volume
-   CSI driver; daily `pg_dump` via a `CronJob`. The server's `/data` (self-signed
-   CA + VAPID keys) is a per-replica RWO PVC for the single-replica deployment.
+4. **State: in-cluster PostgreSQL.** PostgreSQL runs as a
+   [`StatefulSet`](../../deploy/helm/opengate/templates/postgres-statefulset.yaml).
+   Production persistence and backup behavior are owned by the chart and
+   [ADR-035](ADR-035-oke-free-tier-block-volume-remediation.md).
 
-5. **L4 exposure: hostPort on the single node.** QUIC (9090/udp) and MPS
-   (4433/tcp) bind directly to the node's public IP via `hostPort` — budget-free
-   (no per-Service OCI Load Balancer) and source-IP-preserving, which AMT CIRA
-   and QUIC require. The multi-node path (ingress-nginx `tcp-services`/
-   `udp-services` ConfigMaps, or an OCI NLB) is templated but off by default.
+5. **L4 exposure: node `hostPort`.** QUIC and MPS bind directly to the current
+   node through the server
+   [`Deployment`](../../deploy/helm/opengate/templates/server-deployment.yaml).
+   This avoids another load balancer and preserves the direct UDP/TCP path.
 
-6. **Secrets: external.** The chart references an `existingSecret`
-   (JWT_SECRET, POSTGRES_PASSWORD, AMT_PASS, VAPID_CONTACT) created out-of-band;
-   no secret material is committed. Sealed-secrets / SOPS layer on later
-   (CD Phase E).
+6. **Secrets: external.** The chart references an existing Kubernetes Secret;
+   committed manifests contain no secret values. The expected shape is
+   documented by
+   [`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml).
 
-7. **Validation gate.** `policy/k8s/security.rego` (conftest, the project-native
-   policy layer, mirroring `policy/docker_compose`) enforces image-tag hygiene,
-   resource limits, run-as-non-root, and health probes against the rendered
-   chart; `kubeconform -strict` schema-validates it; Checkov's `helm` framework
-   adds residual coverage with documented `skip-check` entries (the helm
-   framework renders to ephemeral temp dirs, so path-based `.checkov.baseline`
-   is unusable — `skip-check` with justification is the analogue, per ADR-015).
-   All three run in `make lint-k8s`, inside `make lint-deploy`, inside the
-   precommit gauntlet and the CI `config-lint` job.
+7. **Validation: rendered-manifest gates.** `make lint-k8s` runs Helm lint,
+   schema validation, project policy, and Checkov through the canonical
+   deployment lint path in the [`Makefile`](../../Makefile).
 
 ## Consequences
 
-- **New operational surface:** a Kubernetes cluster (manifests, ingress, ACME,
-  CSI volumes, node-pool upgrades). The in-place-convert migration is an
-  OCI-provisioned node pool replacing the compose stack on the freed budget +
-  DNS re-point — *not* a literal running-VM conversion (OKE provisions its own
-  worker nodes).
-- **Multi-replica blocker recorded:** the server's CA + VAPID keys live on a
-  per-replica PVC. Scaling past one replica requires promoting that
-  material to a shared Secret, else replicas would mint divergent CAs and break
-  enrolled agents. Tracked in techdebt.
-- **Redis HA** (Sentinel) and the **cross-server proxy** are recorded in
-  [ADR-023](ADR-023-relay-extraction-redis-session-registry.md) and its
-  amendments. This ADR does not introduce Redis.
-- Caddy remains the edge for the legacy single-VM compose stack until the
-  cutover completes; the two coexist only during migration.
+- Kubernetes, ingress, certificates, storage, and node upgrades are application
+  operational concerns.
+- The single-node L4 path cannot scale across workers; the rebuild requirements
+  are specified in [`Multiscale-Readiness.md`](../Multiscale-Readiness.md).
+- Shared server keys are supplied through the existing Secret as recorded in
+  [ADR-034](ADR-034-scale-out-keda-shared-keys.md).
+- Multi-node L4 templates and distributed relay dependencies are not carried in
+  the current chart.
