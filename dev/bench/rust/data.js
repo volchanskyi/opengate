@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781244880993,
+  "lastUpdate": 1781246044793,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17223,6 +17223,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.917949421229206,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "8b9547c7067451d4bc305ecd538c3f2e138d4e11",
+          "message": "docs: DD-C batch D — strip PR-label logistics from the ADR index\n\nConservative close-out of the docs-doctrine cleanup:\n- decisions.md (current-state ADR index): drop \"deferred to PR-C\" / \"(PR-E)\"\n  logistics from the ADR-030/034 cells (Redis/proxy now points at the ADR-023\n  amendments).\n- phases.md: drop one config-duplicated cron time (\"(04:00 UTC)\") where the\n  workflow is already linked inline.\n\nphases.md is otherwise left intact: it is a historical completion log, so its\ndates, PR identifiers, and forensic SHAs are the record itself, not drift-prone\ncurrent-state prose — purging them would be a category mismatch with the doctrine.",
+          "timestamp": "2026-06-11T23:32:21-07:00",
+          "tree_id": "8f0fcce063d001cd971d7b86370dda297430569c",
+          "url": "https://github.com/volchanskyi/opengate/commit/8b9547c7067451d4bc305ecd538c3f2e138d4e11"
+        },
+        "date": 1781246044659,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.371373846109478,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.789934914523723,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 763.3269849487416,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 306.12654963066706,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.76577522524014,
             "unit": "ns/iter"
           }
         ]
