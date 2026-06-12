@@ -42,19 +42,28 @@ case "${OS_NAME}:${ARCH_NAME}" in
     ;;
 esac
 
+shellcheck_path="$(command -v shellcheck 2>/dev/null || true)"
 shellcheck_ok=false
-if command -v shellcheck >/dev/null 2>&1 \
-  && [ "$(shellcheck_version_of shellcheck)" = "$SHELLCHECK_VERSION" ]; then
+if [ -n "$shellcheck_path" ] \
+  && [ "$(shellcheck_version_of "$shellcheck_path")" = "$SHELLCHECK_VERSION" ]; then
   shellcheck_ok=true
 fi
 
+shfmt_path="$(command -v shfmt 2>/dev/null || true)"
 shfmt_ok=false
-if command -v shfmt >/dev/null 2>&1 \
-  && [ "$(shfmt_version_of shfmt)" = "$SHFMT_VERSION" ]; then
+if [ -n "$shfmt_path" ] \
+  && [ "$(shfmt_version_of "$shfmt_path")" = "$SHFMT_VERSION" ]; then
   shfmt_ok=true
 fi
 
 if "$shellcheck_ok" && "$shfmt_ok"; then
+  mkdir -p "$BIN_DIR"
+  if [ "$shellcheck_path" != "$BIN_DIR/shellcheck" ]; then
+    ln -sfn "$shellcheck_path" "$BIN_DIR/shellcheck"
+  fi
+  if [ "$shfmt_path" != "$BIN_DIR/shfmt" ]; then
+    ln -sfn "$shfmt_path" "$BIN_DIR/shfmt"
+  fi
   log "ShellCheck ${SHELLCHECK_VERSION} and shfmt ${SHFMT_VERSION} already present — nothing to do."
   exit 0
 fi

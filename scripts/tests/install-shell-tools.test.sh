@@ -121,10 +121,12 @@ EOF
       SHELL_TOOLS_BIN_DIR="$TMP_DIR/exact-links" \
       "$INSTALLER" >/dev/null 2>&1 \
     && grep -qF "already present" <<<"$output" \
+    && [ -x "$TMP_DIR/exact-links/shellcheck" ] \
+    && [ -x "$TMP_DIR/exact-links/shfmt" ] \
     && [ ! -e "$TMP_DIR/curl-called" ]; then
-    pass "exact versions make repeated runs no-op without network"
+    pass "exact versions populate the requested bin directory without network"
   else
-    fail "exact versions make repeated runs no-op without network"
+    fail "exact versions populate the requested bin directory without network"
   fi
 fi
 

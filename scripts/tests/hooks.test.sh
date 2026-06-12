@@ -753,6 +753,28 @@ setup_autopush_repo() {
 }
 remote_ref() { git --git-dir="$REMOTE" rev-parse "$1" 2>/dev/null || echo none; }
 
+# autopush_diag dumps git/hook state when an auto-push assertion fails. The
+# auto-push cases pass locally but failed only on the CI runner; this surfaces
+# the environment difference (hook output, branch, hooks dir, marker) in the CI
+# log. Reads $REPO/hook.log captured from the triggering `git commit`.
+autopush_diag() {
+  {
+    echo "---- autopush diag [$1] ----"
+    echo "git: $(git --version)"
+    echo "env: CI='${CI:-}' GHA='${GITHUB_ACTIONS:-}' ACTIVE='${OPENGATE_AUTOPUSH_ACTIVE:-}'"
+    echo "cwd: $(pwd)"
+    echo "branch: $(git rev-parse --abbrev-ref HEAD 2>&1)"
+    echo "HEAD: $(git rev-parse HEAD 2>&1)  origin/dev: $(remote_ref dev)"
+    echo "core.hooksPath: $(git config --get core.hooksPath || echo unset)"
+    echo "git-path hooks: $(git rev-parse --git-path hooks 2>&1)"
+    echo "post-commit: $(ls -la .git/hooks/post-commit 2>&1)"
+    echo "marker: $(cat .claude/.markers/refactor.head 2>/dev/null || echo none)"
+    echo "hook.log:"
+    cat "$REPO/hook.log" 2>&1 || echo "(none)"
+    echo "----------------------------"
+  } >&2
+}
+
 # 1. Installer writes an executable post-commit hook.
 setup_autopush_repo
 if [ -x .git/hooks/post-commit ]; then
@@ -764,11 +786,14 @@ cleanup_repo
 setup_autopush_repo
 echo change >f.txt
 git add f.txt
-git commit -q -m "feat: x" >/dev/null 2>&1
+CI='' GITHUB_ACTIONS='' OPENGATE_AUTOPUSH_DEBUG=1 git commit -q -m "feat: x" >"$REPO/hook.log" 2>&1
 head="$(git rev-parse HEAD)"
 if [ "$(remote_ref dev)" = "$head" ]; then
   pass "auto-push: commit on dev pushed to origin/dev"
-else fail "auto-push: origin/dev=$(remote_ref dev) != HEAD=$head"; fi
+else
+  fail "auto-push: origin/dev=$(remote_ref dev) != HEAD=$head"
+  autopush_diag "case2-push"
+fi
 if [ "$(cat .claude/.markers/refactor.head 2>/dev/null || echo none)" = "$head" ]; then
   pass "auto-push: refactor marker refreshed to HEAD"
 else fail "auto-push: marker != HEAD"; fi
@@ -818,11 +843,14 @@ git clone --quiet "$REMOTE" "$tmpclone"
 rm -rf "$tmpclone"
 echo m >m.txt
 git add m.txt
-git commit -q -m "feat: m" >/dev/null 2>&1
+CI='' GITHUB_ACTIONS='' OPENGATE_AUTOPUSH_DEBUG=1 git commit -q -m "feat: m" >"$REPO/hook.log" 2>&1
 head="$(git rev-parse HEAD)"
 if [ "$(remote_ref dev)" = "$head" ]; then
   pass "auto-push: rebased onto divergent upstream and pushed"
-else fail "auto-push: divergent push failed (origin=$(remote_ref dev) HEAD=$head)"; fi
+else
+  fail "auto-push: divergent push failed (origin=$(remote_ref dev) HEAD=$head)"
+  autopush_diag "case6-divergent"
+fi
 if [ "$(cat .claude/.markers/refactor.head 2>/dev/null || echo none)" = "$head" ]; then
   pass "auto-push: marker re-pointed to post-rebase HEAD"
 else fail "auto-push: marker stale after rebase"; fi

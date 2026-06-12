@@ -84,7 +84,7 @@ while IFS= read -r -d '' path; do
       report "$path contains unapproved option disable '$option_disable'"
     fi
   done < <(grep -oE 'set[[:space:]]+\+[A-Za-z]+' "$file" || true)
-done < <(git -C "$ROOT" ls-files -z -- '*.sh')
+done < <(git -C "$ROOT" ls-files --cached --others --exclude-standard -z -- '*.sh')
 
 if [[ "$ERRORS" -gt 0 ]]; then
   printf 'shell-policy: %d violation(s)\n' "$ERRORS" >&2

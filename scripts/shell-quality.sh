@@ -38,7 +38,10 @@ tracked_scripts() {
 
 changed_scripts() {
   local base="$1"
-  git -C "$ROOT" diff --name-only --diff-filter=ACMR -z "$base" -- '*.sh'
+  {
+    git -C "$ROOT" diff --name-only --diff-filter=ACMR -z "$base" -- '*.sh'
+    git -C "$ROOT" ls-files --others --exclude-standard -z -- '*.sh'
+  }
 }
 
 read_files() {

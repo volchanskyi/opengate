@@ -229,7 +229,8 @@ run_check "depcruise" -- bash -c '
     fi
   fi
 '
-run_check "actionlint" -- bash -c 'actionlint'
+run_check "shell-check" -- make shell-check
+run_check "actionlint" -- actionlint -shellcheck="$(command -v shellcheck)"
 run_check "doc links" -- bash -c 'GO111MODULE=off go run ./scripts/check-doc-links --baseline .claude/doc-link-baseline.txt'
 run_check "taint (go)" -- make taint-go
 run_check "taint (web)" -- make taint-web

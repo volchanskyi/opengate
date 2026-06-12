@@ -719,8 +719,19 @@ jobs:
         with:
           fetch-depth: 0  # gitleaks scans git history
 
+      - name: Install pinned shell tools
+        run: |
+          scripts/install-shell-tools.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run shell quality gates
+        run: |
+          make shell-check
+          make shell-test
+
       # GitHub Actions workflow lint
       - uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8 # v2
+        with:
+          flags: -shellcheck=/home/runner/.local/bin/shellcheck
 
       # L2 — Secrets scanning (S1 of iac-security-testing-pyramid plan).
       - name: Install gitleaks
