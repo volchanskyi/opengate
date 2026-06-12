@@ -2,7 +2,7 @@
 
 **Parent:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) (§2 Docs/ADRs).
 **Execution order:** **6th / last** (after TD5 — docs reflect the final code).
-**Status:** Ready; the ADR-mutability governance prerequisite is complete.
+**Status:** Complete.
 **Risk:** Low.
 
 ## Governance prerequisite
@@ -19,11 +19,11 @@ the affected records directly under the current-state documentation doctrine.
 | `docs/adr/ADR-034-scale-out-keda-shared-keys.md` | **Split:** KEDA/PDB reverted; **shared keys stays** (live in prod). | exists |
 | `docs/adr/ADR-023-relay-extraction-redis-session-registry.md` | Annotate: Redis adapter + cross-server proxy removed; port slimmed per TD1 §3. | exists |
 | `docs/adr/ADR-030-kubernetes-adoption-oke-helm.md` | Drop the "Redis/cross-server deferred to PR-C" + multi-node-L4 references with no remaining target. | exists |
-| [`docs/Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md) | **Reframe** §3 from "dormant (built)" to "removed — design retained here as the rebuild spec"; remains the SSOT. | exists |
-| [`.claude/decisions.md`](../decisions.md) | Update rows for ADR-023/030/031/033/034. | sweep |
-| [`.claude/phases.md`](../phases.md) | Update Phase 13b PR-C/PR-E rows. | sweep |
+| [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) | **Reframe** §3 from "dormant (built)" to "removed — design retained here as the rebuild spec"; remains the SSOT. | exists |
+| [`.claude/decisions.md`](../../decisions.md) | Update rows for ADR-023/030/031/033/034. | sweep |
+| [`.claude/phases.md`](../../phases.md) | Update Phase 13b PR-C/PR-E rows. | sweep |
 | `docs/Architecture.md`, `docs/Kubernetes.md`, `docs/Testing.md`, `README.md` | Remove cross-server / Redis / multiserver prose. | sweep hits |
-| [`.claude/techdebt.md`](../techdebt.md) | Drop entries now resolved by removal; keep the intentionally-retained items (readiness §10). | review |
+| [`.claude/techdebt.md`](../../techdebt.md) | Drop entries now resolved by removal; keep the intentionally-retained items (readiness §10). | review |
 
 ## Known false positives (do NOT edit as part of the teardown)
 
@@ -32,7 +32,7 @@ the affected records directly under the current-state documentation doctrine.
 
 ## Steps
 
-1. Read [`docs/README.md`](../../docs/README.md) first (link-don't-paraphrase; ADR
+1. Read [`docs/README.md`](../../../docs/README.md) first (link-don't-paraphrase; ADR
    conventions).
 2. Amend the ADRs (per chosen option A/B), reframe the readiness doc §3, update
    `decisions.md` + `phases.md`, scrub the prose docs + README.
@@ -46,12 +46,12 @@ the affected records directly under the current-state documentation doctrine.
 ## Reviewer checklist
 
 - [x] Governance flip permits in-place ADR maintenance.
-- [ ] ADRs 031/033 marked reverted; 034 split (shared keys retained); 023/030 annotated.
-- [ ] Readiness doc §3 reframed to "removed — rebuild spec"; still the SSOT.
-- [ ] `decisions.md` + `phases.md` rows updated; prose docs + README scrubbed.
-- [ ] Master §1 dangling-reference sweep returns zero in scope.
-- [ ] Documented false positives (ADR-020/027, docker-hub-mirror) untouched.
-- [ ] Full `/precommit` gauntlet green.
+- [x] ADRs 031/033 consolidated as reverted amendments; 034 split (shared keys retained); 023/030 updated.
+- [x] Readiness doc reframed as the rebuild specification.
+- [x] `decisions.md` + `phases.md` rows updated; prose docs + README scrubbed.
+- [x] Master §1 dangling-reference sweep returns zero in scope.
+- [x] Documented false positives (ADR-020/027, docker-hub-mirror) untouched.
+- [x] Full `/precommit` gauntlet green.
 
 ## Done when
 

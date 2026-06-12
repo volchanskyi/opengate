@@ -101,6 +101,8 @@ func readyRelay(t *testing.T) (r *Relay, agentLocal, browserLocal *mockConn) {
 func TestNewRelay_InitialState(t *testing.T) {
 	r := NewRelay(slog.Default())
 	assert.Equal(t, 0, r.ActiveSessionCount())
+	assert.Equal(t, defaultServerID, r.serverID)
+	assert.IsType(t, &InProcessRegistry{}, r.registry)
 }
 
 // TestRelay_Register_BothSides registers an agent and a browser on one token.

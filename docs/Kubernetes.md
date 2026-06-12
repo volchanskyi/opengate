@@ -57,8 +57,8 @@ rationale.
   no code change). Generate the four key files once and fold them into the secret;
   recipe in [`secrets.example.yaml`](../deploy/helm/opengate/secrets.example.yaml).
 
-The production overlay enables shared keys. Redis, KEDA, PDB, cross-server relay,
-and multi-node ingress-nginx L4 templates are not part of the current chart.
+The production overlay enables shared keys. The chart contains only the current
+single-replica path.
 [`Multiscale-Readiness.md`](./Multiscale-Readiness.md) retains the requirements
 for rebuilding those capabilities when demand justifies them.
 

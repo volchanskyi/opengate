@@ -1,311 +1,160 @@
 # Multiscale Readiness
 
-**Status:** Living document. **Single source of truth** for scaling OpenGate toward
-the design's **Large tier** — more than **20,000 simultaneously connected agents**.
-It records where production actually stands, what scale-out machinery already
-exists versus is missing, the functional and non-functional work the cutover
-entails, and the architecture changes required. It consolidates the scaling
-tech-debt entries that were previously scattered in
-[`.claude/techdebt.md`](../.claude/techdebt.md) (see [§10](#10-tech-debt-consolidated-here)).
+**Status:** Living rebuild specification for moving OpenGate from its current
+single-replica topology to a multi-replica Large-tier deployment.
 
-**Audience:** engineers who will execute the scale-out when demand arrives. Today
-there is no demand (see §1) — this is a readiness map, not a backlog.
+This page is the single source of truth for the scale-out requirements that are
+deliberately absent from the runtime. It records the retained seams, the
+capabilities that must be rebuilt together, and the evidence required before
+activation.
 
-> **Provenance.** The production facts in §1 were **verified against the live OKE
-> cluster and OCI tenancy on 2026-06-11** via `kubectl`, the `oci` CLI, and the
-> server's `/metrics` endpoint — not inferred from the Helm chart. They are a
-> point-in-time snapshot; re-verify before acting. Durable specs (ports,
-> thresholds, flags) link to the code/config that owns them, per
-> [docs/README.md](./README.md).
+## 1. Current Deployment Shape
 
----
-
-## 1. Where production actually stands today (verified 2026-06-11)
-
-| Dimension | Production today | Verified via | Large-tier target |
-|---|---|---|---|
-| Cluster nodes | **1** (OCI A1.Flex, **2 OCPU / ~12 GiB**, ARM64, Oracle Linux 8.10, k8s v1.34.2) | `kubectl get nodes`; `oci search resource` (1 instance) | fleet of ≥16 GiB nodes ([design §4.3](#2-the-target--design-scaling-tiers)) |
-| Server replicas | **1** (CD pins `--set server.replicas=1` in [`cd.yml`](../.github/workflows/cd.yml)) | `kubectl -n opengate get deploy` (`1/1`) | N replicas behind an autoscaler |
-| **Connected agents** | **1** (`opengate_agents_connected 1`; `devices` table = 1 total / 1 online) | server `/metrics`; prod `psql` count | **> 20,000** |
-| Topology | **monolithic** pod — API + QUIC + MPS + internal listener in one container | pod `containers[0].ports` | API tier + relay pool + QUIC gateway (3 tiers) |
-| Session registry | **in-process** (`REGISTRY_BACKEND` unset → default) | deploy env (no `REGISTRY_BACKEND`) | distributed (Redis), cross-server |
-| QUIC (agent) exposure | node **hostPort** `9090/udp` straight to the node IP (`quic.opengate.cloudisland.net`) | pod `hostPort=9090`; OCI = **1 LB (HTTP only), 0 NLB** | L4/UDP across the fleet (NLB or ingress-nginx udp-services) |
-| MPS (AMT) exposure | node **hostPort** `4433/tcp` | pod `hostPort=4433` | same as QUIC |
-| HTTP/SPA/API | ingress-nginx → OCI LoadBalancer (`146.235.218.205:80/443`) | `kubectl -n ingress-nginx get svc`; OCI LB | unchanged (already LB-fronted) |
-| Database | **1** Postgres pod, **1** block volume (50 Gi `oci-bv`, RWO) | `kubectl -n opengate get pvc/sts` | managed/HA Postgres, pooling |
-| Autoscaling | **none** — KEDA operator **not installed** | no `scaledobject` CRD; no HPA | KEDA `ScaledObject` active |
-| HA / disruption | **none** — single replica, no PDB | no PDB in ns | PDB + multi-replica + Redis Sentinel |
-| NetworkPolicy | **none** (flat overlay; `:9091` internal listener unrestricted) | `kubectl -n opengate get networkpolicy` (empty) | NetworkPolicy on `:9091`, mandatory proxy secret |
-| Shared keys | **ON, secret populated** — `/data` is `emptyDir`; `opengate-secrets` carries `ca.crt`, `ca.key`, `vapid.json`, `update-signing.json` | secret key names; `/data` volume = `emptyDir` | (done — see §3) |
-| Block-volume budget | **3 × 50 Gi + 50 Gi boot = 200 GB** (prod Postgres + monitoring Loki + VictoriaMetrics) | `kubectl get pvc -A`; OCI volume list | grows with managed DB / Redis |
-
-**Net:** production is **Small-tier compute** (one 2-OCPU free-tier node, one pod,
-one agent) on a **Medium-tier database** (PostgreSQL). The Large-tier topology does
-not exist, and at one agent there is no scaling pressure of any kind today.
-
----
-
-## 2. The target — design scaling tiers
-
-The original Architecture Design (v1.0, §4.3 "Scaling Tiers") defines three tiers
-by **database + topology**, not by any single component:
-
-| Tier | Agents | Database | Architecture | Min RAM/node |
-|---|---|---|---|---|
-| Small | < 2,000 | SQLite (embedded) | single binary, single server | 512 MB |
-| Medium | < 20,000 | PostgreSQL | API server + relay pool | 4 GB |
-| **Large** | **> 20,000** | PostgreSQL (managed) | **Kubernetes: API + relay pool + QUIC gateway** | 16 GB+ |
-
-OpenGate already runs PostgreSQL (ADR-014) and Kubernetes (ADR-030), so the DB and
-orchestration prerequisites for the Large tier exist. What's missing is the
-**multi-replica, multi-tier, storm-resilient** shape of the Large tier.
-
-Two design facts shape what "scale" means for the **server**:
-
-- **Active session data offloads to the agents.** Established sessions upgrade to
-  **WebRTC P2P** (design §6.3), so desktop frames / terminal / file bytes flow
-  peer-to-peer and bypass the server. The relay (two `io.Copy` goroutines per
-  session, design §4.2) only carries fallback sessions.
-- Therefore the server's scale concern at 20k is **(a)** holding ~20k idle QUIC
-  control connections + heartbeats, **(b)** surviving **reconnection storms**, and
-  **(c)** routing browser↔agent sessions **across replicas**. Stream ownership and
-  the fast-reconnect path (§4) dominate (b); the distributed registry + cross-server
-  proxy (§3) own (c).
-
----
-
-## 3. Readiness inventory (verified against the chart + live cluster)
-
-Four states: **Active** (running in prod), **Removed** (design retained but the
-implementation must be rebuilt), **Designed-only** (specced, not built), and
-**Half-ready** (present but incomplete/untuned).
-
-### Active in production
-| Capability | ADR | Evidence | Note |
-|---|---|---|---|
-| Shared keys via Secret | [ADR-034](./adr/) | `sharedKeys.enabled: true` ([values-production.yaml](../deploy/helm/opengate/values-production.yaml)); secret populated (verified §1) | Only the **single-replica** path is exercised. Multi-replica key-sharing (rolling updates serving identical CA/VAPID/signing, cross-replica mTLS) is still **unproven at runtime**. |
-
-### Removed — rebuild required
-| Capability | ADR | Current state | Gap to 20k |
-|---|---|---|---|
-| Redis Sentinel distributed `SessionRegistry` | [ADR-023 Amendment 1](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments) | Adapter, dependencies, and Helm topology removed; the slim `SessionRegistry` seam remains. | Rebuild the adapter and operational surface: real-Redis integration tests, backup/restore, monitoring, and failover drills. |
-| Cross-server relay proxy | [ADR-023 Amendment 2](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments) | Internal listener, HTTP peer dialer, affinity routing, and proxy tests removed. | Rebuild authenticated peer routing and prove foreign-owner relay under multi-replica traffic. |
-| KEDA autoscaling | [ADR-034](./adr/) | ScaledObject template, values, and policy rules removed. | Reintroduce only after distributed routing and multi-node L4 are proven. |
-| PodDisruptionBudget | [ADR-034](./adr/) | Template, values, and policy rules removed. | Reintroduce with a multi-replica availability design. |
-| Multi-node L4 QUIC path | [ADR-030](./adr/) | ingress-nginx TCP/UDP ConfigMap template and values removed; hostPort remains. | Choose and validate an OCI NLB or ingress-nginx UDP path before adding nodes. |
-
-### Designed-only — specced, not built
-| Capability | Source | Status |
+| Dimension | Current state | Source of truth |
 |---|---|---|
-| **QUIC fast-reconnect** (0-RTT, cached server-cert-hash, `0x14` skip-signature) | design §1 / §2.1 / §3.3 | **Not implemented.** The agent only has `reconnect_with_backoff` (full handshake every time); the server `quic.Config` has no `Allow0RTT`. The `0x14` (`MsgSkipAuth`) path is a **constant + a hardcoded-`false` `HandshakeResult.Skipped` fossil** — and is **structurally foreclosed** by the server-opens workaround (§4). This is the single highest-leverage 20k gap. See the fast-path master plan (`.claude/plans/fast-path-reconnect-fix.md`). |
-| Relay-pool / QUIC-gateway tier separation | design §4.3 / §7.2 | The monolithic pod *is* all three tiers. Never separated. |
-| memberlist / gossip discovery | [ADR-023](./adr/) | Explicitly deferred "until >20 servers or Pub/Sub becomes the hot path." Direct pod-IP addressing (ADR-023 Amendment 2) is the interim. |
+| Server topology | One server replica containing API, QUIC, MPS, and relay | [`cd.yml`](../.github/workflows/cd.yml), [`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml) |
+| Session registry | Slim `SessionRegistry` port with the in-process adapter | [`registry.go`](../server/internal/relay/registry.go), [`main.go`](../server/cmd/meshserver/main.go) |
+| HTTP edge | ingress-nginx and cert-manager | [ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md) |
+| QUIC and MPS | Direct node `hostPort` exposure | [`values.yaml`](../deploy/helm/opengate/values.yaml) |
+| Database | In-cluster PostgreSQL | [`postgres-statefulset.yaml`](../deploy/helm/opengate/templates/postgres-statefulset.yaml) |
+| Shared keys | Production Secret mounted into `/data` | [ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md), [`values-production.yaml`](../deploy/helm/opengate/values-production.yaml) |
+| Storage envelope | Production stays within the OCI free-tier block-volume design | [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md) |
 
-### Half-ready — present but incomplete
-| Capability | Status |
-|---|---|
-| Postgres scaling | PostgreSQL is in use (ADR-014), but **single instance, no read replicas, no explicit connection-pool tuning** (no `pgxpool` `MaxConns`/`MinConns` set in [`server/internal/db`](../server/internal/db/)). The Large-tier "managed Postgres + read scaling" is absent. |
+The current architecture optimizes for operational simplicity and one live
+pairing process. Multi-replica routing is not a dormant switch; it is a rebuild
+with explicit readiness gates.
 
----
+## 2. Target Shape
 
-## 4. The reconnection-storm problem (the crux for 20k)
+The Large tier separates concerns that are colocated today:
 
-At 20k agents the server's dominant cost is **not** holding idle connections — it's
-**reconnection storms**: a QUIC-gateway pod restart, a node drain, or a network
-blip re-dials thousands of agents at once. Each reconnect runs a full **TLS 1.3
-handshake with client-cert verification** (`RequireAndVerifyClientCert`, [cert.go](../server/internal/cert/cert.go))
-**plus** the app-layer signature exchange (`[0x12]`/`[0x13]`, ECDSA sign+verify in
-[handshaker.go](../server/internal/agentapi/handshaker.go)). Multiply by thousands
-and the server CPU thunders.
+- a fleet-facing QUIC gateway;
+- API and relay replicas;
+- distributed session ownership and peer routing;
+- managed or highly available PostgreSQL; and
+- multi-node L4 load balancing.
 
-> The design's purpose-built defense against exactly this is the **three
-> fast-reconnect mechanisms**: QUIC **0-RTT** (§1), **cached server-cert-hash**
-> (§2.1), and the **`0x14` fast path** (§3.3: *"skip full signature exchange"*).
-> Their whole reason to exist is to make a storm cheap — verify a 48-byte hash
-> instead of running signatures.
+Established remote-control sessions should continue to prefer WebRTC
+peer-to-peer transport. The server scaling problem is therefore dominated by
+idle control connections, reconnection storms, and routing agent/browser pairs
+that land on different replicas.
 
-**None of the three are implemented**, and the `0x14` path is not merely unbuilt —
-it is **foreclosed** by the QUIC control-stream **server-opens workaround**. That
-workaround was applied in Phase 4 to fix a deadlock **misdiagnosed as a quic-go
-mTLS bug**; it is in fact standard QUIC stream-discovery (the stream opener must
-write first). With the server opening *and* speaking first, the agent can never
-send `0x14` first, so the designed agent-initiated fast path cannot exist. Full
-root-cause evidence (a TLS/mTLS matrix on quic-go v0.60.0, the design-doc intent,
-the git history) lives in the fast-path master plan (`.claude/plans/fast-path-reconnect-fix.md`);
-its empirical conclusion is summarized in §4 of that plan.
+## 3. Retained and Removed Capabilities
 
-> There's a real design question the fast-path work should settle: at scale, do you
-> need **both** the TLS mTLS client-cert verify **and** the `[0x10–0x13]` signature
-> exchange on every reconnect, or does QUIC 0-RTT / session-resumption + the `0x14`
-> hash-check give you the same security for far less per-reconnect CPU? That's the
-> actual 20k-readiness conversation, and the current server-opens code can't even
-> start it.
+### Retained
 
-**Implementation reality (verified):** the handshake today is **mTLS + a single
-`0x10`/`0x11` nonce/cert-hash exchange, with no app-layer signatures** (`0x12`/`0x13`
-are defined-but-unimplemented constants). So the design's "skip the signature
-exchange" is moot — the dominant per-reconnect cost is the **TLS mTLS handshake
-itself**, which the `0x14` app-layer path does *not* avoid. **QUIC 0-RTT / session
-resumption is the actual TLS-cost lever** and outranks `0x14` for storm resilience.
+| Capability | Current role | Scale-out value |
+|---|---|---|
+| `SessionRegistry` | Records local session metadata through `SaveSession`, `DeleteSession`, and `Ping` | Preserves an adapter boundary for a future distributed registry |
+| Shared server keys | Keeps CA, VAPID, and update-signing identity stable across redeploys | Allows future replicas to present identical trust material |
+| Per-replica relay metrics | Reports active relay work | Supplies an input for future capacity and autoscaling policy |
 
-**Implication for sequencing:** fixing stream ownership (client-first handshake) is
-a **prerequisite** for both the `0x14` round-trip optimization and 0-RTT/resumption.
-It is necessary, not sufficient.
+### Removed; rebuild required
 
----
+| Capability | Preserved decision record | Rebuild requirements |
+|---|---|---|
+| Distributed session registry | [ADR-023](./adr/ADR-023-relay-extraction-redis-session-registry.md) | Atomic ownership, lifecycle events, deterministic adapter tests, backup/restore, monitoring, and failover drills |
+| Cross-server relay proxy | [ADR-023](./adr/ADR-023-relay-extraction-redis-session-registry.md) | Authenticated peer routing, loop prevention, bounded teardown, network isolation, and foreign-owner end-to-end tests |
+| Session-aware autoscaling | [ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md) | Capacity model, relay metric validation, safe replica ownership, and rollout tests |
+| Pod disruption policy | [ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md) | Multi-replica availability target and node-drain evidence |
+| Multi-node QUIC/MPS exposure | [ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md) | OCI NLB or ingress-nginx L4 decision, source-IP validation, and failover tests |
 
-## 5. Functional readiness areas
+## 4. Reconnection-Storm Readiness
 
-1. **QUIC control-stream ownership + handshake order.** Move to **agent-opens /
-   agent-speaks-first** (client-first), restoring even (client-initiated) stream
-   IDs and unblocking the fast path. Touches the Go handshaker, the Rust agent,
-   golden files, and integration tests. (Master plan owns this.)
-2. **Fast-reconnect.** Implement the `0x14` cached-cert-hash skip-signature path;
-   evaluate QUIC 0-RTT / TLS session resumption (the design question in §4).
-3. **Distributed session routing.** Flip `REGISTRY_BACKEND=redis`; exercise
-   `ClaimAffinity`/`LookupOwner` across replicas; prove the cross-server proxy
-   actually proxies (it has never run with a foreign owner).
-4. **Cross-server relay proxy.** Make the inert `:9091` path live and correct
-   (loop guard, affinity TTL teardown) under real multi-replica traffic.
-5. **L4 QUIC exposure across nodes.** Replace single-node hostPort with either an
-   **OCI Network Load Balancer** (UDP-capable; the current classic LB is not) or
-   ingress-nginx udp-services, preserving source IP where the protocol needs it.
-6. **Feature parity under scale.** Confirm device logs, file transfer, agent
-   auto-update, AMT/MPS, and WebRTC signaling behave when sessions span replicas.
+A node restart or network interruption can make many agents reconnect
+simultaneously. Every reconnect currently performs the QUIC/TLS and application
+handshake implemented by
+[`connection.go`](../agent/crates/mesh-agent-core/src/connection.rs) and
+[`handshaker.go`](../server/internal/agentapi/handshaker.go).
 
----
+The scale-out design must benchmark and bound:
 
-## 6. Non-functional readiness areas
+- TLS and certificate-verification CPU per reconnect;
+- connection-attempt backoff and jitter;
+- control-stream ownership and first-message ordering;
+- QUIC session resumption or 0-RTT safety; and
+- recovery when a gateway or relay replica disappears.
 
-- **Performance / capacity.** Define a per-replica session budget (KEDA already
-  targets `opengate_relay_active_sessions`); validate the relay memory model
-  (design §4.2: ~2 goroutines × ~4 KB per fallback session) and that WebRTC
-  offload (§6.3) actually keeps the server out of the data path at scale.
-- **Availability / HA.** Multi-replica with PDB + RollingUpdate; Redis Sentinel
-  quorum + master-failover drill; kill-the-master and node-drain game days. None
-  has run.
-- **Security.** Add a **NetworkPolicy** admitting `:9091` only from sibling server
-  pods; make `OPENGATE_PROXY_SECRET` **mandatory** in production; re-examine the
-  mTLS-plus-signature redundancy (§4); confirm cert rotation / CA continuity under
-  rolling updates (shared keys make this possible — verify it).
-- **Observability.** Per-replica metrics + dashboards for connection churn and
-  reconnection storms; autoscaling signal health (VictoriaMetrics → KEDA); Redis
-  health/lag panels; alerting on storm onset.
-- **Operability.** Redis backup CronJob (model: the Postgres one); Postgres
-  connection-pool tuning; managed-Postgres migration plan; runbooks for node-pool
-  scaling and the QUIC NLB.
-- **Cost / free-tier ceiling.** Today is **OCI Always-Free** (one 2-OCPU/12 GiB ARM
-  node; classic LB; 200 GB block budget per [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md)).
-  The Large tier (16 GB+ nodes, a node *fleet*, an NLB for UDP, managed Postgres,
-  Redis) **exceeds free tier** and is a deliberate paid-tier decision.
-- **Data layer.** Managed/HA Postgres, read-replica strategy, migration-under-load,
-  pool sizing; Redis persistence (AOF+RDB) + backup/restore.
+The existing wire constants alone are not evidence of a fast path. Activation
+requires cross-language tests and measured reconnect-storm behavior.
 
----
+## 5. Functional Requirements
 
-## 7. Architecture changes the cutover entails
+1. **Distributed ownership.** Two replicas registering opposite sides of one
+   token must converge on one owner without split-brain.
+2. **Peer routing.** A non-owner must relay frames to the owner while preserving
+   ordering, close semantics, and redacted logging.
+3. **Owner loss.** Ownership must become reclaimable within a bounded interval,
+   and both clients must receive a deterministic reconnect path.
+4. **Registry loss.** Existing sessions and new-session admission need an
+   explicit, tested policy.
+5. **Multi-node L4.** QUIC and MPS must reach healthy replicas across workers
+   without relying on a single node's host ports.
+6. **Feature parity.** Device logs, file transfer, updates, AMT/MPS, WebRTC
+   signaling, and browser relay must work when connections span replicas.
+
+## 6. Non-Functional Requirements
+
+- **Performance:** define per-replica connection and relay budgets; load-test
+  direct and cross-replica paths.
+- **Availability:** prove rolling updates, node drains, owner loss, registry
+  failover, and database failover.
+- **Security:** isolate peer traffic with NetworkPolicy, require peer
+  authentication, rotate shared keys safely, and prevent token disclosure.
+- **Observability:** expose ownership, peer-dial, reconnect-storm, registry, and
+  per-replica saturation signals with actionable alerts.
+- **Operability:** provide backup/restore, failover, scaling, and rollback
+  runbooks.
+- **Cost:** treat the Large tier as a paid topology; do not compromise HA or
+  storage design to fit the current free-tier envelope.
+- **Data layer:** define pool sizing, managed/HA PostgreSQL, migration under
+  load, and distributed-registry persistence.
+
+## 7. Target Topology
 
 ```mermaid
 flowchart TB
-  subgraph TODAY["Today — single-node monolith (1 agent)"]
-    A1[1 agent] -->|QUIC hostPort 9090/udp| N1[server pod: API+QUIC+MPS]
-    N1 --> PG1[(Postgres - 1 vol)]
-    N1 -.->|in-process registry| N1
-  end
-  subgraph TARGET["Large tier — > 20k agents"]
-    LB[NLB - UDP/QUIC] --> GW1[QUIC gateway pods]
-    LB --> GW2[QUIC gateway pods]
-    GW1 --> API[API/relay replicas - KEDA-scaled]
-    GW2 --> API
-    API <-->|cross-server proxy :9091 + NetworkPolicy| API
-    API --> REDIS[(Redis Sentinel - distributed registry)]
-    API --> PGM[(managed/HA Postgres + pool)]
-  end
+  AGENTS[Agent fleet] --> L4[UDP/TCP load-balancing layer]
+  L4 --> GW[QUIC/MPS gateway replicas]
+  GW --> RELAY[API and relay replicas]
+  RELAY <-->|authenticated peer route| RELAY
+  RELAY --> REG[(distributed session registry)]
+  RELAY --> PG[(managed or HA PostgreSQL)]
 ```
 
-Concrete deltas from today to the Large tier:
+## 8. Dependency Order
 
-1. **Node pool ≥ N nodes** (paid shapes, 16 GB+), replacing the single free-tier node.
-2. **Drop `hostPortL4`**, add an **OCI NLB** (or ingress-nginx udp-services) for QUIC
-   UDP across nodes — a classic OCI LB cannot carry UDP (verified: the tenancy has a
-   classic `LoadBalancer`, zero `NetworkLoadBalancer`).
-3. **Enable Redis** (`redis.enabled=true`, `REGISTRY_BACKEND=redis`) + its
-   operational surface (backups, monitoring).
-4. **Enable KEDA** (install the operator) + the `ScaledObject` + PDB; switch the
-   server Deployment to `RollingUpdate` with shared keys (already on).
-5. **Client-first QUIC handshake + `0x14` fast path** (master plan) — the storm
-   defense.
-6. **NetworkPolicy** for `:9091`; mandatory proxy secret.
-7. **(Optional, design §4.3/§7.2)** split the QUIC gateway / relay pool into their
-   own tiers if the monolith replica becomes the bottleneck.
+The scale-out capabilities are mutually dependent:
 
----
+1. Establish and benchmark the reconnect-storm strategy.
+2. Choose and validate multi-node QUIC/MPS exposure.
+3. Rebuild distributed ownership with its operational surface.
+4. Rebuild authenticated cross-server routing and network isolation.
+5. Prove shared-key continuity and rolling updates across replicas.
+6. Add session-aware autoscaling and disruption policy.
+7. Run failure drills before enabling production traffic.
 
-## 8. Mutual gating / sequencing
+Autoscaling must not precede correct cross-replica routing. Cross-server routing
+must not precede authenticated peer isolation. A distributed registry must not
+ship without backup, monitoring, and failover evidence.
 
-These are not independent toggles — they gate each other. You cannot flip one
-without the others:
+## 9. Open Decisions
 
-- **Autoscaling (>1 replica)** requires: Redis (cross-server routing), dropping
-  hostPort (one pod/node today), shared keys (done), PDB, and proven HA.
-- **Redis** requires: real-Redis integration test, backups, monitoring, a failover
-  drill — before any overlay sets `REGISTRY_BACKEND=redis`.
-- **Cross-server proxy** only becomes live once Redis is on (foreign owners exist);
-  needs the NetworkPolicy + mandatory secret first.
-- **Fast path / 0-RTT** requires the **client-first handshake** (master plan) to
-  exist at all.
-- **QUIC across nodes** requires the NLB / udp-services path (paid NLB).
+1. OCI NLB versus ingress-nginx L4 services for QUIC and MPS.
+2. Redis-compatible registry versus another atomic ownership/event substrate.
+3. Managed versus self-hosted PostgreSQL at the paid tier.
+4. Monolithic replicas versus separate gateway and relay pools.
+5. QUIC resumption and application fast-path security boundaries.
 
-A safe order: client-first handshake + fast path → NLB/multi-node QUIC →
-NetworkPolicy + mandatory proxy secret → Redis (with tests/backups/monitoring) →
-KEDA + PDB + multi-replica → HA drills.
+## 10. References
 
----
-
-## 9. Open design questions
-
-1. **mTLS vs. app-layer signatures (§4).** Keep both per reconnect, or lean on QUIC
-   0-RTT/resumption + the `0x14` hash-check for equivalent security at lower CPU?
-   The fast-path work must settle this.
-2. **QUIC L4: OCI NLB vs. ingress-nginx udp-services.** Cost, source-IP
-   preservation, and connection-migration behavior differ.
-3. **Managed vs. self-hosted Postgres** at the Large tier (OCI's managed offering vs.
-   the current in-cluster StatefulSet).
-4. **memberlist threshold** ([ADR-023](./adr/)) — when does direct pod-IP addressing
-   stop scaling and gossip become worth it?
-
----
-
-## 10. Tech-debt consolidated here
-
-The following entries moved out of [`.claude/techdebt.md`](../.claude/techdebt.md) —
-this document is now their single source of truth:
-
-- **Shared keys runtime-unverified** (ADR-034) → §3 Active / §6 HA. *Correction:*
-  the old entry claimed "staging/production keep `sharedKeys.enabled=false`"; live
-  verification shows **production runs `sharedKeys.enabled=true` with the secret
-  populated**. The residual is *multi-replica* runtime proof only.
-- **Redis Sentinel operational surface + dormant-untested HA** (ADR-023 Amendment 1) → §3 Dormant.
-- **Internal relay listener has no NetworkPolicy** (ADR-023 Amendment 2) → §3 Active / §6 Security.
-- **No Postgres pool tuning / Redis backups** → §3 Half-ready / §6 Operability.
-
-Items intentionally **left** in `techdebt.md` (not scaling-readiness): cutover doc
-drift, ADR-035 external follow-ups, ADR-024 WebRTC mutants, gremlins timeout,
-test-technique gaps, Docker Hub fallback verification.
-
----
-
-## 11. References
-
-- **Original Architecture Design** (v1.0): §1 transport/0-RTT, §2.1 connection
-  model, §3.3 handshake + `0x14` fast path, §4.2 relay model, §4.3 scaling tiers,
-  §6.3 WebRTC switchover, §7.2 multi-server topology. *(Out-of-repo planning doc;
-  the durable in-repo records are the ADRs below.)*
-- ADRs: [ADR-023](./adr/) (registry port + Redis backend + cross-server proxy
-  amendments), [ADR-030](./adr/) (OKE/Helm),
-  [ADR-034](./adr/) (KEDA + shared keys), [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md)
-  (block-volume budget). Index: [`.claude/decisions.md`](../.claude/decisions.md).
-- Fix plan for the storm-defense prerequisite:
-  fast-path master plan (`.claude/plans/fast-path-reconnect-fix.md`).
-- Chart: [`deploy/helm/opengate`](../deploy/helm/opengate); overlays
-  [`values-production.yaml`](../deploy/helm/opengate/values-production.yaml).
+- [ADR-023](./adr/ADR-023-relay-extraction-redis-session-registry.md) — retained
+  registry seam and removed distributed-routing design
+- [ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md) — current OKE and L4
+  posture
+- [ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md) — shared keys and
+  removed autoscaling design
+- [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md) — current
+  storage envelope
+- [`relay`](../server/internal/relay/) — local pairing and registry seam
+- [`deploy/helm/opengate`](../deploy/helm/opengate/) — current deployment shape

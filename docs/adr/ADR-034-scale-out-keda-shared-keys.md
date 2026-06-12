@@ -1,77 +1,56 @@
-# ADR-034: Server scale-out — KEDA autoscaling and shared keys via Secret
+# ADR-034: Shared server keys via Secret
 
 **Status:** Accepted
 **Date:** 2026-06-05
-**Extends:** [ADR-030](ADR-030-kubernetes-adoption-oke-helm.md) (the OKE/Helm
-substrate and the single-replica server Deployment) and
-[ADR-023](ADR-023-relay-extraction-redis-session-registry.md) Amendments 1–2
-(the distributed Redis registry + cross-server proxy that make >1 replica
-*functionally* correct). This ADR records the scale-out decisions.
-Nothing in those ADRs is changed.
+**Extends:** [ADR-030](ADR-030-kubernetes-adoption-oke-helm.md)
 
 ## Context
 
-The server initially shipped as a **single replica** with `/data` on a per-replica
-`ReadWriteOnce` PVC. That `/data` holds three keypairs the server generates on
-first boot and then reads: the self-signed enrollment **CA** (`ca.crt`/`ca.key`),
-the web-push **VAPID** keypair (`vapid.json`), and the agent-update **signing**
-keypair (`update-signing.json`). Running a second replica with that layout splits
-all three: agents enrolled against replica A fail mTLS against B, push
-subscriptions fork, and an update manifest signed by A can't be verified when B
-serves it. The original techdebt named this scale-out work as the explicit pay-down trigger:
-"`server.replicas` must stay 1 and HPA must not raise it" until the keys are
-shared.
+The server loads persistent enrollment CA, web-push VAPID, and agent-update
+signing material from `/data`. Generating that material independently on each
+pod would break enrolled-agent trust, push delivery, and update verification.
 
-The Redis registry + cross-server proxy then made cross-server sessions correct, so the
-only remaining blocker to horizontal scale is the per-replica key material plus an
-autoscaler. The monitoring stack already exposes `opengate_relay_active_sessions`
-(a per-pod gauge) in VictoriaMetrics — a natural session-aware scale signal.
+The production deployment also avoids a dedicated server-data block volume, so
+the key material must survive pod replacement outside the container filesystem.
 
 ## Decision
 
-**1. Shared keys via the existing `Secret`, not a shared filesystem.**
-`server.sharedKeys.enabled` (default false) switches `/data` from the RWO PVC to a
-writable `emptyDir` (manifest cache) and mounts the four key files **read-only via
-`subPath`** from `server.existingSecret` at their expected `/data/<file>` paths.
-The server already *loads keys if present* — no Go change. The rollout strategy
-flips `Recreate`→`RollingUpdate` (no PVC contention to avoid). Keys are generated
-once out-of-band (run the single-replica PVC path once, extract `/data`, fold into
-the Secret) — the same `existingSecret` pattern already used for JWT/Postgres
-credentials. A `ReadWriteMany` filesystem (OCI File Storage) was rejected: new
-infra and cost for material that is write-once-read-many and already secret-shaped.
+Use the chart's existing Kubernetes Secret as the source of the four server key
+files.
 
-**2. KEDA `ScaledObject` as the autoscaler, two triggers.**
-`server.autoscaling.enabled` (default false) renders a single KEDA `ScaledObject`
-with a `cpu` (Utilization) trigger and a `prometheus` trigger querying
-`sum(opengate_relay_active_sessions)` from VictoriaMetrics, targeting
-~`activeSessionsPerReplica` sessions per pod. KEDA owns the underlying HPA, so the
-Deployment **omits `spec.replicas`** when autoscaling is on. A plain CPU-only
-`HorizontalPodAutoscaler` was rejected: relay load is session-bound, not
-CPU-bound, so CPU alone would scale late; KEDA gives the custom-metric trigger
-without a bespoke prometheus-adapter `APIService`. KEDA is a cutover prerequisite
-(documented in the migration runbook); `keda.sh` is a CRD, so kubeconform skips it
-(`-ignore-missing-schemas`) and `policy/k8s` validates its shape instead.
+When `server.sharedKeys.enabled` is set in
+[`values-production.yaml`](../../deploy/helm/opengate/values-production.yaml),
+the server [`Deployment`](../../deploy/helm/opengate/templates/server-deployment.yaml):
 
-**3. PodDisruptionBudget.** `server.podDisruptionBudget.enabled` (default false)
-renders a `policy/v1` PDB (`minAvailable: 1`) so node drains / rollouts keep at
-least one server serving — only meaningful multi-replica.
+- uses a writable `emptyDir` for `/data`;
+- mounts the CA certificate, CA key, VAPID file, and update-signing file
+  read-only through `subPath`;
+- skips the server-data PVC; and
+- permits `RollingUpdate` when the L4 exposure mode also allows overlapping
+  pods.
 
-**4. Dormant + lint-validated, like the rest of the k8s path.** All three flags
-default off; staging/production overlays keep the single-replica PVC path, while
-`ci/test-values.yaml` turns them on so `make lint-k8s` (helm + kubeconform +
-conftest, incl. new ScaledObject/PDB Rego rules) validates the scale-out path.
-Runtime behaviour is verified at cutover, consistent with ADR-030/031/033.
+The server already loads existing key files, so the mechanism requires no
+application-code branch. An RWX filesystem is rejected because the material is
+write-once/read-many and already fits the Secret boundary.
+
+## Removed Scale-Out Components
+
+The KEDA `ScaledObject` and PodDisruptionBudget portions of the original
+decision are reverted. Their templates, values, policy rules, and tests are not
+part of the current chart.
+
+Session-aware autoscaling remains the preferred design shape because relay load
+is connection-bound rather than purely CPU-bound. It must be rebuilt only after
+distributed session routing, multi-node L4 exposure, and multi-replica
+availability are proven together. The complete dependency order is kept in
+[`Multiscale-Readiness.md`](../Multiscale-Readiness.md).
 
 ## Consequences
 
-- The per-replica CA/VAPID/signing-key techdebt is **paid down** (mechanism
-  shipped + lint-validated); enabling >1 replica now requires only populating the
-  Secret and installing KEDA at cutover.
-- Per-replica session distribution is observable via a new "Active Relay Sessions
-  by Replica" panel on the Grafana overview dashboard (`opengate_relay_active_sessions`
-  by instance), which doubles as the visual for the KEDA scale signal.
-- New cutover prerequisites: the KEDA operator must be installed, and the
-  `existingSecret` must carry the four key files. Both are documented in the
-  migration runbook.
-- The internal-listener NetworkPolicy gap (ADR-023 Amendment 2 techdebt) is
-  unchanged and remains gated on the same cutover.
+- Server identity and signing material survive redeploys without a server-data
+  block volume.
+- Every future replica can consume identical key material.
+- Key generation and Secret population remain an explicit deployment
+  responsibility documented by
+  [`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml).
+- Shared keys alone do not make the application horizontally scalable.

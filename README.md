@@ -87,7 +87,6 @@ server/                      Go module
 │   ├── signaling/           WebRTC signaling state machine, ICE config, session tracker
 │   ├── updater/             Agent auto-update: Ed25519 signing, GitHub release sync, manifests
 │   ├── clientapi/           Client-facing API helpers
-│   ├── multiserver/         Cross-server routing types
 │   └── testutil/            Shared test helpers (excluded from coverage metrics)
 ├── tests/integration/       Integration test suite (real QUIC + real PostgreSQL)
 api/openapi.yaml             OpenAPI 3.0.3 spec (single source of truth)

@@ -92,10 +92,9 @@ type Relay struct {
 	count    atomic.Int64
 	logger   *slog.Logger
 
-	// registry tracks session affinity/ownership through the SessionRegistry
-	// port. The live Conn pair stays in the sessions map above; the
-	// registry only tracks token → owning serverID so a relay pool can route
-	// cross-server. With InProcessRegistry this is a single-server shadow.
+	// registry records session metadata through the SessionRegistry port. The
+	// live Conn pair stays in the sessions map above; the in-process adapter is
+	// a local shadow used by readiness and lifecycle bookkeeping.
 	registry SessionRegistry
 	serverID string
 
