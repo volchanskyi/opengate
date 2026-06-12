@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781201311806,
+  "lastUpdate": 1781239107396,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17027,6 +17027,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.877461241649,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "91714ee9c6f97af2aed636845c9542e4536a551c",
+          "message": "docs(adr): mutable per-file ADRs + amendment consolidation; doc-link gate; docker cred guardrail\n\nGovernance flip (DD-A): per-file ADRs (013+) become mutable.\n- write-guard hook drops adr-immutable; adr-plan-link now allows only archived\n  plan links on any ADR Write/Edit/MultiEdit. New ADR-036 records the regime\n  (013+ mutable, 001-012 log frozen, success=content-quality not line-count,\n  ADRs link only archived plans). docs/README.md, both rules, CLAUDE.md, the\n  wiki-audit + precommit skills, and decisions.md updated. Hook tests 89/89.\n\nADR consolidation (enabled by the flip):\n- ADR-028+032 -> ADR-019, ADR-026 -> ADR-020, ADR-031+033 -> ADR-023, each as\n  an Amendments section; 5 files deleted; decisions.md rows dropped + map added;\n  every cross-reference repointed (docs, ADR-034, phases.md, deny.toml, helm/\n  compose/CI, a Grafana dashboard, Go comments, plans). Rotted plan links in\n  ADR-019/020/023 fixed to plans/archive/.\n\nDeterministic Markdown link enforcement (DD-B):\n- scripts/check-doc-links package + PreToolUse hook + precommit gauntlet step,\n  baselined via .claude/doc-link-baseline.txt to grandfather existing debt while\n  blocking new broken/active-plan links. Fixtures + shell tests.\n\nRecurring-Docker guardrail:\n- scripts/docker-credstore-guard.sh sanitizes a broken credsStore (e.g. WSL\n  docker-credential-desktop.exe) into a safe DOCKER_CONFIG for anonymous pulls\n  of public images, preserving auths. Wired into make e2e, the multiserver\n  script, and the gauntlet; CI-safe no-op. +5 tests; engineer docs in Testing.md.\n- docker-hub-mirror test now uses grep instead of rg (always-run).\n\nAlso lands the in-flight micro-plan docs; DA-A archived.",
+          "timestamp": "2026-06-11T21:36:38-07:00",
+          "tree_id": "fd3cb223e18d1f079862004c4aef4188c399cb19",
+          "url": "https://github.com/volchanskyi/opengate/commit/91714ee9c6f97af2aed636845c9542e4536a551c"
+        },
+        "date": 1781239107264,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.185425263718876,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.850218210464003,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 756.9232877362072,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.0416870299447,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.932145821472318,
             "unit": "ns/iter"
           }
         ]
