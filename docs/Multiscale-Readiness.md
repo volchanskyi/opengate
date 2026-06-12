@@ -76,23 +76,23 @@ Two design facts shape what "scale" means for the **server**:
 
 ## 3. Readiness inventory (verified against the chart + live cluster)
 
-Four states: **Active** (running in prod), **Dormant** (built, flag-gated off,
-lint-validated, runtime-unproven), **Designed-only** (specced, not built), and
+Four states: **Active** (running in prod), **Removed** (design retained but the
+implementation must be rebuilt), **Designed-only** (specced, not built), and
 **Half-ready** (present but incomplete/untuned).
 
 ### Active in production
 | Capability | ADR | Evidence | Note |
 |---|---|---|---|
 | Shared keys via Secret | [ADR-034](./adr/) | `sharedKeys.enabled: true` ([values-production.yaml](../deploy/helm/opengate/values-production.yaml)); secret populated (verified §1) | Only the **single-replica** path is exercised. Multi-replica key-sharing (rolling updates serving identical CA/VAPID/signing, cross-replica mTLS) is still **unproven at runtime**. |
-| Cross-server relay proxy listener | [ADR-023 Amendment 2](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments) | `internal_relay.go` route + `HTTPPeerDialer` wired in [`main.go`](../server/cmd/meshserver/main.go) | The `:9091` listener **binds in the pod** and the `/internal/relay/{token}` route is live, but with the in-process registry the owner is always *self*, so the `PeerDialer` is **never consulted** — inert. **No NetworkPolicy** restricts it (see §6 Security). |
 
-### Dormant — built, gated off, runtime-unproven
-| Capability | ADR | Gate | Gap to 20k |
+### Removed — rebuild required
+| Capability | ADR | Current state | Gap to 20k |
 |---|---|---|---|
-| Redis Sentinel distributed `SessionRegistry` | [ADR-023 Amendment 1](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments) | `redis.enabled: false`; `REGISTRY_BACKEND=inprocess` | The `RedisRegistry` adapter + Sentinel-HA chart exist and pass `make lint-k8s` + miniredis unit tests, but **never ran on a live cluster** (no Redis pods exist — verified). No real-Redis integration test, no Redis backup CronJob, no Redis monitoring. Master rediscovery / failover / replica re-pointing unproven. |
-| KEDA autoscaling | [ADR-034](./adr/) | `autoscaling.enabled: false`; **KEDA operator not installed** (no `scaledobject` CRD — verified) | [`server-scaledobject.yaml`](../deploy/helm/opengate/templates/server-scaledobject.yaml) scales on CPU + `opengate_relay_active_sessions`. Also blocked by `hostPortL4: true` (one pod per node) and the in-process registry. |
-| PodDisruptionBudget | [ADR-034](./adr/) | `podDisruptionBudget.enabled: false` | [`server-pdb.yaml`](../deploy/helm/opengate/templates/server-pdb.yaml); only meaningful at >1 replica. |
-| Multi-node L4 QUIC path | [ADR-030](./adr/) | `l4.ingressNginxConfigMaps: false` | [`l4-tcp-udp-configmap.yaml`](../deploy/helm/opengate/templates/l4-tcp-udp-configmap.yaml) forwards QUIC/MPS via ingress-nginx tcp/udp-services — the multi-node alternative to today's single-node hostPort. |
+| Redis Sentinel distributed `SessionRegistry` | [ADR-023 Amendment 1](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments) | Adapter, dependencies, and Helm topology removed; the slim `SessionRegistry` seam remains. | Rebuild the adapter and operational surface: real-Redis integration tests, backup/restore, monitoring, and failover drills. |
+| Cross-server relay proxy | [ADR-023 Amendment 2](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments) | Internal listener, HTTP peer dialer, affinity routing, and proxy tests removed. | Rebuild authenticated peer routing and prove foreign-owner relay under multi-replica traffic. |
+| KEDA autoscaling | [ADR-034](./adr/) | ScaledObject template, values, and policy rules removed. | Reintroduce only after distributed routing and multi-node L4 are proven. |
+| PodDisruptionBudget | [ADR-034](./adr/) | Template, values, and policy rules removed. | Reintroduce with a multi-replica availability design. |
+| Multi-node L4 QUIC path | [ADR-030](./adr/) | ingress-nginx TCP/UDP ConfigMap template and values removed; hostPort remains. | Choose and validate an OCI NLB or ingress-nginx UDP path before adding nodes. |
 
 ### Designed-only — specced, not built
 | Capability | Source | Status |

@@ -162,7 +162,6 @@ The server exposes a `/metrics` endpoint on port `:8080` (same router as the RES
 | `opengate_http_requests_total` | Counter | `method`, `route`, `status_code` | HTTP middleware |
 | `opengate_http_request_duration_seconds` | Histogram | `method`, `route` | HTTP middleware |
 | `opengate_relay_active_sessions` | Gauge | — | Relay session count |
-| `opengate_registry_up` | Gauge | — | Relay session-registry (Redis) reachability (1 up / 0 down) |
 | `opengate_agents_connected` | Gauge | — | Connected agent count |
 | `opengate_mps_connected_devices` | Gauge | — | MPS device count |
 | `opengate_signaling_upgrades_total` | Counter | `result` | Signaling tracker |

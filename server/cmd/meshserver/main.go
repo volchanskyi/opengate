@@ -140,12 +140,10 @@ func main() {
 	baseURL := os.Getenv("OPENGATE_BASE_URL")
 	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
 
-	// Create relay and agent server. The relay tracks session affinity through
-	// the SessionRegistry port, backed by an in-process registry: this is a
-	// single-server deployment, so the relay always resolves itself as the
-	// session owner and pairs both sides locally.
-	sessionRegistry := relay.NewInProcessRegistry()
-	agentRelay := relay.NewRelay(logger, buildRelayOptions(sessionRegistry, logger)...)
+	// Create relay and agent server. The relay records session lifecycle through
+	// its SessionRegistry port; the default in-process adapter keeps that metadata
+	// local while both connection sides pair in this process.
+	agentRelay := relay.NewRelay(logger)
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -234,12 +232,8 @@ func main() {
 		ConnectedMPSDevices: amtSvc.ConnectedDeviceCount,
 		SignalingSuccesses:  sigTracker.SuccessCount,
 		SignalingFailures:   sigTracker.FailureCount,
-		RegistryUp:          agentRelay.RegistryUp,
 	}, 15*time.Second)
 	go appmetrics.StartDBSizeUpdater(ctx, appMetrics, store, logger, 60*time.Second)
-	// Probe the session registry every 5s so the relay can drain new sessions
-	// in degraded mode and the opengate_registry_up gauge stays fresh.
-	go agentRelay.MonitorRegistryHealth(ctx, 5*time.Second)
 
 	// Periodically sync agent manifests from GitHub releases (default: every hour).
 	if githubRepo != "" {
@@ -290,40 +284,4 @@ func serveBackground(name string, srv *http.Server, logger *slog.Logger) {
 			os.Exit(1)
 		}
 	}()
-}
-
-// localServerID identifies this node to the in-process session registry. The
-// single-server relay always resolves itself as the session owner, so any
-// stable non-empty value satisfies the registry (which rejects empty IDs).
-const localServerID = "meshserver"
-
-// parsePositiveDuration interprets an optional Go-duration override (e.g. from
-// OPENGATE_DEGRADED_THRESHOLD or OPENGATE_AFFINITY_TTL). It returns ok=true only
-// for a parseable, strictly-positive duration; an empty, malformed, or
-// non-positive value leaves the relay default in place (ok=false).
-func parsePositiveDuration(v string) (time.Duration, bool) {
-	if v == "" {
-		return 0, false
-	}
-	d, err := time.ParseDuration(v)
-	if err != nil || d <= 0 {
-		return 0, false
-	}
-	return d, true
-}
-
-// buildRelayOptions assembles the relay.Option set for the agent relay: the
-// in-process session-registry binding plus the optional OPENGATE_DEGRADED_THRESHOLD
-// override (how long the registry must be unreachable before new sessions are
-// refused). Keeping this out of main keeps the entry point's cognitive
-// complexity down.
-func buildRelayOptions(reg relay.SessionRegistry, logger *slog.Logger) []relay.Option {
-	opts := []relay.Option{
-		relay.WithRegistry(reg, localServerID),
-	}
-	if d, ok := parsePositiveDuration(os.Getenv("OPENGATE_DEGRADED_THRESHOLD")); ok {
-		opts = append(opts, relay.WithDegradedThreshold(d))
-		logger.Info("degraded-mode threshold overridden", "threshold", d.String())
-	}
-	return opts
 }

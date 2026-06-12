@@ -1,8 +1,8 @@
 # TD4 — Remove scale-out Helm chart + policy
 
-**Parent:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) (§2 Helm chart).
+**Parent:** `dormant-scale-out-teardown.md` (§2 Helm chart).
 **Execution order:** **4th** (after TD1).
-**Status:** Ready.
+**Status:** Completed.
 **Risk:** Low-Medium — chart rendering + Rego policy; no live prod object uses these
 (redis/keda/pdb/l4 all `enabled: false`, verified).
 
@@ -12,19 +12,19 @@
 |---|---|---|
 | `deploy/helm/opengate/templates/redis-statefulset.yaml`, `redis-sentinel-statefulset.yaml`, `redis-service.yaml`, `redis-sentinel-service.yaml`, `redis-config.yaml` | **Delete.** | all 5 exist |
 | `deploy/helm/opengate/templates/server-scaledobject.yaml`, `server-pdb.yaml`, `l4-tcp-udp-configmap.yaml` | **Delete.** | all 3 exist |
-| [`deploy/helm/opengate/templates/server-deployment.yaml`](../../deploy/helm/opengate/templates/server-deployment.yaml) | Remove the `{{- if .Values.redis.enabled }}` env block (`:113-127`: `REGISTRY_BACKEND`, `REDIS_MASTER_NAME`, `REDIS_SENTINEL_ADDRS`, `REDIS_PASSWORD`, `OPENGATE_SERVER_ID`, proxy secret) and the `:9091` internal `containerPort`. | grep-confirmed `:113-127` |
-| [`deploy/helm/opengate/values.yaml`](../../deploy/helm/opengate/values.yaml) | Remove the `redis:` (`:151`), `autoscaling:`, `podDisruptionBudget:`, `l4:` (`:210`) blocks + internal/proxy knobs. **Keep** `sharedKeys:` (live in prod). | grep-confirmed |
-| [`deploy/helm/opengate/ci/test-values.yaml`](../../deploy/helm/opengate/ci/test-values.yaml) | Remove `redis.enabled` (`:11-12`) + `autoscaling.enabled` (`:23-24`) + the redis sub-enables (`:14,:22,:26`). | grep-confirmed |
+| [`deploy/helm/opengate/templates/server-deployment.yaml`](../../../deploy/helm/opengate/templates/server-deployment.yaml) | Remove the Redis/proxy env block and the internal `containerPort`. | completed |
+| [`deploy/helm/opengate/values.yaml`](../../../deploy/helm/opengate/values.yaml) | Remove the `redis:`, `autoscaling:`, `podDisruptionBudget:`, `l4:` blocks + internal/proxy knobs. **Keep** `sharedKeys:` (live in prod). | completed |
+| [`deploy/helm/opengate/ci/test-values.yaml`](../../../deploy/helm/opengate/ci/test-values.yaml) | Remove scale-out enablement; retain shared-keys rendering. | completed |
 | `deploy/helm/opengate/secrets.example.yaml` | **Verify-only / likely no-op:** grep found **no `REDIS_*` entries** at plan time. Remove only if any appear. | empirical correction |
-| [`policy/k8s/security.rego`](../../policy/k8s/security.rego) | Remove **Rule 5 (KEDA ScaledObject)** header (`:13`) + body (`:111-122`) and **Rule 6 (PodDisruptionBudget)** header (`:15`) + body (`:125-131`). | grep-confirmed |
-| [`policy/k8s/security_test.rego`](../../policy/k8s/security_test.rego) | Remove the Rule 5 & 6 test cases. | hit in sweep |
+| [`policy/k8s/security.rego`](../../../policy/k8s/security.rego) | Remove KEDA ScaledObject and PodDisruptionBudget rules. | completed |
+| [`policy/k8s/security_test.rego`](../../../policy/k8s/security_test.rego) | Remove the corresponding test cases. | completed |
 
 ## Coordination
 
 - **Requires TD3** (the deployment env it removes references `REGISTRY_BACKEND`/
   proxy secret that TD3 stopped *setting* in `main.go`; here we remove the chart
   side). Independent of TD1/TD2 code, but sequence after TD1 per master §5.
-- The production overlay ([`values-production.yaml`](../../deploy/helm/opengate/values-production.yaml))
+- The production overlay ([`values-production.yaml`](../../../deploy/helm/opengate/values-production.yaml))
   must still render: it sets `sharedKeys.enabled: true` (`:12`) — **keep**.
 
 ## Steps (gauntlet green per commit)
@@ -40,11 +40,12 @@
 
 ## Reviewer checklist
 
-- [ ] All 8 scale-out templates deleted; `server-deployment.yaml` has no redis env and no `:9091` port.
-- [ ] `values.yaml` keeps `sharedKeys`, drops redis/autoscaling/pdb/l4; overlays render.
-- [ ] Rego Rules 5 & 6 + their tests removed; remaining rules pass.
-- [ ] `make lint-k8s` green on all overlays; production overlay still renders with `sharedKeys`.
-- [ ] Full `/precommit` gauntlet green.
+- [x] All 8 scale-out templates deleted; deployment and service expose no retired internal/L4 path.
+- [x] Redis helper definitions removed from `_helpers.tpl`.
+- [x] `values.yaml` keeps `sharedKeys`, drops redis/autoscaling/pdb/l4; overlays render.
+- [x] Rego Rules 5 & 6 + their tests removed; remaining rules pass.
+- [x] `make lint-k8s` green on all overlays; production still renders with `sharedKeys`.
+- [x] Full `/precommit` gauntlet green.
 
 ## Done when
 

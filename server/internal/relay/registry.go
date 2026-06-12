@@ -34,9 +34,7 @@ type SessionRegistry interface {
 	// DeleteSession removes the session entry. A no-op if the token has no entry.
 	DeleteSession(ctx context.Context, token protocol.SessionToken) error
 
-	// Ping reports whether the registry's backing store is reachable. It returns
-	// nil when healthy and an error otherwise; the readiness probe uses it to
-	// drain a pod that has lost its store. The in-process adapter has no external
-	// dependency and always returns nil.
+	// Ping reports whether the registry is ready. The in-process adapter has no
+	// external dependency and always returns nil.
 	Ping(ctx context.Context) error
 }

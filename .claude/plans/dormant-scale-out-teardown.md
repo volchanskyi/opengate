@@ -2,20 +2,18 @@
 
 **Type:** Master plan. It carries the full inventory and decisions so the micro-plans
 are ready to work on without re-investigation.
-**Status:** Broken into micro-plans (verified against the live tree). Execution order
-**TD3 → TD2 → TD1 → TD4 → TD5 → TD6**:
+**Status:** TD1–TD5 complete; TD6 remains. Execution order:
 
-- [`dormant-scale-out-td3-proxy-and-wiring.md`](dormant-scale-out-td3-proxy-and-wiring.md) — 1st (main.go↔backend.go interlock ⇒ before TD2)
-- [`dormant-scale-out-td2-redis-backend.md`](dormant-scale-out-td2-redis-backend.md) — 2nd
-- [`dormant-scale-out-td1-relay-core.md`](dormant-scale-out-td1-relay-core.md) — 3rd (highest risk: live pairing path)
-- [`dormant-scale-out-td4-helm-policy.md`](dormant-scale-out-td4-helm-policy.md) — 4th
-- [`dormant-scale-out-td5-ci-build-harness.md`](dormant-scale-out-td5-ci-build-harness.md) — 5th
-- [`dormant-scale-out-td6-docs-adrs.md`](dormant-scale-out-td6-docs-adrs.md) — 6th (**BLOCKED** on the ADR-mutability governance flip — the write-guard hook hard-blocks in-place ADR edits)
+- [`dormant-scale-out-td3-proxy-and-wiring.md`](archive/dormant-scale-out-td3-proxy-and-wiring.md) — completed
+- [`dormant-scale-out-td2-redis-backend.md`](archive/dormant-scale-out-td2-redis-backend.md) — completed
+- [`dormant-scale-out-td1-relay-core.md`](archive/dormant-scale-out-td1-relay-core.md) — completed
+- [`dormant-scale-out-td4-helm-policy.md`](archive/dormant-scale-out-td4-helm-policy.md) — completed
+- [`dormant-scale-out-td5-ci-build-harness.md`](archive/dormant-scale-out-td5-ci-build-harness.md) — completed
+- [`dormant-scale-out-td6-docs-adrs.md`](dormant-scale-out-td6-docs-adrs.md) — ready
 
-**Empirical corrections to the §2 inventory found during breakdown:** (1) TD6's
-in-place ADR amendment is **hook-blocked** until [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md)
-modifies `pretooluse-write-guard.sh`; (2) `secrets.example.yaml` currently has **no
-`REDIS_*` entries**, so the TD4 removal there is a verify-only no-op.
+**Empirical corrections:** `secrets.example.yaml` had no `REDIS_*` entries;
+`server-service.yaml` and three Redis helpers were coupled to TD4; the TD5 Go
+harness contained six files, including `scenario_degraded.go`.
 
 ## 0. Decision & rationale
 

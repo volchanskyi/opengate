@@ -1,9 +1,9 @@
 # TD3 — Remove cross-server proxy + multiserver package + main.go wiring
 
-**Parent:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) (§2 Server, §4, §5).
+**Parent:** `dormant-scale-out-teardown.md` (§2 Server, §4, §5).
 **Execution order:** **1st** (of TD3→TD2→TD1→TD4→TD5→TD6). Runs before TD2 because
 `main.go`↔`backend.go` interlock (see Coordination).
-**Status:** Ready (after teardown master is approved).
+**Status:** Completed.
 **Risk:** Medium — touches the server entrypoint and the API router, but removes
 code that is **inert in production** (in-process registry ⇒ owner is always self,
 so the `PeerDialer` is never consulted — readiness §3).
@@ -23,8 +23,8 @@ removes that).
 | `server/internal/api/internal_relay.go` | **Delete** (the `/internal/relay/{token}` route + `HTTPPeerDialer`). | file exists |
 | `server/internal/api/internal_relay_test.go` | **Delete**. | file exists |
 | `server/internal/multiserver/multiserver.go` | **Delete** the package (only file in it). | sole file |
-| [`server/cmd/meshserver/main.go`](../../server/cmd/meshserver/main.go) | Remove `-internal-listen` flag (`:38`), `internalAddr` (`:160`), `proxySecret`/`OPENGATE_PROXY_SECRET` (`:162`), `peerDialer`/`api.NewHTTPPeerDialer` (`:163`), the internal listener `http.Server{Addr: internalAddr}` (`:245`), `OPENGATE_SERVER_ID`/`serverID` (`:347`), and the `REGISTRY_BACKEND` selection (`:397-402`). `buildRelayOptions` (`:380`) loses its `dialer relay.PeerDialer` param and the `relay.WithPeerDialer(dialer)` option (`:383`). Construct the registry as **in-process directly**. | grep-confirmed lines |
-| [`server/cmd/meshserver/main_test.go`](../../server/cmd/meshserver/main_test.go) | Drop assertions covering the removed flags/env/listener; keep the rest green. | hit in sweep |
+| [`server/cmd/meshserver/main.go`](../../../server/cmd/meshserver/main.go) | Remove `-internal-listen` flag (`:38`), `internalAddr` (`:160`), `proxySecret`/`OPENGATE_PROXY_SECRET` (`:162`), `peerDialer`/`api.NewHTTPPeerDialer` (`:163`), the internal listener `http.Server{Addr: internalAddr}` (`:245`), `OPENGATE_SERVER_ID`/`serverID` (`:347`), and the `REGISTRY_BACKEND` selection (`:397-402`). `buildRelayOptions` (`:380`) loses its `dialer relay.PeerDialer` param and the `relay.WithPeerDialer(dialer)` option (`:383`). Construct the registry as **in-process directly**. | grep-confirmed lines |
+| `server/cmd/meshserver/main_test.go` | Delete after its option-builder assertions become obsolete. | removed |
 
 ## Coordination (interlock with TD2)
 
@@ -56,12 +56,12 @@ Do **not** remove `relay.WithPeerDialer`/`relay.PeerDialer` here — those live 
 
 ## Reviewer checklist
 
-- [ ] `internal_relay.go(+test)` and `internal/multiserver/` are gone; nothing imports them.
-- [ ] `main.go` builds an in-process registry with **no** `REGISTRY_BACKEND` read, **no** internal listener, **no** `PeerDialer`.
-- [ ] `:9091` is no longer bound anywhere in the server entrypoint.
-- [ ] `go build`/`go vet`/`make lint` clean; no unused imports.
-- [ ] Backend redis code still compiles (it is TD2's to remove) — build green.
-- [ ] Full `/precommit` gauntlet green.
+- [x] `internal_relay.go(+test)` and `internal/multiserver/` are gone; nothing imports them.
+- [x] `main.go` builds an in-process relay with **no** `REGISTRY_BACKEND` read, **no** internal listener, **no** `PeerDialer`.
+- [x] `:9091` is no longer bound anywhere in the server entrypoint.
+- [x] `go build`/`go vet`/`make lint` clean; no unused imports.
+- [x] Redis backend removal completed in TD2.
+- [x] Full `/precommit` gauntlet green.
 
 ## Done when
 

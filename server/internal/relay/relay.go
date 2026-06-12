@@ -99,14 +99,6 @@ type Relay struct {
 	registry SessionRegistry
 	serverID string
 
-	// registryUnhealthySince holds the UnixNano timestamp of the first failed
-	// registry health probe in the current unhealthy streak, or 0 when healthy.
-	// Written by MonitorRegistryHealth, read locklessly by Register's degraded
-	// gate and the opengate_registry_up gauge (RegistryUp). degradedThreshold is
-	// how long that streak must last before Register fails closed.
-	registryUnhealthySince atomic.Int64
-	degradedThreshold      time.Duration
-
 	// OnSessionEnd is called when a session finishes piping (both sides disconnected).
 	// It can be used to clean up external state such as DB sessions.
 	OnSessionEnd func(token protocol.SessionToken)
@@ -130,10 +122,9 @@ func WithRegistry(reg SessionRegistry, serverID string) Option {
 // to inject a distributed adapter.
 func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
 	r := &Relay{
-		logger:            logger,
-		registry:          NewInProcessRegistry(),
-		serverID:          defaultServerID,
-		degradedThreshold: DefaultDegradedThreshold,
+		logger:   logger,
+		registry: NewInProcessRegistry(),
+		serverID: defaultServerID,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -144,15 +135,6 @@ func NewRelay(logger *slog.Logger, opts ...Option) *Relay {
 // Register registers one side of a session identified by token. When both sides
 // are registered, piping starts automatically.
 func (r *Relay) Register(ctx context.Context, token protocol.SessionToken, conn Conn, side Side) error {
-	// Once the session registry has been unreachable past degradedThreshold,
-	// refuse to start a *new* session. A session already in flight (entry present)
-	// is unaffected: its second side still pairs and existing traffic continues.
-	// InProcessRegistry never reports unhealthy, so single-server deployments
-	// never reach here.
-	if _, inFlight := r.sessions.Load(token); !inFlight && r.RegistryDegraded() {
-		return ErrRegistryDegraded
-	}
-
 	val, _ := r.sessions.LoadOrStore(token, &session{
 		ready: make(chan struct{}),
 	})
@@ -227,14 +209,6 @@ func (r *Relay) WaitForPeer(ctx context.Context, token protocol.SessionToken) er
 // ActiveSessionCount returns the number of active sessions.
 func (r *Relay) ActiveSessionCount() int {
 	return int(r.count.Load())
-}
-
-// PingRegistry reports whether the relay's SessionRegistry backing store is
-// reachable. The readiness probe uses it to drain a pod that has lost its
-// distributed store. Always nil with the in-process
-// adapter.
-func (r *Relay) PingRegistry(ctx context.Context) error {
-	return r.registry.Ping(ctx)
 }
 
 // copyMessages reads complete messages from src and writes them to dst,

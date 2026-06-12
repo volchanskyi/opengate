@@ -20,15 +20,10 @@ serviceAccount:
   name: ""
 
 server:
-  replicas: 1                # used only when autoscaling.enabled is false (PR-E)
+  replicas: 1
   httpPort: 8080            # HTTP API + SPA (behind ingress)
   quicPort: 9090            # QUIC agent transport (UDP, L4)
   mpsPort: 4433            # Intel AMT CIRA / MPS (TCP, L4)
-  internalPort: 9091        # cross-server relay proxy (ADR-023); pod-to-pod only, never ingress
-  # Optional shared secret on the internal relay proxy (defense-in-depth atop the
-  # private-network boundary). When true, OPENGATE_PROXY_SECRET must exist in
-  # server.existingSecret. Only meaningful with redis.enabled (multi-server).
-  proxySecretEnabled: false
   webDir: /srv/web          # server serves the SPA itself (api.go os.OpenRoot)
   amtUser: admin
   # GitHub repo the server syncs agent-update manifests from. When set, the server
@@ -48,10 +43,9 @@ server:
   baseURL: ""
   # Server log verbosity; "debug" enables verbose logging, anything else is info.
   logLevel: ""
-  # L4 exposure: bind QUIC+MPS straight to the node IP via hostPort. On the
-  # single-node start this is budget-free (no OCI LB) and preserves the client
-  # source IP that AMT CIRA / QUIC need. Multi-node (PR-E) switches to an OCI
-  # NLB or ingress-nginx tcp/udp-services (see .Values.l4 below).
+  # L4 exposure: bind QUIC+MPS straight to the node IP via hostPort. This is
+  # budget-free on the single-node deployment and preserves the client source
+  # IP that AMT CIRA / QUIC need.
   hostPortL4: true
   # Secret with keys: JWT_SECRET, POSTGRES_PASSWORD, AMT_PASS, VAPID_CONTACT.
   # Created out-of-band (kubectl / sealed-secrets); see secrets.example.yaml.
@@ -73,7 +67,7 @@ server:
     persistent: true
     storageClass: oci-bv
     size: 1Gi
-  # Shared keys (PR-E): for multi-replica every replica must serve the SAME
+  # For multi-replica operation every replica must serve the SAME
   # enrollment CA, VAPID keypair, and update-signing keypair, else mTLS
   # enrollment, web push, and update verification split across pods. When
   # enabled, /data becomes an emptyDir (writable manifest cache) and the four key
@@ -83,24 +77,6 @@ server:
   # see secrets.example.yaml. REQUIRED before scaling past one replica.
   sharedKeys:
     enabled: false
-  # Autoscaling (PR-E): KEDA ScaledObject driving the server Deployment on CPU
-  # utilization AND the custom opengate_relay_active_sessions gauge (queried from
-  # VictoriaMetrics). KEDA owns the replica count, so spec.replicas is omitted
-  # when enabled. Requires the KEDA operator installed in the cluster and
-  # sharedKeys.enabled (multi-replica correctness). Budget: 4 OCPU / 24 GB total.
-  autoscaling:
-    enabled: false
-    minReplicas: 2
-    maxReplicas: 4
-    cpuUtilization: 70           # % of the request, averaged across pods
-    activeSessionsPerReplica: "50"  # scale out above this many sessions/replica
-    # In-cluster VictoriaMetrics query endpoint for the prometheus trigger.
-    prometheusServerAddress: http://victoria-metrics:8428
-  # PodDisruptionBudget (PR-E): keep at least minAvailable server pods up during
-  # voluntary disruptions (node drain, rollout). Only meaningful multi-replica.
-  podDisruptionBudget:
-    enabled: false
-    minAvailable: 1
 
 postgres:
   # Fully-qualified registry path: OKE's cri-o nodes run short-name-mode=enforcing
@@ -139,49 +115,6 @@ postgres:
         cpu: 250m
         memory: 64Mi
 
-# Redis Sentinel HA — backing store for the distributed SessionRegistry
-# (REGISTRY_BACKEND=redis), per ADR-023. DORMANT by default: with redis.enabled
-# false the server keeps the in-process registry and none of these objects
-# render. When enabled, the server is wired to the Sentinel service via
-# REGISTRY_BACKEND=redis + REDIS_SENTINEL_ADDRS + REDIS_MASTER_NAME (see
-# server-deployment.yaml). HA topology: a StatefulSet of Redis nodes (pod-0 is
-# the bootstrap master, the rest replicate; on restart every node rediscovers
-# the live master from Sentinel) and a StatefulSet of Sentinels that elect a new
-# master on failure.
-redis:
-  enabled: false
-  image: docker.io/library/redis:7.4-alpine   # fully-qualified for OKE cri-o (see postgres.image)
-  # The Sentinel master group name; must match REDIS_MASTER_NAME on the server.
-  masterName: opengate
-  replicas: 3            # 1 bootstrap master + 2 replicas
-  # Optional AUTH. When enabled, REDIS_PASSWORD must exist in server.existingSecret
-  # and is used for requirepass + masterauth + sentinel auth-pass.
-  auth:
-    enabled: false
-  data:
-    storageClass: oci-bv
-    size: 1Gi
-  resources:
-    requests:
-      cpu: 50m
-      memory: 64Mi
-    limits:
-      cpu: 250m
-      memory: 256Mi
-  sentinel:
-    replicas: 3          # quorum = (replicas/2)+1 = 2
-    quorum: 2
-    # Failure-detection / failover tuning (milliseconds).
-    downAfterMs: 5000
-    failoverTimeoutMs: 10000
-    resources:
-      requests:
-        cpu: 25m
-        memory: 32Mi
-      limits:
-        cpu: 100m
-        memory: 64Mi
-
 ingress:
   enabled: true
   className: nginx
@@ -203,10 +136,3 @@ certManager:
   issuerName: letsencrypt-prod
   email: admin@opengate.example.com   # ACME registration contact; override per environment
   server: https://acme-v02.api.letsencrypt.org/directory
-
-# Multi-node alternative to server.hostPortL4: emit ingress-nginx
-# tcp-services/udp-services ConfigMaps so the controller forwards 9090/udp +
-# 4433/tcp to the server Service. Off by default (single-node uses hostPort).
-l4:
-  ingressNginxConfigMaps: false
-  ingressNginxNamespace: ingress-nginx
