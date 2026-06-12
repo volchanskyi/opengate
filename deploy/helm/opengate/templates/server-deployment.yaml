@@ -111,7 +111,7 @@ spec:
             - name: DATABASE_URL
               value: "postgres://opengate:$(POSTGRES_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
             {{- if .Values.redis.enabled }}
-            # Distributed SessionRegistry over Redis Sentinel (ADR-031). The
+            # Distributed SessionRegistry over Redis Sentinel (ADR-023). The
             # failover client is given every Sentinel pod's stable FQDN.
             - name: REGISTRY_BACKEND
               value: redis
@@ -126,7 +126,7 @@ spec:
                   name: {{ .Values.server.existingSecret }}
                   key: REDIS_PASSWORD
             {{- end }}
-            # Cross-server relay proxy (ADR-033). serverID = this pod's IP via the
+            # Cross-server relay proxy (ADR-023). serverID = this pod's IP via the
             # Downward API; peers are dialed directly on the flat overlay at the
             # shared internal port. The listener is pod-to-pod only (never ingress).
             - name: OPENGATE_SERVER_ID

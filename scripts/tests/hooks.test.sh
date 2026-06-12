@@ -495,7 +495,7 @@ assert_exit "Write to ~/.claude/plans/: BLOCK" 2
 assert_stderr_contains "plans dir: stderr cites project plans" "opengate/.claude/plans"
 cleanup_repo
 
-# 3. Edit existing ADR file: BLOCK.
+# 3. Edit existing ADR file: allow (ADRs 013+ are mutable).
 make_repo
 mkdir -p docs/adr
 echo "# ADR-013" > docs/adr/ADR-013-foo.md
@@ -503,8 +503,18 @@ git add docs/adr/ADR-013-foo.md
 git commit --quiet -m "adr"
 envelope="$(build_envelope Edit '{"file_path":"docs/adr/ADR-013-foo.md","old_string":"a","new_string":"b"}')"
 run_hook pretooluse-write-guard.sh "$envelope"
-assert_exit "Edit existing ADR: BLOCK" 2
-assert_stderr_contains "ADR: stderr cites supersede" "supersede"
+assert_exit "Edit existing ADR: allow (mutable)" 0
+cleanup_repo
+
+# 3b. Overwrite (Write) an existing ADR file: allow (ADRs 013+ are mutable).
+make_repo
+mkdir -p docs/adr
+echo "# ADR-013" > docs/adr/ADR-013-foo.md
+git add docs/adr/ADR-013-foo.md
+git commit --quiet -m "adr"
+envelope="$(build_envelope Write '{"file_path":"docs/adr/ADR-013-foo.md","content":"# ADR-013 revised"}')"
+run_hook pretooluse-write-guard.sh "$envelope"
+assert_exit "Write over existing ADR: allow (mutable)" 0
 cleanup_repo
 
 # 4. Write a NEW ADR file: allow.
@@ -515,12 +525,12 @@ run_hook pretooluse-write-guard.sh "$envelope"
 assert_exit "Write new ADR file: allow" 0
 cleanup_repo
 
-# 4b. Write a NEW ADR that links a plan file: BLOCK (links rot; ADRs immutable).
+# 4b. Write a NEW ADR that links an ACTIVE plan file: BLOCK (active-plan links rot).
 make_repo
 mkdir -p docs/adr
 envelope="$(build_envelope Write '{"file_path":"docs/adr/ADR-098-bad.md","content":"# ADR-098\n\nSee [plan](../../.claude/plans/foo.md) for detail."}')"
 run_hook pretooluse-write-guard.sh "$envelope"
-assert_exit "New ADR with plan link: BLOCK" 2
+assert_exit "New ADR with active-plan link: BLOCK" 2
 assert_stderr_contains "ADR plan-link: stderr cites decisions.md" "decisions.md"
 cleanup_repo
 
@@ -530,6 +540,37 @@ mkdir -p docs/adr
 envelope="$(build_envelope Write '{"file_path":"docs/adr/ADR-097-ok.md","content":"# ADR-097\n\nSupersedes [ADR-013](ADR-013-foo.md); see [index](../../.claude/decisions.md)."}')"
 run_hook pretooluse-write-guard.sh "$envelope"
 assert_exit "New ADR with non-plan links: allow" 0
+cleanup_repo
+
+# 4d. Write a NEW ADR that links an ARCHIVED plan: allow (archived plans are stable).
+make_repo
+mkdir -p docs/adr
+envelope="$(build_envelope Write '{"file_path":"docs/adr/ADR-096-arch.md","content":"# ADR-096\n\nWorking plan: [plan](../../.claude/plans/archive/foo.md)."}')"
+run_hook pretooluse-write-guard.sh "$envelope"
+assert_exit "New ADR with archived-plan link: allow" 0
+cleanup_repo
+
+# 4e. Edit an existing ADR to add an ACTIVE plan link: BLOCK.
+make_repo
+mkdir -p docs/adr
+echo "# ADR-013" > docs/adr/ADR-013-foo.md
+git add docs/adr/ADR-013-foo.md
+git commit --quiet -m "adr"
+envelope="$(build_envelope Edit '{"file_path":"docs/adr/ADR-013-foo.md","old_string":"a","new_string":"see [plan](../../.claude/plans/foo.md)"}')"
+run_hook pretooluse-write-guard.sh "$envelope"
+assert_exit "Edit ADR adds active-plan link: BLOCK" 2
+assert_stderr_contains "ADR edit plan-link: cites decisions.md" "decisions.md"
+cleanup_repo
+
+# 4f. Edit an existing ADR to add an ARCHIVED plan link: allow.
+make_repo
+mkdir -p docs/adr
+echo "# ADR-013" > docs/adr/ADR-013-foo.md
+git add docs/adr/ADR-013-foo.md
+git commit --quiet -m "adr"
+envelope="$(build_envelope Edit '{"file_path":"docs/adr/ADR-013-foo.md","old_string":"a","new_string":"see [plan](../../.claude/plans/archive/foo.md)"}')"
+run_hook pretooluse-write-guard.sh "$envelope"
+assert_exit "Edit ADR adds archived-plan link: allow" 0
 cleanup_repo
 
 # 5. Edit adds NOSONAR: BLOCK.

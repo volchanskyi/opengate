@@ -24,7 +24,7 @@
 #   - a file newly below B+ since the previous run. We track this via the
 #     below-B+ COUNT rising (a faithful, Loki-storable proxy for "any single
 #     file slipped below B+"; the per-file enforcement lives in the C5
-#     precommit gate). Recorded in ADR-028.
+#     precommit gate). Recorded in ADR-019.
 #
 # Exit codes: 0 no regression · 1 regression detected · 2 input missing.
 set -uo pipefail

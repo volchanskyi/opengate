@@ -1,7 +1,7 @@
 // Package main implements the Phase 13b PR-D multiserver e2e harness: a
 // host-side wire driver that seeds sessions in the shared Postgres and drives raw
 // relay WebSockets across two server replicas to prove the cross-server proxy
-// (ADR-033) and the Redis-loss degraded-mode posture (ADR-023). It is invoked by
+// the cross-server proxy and Redis-loss degraded-mode posture (ADR-023). It is invoked by
 // `make e2e-multiserver` against the docker-compose.multiserver.yml topology and
 // refuses to run unless OPENGATE_MULTISERVER_E2E=1 (see main.go).
 package main

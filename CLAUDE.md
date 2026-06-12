@@ -12,7 +12,7 @@ This file is a one-page index. Each rule lives in its own focused file under [`.
 
 Canonical developer docs live in [`docs/`](docs/). Start at [`docs/Home.md`](docs/Home.md). Read [`docs/README.md`](docs/README.md) before editing any doc.
 
-After completing significant work, update [`phases.md`](.claude/phases.md), [`techdebt.md`](.claude/techdebt.md), and (for architectural decisions) add an immutable ADR file in [`docs/adr/`](docs/adr/) plus an index row in [`decisions.md`](.claude/decisions.md).
+After completing significant work, update [`phases.md`](.claude/phases.md), [`techdebt.md`](.claude/techdebt.md), and (for architectural decisions) add an ADR file in [`docs/adr/`](docs/adr/) plus an index row in [`decisions.md`](.claude/decisions.md). Per-file ADRs (013+) are mutable — edit to keep current; supersede only for decision changes.
 
 ## Workflow Rules
 
@@ -23,7 +23,7 @@ After completing significant work, update [`phases.md`](.claude/phases.md), [`te
 | [`rules/tests-determinism.md`](.claude/rules/tests-determinism.md) | tests always run — no silent skips (Go/web/Rust) | `pretooluse-test-skip-guard.sh` |
 | [`rules/precommit-refactor.md`](.claude/rules/precommit-refactor.md) | `/precommit` before commit; `/refactor` before push | commit/push guards via marker files |
 | [`rules/sonarcloud.md`](.claude/rules/sonarcloud.md) | quality-gate workflow; no suppressions without approval | `pretooluse-write-guard.sh` |
-| [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, ADR immutability | `pretooluse-write-guard.sh` |
+| [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, ADR mutability + archived-plan-link rule | `pretooluse-write-guard.sh` |
 
 ## Code and Process Conventions
 

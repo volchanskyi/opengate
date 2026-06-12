@@ -16,7 +16,7 @@ Three forces motivate making modularity explicit and enforced now:
 2. **Refactoring cost will never be lower than today.** Zero Critical/High coupling tech-debt, 85%+ mutation coverage across all three languages.
 3. **Service-extraction optionality is cheap to preserve, expensive to retrofit.** Microservices are not committed to, but the door should stay open at near-zero ongoing cost.
 
-The evaluation in [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/modular-monolith-evaluation.md) compared three styles (DDD, hexagonal, package-by-feature) against verified code reality. This ADR codifies the resolved decisions.
+The evaluation in [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) compared three styles (DDD, hexagonal, package-by-feature) against verified code reality. This ADR codifies the resolved decisions.
 
 ## Decision
 
@@ -81,7 +81,7 @@ Exceptions live in the lint tool's own config file (e.g. `.go-arch-lint.yml`'s `
 
 ### Implementation tempo
 
-**Opportunistic — no greenfield refactor PRs.** Every architectural change rides on a functional change. Triggers in [plan §9](../../.claude/plans/modular-monolith-evaluation.md). The first time a trigger fires post-ADR, that PR pays the small architectural tax; subsequent PRs in the module run on the new shape.
+**Opportunistic — no greenfield refactor PRs.** Every architectural change rides on a functional change. Triggers in [plan §9](../../.claude/plans/archive/modular-monolith-evaluation.md). The first time a trigger fires post-ADR, that PR pays the small architectural tax; subsequent PRs in the module run on the new shape.
 
 A PMAT baseline ([ADR-019](ADR-019-pmat-quality-overlay.md), PMAT plan §5.3) must be recorded **before** the first opportunistic trigger fires, so post-decomposition drift is measurable.
 
@@ -122,9 +122,56 @@ This ADR is the only blocker. The following can land in any order once this is a
 - Opportunistic-trigger model means full decomposition takes months, not weeks. Accepted — the plan explicitly rejects greenfield refactor PRs.
 - The PMAT baseline is a prerequisite, not a side concern. ADR-019 plan §5.3 makes this binding.
 
+## Amendments
+
+### Amendment 1 — cargo-deny strict policy: HTTP inventory, duplicate allowlist, flip executed (2026-05-29)
+
+Closes the three items §5.2/§5.4 deferred for the Rust `cargo-deny` gate.
+(Formerly standalone ADR-026, consolidated here when per-file ADRs became
+mutable — [ADR-036](ADR-036-mutable-adrs-current-state-doctrine.md).)
+
+**HTTP-stack inventory (amends §5.2).** The agent's inbound HTTP surface at the
+time of this amendment: direct workspace deps `reqwest` (update-manifest fetch +
+GitHub sync) and `tokio-tungstenite` (WebSocket); transitive via `reqwest`
+`hyper`/`hyper-rustls`/`hyper-util` + `http`/`http-body`/`http-body-util`;
+transitive via `tokio-tungstenite` `tungstenite`. **Policy:** adding a new
+*direct* HTTP crate (`ureq`, `isahc`, `surf`, `attohttpc`, `awc`, …) to any
+workspace `Cargo.toml` requires an ADR amendment before merge; this inventory is
+the canonical allowlist. `cargo-deny` cannot express "direct-only" bans
+(`[bans.deny]` rejects any graph presence), so the rule is enforced via code
+review on `Cargo.toml` diffs plus this policy. One explicit `[bans.deny]` keeps
+`openssl` out even transitively (rustls-only policy; openssl complicates static
+cross-compilation).
+
+**Transitive-duplicate allowlist (amends §5.4).** The 28 pre-existing
+`multiple-versions` warns are upstream version stagger — the RustCrypto 0.10/0.11
+split, the rand/getrandom major split, the rcgen 0.13/0.14 (+ yasna) split, the
+Windows API binding cohort, and single-version slack (`bitflags`, `nix`, `nom`,
+`thiserror`, `webpki-roots`, …). Each is recorded in
+[`agent/deny.toml`](../../agent/deny.toml) `[bans.skip]` with an `@<old-version>`
+spec and a `reason`. Reviewer rule: each skip is an IOU — when an upstream bump
+resolves a duplicate, drop the entry; the list drifts down only.
+
+**Wildcard handling (amends §5.4).** The 7 `wildcards` warns are workspace
+path deps using `version = "*"` (not external CVE vectors). Resolved without
+weakening the gate by adding `publish = false` to all five workspace crates
+(they ship via GitHub Releases per [ADR-005](ADR-005-agent-auto-update.md), never
+to crates.io) and `allow-wildcard-paths = true` in
+[`agent/deny.toml`](../../agent/deny.toml) — which `cargo-deny` applies only to
+`publish = false` crates, so the former is a prerequisite for the latter.
+
+**Gate flip (executes §5.4).** `multiple-versions` and `wildcards` both flip
+`warn → deny` in [`agent/deny.toml`](../../agent/deny.toml); the marker
+[`.claude/.markers/arch-lint-flipped/cargo-deny`](../../.claude/.markers/arch-lint-flipped/cargo-deny)
+records the event, and [`scripts/arch-lint-flip.sh`](../../scripts/arch-lint-flip.sh)
+gains a state-aware cargo-deny gate (`flipped`/`eligible`/`no config`; `--apply`
+mutates both severities and writes the marker). All four arch-lint gates are now
+strict (`depcruise`, `eslint-boundaries`, `cargo-deny`; `go-arch-lint` and
+`cargo-modules` were strict at adoption).
+
 ## References
 
-- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/modular-monolith-evaluation.md) (resolved 2026-05-19; §11 carries the full resolution table)
+- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) (resolved 2026-05-19; §11 carries the full resolution table)
 - Paired ADR: [ADR-019](ADR-019-pmat-quality-overlay.md) — PMAT baseline must precede first opportunistic trigger
 - Tooling: [`go-arch-lint`](https://github.com/fe3dback/go-arch-lint), [`eslint-plugin-boundaries`](https://github.com/javierbrea/eslint-plugin-boundaries), [`dependency-cruiser`](https://github.com/sverweij/dependency-cruiser)
 - Constraint sources: [`.claude/rules/sonarcloud.md`](../../.claude/rules/sonarcloud.md), [`.claude/rules/git.md`](../../.claude/rules/git.md), [`.claude/rules/tdd.md`](../../.claude/rules/tdd.md), [`.claude/hooks/pretooluse-write-guard.sh`](../../.claude/hooks/pretooluse-write-guard.sh)

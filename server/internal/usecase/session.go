@@ -2,7 +2,7 @@
 // at the transport layer and would violate per-aggregate leaf-module
 // boundaries if pushed into a single domain module.
 //
-// Per ADR-028, transport handlers (api package) translate HTTP requests
+// Per ADR-019, transport handlers (api package) translate HTTP requests
 // and responses to/from method calls on use-case services; the services
 // compose per-aggregate Repository ports to deliver a domain-meaningful
 // outcome. Use cases own NO HTTP types and are reusable from CLI/gRPC/
@@ -44,7 +44,7 @@ var (
 // the orchestration cost of carving them earns the move.
 //
 // Composes leaf-domain ports directly (audit.Repository, session.Repository,
-// notifications.Notifier). Per ADR-028, usecase is the only component
+// notifications.Notifier). Per ADR-019, usecase is the only component
 // permitted to import multiple leaf aggregates.
 type SessionService struct {
 	sessions session.Repository

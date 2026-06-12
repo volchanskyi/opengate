@@ -1,8 +1,7 @@
 name: E2E Multiserver
 
 # Phase 13b PR-D: brings up two server replicas + Redis + shared Postgres and runs
-# the cross-server-proxy / Redis-loss-degraded-mode scenarios (ADR-031 / ADR-033 /
-# ADR-023). Gated behind workflow_dispatch + a nightly cron (distinct hour from the
+# the cross-server-proxy / Redis-loss-degraded-mode scenarios (ADR-023). Gated behind workflow_dispatch + a nightly cron (distinct hour from the
 # 03:00 mutation/cross-browser/drift jobs and the 04:00 pmat-trend job) so PR CI
 # stays fast and this never blocks merges — it is NOT in merge-to-main.needs[].
 

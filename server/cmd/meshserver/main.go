@@ -145,13 +145,13 @@ func main() {
 	quicHost := os.Getenv("OPENGATE_QUIC_HOST")
 
 	// Create relay and agent server. The relay tracks session affinity through
-	// the SessionRegistry port (ADR-023 / ADR-031). REGISTRY_BACKEND selects the
+	// the SessionRegistry port (ADR-023). REGISTRY_BACKEND selects the
 	// adapter: "inprocess" (default, single-server) or "redis" (multi-server
 	// pool with cross-server affinity). serverID identifies this node in the
 	// relay pool — hostname by default, overridable for k8s pods.
 	sessionRegistry, registryCloser := initSessionRegistry(logger)
 	defer func() { _ = registryCloser.Close() }()
-	// Cross-server proxy (Phase 13b PR-C, ADR-033): when a distributed registry
+	// Cross-server proxy (Phase 13b PR-C, ADR-023): when a distributed registry
 	// reports a foreign owner, the relay splices the session through the owner's
 	// internal listener instead of pairing locally. All pods are homogeneous, so
 	// the dialer reuses this node's internal port to reach any peer (pod IP via
@@ -239,7 +239,7 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	// Internal cross-server relay listener (ADR-033): private port for proxied
+	// Internal cross-server relay listener (ADR-023): private port for proxied
 	// peer connections, never fronted by the public router/ingress.
 	internalSrv := &http.Server{
 		Addr:              internalAddr,
@@ -319,7 +319,7 @@ func envOr(key, fallback string) string {
 
 // portOf extracts the port from a listen address, tolerating both the ":port"
 // and bare "port" forms. The HTTPPeerDialer reuses this port to reach
-// homogeneous peers on the flat cluster overlay (ADR-033).
+// homogeneous peers on the flat cluster overlay (ADR-023).
 func portOf(addr string) string {
 	if _, port, err := net.SplitHostPort(addr); err == nil {
 		return port

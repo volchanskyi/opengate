@@ -24,7 +24,7 @@ server:
   httpPort: 8080            # HTTP API + SPA (behind ingress)
   quicPort: 9090            # QUIC agent transport (UDP, L4)
   mpsPort: 4433            # Intel AMT CIRA / MPS (TCP, L4)
-  internalPort: 9091        # cross-server relay proxy (ADR-033); pod-to-pod only, never ingress
+  internalPort: 9091        # cross-server relay proxy (ADR-023); pod-to-pod only, never ingress
   # Optional shared secret on the internal relay proxy (defense-in-depth atop the
   # private-network boundary). When true, OPENGATE_PROXY_SECRET must exist in
   # server.existingSecret. Only meaningful with redis.enabled (multi-server).
@@ -140,7 +140,7 @@ postgres:
         memory: 64Mi
 
 # Redis Sentinel HA — backing store for the distributed SessionRegistry
-# (REGISTRY_BACKEND=redis), per ADR-031. DORMANT by default: with redis.enabled
+# (REGISTRY_BACKEND=redis), per ADR-023. DORMANT by default: with redis.enabled
 # false the server keeps the in-process registry and none of these objects
 # render. When enabled, the server is wired to the Sentinel service via
 # REGISTRY_BACKEND=redis + REDIS_SENTINEL_ADDRS + REDIS_MASTER_NAME (see

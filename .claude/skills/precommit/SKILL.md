@@ -41,4 +41,4 @@ Lockfile audits (`cargo audit`, `govulncheck`, `npm audit`) gate on the **curren
 
 ## Documentation reminder
 
-The gauntlet does not assert documentation freshness. After it passes, before committing, update [`README.md`](../../../README.md) sections and [`/docs`](../../../docs/) pages that the diff invalidates (link-over-paraphrase + ADRs-immutable conventions per [`docs/README.md`](../../../docs/README.md)). Add new ADRs in [`docs/adr/`](../../../docs/adr/) — never edit an accepted one in place.
+The gauntlet does not assert documentation freshness. After it passes, before committing, update [`README.md`](../../../README.md) sections and [`/docs`](../../../docs/) pages that the diff invalidates (link-over-paraphrase + mutable-per-file-ADRs conventions per [`docs/README.md`](../../../docs/README.md)). Per-file ADRs (013+) in [`docs/adr/`](../../../docs/adr/) are mutable — edit to keep them current; add a new superseding ADR only for a genuine decision change.

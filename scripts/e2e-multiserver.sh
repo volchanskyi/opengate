@@ -9,6 +9,10 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Work around a broken local docker credential helper (e.g. WSL
+# docker-credential-desktop.exe) so public-image pulls succeed. No-op in CI.
+DOCKER_CONFIG="$("${REPO_ROOT}/scripts/docker-credstore-guard.sh")"
+export DOCKER_CONFIG
 COMPOSE_FILE="${REPO_ROOT}/deploy/docker-compose.multiserver.yml"
 COMPOSE_PROJECT="opengate-ms"
 COMPOSE=(docker compose -f "${COMPOSE_FILE}" -p "${COMPOSE_PROJECT}")

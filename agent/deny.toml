@@ -50,7 +50,7 @@ allow = [
 [bans]
 # ADR-020 §5.4 flip: warn → deny. Strict from this commit on; every transitive
 # duplicate below is enumerated with rationale (matches ADR-020 §5.1's no-bare-
-# suppression rule). ADR-026 amends ADR-020 §5.2 with the HTTP-stack inventory
+# suppression rule). ADR-020 Amendment 1 records the HTTP-stack inventory
 # and the policy that gates new direct HTTP deps via ADR amendment, not lint.
 multiple-versions = "deny"
 wildcards = "deny"
@@ -60,14 +60,14 @@ wildcards = "deny"
 # CVE-vector. ADR-020 §5.2.
 allow-wildcard-paths = true
 
-# HTTP-stack inventory (ADR-020 §5.2 / ADR-026):
+# HTTP-stack inventory (ADR-020 §5.2, Amendment 1):
 #   Direct deps    : reqwest, tokio-tungstenite
 #   Allowed via reqwest: hyper, hyper-rustls, hyper-util, http, http-body
 #   Allowed via tokio-tungstenite: tungstenite
 # Adding a new direct HTTP crate (ureq, isahc, surf, attohttpc, hreq, …)
 # requires an ADR amendment before merge; cargo-deny cannot express a
 # "direct-only" ban, so enforcement is via code review on Cargo.toml diffs
-# and the ADR-026 policy doc. The explicit deny below catches the one
+# and the ADR-020 Amendment 1 policy doc. The explicit deny below catches the one
 # historically problematic stale crypto/HTTP stack in case it appears
 # transitively.
 deny = [

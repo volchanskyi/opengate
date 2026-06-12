@@ -1,5 +1,25 @@
 # Current-State Docs Doctrine + ADR Mutability Flip
 
+**Status:** Broken into micro-plans (re-evaluated against the live tree). Order
+**DD-A → DD-B → DD-INV → DD-C ∥ DD-D → DD-E**:
+
+- [`docs-doctrine-a-governance-flip.md`](archive/docs-doctrine-a-governance-flip.md) — **done** (archived; ADR consolidation folded in); **unblocks teardown [TD6](dormant-scale-out-td6-docs-adrs.md)**
+- [`docs-doctrine-b-link-checker.md`](docs-doctrine-b-link-checker.md) — link-enforcement hook
+- [`docs-doctrine-inv-inventory-pass.md`](docs-doctrine-inv-inventory-pass.md) — enumerate scope; defines "done" for C/D
+- [`docs-doctrine-c-docs-adr-cleanup.md`](docs-doctrine-c-docs-adr-cleanup.md) — docs + ADR-body cleanup (**coordinate with teardown TD6**)
+- [`docs-doctrine-d-code-comments.md`](docs-doctrine-d-code-comments.md) — ~65 source files
+- [`docs-doctrine-e-diagrams-as-code.md`](docs-doctrine-e-diagrams-as-code.md) — long-term, optional
+
+**Re-evaluation corrections (verified counts/drift):** (1) **M4's ~264
+`ADR-[0-9]|plans/` hits are mostly working links the doctrine wants to KEEP** — it
+is a judgment category (KEEP/LINKIFY/REPHRASE/REMOVE), **not** 264 noise items to
+purge; DD-INV owns the split. (2) Seed line numbers drifted: CI-Pipeline.md SARIF
+moved **:158 → :178**, with a **second** negative-state+date instance at **:250**;
+Testing.md `(PR 9)`@:128 / `03:00 UTC`@:131; ADR-023 links confirmed @17 & 136;
+Infrastructure.md schedule @:168. (3) **ADR-036 is free** (latest = 035); teardown
+TD6 only *amends* ADRs, so this plan owns 036. (4) Current mechanical sizing:
+M1≈50, M2≈7, M3≈35, M5≈6 across ~40 docs files; DD-D = 65 code files (go 42 / rs 14 / ts 6).
+
 ## Context
 
 Maintainers want a "current-state-only" documentation/comment paradigm: strip
@@ -79,8 +99,8 @@ One coherent commit; after it, ADRs are editable and the link rule changes.
 Implements "high-density clickable linking" + "only archived plan links" + "no
 broken anchors" as a hook (the brainstorm's Vector-E conclusion).
 
-- New `scripts/check-doc-links.go` (or `scripts/check-md-links.sh` if pure-bash is
-  enough): walk `docs/**`, `.claude/**`, ADRs; for each `](relative/path…)` verify
+- New `scripts/check-doc-links/` Go package: walk `docs/**`, `.claude/**`, ADRs;
+  for each `](relative/path…)` verify
   the target file (and `#Lnn`/anchor) exists; flag links into non-archived
   `.claude/plans/`. Internal-only, no network. Wire into the precommit gauntlet
   ([`scripts/precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh)) and a

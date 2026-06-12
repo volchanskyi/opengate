@@ -7,7 +7,7 @@ Status: Accepted
 
 OpenGate already enforces quality densely: 23 checks in [`scripts/precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh) per commit, 20+ CI jobs, SonarCloud as the merge-to-main blocker ([ADR-012](../Architecture-Decision-Records.md)), three-engine mutation testing regression-gated to 85% ([`.github/workflows/mutation.yml`](../../.github/workflows/mutation.yml)), CodeQL on Rust/Go/JS, and no-bypass TDD + commit-identity + refactor-marker hooks ([`.claude/hooks/`](../../.claude/hooks/)). Any new quality tool must (1) earn its slot without duplicating existing gates and (2) respect the no-suppression rule ([`.claude/rules/sonarcloud.md`](../../.claude/rules/sonarcloud.md)) and the no-bypass-hook rules ([`.claude/rules/git.md`](../../.claude/rules/git.md), [`.claude/rules/tdd.md`](../../.claude/rules/tdd.md)).
 
-The Pragmatic Multi-language Agent Toolkit ([`paiml/paiml-mcp-agent-toolkit`](https://github.com/paiml/paiml-mcp-agent-toolkit)) is a Rust CLI + MCP server that produces static-analysis reports (TDG letter grade, 0–289 repo score, churn / entropy / duplication / fault overlays) across 25+ Tree-sitter languages including OpenGate's three. The evaluation in [`.claude/plans/pmat-adoption-evaluation.md`](../../.claude/plans/pmat-adoption-evaluation.md) verified each capability against the upstream repo and mapped them onto OpenGate's existing infrastructure. Four genuine gaps emerged:
+The Pragmatic Multi-language Agent Toolkit ([`paiml/paiml-mcp-agent-toolkit`](https://github.com/paiml/paiml-mcp-agent-toolkit)) is a Rust CLI + MCP server that produces static-analysis reports (TDG letter grade, 0–289 repo score, churn / entropy / duplication / fault overlays) across 25+ Tree-sitter languages including OpenGate's three. The evaluation in [`.claude/plans/pmat-adoption-evaluation.md`](../../.claude/plans/archive/pmat-adoption-evaluation.md) verified each capability against the upstream repo and mapped them onto OpenGate's existing infrastructure. Four genuine gaps emerged:
 
 1. **Code churn / entropy / hotspot overlay** — not tracked today.
 2. **Single-letter TDG summary** — SonarCloud rates issues, not a file-level letter grade.
@@ -16,7 +16,7 @@ The Pragmatic Multi-language Agent Toolkit ([`paiml/paiml-mcp-agent-toolkit`](ht
 
 Everything else PMAT offers overlaps with an existing gate (lints, audits, secrets, IaC, coverage, mutation, taint, dead-code, smells, hotspots, dup detection).
 
-The plan's [`§6 resolved decisions`](../../.claude/plans/pmat-adoption-evaluation.md) chose the strict end of every threshold tradeoff. This ADR codifies those values.
+The plan's [`§6 resolved decisions`](../../.claude/plans/archive/pmat-adoption-evaluation.md) chose the strict end of every threshold tradeoff. This ADR codifies those values.
 
 ## Decision
 
@@ -103,7 +103,7 @@ Telegram alert on regression — either condition fires (same alert scoping as t
 
 ## Retirement criterion
 
-Reviewed one quarter after this ADR's first opportunistic-trigger landing (see [plan §9](../../.claude/plans/pmat-adoption-evaluation.md)). PMAT is retired if all of the following hold:
+Reviewed one quarter after this ADR's first opportunistic-trigger landing (see [plan §9](../../.claude/plans/archive/pmat-adoption-evaluation.md)). PMAT is retired if all of the following hold:
 
 - Grafana repo-score / TDG trend is flat or noise — no actionable signal.
 - Hotspot follow-up PRs are < 50% within the quarter — the hotspot signal is not driving change.
@@ -111,10 +111,95 @@ Reviewed one quarter after this ADR's first opportunistic-trigger landing (see [
 
 If any one of those signals is healthy, PMAT keeps its slot.
 
+## Amendments
+
+The decisions above are unchanged; these amendments record the verified
+implementation mechanics and one scope narrowing. (Formerly standalone ADR-028
+and ADR-032, consolidated here when per-file ADRs became mutable —
+[ADR-036](ADR-036-mutable-adrs-current-state-doctrine.md).)
+
+### Amendment 1 — PMAT 3.17.0 CLI / MCP surface mapping (2026-05-31)
+
+The integration points above were written against an *anticipated* CLI/MCP
+surface. Several literal prescriptions do not exist in the pinned `pmat@3.17.0`,
+so the realised mechanics differ while the decisions hold. The exact-version pin
+makes this mapping load-bearing: a future `pmat` bump must re-verify it.
+
+**Integration point 2 — precommit gate.** `pmat tdg --since-commit HEAD~1
+--threshold B+` does not run (`--since-commit` is absent; `--threshold` is a
+*complexity* knob for `--explain`, not a grade floor). The implemented form is
+`pmat tdg check-quality -p <file> --min-grade B+ --fail-on-violation`, one
+invocation per changed code file (`check-quality` exits 3 on a violation).
+[`scripts/pmat-precommit.sh`](../../scripts/pmat-precommit.sh) resolves the
+changed set in git (union of `origin/dev..HEAD` + staged + unstaged + untracked)
+and scopes it to **changed code files including tests, excluding generated**
+([`scripts/tdd-check.sh`](../../scripts/tdd-check.sh) `is-code`). `build.rs` is
+included (hand-written `.rs`); pre-existing below-B+ files block only once
+touched (Clean-as-You-Code). No inline suppressions.
+
+**Integration point 1 — MCP read-only allow-list.** `pmat serve --mode mcp`
+exposes its full ~21-tool surface with no server-side filter, so the read-only
+allow-list is enforced in [`.claude/settings.json`](../../.claude/settings.json)
+(`enabledMcpjsonServers: ["pmat"]`; 7 read-only tools in `permissions.allow`;
+file-writers in `permissions.deny`). The realised 7 tools: `analyze_complexity`
+(TDG is CLI-only; complexity is the closest read-only proxy), `analyze_code_churn`,
+`analyze_satd` (faults), `analyze_duplicates_vectorized`, `analyze_dead_code`,
+`analyze_deep_context` (git-history RAG), `get_server_info`. Repo-score and
+entropy have no MCP tool in 3.17.0 (CLI-only) and are surfaced via the nightly
+workflow. Denied file-writers: `scaffold_project`, `generate_template`,
+`generate_enhanced_report`.
+
+**Integration point 3 — nightly workflow.** `repo-score` reports on a **0–100**
+scale (with a letter grade) in 3.17.0, not 0–289. The previous repo-score and
+below-B+ count are read from Loki (the trend store,
+[ADR-017](ADR-017-ci-gates-consolidation.md)) before the current push, using
+only low-cardinality `{job,env}` labels. The single-file-TDG-slip alert
+(threshold #7) is implemented as the below-B+ **count rising** day-over-day — a
+Loki-storable proxy; exact per-file enforcement is the precommit gate.
+
+**Pre-decomposition baseline** (threshold #6), `dev` HEAD `d3f0373`: repo score
+**64.5 / 100 (grade C)** — the low categories (Pre-commit Hooks 0/20, PMAT
+Compliance 2.5/5) are artifacts of pmat's own checklist looking for a
+`.pre-commit-config.yaml`/`.pmat-gates.toml` that OpenGate deliberately does not
+use, so the absolute number is a weak signal and the day-over-day trend is the
+actionable part. Files below B+: 8 production + ~36 server test files; `web/src`
+clean.
+
+### Amendment 2 — TDG gate excludes gofmt-only Go test files (2026-06-03)
+
+Narrows the Integration-point-2 changed-set: **drop any Go test file
+(`*_test.go`) whose only change versus the baseline is gofmt formatting.**
+Everything else is unchanged.
+
+Trigger: the gauntlet's `go fmt` gate forced reformatting 36 gofmt-drifted Go
+files, which pulled 13 fmt-only `*_test.go` below the B+ floor into scope and
+blocked the commit with no logic change. Empirically those test files are maxed
+on every TDG component except `duplication_ratio` (the only lever being harmful
+test de-duplication), and `pmat tdg --explain` itself skips test files — so
+grading them on a fmt-only diff enforces a stricter scope than the tool
+analyses, for no quality gain.
+
+Detector `pmat_is_gofmt_only_test` in
+[`scripts/pmat-precommit.sh`](../../scripts/pmat-precommit.sh): exclude a file
+iff it is `*_test.go` **and** `gofmt(baseline_blob) == gofmt(current_worktree)`.
+Symmetric, so any real edit keeps the file graded. Fail-safe: a non-test file, a
+new file (no baseline), or an unavailable `gofmt` all grade the file; `gofmt` is
+injectable via `GOFMT_BIN`. Unit-tested in
+[`scripts/tests/pmat-precommit.test.sh`](../../scripts/tests/pmat-precommit.test.sh).
+
+**Source files are never exempt** — a fmt-only change to a `.go` *source* file is
+still graded. In the same change, `apf.go` and `mps.go` (C+ 66.2) were lifted to
+B+ by genuine refactoring (deduplicating APF read/write helpers, then splitting
+each oversized file by concern, since `structural_complexity` is file-size
+driven), and two pre-existing errcheck suppressions were replaced with explicit
+`_ =` closures. Test quality stays governed by the TDD gate, the ≥80% coverage
+thresholds, and the test-determinism gate
+([ADR-029](ADR-029-test-determinism-no-silent-skips.md)).
+
 ## References
 
-- Plan: [`.claude/plans/pmat-adoption-evaluation.md`](../../.claude/plans/pmat-adoption-evaluation.md) (the plan's `§6` and `§7` carry the resolved-decision rationale and verification metrics)
-- Paired evaluation: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/modular-monolith-evaluation.md) (baseline-timing dependency)
+- Plan: [`.claude/plans/pmat-adoption-evaluation.md`](../../.claude/plans/archive/pmat-adoption-evaluation.md) (the plan's `§6` and `§7` carry the resolved-decision rationale and verification metrics)
+- Paired evaluation: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) (baseline-timing dependency)
 - Upstream: [github.com/paiml/paiml-mcp-agent-toolkit](https://github.com/paiml/paiml-mcp-agent-toolkit), [paiml.github.io/pmat-book](https://paiml.github.io/pmat-book/)
 - Template workflow: [`.github/workflows/mutation.yml`](../../.github/workflows/mutation.yml)
 - Constraint sources: [`.claude/rules/sonarcloud.md`](../../.claude/rules/sonarcloud.md), [`.claude/rules/git.md`](../../.claude/rules/git.md), [`.claude/rules/tdd.md`](../../.claude/rules/tdd.md)

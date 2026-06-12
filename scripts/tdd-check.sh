@@ -9,7 +9,7 @@
 #   is-code <path>        exit 0 if <path> is a code file (Go/Rust/TS/JS,
 #                         excluding only generated files — tests ARE included);
 #                         exit 1 otherwise. Used by the PMAT B+ precommit gate
-#                         (ADR-019 / ADR-028), which grades all changed code
+#                         (ADR-019 Amendment 1), which grades all changed code
 #                         including tests, but never machine-generated output.
 #   has-test-change       exit 0 if the current branch has any test-file
 #                         change vs its merge-base with origin/dev
@@ -33,7 +33,7 @@ is_source() {
 
 # is_code: like is_source but KEEPS test files. Only generated files are
 # excluded. The PMAT precommit gate grades all changed code (tests included,
-# per the ADR-019/ADR-028 scope decision) but never machine-generated output,
+# per the ADR-019 Amendment 1 scope decision) but never machine-generated output,
 # which is regenerated and not hand-maintainable to a grade floor.
 is_code() {
   local path="$1"

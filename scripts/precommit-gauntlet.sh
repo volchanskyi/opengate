@@ -35,6 +35,14 @@ if [ -f .env ]; then
   set +a
 fi
 
+# Make every docker step (e2e, sonar) resilient to a broken credential helper —
+# e.g. WSL's docker-credential-desktop.exe, which fails to exec and breaks pulls
+# of even public images. The guard is a no-op when the helper works or none is
+# configured (so CI, where docker login writes auths directly, is unaffected),
+# and preserves auths when it sanitizes. Local-only: this script never runs in CI.
+DOCKER_CONFIG="$(./scripts/docker-credstore-guard.sh)"
+export DOCKER_CONFIG
+
 START_EPOCH="$(date +%s)"
 FAIL_COUNT=0
 FAILED_STEPS=()
@@ -197,6 +205,7 @@ run_check "depcruise"         -- bash -c '
   fi
 '
 run_check "actionlint"        -- bash -c 'actionlint'
+run_check "doc links"         -- bash -c 'GO111MODULE=off go run ./scripts/check-doc-links --baseline .claude/doc-link-baseline.txt'
 run_check "taint (go)"        -- make taint-go
 run_check "taint (web)"       -- make taint-web
 # ADR-027 adversarial pen-test gate. Diff vs origin/dev so a local dev-push
@@ -293,7 +302,7 @@ run_check "make sonar"         -- make sonar
 # a buffer above 80, keeping the result off the boundary (CI run 26929821908).
 run_check "sonar new-coverage margin" -- bash scripts/sonar-coverage-guard.sh
 
-# Phase 8: PMAT TDG gate (ADR-019 §"Integration point 2" / ADR-028). Appended
+# Phase 8: PMAT TDG gate (ADR-019 §"Integration point 2", Amendment 1). Appended
 # last so it never masks faster checks. Grades ONLY changed code files at the
 # B+ floor (Clean-as-You-Code) and passes trivially on docs-only / CI-only
 # commits. Wrapper owns the changed-file resolution + exact-version pin.

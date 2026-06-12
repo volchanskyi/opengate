@@ -242,9 +242,44 @@ cd web && npx playwright test
 cd deploy && docker compose -f docker-compose.test.yml down -v
 ```
 
+### Running Docker locally (credential-helper guardrail)
+
+Use `make e2e` rather than a bare `docker compose` — the target owns the full
+up/build/down lifecycle and routes docker through a sanitized credential config.
+
+A `~/.docker/config.json` with a `"credsStore"` pointing at a helper that cannot
+execute makes `docker build`/`pull` fail **even for public base images**
+(`alpine`, `node`, `golang`), because docker invokes the helper before falling
+back to anonymous access. On WSL the usual offender is
+`docker-credential-desktop.exe` failing with `exec format error` when Docker
+Desktop's WSL integration is not wired up:
+
+```
+ERROR: error getting credentials - err: fork/exec
+/usr/bin/docker-credential-desktop.exe: exec format error
+```
+
+[`scripts/docker-credstore-guard.sh`](../scripts/docker-credstore-guard.sh)
+handles this automatically: it probes the configured helper and, only if it is
+broken, exports a `DOCKER_CONFIG` whose `config.json` has `credsStore`/
+`credHelpers` stripped (every other key — including `auths` — preserved), so
+public images pull anonymously. It is wired into `make e2e`,
+[`scripts/e2e-multiserver.sh`](../scripts/e2e-multiserver.sh), and the precommit
+gauntlet. It is a **no-op** when the helper works or none is configured, so CI
+(where docker login writes `auths` directly, with no broken `credsStore`) is
+unaffected. To run any ad-hoc docker command through the same guard:
+
+```bash
+DOCKER_CONFIG="$(scripts/docker-credstore-guard.sh)" docker compose ...
+```
+
+If you prefer a permanent local fix instead, remove the dead `credsStore` line
+from `~/.docker/config.json` (Docker then pulls public images anonymously and
+still honours any `auths` entries).
+
 ## Multiserver E2E (Phase 13b PR-D)
 
-The multiserver harness proves the cross-server relay proxy ([ADR-033](./Architecture-Decision-Records.md)) and the Redis-loss degraded-mode posture ([ADR-023](./Architecture-Decision-Records.md)) end-to-end against **two real server replicas** sharing one Redis and one Postgres — behaviours that unit tests (miniredis, fake dialer, `httptest`) can only approximate. The topology is `deploy/docker-compose.multiserver.yml`; the host-side wire driver is `server/tests/e2e-multiserver/`.
+The multiserver harness proves the cross-server relay proxy ([ADR-023 Amendment 2](./adr/ADR-023-relay-extraction-redis-session-registry.md#amendments)) and the Redis-loss degraded-mode posture ([ADR-023](./adr/ADR-023-relay-extraction-redis-session-registry.md)) end-to-end against **two real server replicas** sharing one Redis and one Postgres — behaviours that unit tests (miniredis, fake dialer, `httptest`) can only approximate. The topology is `deploy/docker-compose.multiserver.yml`; the host-side wire driver is `server/tests/e2e-multiserver/`.
 
 It is a `main` package (not `*_test.go`), so it stays out of `go test ./...` and is driven only by the Makefile target — mirroring how Playwright E2E lives outside the unit suite. The driver refuses to run unless `OPENGATE_MULTISERVER_E2E=1` (set by the orchestration script).
 
