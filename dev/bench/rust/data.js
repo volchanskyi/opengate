@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781254419674,
+  "lastUpdate": 1781254784680,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17419,6 +17419,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 23.85774961517568,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "021b7216f53a9daa2b9fc41a3992b5b99fa4db04",
+          "message": "build: add pinned shell quality tooling",
+          "timestamp": "2026-06-12T01:58:12-07:00",
+          "tree_id": "bd162832a60e506e78a3ac3f409ccf442d1aadf8",
+          "url": "https://github.com/volchanskyi/opengate/commit/021b7216f53a9daa2b9fc41a3992b5b99fa4db04"
+        },
+        "date": 1781254784550,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 19.188697629395453,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.400902412395077,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 740.1901392973456,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 315.586040849547,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 23.84471128390799,
             "unit": "ns/iter"
           }
         ]
