@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781717070196,
+  "lastUpdate": 1781735190320,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -18007,6 +18007,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 28.21733010386096,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "d6662524316680b9539b9492c0d2af499ef75405",
+          "message": "feat(agentapi): 0x14 fast-path reconnect + load-test threshold\n\nImplement micro-plan W2: the QUIC handshake branches on the agent's\nfirst message type:\n\n- 0x11 AgentHello -> full handshake (reply ServerHello), unchanged from W1\n- 0x14 SkipAuth   -> fast-path reconnect: verify the cached CA hash is\n  current and skip the ServerHello/AgentHello round-trip; HandshakeResult.\n  Skipped is now wired for real (was hardcoded false)\n\nThe agent caches the CA hash from the cold-start ServerHello and replays\nit via 0x14 on reconnect, falling back to a full handshake if the server\nrejects a stale hash (CA rotation). mTLS authenticates both paths.\n\nSettled auth model recorded for the W4 ADR (techdebt.md): authentication\nis mTLS-only -- there is no app-layer signature exchange (0x12/0x13 stay\nunused), so 0x14 saves a round-trip, not cryptographic cost; the dominant\nper-reconnect TLS-handshake cost is W3's (0-RTT) target. Reviewer call:\nship W2 now (round-trip saving helps reconnection-storm latency; W3 stacks\nthe larger win on top).\n\nCross-language handshake_skip_auth golden added (Rust encode / Go verify).\n\nAlso: lower the relay-throughput k6 p(95) threshold 250ms -> 150ms, just\nabove the observed OKE port-forward tunnel floor (~112-136ms), tight\nenough to still flag a real server-side regression.",
+          "timestamp": "2026-06-17T15:24:39-07:00",
+          "tree_id": "8cad3c325d296066e0eab0370066582fad41acd9",
+          "url": "https://github.com/volchanskyi/opengate/commit/d6662524316680b9539b9492c0d2af499ef75405"
+        },
+        "date": 1781735190199,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 11.374712973936248,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 19.93325426951925,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 588.1853599482756,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 302.40353898802925,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 19.88205247357172,
             "unit": "ns/iter"
           }
         ]
