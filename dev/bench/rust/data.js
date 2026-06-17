@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781275178348,
+  "lastUpdate": 1781717070196,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -17958,6 +17958,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.947111659448183,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "868a343a3ba1790afc0e7cd5b144a7274db31555",
+          "message": "fix(agentapi): client-first QUIC handshake + load-test/dep fixes\n\nRealign the QUIC control-stream handshake to the designed agent-opens /\nagent-speaks-first model (micro-plan W1), replacing the Phase-4\nserver-opens workaround:\n\n- handshaker.go reads 0x11 AgentHello first, then writes 0x10 ServerHello\n- server.go accepts the control stream (AcceptStream) instead of opening it\n- the Rust agent open_bi's and writes AgentHello first\n- bench + integration + loadtest harnesses follow client-first order;\n  integration test asserts even (client-initiated) stream IDs\n- cross-language golden fixtures unchanged (message order, not encoding)\n\nCoordinated-cutover rollout (single prod agent) tracked in techdebt.md.\n\nAlso in this push:\n- load test: relax relay-throughput p(95) threshold 50ms -> 250ms; the\n  OKE port-forward tunnel floors latency well above the old local target\n- web deps: apply the Dependabot npm-deps group bump (react, react-router,\n  vite, eslint, etc.); resolve js-yaml/@babel/core/brace-expansion/vite\n  advisories (Dependabot #26/#27); keep TypeScript at 5.9.x (openapi-typescript\n  peer cap) — tracked in techdebt.md\n- ci: bump taiki-e/install-action to 15449e3 (Dependabot)",
+          "timestamp": "2026-06-17T10:22:37-07:00",
+          "tree_id": "721a2eab9c923a101141e859ef1f4572bcc6540e",
+          "url": "https://github.com/volchanskyi/opengate/commit/868a343a3ba1790afc0e7cd5b144a7274db31555"
+        },
+        "date": 1781717070075,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.390946711143542,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 28.16078242833968,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 753.3526745679819,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 304.8831306509174,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 28.21733010386096,
             "unit": "ns/iter"
           }
         ]
