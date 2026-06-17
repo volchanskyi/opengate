@@ -9,6 +9,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha512"
 	"flag"
 	"fmt"
@@ -148,26 +149,29 @@ func runAgent(cm *cert.Manager, addr string) agentResult {
 	connectDur := time.Since(t0)
 	defer conn.CloseWithError(0, "loadtest done")
 
-	// Accept control stream
-	stream, err := conn.AcceptStream(ctx)
+	// Open control stream (agent-initiated): the agent opens and writes
+	// first, per RFC 9000 stream-discovery.
+	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
-		return agentResult{connectDur: connectDur, err: fmt.Errorf("accept stream: %w", err)}
+		return agentResult{connectDur: connectDur, err: fmt.Errorf("open stream: %w", err)}
 	}
 
 	// Handshake
 	t1 := time.Now()
-	serverHello := make([]byte, 81)
-	if _, err := io.ReadFull(stream, serverHello); err != nil {
-		return agentResult{connectDur: connectDur, err: fmt.Errorf("read server hello: %w", err)}
-	}
-
 	agentCertDER := tlsCert.Certificate[0]
 	agentCertHash := sha512.Sum384(agentCertDER)
 	var nonce [32]byte
-	copy(nonce[:], serverHello[1:33])
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return agentResult{connectDur: connectDur, err: fmt.Errorf("generate nonce: %w", err)}
+	}
 	agentHello := protocol.EncodeAgentHello(nonce, agentCertHash)
 	if _, err := stream.Write(agentHello); err != nil {
 		return agentResult{connectDur: connectDur, err: fmt.Errorf("write agent hello: %w", err)}
+	}
+
+	serverHello := make([]byte, 81)
+	if _, err := io.ReadFull(stream, serverHello); err != nil {
+		return agentResult{connectDur: connectDur, err: fmt.Errorf("read server hello: %w", err)}
 	}
 	handshakeDur := time.Since(t1)
 

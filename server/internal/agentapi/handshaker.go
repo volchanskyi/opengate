@@ -34,7 +34,10 @@ func NewHandshaker(cm *cert.Manager) *Handshaker {
 	return &Handshaker{cert: cm}
 }
 
-// PerformHandshake drives the ServerHello/AgentHello exchange over a stream.
+// PerformHandshake drives the AgentHello/ServerHello exchange over a stream.
+// The agent opens the stream and writes first (RFC 9000 stream-discovery: the
+// opener must write before the peer's accept/read can return), so the server
+// reads AgentHello before sending its own ServerHello reply.
 // peerCerts contains the DER-encoded certificates presented by the TLS peer.
 func (h *Handshaker) PerformHandshake(ctx context.Context, stream io.ReadWriter, peerCerts [][]byte) (*HandshakeResult, error) {
 	// Apply deadline from context if the stream supports it.
@@ -44,37 +47,23 @@ func (h *Handshaker) PerformHandshake(ctx context.Context, stream io.ReadWriter,
 		}
 	}
 
-	// Step 1: Generate nonce and compute CA cert hash.
-	var nonce [32]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return nil, fmt.Errorf("generate nonce: %w", err)
-	}
-
-	caCertHash := sha512.Sum384(h.cert.CACert().Raw)
-
-	// Step 2: Send ServerHello.
-	serverHello := protocol.EncodeServerHello(nonce, caCertHash)
-	if _, err := stream.Write(serverHello); err != nil {
-		return nil, fmt.Errorf("write ServerHello: %w", err)
-	}
-
-	// Step 3: Read AgentHello (81 bytes).
+	// Step 1: Read AgentHello (81 bytes).
 	agentHelloBuf := make([]byte, 81)
 	if _, err := io.ReadFull(stream, agentHelloBuf); err != nil {
 		return nil, fmt.Errorf("read AgentHello: %w", err)
 	}
 
-	// Step 4: Validate type byte.
+	// Step 2: Validate type byte.
 	if agentHelloBuf[0] != protocol.MsgAgentHello {
 		return nil, fmt.Errorf("%w: expected AgentHello (0x%02x), got 0x%02x",
 			ErrHandshakeFailed, protocol.MsgAgentHello, agentHelloBuf[0])
 	}
 
-	// Step 5: Extract agent cert hash from the message.
+	// Step 3: Extract agent cert hash from the message.
 	var agentCertHash [48]byte
 	copy(agentCertHash[:], agentHelloBuf[33:81])
 
-	// Step 6: Verify agent cert hash matches the presented peer certificate.
+	// Step 4: Verify agent cert hash matches the presented peer certificate.
 	if len(peerCerts) == 0 {
 		return nil, fmt.Errorf("%w: no peer certificates presented", ErrHandshakeFailed)
 	}
@@ -85,7 +74,7 @@ func (h *Handshaker) PerformHandshake(ctx context.Context, stream io.ReadWriter,
 		return nil, fmt.Errorf("%w: agent cert hash mismatch", ErrHandshakeFailed)
 	}
 
-	// Step 7: Extract DeviceID from the peer certificate's CN.
+	// Step 5: Extract DeviceID from the peer certificate's CN.
 	peerCert, err := x509.ParseCertificate(peerCertDER)
 	if err != nil {
 		return nil, fmt.Errorf("%w: parse peer cert: %v", ErrHandshakeFailed, err)
@@ -95,6 +84,18 @@ func (h *Handshaker) PerformHandshake(ctx context.Context, stream io.ReadWriter,
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid device ID in cert CN %q: %v",
 			ErrHandshakeFailed, peerCert.Subject.CommonName, err)
+	}
+
+	// Step 6: Generate nonce, compute CA cert hash, and send ServerHello.
+	var nonce [32]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return nil, fmt.Errorf("generate nonce: %w", err)
+	}
+
+	caCertHash := sha512.Sum384(h.cert.CACert().Raw)
+	serverHello := protocol.EncodeServerHello(nonce, caCertHash)
+	if _, err := stream.Write(serverHello); err != nil {
+		return nil, fmt.Errorf("write ServerHello: %w", err)
 	}
 
 	return &HandshakeResult{

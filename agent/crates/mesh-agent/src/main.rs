@@ -193,12 +193,31 @@ fn build_quic_config(
     Ok(quinn_config)
 }
 
-/// Perform the binary handshake: read ServerHello, send AgentHello.
+/// Perform the binary handshake: send AgentHello, read ServerHello.
+/// The agent opens the stream and writes first (RFC 9000 stream-discovery:
+/// the opener must write before the peer's accept/read can return).
 async fn perform_handshake(
     send: &mut quinn::SendStream,
     recv: &mut quinn::RecvStream,
     cert_der: &[u8],
 ) -> Result<()> {
+    // Compute agent cert SHA-384 hash
+    let agent_cert_hash: [u8; 48] = Sha384::digest(cert_der).into();
+
+    // Generate random nonce
+    let mut nonce = [0u8; 32];
+    getrandom::fill(&mut nonce).context("generate nonce")?;
+
+    // Build and send AgentHello first.
+    let agent_hello = mesh_protocol::HandshakeMessage::AgentHello {
+        nonce,
+        agent_cert_hash,
+    };
+    send.write_all(&agent_hello.encode_binary())
+        .await
+        .context("write AgentHello")?;
+    send.flush().await.context("flush AgentHello")?;
+
     // Read ServerHello (81 bytes: 1 type + 32 nonce + 48 cert_hash)
     let mut hello_buf = [0u8; 81];
     recv.read_exact(&mut hello_buf)
@@ -214,23 +233,6 @@ async fn perform_handshake(
         }
         other => anyhow::bail!("expected ServerHello, got {:?}", other),
     }
-
-    // Compute agent cert SHA-384 hash
-    let agent_cert_hash: [u8; 48] = Sha384::digest(cert_der).into();
-
-    // Generate random nonce
-    let mut nonce = [0u8; 32];
-    getrandom::fill(&mut nonce).context("generate nonce")?;
-
-    // Build and send AgentHello
-    let agent_hello = mesh_protocol::HandshakeMessage::AgentHello {
-        nonce,
-        agent_cert_hash,
-    };
-    send.write_all(&agent_hello.encode_binary())
-        .await
-        .context("write AgentHello")?;
-    send.flush().await.context("flush AgentHello")?;
 
     info!("handshake complete");
     Ok(())
@@ -422,11 +424,11 @@ async fn main() -> Result<()> {
                         .map_err(|e| format!("QUIC connect: {e}"))?
                         .await
                         .map_err(|e| format!("QUIC establish: {e}"))?;
-                    // Server opens the bidirectional stream (stream ownership workaround)
+                    // Agent opens the bidirectional control stream and writes first.
                     let (send, recv) = conn
-                        .accept_bi()
+                        .open_bi()
                         .await
-                        .map_err(|e| format!("accept bi stream: {e}"))?;
+                        .map_err(|e| format!("open bi stream: {e}"))?;
                     Ok::<_, String>((send, recv))
                 }
             },

@@ -8,6 +8,30 @@ _None currently._
 
 ## Severity: Medium
 
+### W1 client-first handshake — breaking wire change needs a coordinated agent/server rollout
+
+[`handshaker.go`](../server/internal/agentapi/handshaker.go) now reads `0x11`
+AgentHello before writing `0x10` ServerHello, the agent
+([`main.rs`](../agent/crates/mesh-agent/src/main.rs)) now `open_bi`s and writes
+first, and the server ([`server.go`](../server/internal/agentapi/server.go))
+`AcceptStream`s instead of opening. This is a breaking wire-protocol change: a
+client-first server cannot complete a handshake with a server-first agent, and
+vice versa.
+
+Per the master plan's §3 rollout decision, **option (a) — coordinated
+cutover** — is the call here: production has exactly one agent (verified
+2026-06-11) on an Ed25519-signed QUIC auto-update channel (Phase 14), so a
+dual-mode (peek-first-frame) handshake would add complexity for a fleet of
+one. The next production deploy of the server **must** ship together with (or
+immediately followed by) an agent auto-update push — deploying the new server
+alone will strand the running agent mid-reconnect until it updates.
+
+**Pay-down trigger:** clear this note once the coordinated deploy has shipped
+and the production agent is confirmed connected post-cutover. W2 (`0x14` fast
+path), W3 (0-RTT), W4 (ADR), and W5 (remove workaround-era comments + bounded
+accept timeout) remain open on the active fast-path-reconnect-fix master plan
+under `.claude/plans/`.
+
 ### Cutover doc drift — Monitoring.md still describes the compose stack
 
 The compose→OKE cutover moved the app, monitoring, and CD onto the OKE cluster,
@@ -75,6 +99,22 @@ service principal run it).
 The two cheaply-killable mutants from the original 7-mutant gap were closed with tests (`switch.rs::handle_ack` body + the `SwitchAck` dispatch arm), and the `session/handlers/webrtc.rs` bodies were added to `agent/.cargo/mutants.toml` `exclude_globs` (same live-stack rationale as the long-standing `webrtc.rs` exclusion — ADR-024 §9 merely relocated that code). These three remain because the `mutants.toml` glob mechanism cannot exclude individual match arms within an otherwise well-covered function. **Pay-down trigger:** revisit when file upload is implemented (closes the equivalent mutant) or when a headless WebRTC offer/answer harness exists (closes the two live-stack arms).
 
 ## Severity: Low
+
+### `web/package.json` TypeScript pinned to ^5.9.3 — `openapi-typescript` peer conflict
+
+While applying Dependabot's npm-deps group bump (17 packages), TypeScript
+6.0.3 was reverted back to `^5.9.3`. `openapi-typescript@7.13.0` (latest
+available; used by `npm run generate:api` for the OpenAPI-driven TS client
+codegen) declares `peerDependencies: { typescript: "^5.x" }`. A lenient
+`npm install` resolved past the conflict locally, but a clean `npm ci` (as run
+in the `build-image.yml` Docker build, `node:24-alpine`, npm 11.13) fails hard
+with `ERESOLVE` — confirmed by reproducing the exact error. All other bumps
+from that PR (react/react-dom/react-router-dom/zustand/playwright/vite/eslint/
+typescript-eslint/etc.) landed; only the TypeScript major stayed back.
+
+**Pay-down trigger:** revisit once `openapi-typescript` ships a release
+supporting TypeScript 6.x (`npm view openapi-typescript versions` / its
+peerDependencies range), then bump both together.
 
 ### Docker Hub authenticated fallback awaits workflow verification
 

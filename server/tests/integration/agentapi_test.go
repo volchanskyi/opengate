@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha512"
 	"io"
 	"log/slog"
@@ -23,8 +24,46 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
+// testLogger returns an error-level-only slog.Logger to keep test output quiet.
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+}
+
+// performClientHandshake sends AgentHello (the agent opened the stream, so
+// it writes first per RFC 9000 stream-discovery) and reads back ServerHello.
+func performClientHandshake(t *testing.T, stream *quic.Stream, agentCertDER []byte) {
+	t.Helper()
+
+	agentCertHash := sha512.Sum384(agentCertDER)
+	var nonce [32]byte
+	_, err := rand.Read(nonce[:])
+	require.NoError(t, err)
+	agentHello := protocol.EncodeAgentHello(nonce, agentCertHash)
+	_, err = stream.Write(agentHello)
+	require.NoError(t, err)
+
+	serverHello := make([]byte, 81)
+	_, err = io.ReadFull(stream, serverHello)
+	require.NoError(t, err)
+	require.Equal(t, byte(protocol.MsgServerHello), serverHello[0])
+}
+
+// sendAgentRegister encodes and writes a fixed test AgentRegister control frame.
+func sendAgentRegister(t *testing.T, stream *quic.Stream) {
+	t.Helper()
+
+	codec := &protocol.Codec{}
+	regMsg := &protocol.ControlMessage{
+		Type:         protocol.MsgAgentRegister,
+		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
+		Hostname:     "integration-test-host",
+		OS:           "linux",
+		Arch:         "amd64",
+		Version:      "0.1.0",
+	}
+	payload, err := codec.EncodeControl(regMsg)
+	require.NoError(t, err)
+	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, payload))
 }
 
 // agentTestEnv sets up a real in-process agentapi server for integration tests.
@@ -37,6 +76,8 @@ type agentTestEnv struct {
 	cancel  context.CancelFunc
 }
 
+// newAgentTestEnv starts a real in-process agentapi QUIC server backed by a
+// throwaway Postgres schema, for use by agent-connection integration tests.
 func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	t.Helper()
 
@@ -105,34 +146,11 @@ func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) *qui
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.CloseWithError(0, "test done") })
 
-	stream, err := conn.AcceptStream(ctx)
+	stream, err := conn.OpenStreamSync(ctx)
 	require.NoError(t, err)
 
-	serverHello := make([]byte, 81)
-	_, err = io.ReadFull(stream, serverHello)
-	require.NoError(t, err)
-	require.Equal(t, byte(protocol.MsgServerHello), serverHello[0])
-
-	agentCertDER := tlsCert.Certificate[0]
-	agentCertHash := sha512.Sum384(agentCertDER)
-	var nonce [32]byte
-	copy(nonce[:], serverHello[1:33])
-	agentHello := protocol.EncodeAgentHello(nonce, agentCertHash)
-	_, err = stream.Write(agentHello)
-	require.NoError(t, err)
-
-	codec := &protocol.Codec{}
-	regMsg := &protocol.ControlMessage{
-		Type:         protocol.MsgAgentRegister,
-		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
-		Hostname:     "integration-test-host",
-		OS:           "linux",
-		Arch:         "amd64",
-		Version:      "0.1.0",
-	}
-	payload, err := codec.EncodeControl(regMsg)
-	require.NoError(t, err)
-	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, payload))
+	performClientHandshake(t, stream, tlsCert.Certificate[0])
+	sendAgentRegister(t, stream)
 
 	return stream
 }
@@ -170,84 +188,40 @@ func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stre
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.CloseWithError(0, "test done") })
 
-	// Accept control stream (server-initiated)
-	stream, err := conn.AcceptStream(ctx)
+	// Open control stream (agent-initiated): the agent opens and writes
+	// first, per RFC 9000 stream-discovery.
+	stream, err := conn.OpenStreamSync(ctx)
 	require.NoError(t, err)
 
-	// Read ServerHello
-	serverHello := make([]byte, 81)
-	_, err = io.ReadFull(stream, serverHello)
-	require.NoError(t, err)
-	require.Equal(t, byte(protocol.MsgServerHello), serverHello[0])
+	// Client-initiated stream IDs are even (RFC 9000 §2.1).
+	require.Zero(t, int64(stream.StreamID())%2, "control stream must be client-initiated (even ID)")
 
-	// Send AgentHello
-	agentCertDER := tlsCert.Certificate[0]
-	agentCertHash := sha512.Sum384(agentCertDER)
-	var nonce [32]byte
-	copy(nonce[:], serverHello[1:33])
-	agentHello := protocol.EncodeAgentHello(nonce, agentCertHash)
-	_, err = stream.Write(agentHello)
-	require.NoError(t, err)
-
-	// Send AgentRegister
-	codec := &protocol.Codec{}
-	regMsg := &protocol.ControlMessage{
-		Type:         protocol.MsgAgentRegister,
-		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
-		Hostname:     "integration-test-host",
-		OS:           "linux",
-		Arch:         "amd64",
-		Version:      "0.1.0",
-	}
-	payload, err := codec.EncodeControl(regMsg)
-	require.NoError(t, err)
-	err = codec.WriteFrame(stream, protocol.FrameControl, payload)
-	require.NoError(t, err)
+	performClientHandshake(t, stream, tlsCert.Certificate[0])
+	sendAgentRegister(t, stream)
 
 	return stream, deviceID
 }
 
+// getDevice fetches a device by ID, failing the test on error.
+func getDevice(t *testing.T, env *agentTestEnv, deviceID uuid.UUID) *device.Device {
+	t.Helper()
+	d, err := env.devices.Get(context.Background(), deviceID)
+	require.NoError(t, err)
+	return d
+}
+
 func TestAgentConnect_RegistersDevice(t *testing.T) {
 	t.Parallel()
-	env := newAgentTestEnv(t)
-	ctx := context.Background()
+	env, _, deviceID := setupOnlineAgent(t)
 
-	// Create a group for the device
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
-
-	_, deviceID := env.connectAgent(t, group.ID)
-
-	// Verify device appears in DB as online
-	require.Eventually(t, func() bool {
-		d, err := env.devices.Get(ctx, deviceID)
-		if err != nil {
-			return false
-		}
-		return d.Status == db.StatusOnline && d.Hostname == "integration-test-host"
-	}, 3*time.Second, 50*time.Millisecond)
+	assert.Equal(t, "integration-test-host", getDevice(t, env, deviceID).Hostname)
 }
 
 func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
 	t.Parallel()
-	env := newAgentTestEnv(t)
-	ctx := context.Background()
+	env, stream, deviceID := setupOnlineAgent(t)
 
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
-
-	stream, deviceID := env.connectAgent(t, group.ID)
-
-	// Wait for registration to complete.
-	require.Eventually(t, func() bool {
-		d, err := env.devices.Get(ctx, deviceID)
-		return err == nil && d.Status == db.StatusOnline
-	}, 3*time.Second, 50*time.Millisecond)
-
-	// Record current last_seen
-	d, err := env.devices.Get(ctx, deviceID)
-	require.NoError(t, err)
-	originalLastSeen := d.UpdatedAt
+	originalLastSeen := getDevice(t, env, deviceID).UpdatedAt
 
 	// Send heartbeat
 	codec := &protocol.Codec{}
@@ -257,46 +231,22 @@ func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
 	}
 	payload, err := codec.EncodeControl(hbMsg)
 	require.NoError(t, err)
-	err = codec.WriteFrame(stream, protocol.FrameControl, payload)
-	require.NoError(t, err)
+	require.NoError(t, codec.WriteFrame(stream, protocol.FrameControl, payload))
 
-	// Verify last_seen updated
+	// Verify last_seen updated, still online
 	require.Eventually(t, func() bool {
-		d, err := env.devices.Get(ctx, deviceID)
-		if err != nil {
-			return false
-		}
-		return d.UpdatedAt.After(originalLastSeen) || d.UpdatedAt.Equal(originalLastSeen)
+		d, err := env.devices.Get(context.Background(), deviceID)
+		return err == nil && !d.UpdatedAt.Before(originalLastSeen)
 	}, 2*time.Second, 50*time.Millisecond)
-
-	// Verify still online
-	finalDev, err := env.devices.Get(ctx, deviceID)
-	require.NoError(t, err)
-	assert.Equal(t, db.StatusOnline, finalDev.Status)
+	assert.Equal(t, db.StatusOnline, getDevice(t, env, deviceID).Status)
 }
 
 func TestAgentConnect_DisconnectSetsOffline(t *testing.T) {
 	t.Parallel()
-	env := newAgentTestEnv(t)
-	ctx := context.Background()
-
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
-
-	stream, deviceID := env.connectAgent(t, group.ID)
-
-	// Wait for registration
-	require.Eventually(t, func() bool {
-		d, err := env.devices.Get(ctx, deviceID)
-		return err == nil && d.Status == db.StatusOnline
-	}, 2*time.Second, 50*time.Millisecond)
+	env, stream, deviceID := setupOnlineAgent(t)
 
 	// Close the stream to disconnect
 	stream.Close()
 
-	// Verify device becomes offline
-	require.Eventually(t, func() bool {
-		d, err := env.devices.Get(ctx, deviceID)
-		return err == nil && d.Status == db.StatusOffline
-	}, 5*time.Second, 100*time.Millisecond)
+	waitForDeviceStatus(t, env.store, deviceID, db.StatusOffline)
 }

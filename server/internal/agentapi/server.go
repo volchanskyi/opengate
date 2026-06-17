@@ -180,7 +180,7 @@ func (s *AgentServer) ListenAndServe(ctx context.Context, addr string) error {
 func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	logger := s.logger.With("remote_addr", conn.RemoteAddr())
 
-	stream, err := s.openControlStream(ctx, conn, logger)
+	stream, err := s.acceptControlStream(ctx, conn, logger)
 	if err != nil {
 		return
 	}
@@ -267,13 +267,15 @@ func (s *AgentServer) runControlLoop(ctx context.Context, ac *AgentConn, logger 
 	}
 }
 
-// openControlStream opens the server-initiated control stream on the QUIC connection.
-// On error, it closes the connection and returns the error.
-func (s *AgentServer) openControlStream(ctx context.Context, conn *quic.Conn, logger *slog.Logger) (*quic.Stream, error) {
-	stream, err := conn.OpenStreamSync(ctx)
+// acceptControlStream accepts the agent-initiated control stream on the QUIC
+// connection. The agent opens the stream and writes first; the server accepts
+// it and replies during the handshake. On error, it closes the connection and
+// returns the error.
+func (s *AgentServer) acceptControlStream(ctx context.Context, conn *quic.Conn, logger *slog.Logger) (*quic.Stream, error) {
+	stream, err := conn.AcceptStream(ctx)
 	if err != nil {
-		logger.Error("open control stream", "error", err)
-		_ = conn.CloseWithError(1, "stream open failed")
+		logger.Error("accept control stream", "error", err)
+		_ = conn.CloseWithError(1, "stream accept failed")
 		return nil, err
 	}
 	return stream, nil
