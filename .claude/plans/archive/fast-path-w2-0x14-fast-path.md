@@ -1,6 +1,6 @@
 # Micro-plan W2 — `0x14` fast-path reconnect + the auth decision
 
-**Parent:** [`fast-path-reconnect-fix.md`](fast-path-reconnect-fix.md). **Depends on:** W1 (client-first handshake).
+**Parent:** `fast-path-reconnect-fix.md` (active master plan). **Depends on:** W1 (client-first handshake).
 **Branch:** `dev`.
 
 ## Why + honest scoping (read first)
@@ -23,9 +23,9 @@ there **is** no app-layer signature exchange; auth is **mTLS-only + cert-hash bi
 `0x14` therefore changes round-trips, not cryptographic cost).
 
 ## Files
-- [`server/internal/agentapi/handshaker.go`](../../server/internal/agentapi/handshaker.go) — branch on the **first** received message type: `0x14` (`MsgSkipAuth`) → read the cached CA hash, verify it equals the **current** CA cert hash, **skip** the `0x10`/`0x11` exchange, still extract DeviceID from the TLS peer cert, set `HandshakeResult.Skipped = true`. `0x11` → the W1 full handshake.
-- [`agent/crates/mesh-agent/src/main.rs`](../../agent/crates/mesh-agent/src/main.rs) + `mesh-agent-core` — cache the server's CA cert hash from a prior ServerHello; on **reconnect**, open the stream and send `0x14` + cached hash first; on hash-mismatch rejection, fall back to the full handshake.
-- `HandshakeResult.Skipped` ([handshaker.go:103](../../server/internal/agentapi/handshaker.go#L103)) — wire it for real (today hardcoded `false`).
+- [`server/internal/agentapi/handshaker.go`](../../../server/internal/agentapi/handshaker.go) — branch on the **first** received message type: `0x14` (`MsgSkipAuth`) → read the cached CA hash, verify it equals the **current** CA cert hash, **skip** the `0x10`/`0x11` exchange, still extract DeviceID from the TLS peer cert, set `HandshakeResult.Skipped = true`. `0x11` → the W1 full handshake.
+- [`agent/crates/mesh-agent/src/main.rs`](../../../agent/crates/mesh-agent/src/main.rs) + `mesh-agent-core` — cache the server's CA cert hash from a prior ServerHello; on **reconnect**, open the stream and send `0x14` + cached hash first; on hash-mismatch rejection, fall back to the full handshake.
+- `HandshakeResult.Skipped` ([handshaker.go:103](../../../server/internal/agentapi/handshaker.go#L103)) — wire it for real (today hardcoded `false`).
 - `agent/crates/mesh-protocol` — `SkipAuth` encode/decode already exists (`0x14`).
 - Golden files for the `0x14` path (`make golden`).
 

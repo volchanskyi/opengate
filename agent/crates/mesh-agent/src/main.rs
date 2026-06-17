@@ -193,14 +193,16 @@ fn build_quic_config(
     Ok(quinn_config)
 }
 
-/// Perform the binary handshake: send AgentHello, read ServerHello.
+/// Perform the full binary handshake: send AgentHello, read ServerHello.
 /// The agent opens the stream and writes first (RFC 9000 stream-discovery:
-/// the opener must write before the peer's accept/read can return).
-async fn perform_handshake(
+/// the opener must write before the peer's accept/read can return). Returns
+/// the server's CA cert hash from ServerHello, which the agent caches to drive
+/// the 0x14 fast path on subsequent reconnects.
+async fn perform_full_handshake(
     send: &mut quinn::SendStream,
     recv: &mut quinn::RecvStream,
     cert_der: &[u8],
-) -> Result<()> {
+) -> Result<[u8; 48]> {
     // Compute agent cert SHA-384 hash
     let agent_cert_hash: [u8; 48] = Sha384::digest(cert_der).into();
 
@@ -227,14 +229,32 @@ async fn perform_handshake(
     let server_hello =
         mesh_protocol::HandshakeMessage::decode_binary(&hello_buf).context("decode ServerHello")?;
 
-    match &server_hello {
-        mesh_protocol::HandshakeMessage::ServerHello { .. } => {
+    match server_hello {
+        mesh_protocol::HandshakeMessage::ServerHello { cert_hash, .. } => {
             info!("received ServerHello");
+            info!("handshake complete");
+            Ok(cert_hash)
         }
         other => anyhow::bail!("expected ServerHello, got {:?}", other),
     }
+}
 
-    info!("handshake complete");
+/// Perform the 0x14 fast-path handshake on reconnect: send SkipAuth carrying
+/// the cached CA cert hash and proceed optimistically. The server replies only
+/// on rejection (stale hash) by tearing the connection down, which surfaces as
+/// a failure during registration so the caller falls back to a full handshake.
+async fn perform_fast_handshake(
+    send: &mut quinn::SendStream,
+    cached_ca_hash: &[u8; 48],
+) -> Result<()> {
+    let skip_auth = mesh_protocol::HandshakeMessage::SkipAuth {
+        cached_cert_hash: *cached_ca_hash,
+    };
+    send.write_all(&skip_auth.encode_binary())
+        .await
+        .context("write SkipAuth")?;
+    send.flush().await.context("flush SkipAuth")?;
+    info!("sent fast-path SkipAuth");
     Ok(())
 }
 
@@ -396,6 +416,15 @@ async fn main() -> Result<()> {
     // Shutdown signal handler
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
+    // Fast-path (0x14) reconnect state. cached_ca_hash is learned from the
+    // first full handshake's ServerHello; once set, reconnects send SkipAuth
+    // instead of the full exchange. force_full_next forces one full handshake
+    // after an early fast-path failure (e.g. the server rotated its CA and
+    // rejected the stale hash), re-validating and re-caching before the agent
+    // resumes the fast path.
+    let mut cached_ca_hash: Option<[u8; 48]> = None;
+    let mut force_full_next = false;
+
     // Main reconnect loop
     'outer: loop {
         // Connect with exponential backoff
@@ -445,10 +474,33 @@ async fn main() -> Result<()> {
             }
         };
 
-        // Perform binary handshake (ServerHello / AgentHello)
-        if let Err(e) = perform_handshake(&mut send, &mut recv, &identity.cert_der).await {
-            warn!(error = %e, "handshake failed, will reconnect");
-            continue;
+        // Choose the fast path (0x14) when we hold a cached CA hash and the
+        // last attempt wasn't an early fast-path rejection.
+        let used_fast_path = cached_ca_hash.is_some() && !force_full_next;
+        let handshake = if used_fast_path {
+            perform_fast_handshake(&mut send, &cached_ca_hash.unwrap())
+                .await
+                .map(|()| None)
+        } else {
+            perform_full_handshake(&mut send, &mut recv, &identity.cert_der)
+                .await
+                .map(Some)
+        };
+        match handshake {
+            Ok(Some(ca_hash)) => {
+                // Full handshake succeeded — (re)cache the CA hash and clear
+                // any prior fast-path failure.
+                cached_ca_hash = Some(ca_hash);
+                force_full_next = false;
+            }
+            Ok(None) => {} // fast path: keep the existing cached hash
+            Err(e) => {
+                warn!(error = %e, "handshake failed, will reconnect");
+                if used_fast_path {
+                    force_full_next = true;
+                }
+                continue;
+            }
         }
 
         // Wrap QUIC streams into AsyncControlStream
@@ -469,11 +521,21 @@ async fn main() -> Result<()> {
             })
             .await
         {
+            // A fast-path connection that fails at registration was likely
+            // rejected (stale CA hash); fall back to a full handshake next time.
             warn!(error = %e, "failed to send AgentRegister, will reconnect");
+            if used_fast_path {
+                force_full_next = true;
+            }
             continue;
         }
 
-        info!("registered with server, entering control loop");
+        // Registration succeeded: the fast path (if used) is validated.
+        force_full_next = false;
+        info!(
+            fast_path = used_fast_path,
+            "registered with server, entering control loop"
+        );
 
         // Registration succeeded — cancel watchdog and clear sentinel.
         if pending_update {

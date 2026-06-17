@@ -275,6 +275,15 @@ fn golden_handshake_server_hello() {
     golden_check("handshake_server_hello.bin", &encoded);
 }
 
+#[test]
+fn golden_handshake_skip_auth() {
+    let msg = HandshakeMessage::SkipAuth {
+        cached_cert_hash: [0xCC; 48],
+    };
+    let encoded = msg.encode_binary();
+    golden_check("handshake_skip_auth.bin", &encoded);
+}
+
 // --- Phase A: cross-boundary ControlMessage goldens ---
 //
 // Every variant below is encoded by Rust and decoded by Go in production.

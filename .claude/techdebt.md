@@ -8,15 +8,18 @@ _None currently._
 
 ## Severity: Medium
 
-### W1 client-first handshake — breaking wire change needs a coordinated agent/server rollout
+### W1+W2 client-first handshake + 0x14 fast path — breaking wire change needs a coordinated agent/server rollout
 
-[`handshaker.go`](../server/internal/agentapi/handshaker.go) now reads `0x11`
-AgentHello before writing `0x10` ServerHello, the agent
-([`main.rs`](../agent/crates/mesh-agent/src/main.rs)) now `open_bi`s and writes
-first, and the server ([`server.go`](../server/internal/agentapi/server.go))
-`AcceptStream`s instead of opening. This is a breaking wire-protocol change: a
-client-first server cannot complete a handshake with a server-first agent, and
-vice versa.
+[`handshaker.go`](../server/internal/agentapi/handshaker.go) reads the agent's
+first message and branches: `0x11` AgentHello → full handshake (reply
+ServerHello); `0x14` SkipAuth → fast-path reconnect (verify the cached CA hash
+is current, skip the reply). The agent
+([`main.rs`](../agent/crates/mesh-agent/src/main.rs)) `open_bi`s and writes
+first — a full handshake on cold start (caching the CA hash from ServerHello),
+then `0x14` on reconnect with full-handshake fallback on rejection — and the
+server ([`server.go`](../server/internal/agentapi/server.go)) `AcceptStream`s
+instead of opening. This is a breaking wire-protocol change: a client-first
+server cannot complete a handshake with a server-first agent, and vice versa.
 
 Per the master plan's §3 rollout decision, **option (a) — coordinated
 cutover** — is the call here: production has exactly one agent (verified
@@ -26,11 +29,23 @@ one. The next production deploy of the server **must** ship together with (or
 immediately followed by) an agent auto-update push — deploying the new server
 alone will strand the running agent mid-reconnect until it updates.
 
+**Settled auth model (input for the W4 ADR):** authentication is **mTLS-only** —
+the QUIC/TLS layer (`RequireAndVerifyClientCert`) authenticates the agent and
+the agent verifies the server against its CA; the message exchange only binds
+the cert hash and advertises the CA hash. There is **no app-layer signature
+exchange** (`0x12`/`0x13` remain unused constants). So `0x14` changes
+**round-trips, not cryptographic cost**: it elides the `0x10`/`0x11` exchange,
+not signatures. The dominant per-reconnect cost is the **TLS mTLS handshake
+itself, which `0x14` does not avoid** — only 0-RTT/session resumption (W3)
+does. **Reviewer call (recorded):** ship W2 now — the saved round-trip helps
+reconnection-storm latency on its own, and W3 stacks the larger TLS-cost win on
+top.
+
 **Pay-down trigger:** clear this note once the coordinated deploy has shipped
-and the production agent is confirmed connected post-cutover. W2 (`0x14` fast
-path), W3 (0-RTT), W4 (ADR), and W5 (remove workaround-era comments + bounded
-accept timeout) remain open on the active fast-path-reconnect-fix master plan
-under `.claude/plans/`.
+and the production agent is confirmed connected post-cutover. W3 (0-RTT), W4
+(ADR — capture the settled mTLS-only model above), and W5 (remove
+workaround-era comments + bounded accept timeout) remain open on the active
+fast-path-reconnect-fix master plan under `.claude/plans/`.
 
 ### Cutover doc drift — Monitoring.md still describes the compose stack
 

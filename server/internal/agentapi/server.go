@@ -191,7 +191,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	}
 
 	logger = logger.With("device_id", result.DeviceID)
-	logger.Info("handshake complete")
+	logger.Info("handshake complete", "fast_path", result.Skipped)
 
 	if s.rejectIfTombstoned(stream, conn, result.DeviceID, logger) {
 		return

@@ -129,76 +129,81 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 	}
 }
 
-// connectAgentWithID establishes a QUIC connection as a test agent with a specific device ID.
-// The device must already exist in the DB.
-func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) *quic.Stream {
-	t.Helper()
-	ctx := context.Background()
-
-	tlsCert, err := e.certMgr.SignAgent(deviceID.String(), "test-agent")
-	require.NoError(t, err)
-
-	agentTLSCfg := e.certMgr.AgentTLSConfig(tlsCert)
-
-	conn, err := quic.DialAddr(ctx, e.addr, agentTLSCfg, &quic.Config{
-		MaxIdleTimeout: 30 * time.Second,
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { conn.CloseWithError(0, "test done") })
-
-	stream, err := conn.OpenStreamSync(ctx)
-	require.NoError(t, err)
-
-	performClientHandshake(t, stream, tlsCert.Certificate[0])
-	sendAgentRegister(t, stream)
-
-	return stream
+// caCertHash returns the SHA-384 of the env's CA cert — the value an agent
+// caches and replays on the 0x14 fast path.
+func (e *agentTestEnv) caCertHash() [48]byte {
+	return sha512.Sum384(e.certMgr.CACert().Raw)
 }
 
-// connectAgent establishes a QUIC connection as a test agent and performs the handshake.
-// Returns the stream, device ID, and agent cert DER.
-func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stream, uuid.UUID) {
+// seedDevice pre-creates an offline device row BEFORE the agent connects, so
+// the server can resolve its group during accept() without a race.
+func (e *agentTestEnv) seedDevice(t *testing.T, deviceID, groupID uuid.UUID) {
 	t.Helper()
-	ctx := context.Background()
-
-	deviceID := uuid.New()
-
-	// Pre-seed the device in the DB BEFORE connecting so the server can
-	// find its group during accept(). Previously this happened after the
-	// handshake, causing races with concurrent connections.
-	seedDevice := &device.Device{
+	require.NoError(t, e.devices.Upsert(context.Background(), &device.Device{
 		ID:       deviceID,
 		GroupID:  groupID,
 		Hostname: "pre-seed",
 		OS:       "linux",
 		Status:   db.StatusOffline,
-	}
-	require.NoError(t, e.devices.Upsert(ctx, seedDevice))
+	}))
+}
 
-	// Sign an agent cert using the CA
+// dialAgentStream signs an agent cert for deviceID, dials QUIC, and opens the
+// client-initiated control stream. Returns the stream and the agent cert DER.
+func (e *agentTestEnv) dialAgentStream(t *testing.T, deviceID uuid.UUID) (*quic.Stream, []byte) {
+	t.Helper()
+	ctx := context.Background()
+
 	tlsCert, err := e.certMgr.SignAgent(deviceID.String(), "test-agent")
 	require.NoError(t, err)
 
-	agentTLSCfg := e.certMgr.AgentTLSConfig(tlsCert)
-
-	// Connect via QUIC
-	conn, err := quic.DialAddr(ctx, e.addr, agentTLSCfg, &quic.Config{
+	conn, err := quic.DialAddr(ctx, e.addr, e.certMgr.AgentTLSConfig(tlsCert), &quic.Config{
 		MaxIdleTimeout: 30 * time.Second,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.CloseWithError(0, "test done") })
 
-	// Open control stream (agent-initiated): the agent opens and writes
-	// first, per RFC 9000 stream-discovery.
+	// Agent opens the control stream and writes first (RFC 9000
+	// stream-discovery); client-initiated stream IDs are even (§2.1).
 	stream, err := conn.OpenStreamSync(ctx)
 	require.NoError(t, err)
-
-	// Client-initiated stream IDs are even (RFC 9000 §2.1).
 	require.Zero(t, int64(stream.StreamID())%2, "control stream must be client-initiated (even ID)")
 
-	performClientHandshake(t, stream, tlsCert.Certificate[0])
-	sendAgentRegister(t, stream)
+	return stream, tlsCert.Certificate[0]
+}
 
+// connectAgentWithID establishes a QUIC connection as a test agent with a
+// specific device ID (which must already exist in the DB) via the full handshake.
+func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) *quic.Stream {
+	t.Helper()
+	stream, agentCertDER := e.dialAgentStream(t, deviceID)
+	performClientHandshake(t, stream, agentCertDER)
+	sendAgentRegister(t, stream)
+	return stream
+}
+
+// connectAgent seeds a fresh device and connects a test agent via the full
+// handshake. Returns the stream and device ID.
+func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stream, uuid.UUID) {
+	t.Helper()
+	deviceID := uuid.New()
+	e.seedDevice(t, deviceID, groupID)
+	stream, agentCertDER := e.dialAgentStream(t, deviceID)
+	performClientHandshake(t, stream, agentCertDER)
+	sendAgentRegister(t, stream)
+	return stream, deviceID
+}
+
+// connectAgentFastPath seeds a fresh device and connects via the 0x14
+// fast path, sending SkipAuth with the given cached CA hash (no full
+// handshake). Returns the stream and device ID; the caller drives registration.
+func (e *agentTestEnv) connectAgentFastPath(t *testing.T, groupID uuid.UUID, cachedCAHash [48]byte) (*quic.Stream, uuid.UUID) {
+	t.Helper()
+	deviceID := uuid.New()
+	e.seedDevice(t, deviceID, groupID)
+	stream, _ := e.dialAgentStream(t, deviceID)
+	_, err := stream.Write(protocol.EncodeSkipAuth(cachedCAHash))
+	require.NoError(t, err)
 	return stream, deviceID
 }
 
@@ -249,4 +254,42 @@ func TestAgentConnect_DisconnectSetsOffline(t *testing.T) {
 	stream.Close()
 
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOffline)
+}
+
+// TestAgentConnect_FastPath_ValidHashRegisters verifies the 0x14 reconnect
+// path: an agent that replays the current CA hash skips the ServerHello
+// exchange and still registers (Skipped path), driven end-to-end over QUIC.
+func TestAgentConnect_FastPath_ValidHashRegisters(t *testing.T) {
+	t.Parallel()
+	env := newAgentTestEnv(t)
+	ctx := context.Background()
+	user := testutil.SeedUser(t, ctx, env.store)
+	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+
+	stream, deviceID := env.connectAgentFastPath(t, group.ID, env.caCertHash())
+	sendAgentRegister(t, stream)
+
+	waitForDeviceStatus(t, env.store, deviceID, db.StatusOnline)
+}
+
+// TestAgentConnect_FastPath_StaleHashRejected verifies a stale cached CA hash
+// is rejected: the server tears the connection down (so the agent would fall
+// back to a full handshake) and the device never registers.
+func TestAgentConnect_FastPath_StaleHashRejected(t *testing.T) {
+	t.Parallel()
+	env := newAgentTestEnv(t)
+	ctx := context.Background()
+	user := testutil.SeedUser(t, ctx, env.store)
+	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+
+	var staleHash [48]byte // all zeros — never the real CA hash
+	stream, deviceID := env.connectAgentFastPath(t, group.ID, staleHash)
+
+	// The server rejects the stale hash and closes the connection, so a read
+	// on the agent stream fails rather than blocking.
+	require.NoError(t, stream.SetReadDeadline(time.Now().Add(2*time.Second)))
+	_, err := stream.Read(make([]byte, 1))
+	require.Error(t, err, "server must reject a stale fast-path hash")
+
+	assert.Equal(t, db.StatusOffline, getDevice(t, env, deviceID).Status)
 }
