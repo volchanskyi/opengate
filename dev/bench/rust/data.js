@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781799940329,
+  "lastUpdate": 1781820469463,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -18203,6 +18203,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.086696706847533,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "44034761df4c86ad5df1f713d394caf0ba318136",
+          "message": "docs: reconcile docs with OKE runtime",
+          "timestamp": "2026-06-18T11:34:23-07:00",
+          "tree_id": "95cf7cb15347d6d7da3dcf1192dea331a883828a",
+          "url": "https://github.com/volchanskyi/opengate/commit/44034761df4c86ad5df1f713d394caf0ba318136"
+        },
+        "date": 1781820469311,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 16.139212458162348,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.498391969008097,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 752.7723993259718,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 328.440052700949,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.219380114327826,
             "unit": "ns/iter"
           }
         ]
