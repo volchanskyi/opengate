@@ -28,8 +28,8 @@ The following findings live in `.checkov.baseline` at the time of this ADR. Each
 
 | Check | Resource | Why baselined |
 |---|---|---|
-| `CKV_OCI_4` (boot volume in-transit encryption) | `module.compute.oci_core_instance.opengate` | `is_pv_encryption_in_transit_enabled` is set at **boot time only**. Toggling on an existing instance forces resource recreation — destroys the production VPS and its persistent volumes. To be applied at the next scheduled rebuild. |
-| `CKV_OCI_5` (legacy IMDS endpoint disabled) | `module.compute.oci_core_instance.opengate` | `are_legacy_imds_endpoints_disabled` requires an OCI instance stop/start to apply. Scheduled for the same rebuild window as CKV_OCI_4 to amortise the downtime. |
+| `CKV_OCI_4` (boot volume in-transit encryption) | `module.compute.oci_core_instance.opengate` | The compute module is now a dormant rollback module, not the active production path. Keep the baseline while the module remains uninstantiated; fix or consciously re-baseline before re-enabling the VM rollback path. |
+| `CKV_OCI_5` (legacy IMDS endpoint disabled) | `module.compute.oci_core_instance.opengate` | Same dormant-module rationale as CKV_OCI_4. If the compute rollback module is re-instantiated, disable legacy IMDS as part of that rebuild. |
 | `CKV_OCI_17` (security list ingress stateless) | `module.networking.oci_core_security_list.opengate` | **Design choice, not deferred fix.** Stateful ingress is required so return traffic on TCP connections does not need a reciprocal egress rule. Reaffirmed by [`modules/networking/tests/security.tftest.hcl`](../../deploy/terraform/modules/networking/tests/security.tftest.hcl) `run "egress_is_unrestricted_but_stateful"`, which asserts the opposite egress invariant. Will never come out of the baseline. |
 
 ## Consequences

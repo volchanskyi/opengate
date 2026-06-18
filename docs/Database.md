@@ -17,7 +17,7 @@ the rationale behind the PostgreSQL choice and the supersession of ADR-003.
 | Size metric | `pg_database_size(current_database())` | [`postgres.go`](../server/internal/db/postgres.go) `Size()` |
 
 The size value feeds the `opengate_db_size_bytes` Prometheus gauge (see
-[Monitoring-and-Observability](Monitoring-and-Observability.md)).
+[Monitoring](Monitoring.md)).
 
 ## Schema types
 
@@ -259,13 +259,16 @@ data/
 └── vapid.json  # VAPID keypair for Web Push
 ```
 
-The database itself lives in the `postgres-data` Docker volume
-(`/var/lib/postgresql/data` inside the postgres container).
+The production database lives in the app chart's Postgres StatefulSet
+([`postgres-statefulset.yaml`](../deploy/helm/opengate/templates/postgres-statefulset.yaml)).
+Production keeps a persistent `oci-bv` volume claim; staging sets
+`postgres.storage.persistent=false` and uses `emptyDir` because staging data is
+ephemeral E2E/smoke-test state.
 
-## Transport security inside Docker
+## Transport Security Inside Kubernetes
 
-The connection string in deploy configs uses `sslmode=disable` because all
-server ↔ postgres traffic stays on the internal Docker bridge network.
-Postgres is not exposed to the host or the public internet. If Postgres is
-ever moved off-host, switch to `sslmode=verify-full` and provision TLS
-material on both sides.
+The Helm-generated connection string uses `sslmode=disable` because server ↔
+Postgres traffic stays inside the Kubernetes cluster via the chart's headless
+Service DNS name. Postgres is not exposed through Ingress, NodePort, or a public
+OCI load balancer. If Postgres is ever moved outside the cluster boundary, switch
+to `sslmode=verify-full` and provision TLS material on both sides.

@@ -2,294 +2,173 @@
 
 ## Overview
 
-OpenGate uses a fully self-hosted observability stack deployed alongside the application on the same VPS. Total resource usage: ~425 MB RAM (3.5% of 12 GB), ~3 GB disk.
+OpenGate monitoring runs inside the same OKE cluster as the application. The
+intended topology is the Helm chart at
+[`deploy/helm/monitoring`](../deploy/helm/monitoring/); live reconciliation on
+2026-06-18 showed the `monitoring` Helm release deployed with all monitoring
+workloads Ready, plus the production and staging app releases running in their
+own namespaces.
+
+The old VPS/Docker Compose monitoring stack is no longer the production path.
+The compose files under [`deploy/`](../deploy/) remain local or dormant
+compatibility artifacts; current production monitoring is Kubernetes-native.
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  VPS (ARM64, 12 GB RAM, 50 GB disk)                                  │
-│                                                                      │
-│  ┌──────────────┐    scrape /metrics    ┌───────────────────┐        │
-│  │ OpenGate     │◄─────────────────────│ VictoriaMetrics   │        │
-│  │ Server :8080 │   every 15s           │ :8428             │        │
-│  └──────┬───────┘                       │ (metrics DB)      │        │
-│         │ stdout logs                   └──┬──────┬─────────┘        │
-│         ▼                                  │      │                  │
-│  ┌──────────────┐    push logs    ┌────────┘      │ query            │
-│  │ Docker       │◄───────────────│Promtail │      │                  │
-│  │ /var/lib/    │  (reads JSON   │(log      │     │                  │
-│  │ docker/      │   container    │ shipper) │     │                  │
-│  │ containers/  │   logs)        └────┬─────┘     │                  │
-│  └──────────────┘                     │           │                  │
-│                                       │ push      │                  │
-│  ┌──────────────┐    scrape :9100     ▼           ▼                  │
-│  │ Node         │◄──────────────┐ ┌─────────┐ ┌────────────┐        │
-│  │ Exporter     │  (VM scrapes) │ │  Loki   │ │  Grafana   │        │
-│  │ (host        │               │ │  :3100  │ │  :3000     │        │
-│  │  metrics)    │               │ │ (log DB)│ │ (dashboard │        │
-│  └──────────────┘               │ └────┬────┘ │  + alerts) │        │
-│                                 │      │      └─────┬──────┘        │
-│  ┌──────────────┐  scrape :9187 │      │ query      │               │
-│  │ Postgres     │◄──────────────┘      └────────────┘               │
-│  │ Exporter     │                                   │               │
-│  │ :9187        │                                   │ alert          │
-│  └──────┬───────┘                                   ▼               │
-│         │ SQL queries                        ┌─────────────┐        │
-│         ▼                                    │ Telegram    │        │
-│  ┌──────────────┐                            │ Bot API     │        │
-│  │ PostgreSQL   │                            └─────────────┘        │
-│  │ :5432        │                                                    │
-│  └──────────────┘                                                    │
-│                                                                      │
-│  ┌──────────────┐                                                    │
-│  │ Uptime Kuma  │                                                    │
-│  │ :3001        │                                                    │
-│  │ (status page)│                                                    │
-│  └──────────────┘                                                    │
-└──────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph OKE[OKE cluster]
+    subgraph App[opengate + opengate-staging namespaces]
+      Server[OpenGate server pods]
+      PG[PostgreSQL StatefulSets]
+    end
+
+    subgraph Mon[monitoring namespace]
+      VM[VictoriaMetrics StatefulSet]
+      Loki[Loki StatefulSet]
+      Grafana[Grafana Deployment]
+      Promtail[Promtail DaemonSet]
+      NodeExporter[Node Exporter DaemonSet]
+      PgExporter[Postgres Exporter Deployment]
+    end
+  end
+
+  VM -- kubernetes_sd scrape --> Server
+  VM -- scrape --> NodeExporter
+  VM -- scrape --> PgExporter
+  PgExporter -- SQL metrics --> PG
+  Promtail -- pod logs --> Loki
+  Grafana -- PromQL --> VM
+  Grafana -- LogQL --> Loki
+  Grafana -- alerts --> Telegram[Telegram Bot API]
+  Nightly[Mutation / PMAT / drift workflows] -- kubectl Loki push --> Loki
+  External[External uptime SaaS] -- public probes --> Ingress[Public HTTPS / QUIC / MPS]
 ```
 
-### Data Flow
+## Sources Of Truth
 
-| Flow | From | To | Protocol |
-|------|------|----|----------|
-| Metrics collection | VictoriaMetrics | OpenGate Server, Node Exporter, Postgres Exporter | HTTP scrape (pull, every 15s) |
-| Postgres metrics | Postgres Exporter | PostgreSQL | SQL queries over app network |
-| Log collection | Promtail | Loki | HTTP push |
-| Dashboard queries | Grafana | VictoriaMetrics | PromQL over HTTP |
-| Log queries | Grafana | Loki | LogQL over HTTP |
-| Alert notifications | Grafana | Telegram Bot API | HTTPS POST |
-| Status checks | Uptime Kuma | OpenGate Server (independently) | HTTP/TCP |
-
-### Docker Networks
-
-Two Docker networks isolate traffic:
-
-- **`monitoring`** (bridge) — all 6 monitoring containers communicate here
-- **`app`** (`opengate_default`, external) — VictoriaMetrics, Postgres Exporter, and Uptime Kuma join this network so they can reach the OpenGate server and postgres containers by name
-
-Grafana does not need the app network — it only talks to VictoriaMetrics and Loki, both on the monitoring network.
+| Concern | Source |
+|---|---|
+| Monitoring chart | [`deploy/helm/monitoring`](../deploy/helm/monitoring/) |
+| Monitoring values | [`values.yaml`](../deploy/helm/monitoring/values.yaml) |
+| App chart and overlays | [`deploy/helm/opengate`](../deploy/helm/opengate/) |
+| Grafana dashboards and alerting ConfigMaps | [`deploy/grafana/provisioning`](../deploy/grafana/provisioning/) |
+| VictoriaMetrics scrape config | [`vmagent-scrape.yaml`](../deploy/helm/monitoring/files/vmagent-scrape.yaml) |
+| Promtail pod-log config | [`promtail-config.yaml`](../deploy/helm/monitoring/files/promtail-config.yaml) |
+| Loki retention/config | [`loki-config.yml`](../deploy/helm/monitoring/files/loki-config.yml) |
+| Nightly Loki transport | [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh) |
 
 ## Components
 
-| Component | Image | RAM | Purpose |
-|-----------|-------|-----|---------|
-| VictoriaMetrics | `victoriametrics/victoria-metrics:v1.114.0` | ~70 MB | Prometheus-compatible metrics TSDB (PromQL/MetricsQL) |
-| Grafana OSS | `grafana/grafana-oss:11.6.0` | ~120 MB | Dashboards, unified alerting |
-| Loki | `grafana/loki:3.5.0` | ~100 MB | Log aggregation (LogQL) |
-| Promtail | `grafana/promtail:3.5.0` | ~40 MB | Docker log collection → Loki |
-| Postgres Exporter | `prometheuscommunity/postgres-exporter:v0.16.0` | ~20 MB | PostgreSQL metrics (connections, transactions, cache hit ratio) |
-| Node Exporter | `prom/node-exporter:v1.9.1` | ~15 MB | Host system metrics (CPU, RAM, disk, network) |
-| Uptime Kuma | `louislam/uptime-kuma:1` | ~60 MB | Uptime monitoring, public status page |
+The component inventory is rendered from the monitoring chart, not manually
+maintained here. Current chart components are:
 
-#### Container Resource Limits
+| Component | Kubernetes object | Purpose |
+|---|---|---|
+| VictoriaMetrics | StatefulSet + Service + RBAC | Metrics store and Kubernetes service-discovery scraper. |
+| Loki | StatefulSet + Service | Log store for pod logs and workflow trend rows. |
+| Grafana | Deployment + Service | Dashboards, datasource provisioning, and alert UI. |
+| Promtail | DaemonSet + RBAC | Node-level pod-log collection from `/var/log/pods`. |
+| Node Exporter | DaemonSet + Service | Node metrics. |
+| Postgres Exporter | Deployment + Service | PostgreSQL metrics for the production Postgres service. |
 
-All monitoring containers have memory and CPU limits:
+Image tags, resource requests/limits, retention, storage class, and persistence
+settings live in [`values.yaml`](../deploy/helm/monitoring/values.yaml). Do not
+copy those values into prose; link to the values file when exact numbers matter.
 
-| Container | Memory Limit | CPU Limit |
-|-----------|-------------|-----------|
-| VictoriaMetrics | 512 MB | 0.5 |
-| Grafana | 256 MB | 0.5 |
-| Loki | 256 MB | 0.5 |
-| Promtail | 128 MB | 0.25 |
-| Postgres Exporter | 64 MB | 0.25 |
-| Node Exporter | 64 MB | 0.25 |
-| Uptime Kuma | 256 MB | 0.25 |
+## Storage Model
 
-### Component Details
+The intended free-tier storage model is recorded in
+[ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md):
 
-**VictoriaMetrics** (:8428) — Time-series metrics database. Pulls (scrapes) numeric metrics from three targets every 15s: OpenGate server at `:8080/metrics` (HTTP rates, latencies, connected agents, relay sessions, DB stats, Go runtime), Node Exporter at `:9100` (host CPU, memory, disk, network), and Postgres Exporter at `:9187` (connections, transactions, cache hit ratio, database size). Also scrapes itself every 30s for self-monitoring. 30-day retention.
+- VictoriaMetrics and Loki keep block-backed PVCs.
+- Grafana uses `emptyDir`; dashboards, datasources, and alerting config are
+  provisioned from ConfigMaps.
+- Uptime Kuma is not deployed in-cluster; public uptime monitoring is external.
 
-**Grafana** (:3000) — Visualization and alerting engine. Queries VictoriaMetrics (PromQL) and Loki (LogQL) to render three provisioned dashboards (OpenGate Overview, DB Performance, and PostgreSQL). Runs 7 alert rules evaluated every 1m against VictoriaMetrics data. Sends alert notifications to Telegram. Accessed via SSH tunnel only (localhost-bound, no Caddy proxy).
-
-**Loki** (:3100) — Log aggregation database. Receives log streams pushed by Promtail and stores them with 14-day retention. Grafana queries Loki to display and search container logs. Uses TSDB schema (v13) with filesystem storage.
-
-**Promtail** — Log shipper (no exposed port). Reads Docker container logs from `/var/lib/docker/containers/` via Docker socket service discovery. Filters to only `opengate-*` containers, parses JSON log fields (level, msg, component), and pushes structured log streams to Loki. Ingestion limit: 4 MB/s, burst 8 MB/s.
-
-**Postgres Exporter** (:9187) — PostgreSQL metrics exporter. Connects to the OpenGate Postgres instance via `DATA_SOURCE_NAME` and exposes database metrics at `:9187/metrics` for VictoriaMetrics to scrape. Provides connection counts, transaction rates, tuple operations, cache hit ratios, and database size. Joins the app network to reach the postgres container.
-
-**Node Exporter** (:9100) — Host metrics exporter. Reads from `/proc`, `/sys`, and `/` (mounted read-only) and exposes OS-level metrics at `:9100/metrics` for VictoriaMetrics to scrape. Provides data for the disk usage and memory usage alert rules.
-
-**Uptime Kuma** (:3001) — External status page. Fully independent from the rest of the monitoring stack — runs its own HTTP/TCP health checks against endpoints and provides a public status page at `status.{domain}` via Caddy reverse proxy. Does not feed into or consume data from any other monitoring component.
-
-**Telegram Bot** — Notification delivery channel. Grafana's unified alerting sends HTTPS POST requests to the Telegram Bot API when alert rules fire or resolve. Configured manually via Grafana UI (not file-provisioned due to [Grafana bug #69950](https://github.com/grafana/grafana/issues/69950) — numeric chat IDs are unmarshaled as JSON numbers instead of strings).
-
-## Deployment
-
-The monitoring stack uses a separate Docker Compose file with its own project name:
-
-```bash
-# Deploy monitoring stack
-docker compose --project-name opengate-monitoring \
-  -f docker-compose.monitoring.yml \
-  --env-file .env.monitoring \
-  up -d
-
-# Check status
-docker compose --project-name opengate-monitoring \
-  -f docker-compose.monitoring.yml ps
-```
-
-The monitoring compose connects to the app's Docker network (`opengate_default`) as an external network for scraping.
+Live reconciliation on 2026-06-18 matched this intended shape: only three PVCs
+were present across the app and monitoring namespaces — production Postgres,
+VictoriaMetrics, and Loki.
 
 ## Access
 
-| Tool | Access Method | Port |
-|------|---------------|------|
-| Grafana | `ssh -L 3000:localhost:3000 ubuntu@<VPS>` | 3000 |
-| Uptime Kuma admin | `ssh -L 3001:localhost:3001 ubuntu@<VPS>` | 3001 |
-| Uptime Kuma status page | Public at `https://status.{domain}` | 443 |
-| VictoriaMetrics | Internal Docker network only | 8428 |
-| Loki | Internal Docker network only | 3100 |
-| Postgres Exporter | Internal Docker network only | 9187 |
-| Node Exporter | Internal Docker network only | 9100 |
+| Tool | Access method | Source |
+|---|---|---|
+| Grafana | `make tunnel` → `kubectl port-forward svc/monitoring-grafana` | [`Makefile`](../Makefile) |
+| VictoriaMetrics | ClusterIP Service, queried by Grafana or one-shot kubectl pods | [`values.yaml`](../deploy/helm/monitoring/values.yaml) |
+| Loki | ClusterIP Service, queried by Grafana and workflow push scripts | [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh) |
+| Public uptime | External SaaS probing the public app endpoints | [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md) |
 
-No new ports are opened in the OCI security list or UFW. All monitoring UIs are localhost-only via SSH tunnel.
+No monitoring ingress is rendered by the monitoring chart. The public HTTP edge
+is owned by ingress-nginx and the app chart; QUIC and MPS remain L4 hostPorts on
+the production server pod per [Kubernetes.md](./Kubernetes.md#l4-quic--mps).
 
 ## Application Instrumentation
 
-### Structured Logging
+The Go server exposes Prometheus metrics on the same HTTP listener as the REST
+API. The in-cluster VictoriaMetrics scrape configuration discovers the server
+Services via Kubernetes endpoint metadata rather than hard-coded Docker hostnames.
+Metric names and registration live under
+[`server/internal/metrics`](../server/internal/metrics/).
 
-The server outputs structured JSON logs (via `slog.JSONHandler`). Set `LOG_LEVEL=debug` for verbose output. Promtail parses JSON fields from both the server and Caddy containers.
+Promtail reads Kubernetes pod logs, enriches each stream with Kubernetes labels,
+and pushes to Loki. The previous Docker-log path under
+[`deploy/promtail/promtail-config.yml`](../deploy/promtail/promtail-config.yml)
+is a compose-era artifact; the active chart uses
+[`deploy/helm/monitoring/files/promtail-config.yaml`](../deploy/helm/monitoring/files/promtail-config.yaml).
 
-### VictoriaMetrics Scrape Target
+## Dashboards And Alerts
 
-The server exposes a `/metrics` endpoint on port `:8080` (same router as the REST API, reachable inside the Docker network via `server:8080/metrics` — not routed by the Caddy vhost, so it is not publicly accessible). VictoriaMetrics scrapes it every 15s using the Prometheus exposition format; metrics are generated via `prometheus/client_golang` against a custom `prometheus.Registry` and all use the `opengate_` namespace.
+Grafana dashboards and alerting files are canonical in
+[`deploy/grafana/provisioning`](../deploy/grafana/provisioning/). The monitoring
+chart intentionally does not duplicate dashboard JSON; its
+[`NOTES.txt`](../deploy/helm/monitoring/templates/NOTES.txt) documents creating
+ConfigMaps from the canonical files.
 
-| Metric | Type | Labels | Source |
-|--------|------|--------|--------|
-| `opengate_http_requests_total` | Counter | `method`, `route`, `status_code` | HTTP middleware |
-| `opengate_http_request_duration_seconds` | Histogram | `method`, `route` | HTTP middleware |
-| `opengate_relay_active_sessions` | Gauge | — | Relay session count |
-| `opengate_agents_connected` | Gauge | — | Connected agent count |
-| `opengate_mps_connected_devices` | Gauge | — | MPS device count |
-| `opengate_signaling_upgrades_total` | Counter | `result` | Signaling tracker |
-| `opengate_db_query_duration_seconds` | Histogram | `operation` | InstrumentedStore |
-| `opengate_db_queries_total` | Counter | `operation`, `status` | InstrumentedStore |
-| `opengate_db_size_bytes` | Gauge | — | Database size query |
-| Go runtime (`go_goroutines`, `go_memstats_*`, etc.) | Various | — | Go collector |
-| Process (`process_cpu_seconds_total`, `process_open_fds`) | Various | — | Process collector |
+Current dashboard files include the app overview, DB performance, PostgreSQL,
+mutation trend, and PMAT trend dashboards. Trend workflows write canonical rows
+to Loki through the shared kubectl transport:
 
-The `route` label uses chi's `RoutePattern()` (e.g., `/api/v1/devices/{id}`) to prevent cardinality explosion.
+- [`mutation.yml`](../.github/workflows/mutation.yml) →
+  [`scripts/mutation-loki-push.sh`](../scripts/mutation-loki-push.sh)
+- [`pmat-trend.yml`](../.github/workflows/pmat-trend.yml) →
+  [`scripts/pmat-loki-push.sh`](../scripts/pmat-loki-push.sh)
+- [`terraform-drift.yml`](../.github/workflows/terraform-drift.yml) →
+  [`scripts/terraform-drift-loki-push.sh`](../scripts/terraform-drift-loki-push.sh)
 
-### InstrumentedStore
+Telegram credentials are held in the monitoring Secret described by
+[`values.yaml`](../deploy/helm/monitoring/values.yaml) and chart
+[`NOTES.txt`](../deploy/helm/monitoring/templates/NOTES.txt). Workflow-level
+alerts use GitHub environment secrets directly.
 
-Every `db.Store` method call is wrapped by `metrics.InstrumentedStore`, which records query duration and count. This provides per-operation visibility (e.g., `UpsertDevice`, `ListGroups`) rather than generic SQL-level metrics.
+## Deployment And Validation
 
-## Grafana Dashboards
+The monitoring chart is a Helm release in the `monitoring` namespace. The app CD
+workflow deploys the application releases; monitoring release lifecycle is an
+operator action until explicitly wired into CD.
 
-Dashboards are provisioned as code from `deploy/grafana/provisioning/dashboards/`:
+Validation sources:
 
-| Dashboard | UID | Content |
-|-----------|-----|---------|
-| OpenGate Overview | `opengate-overview` | HTTP rate/latency, connected agents, relay sessions, MPS devices, signaling, goroutines, memory, DB size |
-| DB Performance | `opengate-db-perf` | Query rate by operation, error rate, p50/p95/p99 duration, slowest operations, DB size trend |
-| PostgreSQL | `opengate-postgres` | Postgres up, database size, active connections, uptime, TPS (commits/rollbacks), tuple operations, cache hit ratio, connections by state |
-| Mutation Testing Trend | `opengate-mutation-trend` | Per-language (Rust/Go/Web) mutation score over time, latest-score stat panels, surviving and no-coverage mutant counts. Source: Loki log lines pushed by the nightly [mutation.yml workflow](../.github/workflows/mutation.yml) (canonical trend store; Loki retention). Each run also uploads the canonical row as the `mutation-canonical-row` workflow artifact (90-day retention) for one-off audits. |
+- [`make lint-k8s`](../Makefile) renders and validates the app and monitoring
+  charts.
+- [`deploy/helm/monitoring/templates/NOTES.txt`](../deploy/helm/monitoring/templates/NOTES.txt)
+  lists required out-of-band Secrets and ConfigMaps.
+- [`scripts/tests/loki-transport.test.sh`](../scripts/tests/loki-transport.test.sh)
+  verifies the shared kubectl Loki push transport without reaching the live
+  cluster.
 
-## Alerting
+## Ad-hoc Investigation
 
-Grafana Unified Alerting routes alerts to Telegram:
-
-| Severity | Channel | Pending | Repeat | Examples |
-|----------|---------|---------|--------|----------|
-| Critical (P1) | Telegram | 1 min | 1 hour | Health check failing, disk >90%, session registry unreachable |
-| Warning (P2) | Telegram | 5 min | 4 hours | p99 latency >2s, error rate >5%, disk >75%, memory >80% |
-
-Alert rules are provisioned from `deploy/grafana/provisioning/alerting/alert-rules.yml`.
-
-### VictoriaMetrics Recording & Alerting Rules
-
-In addition to Grafana alerting, VictoriaMetrics evaluates its own alerting rules from `deploy/victoriametrics/alerts.yml`:
-
-| Alert | Condition | Severity |
-|-------|-----------|----------|
-| ServerDown | `up{job="opengate"} == 0` for 1m | Critical |
-| HighMemoryUsage | Memory usage exceeds threshold | Warning |
-| HighErrorRate | Elevated HTTP error rate | Warning |
-| HighP95Latency | p95 request latency above threshold | Warning |
-
-**Contact points and notification policies** are configured manually via the Grafana UI (Alerting → Contact points, Alerting → Notification policies). File-based provisioning of the Telegram contact point is blocked by [Grafana bug #69950](https://github.com/grafana/grafana/issues/69950): numeric Telegram chat IDs are unmarshaled as JSON numbers instead of strings, causing Grafana to crash on startup. The provisioning files (`contact-points.yml`, `notification-policies.yml`) are intentionally left empty with comments explaining this.
-
-### Mutation-test regression alerts
-
-The nightly [`mutation.yml`](../.github/workflows/mutation.yml) workflow does not route through Grafana — it calls the Telegram Bot API directly using the same `DEPLOY_TELEGRAM_BOT_TOKEN` / `DEPLOY_TELEGRAM_CHAT_ID` secrets that Grafana uses. Triggers and thresholds are documented in [Testing.md](Testing.md#mutation-testing-trend).
-
-## Data Retention
-
-| Component | Retention | Disk Cost |
-|-----------|-----------|-----------|
-| VictoriaMetrics | 30 days | ~0.7 GB |
-| Loki | 14 days | ~2 GB |
-| Uptime Kuma | 90 days | ~50 MB |
-
-## Configuration Files
-
-```
-deploy/
-├── docker-compose.monitoring.yml    # Monitoring stack definition
-├── .env.monitoring.example          # Required env vars (secrets)
-├── victoriametrics/
-│   ├── scrape.yml                   # Prometheus-format scrape targets
-│   └── alerts.yml                   # Alerting rules (ServerDown, HighMemory, HighErrorRate, HighP95Latency)
-├── loki/
-│   └── loki-config.yml              # Loki single-binary config
-├── promtail/
-│   └── promtail-config.yml          # Docker log collection config
-└── grafana/
-    └── provisioning/
-        ├── datasources/
-        │   └── datasources.yml      # VictoriaMetrics + Loki
-        ├── dashboards/
-        │   ├── dashboards.yml       # Dashboard provider config
-        │   ├── opengate-overview.json
-        │   ├── db-performance.json
-        │   └── postgres.json
-        └── alerting/
-            ├── alert-rules.yml
-            ├── contact-points.yml
-            └── notification-policies.yml
-```
-
-## Required Secrets
-
-| Secret | Location | How to Obtain |
-|--------|----------|---------------|
-| `GF_SECURITY_ADMIN_PASSWORD` | `.env.monitoring` on VPS | Choose a password |
-| `POSTGRES_PASSWORD` | `.env.monitoring` on VPS | Must match the main stack's `POSTGRES_PASSWORD` |
-| `TELEGRAM_BOT_TOKEN` | `.env.monitoring` on VPS + GitHub Secret | Create bot via @BotFather on Telegram |
-| `TELEGRAM_CHAT_ID` | `.env.monitoring` on VPS + GitHub Secret | Send message to bot, call `getUpdates` API |
-
-## CD Integration
-
-The monitoring stack is deployed automatically during production deployments:
-1. CD workflow copies monitoring configs to VPS via `scp`
-2. `deploy.sh` runs `docker compose up -d` for the monitoring project (production only)
-3. Smoke tests verify the `/metrics` endpoint returns Prometheus metrics
-
-## Uptime Kuma Monitors
-
-Configure these monitors on first boot (via SSH tunnel to `:3001`):
-- `https://<domain>/api/v1/health` — HTTP 200, 60s interval
-- `https://<domain>/` — HTTP 200, 60s interval
-- TCP port 9090 — QUIC agent reachability
-- TCP port 4433 — MPS Intel AMT reachability
-
-## Ad-hoc Investigation (`/observe` skill)
-
-The `/observe` Claude Code skill (`.claude/skills/observe/SKILL.md`) automates ad-hoc queries against this stack. Neither VictoriaMetrics nor Loki publish ports on the VPS host, so queries hop through `docker exec` on the monitoring containers:
+Use `/observe` or the underlying kubectl/Loki helpers instead of SSHing to a
+retired VM path. The active investigation path is cluster-native:
 
 ```bash
-# PromQL instant query
-ssh ubuntu@<VPS> "docker exec opengate-victoriametrics \
-  wget -qO- 'http://127.0.0.1:8428/api/v1/query?query=<URL_ENCODED_PROMQL>'"
-
-# LogQL range query (timestamps are nanoseconds — use `date +%s%N`)
-ssh ubuntu@<VPS> "docker exec opengate-loki \
-  wget -qO- 'http://127.0.0.1:3100/loki/api/v1/query_range?query=<URL_ENCODED_LOGQL>&start=<NS>&end=<NS>&limit=50'"
+kubectl -n monitoring get pods
+kubectl -n monitoring logs deploy/monitoring-grafana
+kubectl -n monitoring port-forward svc/monitoring-grafana 3000:3000
 ```
 
-Promtail labels only scrape `opengate-*` containers — use `{container="opengate-server"}` (production) or `{container="opengate-server-staging"}` (staging). Server and Caddy logs are JSON and support `| json | ...` pipeline filters.
-
-The skill also covers container health (`docker ps`, `docker stats`, `docker inspect`), local WSL agent diagnostics (`systemctl status mesh-agent`, `/var/log/mesh-agent/*`, cert validation via `openssl verify`), and investigation playbooks: "agent offline", "requests slow", "deployment health", "post-deploy verification".
+For Loki trend rows, prefer the repository scripts that already use temporary
+kubectl pods and clean themselves up. For app health, use
+[`deploy/scripts/smoke-test.sh`](../deploy/scripts/smoke-test.sh) through a
+Service port-forward, matching [`cd.yml`](../.github/workflows/cd.yml).

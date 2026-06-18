@@ -9,7 +9,7 @@ output "subnet_id" {
 }
 
 output "nsg_id" {
-  description = "OCID of the cd_deploy network security group (mutated at deploy time by cd.yml for just-in-time SSH ingress)"
+  description = "OCID of the legacy cd_deploy network security group (sensitive; retained for rollback tooling)"
   value       = oci_core_network_security_group.cd_deploy.id
   sensitive   = true
 }

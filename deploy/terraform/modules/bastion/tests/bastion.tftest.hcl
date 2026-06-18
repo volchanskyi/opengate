@@ -1,4 +1,4 @@
-# OCI Bastion service — operator access plane for human SSH + tunnel sessions.
+# OCI Bastion service — operator access plane for human SSH sessions.
 # Replaces the static `var.ssh_allowed_cidr` ingress rule used previously; the
 # dev-machine IP becomes irrelevant because IAM gates session creation instead
 # of an L4 CIDR allow-list.
@@ -25,15 +25,15 @@ run "bastion_type_is_standard" {
   }
 }
 
-# The bastion must attach to the same subnet as the OpenGate VPS so OCI's
-# allocated /28 service endpoint lands inside the VCN's data plane and can
-# reach the target instance over intra-subnet traffic.
+# The bastion must attach to the subnet containing its current target. The root
+# module wires this to the OKE worker-node subnet, so OCI's allocated /28 service
+# endpoint lands inside the VCN data plane.
 run "target_subnet_is_wired" {
   command = plan
 
   assert {
     condition     = oci_bastion_bastion.opengate.target_subnet_id == var.target_subnet_id
-    error_message = "Bastion target_subnet_id must equal the public-subnet OCID passed in by the root module."
+    error_message = "Bastion target_subnet_id must equal the subnet OCID passed in by the root module."
   }
 }
 

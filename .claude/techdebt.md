@@ -1,53 +1,13 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Update when debt is introduced or paid down. -->
-<!-- Last reviewed: 2026-06-18; W4/W5 closed the fast-path ADR/workaround cleanup; rollout + agent ticket cache remain. -->
+<!-- Last reviewed: 2026-06-18; fast-path W1–W5 cutover shipped + verified live (entry cleared); agent ticket cache (W3) + reconnect-backoff flap-guard remain. -->
 
 ## Severity: High
 
 _None currently._
 
 ## Severity: Medium
-
-### W1–W5 client-first handshake + 0x14 fast path — breaking wire change needs a coordinated agent/server rollout
-
-[`handshaker.go`](../server/internal/agentapi/handshaker.go) reads the agent's
-first message and branches: `0x11` AgentHello → full handshake (reply
-ServerHello); `0x14` SkipAuth → fast-path reconnect (verify the cached CA hash
-is current, skip the reply). The agent
-([`main.rs`](../agent/crates/mesh-agent/src/main.rs)) `open_bi`s and writes
-first — a full handshake on cold start (caching the CA hash from ServerHello),
-then `0x14` on reconnect with full-handshake fallback on rejection — and the
-server ([`server.go`](../server/internal/agentapi/server.go)) `AcceptStream`s
-instead of opening. This is a breaking wire-protocol change: a client-first
-server cannot complete a handshake with a server-first agent, and vice versa.
-
-Per the master plan's §3 rollout decision, **option (a) — coordinated
-cutover** — is the call here: production has exactly one agent (verified
-2026-06-11) on an Ed25519-signed QUIC auto-update channel (Phase 14), so a
-dual-mode (peek-first-frame) handshake would add complexity for a fleet of
-one. The next production deploy of the server **must** ship together with (or
-immediately followed by) an agent auto-update push — deploying the new server
-alone will strand the running agent mid-reconnect until it updates.
-
-**Settled auth model (recorded in
-[ADR-037](../docs/adr/ADR-037-client-first-fast-path-reconnect.md)):**
-authentication is **mTLS-only** — the QUIC/TLS layer
-(`RequireAndVerifyClientCert`) authenticates the agent and the agent verifies
-the server against its CA; the message exchange only binds the cert hash and
-advertises the CA hash. There is **no app-layer signature exchange**; `0x12` and
-`0x13` are retired proof-message reservations and both decoders reject them. So
-`0x14` changes **round-trips, not cryptographic cost**: it elides the
-`0x10`/`0x11` exchange, not signatures. The dominant per-reconnect cost is the
-**TLS mTLS handshake itself, which `0x14` does not avoid** — only 1-RTT session
-resumption (W3) does. **Reviewer call (recorded):** ship W2 now — the saved
-round-trip helps reconnection-storm latency on its own, and W3 stacks the larger
-TLS-cost win on top.
-
-**Pay-down trigger:** clear this note once the coordinated deploy has shipped
-and the production agent is confirmed connected post-cutover. W3's evaluation,
-W4's ADR, and W5's workaround/dead-code cleanup are done; the remaining debt in
-this entry is only the production cutover risk.
 
 ### W3 decision — adopt 1-RTT TLS session resumption; agent-side enablement pending; 0-RTT deferred
 
@@ -72,35 +32,11 @@ is the always-run regression guard.
 session resumption or persist a session-ticket cache across reconnects, so the
 production saving is not realized. It is a backward-compatible client-side change
 (falls back to a full handshake when no ticket is cached) — not a breaking wire
-change like W1 — but it should ship with an agent reconnect verification inside
-W1's coordinated cutover. **Pay-down trigger:** quinn caches and presents tickets
-and a reconnecting production agent is observed resuming (`DidResume`).
-
-### Cutover doc drift — Monitoring.md still describes the compose stack
-
-The compose→OKE cutover moved the app, monitoring, and CD onto the OKE cluster,
-but [`docs/Monitoring.md`](../docs/Monitoring.md) still documents the old
-compose access and deployment path. [`docs/Continuous-Deployment.md`](../docs/Continuous-Deployment.md)
-now describes the Kubernetes-only workflow. Residual compose references in
-[`docs/Infrastructure.md`](../docs/Infrastructure.md) describe the dormant
-rollback artifacts and remain accurate.
-
-The block-volume remediation ([ADR-035](../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md))
-further changed the *cluster* monitoring topology the stale compose doc must be
-rewritten against: `uptime-kuma` is **gone** (external uptime SaaS) — yet
-[`docs/Monitoring.md`](../docs/Monitoring.md) still carries an Architecture diagram,
-"Uptime Kuma" component/limit/retention rows, an access table, and an "Uptime Kuma
-Monitors" section for it, plus `status.<domain>` references — and Grafana /
-staging-Postgres / staging-`/data` now ride `emptyDir`. The narrowly-stale facts my
-change actively *broke* (`make tunnel`, the Kubernetes.md backup row, Database.md
-§Backups, the Home.md index line, the migration runbook's service count) were fixed
-in place; the deferred sweep owns the full compose→OKE rewrite of Monitoring.md, not
-those individual lines.
-
-**Pay-down trigger:** a focused [`/wiki-audit`](../.claude/skills/wiki-audit/) pass
-repointing the monitoring docs at the cluster and the ADR-035 monitoring
-topology — out of scope for the
-VM-decommission and block-volume changes.
+change like W1. W1's coordinated cutover has since shipped (production agent on
+0.45.0, client-first) **without** resumption, so this is now a standalone
+follow-up rather than part of that cutover. **Pay-down trigger:** quinn caches and
+presents tickets and a reconnecting production agent is observed resuming
+(`DidResume`).
 
 ### ADR-035 block-volume remediation — reclaim DONE; residual external follow-ups (Low)
 
@@ -136,6 +72,25 @@ The two cheaply-killable mutants from the original 7-mutant gap were closed with
 
 ## Severity: Low
 
+### Agent reconnect lacks backoff after a post-register server drop (storm-readiness)
+
+Observed live 2026-06-18 during an admin device-deletion: the agent
+([`main.rs`](../agent/crates/mesh-agent/src/main.rs)) reset its reconnect backoff
+to `attempt=1` on every *successful* connect, so when the server accepted the
+handshake and then immediately dropped the connection (device deleted
+server-side), the agent reconnected with no delay — ~8 connect→register→drop
+cycles per second until the server sent an explicit deregister directive. Backoff
+escalates only across consecutive *failed* connects; a connect that
+succeeds-then-drops accrues none. Harmless at the current fleet size of one over
+~1s, but at Large-tier scale any condition that lets a handshake complete and then
+drops it (load-shedding mid-session, a flapping replica, mass device churn)
+becomes a self-inflicted reconnect storm — the failure mode
+[`docs/Multiscale-Readiness.md`](../docs/Multiscale-Readiness.md) §4 budgets for.
+
+**Pay-down trigger:** add flap detection — apply backoff when a connection drops
+within a short window of registering instead of resetting to `attempt=1` — with a
+regression test that a rapid accept-then-drop loop backs off.
+
 ### `web/package.json` TypeScript pinned to ^5.9.3 — `openapi-typescript` peer conflict
 
 While applying Dependabot's npm-deps group bump (17 packages), TypeScript
@@ -168,7 +123,7 @@ authenticated-login message without exposing either value.
 
 gremlins sets each mutant's timeout to `coverage-dry-run-elapsed × timeout-coefficient`. The dry-run elapsed is a single, runner-load-sensitive measurement, so a fast/partial coverage phase shrinks the per-mutant budget and the Postgres-backed packages (which re-pay container/migration setup, ~20-40s each) false-time-out. Timed-out mutants are dropped from gremlins' kill count, so the reported Go score collapses with no real change in test quality — observed 2026-06-03 (run 26870189012): 770→241 kills, 85.5%→76.0%, below the 85% alert floor, all from 590 false timeouts vs 7 the night before.
 
-Mitigated by pinning `timeout-coefficient: 10` in [`server/.gremlins.yaml`](../server/.gremlins.yaml) (2× default headroom) + pinning the gremlins version + a 90-min job cap. This is a mitigation, not a guarantee: a sufficiently slow/partial coverage run can still tighten the budget. Two residual fragilities remain: (1) Go's true score (~85.5%) sits razor-thin above the 85% alert floor in [`scripts/mutation-summarize.sh`](../scripts/mutation-summarize.sh) — a few extra surviving/timed-out mutants re-trip the alert; (2) if recurrence persists, consider isolating the slow DB-backed packages or feeding gremlins a stable baseline duration rather than the live dry-run.
+Mitigated by pinning `timeout-coefficient: 15` in [`server/.gremlins.yaml`](../server/.gremlins.yaml) (3× default headroom) + pinning the gremlins version + a 100-min job cap. This is a mitigation, not a guarantee: a sufficiently slow/partial coverage run can still tighten the budget. Two residual fragilities remain: (1) Go's true score (~85.5%) sits razor-thin above the 85% alert floor in [`scripts/mutation-summarize.sh`](../scripts/mutation-summarize.sh) — a few extra surviving/timed-out mutants re-trip the alert; (2) if recurrence persists, consider isolating the slow DB-backed packages or feeding gremlins a stable baseline duration rather than the live dry-run.
 
 ### Test-technique gaps — Go property libs, Rust fuzz targets, web property/fuzz
 

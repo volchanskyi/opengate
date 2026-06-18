@@ -1,6 +1,6 @@
 # Compute submodule
 
-Owns the OpenGate compute instance and the data sources required to construct it: availability-domain enumeration and the latest Ubuntu 24.04 image for the requested shape. Consumes networking outputs (`subnet_id`, `nsg_id`) from the [networking](../networking/) sibling.
+Owns the dormant OpenGate compute-instance rollback module and the data sources required to construct it: availability-domain enumeration and the latest Ubuntu 24.04 image for the requested shape. The root module no longer instantiates this module after the OKE cutover, but it remains tested so the compose VM can be re-created as a rollback path. It consumes networking outputs (`subnet_id`, `nsg_id`) from the [networking](../networking/) sibling when re-enabled.
 
 ## Inputs
 
@@ -9,7 +9,7 @@ Owns the OpenGate compute instance and the data sources required to construct it
 | `compartment_id` | string (sensitive) | OCI compartment OCID that owns the instance. |
 | `tenancy_ocid` | string (sensitive) | OCI tenancy OCID — required as `compartment_id` for the AD lookup, which spans the tenancy. |
 | `subnet_id` | string | Public subnet from the networking module. |
-| `nsg_ids` | list(string) | NSGs attached to the primary VNIC. Production passes `[networking.nsg_id]` so `cd.yml` can inject just-in-time SSH rules. |
+| `nsg_ids` | list(string) | NSGs attached to the primary VNIC when the rollback VM is re-instantiated. |
 | `instance_shape` | string | OCI compute shape — must remain `VM.Standard.A1.Flex` to qualify as Always Free. |
 | `instance_ocpus` | number | OCPUs for the shape. Always Free cap is 4 OCPUs total per tenancy. |
 | `instance_memory_gb` | number | Memory in GB. Always Free cap is 24 GB total per tenancy. |

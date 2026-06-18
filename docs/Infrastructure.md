@@ -1,6 +1,6 @@
 # Infrastructure
 
-OpenGate uses Infrastructure as Code (Terraform) to provision cloud resources and Docker Compose for the production runtime stack.
+OpenGate uses Terraform for OCI infrastructure and Helm for the current OKE runtime. Docker Compose files remain in the repo for local tests and dormant recovery paths, but production and staging deploy through Kubernetes.
 
 ## Cloud Provider
 
@@ -10,32 +10,30 @@ Oracle Cloud
 
 ```
 deploy/
-├── terraform/
-│   ├── main.tf              # OCI provider, VCN, subnet, security list, compute
-│   ├── variables.tf          # All configurable inputs
-│   ├── outputs.tf            # Instance IP, resource OCIDs
-│   ├── cloud-init.yaml       # Docker + UFW bootstrap on first boot
-│   ├── terraform.tfvars.example  # Template for credentials and sizing
-│   └── .gitignore            # Excludes state files and credentials
-├── caddy/
-│   ├── Caddyfile             # Production reverse proxy (auto-TLS, security headers)
-│   └── Caddyfile.staging     # Staging (plain HTTP, port 80)
-├── docker-compose.yml        # Production stack
-├── docker-compose.staging.yml  # Persistent staging overrides
-└── .env.example              # Environment variable template
+├── terraform/                # OCI networking, OKE, bastion, remote state
+├── helm/
+│   ├── opengate/             # Application chart + staging/production overlays
+│   └── monitoring/           # VictoriaMetrics, Grafana, Loki, exporters
+├── scripts/                  # Smoke tests, rollback helpers, bastion wrapper
+├── docker-compose.test.yml   # Local/E2E test environment
+├── docker-compose*.yml       # Dormant/local Compose artifacts
+└── caddy/                    # Dormant Caddyfiles kept with the Compose path
 ```
 
 ## Terraform Resources
 
-The Terraform configuration provisions:
+The Terraform configuration currently provisions the OKE substrate, networking,
+and human operator access plane. The resource inventory is the Terraform root
+module plus `networking`, `oke`, and `bastion` modules in
+[`deploy/terraform`](../deploy/terraform/):
 
-**Security list** with ingress rules:
-   - TCP 22 (SSH) — break-glass `var.ssh_allowed_cidr` (typically `127.0.0.1/32` to disable) + public subnet CIDR for the [OCI Bastion service endpoint](#operator-access-via-oci-bastion)
-   - TCP 80 (HTTP redirect)
-   - TCP 443 (HTTPS)
-   - UDP 443 (HTTP/3 — Caddy QUIC)
-   - TCP 4433 (MPS — Intel AMT CIRA)
-   - UDP 9090 (QUIC agent connections)
+- VCN, route table, public subnets, security list, and OKE NSGs.
+- OKE Basic cluster and node pool.
+- OCI Bastion targeting the OKE worker-node subnet.
+- Remote state in OCI Object Storage through Terraform's S3-compatible backend.
+
+The former compute VM is intentionally not instantiated by the root module. The
+`compute` module remains in the tree as a tested recovery artifact.
 
 ### Provisioning
 
@@ -176,7 +174,7 @@ When `plan -refresh-only` returns exit code 2, the workflow:
 1. Generates a canonical drift summary via [`scripts/terraform-drift-summarize.sh`](../scripts/terraform-drift-summarize.sh) (`drift_count`, per-resource `address`/`actions`/`type`).
 2. Uploads `drift.txt` (raw plan output) + `drift.json` + `drift-summary.json` as a 30-day workflow artifact.
 3. Posts the truncated plan output to Telegram via the existing `DEPLOY_TELEGRAM_BOT_TOKEN`/`DEPLOY_TELEGRAM_CHAT_ID` secrets.
-4. Pushes the summary record to Loki on the production VPS via [`scripts/terraform-drift-loki-push.sh`](../scripts/terraform-drift-loki-push.sh) (stream label `{app="opengate", source="terraform-drift", env="ci"}`), reusing the SSH+docker pattern from `scripts/mutation-loki-push.sh`.
+4. Pushes the summary record to the in-cluster Loki Service via [`scripts/terraform-drift-loki-push.sh`](../scripts/terraform-drift-loki-push.sh), which uses the shared kubectl transport in [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh).
 5. Exits red for audit-trail visibility.
 
 There is **no auto-remediation**. Drift is investigated by the operator. If the legitimate cause was an operator-side action (e.g. a console click that should become Terraform code), the resolution is to update the config and `apply`; if it was an injection by `cd.yml`, see "Known interactions" below.
@@ -197,18 +195,16 @@ The workflow authenticates as a separate read-only IAM user `tf-drift-reader` �
    - `OCI_TFSTATE_NAMESPACE` — the OCI Object Storage namespace used to construct the S3 endpoint
    - `TFSTATE_S3_ACCESS_KEY` / `TFSTATE_S3_SECRET_KEY` — the S3-compat key pair for the `tf-state-writer` user from the State Backend section (the drift workflow only needs read, but reuses the existing pair)
 
-`OCI_TENANCY_OCID`, `OCI_REGION`, `OCI_USER_OCID`, `OCI_PRIVATE_KEY`, `OCI_FINGERPRINT`, `OCI_CD_NSG_ID`, `DEPLOY_SSH_PRIVATE_KEY`, `DEPLOY_HOST` are reused from the existing CD pipeline. The drift workflow uses `tf-drift-reader` for the OCI provider during `plan` and the existing CD user only for the firewall opener that brackets the Loki push (the drift user has no NSG-write permission, by design).
+`OCI_TENANCY_OCID`, `OCI_REGION`, `OCI_USER_OCID`, `OCI_PRIVATE_KEY`, and `OCI_FINGERPRINT` are reused from the OKE-backed CD pipeline. The drift workflow uses `tf-drift-reader` for the OCI provider during `plan`; the Loki push reaches the cluster through [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml) rather than opening an SSH path.
 
 Quarterly: audit that the `tf-drift-readers` policy document has not been broadened.
 
 #### Known interactions
 
-`.github/workflows/cd.yml` mutates the `cd_deploy` NSG's ingress rules at deploy time for just-in-time SSH (per the [stale NSG rule cleanup commit](https://github.com/volchanskyi/opengate/commit/bd80684)). If those mutations surface as drift every night, options:
-
-- (a) Add `ignore_changes = [ingress_security_rules]` on `oci_core_network_security_group.cd_deploy` in [`deploy/terraform/modules/networking/main.tf`](../deploy/terraform/modules/networking/main.tf) — loses tfstate tracking of those rules but stops alerting.
-- (b) Split the ingress rules into separate `oci_core_network_security_group_security_rule` resources and `ignore_changes` on those — preserves NSG-level tracking.
-
-Decide after one week of soak. If the cleanup composite always restores the NSG to a clean baseline at the end of each CD run, the drift workflow may stay quiet without either option.
+The historical CD path temporarily mutated the `cd_deploy` NSG for just-in-time
+SSH, but current CD uses [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml)
+and the OKE API. A refresh-only Terraform drift now represents real OCI drift
+rather than expected deploy-time SSH churn.
 
 #### Grafana
 
@@ -224,7 +220,7 @@ Operator SSH access to the **OKE worker node** goes through the OCI Bastion serv
 
 Grafana is a ClusterIP service, reached with `kubectl port-forward` (`make tunnel`), not an SSH tunnel. Uptime monitoring is an external SaaS — no in-cluster status UI to tunnel to (see [ADR-035](adr/ADR-035-oke-free-tier-block-volume-remediation.md)).
 
-CI keeps the just-in-time NSG-rule pattern in [`.github/actions/oci-ssh-setup`](../.github/actions/oci-ssh-setup/) — the bastion is for **human** access only. See [ADR-018](adr/ADR-018-oci-bastion-operator-access.md) for the decision rationale.
+CI reaches the cluster through [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml) and Kubernetes APIs. The bastion is for **human** node access only. See [ADR-018](adr/ADR-018-oci-bastion-operator-access.md) for the original access-plane rationale and the current OKE update.
 
 #### Daily flow
 
@@ -306,209 +302,100 @@ oci audit event list --compartment-id "$OCI_COMPARTMENT_OCID" \
 - **3 h session TTL** is an OCI service cap. Long interactive debug sessions must accept a one-time mid-session reconnect — the cache wrapper handles it transparently on the next `make ssh`.
 - **Bastion plugin reliability** — if the plugin stops, Managed SSH fails. Monitor via the existing infrastructure health check; the static `ssh_allowed_cidr` rule remains as a break-glass.
 
-### Cloud-Init Bootstrap
+## Runtime Stack
 
-On first boot the instance automatically:
-- Installs Docker CE + Compose plugin
-- Configures UFW firewall (same ports as security list — defense in depth)
-- Creates `/opt/opengate/` data directories
+The current runtime is Kubernetes on OKE:
 
-## Docker Compose Stack
+| Layer | Source of truth |
+|---|---|
+| Application chart | [`deploy/helm/opengate`](../deploy/helm/opengate/) |
+| Staging overlay | [`values-staging.yaml`](../deploy/helm/opengate/values-staging.yaml) |
+| Production overlay | [`values-production.yaml`](../deploy/helm/opengate/values-production.yaml) |
+| Monitoring chart | [`deploy/helm/monitoring`](../deploy/helm/monitoring/) |
+| CD workflow | [`.github/workflows/cd.yml`](../.github/workflows/cd.yml) |
+| Load-test workflow | [`.github/workflows/load-test.yml`](../.github/workflows/load-test.yml) |
 
-### Production
+Live reconciliation on 2026-06-18 matched the intended OKE model: Helm releases
+`opengate`, `opengate-staging`, and `monitoring` were deployed; app and
+monitoring workloads were Ready; production and staging were running the same
+server image tag from GHCR; ingress-nginx owned the public HTTP(S) load balancer;
+and only the intended three block-backed PVCs existed.
 
-```bash
-cd deploy
-cp .env.example .env   # fill in secrets (JWT_SECRET, AMT_PASS, DOMAIN)
-docker compose up -d
-```
+### Application Releases
 
-Services:
-- **postgres** — PostgreSQL 17 (Alpine), internal-only, health-checked via `pg_isready`. The server connects via `DATABASE_URL` over the Docker bridge network (`sslmode=disable` — same-host traffic).
-- **postgres-backup** — Daily `pg_dump` sidecar (`prodrigestivill/postgres-backup-local`), 7-day local retention in a `postgres-backups` volume.
-- **server** — OpenGate Go server (GHCR image), depends on `postgres` (waits for healthy), exposes ports 9090/UDP (QUIC) and 4433 (MPS) directly
-- **web-init** — One-shot init container that copies web assets from the server image into a shared `web-assets` volume (runs once per deploy, `restart: "no"`)
-- **caddy** — Reverse proxy + SPA file server on ports 80/443, auto-TLS via Let's Encrypt, HTTP/3
+- **Production** runs in the `opengate` namespace with the production overlay.
+  Shared server keys are mounted from the existing Secret, and the production
+  Postgres StatefulSet keeps the persistent block volume.
+- **Staging** runs in the `opengate-staging` namespace with the staging overlay.
+  Staging disables L4 hostPorts and uses `emptyDir` for server `/data` and
+  Postgres storage; the CD workflow reaches it through a temporary Service
+  port-forward.
+- **Monitoring** runs in the `monitoring` namespace. See
+  [Monitoring.md](./Monitoring.md) for the component model and access path.
 
-#### Container Resource Limits
+### Network Exposure
 
-All production containers have memory and CPU limits to prevent runaway processes from starving the VPS:
+Exact port numbers and source ranges live in
+[`deploy/terraform/modules/networking/oke.tf`](../deploy/terraform/modules/networking/oke.tf)
+and the Helm values files. The high-level model is:
 
-| Container | Memory Limit | CPU Limit |
-|-----------|-------------|-----------|
-| postgres | 512 MB | 1.0 |
-| postgres-backup | 64 MB | 0.25 |
-| server | 512 MB | 1.0 |
-| caddy | 256 MB | 0.5 |
-| web-init | 128 MB | — |
+- HTTP(S) reaches ingress-nginx through the OCI load balancer subnet.
+- QUIC agent transport and Intel AMT MPS are non-HTTP and are exposed from the
+  production server pod through hostPorts on the worker node.
+- Staging does not bind those hostPorts; staging validation uses port-forwarded
+  HTTP.
+- Operator node access uses OCI Bastion plus the break-glass SSH rule described
+  above.
 
-The server's HTTP port (8080) is only exposed to the Caddy container, not the host. Caddy serves the React SPA from `/srv/web` (mounted read-only from the `web-assets` volume) with `try_files` fallback to `index.html` for client-side routing.
+### TLS
 
-### Staging
+- Public HTTP TLS is terminated by ingress-nginx with cert-manager issuing the
+  certificates configured by the app chart.
+- QUIC uses the server's mTLS certificate manager and advertises the host from
+  the app chart values.
+- MPS uses the server's Intel AMT-compatible TLS path.
 
-```bash
-docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
-```
+## Dormant Compose / Caddy Artifacts
 
-Staging uses offset ports (18080, 18443, 19090, 14433) and a separate `.env.staging` file with secrets from GitHub environment configuration. Staging is persistent — it stays running between deployments, just like production. Access staging via SSH tunnel (`ssh -L 18080:127.0.0.1:18080 ubuntu@<VPS>`).
-
-**Note:** The staging compose file uses the `!override` YAML tag, which requires Docker Compose v2.24+.
-
-## VPS
-
-How staging and production coexist on one VPS
-
-  VPS (single ARM64 instance)
-  ├── /opt/opengate/
-  │   ├── .env                    ← production secrets
-  │   ├── .env.staging            ← staging secrets
-  │   ├── docker-compose.yml      ← base config (shared)
-  │   ├── docker-compose.staging.yml ← staging overrides
-  │   ├── scripts/                ← deploy, rollback, smoke-test, common
-  │   └── caddy/
-  │       ├── Caddyfile           ← production (HTTPS, auto-TLS)
-  │       └── Caddyfile.staging   ← staging (HTTP only)
-  │
-  ├── Docker project: "opengate" (production)
-  │   ├── opengate-postgres   → port 5432 (internal)
-  │   ├── opengate-postgres-backup → daily pg_dump, 7-day retention
-  │   ├── opengate-server     → port 8080 (internal), depends_on postgres
-  │   ├── opengate-web-init   → copies /srv/web to shared volume (exits)
-  │   └── opengate-caddy      → ports 80, 443
-  │
-  └── Docker project: "opengate-staging" (staging)
-      ├── opengate-postgres-staging → port 5432 (internal, separate volume)
-      ├── opengate-postgres-backup-staging → daily pg_dump
-      ├── opengate-server-staging  → port 8080 (internal)
-      ├── opengate-web-init-staging → copies /srv/web to shared volume (exits)
-      └── opengate-caddy-staging   → ports 18080, 18443
-
-## Deployment Strategy
-
-**Rolling replace** — `docker compose pull && docker compose up -d` recreates the server container while Caddy's health check detects the new container. Downtime is 5-15 seconds (container start + healthcheck interval). See [[Continuous Deployment]] for full pipeline details.
-
-QUIC (port 9090/UDP): agents reconnect within seconds via QUIC connection migration — no special handling needed.
-
-## Caddyfile
-
-Production Caddyfile provides:
-- Automatic HTTPS (Let's Encrypt, TLS 1.3)
-- HTTP/3 support (UDP 443)
-- Security headers (HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy)
-- `handle /api/*` and `handle /ws/*` — reverse proxy to Go server (with health check)
-- `handle` (catch-all) — serves React SPA from `/srv/web` with `try_files {path} /index.html` fallback
-- Cache headers: Vite hashed assets (`/assets/*`) get `immutable` with 1-year max-age; `index.html` gets `no-cache`
-- Gzip compression
-- JSON access logs
-
-A second virtual host — `status.{$DOMAIN:localhost}` — reverse-proxies to the Uptime Kuma container (`opengate-uptime-kuma:3001`) so the public status page is reachable at `https://status.<domain>` with auto-TLS.
-
-## Firewall Rules
-
-Two layers of firewall (defense in depth):
-
-| Port | Protocol | Source | Purpose |
-|------|----------|--------|---------|
-| 22 | TCP | `var.ssh_allowed_cidr` (break-glass — typically `127.0.0.1/32` to disable) | SSH |
-| 22 | TCP | Public subnet CIDR (`10.0.1.0/24`) | SSH via OCI Bastion's /28 service endpoint (see [ADR-018](adr/ADR-018-oci-bastion-operator-access.md)) |
-| 80 | TCP | 0.0.0.0/0 | HTTP → HTTPS redirect |
-| 443 | TCP | 0.0.0.0/0 | HTTPS (Caddy) |
-| 443 | UDP | 0.0.0.0/0 | HTTP/3 (Caddy) |
-| 9090 | UDP | 0.0.0.0/0 | QUIC (agent connections, mTLS) |
-| 4433 | TCP | 0.0.0.0/0 | MPS (Intel AMT CIRA, TLS) |
-
-## TLS
-
-- **HTTPS**: Caddy handles automatic cert provisioning (Let's Encrypt, TLS 1.3)
-- **QUIC**: mTLS with ECDSA P-256 certificates (server's `cert.NewManager`)
-- **MPS**: RSA 2048 TLS for Intel AMT compatibility
-- No plaintext HTTP in production
+The Docker Compose and Caddy files under [`deploy/`](../deploy/) are no longer
+invoked by the normal GitHub Actions CD path. They are still linted so the
+recovery/local artifacts do not silently rot, but current staging and production
+state comes from Helm. Do not document Compose as the production deployment
+mechanism unless the root Terraform module re-instantiates the compute module
+and CD is explicitly moved back to that path.
 
 ## Secrets Management
 
-No secrets are committed to the repository. All sensitive values are injected at runtime.
+No secrets are committed to the repository. Runtime secrets enter through three
+surfaces:
 
-### Layers of Protection
+1. **Kubernetes Secrets** referenced by the Helm charts. The app chart expects
+   the existing Secret described in
+   [`secrets.example.yaml`](../deploy/helm/opengate/secrets.example.yaml); the
+   monitoring chart expects the Secret described in its
+   [`values.yaml`](../deploy/helm/monitoring/values.yaml) and
+   [`NOTES.txt`](../deploy/helm/monitoring/templates/NOTES.txt).
+2. **GitHub Actions secrets** consumed by [`cd.yml`](../.github/workflows/cd.yml),
+   [`terraform-drift.yml`](../.github/workflows/terraform-drift.yml),
+   [`load-test.yml`](../.github/workflows/load-test.yml), and the nightly trend
+   workflows.
+3. **Local operator files** such as `terraform.tfvars`, `backend.tfbackend`, and
+   OCI CLI credentials. These stay gitignored.
 
-1. **`.gitignore`** — `.env`, `.env.*`, `*.pem`, `terraform.tfvars`, `*.auto.tfvars`, `*.tfstate`, `tfplan` are all excluded from version control
-2. **Terraform `sensitive = true`** — OCI credentials (`tenancy_ocid`, `user_ocid`, `fingerprint`, `private_key_path`, `compartment_ocid`), the SSH allowed CIDR, and the `cd_nsg_id` output (stored as GitHub Secret) are marked sensitive, preventing their values from appearing in `terraform plan/apply` output or logs
-3. **Docker Compose env vars** — All secrets are parameterized via `${VAR}` references, sourced from `.env` (not committed) or the shell environment
-4. **Example files only** — `.env.example` and `terraform.tfvars.example` contain placeholder values, never real credentials
-
-### Runtime Secrets Inventory
-
-| Secret | Source | Used By |
-|--------|--------|---------|
-| `JWT_SECRET` | `.env` or GitHub Secrets | Server (authentication) |
-| `AMT_USER` | `.env` or GitHub Secrets | Server (Intel AMT WSMAN) |
-| `AMT_PASS` | `.env` or GitHub Secrets | Server (Intel AMT WSMAN) |
-| `VAPID_CONTACT` | `.env` or GitHub Secrets | Server (Web Push, RFC 8292) |
-| `POSTGRES_PASSWORD` | `.env` or GitHub Secrets | PostgreSQL, Server (DATABASE_URL), Postgres Exporter |
-| `DOMAIN` | `.env` | Caddy (auto-TLS domain) |
-| `OPENGATE_QUIC_HOST` | `.env` | Server (QUIC advertised hostname in install.sh / agent enrollment response) |
-| `tenancy_ocid` | `terraform.tfvars` | Terraform (OCI provider) |
-| `user_ocid` | `terraform.tfvars` | Terraform (OCI provider) |
-| `fingerprint` | `terraform.tfvars` | Terraform (OCI API key) |
-| `private_key_path` | `terraform.tfvars` | Terraform (OCI API key PEM) |
-| `ssh_allowed_cidr` | `terraform.tfvars` | Terraform (firewall rules) |
-
-### GitHub Secrets (for CD pipeline)
-
-The following secrets should be configured in GitHub repository settings (`Settings > Secrets and variables > Actions`):
-
-| GitHub Secret | Purpose |
-|---------------|---------|
-| `DEPLOY_JWT_SECRET` | Production JWT signing key |
-| `DEPLOY_AMT_PASS` | Intel AMT WSMAN password |
-| `DEPLOY_VAPID_CONTACT` | Web Push contact email |
-| `DEPLOY_DOMAIN` | Caddy auto-TLS domain |
-| `DEPLOY_POSTGRES_PASSWORD` | Production PostgreSQL password |
-| `DEPLOY_STAGING_JWT_SECRET` | Staging JWT signing key |
-| `DEPLOY_STAGING_AMT_PASS` | Staging Intel AMT password |
-| `DEPLOY_STAGING_VAPID_CONTACT` | Staging Web Push contact |
-| `DEPLOY_STAGING_DOMAIN` | Staging domain (`localhost`) |
-| `DEPLOY_STAGING_POSTGRES_PASSWORD` | Staging PostgreSQL password |
-| `DEPLOY_HOST` | VPS public IP or hostname |
-| `DEPLOY_SSH_PRIVATE_KEY` | SSH key for deploying to VPS |
-| `OCI_TENANCY_OCID` | Oracle Cloud tenancy OCID |
-| `OCI_USER_OCID` | Oracle Cloud user OCID |
-| `OCI_FINGERPRINT` | Oracle Cloud API key fingerprint |
-| `OCI_PRIVATE_KEY` | Oracle Cloud API private key (PEM contents) |
-| `OCI_REGION` | Oracle Cloud region identifier |
-| `OCI_CD_NSG_ID` | NSG OCID for just-in-time SSH firewall rules |
-| `OCI_TFSTATE_NAMESPACE` | OCI Object Storage namespace, used to construct the S3 endpoint for the remote tfstate backend (terraform-drift workflow) |
-| `TFSTATE_S3_ACCESS_KEY` | S3-compatible access key for the `tf-state-writer` user (terraform-drift workflow reads tfstate) |
-| `TFSTATE_S3_SECRET_KEY` | S3-compatible secret key paired with `TFSTATE_S3_ACCESS_KEY` |
-| `OCI_DRIFT_USER_OCID` | OCID of the read-only `tf-drift-reader` IAM user (terraform-drift workflow) |
-| `OCI_DRIFT_FINGERPRINT` | API key fingerprint for `tf-drift-reader` |
-| `OCI_DRIFT_PRIVATE_KEY` | API private key (PEM contents) for `tf-drift-reader` |
-
-### Best Practices
-
-- **Never commit `.env` or `terraform.tfvars`** — only `.env.example` and `terraform.tfvars.example` belong in version control
-- **Rotate secrets regularly** — JWT secret, AMT credentials, OCI API keys
-- **Use strong JWT secrets** — minimum 32 random characters (`openssl rand -base64 32`)
-- **Restrict SSH access** — `ssh_allowed_cidr` should be a single IP (`x.x.x.x/32`), not a subnet
-- **Terraform state** — if using remote state (S3, OCI Object Storage), enable server-side encryption
+The exact secret inventory is canonical in the workflow and chart sources rather
+than duplicated here.
 
 ## Config Validation
 
-All deploy configs are statically analyzed in CI (the `Config Lint` job) and locally via `make lint-deploy`.
+All deploy configs are statically analyzed in CI by the `Config Lint` job and
+locally through `make lint-deploy` / `make lint-k8s`.
 
-| Tool | Target | What It Catches |
-|------|--------|-----------------|
-| `yamllint` | `deploy/**/*.yml` (cloud-init.yaml excluded) | YAML syntax, formatting, line length |
-| `terraform fmt -check` | `*.tf` | HCL formatting drift |
-| `terraform validate` | `*.tf` | Syntax errors, type mismatches, missing references |
-| `tflint` | `*.tf` | Best practices: naming, docs, unused declarations |
-| `docker compose config` | `docker-compose*.yml` | Compose schema, undefined services, env var refs |
-| `caddy fmt --diff` | `Caddyfile*` | Caddyfile formatting |
-| `caddy validate` | `Caddyfile*` | Directive validity, placeholder resolution |
-| `trivy config` | `deploy/`, `Dockerfile` | Security misconfigs (open ports, Dockerfile antipatterns) |
-| `validate-configs.sh` | All configs | Cross-file consistency (ports, env vars, tfvars completeness) |
-
-The integration test script (`deploy/tests/validate-configs.sh`) verifies:
-1. Every port in `docker-compose.yml` has a matching OCI security list rule AND UFW rule
-2. Every `${VAR}` in `docker-compose.yml` and `docker-compose.staging.yml` has an entry in `.env.example`
-3. Every required Terraform variable (no default) has an entry in `terraform.tfvars.example`
-4. `cloud-init.yaml` has the `#cloud-config` magic header
+| Tool | Target | What it catches |
+|---|---|---|
+| `yamllint` | Deploy YAML | Syntax, formatting, line length |
+| `terraform fmt` / `terraform validate` / `tflint` | Terraform | HCL formatting, provider syntax, lint findings |
+| `terraform test` | Terraform modules and root | Module invariants and variable validation |
+| `helm lint` / `helm template` / `kubeconform` | Helm charts | Chart/schema drift |
+| Checkov / Trivy / Conftest | IaC, Dockerfile, workflow, Kubernetes policy | Security misconfiguration and project-specific invariants |
+| `docker compose config` / `caddy validate` | Dormant/local artifacts | Keeps fallback/local configs parseable |
+| [`deploy/tests/validate-configs.sh`](../deploy/tests/validate-configs.sh) | Cross-config consistency | Port, env-var, tfvars, and config-shape invariants |

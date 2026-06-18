@@ -131,9 +131,10 @@ Mutation tests do **not** gate merges or deploys. They run **nightly** via the
 [mutation.yml workflow](../.github/workflows/mutation.yml) and
 emit a row per run to:
 
-- **Loki** — pushed via the existing deploy SSH tunnel into the monitoring
-  docker network. Visualised in Grafana under the "Mutation Testing Trend"
-  dashboard (uid `opengate-mutation-trend`). Canonical trend store.
+- **Loki** — pushed to the in-cluster Loki Service through the shared kubectl
+  transport in [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh).
+  Visualised in Grafana under the "Mutation Testing Trend" dashboard
+  (uid `opengate-mutation-trend`). Canonical trend store.
 - **Workflow artifact** — each run uploads `mutation-canonical-row` (the
   per-run JSON object) with 90-day retention for one-off audits.
 
@@ -384,17 +385,18 @@ cd server && go run ./tests/loadtest/ -agents=500 -addr=staging.example.com:9090
 - **E2E** runs on every push and gates `merge-to-main` (includes Lighthouse CI audits)
 - **Bundle size** runs on every push and gates `merge-to-main` (size-limit gzip check)
 - **Load tests** run on `workflow_dispatch` and weekly schedule only (not on every push)
-- **PageSpeed Insights** runs during staging CD deploy (requires `PSI_API_KEY`)
+- **Browser performance history** comes from Lighthouse CI and the non-blocking
+  `perf-publish` path; PageSpeed Insights is not part of the current CD workflow.
 
 ## Investigating Test Failures in Production
 
-When a test passes in CI but something misbehaves in staging/production, reach for the `/observe` Claude Code skill (`.claude/skills/observe/SKILL.md`) instead of SSHing by hand. It wraps PromQL/LogQL/`docker exec` queries around the self-hosted monitoring stack and ships with ready-made playbooks for common failure shapes:
+When a test passes in CI but something misbehaves in staging/production, reach for the `/observe` Claude Code skill (`.claude/skills/observe/SKILL.md`) or the same kubectl/Loki paths documented in [Monitoring](./Monitoring.md#ad-hoc-investigation). The current stack is Kubernetes-native, so starting signals come from pod health, Service port-forwards, and Loki labels rather than Docker container state:
 
 | Playbook | Starting signals |
 |----------|-----------------|
-| Agent offline | `systemctl status mesh-agent`, QUIC :9090 reachability, Loki `enroll`/`agent` entries |
-| Requests slow | p95/p99 latency, slowest routes, DB latency by operation, host CPU/memory |
-| Deployment health | container uptime vs. deploy window, `/api/v1/health`, `agents_connected`, Caddy 5xx |
-| Post-deploy verification | new errors since deploy timestamp, image tag via `docker inspect` |
+| Agent offline | Agent service status on the device, QUIC reachability, Loki `enroll`/`agent` entries |
+| Requests slow | p95/p99 latency, slowest routes, DB latency by operation, node CPU/memory |
+| Deployment health | Deployment rollout status, `/api/v1/health`, `agents_connected`, ingress 5xx |
+| Post-deploy verification | new errors since deploy timestamp, server image tag from the Kubernetes Deployment |
 
 See [[Monitoring]] for the underlying PromQL/LogQL query patterns.
