@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781820469463,
+  "lastUpdate": 1781827036450,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -18252,6 +18252,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.219380114327826,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "3055f1be8212f71327e0b894a4a5bfc1b282f60b",
+          "message": "feat(ci): add VictoriaMetrics trend transport",
+          "timestamp": "2026-06-18T16:55:22-07:00",
+          "tree_id": "97834baeadd2b41f61f3a664653e2304a7fb747e",
+          "url": "https://github.com/volchanskyi/opengate/commit/3055f1be8212f71327e0b894a4a5bfc1b282f60b"
+        },
+        "date": 1781827036311,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 15.55131275077039,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 26.62665551624157,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 761.3164975044639,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.4107464375563,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.843088031723973,
             "unit": "ns/iter"
           }
         ]
