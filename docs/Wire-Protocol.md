@@ -26,18 +26,28 @@ Ping and Pong are special: they consist of a single byte with no length prefix o
 
 ## Handshake
 
-The handshake uses **raw binary encoding** (not MessagePack) and occurs before any framed messages. The server initiates:
+The handshake uses **raw binary encoding** (not MessagePack) and occurs before
+any framed messages. The agent opens the control stream and speaks first; the
+server branches on the first handshake byte:
 
-```
-Server                               Agent
-  │                                    │
-  │──── ServerHello (0x10) ───────────►│
-  │◄─── AgentHello  (0x11) ────────────│
-  │                                    │
-  │     ── framed MessagePack ──       │
+```mermaid
+sequenceDiagram
+  participant Agent
+  participant Server
+
+  alt cold start or fallback
+    Agent->>Server: AgentHello (0x11)
+    Server-->>Agent: ServerHello (0x10)
+  else fast-path reconnect
+    Agent->>Server: SkipAuth (0x14)
+    Note over Agent,Server: server sends no handshake reply when cached CA hash is current
+  end
+  Note over Agent,Server: framed MessagePack begins after handshake
 ```
 
-Handshake type bytes range from `0x10` to `0x15`.
+Handshake type bytes range from `0x10` to `0x15`; the canonical constants live
+in [`server/internal/protocol/types.go`](../server/internal/protocol/types.go)
+and [`agent/crates/mesh-protocol/src/types/handshake.rs`](../agent/crates/mesh-protocol/src/types/handshake.rs).
 
 ## Control Messages
 

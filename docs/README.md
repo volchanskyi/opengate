@@ -99,6 +99,25 @@ Do not copy ADR text into other pages. Other pages link to the ADR and
 summarise only the one fact the reader needs in context. This prevents the
 same fact from existing in two places and going stale in one.
 
+### 4. Mermaid diagrams only
+
+Use Mermaid fenced blocks for diagrams:
+
+````markdown
+```mermaid
+flowchart LR
+  A --> B
+```
+````
+
+Do not commit rendered SVG blobs, D2 sources, or a diagram-rendering toolchain.
+GitHub renders Mermaid server-side, so docs stay reviewable as plain Markdown
+without Puppeteer, a JRE, or generated image drift. Keep diagrams hand-curated at
+the architecture level; structural drift is caught by the boundary linters wired
+through [`scripts/precommit-gauntlet.sh`](../scripts/precommit-gauntlet.sh) and
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml), not by auto-extracting
+graphs from source.
+
 ---
 
 ## Directory layout

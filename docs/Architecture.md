@@ -12,38 +12,61 @@ OpenGate is a three-component platform for remote device management:
 
 ## Component Diagram
 
+```mermaid
+flowchart LR
+  AGENT["Agent<br/>Rust service"]
+  WEB["Web UI<br/>React"]
+  AMT["Intel AMT device"]
+
+  subgraph SERVER["Server"]
+    AGENT_API["AgentAPI<br/>QUIC control"]
+    REST["REST API<br/>HTTP JSON"]
+    RELAY["WebSocket relay"]
+    MPS["MPS<br/>CIRA/APF"]
+    STORE[(PostgreSQL)]
+  end
+
+  AGENT <-->|QUIC mTLS| AGENT_API
+  WEB <-->|HTTP JSON| REST
+  WEB <-->|session frames| RELAY
+  AGENT <-->|session frames| RELAY
+  AMT <-->|CIRA/APF over TLS| MPS
+  AGENT_API --> STORE
+  REST --> STORE
+  RELAY --> STORE
+  MPS --> STORE
 ```
-┌─────────────┐    QUIC/mTLS     ┌──────────────────────────────────┐    HTTP/JSON     ┌──────────────┐
-│             │    :9090          │            Server                │    :8080          │              │
-│    Agent    │◄─────────────────►│            (Go)                  │◄─────────────────►│     Web      │
-│    (Rust)   │                   │                                  │                   │   (React)    │
-│             │                   │   ┌───────────┐  ┌────────────┐  │                   │              │
-└─────────────┘                   │   │ AgentAPI  │  │  REST API  │  │                   └──────────────┘
-                                  │   │  (QUIC)   │  │   (HTTP)   │  │
-                                  │   └─────┬─────┘  └──────┬─────┘  │
-                                  │         │               │        │
-                                  │   ┌─────▼───────────────▼──────┐ │
-                                  │   │  PostgreSQL 17 (pgx/v5)    │ │
-                                  │   └────────────────────────────┘ │
-                                  └──────────────────────────────────┘
-```
+
+## Architecture Drift Checks
+
+The diagrams are hand-curated Mermaid blocks. Structural drift is caught by the
+existing boundary gates rather than generated diagrams: the
+[precommit gauntlet](../scripts/precommit-gauntlet.sh) and
+[CI workflow](../.github/workflows/ci.yml) run the Go, Rust, and web boundary
+checks recorded in [ADR-020](adr/ADR-020-modular-monolith-full-hexagonal.md).
+[`scripts/tests/docs-diagrams.test.sh`](../scripts/tests/docs-diagrams.test.sh)
+keeps docs diagrams on the Mermaid-only, no-rendered-blob path.
 
 ## Connection Model
 
 ### Agent → Server (QUIC + mTLS)
 
-```
-Agent                                    Server
-  │                                        │
-  │──── QUIC connect (TLS 1.3, mTLS) ─────►│  Client cert signed by server CA
-  │                                        │
-  │◄──── ServerHello (binary) ─────────────│  Server opens control stream
-  │───── AgentHello (binary) ─────────────►│  Agent responds with identity
-  │                                        │
-  │◄────── Control messages ──────────────►│  MessagePack-encoded
-  │        (register, heartbeat,           │
-  │         session requests)              │
-  │                                        │
+```mermaid
+sequenceDiagram
+  participant Agent
+  participant Server
+
+  Agent->>Server: QUIC connect with mTLS
+  Agent->>Server: open control stream
+  alt cold start or fallback
+    Agent->>Server: AgentHello
+    Server-->>Agent: ServerHello with CA hash
+  else fast-path reconnect
+    Agent->>Server: SkipAuth with cached CA hash
+    Note over Agent,Server: server sends no handshake reply when hash is current
+  end
+  Agent-->>Server: AgentRegister and heartbeats
+  Server-->>Agent: session and update control messages
 ```
 
 #### CSR-Based Enrollment (First Boot)
@@ -60,7 +83,12 @@ The `--enroll-url` and `--enroll-token` CLI flags (or `OPENGATE_ENROLL_URL`/`OPE
 
 The enrollment response also includes the server's Ed25519 update signing key (if configured), which the agent saves to disk for verifying future OTA updates without requiring the `--update-public-key` CLI flag.
 
-The control stream carries a binary handshake (`ServerHello`/`AgentHello`) followed by MessagePack-encoded control messages for registration, heartbeats, and session negotiation.
+The agent opens the control stream and speaks first; the server branches on the
+first handshake byte in
+[`handshaker.go`](../server/internal/agentapi/handshaker.go). The cold path
+binds `AgentHello` to the mTLS peer certificate, while reconnects may use
+`SkipAuth` with the cached CA hash before framed MessagePack control messages
+begin. Message layout details live in [Wire Protocol](Wire-Protocol.md).
 
 ### Agent Binary (`mesh-agent`)
 
@@ -68,17 +96,17 @@ The `mesh-agent` binary (`agent/crates/mesh-agent/src/main.rs`) is the entry poi
 
 - **CSR enrollment**: On first boot, generates CSR and enrolls via HTTP to obtain a CA-signed certificate
 - **QUIC mTLS connection**: Connects to the server using `quinn` with ALPN protocol `"opengate"`, client cert from the agent's identity, and the server CA for root verification
-- **Binary handshake**: Reads `ServerHello`, sends `AgentHello` with SHA-384 cert hash and random nonce
+- **Binary handshake**: Sends `AgentHello` first on the cold path, reads `ServerHello` for the CA hash, and may use `SkipAuth` on reconnect
 - **Registration**: Sends `AgentRegister` with hostname, OS, architecture, version, and capabilities (Terminal, FileManager on Linux; RemoteDesktop added on Windows/Mac)
 - **Control loop**: Dispatches `SessionRequest` (spawns session handler), `AgentUpdate` (semver check, apply, ack, exit code 42 for systemd restart), and handles pings
-- **Auto-update**: Downloads binary, verifies SHA-256 + Ed25519 signature, atomic replace with `.prev` backup, rollback watchdog on restart. See [[Agent Updates]]
+- **Auto-update**: Downloads binary, verifies SHA-256 + Ed25519 signature, atomic replace with `.prev` backup, rollback watchdog on restart. See [Agent Updates](Agent-Updates.md)
 - **Deregistration**: On receiving `AgentDeregistered`, removes local identity files (certs, keys, device ID) and exits cleanly. The server maintains an in-memory tombstone set to reject reconnection attempts from deleted devices
 - **Reconnection**: Exponential backoff (1s→30s cap, 10 max attempts) via `reconnect_with_backoff`
 - **Graceful shutdown**: `tokio::select!` on SIGINT/SIGTERM with systemd `sd_notify` lifecycle notifications
 
 ### Web → Server (HTTP + JWT)
 
-Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed and stored in PostgreSQL. The REST API is defined by an OpenAPI 3.0.3 spec (`api/openapi.yaml`) and served by an `oapi-codegen` strict server on a chi v5 router. The same spec generates TypeScript types for the web client via `openapi-typescript` + `openapi-fetch`. See [[API Reference]] for endpoint details.
+Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed and stored in PostgreSQL. The REST API is defined by an OpenAPI 3.0.3 spec (`api/openapi.yaml`) and served by an `oapi-codegen` strict server on a chi v5 router. The same spec generates TypeScript types for the web client via `openapi-typescript` + `openapi-fetch`. See [API Reference](API-Reference.md) for endpoint details.
 
 ## Data Flow
 
@@ -100,10 +128,22 @@ Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed 
 
 The server includes a message-oriented WebSocket relay (`server/internal/relay/`) for browser↔agent sessions:
 
-```
-Browser (WebSocket)  ──►  Relay  ◄──  Agent (WebSocket)
-         ?side=browser            ?side=agent
-         ?auth=<jwt>
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant REST as REST API
+  participant AgentAPI
+  participant Agent
+  participant Relay
+
+  Browser->>REST: create session
+  REST->>AgentAPI: send SessionRequest
+  AgentAPI->>Agent: control message
+  Agent-->>AgentAPI: SessionAccept
+  Browser->>Relay: connect as browser
+  Agent->>Relay: connect as agent
+  Relay-->>Browser: agent frames
+  Relay-->>Agent: browser frames
 ```
 
 1. Browser creates a session via REST API (`POST /api/v1/sessions`), gets back `{token, relay_url}`

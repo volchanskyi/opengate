@@ -31,24 +31,23 @@ func BenchmarkHandshaker_PerformHandshake(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		serverConn, clientConn := net.Pipe()
 
-		// Run client side in goroutine
+		// Run client side in goroutine. The agent opens + writes first, so
+		// send AgentHello before reading the server's reply.
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
 			defer clientConn.Close()
 
-			// Read ServerHello (81 bytes)
-			buf := make([]byte, 81)
-			if _, err := clientConn.Read(buf); err != nil {
+			agentCertHash := sha512.Sum384(peerCertDER)
+			var nonce [32]byte
+			agentHello := protocol.EncodeAgentHello(nonce, agentCertHash)
+			if _, err := clientConn.Write(agentHello); err != nil {
 				return
 			}
 
-			// Send AgentHello with matching cert hash
-			agentCertHash := sha512.Sum384(peerCertDER)
-			var nonce [32]byte
-			copy(nonce[:], buf[1:33])
-			agentHello := protocol.EncodeAgentHello(nonce, agentCertHash)
-			clientConn.Write(agentHello)
+			// Read ServerHello (81 bytes)
+			buf := make([]byte, 81)
+			clientConn.Read(buf)
 		}()
 
 		_, err := h.PerformHandshake(context.Background(), serverConn, [][]byte{peerCertDER})

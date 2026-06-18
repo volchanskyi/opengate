@@ -24,7 +24,7 @@ async fn test_quic_agent_register_roundtrip() {
             .await
             .expect("accept incoming connection");
         let conn = incoming.await.expect("complete server connection");
-        let (mut send, mut recv) = conn.open_bi().await.expect("open bidirectional stream");
+        let (mut send, mut recv) = conn.accept_bi().await.expect("accept bidirectional stream");
 
         server_handshake(&mut send, &mut recv, &ca_cert_der).await;
 
@@ -69,7 +69,7 @@ async fn test_quic_agent_register_roundtrip() {
         .expect("initiate client connection")
         .await
         .expect("complete client connection");
-    let (mut send, mut recv) = conn.accept_bi().await.expect("accept bidirectional stream");
+    let (mut send, mut recv) = conn.open_bi().await.expect("open bidirectional stream");
 
     client_handshake(&mut send, &mut recv, &agent_cert_der).await;
 
@@ -111,7 +111,7 @@ async fn test_quic_session_request_response() {
             .await
             .expect("accept incoming connection");
         let conn = incoming.await.expect("complete server connection");
-        let (mut send, mut recv) = conn.open_bi().await.expect("open bidirectional stream");
+        let (mut send, mut recv) = conn.accept_bi().await.expect("accept bidirectional stream");
 
         server_handshake(&mut send, &mut recv, &ca_cert_der).await;
 
@@ -171,7 +171,7 @@ async fn test_quic_session_request_response() {
         .expect("initiate client connection")
         .await
         .expect("complete client connection");
-    let (mut send, mut recv) = conn.accept_bi().await.expect("accept bidirectional stream");
+    let (mut send, mut recv) = conn.open_bi().await.expect("open bidirectional stream");
 
     client_handshake(&mut send, &mut recv, &agent_cert_der).await;
 
@@ -238,7 +238,7 @@ async fn test_quic_disconnect_detection() {
             .await
             .expect("accept incoming connection");
         let conn = incoming.await.expect("complete server connection");
-        let (mut send, mut recv) = conn.open_bi().await.expect("open bidirectional stream");
+        let (mut send, mut recv) = conn.accept_bi().await.expect("accept bidirectional stream");
 
         server_handshake(&mut send, &mut recv, &ca_cert_der).await;
 
@@ -269,9 +269,9 @@ async fn test_quic_disconnect_detection() {
         .await
         .expect("complete client connection");
     let (mut send, mut recv) = quic_conn
-        .accept_bi()
+        .open_bi()
         .await
-        .expect("accept bidirectional stream");
+        .expect("open bidirectional stream");
 
     client_handshake(&mut send, &mut recv, &agent_cert_der).await;
 

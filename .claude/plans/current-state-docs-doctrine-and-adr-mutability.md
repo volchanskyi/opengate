@@ -1,14 +1,14 @@
 # Current-State Docs Doctrine + ADR Mutability Flip
 
-**Status:** Broken into micro-plans (re-evaluated against the live tree). Order
-**DD-A → DD-B → DD-INV → DD-C ∥ DD-D → DD-E**:
+**Status:** Complete; retained as the parent index for the archived micro-plans.
+Execution order was **DD-A → DD-B → DD-INV → DD-C ∥ DD-D → DD-E**:
 
 - [`docs-doctrine-a-governance-flip.md`](archive/docs-doctrine-a-governance-flip.md) — **done** (archived; ADR consolidation folded in); teardown [TD6](archive/dormant-scale-out-td6-docs-adrs.md) is complete
 - [`docs-doctrine-b-link-checker.md`](archive/docs-doctrine-b-link-checker.md) — link-enforcement hook — **done** (archived)
 - [`docs-doctrine-inv-inventory-pass.md`](archive/docs-doctrine-inv-inventory-pass.md) — enumerate scope; defines "done" for C/D — **done** (archived)
 - [`docs-doctrine-c-docs-adr-cleanup.md`](archive/docs-doctrine-c-docs-adr-cleanup.md) — docs + ADR-body cleanup (**coordinate with teardown TD6**) — **done** (archived)
 - [`docs-doctrine-d-code-comments.md`](archive/docs-doctrine-d-code-comments.md) — ~65 source files — **done** (archived)
-- [`docs-doctrine-e-diagrams-as-code.md`](docs-doctrine-e-diagrams-as-code.md) — long-term, optional
+- [`docs-doctrine-e-diagrams-as-code.md`](archive/docs-doctrine-e-diagrams-as-code.md) — **done** (archived)
 
 **Re-evaluation corrections (verified counts/drift):** (1) **M4's ~264
 `ADR-[0-9]|plans/` hits are mostly working links the doctrine wants to KEEP** — it

@@ -167,6 +167,16 @@ func EncodeAgentHello(nonce [32]byte, agentCertHash [48]byte) []byte {
 	return buf
 }
 
+// EncodeSkipAuth encodes a SkipAuth (0x14) fast-path handshake message. The
+// agent sends it on reconnect carrying the cached CA cert hash, letting the
+// server skip the ServerHello/AgentHello exchange when the hash is current.
+func EncodeSkipAuth(cachedCertHash [48]byte) []byte {
+	buf := make([]byte, 49)
+	buf[0] = MsgSkipAuth
+	copy(buf[1:49], cachedCertHash[:])
+	return buf
+}
+
 // DecodeHandshakeType returns the type byte from a handshake message.
 func DecodeHandshakeType(data []byte) (byte, error) {
 	if len(data) == 0 {

@@ -124,23 +124,13 @@ pub fn build_client_config(certs: &TestCerts) -> quinn::ClientConfig {
     quinn::ClientConfig::new(Arc::new(quinn_crypto))
 }
 
-/// Perform server-side handshake on opened streams.
+/// Perform server-side handshake on an accepted stream. The agent opened the
+/// stream and writes first, so the server reads AgentHello before replying.
 pub async fn server_handshake(
     send: &mut quinn::SendStream,
     recv: &mut quinn::RecvStream,
     ca_cert_der: &[u8],
 ) {
-    let ca_cert_hash: [u8; 48] = Sha384::digest(ca_cert_der).into();
-    let mut nonce = [0u8; 32];
-    getrandom::fill(&mut nonce).expect("fill nonce with random bytes");
-    let server_hello = HandshakeMessage::ServerHello {
-        nonce,
-        cert_hash: ca_cert_hash,
-    };
-    send.write_all(&server_hello.encode_binary())
-        .await
-        .expect("send ServerHello");
-
     let mut hello_buf = [0u8; 81];
     recv.read_exact(&mut hello_buf)
         .await
@@ -152,14 +142,37 @@ pub async fn server_handshake(
         "expected AgentHello, got {:?}",
         agent_hello
     );
+
+    let ca_cert_hash: [u8; 48] = Sha384::digest(ca_cert_der).into();
+    let mut nonce = [0u8; 32];
+    getrandom::fill(&mut nonce).expect("fill nonce with random bytes");
+    let server_hello = HandshakeMessage::ServerHello {
+        nonce,
+        cert_hash: ca_cert_hash,
+    };
+    send.write_all(&server_hello.encode_binary())
+        .await
+        .expect("send ServerHello");
 }
 
-/// Perform client-side handshake on accepted streams.
+/// Perform client-side handshake on an opened stream. The agent opened the
+/// stream, so it writes AgentHello first, then reads the server's reply.
 pub async fn client_handshake(
     send: &mut quinn::SendStream,
     recv: &mut quinn::RecvStream,
     agent_cert_der: &[u8],
 ) {
+    let agent_cert_hash: [u8; 48] = Sha384::digest(agent_cert_der).into();
+    let mut nonce = [0u8; 32];
+    getrandom::fill(&mut nonce).expect("fill nonce with random bytes");
+    let agent_hello = HandshakeMessage::AgentHello {
+        nonce,
+        agent_cert_hash,
+    };
+    send.write_all(&agent_hello.encode_binary())
+        .await
+        .expect("send AgentHello");
+
     let mut hello_buf = [0u8; 81];
     recv.read_exact(&mut hello_buf)
         .await
@@ -171,15 +184,4 @@ pub async fn client_handshake(
         "expected ServerHello, got {:?}",
         server_hello
     );
-
-    let agent_cert_hash: [u8; 48] = Sha384::digest(agent_cert_der).into();
-    let mut nonce = [0u8; 32];
-    getrandom::fill(&mut nonce).expect("fill nonce with random bytes");
-    let agent_hello = HandshakeMessage::AgentHello {
-        nonce,
-        agent_cert_hash,
-    };
-    send.write_all(&agent_hello.encode_binary())
-        .await
-        .expect("send AgentHello");
 }

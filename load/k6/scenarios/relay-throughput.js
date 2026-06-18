@@ -15,8 +15,15 @@ export const options = {
       duration: "1m",
     },
   },
+  // p(95)<50ms assumed a local target. Since the OKE cutover, this scenario
+  // reaches staging through a kubectl port-forward tunnel from the
+  // GitHub-hosted runner to the OCI cluster, whose RTT alone floors latency
+  // well above 50ms regardless of server performance (checks stay 100%
+  // green while only this threshold fails; observed p(95) ~112-136ms,
+  // min ~65ms). 150ms sits just above that band — tight enough to flag a
+  // real server-side regression, high enough to clear the tunnel floor.
   thresholds: {
-    relay_msg_latency_ms: ["p(95)<50"],
+    relay_msg_latency_ms: ["p(95)<150"],
   },
 };
 

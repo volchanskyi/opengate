@@ -1,6 +1,6 @@
 # Micro-plan W1 — Client-first QUIC handshake
 
-**Parent:** [`fast-path-reconnect-fix.md`](fast-path-reconnect-fix.md) (master). **Order:** first — unblocks W2/W3/W5.
+**Parent:** `fast-path-reconnect-fix.md` (master, active plan). **Order:** first — unblocks W2/W3/W5.
 **Branch:** `dev`. **Owner:** implementing engineer. **Reviewer:** Ivan.
 
 ## Why
@@ -14,19 +14,19 @@ IDs, and unblocks the `0x14` fast path (W2).
 The handshake is **mTLS + one nonce/cert-hash exchange**, NOT a signature handshake:
 - `0x10` ServerHello (server_nonce + CA cert hash) → `0x11` AgentHello (agent_nonce +
   agent cert hash) → server verifies agent cert hash == TLS peer cert + extracts
-  DeviceID from the peer cert CN ([handshaker.go:47-90](../../server/internal/agentapi/handshaker.go#L47)).
+  DeviceID from the peer cert CN ([handshaker.go:47-90](../../../server/internal/agentapi/handshaker.go#L47)).
 - `0x12`/`0x13`/`0x14` are **defined constants, never implemented**. Auth is the TLS
   layer (`RequireAndVerifyClientCert`). The nonces are exchanged but not signed over.
 - So this reorder is **low cryptographic risk** — there are no signatures whose
   nonce-ordering must be re-derived; it's a message-order + stream-ownership flip.
 
 ## Files
-- [`server/internal/agentapi/handshaker.go`](../../server/internal/agentapi/handshaker.go) — **reorder**: read `0x11` AgentHello **first** (`io.ReadFull`), validate, then `stream.Write` the `0x10` ServerHello. (Today it writes `0x10` then reads `0x11`.)
-- [`server/internal/agentapi/server.go`](../../server/internal/agentapi/server.go) — `openControlStream` → **accept** the stream (`conn.AcceptStream(ctx)`), rename accordingly; the agent now opens.
-- [`agent/crates/mesh-agent/src/main.rs`](../../agent/crates/mesh-agent/src/main.rs#L425) — `conn.open_bi()` instead of `accept_bi()`; **write AgentHello first**, then read ServerHello (the send/recv handshake lives just after the stream is obtained — in `main.rs` / `mesh-agent-core` connection handshake).
+- [`server/internal/agentapi/handshaker.go`](../../../server/internal/agentapi/handshaker.go) — **reorder**: read `0x11` AgentHello **first** (`io.ReadFull`), validate, then `stream.Write` the `0x10` ServerHello. (Today it writes `0x10` then reads `0x11`.)
+- [`server/internal/agentapi/server.go`](../../../server/internal/agentapi/server.go) — `openControlStream` → **accept** the stream (`conn.AcceptStream(ctx)`), rename accordingly; the agent now opens.
+- [`agent/crates/mesh-agent/src/main.rs`](../../../agent/crates/mesh-agent/src/main.rs#L425) — `conn.open_bi()` instead of `accept_bi()`; **write AgentHello first**, then read ServerHello (the send/recv handshake lives just after the stream is obtained — in `main.rs` / `mesh-agent-core` connection handshake).
 - `agent/crates/mesh-protocol` — confirm AgentHello-first encode/decode (the message types exist; only the *send order* changes).
 - **Golden files** — `server/internal/protocol/testdata/golden` + the Rust `golden_test`: regenerate via `make golden` (the on-wire send order changes).
-- [`server/tests/integration/agentapi_test.go`](../../server/tests/integration/agentapi_test.go) — `connectAgent` uses `OpenStreamSync` (agent opens) instead of `AcceptStream`.
+- [`server/tests/integration/agentapi_test.go`](../../../server/tests/integration/agentapi_test.go) — `connectAgent` uses `OpenStreamSync` (agent opens) instead of `AcceptStream`.
 
 ## Steps (TDD — failing test first)
 1. Add a failing handshake test (Go `handshaker_test.go` + integration `connectAgent`; Rust) asserting the **agent opens + writes first** and the handshake completes — run it under **both** server-only TLS and mTLS (mirror the throwaway matrix from the master plan §2).
