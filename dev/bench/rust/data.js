@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781796099154,
+  "lastUpdate": 1781799940329,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -18154,6 +18154,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.766237013420692,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "7a95c002feed011cdd3f6b31f2a65db4110d1223",
+          "message": "ci: fix mutation and npm audit gates",
+          "timestamp": "2026-06-18T09:24:01-07:00",
+          "tree_id": "a6399074e1694f23f806976cf33a1aa412034c57",
+          "url": "https://github.com/volchanskyi/opengate/commit/7a95c002feed011cdd3f6b31f2a65db4110d1223"
+        },
+        "date": 1781799940208,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 16.157527154675314,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.44627835989322,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 739.2485584883274,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 317.63329332751533,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.086696706847533,
             "unit": "ns/iter"
           }
         ]
