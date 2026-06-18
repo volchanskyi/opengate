@@ -72,12 +72,10 @@ run "egress_is_unrestricted_but_stateful" {
   }
 }
 
-# OCI Bastion ingress — TCP 22 from the public subnet CIDR (`10.0.1.0/24`).
-# The bastion's /28 service endpoint is carved from this subnet at apply time;
-# allowing intra-subnet traffic to port 22 is what makes port-forwarding
-# sessions reachable. Managed SSH sessions tunnel through the agent plugin
-# and do not strictly require this rule, but it keeps port-forwarding open
-# as a fallback when the plugin is offline. See ADR-018.
+# Legacy public-subnet Bastion ingress — TCP 22 from the public subnet CIDR
+# (`10.0.1.0/24`). The active bastion now targets the OKE worker-node subnet;
+# this assertion keeps the dormant public-subnet recovery path wired while that
+# security list remains in the Terraform graph. See ADR-018.
 run "bastion_ssh_ingress_present" {
   command = plan
 
@@ -96,7 +94,7 @@ run "bastion_ssh_ingress_present" {
       "10.0.1.0/24",        # bastion service-endpoint /28 lives in this subnet
       "0.0.0.0/0",          # HTTP + HTTPS + MPS (80, 443, 4433) all use this source
     ])
-    error_message = "TCP ingress source set drifted — expected {var.ssh_allowed_cidr, public subnet CIDR, 0.0.0.0/0}. The public subnet CIDR is what makes OCI Bastion's /28 service endpoint reachable; missing it breaks `make tunnel`."
+    error_message = "TCP ingress source set drifted — expected {var.ssh_allowed_cidr, public subnet CIDR, 0.0.0.0/0}. The public subnet CIDR keeps the dormant public-subnet Bastion recovery path reachable."
   }
 
   # Specifically: there must be exactly one TCP 22 rule sourced from the

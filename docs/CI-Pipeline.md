@@ -76,13 +76,13 @@ human commits  ──► dev ──► main
                     ▼
               CD Workflow (cd.yml)
               ├─ resolve-tag + cosign verify
-              ├─ deploy-staging (manual approval) → cosign verify (VPS) → smoke-test → PSI → [rollback]
-              └─ deploy-production (manual approval) → cosign verify (VPS) → health-check → [rollback]
+              ├─ deploy-staging-k8s → Helm upgrade → smoke-test + Playwright via port-forward
+              └─ deploy-production-k8s (environment approval) → Helm upgrade → smoke-test via port-forward
 ```
 
 ## Jobs
 
-The CI workflow contains **26 jobs** grouped by concern:
+The CI workflow contains **27 jobs** grouped by concern:
 
 | Group | Jobs | Purpose |
 |-------|------|---------|
@@ -100,7 +100,7 @@ The CI workflow contains **26 jobs** grouped by concern:
 | **E2E** | `e2e` | Playwright end-to-end + Lighthouse CI audits via `docker-compose.test.yml` (needs all prior checks + bundle-size) |
 | **Perf Publish** | `perf-publish` | Publishes Lighthouse scores and bundle size history to gh-pages for trending (dev push only, not gated) |
 | **Load** | `load-test` | k6 HTTP/WS load test scenarios (on-demand/scheduled only) |
-| **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after all 20 gate jobs pass (including E2E + bundle-size + benchmarks + `iac-gate`); updates Go/Rust/Web coverage badges on `dev` pushes |
+| **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after the required upstream jobs in [`ci.yml`](../.github/workflows/ci.yml) pass; updates Go/Rust/Web coverage badges on `dev` pushes |
 | **Auto-tag** | `auto-tag` | Determines semver bump from conventional commits, generates Keep a Changelog entry, commits CHANGELOG.md, and pushes a git tag (triggers `release-agent.yml`) |
 | **Notify** | `notify-failure` | Auto-creates GitHub Issues when any job fails (push/schedule/dispatch only — not PRs). One issue per failed job per branch, with error log excerpts. |
 
@@ -296,7 +296,7 @@ The `perf-publish` job (dev push only, non-blocking) pushes Lighthouse scores an
 
 ### PageSpeed Insights (CD — Informational)
 
-During staging deployment in `cd.yml`, a PageSpeed Insights API call audits the production `/login` page. This provides real-world CrUX field data that Lighthouse CI cannot measure. Skips gracefully if `PSI_API_KEY` is not configured.
+PageSpeed Insights is not part of the current CD workflow. Browser performance evidence comes from Lighthouse CI in the `e2e` job and the non-blocking `perf-publish` history path. If PageSpeed is reintroduced, document the workflow step and secret in [`cd.yml`](../.github/workflows/cd.yml) at the same time.
 
 ## Dependabot Flow
 

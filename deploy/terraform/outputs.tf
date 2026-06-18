@@ -9,7 +9,7 @@ output "subnet_id" {
 }
 
 output "cd_nsg_id" {
-  description = "OCID of the CD deploy NSG (for GitHub secrets)"
+  description = "OCID of the legacy CD deploy NSG (sensitive; retained for rollback tooling)"
   value       = module.networking.nsg_id
   sensitive   = true
 }

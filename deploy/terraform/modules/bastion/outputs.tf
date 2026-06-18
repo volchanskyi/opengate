@@ -5,6 +5,6 @@ output "bastion_id" {
 }
 
 output "bastion_name" {
-  description = "Display name of the bastion — asserted by tests/integration.tftest.hcl so a rename is caught before the operator hits a stale make tunnel"
+  description = "Display name of the bastion — asserted by tests/integration.tftest.hcl so a rename is caught before the operator hits a stale make ssh"
   value       = oci_bastion_bastion.opengate.name
 }

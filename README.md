@@ -52,13 +52,11 @@ docker run -e JWT_SECRET=changeme-must-be-at-least-32chars -p 8080:8080 -p 9090:
   -v opengate-data:/data ghcr.io/volchanskyi/opengate-server:latest
 ```
 
-For production deployment with Caddy reverse proxy and auto-TLS:
-
-```bash
-cd deploy
-cp .env.example .env          # fill in secrets (JWT_SECRET, AMT_PASS, DOMAIN)
-docker compose up -d
-```
+Production runs on OKE via Helm and GitHub Actions CD. The current deployment
+model is documented in [`docs/Continuous-Deployment.md`](./docs/Continuous-Deployment.md)
+and [`docs/Kubernetes.md`](./docs/Kubernetes.md). The Docker Compose files under
+[`deploy/`](./deploy/) are local-test or dormant recovery artifacts, not the
+normal production path.
 
 ## Project Structure
 
@@ -93,14 +91,12 @@ api/openapi.yaml             OpenAPI 3.0.3 spec (single source of truth)
 docs/adr/                    Architecture Decision Records
 docs/api/                    Scalar API reference viewer
 web/                         React + TypeScript (Vite, Tailwind, Zustand)
-deploy/                      Production deployment
-├── terraform/               OCI infrastructure (root composition + networking/ + compute/ submodules, remote tfstate in OCI Object Storage)
-├── caddy/                   Caddyfile (reverse proxy, SPA file serving, auto-TLS)
-├── scripts/                 CD deploy, smoke-test, and rollback scripts
-├── docker-compose.yml       Production stack (server + web-init + Caddy)
-├── docker-compose.staging.yml  Persistent staging overrides
-├── docker-compose.test.yml  E2E test environment (tmpfs, single server)
-└── docker-compose.monitoring.yml  Observability stack (VictoriaMetrics, Grafana, Loki, Promtail, Node Exporter, Uptime Kuma)
+deploy/                      Deployment and infrastructure
+├── terraform/               OCI networking, OKE, bastion, remote tfstate
+├── helm/                    OKE application + monitoring charts
+├── scripts/                 Smoke tests, rollback helpers, bastion/session tooling
+├── docker-compose.test.yml  Local E2E test environment
+└── docker-compose*.yml      Dormant/local Compose artifacts, not normal production CD
 load/k6/scenarios/           k6 load test scripts (API baseline, relay, concurrent agents)
 testdata/golden/             Cross-language wire format fixtures
 ```
@@ -115,7 +111,7 @@ make test-rust          # Rust workspace
 make test-web           # React / TypeScript
 make test-coverage      # Go coverage report printed to stdout
 make golden             # Regenerate golden fixtures and verify cross-language compat
-make lint-deploy        # Validate deploy configs (Terraform, Compose, Caddy, YAML; runs terraform-test)
+make lint-deploy        # Validate deploy configs (Terraform, Helm/K8s, Compose/Caddy artifacts, YAML; runs terraform-test)
 make terraform-test     # Module-invariant assertions (mock_provider, no OCI creds)
 make terraform-drift    # Local refresh-only plan against the remote backend
 make e2e                # End-to-end Playwright tests via docker-compose.test.yml

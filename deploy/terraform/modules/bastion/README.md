@@ -1,31 +1,31 @@
 # Bastion submodule
 
-Owns the OCI Bastion service that fronts human SSH + tunnel access to the OpenGate VPS. Replaces the static `var.ssh_allowed_cidr` ingress rule with IAM-gated, time-limited sessions — the dev-machine IP becomes irrelevant because OCI IAM decides who may create a session, not an L4 CIDR allow-list. See [ADR-018](../../../../docs/adr/ADR-018-oci-bastion-operator-access.md) for the decision rationale.
+Owns the OCI Bastion service that fronts human SSH access to the OKE worker node. It replaced the old static `var.ssh_allowed_cidr` operator path with IAM-gated, time-limited sessions — the dev-machine IP becomes irrelevant because OCI IAM decides who may create a session, not an L4 CIDR allow-list. See [ADR-018](../../../../docs/adr/ADR-018-oci-bastion-operator-access.md) for the decision rationale.
 
-CI keeps the existing just-in-time NSG-rule pattern in [`.github/actions/oci-ssh-setup`](../../../../.github/actions/oci-ssh-setup/) — the bastion is for **human** access only.
+CI uses [`.github/actions/oci-kube-setup`](../../../../.github/actions/oci-kube-setup/action.yml) and talks to Kubernetes directly — the bastion is for **human** node-level access only.
 
 ## Inputs
 
 | Variable | Type | Purpose |
 |---|---|---|
 | `compartment_id` | string (sensitive) | OCI compartment OCID that owns the bastion resource. |
-| `target_subnet_id` | string | OCID of the subnet the bastion's /28 service endpoint is carved from. Must contain the target instance(s) for intra-subnet reachability. |
+| `target_subnet_id` | string | OCID of the subnet the bastion's /28 service endpoint is carved from. The root module wires this to the OKE worker-node subnet. |
 
 ## Outputs
 
 | Output | Purpose |
 |---|---|
 | `bastion_id` | OCID of the bastion (sensitive). Consumed by [`deploy/scripts/bastion-session.sh`](../../../scripts/bastion-session.sh) to create Managed SSH sessions. |
-| `bastion_name` | Display name — asserted by [`tests/integration.tftest.hcl`](../../tests/integration.tftest.hcl) so a rename is caught before the operator hits a stale `make tunnel`. |
+| `bastion_name` | Display name — asserted by [`tests/integration.tftest.hcl`](../../tests/integration.tftest.hcl) so a rename is caught before the operator hits a stale `make ssh`. |
 
 ## Daily flow
 
 ```bash
-make tunnel    # creates (or reuses) a Managed SSH session, forwards Grafana :3000 + Uptime Kuma :3001
-make ssh       # same session, plain shell
+make ssh       # creates (or reuses) a Managed SSH session to the OKE worker node
+make tunnel    # kubectl port-forward to in-cluster Grafana; does not use bastion
 ```
 
-Both targets resolve the bastion OCID via `terraform output -raw bastion_id`. First invocation takes 5–10 s (session create); subsequent invocations within the 3 h TTL skip the create step.
+`make ssh` resolves the bastion OCID via `terraform output -raw bastion_id` and resolves the current worker node from `oke_node_pool_id`. First invocation takes 60–90 s (session create); subsequent invocations within the 3 h TTL skip the create step. `make tunnel` is intentionally separate because Grafana is now a ClusterIP Kubernetes Service reached with `kubectl port-forward`.
 
 ## Test coverage
 

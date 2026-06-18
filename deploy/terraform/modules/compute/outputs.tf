@@ -10,7 +10,7 @@ output "public_ip" {
 }
 
 output "private_ip" {
-  description = "Private IP of the compute instance — consumed by deploy/scripts/bastion-session.sh as the target endpoint for the OCI Bastion Managed SSH session"
+  description = "Private IP of the compute instance — useful if the dormant rollback VM is re-instantiated"
   value       = oci_core_instance.opengate.private_ip
 }
 

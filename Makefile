@@ -91,9 +91,10 @@ lint-deploy:
 	@command -v tflint >/dev/null 2>&1 || { echo "ERROR: tflint not found. Install from: https://github.com/terraform-linters/tflint"; exit 1; }
 	tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact
 	@# Output-sensitivity grep — cheaper and more deterministic than asserting in tftest.
-	@# cd_nsg_id contains an OCID consumed via GitHub Secrets — it MUST stay marked
-	@# `sensitive = true` in deploy/terraform/outputs.tf so it never appears in
-	@# plan/apply logs. (instance_id was dropped when the compute VM was decommissioned.)
+	@# cd_nsg_id contains an OCID retained for rollback tooling — it MUST stay
+	@# marked `sensitive = true` in deploy/terraform/outputs.tf so it never
+	@# appears in plan/apply logs. (instance_id was dropped when the compute VM
+	@# was decommissioned.)
 	@for out in cd_nsg_id; do \
 	  grep -A3 "output \"$$out\"" deploy/terraform/outputs.tf | grep -q "sensitive *= *true" \
 	    || { echo "ERROR: output \"$$out\" must have sensitive = true in deploy/terraform/outputs.tf"; exit 1; }; \
@@ -142,11 +143,11 @@ terraform-drift:
 # access via OCI Bastion".
 # ----------------------------------------------------------------------------
 
-# `make tunnel` — port-forward the in-cluster Grafana :3000 + Uptime Kuma :3001
+# `make tunnel` — port-forward the in-cluster Grafana :3000
 # to localhost via kubectl. Post-OKE-cutover the monitoring UIs are ClusterIP
 # services (not host ports on the decommissioned VM), so the bastion can no
-# longer reach them. Operator browses to http://localhost:3000 /
-# http://localhost:3001; Ctrl-C tears both forwards down.
+# longer reach them. Operator browses to http://localhost:3000; Ctrl-C tears the
+# forward down.
 tunnel:
 	@echo "Grafana -> http://localhost:3000 (Ctrl-C to stop)"
 	@kubectl -n monitoring port-forward svc/monitoring-grafana 3000:3000

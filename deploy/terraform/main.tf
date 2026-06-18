@@ -68,8 +68,8 @@ module "networking" {
 # OCI Bastion service — operator access plane. Since the VM was decommissioned
 # its target is the OKE worker-node subnet, so `make ssh` reaches the node for
 # node-level debugging (deploy/scripts/bastion-session.sh resolves the node IP
-# from the node pool). CI still uses the just-in-time NSG-rule pattern (see
-# .github/actions/oci-ssh-setup). See ADR-018 for the decision rationale.
+# from the node pool). CI uses `.github/actions/oci-kube-setup` and the
+# Kubernetes API instead of SSH/Bastion. See ADR-018 for the decision rationale.
 module "bastion" {
   source = "./modules/bastion"
 

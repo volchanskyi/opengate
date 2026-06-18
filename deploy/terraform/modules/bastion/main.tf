@@ -16,9 +16,9 @@ resource "oci_bastion_bastion" "opengate" {
   # sessions transparently.
   max_session_ttl_in_seconds = 10800
 
-  # Required by policy/terraform/tags.rego for the compute instance — applied
-  # here too for consistency. Bastion itself is Always Free in perpetuity, but
-  # tagging the resource makes future cost-attribution searches uniform.
+  # Required by policy/terraform/tags.rego and applied here for consistency.
+  # Bastion itself is Always Free in perpetuity, but tagging the resource makes
+  # future cost-attribution searches uniform.
   freeform_tags = {
     env        = "prod"
     component  = "bastion"

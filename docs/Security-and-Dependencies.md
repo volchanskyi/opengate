@@ -17,14 +17,14 @@ Three layers of automated security analysis run on every CI trigger:
 │  security-and-    │  Known CVE       │  Go, Cargo,      │
 │  quality queries  │  databases       │  npm, Actions    │
 ├───────────────────┴──────────────────┴──────────────────┤
-│  Daily schedule (0 6 * * *) catches newly disclosed     │
-│  patterns even without code changes                     │
+│  CI triggers catch changed code; Dependabot and audits   │
+│  catch newly disclosed dependency issues through PRs     │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ### CodeQL
 
-Static analysis for Go, TypeScript, and Rust with `security-and-quality` queries. Also runs on a daily schedule to catch newly disclosed patterns.
+Static analysis for Go, TypeScript, and Rust with `security-and-quality` queries. The current [`ci.yml`](../.github/workflows/ci.yml) trigger set runs CodeQL on pushes, pull requests, and manual dispatch; it does not define a separate CodeQL schedule.
 
 ### Vulnerability Scanners
 
@@ -91,7 +91,7 @@ Container images are signed and attested to ensure artifact integrity from build
 | Image signing | Cosign (keyless, Sigstore OIDC) | Proves the image was built by the GitHub Actions workflow, not tampered with in the registry |
 | SLSA provenance | `docker/build-push-action` (`provenance: true`) | SLSA Build Level 2 attestation — links image to source commit, build instructions, and builder identity |
 | SBOM | `anchore/sbom-action` (SPDX JSON) + `cosign attest` | Software Bill of Materials attached as a signed attestation — enables dependency tracking and vulnerability correlation |
-| Deploy-time verification | `cosign verify` in CD workflow + VPS `redeploy()` | Blocks deployment of unsigned or tampered images at both the CI and host level |
+| Deploy-time verification | `cosign verify` in [`cd.yml`](../.github/workflows/cd.yml) | Blocks deployment before the Helm rollout starts |
 
 See [[Container-Images#supply-chain-security]] for verification commands.
 
@@ -152,7 +152,7 @@ The API server adds defense-in-depth headers via `SecurityHeaders` middleware:
 - `X-Frame-Options: DENY`
 - `Referrer-Policy: strict-origin-when-cross-origin`
 
-Caddy adds additional headers in production:
+The app Helm chart ports the former Caddy security headers into ingress-nginx annotations:
 
 - `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
 - `Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' wss:; frame-ancestors 'none'`
@@ -167,7 +167,7 @@ Session tokens are sensitive routing credentials. All log and audit entries reda
 - Relay handler logs (`api/handlers_relay.go`) — registration and peer wait errors
 - Audit logs (`api/handlers_sessions.go`) — session deletion events
 
-Deploy scripts use `set_env_var()` with atomic grep+mv (not sed) to avoid regex injection when updating `.env` files on the VPS.
+Kubernetes deploys create or reuse Secrets via [`cd.yml`](../.github/workflows/cd.yml); the dormant Compose scripts still use atomic file updates for the retired VM recovery path, but normal CD no longer edits `.env` files.
 
 ## Certificate Hierarchy
 

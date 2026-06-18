@@ -137,7 +137,7 @@ docs/
 ├── Continuous-Deployment.md            CD flow and rollback
 ├── Container-Images.md                 GHCR image build and signing
 ├── Monitoring.md                       VictoriaMetrics / Grafana / Loki
-├── Infrastructure.md                   Terraform / Caddy / Compose
+├── Infrastructure.md                   Terraform, OKE networking, bastion, secrets
 ├── Agent-Updates.md                    OTA update pipeline
 ├── Security-and-Dependencies.md        Vulnerability scanning, Dependabot
 ├── Architecture-Decision-Records.md    Frozen historical ADR log (ADR-001 … ADR-012)

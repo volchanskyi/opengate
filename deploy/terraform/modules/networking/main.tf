@@ -65,10 +65,11 @@ resource "oci_core_security_list" "opengate" {
     stateless = false
   }
 
-  # SSH (OCI Bastion) — source is the public subnet's own CIDR so the
-  # bastion's allocated /28 service endpoint (carved from this subnet at
-  # apply time) can reach TCP 22 on the target VM. Single-VM subnet today,
-  # so the broader source is a no-op in practice. See ADR-018.
+  # SSH (OCI Bastion / legacy public-subnet target) — source is the public
+  # subnet's own CIDR so a bastion service endpoint carved from this subnet can
+  # reach TCP 22 on a target in the same subnet. The active bastion now targets
+  # the OKE worker-node subnet; this rule stays with the dormant public-subnet
+  # recovery path. See ADR-018.
   ingress_security_rules {
     source   = local.public_subnet_cidr
     protocol = "6" # TCP
@@ -101,7 +102,7 @@ resource "oci_core_security_list" "opengate" {
     stateless = false
   }
 
-  # HTTP/3 (Caddy)
+  # HTTP/3 (legacy public-subnet edge path)
   ingress_security_rules {
     source   = "0.0.0.0/0"
     protocol = "17" # UDP
