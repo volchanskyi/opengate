@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781735190320,
+  "lastUpdate": 1781748575828,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -18056,6 +18056,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 19.88205247357172,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "64843e21b59ca598edbbd75506f31489f5ad95fe",
+          "message": "merge: reconcile dev with main; bundle W3 resumption decision + docs-as-code\n\nUnblocks the auto-merge-to-main that failed on a web/package*.json conflict:\nDependabot's vite security bump (#297) landed directly on main — security\nupdates target the default branch, ignoring dependabot.yml's target-branch: dev\n— and collided with dev's own npm-deps bump. dev already carries vite 8.0.16, so\nthe lockfiles keep dev's superset; main's CHANGELOG is merged in.\n\nBundled (single gauntlet, push everything):\n\n- W3 — QUIC session-resumption evaluation. Spike + paired benchmarks\n  (quic_resumption_test.go) prove, on quic-go v0.60.0 with the repo's mTLS\n  config, that 1-RTT TLS session resumption completes under\n  RequireAndVerifyClientCert and preserves the verified client identity\n  server-side (DidResume, PeerCertificates), cutting per-reconnect cost\n  ~23% / ~360us (~207 fewer allocs). Decision: adopt 1-RTT resumption, defer\n  0-RTT (early data is replayable; latency-only gain on top of resumption).\n  Server needs no change (tickets default-on; Allow0RTT stays off); quinn\n  agent-side enablement tracked in techdebt. Feeds the W4 ADR.\n\n- Docs Doctrine E — docs-as-code. Mermaid architecture/handshake/relay\n  diagrams + a diagram-policy test; README records the Mermaid-only convention.\n\n- chore: drop unused indirect dep (go mod tidy); trim a stale ADR-035 techdebt\n  narrative and fix the benchmark-CI currency note.",
+          "timestamp": "2026-06-17T19:03:13-07:00",
+          "tree_id": "e82de9269e566a5dd14464bb23ed9ef91f0b6fdb",
+          "url": "https://github.com/volchanskyi/opengate/commit/64843e21b59ca598edbbd75506f31489f5ad95fe"
+        },
+        "date": 1781748575698,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 18.12529287326921,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 27.562750913596037,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 772.6934578836415,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 308.6525344373765,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.92417260310991,
             "unit": "ns/iter"
           }
         ]
