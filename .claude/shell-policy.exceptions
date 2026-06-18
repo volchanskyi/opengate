@@ -3,6 +3,7 @@ standalone	scripts/tests/check-shell-policy.test.sh	e,o	Fixtures exercise reject
 library	.claude/hooks/lib/common.sh	-	Shared hook functions; callers opt into fail-closed behavior.
 library	deploy/scripts/common.sh	-	Deployment functions inherit the caller's execution policy.
 library	scripts/lib/loki-push.sh	-	Transport functions are sourced by multiple standalone push scripts.
+library	scripts/lib/vm-push.sh	-	Transport functions are sourced by multiple standalone push scripts.
 library	scripts/lib/postgres-prereq.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
 aggregate	.claude/hooks/git-post-commit.sh	-	Best-effort post-commit automation must report failures without failing the commit.
 aggregate	.claude/hooks/pretooluse-gauntlet-nudge.sh	-	Background status nudge treats operational failures as a no-op.

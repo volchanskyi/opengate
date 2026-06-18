@@ -136,6 +136,22 @@ to Loki through the shared kubectl transport:
 - [`terraform-drift.yml`](../.github/workflows/terraform-drift.yml) →
   [`scripts/terraform-drift-loki-push.sh`](../scripts/terraform-drift-loki-push.sh)
 
+### CI Trend Metric Convention
+
+Numeric CI trends are moving to VictoriaMetrics through
+[`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh), which uses the same
+private kubectl-curl-pod transport shape as the Loki helper and posts Prometheus
+text to the in-cluster VictoriaMetrics import endpoint. New and migrated CI trend
+series must use:
+
+- metric names that identify the family and unit, for example `*_ns_op`,
+  `*_allocs_op`, `*_bytes_op`, `mutation_score`, `pmat_*`,
+  `terraform_drift_*`, `loadtest_latency_*`, `loadtest_rps`, and
+  `loadtest_error_rate`;
+- mandatory labels on every sample: `commit="<sha>"`, `env="ci"`, plus
+  pipeline-specific labels such as `lang`, `benchmark`, or `scenario`;
+- no explicit timestamps unless a future backfill path is deliberately added.
+
 Telegram credentials are held in the monitoring Secret described by
 [`values.yaml`](../deploy/helm/monitoring/values.yaml) and chart
 [`NOTES.txt`](../deploy/helm/monitoring/templates/NOTES.txt). Workflow-level
@@ -156,6 +172,9 @@ Validation sources:
 - [`scripts/tests/loki-transport.test.sh`](../scripts/tests/loki-transport.test.sh)
   verifies the shared kubectl Loki push transport without reaching the live
   cluster.
+- [`scripts/tests/vm-transport.test.sh`](../scripts/tests/vm-transport.test.sh)
+  verifies the shared kubectl VictoriaMetrics push transport without reaching the
+  live cluster.
 
 ## Ad-hoc Investigation
 
