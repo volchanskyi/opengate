@@ -1,6 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Update when debt is introduced or paid down. -->
+<!-- Last reviewed: 2026-06-17; DD-E docs-as-code introduced no new debt. -->
 
 ## Severity: High
 
@@ -42,10 +43,38 @@ reconnection-storm latency on its own, and W3 stacks the larger TLS-cost win on
 top.
 
 **Pay-down trigger:** clear this note once the coordinated deploy has shipped
-and the production agent is confirmed connected post-cutover. W3 (0-RTT), W4
-(ADR — capture the settled mTLS-only model above), and W5 (remove
-workaround-era comments + bounded accept timeout) remain open on the active
-fast-path-reconnect-fix master plan under `.claude/plans/`.
+and the production agent is confirmed connected post-cutover. W3's evaluation is
+**done** (decision recorded below); W4 (ADR — capture the settled mTLS-only model
+above plus W3's resumption decision) and W5 (remove workaround-era comments +
+bounded accept timeout) remain open on the active fast-path-reconnect-fix master
+plan under `.claude/plans/`.
+
+### W3 decision — adopt 1-RTT TLS session resumption; agent-side enablement pending; 0-RTT deferred
+
+The W3 spike ([`quic_resumption_test.go`](../server/internal/agentapi/quic_resumption_test.go)
++ paired benchmarks) settled the storm-cost question empirically against quic-go
+v0.60.0 and the repo's mTLS config: **1-RTT TLS session resumption** completes
+under `RequireAndVerifyClientCert`, **preserves the verified client identity**
+server-side (`DidResume==true`, `PeerCertificates` retained), and cuts the
+per-reconnect cost ~23% / ~360µs (~207 fewer allocs) by skipping the asymmetric
+handshake. **Decision: adopt 1-RTT resumption, defer 0-RTT** — 0-RTT works with
+mTLS on this version but its early data is replayable and it saves only latency,
+not crypto, on top of resumption (full replay analysis in the archived
+[W3 plan](plans/archive/fast-path-w3-0rtt-eval.md)).
+
+**Server: no change.** Go/quic-go issues session tickets by default and the spike
+confirms resumption against the unmodified `ServerTLSConfig` with `Allow0RTT` off
+(kept off to foreclose 0-RTT replay). `TestQUICSessionResumption_PreservesMTLSIdentity`
+is the always-run regression guard.
+
+**Residual (the debt):** the quinn agent
+([`main.rs`](../agent/crates/mesh-agent/src/main.rs)) does not yet enable TLS
+session resumption or persist a session-ticket cache across reconnects, so the
+production saving is not realized. It is a backward-compatible client-side change
+(falls back to a full handshake when no ticket is cached) — not a breaking wire
+change like W1 — but it should ship with an agent reconnect verification inside
+W1's coordinated cutover. **Pay-down trigger:** quinn caches and presents tickets
+and a reconnecting production agent is observed resuming (`DidResume`).
 
 ### Cutover doc drift — Monitoring.md still describes the compose stack
 
@@ -76,17 +105,9 @@ VM-decommission and block-volume changes.
 ### ADR-035 block-volume remediation — reclaim DONE; residual external follow-ups (Low)
 
 The live-cluster reclaim ([ADR-035](../docs/adr/ADR-035-oke-free-tier-block-volume-remediation.md))
-was executed 2026-06-11: block storage is now **3 × 50 GB + 50 GB node boot =
-200 GB**, at the cap (was 450 GB), so the overage no longer bills. `helm upgrade`
-of monitoring + prod + staging dropped the 4 helm-managed PVCs (kuma, grafana,
-prod-backups, staging server-data); the staging postgres StatefulSet was
-deleted-and-recreated on `emptyDir` (its `volumeClaimTemplates` are immutable) and
-its orphaned PVC deleted by hand. Verified: `oci bv volume list` = 3 AVAILABLE,
-prod `data-opengate-postgres-0` untouched + `/healthz` ok, Grafana healthy on
-emptyDir, and a manual CronJob run landed `opengate-<ts>.sql.gz` in the
-`opengate-pg-backups` bucket via the write-only PAR (retention = a 7-day Object
-Storage lifecycle policy; a one-time IAM grant `opengate-os-lifecycle` lets the OS
-service principal run it).
+shipped 2026-06-11 — block storage is back at the **200 GB** free-tier cap and no
+longer bills (full execution record lives in the ADR). Only external,
+no-longer-billing follow-ups remain:
 
 **Residual (no longer billing — Low):**
 1. **External uptime SaaS** (user — needs an account): create UptimeRobot/Better
@@ -176,9 +197,11 @@ defect density), where the existing fuzz/proptest already focus.
 ### Performance benchmarks — no CI regression detection
 
 Go and Rust micro-benchmarks run in the precommit gauntlet (`go test -bench` /
-`cargo bench -p mesh-protocol`) but only assert they execute — **no perf
-thresholds or cross-commit regression tracking** are enforced, and there is no CI
-benchmark workflow.
+`cargo bench -p mesh-protocol`) and CI now publishes their results (the
+Go/Rust Benchmark + Publish Benchmarks + Publish Performance Data jobs in
+[`ci.yml`](../.github/workflows/ci.yml)). They still only assert the benchmarks
+execute and record numbers — **no perf thresholds or cross-commit regression
+tracking** gate a commit.
 
 **Pay-down trigger:** wire benchmark deltas into CI with a regression alert.
 Working plan: [`performance-benchmarks.md`](plans/archive/performance-benchmarks.md).

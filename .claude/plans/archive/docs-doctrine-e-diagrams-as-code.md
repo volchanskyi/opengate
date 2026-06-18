@@ -1,8 +1,8 @@
 # DD-E — Diagram / Docs-as-Code (long-term)
 
-**Parent:** [`current-state-docs-doctrine-and-adr-mutability.md`](current-state-docs-doctrine-and-adr-mutability.md) (Workstream E).
+**Parent:** `current-state-docs-doctrine-and-adr-mutability.md` (Workstream E).
 **Execution order:** **Last / optional** — independent of DD-A..D; lowest priority.
-**Status:** Recommendation accepted in the master; implement on demand.
+**Status:** Done; archived after implementation.
 **Risk:** Low — but a wrong engine choice (D2/SVG) adds a heavy runtime + a drift
 surface, which is why this is constrained below.
 
@@ -19,7 +19,7 @@ drift caught by the boundary linters already enforced — within the
   surface). D2→SVG only earns its keep for off-GitHub rendering, which we don't do.
 - **No auto-extraction** of diagrams from code (AST sprawl + drift). Hand-curate a
   few high-level diagrams; let linters catch structural drift.
-- **Drift caught by existing boundary tools** (see [`tooling.md`](../rules/tooling.md)):
+- **Drift caught by existing boundary tools** (see [`tooling.md`](../../rules/tooling.md)):
   `go-arch-lint`, `dependency-cruiser` (boundary-scoped), `cargo-modules`
   (metadata-only — **not** `cargo-expand`, which blows the 1.5s budget).
 - **Link checking = DD-B's Go-native internal checker** (not Node
@@ -30,7 +30,7 @@ drift caught by the boundary linters already enforced — within the
 | Target | Action |
 |---|---|
 | `docs/Architecture.md` (or `docs/Home.md`) | Add 1–3 high-level Mermaid diagrams (system topology, request/relay flow). Replace any prose-only architecture description that a diagram clarifies. |
-| Existing Mermaid (e.g. [`docs/Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md) §7) | Confirm it renders; adopt as the house style. |
+| Existing Mermaid (e.g. [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) §7) | Confirm it renders; adopt as the house style. |
 | Boundary linters | Confirm `go-arch-lint` / `dependency-cruiser` / `cargo-modules` are wired (or wire them) so structural drift fails CI rather than rotting a diagram silently. |
 
 ## Steps

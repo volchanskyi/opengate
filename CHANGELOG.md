@@ -5,6 +5,150 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.44.4] - 2026-06-12
+
+### Fixed
+- **observability:** qualify Loki transport image
+
+## [v0.44.3] - 2026-06-12
+
+### Fixed
+- isolate cargo module snapshot logging
+
+## [v0.44.2] - 2026-06-11
+
+### Fixed
+- **helm:** restore server env vars the compose->OKE cutover dropped
+
+## [v0.44.1] - 2026-06-11
+
+### Fixed
+- restore post-cutover agent manifest + Loki trend pipelines; record reclaim
+
+## [v0.44.0] - 2026-06-11
+
+### Added
+- **infra:** OKE free-tier block-volume remediation (450->200 GB)
+
+## [v0.43.5] - 2026-06-11
+
+### Fixed
+- **monitoring:** give VictoriaMetrics a serviceaccount for kubernetes_sd
+
+## [v0.43.4] - 2026-06-10
+
+### Fixed
+- **monitoring:** make the OKE monitoring stack fully functional (promtail logs, uptime-kuma, grafana)
+
+## [v0.43.3] - 2026-06-10
+
+### Fixed
+- **ci:** resolve post-cutover CI failures + clear two pre-existing gauntlet breaks
+
+## [v0.43.2] - 2026-06-06
+
+### Fixed
+- **deploy:** harden k8s CD for cutover — sharedKeys/domain in prod, non-destructive secret sync, qualified monitoring images
+
+## [v0.43.1] - 2026-06-06
+
+### Fixed
+- **helm:** OKE cutover fixes — qualified image names + hostPort-aware strategy
+
+## [v0.43.0] - 2026-06-06
+
+### Added
+- **infra:** wire OKE module into root terraform (Phase 13b cutover step 1)
+
+## [v0.42.0] - 2026-06-06
+
+### Added
+- **k8s:** Phase 13b PR-E — scale-out (KEDA autoscaling + shared keys + PDB)
+
+## [v0.41.0] - 2026-06-05
+
+### Added
+- **relay:** Phase 13b PR-D — make e2e-multiserver + cross-server load baseline
+
+## [v0.40.1] - 2026-06-05
+
+### Fixed
+- **hooks:** deterministic commit⇒push via git native post-commit hook
+
+## [v0.40.0] - 2026-06-05
+
+### Added
+- **relay:** Phase 13b PR-C C3b/c — degraded-mode refuse + registry_up metric + Telegram alert (ADR-023)
+
+## [v0.39.1] - 2026-06-05
+
+### Fixed
+- **ci:** self-contained Sonar Docker fallback + nightly load-test + commit→push hooks
+
+## [v0.39.0] - 2026-06-05
+
+### Added
+- **relay:** Phase 13b PR-C C3a — registry health + readiness drain (ADR-023)
+
+## [v0.38.0] - 2026-06-05
+
+### Added
+- **relay:** Phase 13b PR-C C2 — cross-server WS proxy + internal listener (ADR-033)
+
+## [v0.37.1] - 2026-06-04
+
+### Fixed
+- **ci:** cover mps OpenChannel to clear new_coverage gate + local 80.0-boundary guardrail
+
+## [v0.37.0] - 2026-06-03
+
+### Added
+- **relay:** Phase 13b PR-C C1 — Redis Sentinel SessionRegistry + backend selection (ADR-031)
+
+## [v0.36.2] - 2026-06-03
+
+### Fixed
+- **ci:** stop Go mutation false-timeouts dragging the nightly red
+
+## [v0.36.1] - 2026-06-03
+
+### Fixed
+- **ci:** pin Security Audit job to go1.26.4 for govulncheck
+- **ci:** unblock dev — Go 1.26.4 (stdlib CVEs) + resilient SonarCloud + /refactor for deploy/ & scripts/
+
+## [v0.36.0] - 2026-06-02
+
+### Added
+- **k8s:** Phase 13b PR-B — OKE Helm charts + terraform + dormant CD cutover
+
+## [v0.35.0] - 2026-06-02
+
+### Added
+- **relay:** wire InProcessRegistry live (Phase 13b PR-A) + deterministic tests (ADR-029)
+
+### Fixed
+- **ci:** restore new_coverage gate (exclude testpg, cover relay registry errors)
+- **pentest:** make the gate see unstaged changes (no /precommit false-green)
+
+## [v0.34.1] - 2026-06-01
+
+### Fixed
+- **ci:** pmat-trend JSON parse (ANSI + dual-object) + ADR plan-link guard
+
+## [v0.34.0] - 2026-06-01
+
+### Added
+- **quality:** PMAT overlay (ADR-019/028) + Phase 13b re-eval
+
+## [v0.33.0] - 2026-05-31
+
+### Added
+- **security:** ADR-027 adversarial pen-test gate (Semgrep) at commit + CI
+
+### Fixed
+- **ci:** pin setuptools<81 so semgrep can import pkg_resources
+- **ci:** pen-test gate semgrep install — suppress upgrade notice, robust version parse
+
 ## [v0.32.1] - 2026-05-20
 
 ### Fixed
