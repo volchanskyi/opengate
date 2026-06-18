@@ -62,21 +62,30 @@ that land on different replicas.
 ## 4. Reconnection-Storm Readiness
 
 A node restart or network interruption can make many agents reconnect
-simultaneously. Every reconnect currently performs the QUIC/TLS and application
-handshake implemented by
-[`connection.go`](../agent/crates/mesh-agent-core/src/connection.rs) and
+simultaneously. The current control stream is client-first: the agent opens the
+QUIC stream and sends either `0x11` `AgentHello` for the full handshake or
+`0x14` `SkipAuth` for the reconnect fast path implemented by
+[`main.rs`](../agent/crates/mesh-agent/src/main.rs) and
 [`handshaker.go`](../server/internal/agentapi/handshaker.go).
+
+The fast path skips the ServerHello/AgentHello round-trip when the cached CA
+hash is current; it does **not** remove mTLS certificate verification. ADR-037
+records the settled model: authentication is mTLS-only, `0x12`/`0x13` proof
+messages are retired, 1-RTT TLS session resumption is the TLS-cost lever, and
+0-RTT is deferred pending replay analysis.
 
 The scale-out design must benchmark and bound:
 
-- TLS and certificate-verification CPU per reconnect;
+- TLS and certificate-verification CPU per reconnect, including observed 1-RTT
+  session-resumption rates once the agent has a ticket cache;
 - connection-attempt backoff and jitter;
-- control-stream ownership and first-message ordering;
-- QUIC session resumption or 0-RTT safety; and
+- client-first control-stream ordering and stale-hash fallback;
+- 0-RTT safety before any early-data enablement; and
 - recovery when a gateway or relay replica disappears.
 
-The existing wire constants alone are not evidence of a fast path. Activation
-requires cross-language tests and measured reconnect-storm behavior.
+The existing wire constants alone are not evidence of storm readiness.
+Activation requires cross-language tests, measured reconnect-storm behavior,
+and production evidence that reconnecting agents actually resume TLS sessions.
 
 ## 5. Functional Requirements
 
@@ -144,7 +153,7 @@ ship without backup, monitoring, and failover evidence.
 2. Redis-compatible registry versus another atomic ownership/event substrate.
 3. Managed versus self-hosted PostgreSQL at the paid tier.
 4. Monolithic replicas versus separate gateway and relay pools.
-5. QUIC resumption and application fast-path security boundaries.
+5. Agent-side TLS session-ticket cache design and 0-RTT replay boundaries.
 
 ## 10. References
 
@@ -156,5 +165,7 @@ ship without backup, monitoring, and failover evidence.
   removed autoscaling design
 - [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md) — current
   storage envelope
+- [ADR-037](./adr/ADR-037-client-first-fast-path-reconnect.md) — current
+  client-first reconnect model
 - [`relay`](../server/internal/relay/) — local pairing and registry seam
 - [`deploy/helm/opengate`](../deploy/helm/opengate/) — current deployment shape

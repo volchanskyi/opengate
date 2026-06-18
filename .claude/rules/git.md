@@ -11,6 +11,10 @@ All work happens on `dev`. No exceptions.
 - Commit and push to `dev` only: `git push origin dev`
 - Never commit or push directly to `main` — `main` receives code exclusively via the automated `merge-to-main` CI job after all checks pass on `dev`
 
+## Commit / Push Atomicity
+
+Never leave committed changes un-pushed after the implementation is complete. Commit and push are a single handoff: once a commit succeeds, push it immediately before yielding back to the user. Do not allow a time gap where a freshly tested local commit remains only local; dependency/security gates can change underneath that commit and make the eventual push fail for reasons that were not present at commit time.
+
 ## Identity
 
 Every commit must be authored by Ivan Volchanskyi. No co-authors, no `Co-Authored-By` trailers.

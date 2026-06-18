@@ -21,8 +21,6 @@ func TestFrameTypeByteValues(t *testing.T) {
 func TestHandshakeMessageTypeValues(t *testing.T) {
 	assert.Equal(t, byte(0x10), MsgServerHello)
 	assert.Equal(t, byte(0x11), MsgAgentHello)
-	assert.Equal(t, byte(0x12), MsgServerProof)
-	assert.Equal(t, byte(0x13), MsgAgentProof)
 	assert.Equal(t, byte(0x14), MsgSkipAuth)
 	assert.Equal(t, byte(0x15), MsgExpectHash)
 }

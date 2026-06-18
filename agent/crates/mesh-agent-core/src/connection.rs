@@ -7,7 +7,6 @@ use mesh_protocol::{
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, info, warn};
 
-use crate::config::AgentConfig;
 use crate::error::ConnectionError;
 use crate::platform::{InputInjector, ScreenCapture};
 use crate::session::SessionHandler;
@@ -64,14 +63,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> ControlStream for AsyncControlStr
 /// An established connection to the server with control stream framing.
 pub struct AgentConnection<S: ControlStream> {
     stream: S,
-    #[expect(dead_code, reason = "used in QUIC reconnect flow (Phase 4D)")]
-    config: AgentConfig,
 }
 
 impl<S: ControlStream> AgentConnection<S> {
-    /// Create a new AgentConnection with the given stream and config.
-    pub fn new(stream: S, config: AgentConfig) -> Self {
-        Self { stream, config }
+    /// Create a new AgentConnection with the given stream.
+    pub fn new(stream: S) -> Self {
+        Self { stream }
     }
 
     /// Send a control message to the server.
@@ -222,18 +219,10 @@ mod tests {
         }
     }
 
-    fn test_config() -> AgentConfig {
-        AgentConfig {
-            server_addr: "127.0.0.1:9090".to_string(),
-            server_ca_pem: String::new(),
-            data_dir: std::path::PathBuf::from("/tmp/test"),
-        }
-    }
-
     #[tokio::test]
     async fn test_send_control_encodes_agent_register() {
         let (client, mut server) = tokio::io::duplex(4096);
-        let mut conn = AgentConnection::new(client, test_config());
+        let mut conn = AgentConnection::new(client);
 
         let msg = ControlMessage::AgentRegister {
             capabilities: vec![mesh_protocol::AgentCapability::Terminal],
@@ -289,7 +278,7 @@ mod tests {
     #[tokio::test]
     async fn test_receive_control_decodes_session_request() {
         let (client, mut server) = tokio::io::duplex(4096);
-        let mut conn = AgentConnection::new(client, test_config());
+        let mut conn = AgentConnection::new(client);
 
         let token = SessionToken::generate();
         let msg = ControlMessage::SessionRequest {
@@ -360,7 +349,7 @@ mod tests {
     #[tokio::test]
     async fn test_send_control_encodes_heartbeat() {
         let (client, mut server) = tokio::io::duplex(4096);
-        let mut conn = AgentConnection::new(client, test_config());
+        let mut conn = AgentConnection::new(client);
 
         let msg = ControlMessage::AgentHeartbeat {
             timestamp: 1700000000,
@@ -476,7 +465,7 @@ mod tests {
     #[tokio::test]
     async fn receive_control_rejects_payload_above_max_frame_size() {
         let (client, mut server) = tokio::io::duplex(8192);
-        let mut conn = AgentConnection::new(client, test_config());
+        let mut conn = AgentConnection::new(client);
 
         // Header: type=Control, length=MAX_FRAME_SIZE+1 (no payload follows).
         let too_big = (codec::MAX_FRAME_SIZE as u32) + 1;

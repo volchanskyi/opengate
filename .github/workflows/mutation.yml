@@ -49,12 +49,12 @@ jobs:
         language: [rust, go, web]
     runs-on: ubuntu-latest
     # Rust historically dominates (~349 mutants × ~13s each on 2 cores).
-    # 90min leaves headroom over the prior 35min ceiling that timed out on
-    # the 2026-05-14 run, plus slack for the higher Go timeout-coefficient
-    # (see server/.gremlins.yaml): on a slow runner the Go leg now lets
-    # would-be-timeout mutants run to completion (~49min observed) rather than
-    # false-timing-out in ~6min, so the cap must clear a slow full run.
-    timeout-minutes: 90
+    # 100min leaves headroom over both the prior 35min ceiling that timed out
+    # on the 2026-05-14 run and the later 90min ceiling hit by the Go leg on
+    # 2026-06-18 after client-first reconnect/resumption coverage expanded.
+    # Keep this intentionally below two hours while clearing the recent ~85min
+    # successful Go gremlins baseline plus slow-runner slack.
+    timeout-minutes: 100
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/docker-hub-mirror
@@ -242,19 +242,45 @@ jobs:
         # written; trend data lives in Loki). Capture the canonical row and
         # any REGRESSION_ALERT lines for downstream steps. Script exits 1 on
         # regression — we capture that but do NOT fail this step yet (the
-        # alert step needs to run). The final step re-applies the exit code
-        # so the workflow goes red.
+        # alert step needs to run). Exit 2 means missing/malformed input, so
+        # fail immediately as an incomplete run instead of mislabeling it as
+        # a score regression. The final step re-applies exit 1 so the
+        # workflow goes red for true regressions.
         run: |
           set -euo pipefail
-          OUTPUT="$(./scripts/mutation-summarize.sh 2>&1)" && REGRESSION=0 || REGRESSION=1
+          set +e
+          OUTPUT="$(./scripts/mutation-summarize.sh 2>&1)"
+          SUMMARY_STATUS=$?
+          set -e
+
           echo "$OUTPUT"
           echo "--- end ---"
+
+          case "$SUMMARY_STATUS" in
+            0) REGRESSION=0 ;;
+            1) REGRESSION=1 ;;
+            2)
+              echo "regression=0" >> "$GITHUB_OUTPUT"
+              echo "::error::Mutation summary input missing or invalid; at least one language artifact is absent or malformed. This is an incomplete mutation run, not a score regression."
+              exit 2
+              ;;
+            *)
+              echo "regression=0" >> "$GITHUB_OUTPUT"
+              echo "::error::mutation-summarize.sh failed with unexpected exit ${SUMMARY_STATUS}"
+              exit "$SUMMARY_STATUS"
+              ;;
+          esac
+
           echo "regression=$REGRESSION" >> "$GITHUB_OUTPUT"
           # Extract the canonical row (last JSON line that begins with `{`)
-          CANONICAL_ROW="$(echo "$OUTPUT" | grep -E '^\{' | tail -n 1)"
+          CANONICAL_ROW="$(printf '%s\n' "$OUTPUT" | grep -E '^\{' | tail -n 1 || true)"
+          if [ -z "$CANONICAL_ROW" ]; then
+            echo "::error::mutation-summarize.sh produced no canonical JSON row"
+            exit 2
+          fi
           echo "$CANONICAL_ROW" > canonical-row.json
           # Extract Telegram-friendly text from REGRESSION_ALERT: lines
-          ALERT_TEXT="$(echo "$OUTPUT" | grep '^REGRESSION_ALERT:' | sed 's/^REGRESSION_ALERT://' || true)"
+          ALERT_TEXT="$(printf '%s\n' "$OUTPUT" | grep '^REGRESSION_ALERT:' | sed 's/^REGRESSION_ALERT://' || true)"
           {
             echo "alert_text<<EOF"
             echo "$ALERT_TEXT"

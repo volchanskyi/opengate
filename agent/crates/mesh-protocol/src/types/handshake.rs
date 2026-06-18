@@ -2,8 +2,6 @@
 //!
 //! These use binary encoding (not msgpack), so no Serialize/Deserialize derive.
 
-use super::device::DeviceId;
-
 /// Handshake messages for agent–server authentication.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -15,13 +13,6 @@ pub enum HandshakeMessage {
     AgentHello {
         nonce: [u8; 32],
         agent_cert_hash: [u8; 48],
-    },
-    ServerProof {
-        signature: Vec<u8>,
-    },
-    AgentProof {
-        signature: Vec<u8>,
-        device_id: DeviceId,
     },
     SkipAuth {
         cached_cert_hash: [u8; 48],
@@ -38,8 +29,6 @@ impl HandshakeMessage {
         match self {
             Self::ServerHello { .. } => 0x10,
             Self::AgentHello { .. } => 0x11,
-            Self::ServerProof { .. } => 0x12,
-            Self::AgentProof { .. } => 0x13,
             Self::SkipAuth { .. } => 0x14,
             Self::ExpectHash { .. } => 0x15,
         }
@@ -50,8 +39,6 @@ impl HandshakeMessage {
         let cap = match self {
             Self::ServerHello { .. } | Self::AgentHello { .. } => 81,
             Self::SkipAuth { .. } | Self::ExpectHash { .. } => 49,
-            Self::ServerProof { signature } => 1 + signature.len(),
-            Self::AgentProof { signature, .. } => 17 + signature.len(),
         };
         let mut buf = Vec::with_capacity(cap);
         buf.push(self.type_byte());
@@ -66,17 +53,6 @@ impl HandshakeMessage {
             } => {
                 buf.extend_from_slice(nonce);
                 buf.extend_from_slice(agent_cert_hash);
-            }
-            Self::ServerProof { signature } => {
-                buf.extend_from_slice(signature);
-            }
-            Self::AgentProof {
-                signature,
-                device_id,
-            } => {
-                let id_bytes = device_id.0.as_bytes();
-                buf.extend_from_slice(id_bytes);
-                buf.extend_from_slice(signature);
             }
             Self::SkipAuth { cached_cert_hash } => {
                 buf.extend_from_slice(cached_cert_hash);
@@ -126,28 +102,6 @@ impl HandshakeMessage {
                 Ok(Self::AgentHello {
                     nonce,
                     agent_cert_hash,
-                })
-            }
-            0x12 => Ok(Self::ServerProof {
-                signature: payload.to_vec(),
-            }),
-            0x13 => {
-                if payload.len() < 16 {
-                    return Err(crate::ProtocolError::InvalidHandshake(
-                        "AgentProof too short".to_string(),
-                    ));
-                }
-                let device_id = DeviceId(uuid::Uuid::from_bytes(
-                    payload[..16].try_into().map_err(|_| {
-                        crate::ProtocolError::InvalidHandshake(
-                            "invalid device_id bytes".to_string(),
-                        )
-                    })?,
-                ));
-                let signature = payload[16..].to_vec();
-                Ok(Self::AgentProof {
-                    signature,
-                    device_id,
                 })
             }
             0x14 => {

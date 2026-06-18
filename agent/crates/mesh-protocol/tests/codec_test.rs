@@ -194,13 +194,6 @@ fn test_handshake_binary_roundtrip() {
             nonce,
             agent_cert_hash: cert_hash,
         },
-        HandshakeMessage::ServerProof {
-            signature: vec![1, 2, 3, 4, 5],
-        },
-        HandshakeMessage::AgentProof {
-            signature: vec![6, 7, 8, 9],
-            device_id: DeviceId::new(),
-        },
         HandshakeMessage::SkipAuth {
             cached_cert_hash: cert_hash,
         },
@@ -389,40 +382,12 @@ fn test_encode_frame_rejects_payload_above_max_frame_size() {
 }
 
 #[test]
-fn test_handshake_agent_proof_decode_minimum_payload() {
-    // AgentProof requires payload.len() >= 16 (UUID). Mutating `<` to `<=`
-    // would also reject exactly 16 bytes; `<` to `==` would accept smaller.
-    let id = uuid::Uuid::new_v4();
-    let mut data = vec![0x13];
-    data.extend_from_slice(id.as_bytes());
-    // Exactly 16-byte payload (no signature) — must succeed with empty sig.
-    let decoded = HandshakeMessage::decode_binary(&data).expect("16-byte payload should decode");
-    match decoded {
-        HandshakeMessage::AgentProof {
-            signature,
-            device_id,
-        } => {
-            assert_eq!(device_id, DeviceId(id));
-            assert!(signature.is_empty());
+fn test_retired_handshake_proof_types_rejected() {
+    for type_byte in [0x12, 0x13] {
+        match HandshakeMessage::decode_binary(&[type_byte]) {
+            Err(ProtocolError::InvalidHandshake(_)) => {}
+            other => panic!("expected InvalidHandshake for retired proof type, got {other:?}"),
         }
-        other => panic!("expected AgentProof, got {:?}", other),
-    }
-}
-
-#[test]
-fn test_handshake_agent_proof_decode_rejects_short_payload() {
-    // 15-byte payload must error (boundary just below the >= 16 check).
-    let data = vec![
-        0x13, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-        0xff,
-    ];
-    // data.len() = 16 but payload.len() = 15 → must fail.
-    match HandshakeMessage::decode_binary(&data) {
-        Err(ProtocolError::InvalidHandshake(_)) => {}
-        other => panic!(
-            "expected InvalidHandshake for short payload, got {:?}",
-            other
-        ),
     }
 }
 

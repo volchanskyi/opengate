@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-<!-- Last updated: 2026-06-12 -->
+<!-- Last updated: 2026-06-18 -->
 <!-- Compact index. Full ADR text lives in /docs: -->
 <!--   - ADR-001 through ADR-012: docs/Architecture-Decision-Records.md (frozen historical log) -->
 <!--   - ADR-013 onward:          docs/adr/ADR-NNN-title.md (one mutable file per decision) -->
@@ -16,7 +16,7 @@
 | 002 | Golden file tests — Rust generates, Go verifies | 1 | Accepted |
 | 003 | SQLite WAL via `modernc.org/sqlite` (pure Go, no CGo), `MaxOpenConns(1)` | 2 | Superseded by ADR-014 |
 | 004 | ECDSA P-256 self-signed CA, CSR enrollment via `/api/v1/enroll/{token}`, TLS 1.3 | 2 | Accepted |
-| 005 | QUIC mTLS via quic-go — server opens control stream (workaround) | 4 | Accepted (workaround) |
+| 005 | QUIC mTLS via quic-go — server opens control stream (workaround) | 4 | Accepted; rationale superseded by ADR-037 |
 | 006 | Platform traits with null impls for headless/CI environments | 5 | Accepted |
 | 007 | VAPID Web Push, keypair persisted to `{dataDir}/vapid.json` | 10 | Accepted |
 | 008 | `aarch64-unknown-linux-musl` cross-compilation via `cross` | CD-C | Accepted |
@@ -24,7 +24,7 @@
 | 010 | Separate `device_hardware` table for on-demand hardware inventory; `RestartAgent`/`RequestHardwareReport`/`HardwareReport` control messages | 12+ | Accepted |
 | 011 | On-demand device logs via control path (`RequestDeviceLogs`/`DeviceLogsResponse`/`DeviceLogsError`), individual rows in `device_logs` table with 5-min cache TTL, SQL-level filtering | — | Accepted |
 | 012 | SonarCloud quality gate as hard merge block — Clean-as-You-Code model, coverage/ratings/hotspots enforced on new code | — | Accepted |
-| 013 | Docs live in-repo under `/docs`; wiki deprecated; link-over-paraphrase; ADRs immutable (supersede instead of edit) | — | Accepted |
+| 013 | Docs live in-repo under `/docs`; wiki deprecated; link-over-paraphrase; original ADR immutability rule superseded by ADR-036 | — | Accepted; amended by ADR-036 |
 | 014 | PostgreSQL 17 via `pgx/v5/stdlib`, colocated Docker container on OCI VPS, native types (`TIMESTAMPTZ`/`UUID`/`JSONB`), `pg_dump` backups, `postgres_exporter` metrics | 13a | Accepted (supersedes ADR-003) |
 | 015 | IaC defense-in-depth: Checkov (terraform/dockerfile/github_actions) + Hadolint + Trivy + gitleaks all run; `.checkov.baseline` is the single suppression surface, no inline `checkov:skip` permitted | S2 | Accepted |
 | 016 | Bidirectional goldens (Go→Rust reverse fixtures alongside existing Rust→Go) + `.meta.json` sidecars carrying `protocol_version`/`format` per `.bin` | C1 | Accepted (extends ADR-002) |
@@ -42,3 +42,5 @@
 | 030 | Kubernetes adoption — OKE BASIC with the [`deploy/helm/opengate`](../deploy/helm/opengate/) chart; ingress-nginx + cert-manager HTTP edge; in-cluster PostgreSQL; direct node `hostPort` exposure for QUIC/MPS; external Secret; rendered-manifest validation through `make lint-k8s`. Multi-node L4 templates and distributed relay dependencies are not part of the current chart | 13b | Accepted |
 | 034 | Shared server keys via the existing Kubernetes Secret — production mounts the enrollment CA, VAPID, and update-signing files read-only into an `emptyDir` `/data`, skips the server-data PVC, and preserves identity across redeploys. The KEDA `ScaledObject` and PodDisruptionBudget portions are reverted and removed; session-aware autoscaling remains a rebuild requirement in [`docs/Multiscale-Readiness.md`](../docs/Multiscale-Readiness.md) | 13b | Accepted; autoscaling/PDB reverted |
 | 035 | OKE free-tier block-volume remediation (450→200 GB, at the cap) — count, not size, is the lever (50 GB OCI minimum). **Keep 3 block PVCs:** prod Postgres + VictoriaMetrics + Loki. **Drop 5:** (1) `uptime-kuma` removed entirely → external uptime SaaS (also catches whole-node outages), monitoring chart now exposes no ingress; (2) Grafana `/var/lib/grafana` → `emptyDir` (all config provisioned from ConfigMaps, only annotations/alert-history lost); (3+4) staging Postgres + server `/data` → `emptyDir` via new `postgres.storage.persistent` / `server.dataVolume.persistent` flags (default true; staging false, **production unchanged**); (5) backups → OCI Object Storage via a **write-only PAR** (`BACKUP_PAR_URL` Secret), CronJob split into a `pg_dump` init container + a `curlimages/curl` PUT container sharing an emptyDir (postgres image has no curl), retention via an OS lifecycle policy. Prod data/storage untouched; off-cluster backups survive cluster loss. Manual follow-ups (SaaS monitors, bucket/PAR/lifecycle, delete 5 freed PVCs, Cloudflare `status.*`) in chart NOTES.txt. Working plan: `.claude/plans/archive/oke-block-volume-free-tier.md` | 13b | Accepted |
+| 036 | Per-file ADRs (013+) are mutable current-state records; frozen ADR-001–012 log remains immutable; supersede only for decision changes; ADRs may link archived plans but not active plans | — | Accepted (supersedes ADR-013 immutability clause) |
+| 037 | Client-first QUIC handshake + fast-path reconnect: agent opens and writes first, auth is mTLS-only, `0x14` saves a round-trip, 1-RTT session resumption adopted while 0-RTT is deferred; ADR-005's server-opens rationale is superseded | 4 | Accepted |

@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Update when debt is introduced or paid down. -->
-<!-- Last reviewed: 2026-06-17; DD-E docs-as-code introduced no new debt. -->
+<!-- Last reviewed: 2026-06-18; W4/W5 closed the fast-path ADR/workaround cleanup; rollout + agent ticket cache remain. -->
 
 ## Severity: High
 
@@ -9,7 +9,7 @@ _None currently._
 
 ## Severity: Medium
 
-### W1+W2 client-first handshake + 0x14 fast path — breaking wire change needs a coordinated agent/server rollout
+### W1–W5 client-first handshake + 0x14 fast path — breaking wire change needs a coordinated agent/server rollout
 
 [`handshaker.go`](../server/internal/agentapi/handshaker.go) reads the agent's
 first message and branches: `0x11` AgentHello → full handshake (reply
@@ -30,24 +30,24 @@ one. The next production deploy of the server **must** ship together with (or
 immediately followed by) an agent auto-update push — deploying the new server
 alone will strand the running agent mid-reconnect until it updates.
 
-**Settled auth model (input for the W4 ADR):** authentication is **mTLS-only** —
-the QUIC/TLS layer (`RequireAndVerifyClientCert`) authenticates the agent and
-the agent verifies the server against its CA; the message exchange only binds
-the cert hash and advertises the CA hash. There is **no app-layer signature
-exchange** (`0x12`/`0x13` remain unused constants). So `0x14` changes
-**round-trips, not cryptographic cost**: it elides the `0x10`/`0x11` exchange,
-not signatures. The dominant per-reconnect cost is the **TLS mTLS handshake
-itself, which `0x14` does not avoid** — only 0-RTT/session resumption (W3)
-does. **Reviewer call (recorded):** ship W2 now — the saved round-trip helps
-reconnection-storm latency on its own, and W3 stacks the larger TLS-cost win on
-top.
+**Settled auth model (recorded in
+[ADR-037](../docs/adr/ADR-037-client-first-fast-path-reconnect.md)):**
+authentication is **mTLS-only** — the QUIC/TLS layer
+(`RequireAndVerifyClientCert`) authenticates the agent and the agent verifies
+the server against its CA; the message exchange only binds the cert hash and
+advertises the CA hash. There is **no app-layer signature exchange**; `0x12` and
+`0x13` are retired proof-message reservations and both decoders reject them. So
+`0x14` changes **round-trips, not cryptographic cost**: it elides the
+`0x10`/`0x11` exchange, not signatures. The dominant per-reconnect cost is the
+**TLS mTLS handshake itself, which `0x14` does not avoid** — only 1-RTT session
+resumption (W3) does. **Reviewer call (recorded):** ship W2 now — the saved
+round-trip helps reconnection-storm latency on its own, and W3 stacks the larger
+TLS-cost win on top.
 
 **Pay-down trigger:** clear this note once the coordinated deploy has shipped
-and the production agent is confirmed connected post-cutover. W3's evaluation is
-**done** (decision recorded below); W4 (ADR — capture the settled mTLS-only model
-above plus W3's resumption decision) and W5 (remove workaround-era comments +
-bounded accept timeout) remain open on the active fast-path-reconnect-fix master
-plan under `.claude/plans/`.
+and the production agent is confirmed connected post-cutover. W3's evaluation,
+W4's ADR, and W5's workaround/dead-code cleanup are done; the remaining debt in
+this entry is only the production cutover risk.
 
 ### W3 decision — adopt 1-RTT TLS session resumption; agent-side enablement pending; 0-RTT deferred
 

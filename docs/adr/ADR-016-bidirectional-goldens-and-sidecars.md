@@ -3,7 +3,7 @@
 **Status**: Accepted
 **Date**: 2026-05-14
 **Phase**: C1 of [Test Coverage Phase C: Structural Hardening](../../.claude/plans/archive/tests-coverage-phase-c-structural-hardening.md)
-**Supersedes**: extends [ADR-002 — Golden file tests: Rust generates, Go verifies](Architecture-Decision-Records.md)
+**Supersedes**: extends [ADR-002 — Golden file tests: Rust generates, Go verifies](../Architecture-Decision-Records.md)
 
 ## Context
 
@@ -57,5 +57,5 @@ Both Go and Rust generators write sidecars when `GENERATE_GOLDEN=1` is set:
 ## Alternatives Considered
 
 - **Run Rust-side reverse verification inside the existing `rust-test` job** rather than in the `golden` job. Rejected because it would couple test cadences: rust-test fails would also fail the golden gate even when both are failing for unrelated reasons. The `golden` job's narrow scope (toolchains + drift check) is easier to debug when it goes red.
-- **Add `protocol_version: u8` as a real wire field on `AgentProof`** as originally proposed in the C1 plan. Deferred. Adding the field today does not change any decoder behavior (no protocol bump is imminent), and a future protocol bump can introduce both the field and the v1 sidecars together. The sidecar convention is the load-bearing part of the design; the wire field is a follow-up when the first version bump lands.
+- **Add `protocol_version: u8` as a real handshake wire field** as originally proposed in the C1 plan. Deferred. Adding a field today does not change decoder behavior (no protocol bump is imminent), and the former `AgentProof`/`ServerProof` messages were retired by [ADR-037](ADR-037-client-first-fast-path-reconnect.md). A future protocol bump can introduce explicit versioned wire fields and v1 sidecars together; the sidecar convention is the load-bearing part of the design.
 - **Embed metadata inside the `.bin` files** (e.g. a fixed-length header). Rejected — would invalidate the fixtures as byte-exact reference values for the wire format. Sidecars keep the `.bin` files faithful to what goes over the wire.
