@@ -40,7 +40,7 @@ type AgentConn struct {
 
 	// writeMu serializes writes to stream. protocol.Codec.WriteFrame issues
 	// a 5-byte envelope write followed by an N-byte payload write; without
-	// this mutex two concurrent server-initiated sendControl calls could
+	// this mutex two concurrent outbound sendControl calls could
 	// interleave their (header, payload) pairs on the same QUIC stream and
 	// corrupt the frame seen by the agent.
 	writeMu sync.Mutex

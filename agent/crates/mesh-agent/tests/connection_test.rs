@@ -29,12 +29,7 @@ async fn test_quic_agent_register_roundtrip() {
         server_handshake(&mut send, &mut recv, &ca_cert_der).await;
 
         let stream = AsyncControlStream::new(tokio::io::join(recv, send));
-        let config = mesh_agent_core::AgentConfig {
-            server_addr: server_addr.to_string(),
-            server_ca_pem: String::new(),
-            data_dir: std::path::PathBuf::from("/tmp"),
-        };
-        let mut agent_conn = AgentConnection::new(stream, config);
+        let mut agent_conn = AgentConnection::new(stream);
 
         let msg = agent_conn
             .receive_control()
@@ -74,12 +69,7 @@ async fn test_quic_agent_register_roundtrip() {
     client_handshake(&mut send, &mut recv, &agent_cert_der).await;
 
     let stream = AsyncControlStream::new(tokio::io::join(recv, send));
-    let config = mesh_agent_core::AgentConfig {
-        server_addr: server_addr.to_string(),
-        server_ca_pem: String::new(),
-        data_dir: std::path::PathBuf::from("/tmp"),
-    };
-    let mut agent_conn = AgentConnection::new(stream, config);
+    let mut agent_conn = AgentConnection::new(stream);
 
     agent_conn
         .send_control(ControlMessage::AgentRegister {
@@ -116,12 +106,7 @@ async fn test_quic_session_request_response() {
         server_handshake(&mut send, &mut recv, &ca_cert_der).await;
 
         let stream = AsyncControlStream::new(tokio::io::join(recv, send));
-        let config = mesh_agent_core::AgentConfig {
-            server_addr: server_addr.to_string(),
-            server_ca_pem: String::new(),
-            data_dir: std::path::PathBuf::from("/tmp"),
-        };
-        let mut agent_conn = AgentConnection::new(stream, config);
+        let mut agent_conn = AgentConnection::new(stream);
 
         let _register = agent_conn
             .receive_control()
@@ -176,12 +161,7 @@ async fn test_quic_session_request_response() {
     client_handshake(&mut send, &mut recv, &agent_cert_der).await;
 
     let stream = AsyncControlStream::new(tokio::io::join(recv, send));
-    let config = mesh_agent_core::AgentConfig {
-        server_addr: server_addr.to_string(),
-        server_ca_pem: String::new(),
-        data_dir: std::path::PathBuf::from("/tmp"),
-    };
-    let mut conn = AgentConnection::new(stream, config);
+    let mut conn = AgentConnection::new(stream);
 
     conn.send_control(ControlMessage::AgentRegister {
         capabilities: vec![AgentCapability::Terminal],
@@ -243,12 +223,7 @@ async fn test_quic_disconnect_detection() {
         server_handshake(&mut send, &mut recv, &ca_cert_der).await;
 
         let stream = AsyncControlStream::new(tokio::io::join(recv, send));
-        let config = mesh_agent_core::AgentConfig {
-            server_addr: server_addr.to_string(),
-            server_ca_pem: String::new(),
-            data_dir: std::path::PathBuf::from("/tmp"),
-        };
-        let mut agent_conn = AgentConnection::new(stream, config);
+        let mut agent_conn = AgentConnection::new(stream);
         let _register = agent_conn
             .receive_control()
             .await
@@ -276,12 +251,7 @@ async fn test_quic_disconnect_detection() {
     client_handshake(&mut send, &mut recv, &agent_cert_der).await;
 
     let stream = AsyncControlStream::new(tokio::io::join(recv, send));
-    let config = mesh_agent_core::AgentConfig {
-        server_addr: server_addr.to_string(),
-        server_ca_pem: String::new(),
-        data_dir: std::path::PathBuf::from("/tmp"),
-    };
-    let mut conn = AgentConnection::new(stream, config);
+    let mut conn = AgentConnection::new(stream);
 
     conn.send_control(ControlMessage::AgentRegister {
         capabilities: vec![AgentCapability::Terminal],

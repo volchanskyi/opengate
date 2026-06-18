@@ -156,6 +156,8 @@ func TestHandshaker_ServerHelloContainsValidCACertHash(t *testing.T) {
 }
 
 func TestHandshaker_Timeout(t *testing.T) {
+	// covers client-first accept + bounded timeout: a peer that opens no stream
+	// or writes no handshake bytes must fail by context deadline, not hang forever.
 	cm, _, _ := newTestAgentCert(t)
 
 	serverConn, clientConn := net.Pipe()

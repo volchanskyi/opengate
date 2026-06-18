@@ -182,7 +182,13 @@ func DecodeHandshakeType(data []byte) (byte, error) {
 	if len(data) == 0 {
 		return 0, fmt.Errorf("empty handshake data")
 	}
-	return data[0], nil
+	msgType := data[0]
+	switch msgType {
+	case MsgServerHello, MsgAgentHello, MsgSkipAuth, MsgExpectHash:
+		return msgType, nil
+	default:
+		return 0, fmt.Errorf("unknown handshake type 0x%02x", msgType)
+	}
 }
 
 // DecodeServerHello decodes a ServerHello handshake message.

@@ -106,8 +106,6 @@ const (
 const (
 	MsgServerHello byte = 0x10
 	MsgAgentHello  byte = 0x11
-	MsgServerProof byte = 0x12
-	MsgAgentProof  byte = 0x13
 	MsgSkipAuth    byte = 0x14
 	MsgExpectHash  byte = 0x15
 )

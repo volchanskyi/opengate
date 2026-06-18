@@ -4,7 +4,7 @@ Developer documentation for the OpenGate remote device management platform.
 
 > **This is the canonical docs location.** The previous GitHub wiki has been
 > removed. See [docs/README.md](./README.md) for documentation conventions
-> (link-over-paraphrase, immutable ADRs).
+> (link-over-paraphrase, mutable per-file ADRs).
 
 ## Contents
 
@@ -26,4 +26,4 @@ Developer documentation for the OpenGate remote device management platform.
 | [Multiscale Readiness](./Multiscale-Readiness.md) | Scaling to >20k agents — verified current state, readiness inventory, and the architecture the Large-tier cutover entails |
 | [Agent Updates](./Agent-Updates.md) | OTA update system — Ed25519 signing, rollback, GitHub Release sync |
 | [Security and Dependencies](./Security-and-Dependencies.md) | CodeQL, vulnerability scanning, Dependabot, key dependencies |
-| [Architecture Decision Records](./Architecture-Decision-Records.md) | Frozen historical ADR log (ADR-001 … ADR-012); new ADRs live as immutable per-file records in [`adr/`](./adr/) |
+| [Architecture Decision Records](./Architecture-Decision-Records.md) | Frozen historical ADR log (ADR-001 … ADR-012); current ADRs live as mutable per-file records in [`adr/`](./adr/) |

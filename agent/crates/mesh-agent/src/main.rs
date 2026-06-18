@@ -505,7 +505,7 @@ async fn main() -> Result<()> {
 
         // Wrap QUIC streams into AsyncControlStream
         let stream = mesh_agent_core::AsyncControlStream::new(tokio::io::join(recv, send));
-        let mut conn = mesh_agent_core::AgentConnection::new(stream, config.clone());
+        let mut conn = mesh_agent_core::AgentConnection::new(stream);
 
         // Register with server
         if let Err(e) = conn

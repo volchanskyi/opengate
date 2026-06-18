@@ -272,7 +272,10 @@ func (s *AgentServer) runControlLoop(ctx context.Context, ac *AgentConn, logger 
 // it and replies during the handshake. On error, it closes the connection and
 // returns the error.
 func (s *AgentServer) acceptControlStream(ctx context.Context, conn *quic.Conn, logger *slog.Logger) (*quic.Stream, error) {
-	stream, err := conn.AcceptStream(ctx)
+	acceptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	stream, err := conn.AcceptStream(acceptCtx)
 	if err != nil {
 		logger.Error("accept control stream", "error", err)
 		_ = conn.CloseWithError(1, "stream accept failed")
