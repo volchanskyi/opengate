@@ -24,22 +24,22 @@ for path in "${legacy_files[@]}"; do
   [ ! -e "$REPO_ROOT/$path" ] || fail "legacy file still exists: $path"
 done
 
-if rg -n --glob '!ci-trend-retirement.test.sh' \
+if grep -R -n -E --exclude='ci-trend-retirement.test.sh' \
   'mutation-loki-push|pmat-loki-(push|query)|terraform-drift-loki-push' \
   "$REPO_ROOT/.github/workflows" "$REPO_ROOT/scripts" >/dev/null; then
   fail "workflow or script still references a legacy Loki trend helper"
 fi
 
-if rg -n 'benchmark-action/github-action-benchmark|^[[:space:]]+(go-bench|rust-bench|bench-publish):' \
+if grep -n -E 'benchmark-action/github-action-benchmark|^[[:space:]]+(go-bench|rust-bench|bench-publish):' \
   "$REPO_ROOT/.github/workflows/ci.yml" >/dev/null; then
   fail "legacy gh-pages benchmark publishing still exists"
 fi
-rg -q 'rm -rf gh-pages/dev/bench' "$REPO_ROOT/.github/workflows/ci.yml" \
+grep -q 'rm -rf gh-pages/dev/bench' "$REPO_ROOT/.github/workflows/ci.yml" \
   || fail "gh-pages benchmark data cleanup is not wired into its deployment owner"
 
-rg -q 'pmat-vm-query\.sh repo_score' "$REPO_ROOT/.github/workflows/pmat-trend.yml" \
+grep -q 'pmat-vm-query\.sh repo_score' "$REPO_ROOT/.github/workflows/pmat-trend.yml" \
   || fail "PMAT workflow does not read its previous score from VM"
-rg -q 'pmat-vm-query\.sh below_bplus' "$REPO_ROOT/.github/workflows/pmat-trend.yml" \
+grep -q 'pmat-vm-query\.sh below_bplus' "$REPO_ROOT/.github/workflows/pmat-trend.yml" \
   || fail "PMAT workflow does not read its previous below-B+ count from VM"
 
 for dashboard in mutation-trend pmat-trend terraform-drift-trend; do
