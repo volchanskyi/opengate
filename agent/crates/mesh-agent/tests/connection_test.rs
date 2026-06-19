@@ -269,3 +269,48 @@ async fn test_quic_disconnect_detection() {
     let result = conn.receive_control().await;
     assert!(result.is_err(), "expected error after server disconnect");
 }
+
+/// Storm control: a registered connection the server accepts then immediately
+/// drops must never let the reconnect loop spin at the dial rate. Drive
+/// `ReconnectGovernor` (the public seam the agent's outer loop uses) over a run
+/// of sub-window sessions and assert every one yields a backoff, each within
+/// the cap, and that a single stable session clears the penalty.
+#[test]
+fn reconnect_governor_rate_limits_accept_then_drop_loop() {
+    use mesh_agent_core::ReconnectGovernor;
+    use rand::{rngs::StdRng, SeedableRng};
+    use std::time::Duration;
+
+    let mut governor = ReconnectGovernor::new();
+    let mut rng = StdRng::seed_from_u64(0xACCE_55ED);
+
+    // 20 accept-then-immediate-drop cycles (5ms sessions, far under the window).
+    let drop_fast = Duration::from_millis(5);
+    for cycle in 1..=20u32 {
+        let delay = governor
+            .record_disconnect(drop_fast, &mut rng)
+            .expect("a sub-window session must impose a backoff, never reconnect immediately");
+        assert!(
+            delay <= ReconnectGovernor::DEFAULT_CAP,
+            "backoff {delay:?} exceeds cap on cycle {cycle}"
+        );
+        assert_eq!(
+            governor.flap_count(),
+            cycle,
+            "flap counter escalates per drop"
+        );
+    }
+
+    // Recovery: one session that outlives the stability window resets the
+    // governor so a healthy agent reconnects without a lingering penalty.
+    let stable = ReconnectGovernor::DEFAULT_STABILITY_WINDOW + Duration::from_secs(1);
+    assert!(
+        governor.record_disconnect(stable, &mut rng).is_none(),
+        "a stable session must not back off"
+    );
+    assert_eq!(
+        governor.flap_count(),
+        0,
+        "stable session resets the flap counter"
+    );
+}

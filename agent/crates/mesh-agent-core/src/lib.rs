@@ -16,7 +16,10 @@ pub mod update;
 pub mod webrtc;
 
 pub use config::AgentConfig;
-pub use connection::{reconnect_with_backoff, AgentConnection, AsyncControlStream, ControlStream};
+pub use connection::{
+    full_jitter, reconnect_with_backoff, AgentConnection, AsyncControlStream, ControlStream,
+    ReconnectGovernor,
+};
 pub use error::{AgentError, ConnectionError};
 pub use identity::{AgentIdentity, PendingIdentity, CERT_FILE, DEVICE_ID_FILE, KEY_FILE};
 pub use platform::{
