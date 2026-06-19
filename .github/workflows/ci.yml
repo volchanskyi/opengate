@@ -20,7 +20,7 @@ jobs:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy, rustfmt
@@ -65,12 +65,12 @@ jobs:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2
+      - uses: taiki-e/install-action@b8cecb83565409bcc297b2df6e77f030b2a468d5 # v2
         with:
           tool: cargo-nextest
       - name: Tests
@@ -104,7 +104,7 @@ jobs:
           path: testdata/golden/
           retention-days: 20
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@b8cecb83565409bcc297b2df6e77f030b2a468d5 # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov
       - name: Generate Rust coverage
@@ -139,7 +139,7 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
@@ -180,7 +180,7 @@ jobs:
     env:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-hub-mirror
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -257,7 +257,7 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
@@ -297,7 +297,7 @@ jobs:
     env:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-hub-mirror
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -337,7 +337,7 @@ jobs:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -367,7 +367,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
@@ -399,7 +399,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -449,7 +449,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -506,7 +506,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -547,7 +547,7 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -594,7 +594,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -690,8 +690,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: gh-pages
           path: gh-pages
@@ -715,7 +715,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # gitleaks scans git history
 
@@ -934,7 +934,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
@@ -956,7 +956,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
@@ -973,7 +973,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: github/codeql-action/init@v4
         with:
@@ -991,7 +991,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           # Pinned to the exact patch (not the '1.26' minor) so govulncheck
@@ -1053,7 +1053,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # need the branch base for diff-only scanning
       - uses: actions/setup-python@v6
@@ -1094,7 +1094,7 @@ jobs:
     env:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Download Go coverage
@@ -1180,7 +1180,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Download Go benchmark results
         uses: actions/download-artifact@v8
         with:
@@ -1231,8 +1231,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: gh-pages
           path: gh-pages
@@ -1303,7 +1303,7 @@ jobs:
       contents: read
       pull-requests: write  # for the sticky PR comment on PR events
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0  # need a baseline for git diff in the change-detection step
 
@@ -1532,7 +1532,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: main
@@ -1603,7 +1603,7 @@ jobs:
       contents: write
       actions: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: main
@@ -1781,7 +1781,7 @@ jobs:
       issues: write
       actions: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: .github/scripts
           sparse-checkout-cone-mode: false

@@ -38,7 +38,7 @@ jobs:
     # gate that `staging` / `production` have.
     environment: observability
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:

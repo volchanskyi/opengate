@@ -18,7 +18,7 @@ jobs:
       agent_changed: ${{ steps.gate.outputs.agent_changed }}
       prev_tag: ${{ steps.gate.outputs.prev_tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
@@ -49,7 +49,7 @@ jobs:
       run:
         working-directory: agent
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
 
