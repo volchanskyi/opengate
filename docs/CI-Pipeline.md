@@ -53,16 +53,11 @@ human commits  ──► dev ──► main
 
                └─────────────── any job fails (non-PR) ─────────────────┐
                                                                         ▼
-                                                    Notify failure (needs all 22 upstream jobs)
+                                                    Notify failure (needs all upstream jobs)
                                                     └─ Creates/updates GitHub Issue per failed job
 
-           Go Benchmarks Workflow      Rust Benchmarks Workflow
-           (CI success on dev)         (CI success on dev)
-                    │                           │
-                    ▼                           ▼
-              Go Benchmarks              Rust Benchmarks
-                    │                           │
-                    └────── stored in gh-pages ──┘
+        Benchmark Trends Workflow (nightly / workflow_dispatch)
+        └─ Go + Rust benchmarks → VictoriaMetrics → Grafana Benchmark Trends
 
         Perf Publish (needs e2e + bundle-size, dev push only → gh-pages)
         └─ Lighthouse history + bundle size trending
@@ -82,7 +77,7 @@ human commits  ──► dev ──► main
 
 ## Jobs
 
-The CI workflow contains **27 jobs** grouped by concern:
+The CI workflow jobs are grouped by concern:
 
 | Group | Jobs | Purpose |
 |-------|------|---------|
@@ -108,7 +103,9 @@ The CI workflow contains **27 jobs** grouped by concern:
 
 The **golden verification** job is sequenced after Rust so the Go verifier always works against freshly generated fixtures — this prevents Rust ↔ Go wire-format drift from going undetected.
 
-Pull requests execute every job except auto-merge. Benchmarks only run on `dev` pushes.
+Pull requests execute every CI job except auto-merge/release automation. Benchmark
+trends run in the separate scheduled/dispatchable
+[`benchmark.yml`](../.github/workflows/benchmark.yml) workflow.
 
 ### OpenAPI Codegen Sync
 
@@ -249,14 +246,18 @@ The **CI Gate** ruleset replaces legacy branch protection on `dev`. Key differen
 - **`merge-to-main`** uses a Fine-grained PAT (`SYNC_TOKEN` secret) instead of `GITHUB_TOKEN`. On a personal repo, `github-actions[bot]` cannot be added as a ruleset bypass actor — only the admin role can bypass. The PAT authenticates as the repo owner, who has the admin bypass.
 - **Code Scanning required tools:** CodeQL only. SonarCloud is not a Code Scanning tool because `SonarSource/sonarqube-scan-action` does not upload SARIF to GitHub Code Scanning for pull_request refs (only for push events to `dev`) — leaving every Dependabot PR `BLOCKED` waiting for SARIF that never arrived. SonarCloud's quality gate is still enforced via the `SonarCloud Analysis` required status check (which posts a regular PR check, not a Code Scanning entry). CodeQL stays as a Code Scanning required tool because it uploads SARIF correctly for both branches and PRs.
 
-## Benchmark Workflows
+## Benchmark Trend Workflow
 
-Two independent workflows, each triggered by `workflow_run` when CI completes successfully on `dev`:
+[`benchmark.yml`](../.github/workflows/benchmark.yml) runs Go and Rust benchmarks on a
+nightly schedule and by `workflow_dispatch`:
 
-- **Go Benchmarks** — `testing.B` + `-benchmem` for protocol codec, cert signing, DB, handshake
-- **Rust Benchmarks** — Criterion for frame/handshake encode/decode
+- **Go benchmarks** — `testing.B` + `-benchmem` for protocol codec, cert signing, DB, handshake.
+- **Rust benchmarks** — Criterion for frame/handshake encode/decode.
 
-Results are committed to `gh-pages` for historical tracking.
+The workflow publishes canonical rows to VictoriaMetrics through
+[`scripts/benchmark-vm-push.sh`](../scripts/benchmark-vm-push.sh). Allocation metrics are
+gated against [`benchmarks/baseline.json`](../benchmarks/baseline.json); wall-clock
+`ns/op` trends are advisory and rendered in Grafana's **Benchmark Trends** dashboard.
 
 ## Frontend Performance Monitoring
 
