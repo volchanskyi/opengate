@@ -83,6 +83,15 @@ The scale-out design must benchmark and bound:
 - 0-RTT safety before any early-data enablement; and
 - recovery when a gateway or relay replica disappears.
 
+The agent side of "connection-attempt backoff and jitter" has landed:
+[`reconnect_with_backoff`](../agent/crates/mesh-agent-core/src/connection.rs)
+applies full-jitter exponential backoff to connect attempts, and
+[`ReconnectGovernor`](../agent/crates/mesh-agent-core/src/connection.rs) bounds
+the reconnect rate when a *registered* session flaps — drops within a stability
+window of registering — so a connection the server accepts then immediately
+closes can no longer respin at the dial rate. What remains for activation is the
+measured storm behavior and production evidence below.
+
 The existing wire constants alone are not evidence of storm readiness.
 Activation requires cross-language tests, measured reconnect-storm behavior,
 and production evidence that reconnecting agents actually resume TLS sessions.

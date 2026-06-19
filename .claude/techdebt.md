@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Update when debt is introduced or paid down. -->
-<!-- Last reviewed: 2026-06-18; fast-path W1–W5 cutover shipped + verified live (entry cleared); agent ticket cache (W3) + reconnect-backoff flap-guard remain. -->
+<!-- Last reviewed: 2026-06-19; reconnect-backoff flap-guard shipped (ReconnectGovernor + full-jitter, entry cleared); agent ticket cache (W3) remains. -->
 
 ## Severity: High
 
@@ -71,25 +71,6 @@ no-longer-billing follow-ups remain:
 The two cheaply-killable mutants from the original 7-mutant gap were closed with tests (`switch.rs::handle_ack` body + the `SwitchAck` dispatch arm), and the `session/handlers/webrtc.rs` bodies were added to `agent/.cargo/mutants.toml` `exclude_globs` (same live-stack rationale as the long-standing `webrtc.rs` exclusion — ADR-024 §9 merely relocated that code). These three remain because the `mutants.toml` glob mechanism cannot exclude individual match arms within an otherwise well-covered function. **Pay-down trigger:** revisit when file upload is implemented (closes the equivalent mutant) or when a headless WebRTC offer/answer harness exists (closes the two live-stack arms).
 
 ## Severity: Low
-
-### Agent reconnect lacks backoff after a post-register server drop (storm-readiness)
-
-Observed live 2026-06-18 during an admin device-deletion: the agent
-([`main.rs`](../agent/crates/mesh-agent/src/main.rs)) reset its reconnect backoff
-to `attempt=1` on every *successful* connect, so when the server accepted the
-handshake and then immediately dropped the connection (device deleted
-server-side), the agent reconnected with no delay — ~8 connect→register→drop
-cycles per second until the server sent an explicit deregister directive. Backoff
-escalates only across consecutive *failed* connects; a connect that
-succeeds-then-drops accrues none. Harmless at the current fleet size of one over
-~1s, but at Large-tier scale any condition that lets a handshake complete and then
-drops it (load-shedding mid-session, a flapping replica, mass device churn)
-becomes a self-inflicted reconnect storm — the failure mode
-[`docs/Multiscale-Readiness.md`](../docs/Multiscale-Readiness.md) §4 budgets for.
-
-**Pay-down trigger:** add flap detection — apply backoff when a connection drops
-within a short window of registering instead of resetting to `attempt=1` — with a
-regression test that a rapid accept-then-drop loop backs off.
 
 ### `web/package.json` TypeScript pinned to ^5.9.3 — `openapi-typescript` peer conflict
 

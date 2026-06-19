@@ -425,6 +425,13 @@ async fn main() -> Result<()> {
     let mut cached_ca_hash: Option<[u8; 48]> = None;
     let mut force_full_next = false;
 
+    // Flap-guard: bounds the self-inflicted reconnect rate when a registered
+    // connection drops shortly after registering. An accept-then-drop condition
+    // would otherwise respin at the dial rate; jitter also de-synchronises a
+    // reconnecting herd after a node restart.
+    let mut governor = mesh_agent_core::ReconnectGovernor::new();
+    let mut reconnect_rng = rand::rng();
+
     // Main reconnect loop
     'outer: loop {
         // Connect with exponential backoff
@@ -532,6 +539,9 @@ async fn main() -> Result<()> {
 
         // Registration succeeded: the fast path (if used) is validated.
         force_full_next = false;
+        // Stamp when this session became registered so the flap-guard at the
+        // bottom of the loop can tell a stable session from an instant drop.
+        let connected_at = std::time::Instant::now();
         info!(
             fast_path = used_fast_path,
             "registered with server, entering control loop"
@@ -701,6 +711,20 @@ async fn main() -> Result<()> {
                     }
                 }
             }
+        }
+
+        // The control loop broke (connection lost). If the session dropped
+        // within the stability window, back off before reconnecting so an
+        // accept-then-drop condition cannot respin at the dial rate; a session
+        // that stayed up resets the backoff and reconnects immediately.
+        if let Some(delay) = governor.record_disconnect(connected_at.elapsed(), &mut reconnect_rng)
+        {
+            warn!(
+                delay_ms = delay.as_millis(),
+                flap_count = governor.flap_count(),
+                "connection dropped shortly after registering, backing off before reconnect"
+            );
+            tokio::time::sleep(delay).await;
         }
     }
 
