@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781828613777,
+  "lastUpdate": 1781841039137,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -18350,6 +18350,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 24.098996202632602,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "4e224bede73e399d67c61decf570e10373d1bfb9",
+          "message": "feat(ci): migrate trend family to VictoriaMetrics",
+          "timestamp": "2026-06-18T20:48:51-07:00",
+          "tree_id": "4ce35e5cb54a8af9e3c407a05e6dcb1a7863b5a7",
+          "url": "https://github.com/volchanskyi/opengate/commit/4e224bede73e399d67c61decf570e10373d1bfb9"
+        },
+        "date": 1781841039009,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 15.388092622730044,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 26.314129155307246,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 780.5982501534157,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 293.2367579359685,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 27.751381555546885,
             "unit": "ns/iter"
           }
         ]
