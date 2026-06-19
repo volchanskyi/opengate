@@ -1,0 +1,157 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "Workflow",
+      "url": "https://github.com/volchanskyi/opengate/actions/workflows/load-test.yml",
+      "targetBlank": true,
+      "type": "link"
+    }
+  ],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Load-test latency trends from k6 summary exports and the QUIC agent harness. This dashboard is visibility-only; the existing k6 thresholds remain the load-test alarm.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "milliseconds",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "unit": "ms",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 11, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "min", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Latency Percentiles",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "loadtest_latency_p50_ms{env=\"ci\"}",
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}} p50",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "loadtest_latency_p95_ms{env=\"ci\"}",
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}} p95",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "loadtest_latency_p99_ms{env=\"ci\"}",
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}} p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Throughput reported by k6 counters and the QUIC harness aggregate success rate.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "requests/agents per second",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "unit": "reqps",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 11 },
+      "id": 2,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "min", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Throughput",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "loadtest_rps{env=\"ci\"}",
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Error/failure rate from k6 http_req_failed and the QUIC harness aggregate result.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisLabel": "ratio",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "always",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 0.01 },
+              { "color": "red", "value": 0.05 }
+            ]
+          },
+          "unit": "percentunit",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 11 },
+      "id": 3,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Error Rate",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "loadtest_error_rate{env=\"ci\"}",
+          "legendFormat": "{{source}}/{{scenario}}/{{phase}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["ci", "load-test", "victoriametrics"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Load-Test Trends",
+  "uid": "opengate-loadtest-trend",
+  "version": 1
+}

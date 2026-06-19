@@ -16,6 +16,9 @@ concurrency:
 
 env:
   K6_VERSION: v1.6.1
+  K6_SUMMARY_TREND_STATS: avg,min,med,p(50),p(95),p(99),max
+  LOADTEST_K6_SUMMARY_DIR: /tmp/loadtest-k6
+  LOADTEST_QUIC_OUTPUT: /tmp/loadtest-quic.txt
   NAMESPACE: opengate-staging
   RELEASE: opengate-staging
 
@@ -57,6 +60,9 @@ jobs:
           install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
           /tmp/k6 version
 
+      - name: Prepare load-test summaries
+        run: install -d -m 0755 "$LOADTEST_K6_SUMMARY_DIR"
+
       - name: Port-forward staging server
         run: |
           kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 >/tmp/loadtest-pf.log 2>&1 &
@@ -71,13 +77,28 @@ jobs:
           exit 1
 
       - name: Run k6 API baseline
-        run: /tmp/k6 run --env BASE_URL=http://127.0.0.1:18080 load/k6/scenarios/api-baseline.js
+        run: |
+          /tmp/k6 run \
+            --summary-export "$LOADTEST_K6_SUMMARY_DIR/api-baseline.json" \
+            --summary-trend-stats "$K6_SUMMARY_TREND_STATS" \
+            --env BASE_URL=http://127.0.0.1:18080 \
+            load/k6/scenarios/api-baseline.js
 
       - name: Run k6 concurrent agents
-        run: /tmp/k6 run --env BASE_URL=http://127.0.0.1:18080 load/k6/scenarios/concurrent-agents.js
+        run: |
+          /tmp/k6 run \
+            --summary-export "$LOADTEST_K6_SUMMARY_DIR/concurrent-agents.json" \
+            --summary-trend-stats "$K6_SUMMARY_TREND_STATS" \
+            --env BASE_URL=http://127.0.0.1:18080 \
+            load/k6/scenarios/concurrent-agents.js
 
       - name: Run k6 relay throughput
-        run: /tmp/k6 run --env BASE_URL=http://127.0.0.1:18080 load/k6/scenarios/relay-throughput.js
+        run: |
+          /tmp/k6 run \
+            --summary-export "$LOADTEST_K6_SUMMARY_DIR/relay-throughput.json" \
+            --summary-trend-stats "$K6_SUMMARY_TREND_STATS" \
+            --env BASE_URL=http://127.0.0.1:18080 \
+            load/k6/scenarios/relay-throughput.js
 
       - name: Stop staging port-forward
         if: always()
@@ -136,12 +157,14 @@ jobs:
 
       - name: Run QUIC load test in cluster
         run: |
+          set -o pipefail
           AGENTS="${{ inputs.agents || '100' }}"
           kubectl -n "$NAMESPACE" exec "$LOADTEST_POD" -- \
             /tmp/loadtest \
               -agents="$AGENTS" \
               -addr="${SERVER_POD_IP}:9090" \
-              -data-dir=/tmp/loadtest-data
+              -data-dir=/tmp/loadtest-data \
+            | tee "$LOADTEST_QUIC_OUTPUT"
 
       - name: Cleanup QUIC load test pod
         if: always()
@@ -150,3 +173,11 @@ jobs:
             kubectl -n "$NAMESPACE" delete pod "$LOADTEST_POD" --ignore-not-found --wait=false
           fi
           rm -rf /tmp/loadtest /tmp/loadtest-data /tmp/k6 /tmp/k6-"${K6_VERSION}"-linux-amd64
+
+      - name: Push load-test trend
+        if: always()
+        run: |
+          K6_SUMMARY_DIR="$LOADTEST_K6_SUMMARY_DIR" \
+            QUIC_OUTPUT_FILE="$LOADTEST_QUIC_OUTPUT" \
+            scripts/loadtest-summarize.sh > /tmp/loadtest-summary.json
+          scripts/loadtest-vm-push.sh /tmp/loadtest-summary.json

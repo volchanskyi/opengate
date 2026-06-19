@@ -41,7 +41,7 @@ flowchart LR
   Grafana -- PromQL --> VM
   Grafana -- LogQL --> Loki
   Grafana -- alerts --> Telegram[Telegram Bot API]
-  Nightly[Benchmark / mutation / PMAT / drift workflows] -- kubectl VM push --> VM
+  Nightly[Benchmark / mutation / PMAT / drift / load-test workflows] -- kubectl VM push --> VM
   Nightly -. temporary legacy mirror .-> Loki
   External[External uptime SaaS] -- public probes --> Ingress[Public HTTPS / QUIC / MPS]
 ```
@@ -128,7 +128,7 @@ chart intentionally does not duplicate dashboard JSON; its
 ConfigMaps from the canonical files.
 
 Current dashboard files include the app overview, DB performance, PostgreSQL,
-benchmark trend, mutation trend, PMAT trend, and terraform-drift trend
+benchmark trend, mutation trend, PMAT trend, terraform-drift trend, and load-test trend
 dashboards. Numeric CI trend workflows write Prometheus samples to
 VictoriaMetrics:
 
@@ -140,6 +140,8 @@ VictoriaMetrics:
   [`scripts/pmat-vm-push.sh`](../scripts/pmat-vm-push.sh)
 - [`terraform-drift.yml`](../.github/workflows/terraform-drift.yml) →
   [`scripts/terraform-drift-vm-push.sh`](../scripts/terraform-drift-vm-push.sh)
+- [`load-test.yml`](../.github/workflows/load-test.yml) →
+  [`scripts/loadtest-vm-push.sh`](../scripts/loadtest-vm-push.sh)
 
 During the B3→B5 migration window, mutation/PMAT/terraform-drift still keep
 their Loki push scripts as a temporary mirror. PMAT also reads its previous
@@ -192,6 +194,12 @@ Validation sources:
 - [`scripts/tests/ci-trend-vm-push.test.sh`](../scripts/tests/ci-trend-vm-push.test.sh)
   verifies mutation, PMAT, and terraform-drift canonical rows map to Prometheus
   text before reaching the shared VM transport.
+- [`scripts/tests/loadtest-summarize.test.sh`](../scripts/tests/loadtest-summarize.test.sh)
+  verifies k6 summary-export and QUIC harness output parsing for load-test
+  trend rows, including partial failed-run capture.
+- [`scripts/tests/loadtest-vm-push.test.sh`](../scripts/tests/loadtest-vm-push.test.sh)
+  verifies load-test trend rows map to Prometheus text before reaching the
+  shared VM transport.
 
 ## Ad-hoc Investigation
 
