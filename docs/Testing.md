@@ -131,17 +131,20 @@ Mutation tests do **not** gate merges or deploys. They run **nightly** via the
 [mutation.yml workflow](../.github/workflows/mutation.yml) and
 emit a row per run to:
 
-- **Loki** — pushed to the in-cluster Loki Service through the shared kubectl
-  transport in [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh).
-  Visualised in Grafana under the "Mutation Testing Trend" dashboard
-  (uid `opengate-mutation-trend`). Canonical trend store.
+- **VictoriaMetrics** — mapped by
+  [`scripts/mutation-vm-push.sh`](../scripts/mutation-vm-push.sh) and sent through
+  the shared [`vm-push.sh`](../scripts/lib/vm-push.sh) transport. Visualised by
+  the provisioned
+  [`mutation-trend.json`](../deploy/grafana/provisioning/dashboards/mutation-trend.json)
+  dashboard. Canonical trend store per
+  [ADR-038](./adr/ADR-038-victoriametrics-ci-trend-store.md).
 - **Workflow artifact** — each run uploads `mutation-canonical-row` (the
   per-run JSON object) with 90-day retention for one-off audits.
 
 The previous in-repo `docs/mutation-history.jsonl` was removed: the bot push
 that maintained it was rejected by branch protection on `dev` (required
-status checks block direct bot commits), and Loki + Grafana is the right
-home for time-series telemetry.
+status checks block direct bot commits), and VictoriaMetrics + Grafana is the
+right home for numeric time-series telemetry.
 
 **Regression alert rules** — fired when any language regresses on either
 condition:

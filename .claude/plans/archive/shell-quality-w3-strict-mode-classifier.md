@@ -35,7 +35,7 @@ Two sourced libraries currently mutate caller state and must be de-leaked:
   pipefail` at file scope; the deploy scripts that source it already set their
   own options.
 
-The other two libs ([`scripts/lib/loki-push.sh`](../../../scripts/lib/loki-push.sh),
+The other two libs (the later retired `scripts/lib/loki-push.sh`,
 [`scripts/lib/postgres-prereq.sh`](../../../scripts/lib/postgres-prereq.sh)) are
 already clean — leave them and use them as the reference contract.
 

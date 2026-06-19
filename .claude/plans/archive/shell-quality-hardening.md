@@ -98,7 +98,7 @@ therefore contain `set -e` and still require explicit status handling. See the
 official [`set` builtin documentation](https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html).
 
 Sourced libraries should not change the caller's shell options.
-[`scripts/lib/loki-push.sh`](../../../scripts/lib/loki-push.sh) and
+The later retired `scripts/lib/loki-push.sh` and
 [`scripts/lib/postgres-prereq.sh`](../../../scripts/lib/postgres-prereq.sh) already
 follow that rule. [`hooks/lib/common.sh`](../../hooks/lib/common.sh) and
 [`deploy/scripts/common.sh`](../../../deploy/scripts/common.sh) currently set

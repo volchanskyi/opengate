@@ -2,7 +2,6 @@
 standalone	scripts/tests/check-shell-policy.test.sh	e,o	Fixtures exercise rejected option disables and verify sourced libraries preserve caller state.
 library	.claude/hooks/lib/common.sh	-	Shared hook functions; callers opt into fail-closed behavior.
 library	deploy/scripts/common.sh	-	Deployment functions inherit the caller's execution policy.
-library	scripts/lib/loki-push.sh	-	Transport functions are sourced by multiple standalone push scripts.
 library	scripts/lib/vm-push.sh	-	Transport functions are sourced by multiple standalone push scripts.
 library	scripts/lib/postgres-prereq.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
 aggregate	.claude/hooks/git-post-commit.sh	-	Best-effort post-commit automation must report failures without failing the commit.
@@ -10,7 +9,7 @@ aggregate	.claude/hooks/pretooluse-gauntlet-nudge.sh	-	Background status nudge t
 aggregate	.claude/hooks/sessionstart-install-git-hooks.sh	-	Session bootstrap is best-effort and must not block startup.
 aggregate	scripts/benchmark-summarize.sh	-	Aggregates multi-source benchmark parsing and regression outcomes into one summary.
 aggregate	scripts/pentest-review.sh	-	Collects multiple security-rule outcomes into one result.
-aggregate	scripts/pmat-loki-query.sh	-	Interprets expected missing-query and transport statuses.
+aggregate	scripts/pmat-vm-query.sh	-	Interprets expected missing-query and transport statuses.
 aggregate	scripts/pmat-precommit.sh	-	Collects changed-file quality results before returning one gate status.
 aggregate	scripts/pmat-summarize.sh	-	Aggregates parser and regression outcomes into one summary.
 aggregate	scripts/precommit-gauntlet.sh	a	Runs every check after failures and temporarily restores allexport after loading env.

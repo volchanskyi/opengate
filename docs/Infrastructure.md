@@ -174,7 +174,7 @@ When `plan -refresh-only` returns exit code 2, the workflow:
 1. Generates a canonical drift summary via [`scripts/terraform-drift-summarize.sh`](../scripts/terraform-drift-summarize.sh) (`drift_count`, per-resource `address`/`actions`/`type`).
 2. Uploads `drift.txt` (raw plan output) + `drift.json` + `drift-summary.json` as a 30-day workflow artifact.
 3. Posts the truncated plan output to Telegram via the existing `DEPLOY_TELEGRAM_BOT_TOKEN`/`DEPLOY_TELEGRAM_CHAT_ID` secrets.
-4. Pushes the summary record to the in-cluster Loki Service via [`scripts/terraform-drift-loki-push.sh`](../scripts/terraform-drift-loki-push.sh), which uses the shared kubectl transport in [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh).
+4. Pushes the summary record to VictoriaMetrics via [`scripts/terraform-drift-vm-push.sh`](../scripts/terraform-drift-vm-push.sh), which uses the shared kubectl transport in [`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh).
 5. Exits red for audit-trail visibility.
 
 There is **no auto-remediation**. Drift is investigated by the operator. If the legitimate cause was an operator-side action (e.g. a console click that should become Terraform code), the resolution is to update the config and `apply`; if it was an injection by `cd.yml`, see "Known interactions" below.
@@ -195,7 +195,7 @@ The workflow authenticates as a separate read-only IAM user `tf-drift-reader` �
    - `OCI_TFSTATE_NAMESPACE` — the OCI Object Storage namespace used to construct the S3 endpoint
    - `TFSTATE_S3_ACCESS_KEY` / `TFSTATE_S3_SECRET_KEY` — the S3-compat key pair for the `tf-state-writer` user from the State Backend section (the drift workflow only needs read, but reuses the existing pair)
 
-`OCI_TENANCY_OCID`, `OCI_REGION`, `OCI_USER_OCID`, `OCI_PRIVATE_KEY`, and `OCI_FINGERPRINT` are reused from the OKE-backed CD pipeline. The drift workflow uses `tf-drift-reader` for the OCI provider during `plan`; the Loki push reaches the cluster through [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml) rather than opening an SSH path.
+`OCI_TENANCY_OCID`, `OCI_REGION`, `OCI_USER_OCID`, `OCI_PRIVATE_KEY`, and `OCI_FINGERPRINT` are reused from the OKE-backed CD pipeline. The drift workflow uses `tf-drift-reader` for the OCI provider during `plan`; the trend push reaches the cluster through [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml) rather than opening an SSH path.
 
 Quarterly: audit that the `tf-drift-readers` policy document has not been broadened.
 
@@ -208,11 +208,10 @@ rather than expected deploy-time SSH churn.
 
 #### Grafana
 
-The Loki stream feeds the existing monitoring stack. Recommended panels (provisioned via [`deploy/grafana/`](../deploy/grafana/) if applicable, otherwise a one-shot dashboard JSON):
-
-- **Stat**: days since last drift event.
-- **Time series**: drift events per week (rolling 90-day window).
-- **Table**: most-recent drift summary — resource address, action, run ID, timestamp.
+The Prometheus series feeds the provisioned
+[`terraform-drift-trend.json`](../deploy/grafana/provisioning/dashboards/terraform-drift-trend.json)
+dashboard through VictoriaMetrics. Loki remains available for investigating the
+application and cluster logs around a drift event.
 
 ### Operator access via OCI Bastion
 

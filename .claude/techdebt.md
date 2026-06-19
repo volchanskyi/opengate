@@ -148,15 +148,3 @@ test/hardening commit — `rapid` property tests for the Go protocol/parser
 surfaces, a `cargo-fuzz` target for `mesh-protocol` decode, and `fast-check` for
 the web store/validation logic. Prioritize parsing/boundary surfaces (highest
 defect density), where the existing fuzz/proptest already focus.
-
-### Performance benchmarks — no CI regression detection
-
-Go and Rust micro-benchmarks run in the precommit gauntlet (`go test -bench` /
-`cargo bench -p mesh-protocol`) and CI now publishes their results (the
-Go/Rust Benchmark + Publish Benchmarks + Publish Performance Data jobs in
-[`ci.yml`](../.github/workflows/ci.yml)). They still only assert the benchmarks
-execute and record numbers — **no perf thresholds or cross-commit regression
-tracking** gate a commit.
-
-**Pay-down trigger:** wire benchmark deltas into CI with a regression alert.
-Working plan: [`performance-benchmarks.md`](plans/archive/performance-benchmarks.md).

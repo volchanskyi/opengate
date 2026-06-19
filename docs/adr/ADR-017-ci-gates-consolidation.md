@@ -1,7 +1,7 @@
 # ADR-017: CI gates consolidation — inline IaC gate, drop in-repo mutation history, remove load-test approval gate
 
 Date: 2026-05-17
-Status: Accepted
+Status: Accepted; mutation trend-store clause superseded by ADR-038
 
 ## Context
 
@@ -27,11 +27,16 @@ Delete the standalone workflow file and add a new `iac-gate` job to [`ci.yml`](.
 - Bypass policy: PR + `iac:approve-destroy` label only. Direct push to `dev` has **no bypass** — destructive terraform changes must go through a labelled PR.
 - Added to `merge-to-main.needs:`. The auto-merge to `main` cannot proceed until the gate passes (or correctly skips).
 
-### Mutation testing — drop the in-repo history file; Loki is the canonical trend store
+### Mutation testing — drop the in-repo history file; use an external trend store
 
 Remove the `Commit JSONL row to dev` step from [`mutation.yml`](../../.github/workflows/mutation.yml). Remove `APPEND=1` from the summarize step so `docs/mutation-history.jsonl` is no longer written. Delete the existing file. Upload the per-run canonical row as a workflow artifact (`mutation-canonical-row`, 90-day retention) for one-off audits. Update the Telegram footer to point at the Grafana dashboard instead of the broken in-repo JSONL link.
 
-Trend data lives in Loki (pushed by every run) and is visualised in the `opengate-mutation-trend` Grafana dashboard. Audit access uses the workflow artifact. The repo branch is no longer involved in nightly telemetry — branch protection on `dev` correctly rejects unattended bot commits, and the right answer is to stop trying to commit, not to widen the bypass surface.
+Numeric trend data now lives in VictoriaMetrics and is visualised in the
+provisioned mutation Grafana dashboard per
+[ADR-038](ADR-038-victoriametrics-ci-trend-store.md). Audit access uses the
+workflow artifact. The repo branch is no longer involved in nightly telemetry —
+branch protection on `dev` correctly rejects unattended bot commits, and the
+right answer is to stop trying to commit, not to widen the bypass surface.
 
 ### Load-test — drop the `environment: staging` declaration
 
@@ -50,12 +55,16 @@ Remove the line from [`load-test.yml`](../../.github/workflows/load-test.yml). A
 ### Negative / costs
 
 - `iac-gate` runs ~10 s on every dev push even when no terraform files change (path detection + checkout). On terraform commits it adds ~2 min (init + plan).
-- Loss of the 90-day, human-browsable `docs/mutation-history.jsonl` on `main`. Loki retention is shorter than 90 days by default; if longer trend visibility is needed, Loki retention should be tuned at the source rather than restored to the repo.
+- Loss of the 90-day, human-browsable `docs/mutation-history.jsonl` on `main`.
+  Trend retention now follows the canonical store selected by ADR-038 rather
+  than being restored to the repo.
 - Branch protection rules on `dev` and `main` may still list `iac-plan-preview` as a required check if it was ever configured there. That status check no longer reports. **Operator action:** in GitHub repo settings, replace any required check named `iac-plan-preview / Plan preview + destroy-blocklist gate` with `CI / IaC plan + destroy-blocklist gate`.
 
 ### Risks
 
-- A regression-detection bug in `mutation-summarize.sh` that previously surfaced via a JSONL diff is now visible only as a Loki query or the workflow artifact. Mitigated by Grafana alerting being the primary surface anyway.
+- A regression-detection bug in `mutation-summarize.sh` that previously surfaced
+  via a JSONL diff is now visible through the VictoriaMetrics trend or the
+  workflow artifact. Mitigated by Grafana alerting being the primary surface.
 - The IaC gate's hard-block on direct-push destroys means an in-flight emergency tear-down requires a PR detour. Acceptable trade-off; drift detection covers the operational-mistake case.
 
 ## Alternatives considered
@@ -64,4 +73,7 @@ Remove the line from [`load-test.yml`](../../.github/workflows/load-test.yml). A
 - **R3 — Required status check via branch protection on the standalone workflow.** Would rely on operator-configured branch protection rather than `needs:` to enforce ordering. Rejected: the workflow is code-reviewable, branch protection is not — and the failure mode ("push rejected") is worse UX than "merge-to-main waited and is going red."
 - **D2 — Commit trailer (`IaC-Approve-Destroy: yes`) bypass on direct push.** Convenient but auditable only via `git log`. Rejected: the labelled-PR path is one extra step and keeps human review in the loop for destructive changes.
 - **Mutation Option A — `SYNC_TOKEN` with bypass privileges** to land the JSONL commit directly on `dev`. Rejected: widens the surface of what can bypass `dev` branch protection. The unattended-bot-commit-of-telemetry pattern is the wrong primitive; time-series belongs in a TSDB.
-- **Mutation Option B — orphan branch (`mutation-history`)** for the JSONL trend file. Workable, similar pattern to `gh-pages`. Rejected in favour of the simpler Option C — Loki already exists, has a dashboard, and is the obvious home for time-series; adding a second store is duplication.
+- **Mutation Option B — orphan branch (`mutation-history`)** for the JSONL trend
+  file. Workable, similar pattern to `gh-pages`. Initially rejected in favour of
+  Loki; that storage choice was later superseded when numeric CI trends
+  consolidated in VictoriaMetrics under ADR-038.

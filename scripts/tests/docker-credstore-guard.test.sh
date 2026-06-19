@@ -64,7 +64,7 @@ rm -rf "$TMP"
 # 4. Missing credsStore helper → sanitized dir; config.json has no credsStore.
 TMP="$(mktemp -d)"
 mkdir -p "$TMP/dcfg"
-printf '{"credsStore":"desktop.exe"}' >"$TMP/dcfg/config.json"
+printf '{"credsStore":"opengate-test-guaranteed-missing-7f4c9d"}' >"$TMP/dcfg/config.json"
 run_guard "$TMP/dcfg" "$TMP/cache"
 if [ "$RC" = 0 ] && [ "$OUT" != "$TMP/dcfg" ] && [ -f "$OUT/config.json" ] \
   && ! grep -q credsStore "$OUT/config.json"; then

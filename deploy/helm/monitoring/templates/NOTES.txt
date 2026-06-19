@@ -20,4 +20,4 @@ Validate (runbook §4 — these need a live OKE node):
   - promtail reads pod logs: if /var/log/pods is root-only on the node OS, set
     promtail.runAsRoot=true.
   - Grafana dashboards render and datasources resolve the in-cluster Services.
-  - Retarget scripts/*-loki-push.sh to the in-cluster Loki Service.
+  - Keep application log queries pointed at the in-cluster Loki Service.

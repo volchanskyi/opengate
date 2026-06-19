@@ -1121,6 +1121,10 @@ jobs:
           path: .
       - name: Update performance data
         run: |
+          # This job owns the remaining gh-pages performance tree. Keep the
+          # retired micro-benchmark history absent while preserving the active
+          # Lighthouse and bundle-size history under dev/perf.
+          rm -rf gh-pages/dev/bench
           mkdir -p gh-pages/dev/perf
           node -e "
             const fs = require('fs');
@@ -1145,7 +1149,7 @@ jobs:
           cd gh-pages
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add dev/perf/
+          git add -A dev/
           git diff --cached --quiet && exit 0
           git commit -m "perf: update Lighthouse + bundle size data"
           git push

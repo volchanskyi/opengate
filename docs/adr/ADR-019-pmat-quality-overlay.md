@@ -1,7 +1,7 @@
 # ADR-019: PMAT adoption as augment-only quality overlay (MCP + precommit + daily Grafana)
 
 Date: 2026-05-19
-Status: Accepted
+Status: Accepted; trend-store mechanics superseded by ADR-038
 
 ## Context
 
@@ -11,7 +11,7 @@ The Pragmatic Multi-language Agent Toolkit ([`paiml/paiml-mcp-agent-toolkit`](ht
 
 1. **Code churn / entropy / hotspot overlay** — not tracked today.
 2. **Single-letter TDG summary** — SonarCloud rates issues, not a file-level letter grade.
-3. **Quality-trend timeseries** — mutation scores already flow to Loki; TDG/repo-score do not.
+3. **Quality-trend timeseries** — mutation scores already flow to VictoriaMetrics; TDG/repo-score do not.
 4. **MCP-exposed quality reports for Claude Code** — no MCP server currently serves quality data.
 
 Everything else PMAT offers overlaps with an existing gate (lints, audits, secrets, IaC, coverage, mutation, taint, dead-code, smells, hotspots, dup detection).
@@ -56,7 +56,7 @@ New CI workflow `.github/workflows/pmat-trend.yml`, modelled on [`.github/workfl
 2. `pmat repo-score` → 0–289 number plus per-category breakdown.
 3. `pmat query --churn --entropy --duplicates --faults` → hotspot ranks.
 4. Reshape into the existing mutation-workflow line-protocol shape.
-5. Push to Loki (existing observability).
+5. Push numeric series to VictoriaMetrics through the shared CI-trend transport.
 6. Grafana panels: TDG distribution over time, repo-score trend, top-N hotspots by churn × entropy.
 
 Telegram alert on regression — either condition fires (same alert scoping as terraform-drift, commit `678dda3`):
@@ -151,11 +151,12 @@ workflow. Denied file-writers: `scaffold_project`, `generate_template`,
 
 **Integration point 3 — nightly workflow.** `repo-score` reports on a **0–100**
 scale (with a letter grade) in 3.17.0, not 0–289. The previous repo-score and
-below-B+ count are read from Loki (the trend store,
-[ADR-017](ADR-017-ci-gates-consolidation.md)) before the current push, using
-only low-cardinality `{job,env}` labels. The single-file-TDG-slip alert
-(threshold #7) is implemented as the below-B+ **count rising** day-over-day — a
-Loki-storable proxy; exact per-file enforcement is the precommit gate.
+below-B+ count are read from VictoriaMetrics before the current push through
+[`scripts/pmat-vm-query.sh`](../../scripts/pmat-vm-query.sh), following the
+canonical trend-store decision in
+[ADR-038](ADR-038-victoriametrics-ci-trend-store.md). The single-file-TDG-slip
+alert (threshold #7) is implemented as the below-B+ **count rising**
+day-over-day; exact per-file enforcement is the precommit gate.
 
 **Pre-decomposition baseline** (threshold #6), `dev` HEAD `d3f0373`: repo score
 **64.5 / 100 (grade C)** — the low categories (Pre-commit Hooks 0/20, PMAT

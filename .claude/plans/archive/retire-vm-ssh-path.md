@@ -165,21 +165,20 @@ The workflows already pass `LOKI_PUSH_MODE: kubectl` (mutation.yml, pmat-trend.y
 terraform-drift.yml) and already use `oci-kube-setup`. The `ssh-docker` branch is
 the dead default. Remove it.
 
-1. [`scripts/lib/loki-push.sh`](../../../scripts/lib/loki-push.sh): delete the
+1. `scripts/lib/loki-push.sh` (later retired by ADR-038): delete the
    `ssh-docker` `case` arm and the `LOKI_PUSH_MODE` `case` switch entirely. The
    function unconditionally runs the throwaway `curlimages/curl` pod via `kubectl`
    (keep the `LOKI_NAMESPACE` default `monitoring` / `LOKI_SERVICE` default
    `monitoring-loki` knobs — they parameterize the kept path). Update the header
    comment to describe only the kubectl transport.
-2. [`scripts/pmat-loki-query.sh`](../../../scripts/pmat-loki-query.sh): drop the
+2. `scripts/pmat-loki-query.sh` (later retired by ADR-038): drop the
    `case "${LOKI_PUSH_MODE...}"` switch and the `ssh -o StrictHostKeyChecking ...
    deploy-target ... docker run --network opengate-monitoring_monitoring ...`
    default branch; keep only the `kubectl run loki-query-$$ ...` path. Update the
    comment block (remove "production VPS" / "ssh-docker is the pre-cutover
    default").
-3. [`scripts/mutation-loki-push.sh`](../../../scripts/mutation-loki-push.sh),
-   [`scripts/pmat-loki-push.sh`](../../../scripts/pmat-loki-push.sh),
-   [`scripts/terraform-drift-loki-push.sh`](../../../scripts/terraform-drift-loki-push.sh):
+3. `scripts/mutation-loki-push.sh`, `scripts/pmat-loki-push.sh`, and
+   `scripts/terraform-drift-loki-push.sh` (all later retired by ADR-038):
    they `source` the lib, so behavior follows. **Update their header comments** —
    remove "via the production VPS", "SSH tunnel", "monitoring docker network",
    "`LOKI_PUSH_MODE=ssh-docker` keeps the pre-cutover path", and the

@@ -8,10 +8,9 @@ name: Mutation Testing
 #   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
 #   - Workflow exits red (audit trail)
 # All scores are pushed to VictoriaMetrics for the "Mutation Testing Trend"
-# Grafana dashboard. During the VM migration, the Loki push remains in place as
-# a temporary mirror until B5 retires the legacy trend path. The per-run
-# canonical row is also uploaded as a workflow artifact for one-off audit
-# access. The repo no longer stores docs/mutation-history.jsonl — the previous
+# Grafana dashboard. The per-run canonical row is also uploaded as a workflow
+# artifact for one-off audit access. The repo no longer stores
+# docs/mutation-history.jsonl — the previous
 # attempt to commit nightly snapshots to dev was rejected by branch protection
 # because the bot push lacks the required status checks for new commits.
 
@@ -178,9 +177,9 @@ jobs:
             web/reports/mutation/
 
   # -----------------------------------------------------------------------------
-  # Publish: aggregate all three matrix outputs, push to Loki, run regression
-  # check, alert via Telegram, fail red on regression. The canonical row is
-  # also uploaded as a workflow artifact for one-off audits.
+  # Publish: aggregate all three matrix outputs, push to VictoriaMetrics, run
+  # the regression check, alert via Telegram, and fail red on regression. The
+  # canonical row is also uploaded as a workflow artifact for one-off audits.
   # -----------------------------------------------------------------------------
   publish:
     name: Publish results + alert on regression
@@ -305,10 +304,6 @@ jobs:
           oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
-
-      - name: Push to Loki
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        run: ./scripts/mutation-loki-push.sh canonical-row.json
 
       - name: Push to VictoriaMetrics
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

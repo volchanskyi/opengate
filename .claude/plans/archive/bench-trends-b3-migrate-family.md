@@ -22,9 +22,9 @@ changing detection thresholds.
 
 | File | Change |
 |---|---|
-| `scripts/mutation-vm-push.sh` | **New** — replaces [`mutation-loki-push.sh`](../../../scripts/mutation-loki-push.sh); emits `mutation_score` (+ existing labels) as Prometheus text via `lib/vm-push.sh`. |
-| `scripts/pmat-vm-push.sh` | **New** — replaces [`pmat-loki-push.sh`](../../../scripts/pmat-loki-push.sh); `pmat_*` series. |
-| `scripts/terraform-drift-vm-push.sh` | **New** — replaces [`terraform-drift-loki-push.sh`](../../../scripts/terraform-drift-loki-push.sh); `terraform_drift_*` series. |
+| `scripts/mutation-vm-push.sh` | **New** — replaces the later retired `mutation-loki-push.sh`; emits `mutation_score` (+ existing labels) as Prometheus text via `lib/vm-push.sh`. |
+| `scripts/pmat-vm-push.sh` | **New** — replaces the later retired `pmat-loki-push.sh`; `pmat_*` series. |
+| `scripts/terraform-drift-vm-push.sh` | **New** — replaces the later retired `terraform-drift-loki-push.sh`; `terraform_drift_*` series. |
 | [`.github/workflows/mutation.yml`](../../../.github/workflows/mutation.yml), [`pmat-trend.yml`](../../../.github/workflows/pmat-trend.yml), [`terraform-drift.yml`](../../../.github/workflows/terraform-drift.yml) | Replace the Loki-push step with the VM-push step. Leave [`mutation-summarize.sh`](../../../scripts/mutation-summarize.sh) / [`pmat-summarize.sh`](../../../scripts/pmat-summarize.sh) / [`terraform-drift-summarize.sh`](../../../scripts/terraform-drift-summarize.sh) and the regression/Telegram steps **unchanged**. |
 | `deploy/grafana/provisioning/dashboards/*-trend.json` | Rewrite the mutation + pmat trend dashboards LogQL→PromQL; add a terraform-drift PromQL panel. Datasource uid `VictoriaMetrics`. |
 | `scripts/tests/*-vm-push.test.sh` (as needed) | Behavioral tests for each new push wrapper. |
