@@ -126,8 +126,14 @@ chart intentionally does not duplicate dashboard JSON; its
 ConfigMaps from the canonical files.
 
 Current dashboard files include the app overview, DB performance, PostgreSQL,
-mutation trend, and PMAT trend dashboards. Trend workflows write canonical rows
-to Loki through the shared kubectl transport:
+benchmark trend, mutation trend, and PMAT trend dashboards. The benchmark trend
+workflow writes Prometheus samples to VictoriaMetrics:
+
+- [`benchmark.yml`](../.github/workflows/benchmark.yml) →
+  [`scripts/benchmark-vm-push.sh`](../scripts/benchmark-vm-push.sh)
+
+The older trend workflows still write canonical rows to Loki through the shared
+kubectl transport until the B3 migration moves them to VictoriaMetrics:
 
 - [`mutation.yml`](../.github/workflows/mutation.yml) →
   [`scripts/mutation-loki-push.sh`](../scripts/mutation-loki-push.sh)
@@ -175,6 +181,9 @@ Validation sources:
 - [`scripts/tests/vm-transport.test.sh`](../scripts/tests/vm-transport.test.sh)
   verifies the shared kubectl VictoriaMetrics push transport without reaching the
   live cluster.
+- [`scripts/tests/benchmark-summarize.test.sh`](../scripts/tests/benchmark-summarize.test.sh)
+  verifies benchmark parsing, baseline generation, deterministic allocation
+  regression detection, and `ns/op` advisory-only behavior.
 
 ## Ad-hoc Investigation
 

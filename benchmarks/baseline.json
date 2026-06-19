@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "generated_at": "2026-06-19T00:07:24Z",
+  "default_tolerances": {
+    "allocs_op": 0.02,
+    "bytes_op": 0.02,
+    "ns_op": 1.5
+  },
+  "benchmarks": [
+    {
+      "name": "BenchmarkCodec_DecodeControl",
+      "lang": "go",
+      "ns_op": 962.4,
+      "bytes_op": 953,
+      "allocs_op": 15
+    },
+    {
+      "name": "BenchmarkCodec_EncodeControl",
+      "lang": "go",
+      "ns_op": 1783,
+      "bytes_op": 1177,
+      "allocs_op": 45
+    },
+    {
+      "name": "BenchmarkCodec_ReadFrame",
+      "lang": "go",
+      "ns_op": 335.9,
+      "bytes_op": 1080,
+      "allocs_op": 4
+    },
+    {
+      "name": "BenchmarkCodec_WriteFrame",
+      "lang": "go",
+      "ns_op": 20.88,
+      "bytes_op": 5,
+      "allocs_op": 1
+    },
+    {
+      "name": "BenchmarkDecodeServerHello",
+      "lang": "go",
+      "ns_op": 5.047,
+      "bytes_op": 0,
+      "allocs_op": 0
+    },
+    {
+      "name": "BenchmarkEncodeServerHello",
+      "lang": "go",
+      "ns_op": 4.307,
+      "bytes_op": 0,
+      "allocs_op": 0
+    },
+    {
+      "name": "BenchmarkHandshaker_PerformHandshake",
+      "lang": "go",
+      "ns_op": 11812,
+      "bytes_op": 5488,
+      "allocs_op": 65
+    },
+    {
+      "name": "BenchmarkManager_SignAgent",
+      "lang": "go",
+      "ns_op": 113239,
+      "bytes_op": 16837,
+      "allocs_op": 292
+    },
+    {
+      "name": "BenchmarkManager_SignServer",
+      "lang": "go",
+      "ns_op": 107794,
+      "bytes_op": 17188,
+      "allocs_op": 300
+    },
+    {
+      "name": "BenchmarkNewManager_Generate",
+      "lang": "go",
+      "ns_op": 203025,
+      "bytes_op": 27903,
+      "allocs_op": 402
+    },
+    {
+      "name": "BenchmarkNewManager_Load",
+      "lang": "go",
+      "ns_op": 26105,
+      "bytes_op": 7624,
+      "allocs_op": 86
+    },
+    {
+      "name": "BenchmarkQUICHandshake_Cold",
+      "lang": "go",
+      "ns_op": 1522141,
+      "bytes_op": 307892,
+      "allocs_op": 2582
+    },
+    {
+      "name": "BenchmarkQUICHandshake_Resumed",
+      "lang": "go",
+      "ns_op": 1256697,
+      "bytes_op": 306960,
+      "allocs_op": 2375
+    },
+    {
+      "name": "decode_server_hello",
+      "lang": "rust",
+      "ns_op": 7.8963102128064415,
+      "bytes_op": null,
+      "allocs_op": null
+    },
+    {
+      "name": "encode_server_hello",
+      "lang": "rust",
+      "ns_op": 14.347860510477828,
+      "bytes_op": null,
+      "allocs_op": null
+    },
+    {
+      "name": "frame_decode_control",
+      "lang": "rust",
+      "ns_op": 424.9625656850525,
+      "bytes_op": null,
+      "allocs_op": null
+    },
+    {
+      "name": "frame_encode_control",
+      "lang": "rust",
+      "ns_op": 199.9397152224472,
+      "bytes_op": null,
+      "allocs_op": null
+    },
+    {
+      "name": "frame_encode_ping",
+      "lang": "rust",
+      "ns_op": 14.525654306622728,
+      "bytes_op": null,
+      "allocs_op": null
+    }
+  ]
+}
