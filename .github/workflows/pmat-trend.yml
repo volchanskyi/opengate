@@ -7,8 +7,7 @@ name: PMAT Quality Trend
 # Nightly full-repo run. Does NOT block merges or deploys (not in
 # merge-to-main.needs[]). Pushes repo-score + below-B+ count to
 # VictoriaMetrics for the "PMAT Quality Trend" Grafana dashboard
-# (opengate-pmat-trend). During the VM migration, Loki remains a temporary
-# mirror and previous-run source until B5 retires the legacy trend path. On
+# (opengate-pmat-trend). Previous-run values come from VictoriaMetrics. On
 # regression (repo-score drop >=3pt day-over-day OR a file newly below B+):
 #   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
 #   - workflow exits red (audit trail)
@@ -78,7 +77,7 @@ jobs:
           pmat tdg check-quality -p . --min-grade B+ --format json > tdg-check.json 2>/dev/null || true
           echo "repo-score (head):"; head -c 160 repo-score.json; echo
 
-      # -- Loki transport (read previous, then push current) -------------------
+      # -- Trend transport (read previous, then push current) -----------------
       - name: OCI + kubeconfig setup
         id: infra
         uses: ./.github/actions/oci-kube-setup
@@ -90,13 +89,13 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      - name: Read previous values from Loki (day-over-day baseline)
+      - name: Read previous values from VictoriaMetrics (day-over-day baseline)
         id: prev
         run: |
           set -uo pipefail
           {
-            echo "repo_score=$(./scripts/pmat-loki-query.sh repo_score)"
-            echo "below_bplus=$(./scripts/pmat-loki-query.sh below_bplus)"
+            echo "repo_score=$(./scripts/pmat-vm-query.sh repo_score)"
+            echo "below_bplus=$(./scripts/pmat-vm-query.sh below_bplus)"
           } >> "$GITHUB_OUTPUT"
 
       - name: Summarize + regression check
@@ -126,9 +125,6 @@ jobs:
           name: pmat-canonical-row
           path: canonical-row.json
           retention-days: 90
-
-      - name: Push to Loki
-        run: ./scripts/pmat-loki-push.sh canonical-row.json
 
       - name: Push to VictoriaMetrics
         run: ./scripts/pmat-vm-push.sh canonical-row.json

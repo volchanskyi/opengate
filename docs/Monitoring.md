@@ -42,7 +42,6 @@ flowchart LR
   Grafana -- LogQL --> Loki
   Grafana -- alerts --> Telegram[Telegram Bot API]
   Nightly[Benchmark / mutation / PMAT / drift / load-test workflows] -- kubectl VM push --> VM
-  Nightly -. temporary legacy mirror .-> Loki
   External[External uptime SaaS] -- public probes --> Ingress[Public HTTPS / QUIC / MPS]
 ```
 
@@ -58,7 +57,7 @@ flowchart LR
 | Promtail pod-log config | [`promtail-config.yaml`](../deploy/helm/monitoring/files/promtail-config.yaml) |
 | Loki retention/config | [`loki-config.yml`](../deploy/helm/monitoring/files/loki-config.yml) |
 | CI trend VM transport | [`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh) |
-| Temporary legacy Loki transport | [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh) |
+| CI trend-store decision | [ADR-038](./adr/ADR-038-victoriametrics-ci-trend-store.md) |
 
 ## Components
 
@@ -68,7 +67,7 @@ maintained here. Current chart components are:
 | Component | Kubernetes object | Purpose |
 |---|---|---|
 | VictoriaMetrics | StatefulSet + Service + RBAC | Metrics store and Kubernetes service-discovery scraper. |
-| Loki | StatefulSet + Service | Log store for pod logs and temporary legacy trend rows. |
+| Loki | StatefulSet + Service | Log store for pod logs. |
 | Grafana | Deployment + Service | Dashboards, datasource provisioning, and alert UI. |
 | Promtail | DaemonSet + RBAC | Node-level pod-log collection from `/var/log/pods`. |
 | Node Exporter | DaemonSet + Service | Node metrics. |
@@ -98,7 +97,7 @@ VictoriaMetrics, and Loki.
 |---|---|---|
 | Grafana | `make tunnel` → `kubectl port-forward svc/monitoring-grafana` | [`Makefile`](../Makefile) |
 | VictoriaMetrics | ClusterIP Service, queried by Grafana or one-shot kubectl pods | [`values.yaml`](../deploy/helm/monitoring/values.yaml) |
-| Loki | ClusterIP Service, queried by Grafana and temporary legacy workflow push scripts | [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh) |
+| Loki | ClusterIP Service, written by Promtail and queried by Grafana | [`promtail-config.yaml`](../deploy/helm/monitoring/files/promtail-config.yaml) |
 | Public uptime | External SaaS probing the public app endpoints | [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md) |
 
 No monitoring ingress is rendered by the monitoring chart. The public HTTP edge
@@ -143,27 +142,22 @@ VictoriaMetrics:
 - [`load-test.yml`](../.github/workflows/load-test.yml) →
   [`scripts/loadtest-vm-push.sh`](../scripts/loadtest-vm-push.sh)
 
-During the B3→B5 migration window, mutation/PMAT/terraform-drift still keep
-their Loki push scripts as a temporary mirror. PMAT also reads its previous
-day-over-day baseline from Loki until the legacy trend path is retired after VM
-verification.
+VictoriaMetrics is the canonical numeric CI-trend store; Loki is reserved for
+logs per [ADR-038](./adr/ADR-038-victoriametrics-ci-trend-store.md). PMAT reads
+its previous day-over-day baseline through
+[`pmat-vm-query.sh`](../scripts/pmat-vm-query.sh) before publishing the current
+sample.
 
 ### CI Trend Metric Convention
 
 Numeric CI trends use VictoriaMetrics through
-[`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh), which uses the same
-private kubectl-curl-pod transport shape as the Loki helper and posts Prometheus
-text to the in-cluster VictoriaMetrics import endpoint. New and migrated CI trend
-series must use:
-
-- metric names that identify the family and unit, for example `*_ns_op`,
-  `*_allocs_op`, `*_bytes_op`, `mutation_score`, `pmat_*`,
-  `terraform_drift_*`, `loadtest_latency_*`, `loadtest_rps`, and
-  `loadtest_error_rate`;
-- mandatory labels on every sample: `commit="<sha>"`, `env="ci"`, plus
-  pipeline-specific labels such as `lang`, `language`, `benchmark`, `scenario`,
-  `run_id`, `action`, or `type`;
-- no explicit timestamps unless a future backfill path is deliberately added.
+[`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh). That transport is the
+executable source for required labels and payload validation. Family names,
+units, and extra labels live in the adjacent `*-vm-push.sh` wrappers and are
+pinned by [`ci-trend-vm-push.test.sh`](../scripts/tests/ci-trend-vm-push.test.sh),
+[`benchmark-vm-push.test.sh`](../scripts/tests/benchmark-vm-push.test.sh), and
+[`loadtest-vm-push.test.sh`](../scripts/tests/loadtest-vm-push.test.sh). New
+families follow those sources instead of copying a convention into prose.
 
 Telegram credentials are held in the monitoring Secret described by
 [`values.yaml`](../deploy/helm/monitoring/values.yaml) and chart
@@ -182,12 +176,14 @@ Validation sources:
   charts.
 - [`deploy/helm/monitoring/templates/NOTES.txt`](../deploy/helm/monitoring/templates/NOTES.txt)
   lists required out-of-band Secrets and ConfigMaps.
-- [`scripts/tests/loki-transport.test.sh`](../scripts/tests/loki-transport.test.sh)
-  verifies the shared kubectl Loki push transport without reaching the live
-  cluster.
 - [`scripts/tests/vm-transport.test.sh`](../scripts/tests/vm-transport.test.sh)
   verifies the shared kubectl VictoriaMetrics push transport without reaching the
   live cluster.
+- [`scripts/tests/pmat-vm-query.test.sh`](../scripts/tests/pmat-vm-query.test.sh)
+  verifies newest-sample selection and fail-soft PMAT baseline reads.
+- [`scripts/tests/ci-trend-retirement.test.sh`](../scripts/tests/ci-trend-retirement.test.sh)
+  prevents the retired trend transports from returning while pinning Loki's
+  runtime log deployment.
 - [`scripts/tests/benchmark-summarize.test.sh`](../scripts/tests/benchmark-summarize.test.sh)
   verifies benchmark parsing, baseline generation, deterministic allocation
   regression detection, and `ns/op` advisory-only behavior.

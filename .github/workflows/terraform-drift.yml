@@ -217,10 +217,6 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      - name: Loki push
-        if: steps.plan.outputs.exitcode == '2'
-        run: ./scripts/terraform-drift-loki-push.sh drift-summary.json
-
       - name: Push to VictoriaMetrics
         if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
         run: ./scripts/terraform-drift-vm-push.sh drift-summary.json

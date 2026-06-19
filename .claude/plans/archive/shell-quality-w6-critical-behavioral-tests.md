@@ -30,7 +30,7 @@ not lower the bar to hit a checkbox.
 |---|---|---|
 | Critical | [`install.sh`](../../../server/internal/api/install.sh), [`bastion-session.sh`](../../../deploy/scripts/bastion-session.sh), [`deploy.sh`](../../../deploy/scripts/deploy.sh), [`rollback.sh`](../../../deploy/scripts/rollback.sh) | success, malformed input, dependency failure, cleanup, idempotency, secret-redaction |
 | Gate/parser | smoke/wait helpers, summarizers already partially covered | decision-table + malformed fixture |
-| Transport | [`pmat-loki-push.sh`](../../../scripts/pmat-loki-push.sh), [`mutation-loki-push.sh`](../../../scripts/mutation-loki-push.sh), [`terraform-drift-loki-push.sh`](../../../scripts/terraform-drift-loki-push.sh), `pmat-loki-query.sh` | transport selection (ssh vs kubectl vs curl), cleanup, redaction |
+| Transport | The later retired `pmat-loki-push.sh`, `mutation-loki-push.sh`, `terraform-drift-loki-push.sh`, and `pmat-loki-query.sh` | transport selection (ssh vs kubectl vs curl), cleanup, redaction |
 
 ## File inventory
 

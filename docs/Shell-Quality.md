@@ -64,7 +64,8 @@ Critical coverage includes:
 - the [downloadable agent installer](../scripts/tests/install-sh.test.sh);
 - [OCI Bastion session lifecycle](../scripts/tests/bastion-session.test.sh);
 - [deploy and rollback state transitions](../scripts/tests/deploy-rollback.test.sh);
-- [private in-cluster Loki transport](../scripts/tests/loki-transport.test.sh);
+- [private in-cluster VictoriaMetrics transport](../scripts/tests/vm-transport.test.sh)
+  and [legacy trend retirement](../scripts/tests/ci-trend-retirement.test.sh);
 - extracted scripts under [`.github/actions/`](../.github/actions/).
 
 ## Bash or Go

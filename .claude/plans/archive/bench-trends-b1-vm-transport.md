@@ -6,8 +6,8 @@
 ## 1. Goal
 
 One reusable transport that POSTs Prometheus-text metrics to VictoriaMetrics over the
-existing authenticated kubectl-curl-pod channel — the VM sibling of
-[`scripts/lib/loki-push.sh`](../../../scripts/lib/loki-push.sh). Every other CI trend
+existing authenticated kubectl-curl-pod channel — the VM sibling of the later
+retired `scripts/lib/loki-push.sh`. Every other CI trend
 pipeline (B2–B4) calls it; no per-pipeline transport is written again.
 
 ## 2. Scope
@@ -22,7 +22,7 @@ naming/label convention.
 | File | Change |
 |---|---|
 | `scripts/lib/vm-push.sh` | **New.** Sourceable. Function `vm_push <prom_text_file>` (or stdin) → throwaway `kubectl run` curl pod → `POST http://opengate-victoriametrics:8428/api/v1/import/prometheus`. Mirror `loki-push.sh`'s pod lifecycle, error handling, and cleanup; only the URL, HTTP path, and payload format (Prometheus text, not Loki JSON streams) differ. |
-| `scripts/tests/vm-transport.test.sh` | **New.** Mirror [`loki-transport.test.sh`](../../../scripts/tests/loki-transport.test.sh): stub `kubectl`, assert the request targets the VM import endpoint, the payload is well-formed Prometheus text, labels are attached, and a non-2xx response fails loudly. |
+| `scripts/tests/vm-transport.test.sh` | **New.** Mirror the later retired `loki-transport.test.sh`: stub `kubectl`, assert the request targets the VM import endpoint, the payload is well-formed Prometheus text, labels are attached, and a non-2xx response fails loudly. |
 | `docs/Monitoring.md` | Add the **metric convention** (see §4) — but only the convention; B6 owns the broader doc pass. |
 
 ## 4. Metric & label convention (normative — B2–B4 must follow)
