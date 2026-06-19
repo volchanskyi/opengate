@@ -5,9 +5,11 @@ name: PMAT Quality Trend
 # CLI/MCP mapping vs the pinned tool: docs/adr/ADR-028-pmat-3.17-cli-mapping.md
 #
 # Nightly full-repo run. Does NOT block merges or deploys (not in
-# merge-to-main.needs[]). Pushes repo-score + below-B+ count to Loki for the
-# "PMAT Quality Trend" Grafana dashboard (opengate-pmat-trend). On regression
-# (repo-score drop >=3pt day-over-day OR a file newly below B+):
+# merge-to-main.needs[]). Pushes repo-score + below-B+ count to
+# VictoriaMetrics for the "PMAT Quality Trend" Grafana dashboard
+# (opengate-pmat-trend). During the VM migration, Loki remains a temporary
+# mirror and previous-run source until B5 retires the legacy trend path. On
+# regression (repo-score drop >=3pt day-over-day OR a file newly below B+):
 #   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
 #   - workflow exits red (audit trail)
 # The B+ precommit gate (scripts/pmat-precommit.sh) is the per-commit
@@ -127,6 +129,9 @@ jobs:
 
       - name: Push to Loki
         run: ./scripts/pmat-loki-push.sh canonical-row.json
+
+      - name: Push to VictoriaMetrics
+        run: ./scripts/pmat-vm-push.sh canonical-row.json
 
       - name: Write GITHUB_STEP_SUMMARY
         run: |

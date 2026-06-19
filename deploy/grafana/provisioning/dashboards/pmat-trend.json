@@ -20,8 +20,8 @@
   ],
   "panels": [
     {
-      "datasource": { "type": "loki", "uid": "Loki" },
-      "description": "Latest PMAT repository health score (0-100). Source: Loki log lines from the nightly `pmat-trend.yml` workflow. Alert fires on a >=3-point day-over-day drop.",
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Latest PMAT repository health score (0-100). Source: VictoriaMetrics samples from the nightly `pmat-trend.yml` workflow. Alert fires on a >=3-point day-over-day drop.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -53,8 +53,8 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "last_over_time({job=\"pmat-trend\"} | json | unwrap repo_score [30d])",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "last_over_time(pmat_repo_score{env=\"ci\"}[30d])",
           "queryType": "instant",
           "legendFormat": "repo score",
           "refId": "A"
@@ -62,7 +62,7 @@
       ]
     },
     {
-      "datasource": { "type": "loki", "uid": "Loki" },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "description": "Count of code files currently graded below B+. Distinct from the precommit gate, which blocks only CHANGED files below B+. A rising line means quality debt is accumulating on untouched files. Alert fires when this count rises day-over-day.",
       "fieldConfig": {
         "defaults": {
@@ -94,8 +94,8 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "last_over_time({job=\"pmat-trend\"} | json | unwrap below_bplus [30d])",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "last_over_time(pmat_below_bplus{env=\"ci\"}[30d])",
           "queryType": "instant",
           "legendFormat": "files < B+",
           "refId": "A"
@@ -103,7 +103,7 @@
       ]
     },
     {
-      "datasource": { "type": "loki", "uid": "Loki" },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "description": "PMAT repository health score (0-100) over time. The B+ precommit gate, repo-score alert (>=3-pt day-over-day drop) and below-B+ alert are documented in ADR-019.",
       "fieldConfig": {
         "defaults": {
@@ -135,8 +135,8 @@
       "type": "timeseries",
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "last_over_time({job=\"pmat-trend\"} | json | unwrap repo_score [1d])",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "last_over_time(pmat_repo_score{env=\"ci\"}[1d])",
           "queryType": "range",
           "legendFormat": "repo score",
           "refId": "A"
@@ -144,7 +144,7 @@
       ]
     },
     {
-      "datasource": { "type": "loki", "uid": "Loki" },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "description": "Count of code files graded below B+ over time. Rising = quality debt accumulating on untouched files.",
       "fieldConfig": {
         "defaults": {
@@ -162,8 +162,8 @@
       "type": "timeseries",
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "last_over_time({job=\"pmat-trend\"} | json | unwrap below_bplus [1d])",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "last_over_time(pmat_below_bplus{env=\"ci\"}[1d])",
           "queryType": "range",
           "legendFormat": "files < B+",
           "refId": "A"

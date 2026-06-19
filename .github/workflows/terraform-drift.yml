@@ -135,7 +135,7 @@ jobs:
           if [ "$ec" != "0" ] && [ "$ec" != "2" ]; then exit "$ec"; fi
 
       - name: Drift summary JSON
-        if: steps.plan.outputs.exitcode == '2'
+        if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
         run: |
           terraform -chdir=deploy/terraform show -json drift.tfplan > drift.json
           ./scripts/terraform-drift-summarize.sh drift.json > drift-summary.json
@@ -203,10 +203,10 @@ jobs:
           fi
           echo "Telegram alert delivered ✓"
 
-      # Loki push runs against the in-cluster Service via kubectl (the cluster API
+      # Trend pushes run against in-cluster Services via kubectl (the cluster API
       # endpoint is reachable without a JIT NSG rule, so no firewall teardown).
       - name: OCI + kubeconfig setup
-        if: steps.plan.outputs.exitcode == '2'
+        if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
         id: infra
         uses: ./.github/actions/oci-kube-setup
         with:
@@ -220,6 +220,10 @@ jobs:
       - name: Loki push
         if: steps.plan.outputs.exitcode == '2'
         run: ./scripts/terraform-drift-loki-push.sh drift-summary.json
+
+      - name: Push to VictoriaMetrics
+        if: steps.plan.outputs.exitcode == '0' || steps.plan.outputs.exitcode == '2'
+        run: ./scripts/terraform-drift-vm-push.sh drift-summary.json
 
       - name: Fail workflow on drift (audit trail)
         if: steps.plan.outputs.exitcode == '2'

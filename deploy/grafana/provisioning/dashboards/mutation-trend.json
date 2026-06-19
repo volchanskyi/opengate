@@ -12,16 +12,16 @@
       "type": "link"
     },
     {
-      "title": "ADR-017 — Loki is the canonical trend store",
-      "url": "https://github.com/volchanskyi/opengate/blob/main/docs/adr/ADR-017-ci-gates-consolidation.md",
+      "title": "Monitoring docs",
+      "url": "https://github.com/volchanskyi/opengate/blob/main/docs/Monitoring.md",
       "targetBlank": true,
       "type": "link"
     }
   ],
   "panels": [
     {
-      "datasource": { "type": "loki", "uid": "Loki" },
-      "description": "Latest mutation score for each language. Source: Loki log lines from the nightly `mutation.yml` workflow.",
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Latest mutation score for each language. Source: VictoriaMetrics samples from the nightly `mutation.yml` workflow.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -53,8 +53,8 @@
       "type": "stat",
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "last_over_time({job=\"mutation-testing\"} | json | unwrap score_pct [30d])",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "last_over_time(mutation_score{env=\"ci\"}[30d])",
           "queryType": "instant",
           "legendFormat": "{{ language }}",
           "refId": "A"
@@ -62,7 +62,7 @@
       ]
     },
     {
-      "datasource": { "type": "loki", "uid": "Loki" },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "description": "Rolling mutation score per language. Score = (killed + timeout) / (killed + survived + timeout + no_coverage). Per-language thresholds and the regression-alert rules are documented in [docs/Testing.md].",
       "fieldConfig": {
         "defaults": {
@@ -101,8 +101,8 @@
       "type": "timeseries",
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "last_over_time({job=\"mutation-testing\"} | json | unwrap score_pct [1d])",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "last_over_time(mutation_score{env=\"ci\"}[1d])",
           "queryType": "range",
           "legendFormat": "{{ language }}",
           "refId": "A"
@@ -110,7 +110,7 @@
       ]
     },
     {
-      "datasource": { "type": "loki", "uid": "Loki" },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "description": "Survived (LIVED) mutant count per language over time. A rising line means new untested code paths are accumulating.",
       "fieldConfig": {
         "defaults": {
@@ -128,8 +128,8 @@
       "type": "timeseries",
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "last_over_time({job=\"mutation-testing\"} | json | unwrap survived [1d])",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "last_over_time(mutation_survived{env=\"ci\"}[1d])",
           "queryType": "range",
           "legendFormat": "{{ language }}",
           "refId": "A"
@@ -137,7 +137,7 @@
       ]
     },
     {
-      "datasource": { "type": "loki", "uid": "Loki" },
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
       "description": "No-coverage mutant count per language over time. Distinct from survived — these mutants were never even exercised by a test. Rising line = test gaps growing.",
       "fieldConfig": {
         "defaults": {
@@ -155,8 +155,8 @@
       "type": "timeseries",
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "Loki" },
-          "expr": "last_over_time({job=\"mutation-testing\"} | json | unwrap no_coverage [1d])",
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "last_over_time(mutation_no_coverage{env=\"ci\"}[1d])",
           "queryType": "range",
           "legendFormat": "{{ language }}",
           "refId": "A"

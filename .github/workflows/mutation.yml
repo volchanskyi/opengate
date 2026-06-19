@@ -7,13 +7,13 @@ name: Mutation Testing
 # On regression (drop >2pp from previous successful run OR absolute score <85%):
 #   - Telegram alert via the existing DEPLOY_TELEGRAM_BOT_TOKEN / _CHAT_ID
 #   - Workflow exits red (audit trail)
-# All scores are pushed to Loki for the "Mutation Testing Trend" Grafana
-# dashboard, which is the canonical trend store. The per-run canonical row is
-# also uploaded as a workflow artifact for one-off audit access. The repo no
-# longer stores docs/mutation-history.jsonl — the previous attempt to commit
-# nightly snapshots to dev was rejected by branch protection (the bot push
-# lacks the required status checks for new commits), and Loki + Grafana is the
-# correct home for time-series telemetry.
+# All scores are pushed to VictoriaMetrics for the "Mutation Testing Trend"
+# Grafana dashboard. During the VM migration, the Loki push remains in place as
+# a temporary mirror until B5 retires the legacy trend path. The per-run
+# canonical row is also uploaded as a workflow artifact for one-off audit
+# access. The repo no longer stores docs/mutation-history.jsonl — the previous
+# attempt to commit nightly snapshots to dev was rejected by branch protection
+# because the bot push lacks the required status checks for new commits.
 
 on:
   schedule:
@@ -309,6 +309,10 @@ jobs:
       - name: Push to Loki
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: ./scripts/mutation-loki-push.sh canonical-row.json
+
+      - name: Push to VictoriaMetrics
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: ./scripts/mutation-vm-push.sh canonical-row.json
 
       - name: Write GITHUB_STEP_SUMMARY
         run: |

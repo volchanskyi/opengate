@@ -41,7 +41,8 @@ flowchart LR
   Grafana -- PromQL --> VM
   Grafana -- LogQL --> Loki
   Grafana -- alerts --> Telegram[Telegram Bot API]
-  Nightly[Mutation / PMAT / drift workflows] -- kubectl Loki push --> Loki
+  Nightly[Benchmark / mutation / PMAT / drift workflows] -- kubectl VM push --> VM
+  Nightly -. temporary legacy mirror .-> Loki
   External[External uptime SaaS] -- public probes --> Ingress[Public HTTPS / QUIC / MPS]
 ```
 
@@ -56,7 +57,8 @@ flowchart LR
 | VictoriaMetrics scrape config | [`vmagent-scrape.yaml`](../deploy/helm/monitoring/files/vmagent-scrape.yaml) |
 | Promtail pod-log config | [`promtail-config.yaml`](../deploy/helm/monitoring/files/promtail-config.yaml) |
 | Loki retention/config | [`loki-config.yml`](../deploy/helm/monitoring/files/loki-config.yml) |
-| Nightly Loki transport | [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh) |
+| CI trend VM transport | [`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh) |
+| Temporary legacy Loki transport | [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh) |
 
 ## Components
 
@@ -66,7 +68,7 @@ maintained here. Current chart components are:
 | Component | Kubernetes object | Purpose |
 |---|---|---|
 | VictoriaMetrics | StatefulSet + Service + RBAC | Metrics store and Kubernetes service-discovery scraper. |
-| Loki | StatefulSet + Service | Log store for pod logs and workflow trend rows. |
+| Loki | StatefulSet + Service | Log store for pod logs and temporary legacy trend rows. |
 | Grafana | Deployment + Service | Dashboards, datasource provisioning, and alert UI. |
 | Promtail | DaemonSet + RBAC | Node-level pod-log collection from `/var/log/pods`. |
 | Node Exporter | DaemonSet + Service | Node metrics. |
@@ -96,7 +98,7 @@ VictoriaMetrics, and Loki.
 |---|---|---|
 | Grafana | `make tunnel` → `kubectl port-forward svc/monitoring-grafana` | [`Makefile`](../Makefile) |
 | VictoriaMetrics | ClusterIP Service, queried by Grafana or one-shot kubectl pods | [`values.yaml`](../deploy/helm/monitoring/values.yaml) |
-| Loki | ClusterIP Service, queried by Grafana and workflow push scripts | [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh) |
+| Loki | ClusterIP Service, queried by Grafana and temporary legacy workflow push scripts | [`scripts/lib/loki-push.sh`](../scripts/lib/loki-push.sh) |
 | Public uptime | External SaaS probing the public app endpoints | [ADR-035](./adr/ADR-035-oke-free-tier-block-volume-remediation.md) |
 
 No monitoring ingress is rendered by the monitoring chart. The public HTTP edge
@@ -126,25 +128,27 @@ chart intentionally does not duplicate dashboard JSON; its
 ConfigMaps from the canonical files.
 
 Current dashboard files include the app overview, DB performance, PostgreSQL,
-benchmark trend, mutation trend, and PMAT trend dashboards. The benchmark trend
-workflow writes Prometheus samples to VictoriaMetrics:
+benchmark trend, mutation trend, PMAT trend, and terraform-drift trend
+dashboards. Numeric CI trend workflows write Prometheus samples to
+VictoriaMetrics:
 
 - [`benchmark.yml`](../.github/workflows/benchmark.yml) →
   [`scripts/benchmark-vm-push.sh`](../scripts/benchmark-vm-push.sh)
-
-The older trend workflows still write canonical rows to Loki through the shared
-kubectl transport until the B3 migration moves them to VictoriaMetrics:
-
 - [`mutation.yml`](../.github/workflows/mutation.yml) →
-  [`scripts/mutation-loki-push.sh`](../scripts/mutation-loki-push.sh)
+  [`scripts/mutation-vm-push.sh`](../scripts/mutation-vm-push.sh)
 - [`pmat-trend.yml`](../.github/workflows/pmat-trend.yml) →
-  [`scripts/pmat-loki-push.sh`](../scripts/pmat-loki-push.sh)
+  [`scripts/pmat-vm-push.sh`](../scripts/pmat-vm-push.sh)
 - [`terraform-drift.yml`](../.github/workflows/terraform-drift.yml) →
-  [`scripts/terraform-drift-loki-push.sh`](../scripts/terraform-drift-loki-push.sh)
+  [`scripts/terraform-drift-vm-push.sh`](../scripts/terraform-drift-vm-push.sh)
+
+During the B3→B5 migration window, mutation/PMAT/terraform-drift still keep
+their Loki push scripts as a temporary mirror. PMAT also reads its previous
+day-over-day baseline from Loki until the legacy trend path is retired after VM
+verification.
 
 ### CI Trend Metric Convention
 
-Numeric CI trends are moving to VictoriaMetrics through
+Numeric CI trends use VictoriaMetrics through
 [`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh), which uses the same
 private kubectl-curl-pod transport shape as the Loki helper and posts Prometheus
 text to the in-cluster VictoriaMetrics import endpoint. New and migrated CI trend
@@ -155,7 +159,8 @@ series must use:
   `terraform_drift_*`, `loadtest_latency_*`, `loadtest_rps`, and
   `loadtest_error_rate`;
 - mandatory labels on every sample: `commit="<sha>"`, `env="ci"`, plus
-  pipeline-specific labels such as `lang`, `benchmark`, or `scenario`;
+  pipeline-specific labels such as `lang`, `language`, `benchmark`, `scenario`,
+  `run_id`, `action`, or `type`;
 - no explicit timestamps unless a future backfill path is deliberately added.
 
 Telegram credentials are held in the monitoring Secret described by
@@ -184,6 +189,9 @@ Validation sources:
 - [`scripts/tests/benchmark-summarize.test.sh`](../scripts/tests/benchmark-summarize.test.sh)
   verifies benchmark parsing, baseline generation, deterministic allocation
   regression detection, and `ns/op` advisory-only behavior.
+- [`scripts/tests/ci-trend-vm-push.test.sh`](../scripts/tests/ci-trend-vm-push.test.sh)
+  verifies mutation, PMAT, and terraform-drift canonical rows map to Prometheus
+  text before reaching the shared VM transport.
 
 ## Ad-hoc Investigation
 
@@ -196,7 +204,7 @@ kubectl -n monitoring logs deploy/monitoring-grafana
 kubectl -n monitoring port-forward svc/monitoring-grafana 3000:3000
 ```
 
-For Loki trend rows, prefer the repository scripts that already use temporary
-kubectl pods and clean themselves up. For app health, use
+For ad-hoc trend checks, prefer the repository scripts that already use
+temporary kubectl pods and clean themselves up. For app health, use
 [`deploy/scripts/smoke-test.sh`](../deploy/scripts/smoke-test.sh) through a
 Service port-forward, matching [`cd.yml`](../.github/workflows/cd.yml).
