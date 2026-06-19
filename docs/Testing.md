@@ -185,7 +185,10 @@ cd web && lhci autorun
 
 ## Performance Benchmarks
 
-CI tracks performance of hot paths across commits to catch regressions. Results are stored in the `gh-pages` branch via [github-action-benchmark](https://github.com/benchmark-action/github-action-benchmark).
+The standalone [benchmark workflow](../.github/workflows/benchmark.yml) tracks hot-path
+performance trends in VictoriaMetrics. Allocation metrics (`allocs/op`, `B/op`) are the
+deterministic regression gate; wall-clock `ns/op` is advisory because shared GitHub
+runners are noisy.
 
 | Language | What's Benchmarked | Tool |
 |----------|--------------------|------|
@@ -202,9 +205,12 @@ cd server && go test -bench=. -benchmem -run='^$' ./internal/...
 cd agent && cargo bench -p mesh-protocol
 ```
 
-### Regression threshold
+### Regression model
 
-**120%** — the bench workflow fails if any benchmark is more than 20% slower than the stored baseline. Historical charts are viewable on GitHub Pages.
+The committed [`benchmarks/baseline.json`](../benchmarks/baseline.json) is the reviewed
+baseline. Allocation regressions above the baseline tolerance fail the workflow; `ns/op`
+outliers are emitted as advisory lines and graphed on the Grafana **Benchmark Trends**
+dashboard.
 
 ## End-to-End Tests (Playwright)
 
