@@ -1,0 +1,284 @@
+name: Benchmark Trends
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      update-baseline:
+        description: 'Generate benchmarks/baseline.json as a reviewable artifact'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: Run ${{ matrix.lang }} benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lang: go
+          - lang: rust
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/docker-hub-mirror
+        if: matrix.lang == 'go'
+        with:
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Start Postgres with max_connections=400
+        if: matrix.lang == 'go'
+        run: |
+          set -euo pipefail
+          docker run -d --rm --name pg-ci \
+            -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
+            -p 5432:5432 postgres:17-alpine -c max_connections=400
+          for i in {1..30}; do
+            if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
+              echo "postgres ready after ${i} attempt(s)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::postgres never became ready"
+          docker logs pg-ci
+          exit 1
+
+      - uses: actions/setup-go@v6
+        if: matrix.lang == 'go'
+        with:
+          go-version: '1.26'
+          cache-dependency-path: server/go.sum
+
+      - name: Run Go benchmarks
+        if: matrix.lang == 'go'
+        env:
+          POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+        run: |
+          set -euo pipefail
+          cd server
+          go test -bench=. -benchmem -count=1 -run='^$' ./internal/... | tee "$GITHUB_WORKSPACE/bench-go.txt"
+
+      - uses: actions/upload-artifact@v7
+        if: matrix.lang == 'go'
+        with:
+          name: bench-go
+          path: bench-go.txt
+          retention-days: 30
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        if: matrix.lang == 'rust'
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        if: matrix.lang == 'rust'
+        with:
+          workspaces: agent
+
+      - name: Run Rust benchmarks
+        if: matrix.lang == 'rust'
+        run: |
+          set -euo pipefail
+          cd agent
+          cargo bench --package mesh-protocol --bench codec_bench
+          mkdir -p "$GITHUB_WORKSPACE/bench-rust-criterion"
+          cp -R target/criterion/. "$GITHUB_WORKSPACE/bench-rust-criterion/"
+
+      - uses: actions/upload-artifact@v7
+        if: matrix.lang == 'rust'
+        with:
+          name: bench-rust-criterion
+          path: bench-rust-criterion
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish benchmark trend
+    needs: [run]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: observability
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download Go benchmark results
+        uses: actions/download-artifact@v8
+        with:
+          name: bench-go
+          path: artifacts/go
+
+      - name: Download Rust benchmark results
+        uses: actions/download-artifact@v8
+        with:
+          name: bench-rust-criterion
+          path: artifacts/rust
+
+      - name: Summarize and check regression
+        id: summarize
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          UPDATE_BASELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.update-baseline == true }}
+        run: |
+          set -euo pipefail
+          GO_BENCH_FILE="artifacts/go/bench-go.txt"
+          CRITERION_ROOT="artifacts/rust"
+
+          if [ "$UPDATE_BASELINE" = "true" ]; then
+            GO_BENCH_FILE="$GO_BENCH_FILE" CRITERION_ROOT="$CRITERION_ROOT" \
+              ./scripts/benchmark-summarize.sh --update-baseline > benchmarks/baseline.json
+            GO_BENCH_FILE="$GO_BENCH_FILE" CRITERION_ROOT="$CRITERION_ROOT" BASELINE_FILE="benchmarks/baseline.json" \
+              ./scripts/benchmark-summarize.sh > benchmark-summary.out
+            echo "updated_baseline=1" >> "$GITHUB_OUTPUT"
+          else
+            set +e
+            GO_BENCH_FILE="$GO_BENCH_FILE" CRITERION_ROOT="$CRITERION_ROOT" \
+              ./scripts/benchmark-summarize.sh > benchmark-summary.out 2>&1
+            SUMMARY_STATUS=$?
+            set -e
+
+            case "$SUMMARY_STATUS" in
+              0) REGRESSION=0 ;;
+              1) REGRESSION=1 ;;
+              2)
+                echo "regression=0" >> "$GITHUB_OUTPUT"
+                echo "::error::Benchmark summary input missing or invalid; at least one language artifact is absent or malformed."
+                cat benchmark-summary.out
+                exit 2
+                ;;
+              *)
+                echo "regression=0" >> "$GITHUB_OUTPUT"
+                echo "::error::benchmark-summarize.sh failed with unexpected exit ${SUMMARY_STATUS}"
+                cat benchmark-summary.out
+                exit "$SUMMARY_STATUS"
+                ;;
+            esac
+            echo "updated_baseline=0" >> "$GITHUB_OUTPUT"
+          fi
+
+          cat benchmark-summary.out
+          ROWS="$(grep -E '^\[' benchmark-summary.out | tail -n 1 || true)"
+          if [ -z "$ROWS" ]; then
+            echo "::error::benchmark-summarize.sh produced no canonical JSON row array"
+            exit 2
+          fi
+          printf '%s\n' "$ROWS" > benchmark-rows.json
+
+          if [ "${REGRESSION:-0}" = "1" ]; then
+            echo "regression=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "regression=0" >> "$GITHUB_OUTPUT"
+          fi
+
+          ALERT_TEXT="$(grep '^REGRESSION_ALERT:' benchmark-summary.out | sed 's/^REGRESSION_ALERT://' || true)"
+          {
+            echo "alert_text<<EOF"
+            echo "$ALERT_TEXT"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upload canonical rows as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-canonical-rows
+          path: benchmark-rows.json
+          retention-days: 90
+
+      - name: Upload baseline candidate
+        if: steps.summarize.outputs.updated_baseline == '1'
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-baseline-candidate
+          path: benchmarks/baseline.json
+          retention-days: 90
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      - name: Push to VictoriaMetrics
+        run: ./scripts/benchmark-vm-push.sh benchmark-rows.json
+
+      - name: Write GITHUB_STEP_SUMMARY
+        run: |
+          set -euo pipefail
+          {
+            echo "# Benchmark trend run"
+            echo ""
+            echo "Commit: \`${{ github.sha }}\`"
+            echo "Regression: \`${{ steps.summarize.outputs.regression }}\`"
+            echo "Baseline update mode: \`${{ steps.summarize.outputs.updated_baseline }}\`"
+            echo ""
+            echo "## Canonical rows"
+            echo '```json'
+            python3 -m json.tool < benchmark-rows.json || cat benchmark-rows.json
+            echo '```'
+            if [ -f benchmarks/baseline.json ] && [ "${{ steps.summarize.outputs.updated_baseline }}" = "1" ]; then
+              echo ""
+              echo "## Baseline candidate"
+              echo '```json'
+              python3 -m json.tool < benchmarks/baseline.json || cat benchmarks/baseline.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Telegram alert on regression
+        if: steps.summarize.outputs.regression == '1'
+        env:
+          BOT: ${{ secrets.DEPLOY_TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.DEPLOY_TELEGRAM_CHAT_ID }}
+          ALERT_TEXT: ${{ steps.summarize.outputs.alert_text }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -uo pipefail
+          if [ -z "${BOT:-}" ] || [ -z "${CHAT:-}" ]; then
+            echo "::warning::Telegram secrets not set; skipping alert (regression still reported via workflow exit)."
+            exit 0
+          fi
+
+          getme_http=$(curl -sS --max-time 10 \
+            -o /tmp/telegram-getme.json \
+            -w '%{http_code}' \
+            "https://api.telegram.org/bot${BOT}/getMe" 2>/dev/null || echo "curl_error")
+          if [ "$getme_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-getme.json >/dev/null 2>&1; then
+            echo "::error::Telegram getMe returned HTTP ${getme_http} — DEPLOY_TELEGRAM_BOT_TOKEN appears invalid or revoked."
+            cat /tmp/telegram-getme.json 2>/dev/null || echo "(no body)"
+            exit 0
+          fi
+
+          MSG="$(printf '%s\n\nRun: %s\nTrend: Grafana dashboard \"Benchmark Trends\" (opengate-benchmark-trend)' \
+            "$ALERT_TEXT" "$RUN_URL")"
+          send_http=$(curl -sS --max-time 30 \
+            -o /tmp/telegram-send.json \
+            -w '%{http_code}' \
+            -X POST "https://api.telegram.org/bot${BOT}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT}" \
+            --data-urlencode "text=${MSG}" \
+            --data-urlencode "disable_web_page_preview=true" 2>/dev/null || echo "curl_error")
+          if [ "$send_http" != "200" ] || ! jq -e '.ok == true' /tmp/telegram-send.json >/dev/null 2>&1; then
+            echo "::error::Telegram sendMessage returned HTTP ${send_http}."
+            cat /tmp/telegram-send.json 2>/dev/null || echo "(no body)"
+            exit 0
+          fi
+          echo "Telegram alert delivered ✓"
+
+      - name: Fail workflow red on regression
+        if: always() && steps.summarize.outputs.regression == '1'
+        run: |
+          echo "Benchmark allocation regression detected — see workflow summary and Telegram alert (if delivered) above."
+          exit 1
