@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781827036450,
+  "lastUpdate": 1781828613777,
   "repoUrl": "https://github.com/volchanskyi/opengate",
   "entries": {
     "Benchmark": [
@@ -18301,6 +18301,55 @@ window.BENCHMARK_DATA = {
           {
             "name": "frame_encode_ping",
             "value": 27.843088031723973,
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "committer": {
+            "email": "ivan.volchanskyi@gmail.com",
+            "name": "Ivan Volchanskyi",
+            "username": "volchanskyi"
+          },
+          "distinct": true,
+          "id": "cc538182311511ff43faf60da8dff8519240b3c7",
+          "message": "feat(ci): add benchmark trend pipeline",
+          "timestamp": "2026-06-18T17:21:33-07:00",
+          "tree_id": "b824c31227447d54645beece554cca264097301b",
+          "url": "https://github.com/volchanskyi/opengate/commit/cc538182311511ff43faf60da8dff8519240b3c7"
+        },
+        "date": 1781828613645,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "decode_server_hello",
+            "value": 16.13559594840866,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "encode_server_hello",
+            "value": 23.409579151908165,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_decode_control",
+            "value": 754.8359082748257,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_control",
+            "value": 314.6310604529441,
+            "unit": "ns/iter"
+          },
+          {
+            "name": "frame_encode_ping",
+            "value": 24.098996202632602,
             "unit": "ns/iter"
           }
         ]
