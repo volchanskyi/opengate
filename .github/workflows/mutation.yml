@@ -41,19 +41,26 @@ jobs:
   # failing does not cancel the others — we want partial visibility.
   # -----------------------------------------------------------------------------
   mutation:
-    name: Mutation (${{ matrix.language }})
+    name: Mutation (${{ matrix.shard || matrix.language }})
     strategy:
       fail-fast: false
+      # The Go leg is sharded by package so it scales horizontally instead of
+      # crossing a hand-tuned cap as the server grows: the monolithic run grew
+      # past the prior 100min ceiling (cancelled 2026-06-18/19) while the mutant
+      # count stayed flat. The split is balanced by measured per-package cost and
+      # each shard keeps a DB-backed package so its coverage-derived timeout
+      # budget stays generous. The lists must match scripts/lib/mutation-shards.sh
+      # (asserted by scripts/tests/mutation-workflow.test.sh).
       matrix:
-        language: [rust, go, web]
+        include:
+          - { language: rust }
+          - { language: web }
+          - { language: go, shard: go-1 }
+          - { language: go, shard: go-2 }
     runs-on: ubuntu-latest
-    # Rust historically dominates (~349 mutants × ~13s each on 2 cores).
-    # 100min leaves headroom over both the prior 35min ceiling that timed out
-    # on the 2026-05-14 run and the later 90min ceiling hit by the Go leg on
-    # 2026-06-18 after client-first reconnect/resumption coverage expanded.
-    # Keep this intentionally below two hours while clearing the recent ~85min
-    # successful Go gremlins baseline plus slow-runner slack.
-    timeout-minutes: 100
+    # Each shard is roughly half the old monolithic Go run; 60min leaves ample
+    # headroom (rust ~46min, web ~25min, each Go shard ~45min worst case).
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/docker-hub-mirror
@@ -118,13 +125,20 @@ jobs:
       - name: Install gremlins
         if: matrix.language == 'go'
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@${{ env.GREMLINS_VERSION }}
-      - name: Run gremlins
+      - name: Run gremlins (shard ${{ matrix.shard }})
         if: matrix.language == 'go'
         env:
           POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+        # gremlins takes one path arg, so each shard runs the whole module
+        # (module-wide coverage → no cross-shard coverage loss) and restricts
+        # mutation to its packages via --exclude-files. The split lives in
+        # scripts/lib/mutation-shards.sh.
         run: |
+          . scripts/lib/mutation-shards.sh
+          excl="$(mutation_go_shard_exclude_regex '${{ matrix.shard }}')"
+          echo "shard ${{ matrix.shard }} exclude: $excl"
           cd server
-          gremlins unleash --output mutation-report.json . || EXIT=$?
+          gremlins unleash . -E "$excl" --output "mutation-report-${{ matrix.shard }}.json" || EXIT=$?
           echo "gremlins exit: ${EXIT:-0}"
 
       # -- Web ---------------------------------------------------------------
@@ -164,16 +178,16 @@ jobs:
           ./node_modules/.bin/stryker run
 
       # -- Upload artifacts (HTML reports + JSON outputs, 90d retention) ----
-      - name: Upload mutation artifacts (${{ matrix.language }})
+      - name: Upload mutation artifacts (${{ matrix.shard || matrix.language }})
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: mutation-${{ matrix.language }}
+          name: mutation-${{ matrix.shard || matrix.language }}
           retention-days: 90
           if-no-files-found: warn
           path: |
             agent/mutants.out/
-            server/mutation-report.json
+            server/mutation-report-${{ matrix.shard }}.json
             web/reports/mutation/
 
   # -----------------------------------------------------------------------------
@@ -216,15 +230,18 @@ jobs:
       - name: Place artifacts at canonical input paths
         run: |
           set -euo pipefail
-          # The artifact directory layout is artifacts/mutation-<lang>/...
-          # Move each into the path the summarize script expects.
+          # The artifact directory layout is artifacts/mutation-<lang|shard>/...
+          # Move each into the path the summarize script expects. The Go leg is
+          # sharded (mutation-go-1, mutation-go-2, ...); merge the shard reports
+          # into the single canonical report parse_go consumes.
           if [ -d "artifacts/mutation-rust/agent/mutants.out" ]; then
             mkdir -p agent
             mv artifacts/mutation-rust/agent/mutants.out agent/mutants.out
           fi
-          if [ -f "artifacts/mutation-go/server/mutation-report.json" ]; then
+          if ls artifacts/mutation-go-*/server/mutation-report-*.json >/dev/null 2>&1; then
             mkdir -p server
-            mv artifacts/mutation-go/server/mutation-report.json server/mutation-report.json
+            ./scripts/mutation-merge-go.sh server/mutation-report.json \
+              artifacts/mutation-go-*/server/mutation-report-*.json
           fi
           if [ -d "artifacts/mutation-web/web/reports" ]; then
             mkdir -p web/reports
