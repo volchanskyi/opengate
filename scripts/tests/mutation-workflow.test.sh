@@ -49,10 +49,10 @@ fi
 
 # --- Static workflow contract -------------------------------------------------
 
-if grep -qE '^[[:space:]]*timeout-minutes:[[:space:]]*60([[:space:]]|$)' "$WORKFLOW"; then
-  pass "mutation matrix timeout is 60 minutes (sharded; was 100 monolithic)"
+if grep -qE '^[[:space:]]*timeout-minutes:[[:space:]]*75([[:space:]]|$)' "$WORKFLOW"; then
+  pass "mutation matrix timeout is 75 minutes (sharded; headroom for the api hotspot)"
 else
-  fail "mutation matrix timeout must be 60 minutes"
+  fail "mutation matrix timeout must be 75 minutes"
 fi
 
 if grep -q 'SUMMARY_STATUS=' "$WORKFLOW" \
@@ -186,6 +186,17 @@ if [ -x "$MERGE" ]; then
     pass "mutation-merge-go.sh sums shard report counts element-wise"
   else
     fail "mutation-merge-go.sh must sum shard report counts"
+  fi
+  # A missing shard report (a cancelled/failed shard) must FAIL the merge and
+  # write no output, so publish reports an incomplete run rather than a silent
+  # partial score from the surviving shards.
+  rm -f "$tmp/out.json"
+  if "$MERGE" "$tmp/out.json" "$tmp/r1.json" "$tmp/MISSING.json" >/dev/null 2>&1; then
+    fail "mutation-merge-go.sh must fail when a shard report is missing"
+  elif [ -f "$tmp/out.json" ]; then
+    fail "mutation-merge-go.sh must not write a partial report when a shard is missing"
+  else
+    pass "mutation-merge-go.sh fails (no output) on a missing shard report"
   fi
   rm -rf "$tmp"
 else

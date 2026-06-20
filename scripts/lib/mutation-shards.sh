@@ -7,14 +7,21 @@
 # shard runs the WHOLE module (`gremlins unleash .`) — preserving module-wide
 # coverage, hence no cross-shard coverage loss — and restricts *mutation* to its
 # packages with `--exclude-files` (the other shards' packages + the global
-# carve-outs). The split is balanced by measured per-package cost (api ~= 40% of
-# the run) and each shard keeps a DB-backed package so its coverage-derived
-# timeout budget stays generous (avoids the load-induced false-timeout collapse
-# without widening timeout-coefficient).
+# carve-outs). Because coverage (and therefore gremlins' per-mutant timeout
+# budget) is computed over the whole module in every shard, the split is free to
+# balance purely by runtime.
 #
-# Consumed by the Makefile (make mutate-go), the workflow Go step, and
-# scripts/tests/mutation-workflow.test.sh (partition + drift guards). Source this
-# file, then call the functions below.
+# Balancing is by *CI* cost, which is dominated by Postgres-backed packages:
+# each DB mutant re-pays per-schema migration setup (~20-40s on the 4-vCPU
+# runner), so DB-package time >> pure-package time regardless of mutant count.
+# `api` alone is the single largest cost (~45min CI) and is one package that
+# cannot be split, so it gets its own shard; the other DB packages are spread so
+# no shard clusters them; pure/crypto packages (incl. the high-count but cheap
+# `amt`) share the third shard. Add a shard if a DB package pushes one over cap.
+#
+# Consumed by the Makefile (make mutate-go), the workflow Go step + publish merge,
+# and scripts/tests/mutation-workflow.test.sh (partition + drift guards). Source
+# this file, then call the functions below.
 
 # Packages under server/internal that are NOT mutated (mirror the whole-package
 # carve-outs in server/.gremlins.yaml; testutil is shared test scaffolding).
@@ -32,7 +39,7 @@ mutation_go_global_excludes() {
 
 # Shard ids, in run order.
 mutation_go_shards() {
-  echo "go-1 go-2"
+  echo "go-1 go-2 go-3"
 }
 
 # Space-separated internal package names for a shard id (no path prefix).
@@ -40,8 +47,12 @@ mutation_go_shards() {
 # fails until it is assigned to exactly one shard.
 mutation_go_shard_pkgs() {
   case "$1" in
-    go-1) echo "api amt protocol relay metrics signaling osutil testpg usecase clientapi" ;;
-    go-2) echo "agentapi notifications updater cert device auth db session audit" ;;
+    # api is the irreducible hotspot (~45min CI) — isolated.
+    go-1) echo "api" ;;
+    # Remaining Postgres-backed packages, spread so they do not cluster.
+    go-2) echo "agentapi auth db device session audit usecase" ;;
+    # Pure + crypto (no Postgres) incl. the high-count but cheap amt.
+    go-3) echo "amt protocol relay metrics signaling osutil testpg clientapi cert notifications updater" ;;
     *)
       echo "unknown mutation shard: $1" >&2
       return 1

@@ -47,20 +47,24 @@ jobs:
       # The Go leg is sharded by package so it scales horizontally instead of
       # crossing a hand-tuned cap as the server grows: the monolithic run grew
       # past the prior 100min ceiling (cancelled 2026-06-18/19) while the mutant
-      # count stayed flat. The split is balanced by measured per-package cost and
-      # each shard keeps a DB-backed package so its coverage-derived timeout
-      # budget stays generous. The lists must match scripts/lib/mutation-shards.sh
-      # (asserted by scripts/tests/mutation-workflow.test.sh).
+      # count stayed flat. Each shard runs the whole module (module-wide coverage)
+      # and restricts mutation via --exclude-files; the split (in
+      # scripts/lib/mutation-shards.sh, asserted by the workflow tests) is
+      # balanced by CI runtime, which is dominated by the Postgres-backed
+      # packages that re-pay schema setup per mutant.
       matrix:
         include:
           - { language: rust }
           - { language: web }
           - { language: go, shard: go-1 }
           - { language: go, shard: go-2 }
+          - { language: go, shard: go-3 }
     runs-on: ubuntu-latest
-    # Each shard is roughly half the old monolithic Go run; 60min leaves ample
-    # headroom (rust ~46min, web ~25min, each Go shard ~45min worst case).
-    timeout-minutes: 60
+    # `api` is the irreducible hotspot (~45min CI, one unsplittable package) on
+    # its own shard; 75min leaves headroom for it and for runner variance (rust
+    # ~52min, web ~25min). The real lever to lower the floor is cutting the
+    # per-mutant Postgres setup cost (separate follow-up).
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/docker-hub-mirror
@@ -238,10 +242,20 @@ jobs:
             mkdir -p agent
             mv artifacts/mutation-rust/agent/mutants.out agent/mutants.out
           fi
-          if ls artifacts/mutation-go-*/server/mutation-report-*.json >/dev/null 2>&1; then
-            mkdir -p server
-            ./scripts/mutation-merge-go.sh server/mutation-report.json \
-              artifacts/mutation-go-*/server/mutation-report-*.json
+          # Merge EVERY expected shard report (not a glob of whatever is
+          # present): if a shard was cancelled/failed its report is absent, the
+          # merge fails, and we leave the canonical Go report ABSENT so the
+          # summarize step classifies the run as incomplete (exit 2) rather than
+          # silently publishing a partial score from the surviving shards.
+          . scripts/lib/mutation-shards.sh
+          expected=()
+          for shard in $(mutation_go_shards); do
+            expected+=("artifacts/mutation-$shard/server/mutation-report-$shard.json")
+          done
+          mkdir -p server
+          if ! ./scripts/mutation-merge-go.sh server/mutation-report.json "${expected[@]}"; then
+            echo "::warning::A Go mutation shard report is missing (a shard was cancelled or failed); leaving the canonical Go report absent so this is reported as an incomplete run, not a partial score."
+            rm -f server/mutation-report.json
           fi
           if [ -d "artifacts/mutation-web/web/reports" ]; then
             mkdir -p web/reports
