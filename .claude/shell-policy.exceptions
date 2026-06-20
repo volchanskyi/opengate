@@ -4,6 +4,7 @@ library	.claude/hooks/lib/common.sh	-	Shared hook functions; callers opt into fa
 library	deploy/scripts/common.sh	-	Deployment functions inherit the caller's execution policy.
 library	scripts/lib/vm-push.sh	-	Transport functions are sourced by multiple standalone push scripts.
 library	scripts/lib/postgres-prereq.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
+library	scripts/lib/mutation-shards.sh	-	Go mutation shard split sourced by the Makefile and the mutation-workflow test.
 aggregate	.claude/hooks/git-post-commit.sh	-	Best-effort post-commit automation must report failures without failing the commit.
 aggregate	.claude/hooks/pretooluse-gauntlet-nudge.sh	-	Background status nudge treats operational failures as a no-op.
 aggregate	.claude/hooks/sessionstart-install-git-hooks.sh	-	Session bootstrap is best-effort and must not block startup.

@@ -337,7 +337,19 @@ mutate-go:
 	  echo "         Start a test Postgres (see .github/workflows/ci.yml) and set:"; \
 	  echo "         export POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\""; \
 	fi
-	cd server && gremlins unleash .
+	@# Run the same package shards as CI (scripts/lib/mutation-shards.sh): each
+	@# shard mutates the whole module restricted to its packages via -E, then
+	@# merge into one report — mirrors .github/workflows/mutation.yml.
+	. scripts/lib/mutation-shards.sh; \
+	reports=""; \
+	for shard in $$(mutation_go_shards); do \
+	  excl="$$(mutation_go_shard_exclude_regex $$shard)"; \
+	  echo ">> mutating shard $$shard (exclude: $$excl)"; \
+	  ( cd server && gremlins unleash . -E "$$excl" --output "mutation-report-$$shard.json" ) || true; \
+	  reports="$$reports server/mutation-report-$$shard.json"; \
+	done; \
+	./scripts/mutation-merge-go.sh server/mutation-report.json $$reports; \
+	echo ">> merged Go mutation report: server/mutation-report.json"
 
 mutate-web:
 	cd web && npx stryker run

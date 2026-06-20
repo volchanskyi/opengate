@@ -150,9 +150,13 @@ parse_web() {
 # build_row → canonical JSON object for the current run
 build_row() {
   local rust go web
-  rust="$(parse_rust "$RUST_OUTCOMES")"
-  go="$(parse_go "$GO_REPORT")"
-  web="$(parse_web "$WEB_REPORT")"
+  # `|| return 2` is required: build_row runs in a `row="$(build_row)" || exit 2`
+  # context where set -e is suspended, so a parse failure here would otherwise
+  # fall through to the aggregating jq and print a misleading "invalid JSON"
+  # after the correct "missing: <file>" error.
+  rust="$(parse_rust "$RUST_OUTCOMES")" || return 2
+  go="$(parse_go "$GO_REPORT")" || return 2
+  web="$(parse_web "$WEB_REPORT")" || return 2
 
   jq -nc \
     --arg ts "$TIMESTAMP" \
