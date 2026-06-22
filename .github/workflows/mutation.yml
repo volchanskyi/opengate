@@ -56,9 +56,9 @@ jobs:
         include:
           - { language: rust }
           - { language: web }
-          - { language: go, shard: go-1 }
-          - { language: go, shard: go-2 }
-          - { language: go, shard: go-3 }
+          - { language: go, shard: go-api }
+          - { language: go, shard: go-db }
+          - { language: go, shard: go-pure }
     runs-on: ubuntu-latest
     # `api` is the irreducible hotspot (~45min CI, one unsplittable package) on
     # its own shard; 75min leaves headroom for it and for runner variance (rust
@@ -133,6 +133,13 @@ jobs:
         if: matrix.language == 'go'
         env:
           POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
+          # gremlins derives each mutant's timeout from the coverage dry-run
+          # elapsed × timeout-coefficient. setup-go restores the Go test cache,
+          # so without -count=1 the dry-run hits the cache (~0.5s) and the budget
+          # collapses to a few seconds — Postgres-backed mutants then re-pay ~20s
+          # schema setup and false-time-out en masse, sinking the score. -count=1
+          # forces the dry-run to actually run the tests, giving a stable budget.
+          GOFLAGS: "-count=1"
         # gremlins takes one path arg, so each shard runs the whole module
         # (module-wide coverage → no cross-shard coverage loss) and restricts
         # mutation to its packages via --exclude-files. The split lives in

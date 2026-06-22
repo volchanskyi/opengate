@@ -118,7 +118,7 @@ if [ -f "$SHARDS_LIB" ]; then
 
   # Workflow matrix go shard ids must match the shard map (no drift).
   want_ids="$(mutation_go_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
-  have_ids="$(grep -oE 'shard:[[:space:]]*go-[0-9]+' "$WORKFLOW" \
+  have_ids="$(grep -oE 'shard:[[:space:]]*go-[a-z0-9]+' "$WORKFLOW" \
     | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
   if [ "$want_ids" = "$have_ids" ]; then
     pass "workflow matrix go shard ids match the shard map"
