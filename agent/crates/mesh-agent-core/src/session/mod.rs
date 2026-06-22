@@ -24,6 +24,7 @@ use crate::platform::{InputInjector, ScreenCapture};
 use crate::session_error::SessionError;
 use crate::terminal::TerminalSession;
 use crate::webrtc::{AgentPeerConnection, IceServerConfig};
+use handlers::{RealWebRtcDispatch, WebRtcDispatch};
 use relay::{build_relay_url, capture_loop, ws_writer_loop};
 
 /// Manages one relay session between the agent and a browser.
@@ -31,6 +32,10 @@ pub struct SessionHandler {
     token: SessionToken,
     pub(crate) permissions: Permissions,
     pub(crate) ice_servers: Vec<IceServerConfig>,
+    /// Dispatch seam for the two WebRTC control arms. Defaults to
+    /// [`RealWebRtcDispatch`]; tests inject a recording dispatch to observe
+    /// the offer/candidate routing without a live media stack.
+    pub(crate) webrtc: Arc<dyn WebRtcDispatch>,
 }
 
 impl SessionHandler {
@@ -40,7 +45,16 @@ impl SessionHandler {
             token,
             permissions,
             ice_servers: Vec::new(),
+            webrtc: Arc::new(RealWebRtcDispatch),
         }
+    }
+
+    /// Override the WebRTC dispatch seam (tests only) so the offer/candidate
+    /// routing in `handle_control` can be observed without a live peer.
+    #[cfg(test)]
+    pub(crate) fn with_webrtc_dispatch(mut self, dispatch: Arc<dyn WebRtcDispatch>) -> Self {
+        self.webrtc = dispatch;
+        self
     }
 
     /// Set ICE servers for WebRTC upgrade capability.

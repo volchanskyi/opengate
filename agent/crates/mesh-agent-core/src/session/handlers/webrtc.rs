@@ -23,6 +23,65 @@ pub struct WebRTCHandler;
 
 impl ControlMessageHandler for WebRTCHandler {}
 
+/// Dispatch seam for the two WebRTC control arms (`SwitchToWebRTC` and
+/// `IceCandidate`) in [`SessionHandler::handle_control`].
+///
+/// The production path ([`RealWebRtcDispatch`]) only takes effect against a
+/// live STUN/ICE/media stack, so deleting either match arm has no observable
+/// effect in a unit test — the arm-deletion mutants survive. Routing the arms
+/// through this trait lets a test inject a recording dispatch that observes
+/// *that* and *with what arguments* each arm fires, killing those mutants
+/// without standing up a real WebRTC peer.
+#[async_trait::async_trait]
+pub trait WebRtcDispatch: Send + Sync {
+    /// Dispatch a `SwitchToWebRTC` offer.
+    async fn offer(
+        &self,
+        ice_servers: Vec<IceServerConfig>,
+        sdp_offer: String,
+        frame_tx: &mpsc::Sender<Vec<u8>>,
+        webrtc_pc: &Arc<Mutex<Option<Arc<AgentPeerConnection>>>>,
+    );
+
+    /// Dispatch an incremental `IceCandidate`.
+    async fn candidate(
+        &self,
+        webrtc_pc: &Arc<Mutex<Option<Arc<AgentPeerConnection>>>>,
+        candidate: &str,
+        mid: &str,
+    );
+}
+
+/// Production [`WebRtcDispatch`] — delegates directly to [`WebRTCHandler`].
+///
+/// Defined here (alongside the live-stack handler that is already excluded
+/// from mutation tracking) rather than in the multiplexer module, so its
+/// untestable network-stack delegation does not introduce fresh surviving
+/// mutants in an otherwise-mutated file.
+pub struct RealWebRtcDispatch;
+
+#[async_trait::async_trait]
+impl WebRtcDispatch for RealWebRtcDispatch {
+    async fn offer(
+        &self,
+        ice_servers: Vec<IceServerConfig>,
+        sdp_offer: String,
+        frame_tx: &mpsc::Sender<Vec<u8>>,
+        webrtc_pc: &Arc<Mutex<Option<Arc<AgentPeerConnection>>>>,
+    ) {
+        WebRTCHandler::handle_offer(ice_servers, sdp_offer, frame_tx, webrtc_pc).await;
+    }
+
+    async fn candidate(
+        &self,
+        webrtc_pc: &Arc<Mutex<Option<Arc<AgentPeerConnection>>>>,
+        candidate: &str,
+        mid: &str,
+    ) {
+        WebRTCHandler::handle_candidate(webrtc_pc, candidate, mid).await;
+    }
+}
+
 impl WebRTCHandler {
     /// Process a `SwitchToWebRTC` control message. Creates a peer
     /// connection against the provided ICE server config, applies the

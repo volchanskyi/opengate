@@ -8,7 +8,6 @@ use tracing::{debug, info, warn};
 
 use super::handlers::{
     FileHandler, KeyboardHandler, MouseHandler, SwitchHandler, TerminalControlHandler,
-    WebRTCHandler,
 };
 use super::relay::send_frame;
 use super::terminal_handle::TerminalHandle;
@@ -117,16 +116,12 @@ impl SessionHandler {
             }
             ControlMessage::SwitchToWebRTC { sdp_offer } => {
                 info!("WebRTC switch requested");
-                WebRTCHandler::handle_offer(
-                    self.ice_servers.clone(),
-                    sdp_offer,
-                    frame_tx,
-                    webrtc_pc,
-                )
-                .await;
+                self.webrtc
+                    .offer(self.ice_servers.clone(), sdp_offer, frame_tx, webrtc_pc)
+                    .await;
             }
             ControlMessage::IceCandidate { candidate, mid } => {
-                WebRTCHandler::handle_candidate(webrtc_pc, &candidate, &mid).await;
+                self.webrtc.candidate(webrtc_pc, &candidate, &mid).await;
             }
             ControlMessage::SwitchAck => {
                 info!("WebRTC switch ack received");
@@ -144,6 +139,7 @@ mod tests {
     use super::*;
     use crate::file_ops::FileOpsHandler;
     use crate::platform::{InputError, InputInjector, NullInput};
+    use crate::session::handlers::WebRtcDispatch;
     use crate::session_error::SessionError;
     use mesh_protocol::{
         ControlMessage, DesktopFrame, Frame, FrameEncoding, KeyEvent, MouseButton, Permissions,
@@ -814,6 +810,109 @@ mod tests {
         let data = frame_rx.try_recv().expect("expected SwitchAck echo frame");
         let frame = decode_frame(&data);
         assert!(matches!(frame, Frame::Control(ControlMessage::SwitchAck)));
+    }
+
+    /// Recording WebRTC dispatch: captures the offer/candidate calls so the
+    /// two dispatch arms in `handle_control` are observable without a live
+    /// media stack. Routing the arms through this mock is what kills their
+    /// match-arm-deletion mutants (deleting an arm falls through to the
+    /// `_ => debug!` branch, leaving `calls` empty and failing the assert).
+    struct RecordingWebRtcDispatch {
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl WebRtcDispatch for RecordingWebRtcDispatch {
+        async fn offer(
+            &self,
+            _ice_servers: Vec<crate::webrtc::IceServerConfig>,
+            sdp_offer: String,
+            _frame_tx: &mpsc::Sender<Vec<u8>>,
+            _webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
+        ) {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("offer:{sdp_offer}"));
+        }
+
+        async fn candidate(
+            &self,
+            _webrtc_pc: &Arc<tokio::sync::Mutex<Option<Arc<AgentPeerConnection>>>>,
+            candidate: &str,
+            mid: &str,
+        ) {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("candidate:{candidate}:{mid}"));
+        }
+    }
+
+    /// Pin handle_control's `ControlMessage::SwitchToWebRTC` arm: it must
+    /// dispatch to `WebRtcDispatch::offer` with the browser's SDP offer.
+    /// Deleting the arm would route nothing — the recording dispatch proves
+    /// both *that* and *with what* the arm fires.
+    #[tokio::test]
+    async fn handle_control_switch_to_webrtc_dispatches_offer() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let handler =
+            new_handler(all_perms()).with_webrtc_dispatch(Arc::new(RecordingWebRtcDispatch {
+                calls: calls.clone(),
+            }));
+        let injector = NullInput;
+        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::SwitchToWebRTC {
+                    sdp_offer: "OFFER_SDP".to_string(),
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                None,
+                &webrtc_pc,
+            )
+            .await;
+
+        assert_eq!(*calls.lock().unwrap(), vec!["offer:OFFER_SDP".to_string()]);
+    }
+
+    /// Pin handle_control's `ControlMessage::IceCandidate` arm: it must
+    /// dispatch to `WebRtcDispatch::candidate` with the candidate and mid.
+    #[tokio::test]
+    async fn handle_control_ice_candidate_dispatches_candidate() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let handler =
+            new_handler(all_perms()).with_webrtc_dispatch(Arc::new(RecordingWebRtcDispatch {
+                calls: calls.clone(),
+            }));
+        let injector = NullInput;
+        let (frame_tx, _frame_rx) = mpsc::channel::<Vec<u8>>(64);
+        let file_ops = FileOpsHandler::new(true, false);
+        let webrtc_pc = new_webrtc_pc();
+
+        handler
+            .handle_frame(
+                Frame::Control(ControlMessage::IceCandidate {
+                    candidate: "candidate:1 1 UDP".to_string(),
+                    mid: "0".to_string(),
+                }),
+                &injector,
+                &frame_tx,
+                &file_ops,
+                None,
+                &webrtc_pc,
+            )
+            .await;
+
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec!["candidate:candidate:1 1 UDP:0".to_string()]
+        );
     }
 
     #[tokio::test]

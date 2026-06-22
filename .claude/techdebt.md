@@ -59,18 +59,15 @@ no-longer-billing follow-ups remain:
    Codify the IAM policy + bucket in terraform if/when the backups infra is folded
    into IaC (the PAR stays a runtime credential, out of git).
 
-### ADR-024 WebRTC dispatch — 3 residual uncaught mutants in `handler.rs`
-
-`cargo mutants -p mesh-agent-core` leaves three uncaught mutants in
-`session/handler.rs::handle_control`, all match-arm deletions:
-
-- `ControlMessage::FileUploadRequest` arm — **equivalent mutant**. `FileHandler::handle_upload` only logs ("not yet implemented"); deleting the arm falls through to the `_ => debug!` branch, which is observationally identical (no frame, no state change). Killing it would require giving upload an observable side effect (e.g. an ack frame) — a business-logic change, deferred until upload is actually implemented.
-- `ControlMessage::SwitchToWebRTC` arm — **live-WebRTC-stack**. Distinguishing the arm from the `_` fallthrough needs `handle_offer` to produce an answer frame, which requires a valid browser SDP offer + ICE gathering (network).
-- `ControlMessage::IceCandidate` arm — **live-WebRTC-stack**. The peer-present path needs a remote description set (only `handle_offer` does that); without it, both the arm and `_` produce no observable effect.
-
-The two cheaply-killable mutants from the original 7-mutant gap were closed with tests (`switch.rs::handle_ack` body + the `SwitchAck` dispatch arm), and the `session/handlers/webrtc.rs` bodies were added to `agent/.cargo/mutants.toml` `exclude_globs` (same live-stack rationale as the long-standing `webrtc.rs` exclusion — ADR-024 §9 merely relocated that code). These three remain because the `mutants.toml` glob mechanism cannot exclude individual match arms within an otherwise well-covered function. **Pay-down trigger:** revisit when file upload is implemented (closes the equivalent mutant) or when a headless WebRTC offer/answer harness exists (closes the two live-stack arms).
-
 ## Severity: Low
+
+### ADR-024 WebRTC dispatch — 1 residual equivalent mutant in `handler.rs`
+
+`cargo mutants -p mesh-agent-core` leaves one uncaught mutant in `session/handler.rs::handle_control`: the `ControlMessage::FileUploadRequest` match-arm deletion. It is an **equivalent mutant** — `FileHandler::handle_upload` only logs ("not yet implemented"), so deleting the arm is observationally identical to the `_ => debug!` fallthrough (no frame, no state change). Killing it requires giving upload an observable side effect (e.g. an ack frame), a business-logic change deferred until upload is implemented.
+
+The two former live-WebRTC-stack arms (`SwitchToWebRTC`, `IceCandidate`) are now **caught**: both route through a `WebRtcDispatch` trait seam whose production delegate (`RealWebRtcDispatch`) lives in the already-excluded `session/handlers/webrtc.rs`, while a recording mock in `session/handler.rs` tests asserts that — and with what arguments — each arm dispatches. This kills the arm-deletion mutants without a live media stack and adds no new surviving mutants (the delegate sits in the excluded file). The earlier `SwitchAck` arm + `switch.rs::handle_ack` mutants were closed previously.
+
+**Pay-down trigger:** revisit when file upload is implemented (closes the last equivalent mutant).
 
 ### `web/package.json` TypeScript pinned to ^5.9.3 — `openapi-typescript` peer conflict
 
@@ -100,11 +97,13 @@ credentials are unavailable so forked pull requests remain runnable.
 **Pay-down trigger:** confirm a protected workflow logs the successful
 authenticated-login message without exposing either value.
 
-### Go mutation score is sensitive to gremlins' runner-derived per-mutant timeout
+### Go mutation run — sharded to fix cap-cancellation + timeout fragility (confirmation pending)
 
-gremlins sets each mutant's timeout to `coverage-dry-run-elapsed × timeout-coefficient`. The dry-run elapsed is a single, runner-load-sensitive measurement, so a fast/partial coverage phase shrinks the per-mutant budget and the Postgres-backed packages (which re-pay container/migration setup, ~20-40s each) false-time-out. Timed-out mutants are dropped from gremlins' kill count, so the reported Go score collapses with no real change in test quality — observed 2026-06-03 (run 26870189012): 770→241 kills, 85.5%→76.0%, below the 85% alert floor, all from 590 false timeouts vs 7 the night before.
+gremlins sets each mutant's timeout to `coverage-dry-run-elapsed × timeout-coefficient`, a single runner-load-sensitive measurement: a fast/partial coverage phase shrinks the per-mutant budget and the Postgres-backed packages (which re-pay container/migration setup, ~20-40s each) false-time-out, dropping kills and collapsing the reported score with no real test-quality change (2026-06-03 run 26870189012: 770→241 kills, 85.5%→76.0%, below the 85% floor). Separately, the monolithic `gremlins unleash .` grew past the 100-min job cap (cancelled 2026-06-18/19) while the mutant count stayed flat, so no report reached the trend pipeline.
 
-Mitigated by pinning `timeout-coefficient: 15` in [`server/.gremlins.yaml`](../server/.gremlins.yaml) (3× default headroom) + pinning the gremlins version + a 100-min job cap. This is a mitigation, not a guarantee: a sufficiently slow/partial coverage run can still tighten the budget. Two residual fragilities remain: (1) Go's true score (~85.5%) sits razor-thin above the 85% alert floor in [`scripts/mutation-summarize.sh`](../scripts/mutation-summarize.sh) — a few extra surviving/timed-out mutants re-trip the alert; (2) if recurrence persists, consider isolating the slow DB-backed packages or feeding gremlins a stable baseline duration rather than the live dry-run.
+Resolved by sharding the Go leg horizontally — [`scripts/lib/mutation-shards.sh`](../scripts/lib/mutation-shards.sh) is the single source of truth (partition asserted by [`scripts/tests/mutation-workflow.test.sh`](../scripts/tests/mutation-workflow.test.sh), mirrored by `make mutate-go`). Each shard runs the whole module for coverage but restricts *mutation* to its packages via `--exclude-files`, balanced by CI cost (DB packages dominate; `api` is isolated on its own shard). `GOFLAGS=-count=1` forces a real coverage dry-run so the budget no longer collapses to the restored test cache. The 100-min monolith cap became a per-shard 75-min cap with headroom; per-shard reports are merged by [`scripts/mutation-merge-go.sh`](../scripts/mutation-merge-go.sh) into the canonical report (a missing shard fails the merge → reported as an incomplete run, never a partial score).
+
+**Pay-down trigger:** confirm across 3 consecutive nightly runs that no shard is cancelled and that `mutation_score{language="go"}` reaches VictoriaMetrics — the trend push has not yet completed for a full mutation run. `timeout-coefficient: 15` in [`server/.gremlins.yaml`](../server/.gremlins.yaml) could then drop for a pure shard via a per-shard `--config` override.
 
 ### Test-technique gaps — Go property libs, Rust fuzz targets, web property/fuzz
 
