@@ -37,9 +37,10 @@ mutation_go_global_excludes() {
   echo 'openapi_gen\.go|cmd/meshserver/main\.go|tests/loadtest/main\.go|internal/testutil/'
 }
 
-# Shard ids, in run order.
+# Shard ids, in run order. Named for what they hold (the workflow job appears as
+# "Mutation (<shard>)").
 mutation_go_shards() {
-  echo "go-1 go-2 go-3"
+  echo "go-api go-db go-pure"
 }
 
 # Space-separated internal package names for a shard id (no path prefix).
@@ -47,12 +48,12 @@ mutation_go_shards() {
 # fails until it is assigned to exactly one shard.
 mutation_go_shard_pkgs() {
   case "$1" in
-    # api is the irreducible hotspot (~45min CI) — isolated.
-    go-1) echo "api" ;;
+    # api is the irreducible hotspot (largest CI cost) — isolated.
+    go-api) echo "api" ;;
     # Remaining Postgres-backed packages, spread so they do not cluster.
-    go-2) echo "agentapi auth db device session audit usecase" ;;
+    go-db) echo "agentapi auth db device session audit usecase" ;;
     # Pure + crypto (no Postgres) incl. the high-count but cheap amt.
-    go-3) echo "amt protocol relay metrics signaling osutil testpg clientapi cert notifications updater" ;;
+    go-pure) echo "amt protocol relay metrics signaling osutil testpg clientapi cert notifications updater" ;;
     *)
       echo "unknown mutation shard: $1" >&2
       return 1
