@@ -38,3 +38,13 @@ exclude_globs = [
 exclude_re = [
     "restore_selinux_context",
 ]
+
+# Equivalent mutant, deferred — NOT excluded (no per-match-arm exclusion
+# exists): the `FileUploadRequest` arm in session/handler.rs dispatches to
+# FileHandler::handle_upload, which today only logs "not yet implemented".
+# Deleting the arm is observationally identical to the `_ => debug!`
+# fallthrough, so its match-arm-deletion mutant cannot be killed until upload
+# gains an observable effect (an ack frame). The companion SwitchToWebRTC /
+# IceCandidate arm mutants ARE killed: those arms route through the
+# WebRtcDispatch seam, which a recording mock observes in session/handler.rs
+# tests (the live delegation lives in the excluded handlers/webrtc.rs).

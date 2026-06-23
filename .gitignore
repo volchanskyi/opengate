@@ -54,6 +54,9 @@ agent/mutants.out/
 agent/mutants.out.old/
 mutants.out/
 mutants.out.old/
+# gremlins JSON reports written locally by `make mutate-go` (per shard) and
+# merged; CI uploads them as artifacts instead of committing them.
+server/mutation-report*.json
 
 # Coverage
 *.lcov

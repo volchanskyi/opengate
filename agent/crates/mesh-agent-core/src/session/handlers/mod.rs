@@ -24,7 +24,7 @@ pub use keyboard::KeyboardHandler;
 pub use mouse::MouseHandler;
 pub use switch::SwitchHandler;
 pub use terminal_control::TerminalControlHandler;
-pub use webrtc::WebRTCHandler;
+pub use webrtc::{RealWebRtcDispatch, WebRTCHandler, WebRtcDispatch};
 
 /// Marker trait implemented by every grouped `ControlMessage` handler.
 ///

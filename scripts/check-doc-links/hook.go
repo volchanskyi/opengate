@@ -11,6 +11,11 @@ import (
 	"strings"
 )
 
+// errOutsideRepoRoot marks a hook-supplied file_path that resolves outside the
+// repository root. Such a file is not a repo doc, so hook mode skips it rather
+// than treating it as a hard error.
+var errOutsideRepoRoot = errors.New("is outside repository root")
+
 type edit struct {
 	OldString  string `json:"old_string"`
 	NewString  string `json:"new_string"`
@@ -40,6 +45,12 @@ func (c *checker) readHookOverlay(reader io.Reader) (string, []byte, bool, error
 
 	relativePath, err := c.relativePath(envelope.ToolInput.FilePath)
 	if err != nil {
+		if errors.Is(err, errOutsideRepoRoot) {
+			// The edited file lives outside the repository (e.g. the global
+			// ~/.claude/projects/.../memory tree matches the .claude/*.md hook
+			// scope but is not a repo doc). Out of scope: nothing to validate.
+			return "", nil, false, nil
+		}
 		return "", nil, false, err
 	}
 	if !isScopedMarkdown(relativePath) {
@@ -108,7 +119,7 @@ func (c *checker) relativePath(path string) (string, error) {
 		return "", fmt.Errorf("make %q repository-relative: %w", path, err)
 	}
 	if relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path %q is outside repository root", path)
+		return "", fmt.Errorf("path %q %w", path, errOutsideRepoRoot)
 	}
 	return filepath.ToSlash(relativePath), nil
 }

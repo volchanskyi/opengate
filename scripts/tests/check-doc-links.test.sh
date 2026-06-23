@@ -146,6 +146,18 @@ run_hook_case \
   1 \
   'docs/index.md:4: target does not exist'
 
+# A Markdown file OUTSIDE the repository is out of scope: the global
+# ~/.claude/projects/.../memory tree matches the .claude/*.md hook scope but is
+# not a repo doc. The checker must ALLOW such a write (exit 0) rather than
+# fail-closing with "outside repository root" — that misfire blocked the agent
+# memory subsystem. The broken in-content link is intentional: it must NOT be
+# validated, because the file is not part of the repo.
+run_hook_case \
+  "hook ignores Markdown outside the repo root" \
+  hook-overlay \
+  '{"tool_name":"Write","tool_input":{"file_path":"/outside-repo/.claude/projects/demo/memory/note.md","content":"# Note\n\n[broken](missing.md)\n"}}' \
+  0
+
 if grep -qF 'run_check "doc links"' "$REPO_ROOT/scripts/precommit-gauntlet.sh" \
   && grep -qF -- '--baseline .claude/doc-link-baseline.txt' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
   pass "gauntlet registers doc-link checker"
