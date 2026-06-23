@@ -10,31 +10,62 @@ OpenGate is a three-component platform for remote device management:
 | **Server** | Go | Central hub — QUIC + WebSocket + REST API |
 | **Web** | React/TypeScript | Browser-based management UI |
 
-## Component Diagram
+## System Context (C4 Level 1)
+
+The L1 view places OpenGate among the people and external systems it interacts
+with. See [docs/README.md](README.md) for the C4 convention and the
+render-fallback rule.
 
 ```mermaid
-flowchart LR
-  AGENT["Agent<br/>Rust service"]
-  WEB["Web UI<br/>React"]
-  AMT["Intel AMT device"]
+C4Context
+  title System Context — OpenGate
+  Person(operator, "Operator", "Manages devices and remote sessions from the browser")
+  System(opengate, "OpenGate", "Remote device management — QUIC control, WebSocket relay, REST API")
+  System_Ext(device, "Managed Device", "Runs the Rust mesh-agent")
+  System_Ext(amt, "Intel AMT Device", "Out-of-band management over CIRA/APF")
+  System_Ext(push, "Web Push Service", "Browser push notifications (VAPID)")
 
-  subgraph SERVER["Server"]
-    AGENT_API["AgentAPI<br/>QUIC control"]
-    REST["REST API<br/>HTTP JSON"]
-    RELAY["WebSocket relay"]
-    MPS["MPS<br/>CIRA/APF"]
-    STORE[(PostgreSQL)]
-  end
+  Rel(operator, opengate, "Manages devices, opens sessions", "HTTPS / WSS")
+  Rel(opengate, device, "Control + session frames", "QUIC mTLS / WSS")
+  Rel(amt, opengate, "CIRA tunnel", "TLS")
+  Rel(opengate, push, "Sends notifications", "HTTPS")
+```
 
-  AGENT <-->|QUIC mTLS| AGENT_API
-  WEB <-->|HTTP JSON| REST
-  WEB <-->|session frames| RELAY
-  AGENT <-->|session frames| RELAY
-  AMT <-->|CIRA/APF over TLS| MPS
-  AGENT_API --> STORE
-  REST --> STORE
-  RELAY --> STORE
-  MPS --> STORE
+## Container View (C4 Level 2)
+
+The L2 view decomposes OpenGate into its deployable containers, re-expressing the
+component topology along C4 lines.
+
+```mermaid
+C4Container
+  title Container View — OpenGate
+  Person(operator, "Operator", "Browser user")
+  System_Ext(amt, "Intel AMT Device", "Out-of-band managed device")
+
+  Container(web, "Web UI", "React / TypeScript", "Device management and session UI")
+  Container(agent, "Agent", "Rust", "Runs on managed devices; QUIC control + relay sessions")
+
+  System_Boundary(server, "Server (Go)") {
+    Container(agentapi, "AgentAPI", "Go, QUIC", "Agent control plane: handshake, registration, heartbeat")
+    Container(rest, "REST API", "Go, chi", "Auth and device/group/user management")
+    Container(relay, "WebSocket Relay", "Go", "Browser-to-agent binary frame relay")
+    Container(mps, "MPS", "Go", "Intel AMT CIRA/APF management presence server")
+  }
+
+  ContainerDb(db, "PostgreSQL", "PostgreSQL 17", "Devices, users, sessions, audit log")
+  Container(monitoring, "Monitoring", "VictoriaMetrics / Grafana", "Metrics and dashboards")
+
+  Rel(operator, web, "Uses", "HTTPS")
+  Rel(web, rest, "API calls", "HTTPS / JSON")
+  Rel(web, relay, "Session frames", "WSS")
+  Rel(agent, agentapi, "Control stream", "QUIC mTLS")
+  Rel(agent, relay, "Session frames", "WSS")
+  Rel(amt, mps, "CIRA tunnel", "TLS :4433")
+  Rel(agentapi, db, "Reads / writes", "SQL")
+  Rel(rest, db, "Reads / writes", "SQL")
+  Rel(relay, db, "Session records", "SQL")
+  Rel(mps, db, "Reads / writes", "SQL")
+  Rel(monitoring, rest, "Scrapes /metrics", "HTTP")
 ```
 
 ## Architecture Drift Checks
