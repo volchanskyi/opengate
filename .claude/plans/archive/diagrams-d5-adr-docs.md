@@ -13,9 +13,9 @@ project's source-of-truth indices.
 | File | Change |
 |---|---|
 | `docs/adr/ADR-0NN-diagrams-as-code-part-2.md` | **New ADR** (next sequential number after the highest existing): records (1) native Mermaid **C4 adoption** + the **GitHub render-verification gate** + fallback rationale (cite the experimental-C4 fragility); (2) **CI-only syntax validation** (no Puppeteer, pinned, version-aligned); (3) **drift-guard hardening** (all diagram docs pinned + nudge); (4) the **coverage standard**. Written as current-state (per the mutable-ADR doctrine). |
-| [`.claude/decisions.md`](../decisions.md) | Add the index row for the new ADR. |
-| [`.claude/phases.md`](../phases.md) | Add completed rows for D1–D4. |
-| [`docs/README.md`](../../docs/README.md) | Ensure the convention section links the ADR (the durable rationale) rather than repeating it. |
+| [`.claude/decisions.md`](../../decisions.md) | Add the index row for the new ADR. |
+| [`.claude/phases.md`](../../phases.md) | Add completed rows for D1–D4. |
+| [`docs/README.md`](../../../docs/README.md) | Ensure the convention section links the ADR (the durable rationale) rather than repeating it. |
 
 ## 3. Approach
 

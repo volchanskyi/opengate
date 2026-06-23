@@ -22,8 +22,8 @@ the sequence diagrams (they stay `sequenceDiagram`).
 
 | File | Change |
 |---|---|
-| [`docs/Architecture.md`](../../docs/Architecture.md) | Add a `C4Context` block (person = operator/admin; system = OpenGate; external = agents/browsers). Re-express the existing `flowchart` topology as `C4Container` (web, server, agent, relay, Postgres, monitoring). Keep the 2 `sequenceDiagram` flows (or promote one to `C4Dynamic` only if it render-verifies). |
-| [`docs/README.md`](../../docs/README.md) | Extend the "Mermaid diagrams only" convention to standardize the allowed C4 block types and **document the fallback rule** (§5). |
+| [`docs/Architecture.md`](../../../docs/Architecture.md) | Add a `C4Context` block (person = operator/admin; system = OpenGate; external = agents/browsers). Re-express the existing `flowchart` topology as `C4Container` (web, server, agent, relay, Postgres, monitoring). Keep the 2 `sequenceDiagram` flows (or promote one to `C4Dynamic` only if it render-verifies). |
+| [`docs/README.md`](../../../docs/README.md) | Extend the "Mermaid diagrams only" convention to standardize the allowed C4 block types and **document the fallback rule** (§5). |
 | (optional) `docs/Architecture.md` | `C4Component` for server internals if it render-verifies and adds value. |
 
 ## 4. The render-verification gate (mandatory — §3.1 of the master)

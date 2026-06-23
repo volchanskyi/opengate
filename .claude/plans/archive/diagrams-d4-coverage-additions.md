@@ -30,11 +30,11 @@ surfaces).
 
 | File | Change |
 |---|---|
-| [`docs/README.md`](../../docs/README.md) | Add the §2 coverage standard. |
-| [`docs/Kubernetes.md`](../../docs/Kubernetes.md) | **New** `flowchart` deploy/OKE topology (node, namespaces, server/postgres/monitoring, ingress). |
-| [`docs/CI-Pipeline.md`](../../docs/CI-Pipeline.md) / [`docs/Continuous-Deployment.md`](../../docs/Continuous-Deployment.md) | **New** `flowchart` of dev → gauntlet/CI → merge-to-main → CD deploy. |
-| [`docs/Architecture.md`](../../docs/Architecture.md) | **New** `sequenceDiagram` session lifecycle (browser ↔ server ↔ agent ↔ relay: establish → stream → teardown). |
-| [`scripts/tests/docs-diagrams.test.sh`](../../scripts/tests/docs-diagrams.test.sh) | Pin a minimum for each newly-diagrammed doc + bump the total floor (extends D1). |
+| [`docs/README.md`](../../../docs/README.md) | Add the §2 coverage standard. |
+| [`docs/Kubernetes.md`](../../../docs/Kubernetes.md) | **New** `flowchart` deploy/OKE topology (node, namespaces, server/postgres/monitoring, ingress). |
+| [`docs/CI-Pipeline.md`](../../../docs/CI-Pipeline.md) / [`docs/Continuous-Deployment.md`](../../../docs/Continuous-Deployment.md) | **New** `flowchart` of dev → gauntlet/CI → merge-to-main → CD deploy. |
+| [`docs/Architecture.md`](../../../docs/Architecture.md) | **New** `sequenceDiagram` session lifecycle (browser ↔ server ↔ agent ↔ relay: establish → stream → teardown). |
+| [`scripts/tests/docs-diagrams.test.sh`](../../../scripts/tests/docs-diagrams.test.sh) | Pin a minimum for each newly-diagrammed doc + bump the total floor (extends D1). |
 
 ## 5. Approach
 

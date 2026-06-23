@@ -5,7 +5,7 @@
 
 ## 1. Goal
 
-Close the enforcement hole: today [`docs-diagrams.test.sh`](../../scripts/tests/docs-diagrams.test.sh)
+Close the enforcement hole: today [`docs-diagrams.test.sh`](../../../scripts/tests/docs-diagrams.test.sh)
 pins only **2 of 6** diagram-bearing docs, so 4 diagrams can vanish silently. Pin them
 all, add a total-fence floor, and add a lightweight human nudge to review diagrams when
 the code they depict changes.
@@ -20,7 +20,7 @@ CODEOWNERS entry + a PR-template checklist nudge.
 
 | File | Change |
 |---|---|
-| [`scripts/tests/docs-diagrams.test.sh`](../../scripts/tests/docs-diagrams.test.sh) | Add `assert_mermaid_count_at_least` for [`docs/Wire-Protocol.md`](../../docs/Wire-Protocol.md) (≥1), [`docs/Monitoring.md`](../../docs/Monitoring.md) (≥1), [`docs/adr/ADR-025-cd-preflight-digest-check.md`](../../docs/adr/ADR-025-cd-preflight-digest-check.md) (≥1); convert the inline Multiscale check to the helper; add a **total-fence floor** (`grep -rc '^```mermaid$' docs` ≥ current count). Keep all existing assertions + the blob/fence bans. |
+| [`scripts/tests/docs-diagrams.test.sh`](../../../scripts/tests/docs-diagrams.test.sh) | Add `assert_mermaid_count_at_least` for [`docs/Wire-Protocol.md`](../../../docs/Wire-Protocol.md) (≥1), [`docs/Monitoring.md`](../../../docs/Monitoring.md) (≥1), [`docs/adr/ADR-025-cd-preflight-digest-check.md`](../../../docs/adr/ADR-025-cd-preflight-digest-check.md) (≥1); convert the inline Multiscale check to the helper; add a **total-fence floor** (`grep -rc '^```mermaid$' docs` ≥ current count). Keep all existing assertions + the blob/fence bans. |
 | `.github/CODEOWNERS` | **New.** Own `docs/Architecture.md`, `docs/Wire-Protocol.md`, `docs/Multiscale-Readiness.md`, `docs/Monitoring.md` and the diagram-source code paths (`agent/crates/mesh-agent/src/main.rs`, `server/internal/agentapi/**`, relay). **Caveat:** on a solo-maintainer repo CODEOWNERS does not add a reviewer — it is a declared-ownership record; the effective nudge is the PR-template item below. |
 | `.github/pull_request_template.md` | **New.** Checklist line: "Touched handshake/relay/topology/agentapi code? → reviewed the affected `docs/` diagram for drift." |
 
