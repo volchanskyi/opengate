@@ -11,6 +11,9 @@
 /web/node_modules/
 /web/dist/
 
+# CI-only Mermaid validator (deps restored via `npm ci` in the docs-validate job)
+/tools/mermaid-validate/node_modules/
+
 # Database
 *.db
 *.db-journal

@@ -1,0 +1,18 @@
+# Declared ownership of diagram-bearing docs and the code they depict.
+#
+# On a solo-maintainer repo CODEOWNERS does not add a required reviewer — it is
+# a declared-ownership record. The effective drift nudge is the checklist item
+# in .github/pull_request_template.md, which prompts a diagram review when the
+# handshake / relay / topology / agentapi code below changes.
+
+# Diagram-bearing docs.
+/docs/Architecture.md          @volchanskyi
+/docs/Wire-Protocol.md         @volchanskyi
+/docs/Multiscale-Readiness.md  @volchanskyi
+/docs/Monitoring.md            @volchanskyi
+
+# Code whose behavior the docs/ diagrams depict — a change here should trigger a
+# diagram-drift review.
+/agent/crates/mesh-agent/src/main.rs  @volchanskyi
+/server/internal/agentapi/            @volchanskyi
+/server/internal/relay/               @volchanskyi

@@ -46,15 +46,32 @@ assert_mermaid_count_at_least() {
   fi
 }
 
+# Sum every ```mermaid fence under docs/ and assert a floor. This guards the
+# diagram corpus as a whole: a per-doc count can stay flat while a diagram is
+# silently dropped from a doc not individually pinned below.
+assert_total_mermaid_at_least() {
+  local minimum="$1"
+  local total
+
+  total="$(grep -rc '^```mermaid$' "$REPO_ROOT/docs" | awk -F: '{s += $2} END {print s + 0}')"
+  if [ "$total" -ge "$minimum" ]; then
+    pass "docs carry at least $minimum Mermaid blocks in total"
+  else
+    fail "docs carry at least $minimum Mermaid blocks in total (got $total)"
+  fi
+}
+
 echo "docs-diagrams:"
 
+# Pin every diagram-bearing doc so a removed diagram reds this step. The
+# README block is the convention example, asserted separately below.
 assert_mermaid_count_at_least "$REPO_ROOT/docs/Architecture.md" 3
+assert_mermaid_count_at_least "$REPO_ROOT/docs/Wire-Protocol.md" 1
+assert_mermaid_count_at_least "$REPO_ROOT/docs/Multiscale-Readiness.md" 1
+assert_mermaid_count_at_least "$REPO_ROOT/docs/Monitoring.md" 1
+assert_mermaid_count_at_least "$REPO_ROOT/docs/adr/ADR-025-cd-preflight-digest-check.md" 1
 
-if grep -q '^```mermaid$' "$REPO_ROOT/docs/Multiscale-Readiness.md"; then
-  pass "Multiscale readiness keeps the house Mermaid style"
-else
-  fail "Multiscale readiness keeps the house Mermaid style"
-fi
+assert_total_mermaid_at_least 8
 
 if diagram_blobs="$(git -C "$REPO_ROOT" ls-files ':(glob)docs/**/*.svg' ':(glob)docs/**/*.d2')" \
   && [ -z "$diagram_blobs" ]; then
@@ -100,6 +117,11 @@ assert_contains \
   "CI runs dependency-cruiser snapshot" \
   "$REPO_ROOT/.github/workflows/ci.yml" \
   "depcruise snapshot check"
+
+assert_contains \
+  "CI validates Mermaid syntax under docs" \
+  "$REPO_ROOT/.github/workflows/docs-validate.yml" \
+  "validate-mermaid.mjs ../../docs"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"
