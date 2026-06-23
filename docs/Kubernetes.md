@@ -4,6 +4,38 @@ OpenGate runs on **Oracle Kubernetes Engine (OKE)** via a Helm chart. The
 platform decisions are recorded in
 [ADR-030](./adr/ADR-030-kubernetes-adoption-oke-helm.md).
 
+## Cluster Topology
+
+The serving shape on the single-node start: HTTP/WSS rides ingress-nginx, while
+the non-HTTP L4 transports (QUIC, MPS CIRA) bind the node directly via
+`hostPort`. The observability stack is diagrammed separately in
+[Monitoring.md](./Monitoring.md).
+
+```mermaid
+flowchart TB
+  BROWSER["Browser"]
+  AGENT["Agent (managed device)"]
+  AMT["Intel AMT device"]
+
+  subgraph OKE["OKE cluster (single node)"]
+    INGRESS["ingress-nginx + cert-manager"]
+    subgraph NS["opengate namespace"]
+      SERVER["server Deployment + ClusterIP"]
+      PG[("postgres StatefulSet + oci-bv PVC")]
+      BACKUP["postgres-backup CronJob"]
+    end
+  end
+  OBJ["OCI Object Storage (pg_dump via write-only PAR)"]
+
+  BROWSER -->|HTTPS / WSS| INGRESS
+  INGRESS -->|HTTP| SERVER
+  AGENT -->|QUIC hostPort| SERVER
+  AMT -->|CIRA :4433 hostPort| SERVER
+  SERVER --> PG
+  BACKUP --> PG
+  BACKUP -->|pg_dump| OBJ
+```
+
 ## Chart
 
 The application chart is [`deploy/helm/opengate`](../deploy/helm/opengate/). Its
