@@ -1,0 +1,14 @@
+{
+  "name": "opengate-mermaid-validate",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CI-only Mermaid syntax validator for docs/ (official parser, no Puppeteer). Isolated from web/ app deps.",
+  "type": "module",
+  "scripts": {
+    "validate": "node validate-mermaid.mjs ../../docs"
+  },
+  "dependencies": {
+    "jsdom": "26.1.0",
+    "mermaid": "11.15.0"
+  }
+}
