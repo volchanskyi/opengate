@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-<!-- Last updated: 2026-06-19 -->
+<!-- Last updated: 2026-06-23 -->
 <!-- Compact index. Full ADR text lives in /docs: -->
 <!--   - ADR-001 through ADR-012: docs/Architecture-Decision-Records.md (frozen historical log) -->
 <!--   - ADR-013 onward:          docs/adr/ADR-NNN-title.md (one mutable file per decision) -->
@@ -45,3 +45,4 @@
 | 036 | Per-file ADRs (013+) are mutable current-state records; frozen ADR-001–012 log remains immutable; supersede only for decision changes; ADRs may link archived plans but not active plans | — | Accepted (supersedes ADR-013 immutability clause) |
 | 037 | Client-first QUIC handshake + fast-path reconnect: agent opens and writes first, auth is mTLS-only, `0x14` saves a round-trip, 1-RTT session resumption adopted while 0-RTT is deferred; ADR-005's server-opens rationale is superseded | 4 | Accepted |
 | 038 | VictoriaMetrics is the canonical numeric CI-trend store through the shared kubectl transport; Loki is logs-only; branch-hosted benchmark history and Loki trend pushes are retired; global VM retention applies | — | Accepted (supersedes ADR-017/019 trend-store clauses) |
+| 039 | Diagrams as Code Part 2 (extends DD-E): native Mermaid **C4** (`C4Context`/`C4Container` in Architecture.md) gated by a **mandatory GitHub render-verification** with a documented `flowchart`/`sequenceDiagram` fallback; **CI-only** Mermaid syntax validation via the official parser pinned in `tools/mermaid-validate/` (`docs-validate.yml`, path-filtered, isolated from `web/` + the local gauntlet); **drift-guard hardening** — `docs-diagrams.test.sh` pins every diagram-bearing doc + a total-fence floor, plus a CODEOWNERS/PR-template nudge; a **diagram coverage standard** in README + new deploy/CI-CD/session-lifecycle diagrams. Working plans: `diagrams-as-code-part-2.md` + `diagrams-d1..d5.md` | — | Accepted (extends DD-E) |

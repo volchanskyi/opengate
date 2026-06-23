@@ -3,7 +3,7 @@
 **Status:** Broken into D1–D5 micro-plans (§11); awaiting per-plan approval.
 Do **not** implement from this file directly — implement from the D-series micro-plans.
 **Branch:** `dev`.
-**Part 1:** [`docs-doctrine-e-diagrams-as-code.md`](archive/docs-doctrine-e-diagrams-as-code.md)
+**Part 1:** [`docs-doctrine-e-diagrams-as-code.md`](docs-doctrine-e-diagrams-as-code.md)
 (archived; the original Mermaid-only docs-as-code decision).
 
 ---
@@ -24,23 +24,23 @@ the **actual** state is **8 Mermaid fences across 6 docs**:
 
 | Doc | Mermaid blocks |
 |---|---|
-| [`docs/Architecture.md`](../../docs/Architecture.md) | 3 (`flowchart` topology + 2 `sequenceDiagram`) |
-| [`docs/Wire-Protocol.md`](../../docs/Wire-Protocol.md) | 1 `sequenceDiagram` |
-| [`docs/Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md) | 1 `flowchart` |
-| [`docs/Monitoring.md`](../../docs/Monitoring.md) | 1 `flowchart` *(missed by the draft)* |
-| [`docs/adr/ADR-025-cd-preflight-digest-check.md`](../../docs/adr/ADR-025-cd-preflight-digest-check.md) | 1 *(missed by the draft)* |
-| [`docs/README.md`](../../docs/README.md) | 1 (convention example) |
+| [`docs/Architecture.md`](../../../docs/Architecture.md) | 3 (`flowchart` topology + 2 `sequenceDiagram`) |
+| [`docs/Wire-Protocol.md`](../../../docs/Wire-Protocol.md) | 1 `sequenceDiagram` |
+| [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) | 1 `flowchart` |
+| [`docs/Monitoring.md`](../../../docs/Monitoring.md) | 1 `flowchart` *(missed by the draft)* |
+| [`docs/adr/ADR-025-cd-preflight-digest-check.md`](../../../docs/adr/ADR-025-cd-preflight-digest-check.md) | 1 *(missed by the draft)* |
+| [`docs/README.md`](../../../docs/README.md) | 1 (convention example) |
 
 - Types in use: **5 `flowchart` + 3 `sequenceDiagram`**. **C4 is absent** repo-wide
   (verified: no `C4Context`/`C4Container`/`C4Component`/`C4Dynamic` anywhere).
-- **Enforcement gap (key finding):** [`docs-diagrams.test.sh`](../../scripts/tests/docs-diagrams.test.sh)
+- **Enforcement gap (key finding):** [`docs-diagrams.test.sh`](../../../scripts/tests/docs-diagrams.test.sh)
   pins only **2** of the 6 docs (Architecture ≥3, Multiscale ≥1) + the blob/fence bans +
   the boundary-linter wiring. The Wire-Protocol, Monitoring, ADR-025, and README diagrams
   are **unguarded** — they can vanish silently. (That the draft itself drifted is direct
   evidence of the §3.1 risk.)
 - **Hook posture (corrected):** the gauntlet's "shell tests" step runs
   `scripts/tests/*.test.sh` (grep-only, **zero-network**, sub-second) — see
-  [`precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh). The earlier draft's
+  [`precommit-gauntlet.sh`](../../../scripts/precommit-gauntlet.sh). The earlier draft's
   "<1.5s" figure is not documented anywhere; the real, verifiable constraint is
   *deterministic + zero-network + no heavy local runtime*.
 
@@ -86,7 +86,7 @@ linters' job); web-perf diagrams.
 ## 5. Workstreams (basis for the D1–D5 micro-plan breakdown)
 
 - **D1 — Drift-guard hardening (do first; closes the proven gap).**
-  Extend [`docs-diagrams.test.sh`](../../scripts/tests/docs-diagrams.test.sh) to pin a
+  Extend [`docs-diagrams.test.sh`](../../../scripts/tests/docs-diagrams.test.sh) to pin a
   minimum Mermaid count for **every** diagram-bearing doc (Architecture, Wire-Protocol,
   Multiscale, Monitoring, ADR-025) + a total-fence floor. Add a `.github/CODEOWNERS`
   entry and/or PR-template checklist item nudging a diagram review when
@@ -95,7 +95,7 @@ linters' job); web-perf diagrams.
 - **D2 — C4 adoption (native blocks + render gate).**
   Add a **C4Context (L1)** view; express the topology as **C4Container**; optional
   **C4Component** for server internals; consider **C4Dynamic** for a key flow. Update the
-  [`docs/README.md`](../../docs/README.md) convention to standardize the allowed C4 block
+  [`docs/README.md`](../../../docs/README.md) convention to standardize the allowed C4 block
   types. **Gate:** GitHub render-verification evidence per C4 block; fallback per §3.1.
 - **D3 — CI-only Mermaid syntax validation.**
   A CI job (Node — already present in CI) running a **no-Puppeteer** validator over every

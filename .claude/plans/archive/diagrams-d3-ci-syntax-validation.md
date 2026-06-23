@@ -28,7 +28,7 @@ D2's GitHub render gate); adding the validator to `web/`'s app dependencies.
 
 | File | Change |
 |---|---|
-| `.github/workflows/docs-validate.yml` | **New** workflow: `on: pull_request`/`push` path-filtered to `docs/**`; `actions/setup-node@v6` + node 24 (mirror [`ci.yml`](../../.github/workflows/ci.yml) line ~403); extract ` ```mermaid ` blocks from `docs/**.md` and validate each; fail on error. |
+| `.github/workflows/docs-validate.yml` | **New** workflow: `on: pull_request`/`push` path-filtered to `docs/**`; `actions/setup-node@v6` + node 24 (mirror [`ci.yml`](../../../.github/workflows/ci.yml) line ~403); extract ` ```mermaid ` blocks from `docs/**.md` and validate each; fail on error. |
 | `scripts/validate-mermaid.mjs` (or `.sh` wrapper) | **New.** Extract Mermaid fences from a Markdown file set and run the validator; pin the validator version (exact, e.g. via a committed `package.json`+lockfile under a `tools/mermaid-validate/` dir, or a digest-pinned `npx`). |
 | `tools/mermaid-validate/package.json` + lockfile | **New (if used).** Isolated, pinned validator dependency — **not** mixed into `web/`. |
 

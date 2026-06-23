@@ -125,6 +125,10 @@ CI.
 
 #### C4 architecture diagrams
 
+The rationale for everything in this section — C4 adoption, the render gate, the
+CI validator, the drift guard, and the coverage standard — is recorded in
+[ADR-039](./adr/ADR-039-diagrams-as-code-part-2.md).
+
 For architecture-level structure, use the native Mermaid **C4** block types so
 the views follow the [C4 model](https://c4model.com/):
 
