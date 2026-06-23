@@ -118,6 +118,31 @@ through [`scripts/precommit-gauntlet.sh`](../scripts/precommit-gauntlet.sh) and
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), not by auto-extracting
 graphs from source.
 
+Every `mermaid` fence is syntax-checked in CI by the `Docs Validate` workflow
+([`docs-validate.yml`](../.github/workflows/docs-validate.yml)) using the official
+Mermaid parser. The local gauntlet stays grep-only; all Mermaid parsing runs in
+CI.
+
+#### C4 architecture diagrams
+
+For architecture-level structure, use the native Mermaid **C4** block types so
+the views follow the [C4 model](https://c4model.com/):
+
+- `C4Context` — system context (L1): people, the system, and external systems.
+- `C4Container` — container view (L2): the system's deployable containers.
+- `C4Component` — component view (L3): internals of a single container. Use
+  sparingly, only where it adds value.
+- `C4Dynamic` — a runtime flow expressed along C4 lines (optional). Plain
+  `sequenceDiagram` remains the default for protocol flows.
+
+**Render-fallback rule (mandatory).** Native Mermaid C4 is marked experimental
+and has historically been fragile on GitHub's renderer. Every C4 block must be
+confirmed to render as a diagram (not an error box) on GitHub before it ships. If
+a C4 block will not render, fall back to a plain `flowchart` (or
+`sequenceDiagram`) arranged along the same C4 level — same containers and
+relationships, robust rendering — and note the fallback where the diagram lives.
+The CI syntax validator is a fast pre-filter; GitHub's renderer is authoritative.
+
 ---
 
 ## Directory layout

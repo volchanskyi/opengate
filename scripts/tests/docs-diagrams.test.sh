@@ -65,13 +65,13 @@ echo "docs-diagrams:"
 
 # Pin every diagram-bearing doc so a removed diagram reds this step. The
 # README block is the convention example, asserted separately below.
-assert_mermaid_count_at_least "$REPO_ROOT/docs/Architecture.md" 3
+assert_mermaid_count_at_least "$REPO_ROOT/docs/Architecture.md" 4
 assert_mermaid_count_at_least "$REPO_ROOT/docs/Wire-Protocol.md" 1
 assert_mermaid_count_at_least "$REPO_ROOT/docs/Multiscale-Readiness.md" 1
 assert_mermaid_count_at_least "$REPO_ROOT/docs/Monitoring.md" 1
 assert_mermaid_count_at_least "$REPO_ROOT/docs/adr/ADR-025-cd-preflight-digest-check.md" 1
 
-assert_total_mermaid_at_least 8
+assert_total_mermaid_at_least 9
 
 if diagram_blobs="$(git -C "$REPO_ROOT" ls-files ':(glob)docs/**/*.svg' ':(glob)docs/**/*.d2')" \
   && [ -z "$diagram_blobs" ]; then
