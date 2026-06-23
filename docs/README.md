@@ -143,6 +143,26 @@ a C4 block will not render, fall back to a plain `flowchart` (or
 relationships, robust rendering — and note the fallback where the diagram lives.
 The CI syntax validator is a fast pre-filter; GitHub's renderer is authoritative.
 
+#### Diagram coverage standard
+
+The docs must carry at least these diagrams; each is pinned by
+[`scripts/tests/docs-diagrams.test.sh`](../scripts/tests/docs-diagrams.test.sh)
+so it cannot be dropped silently:
+
+1. **System context** — one `C4Context` (L1) — [Architecture.md](Architecture.md).
+2. **Container topology** — one `C4Container` (L2) — [Architecture.md](Architecture.md).
+3. **Each cross-component protocol flow** — a `sequenceDiagram` (agent handshake,
+   relay) — [Architecture.md](Architecture.md) and
+   [Wire-Protocol.md](Wire-Protocol.md).
+4. **Deploy topology** — the OKE cluster shape — [Kubernetes.md](Kubernetes.md).
+5. **CI/CD flow** — dev → CI gate → merge-to-main → deploy —
+   [Continuous-Deployment.md](Continuous-Deployment.md).
+6. **Session lifecycle** — establish → stream → teardown —
+   [Architecture.md](Architecture.md).
+
+New cross-component behavior of one of these kinds ships with the matching
+diagram (and its pin) updated in the same change.
+
 ---
 
 ## Directory layout

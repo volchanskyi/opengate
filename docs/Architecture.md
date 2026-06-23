@@ -208,6 +208,43 @@ Set `LOG_LEVEL=debug` for per-message tracing. All tokens are redacted to 8-char
 
 The relay WebSocket route passes through global HTTP middleware (metrics, security headers, request logger). Any middleware that wraps `http.ResponseWriter` **must** implement `http.Hijacker` — WebSocket upgrades require connection hijacking. See `server/internal/metrics/middleware.go` for the reference implementation.
 
+## Session Lifecycle
+
+End-to-end view of a browser↔agent session: establish (REST + control plane),
+stream (bidirectional frames over the relay), and teardown (relay `OnSessionEnd`
+deletes the session row so the table tracks live connections).
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant REST as REST API
+  participant AgentAPI
+  participant Agent
+  participant Relay
+
+  Note over Browser,Relay: Establish
+  Browser->>REST: POST /api/v1/sessions
+  REST->>AgentAPI: SessionRequest (token, relay_url)
+  AgentAPI->>Agent: SessionRequest
+  Agent-->>AgentAPI: SessionAccept
+  REST-->>Browser: token + relay_url
+  Browser->>Relay: connect ?side=browser&auth=jwt
+  Agent->>Relay: connect ?side=agent
+
+  Note over Browser,Relay: Stream
+  loop active session
+    Agent-->>Relay: desktop / terminal / file frames
+    Relay-->>Browser: agent frames
+    Browser->>Relay: input / control frames
+    Relay->>Agent: browser frames
+  end
+
+  Note over Browser,Relay: Teardown
+  Browser-)Relay: disconnect
+  Relay->>REST: OnSessionEnd (delete session row)
+  Note over Agent,Relay: agent returns to idle
+```
+
 ## Web Client Features
 
 The React web client (`web/`) provides management and session features:

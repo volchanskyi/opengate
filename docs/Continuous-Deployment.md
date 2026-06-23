@@ -13,6 +13,26 @@ The deployment chain is defined by the repository workflows:
 The CD workflow also supports a manual image-tag dispatch. Deployments are
 serialized by the workflow's concurrency configuration.
 
+```mermaid
+flowchart TB
+  DEV["push to dev (human or Dependabot PR)"]
+  CI["CI gate (ci.yml: lint, test, e2e, sonar, CodeQL)"]
+  MERGE["merge-to-main (auto, after gate)"]
+  BUILD["build-image.yml: multi-arch then GHCR, Cosign, SBOM, Trivy"]
+  subgraph CD["cd.yml"]
+    RESOLVE["resolve-tag + cosign verify"]
+    STAGING["deploy-staging-k8s: Helm upgrade + smoke + Playwright"]
+    PROD["deploy-production-k8s: Helm upgrade + smoke"]
+  end
+
+  DEV --> CI
+  CI -->|all gate jobs pass| MERGE
+  MERGE --> BUILD
+  BUILD --> RESOLVE
+  RESOLVE --> STAGING
+  STAGING -->|environment approval| PROD
+```
+
 ## Deployment Model
 
 Both environments run on OKE and are managed by the
