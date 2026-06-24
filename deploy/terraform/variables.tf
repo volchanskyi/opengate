@@ -81,3 +81,19 @@ variable "oke_availability_domain" {
   type        = string
   default     = "pQib:US-SANJOSE-1-AD-1"
 }
+
+# --- Off-cluster Postgres backups (ADR-035) ----------------------------------
+# Defaults match the live imperatively-created bucket + retention rule so the
+# Phase-B `terraform import` reconciliation plans a no-op.
+
+variable "backup_bucket_name" {
+  description = "Name of the off-cluster Postgres backup bucket."
+  type        = string
+  default     = "opengate-pg-backups"
+}
+
+variable "backup_lifecycle_days" {
+  description = "Retention window in days for objects in the backup bucket — older objects are auto-deleted by the lifecycle rule."
+  type        = number
+  default     = 7
+}

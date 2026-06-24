@@ -23,17 +23,27 @@ deploy/
 ## Terraform Resources
 
 The Terraform configuration currently provisions the OKE substrate, networking,
-and human operator access plane. The resource inventory is the Terraform root
-module plus `networking`, `oke`, and `bastion` modules in
-[`deploy/terraform`](../deploy/terraform/):
+the human operator access plane, and the off-cluster backup substrate. The
+resource inventory is the Terraform root module plus `networking`, `oke`,
+`bastion`, and `backups` modules in [`deploy/terraform`](../deploy/terraform/):
 
 - VCN, route table, public subnets, security list, and OKE NSGs.
 - OKE Basic cluster and node pool.
 - OCI Bastion targeting the OKE worker-node subnet.
+- Postgres backup bucket, its retention lifecycle rule, and the
+  least-privilege lifecycle IAM policy ([`modules/backups`](../deploy/terraform/modules/backups/)).
 - Remote state in OCI Object Storage through Terraform's S3-compatible backend.
 
 The former compute VM is intentionally not instantiated by the root module. The
 `compute` module remains in the tree as a tested recovery artifact.
+
+The backup bucket, lifecycle rule, and lifecycle IAM policy were originally
+created imperatively with the `oci` CLI and are reconciled into Terraform by
+**importing** the live resources, never recreating them — see
+[`modules/backups/README.md`](../deploy/terraform/modules/backups/README.md). The
+write-only pre-authenticated request (PAR) the server uses to push dumps stays a
+runtime credential in the Kubernetes Secret (`BACKUP_PAR_URL`), out of git and
+Terraform state.
 
 ### Provisioning
 
