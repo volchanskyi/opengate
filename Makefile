@@ -115,7 +115,7 @@ lint-deploy:
 
 # Module-invariant assertions for the Terraform config (mock_provider, no OCI creds).
 # Each submodule and the root carry their own tftest suite; the umbrella target runs
-# all three. Requires terraform >= 1.7 for `expect_failures` against variable validation.
+# all of them. Requires terraform >= 1.7 for `expect_failures` against variable validation.
 terraform-test:
 	terraform -chdir=deploy/terraform/modules/networking init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform/modules/networking test
@@ -125,6 +125,8 @@ terraform-test:
 	terraform -chdir=deploy/terraform/modules/bastion test
 	terraform -chdir=deploy/terraform/modules/oke init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform/modules/oke test
+	terraform -chdir=deploy/terraform/modules/backups init -backend=false -input=false >/dev/null
+	terraform -chdir=deploy/terraform/modules/backups test
 	terraform -chdir=deploy/terraform init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform test
 

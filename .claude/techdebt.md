@@ -53,11 +53,15 @@ no-longer-billing follow-ups remain:
    exists (Grafana metric alerts still fire; `/healthz` still serves).
 2. **Cloudflare DNS** (user): retire `status.opengate.cloudisland.net` or CNAME it
    to the SaaS status page.
-3. **IaC drift (minor):** the backup bucket + PAR + lifecycle + the
-   `opengate-os-lifecycle` IAM policy were created via the `oci` CLI (per the chart
-   [`NOTES.txt`](../deploy/helm/opengate/templates/NOTES.txt)), not terraform.
-   Codify the IAM policy + bucket in terraform if/when the backups infra is folded
-   into IaC (the PAR stays a runtime credential, out of git).
+3. **IaC drift — RESOLVED (2026-06-24):** the backup bucket + lifecycle rule +
+   the `opengate-os-lifecycle` IAM policy are codified in
+   [`deploy/terraform/modules/backups`](../deploy/terraform/modules/backups/) with
+   values captured verbatim from live (bucket `NoPublicAccess`, retention 7 DAYS
+   on the `opengate-` prefix, the single least-privilege service statement). Phase B
+   reconciliation is done: the three live resources were `terraform import`ed into
+   remote state and a full `terraform plan` reports **No changes** (no recreate; the
+   backup data is untouched). The PAR stays a runtime credential in the Kubernetes
+   Secret, out of git/state. Import runbook: [`modules/backups/README.md`](../deploy/terraform/modules/backups/README.md).
 
 ## Severity: Low
 

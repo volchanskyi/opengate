@@ -773,7 +773,7 @@ jobs:
       - run: tflint --chdir=deploy/terraform --format=compact
 
       # Module-invariant tests (mock_provider, no OCI creds). Submodules and the
-      # root each carry their own tftest suite; one umbrella target runs all three.
+      # root each carry their own tftest suite; one umbrella target runs all of them.
       # Also runs the output-sensitivity grep check.
       - name: Terraform test (module invariants + sensitivity grep)
         run: make terraform-test

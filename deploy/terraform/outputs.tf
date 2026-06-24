@@ -33,3 +33,16 @@ output "oke_node_pool_id" {
   value       = module.oke.node_pool_id
   sensitive   = true
 }
+
+# --- Off-cluster Postgres backups (ADR-035) ----------------------------------
+
+output "backup_bucket_name" {
+  description = "Name of the off-cluster Postgres backup bucket"
+  value       = module.backups.bucket_name
+}
+
+output "backup_policy_ocid" {
+  description = "OCID of the opengate-os-lifecycle IAM policy that authorizes bucket lifecycle"
+  value       = module.backups.policy_ocid
+  sensitive   = true
+}

@@ -98,6 +98,24 @@ module "oke" {
   ssh_public_key_path    = var.ssh_public_key_path
 }
 
+# Off-cluster Postgres backups (ADR-035). Reconciles the bucket + retention
+# lifecycle + lifecycle IAM policy that were originally created imperatively with
+# the oci CLI. The namespace is resolved live so it is not hard-coded. These live
+# resources are brought under management by `terraform import` (see
+# modules/backups/README.md), never recreated.
+data "oci_objectstorage_namespace" "this" {
+  compartment_id = local.compartment_id
+}
+
+module "backups" {
+  source = "./modules/backups"
+
+  compartment_ocid = local.compartment_id
+  namespace        = data.oci_objectstorage_namespace.this.namespace
+  bucket_name      = var.backup_bucket_name
+  lifecycle_days   = var.backup_lifecycle_days
+}
+
 # Reconcile pre-decomposition state addresses with the new module-prefixed
 # addresses. Without these blocks Terraform would plan to destroy + recreate
 # every resource on the next apply. Data sources do not need `moved` — they

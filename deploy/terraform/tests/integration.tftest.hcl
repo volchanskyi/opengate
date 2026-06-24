@@ -15,6 +15,11 @@ mock_provider "oci" {
       ]
     }
   }
+  mock_data "oci_objectstorage_namespace" {
+    defaults = {
+      namespace = "fakenamespace"
+    }
+  }
 }
 
 variables {
@@ -58,5 +63,17 @@ run "bastion_targets_node_subnet" {
   assert {
     condition     = module.bastion.bastion_name == "opengate-bastion"
     error_message = "Bastion display name drifted — the wrapper script (deploy/scripts/bastion-session.sh) greps for this exact name when prompting the operator for an OCI IAM-grant request."
+  }
+}
+
+# The backup bucket is wired into the root plan with the namespace resolved from
+# the (mocked) oci_objectstorage_namespace data source. Surfaced via the root
+# output so the module-internal resource is assertable from this scope.
+run "backups_bucket_is_wired" {
+  command = apply
+
+  assert {
+    condition     = output.backup_bucket_name == "opengate-pg-backups"
+    error_message = "Root must expose the backup bucket name — drift means the backups module is no longer wired into the root plan."
   }
 }
