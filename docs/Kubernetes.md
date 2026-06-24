@@ -14,26 +14,26 @@ the non-HTTP L4 transports (QUIC, MPS CIRA) bind the node directly via
 ```mermaid
 flowchart TB
   BROWSER["Browser"]
-  AGENT["Agent (managed device)"]
+  AGENT["Agent<br/>(managed device)"]
   AMT["Intel AMT device"]
 
   subgraph OKE["OKE cluster (single node)"]
-    INGRESS["ingress-nginx + cert-manager"]
+    INGRESS["ingress-nginx<br/>+ cert-manager"]
     subgraph NS["opengate namespace"]
-      SERVER["server Deployment + ClusterIP"]
-      PG[("postgres StatefulSet + oci-bv PVC")]
-      BACKUP["postgres-backup CronJob"]
+      SERVER["server<br/>Deployment + ClusterIP"]
+      PG[("postgres<br/>StatefulSet + oci-bv PVC")]
+      BACKUP["postgres-backup<br/>CronJob"]
     end
   end
-  OBJ["OCI Object Storage (pg_dump via write-only PAR)"]
+  OBJ["OCI Object Storage<br/>(pg_dump via<br/>write-only PAR)"]
 
-  BROWSER -->|HTTPS / WSS| INGRESS
-  INGRESS -->|HTTP| SERVER
-  AGENT -->|QUIC hostPort| SERVER
-  AMT -->|CIRA :4433 hostPort| SERVER
+  BROWSER -->|"HTTPS / WSS"| INGRESS
+  INGRESS -->|"HTTP"| SERVER
+  AGENT -->|"QUIC hostPort"| SERVER
+  AMT -->|"CIRA :4433 hostPort"| SERVER
   SERVER --> PG
   BACKUP --> PG
-  BACKUP -->|pg_dump| OBJ
+  BACKUP -->|"pg_dump"| OBJ
 ```
 
 ## Chart

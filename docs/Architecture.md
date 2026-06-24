@@ -13,59 +13,59 @@ OpenGate is a three-component platform for remote device management:
 ## System Context (C4 Level 1)
 
 The L1 view places OpenGate among the people and external systems it interacts
-with. See [docs/README.md](README.md) for the C4 convention and the
-render-fallback rule.
+with. It is drawn as a `flowchart` arranged along the C4 context level — the
+documented fallback (see [docs/README.md](README.md)) because native Mermaid C4
+overlaps its relationship labels on GitHub's renderer. The C4 roles are carried
+in the node labels.
 
 ```mermaid
-C4Context
-  title System Context — OpenGate
-  Person(operator, "Operator", "Manages devices and remote sessions from the browser")
-  System(opengate, "OpenGate", "Remote device management — QUIC control, WebSocket relay, REST API")
-  System_Ext(device, "Managed Device", "Runs the Rust mesh-agent")
-  System_Ext(amt, "Intel AMT Device", "Out-of-band management over CIRA/APF")
-  System_Ext(push, "Web Push Service", "Browser push notifications (VAPID)")
+flowchart TB
+  operator["Person: Operator<br/>(browser)"]
+  opengate["System: OpenGate<br/>Remote device management<br/>QUIC control, WebSocket relay, REST API"]
+  device["External system: Managed Device<br/>runs the Rust mesh-agent"]
+  amt["External system: Intel AMT Device<br/>out-of-band CIRA/APF"]
+  push["External system: Web Push Service<br/>VAPID"]
 
-  Rel(operator, opengate, "Manages devices, opens sessions", "HTTPS / WSS")
-  Rel(opengate, device, "Control + session frames", "QUIC mTLS / WSS")
-  Rel(amt, opengate, "CIRA tunnel", "TLS")
-  Rel(opengate, push, "Sends notifications", "HTTPS")
+  operator -->|"manages devices,<br/>opens sessions<br/>(HTTPS / WSS)"| opengate
+  opengate -->|"control + session frames<br/>(QUIC mTLS / WSS)"| device
+  amt -->|"CIRA tunnel (TLS)"| opengate
+  opengate -->|"notifications (HTTPS)"| push
 ```
 
 ## Container View (C4 Level 2)
 
-The L2 view decomposes OpenGate into its deployable containers, re-expressing the
-component topology along C4 lines.
+The L2 view decomposes OpenGate into its deployable containers (same C4 fallback
+notation; the `Server (Go)` boundary is a subgraph).
 
 ```mermaid
-C4Container
-  title Container View — OpenGate
-  Person(operator, "Operator", "Browser user")
-  System_Ext(amt, "Intel AMT Device", "Out-of-band managed device")
+flowchart TB
+  operator["Person: Operator<br/>(browser)"]
+  amt["External system:<br/>Intel AMT Device"]
 
-  Container(web, "Web UI", "React / TypeScript", "Device management and session UI")
-  Container(agent, "Agent", "Rust", "Runs on managed devices; QUIC control + relay sessions")
+  web["Container: Web UI<br/>React / TypeScript"]
+  agent["Container: Agent<br/>Rust (managed device)"]
 
-  System_Boundary(server, "Server (Go)") {
-    Container(agentapi, "AgentAPI", "Go, QUIC", "Agent control plane: handshake, registration, heartbeat")
-    Container(rest, "REST API", "Go, chi", "Auth and device/group/user management")
-    Container(relay, "WebSocket Relay", "Go", "Browser-to-agent binary frame relay")
-    Container(mps, "MPS", "Go", "Intel AMT CIRA/APF management presence server")
-  }
+  subgraph server["System: Server (Go)"]
+    agentapi["AgentAPI<br/>Go / QUIC"]
+    rest["REST API<br/>Go / chi"]
+    relay["WebSocket Relay<br/>Go"]
+    mps["MPS<br/>Go (AMT CIRA/APF)"]
+  end
 
-  ContainerDb(db, "PostgreSQL", "PostgreSQL 17", "Devices, users, sessions, audit log")
-  Container(monitoring, "Monitoring", "VictoriaMetrics / Grafana", "Metrics and dashboards")
+  db[("PostgreSQL 17<br/>devices, users,<br/>sessions, audit")]
+  monitoring["Container: Monitoring<br/>VictoriaMetrics / Grafana"]
 
-  Rel(operator, web, "Uses", "HTTPS")
-  Rel(web, rest, "API calls", "HTTPS / JSON")
-  Rel(web, relay, "Session frames", "WSS")
-  Rel(agent, agentapi, "Control stream", "QUIC mTLS")
-  Rel(agent, relay, "Session frames", "WSS")
-  Rel(amt, mps, "CIRA tunnel", "TLS :4433")
-  Rel(agentapi, db, "Reads / writes", "SQL")
-  Rel(rest, db, "Reads / writes", "SQL")
-  Rel(relay, db, "Session records", "SQL")
-  Rel(mps, db, "Reads / writes", "SQL")
-  Rel(monitoring, rest, "Scrapes /metrics", "HTTP")
+  operator -->|"HTTPS"| web
+  web -->|"API calls<br/>(HTTPS / JSON)"| rest
+  web -->|"session frames<br/>(WSS)"| relay
+  agent -->|"control stream<br/>(QUIC mTLS)"| agentapi
+  agent -->|"session frames<br/>(WSS)"| relay
+  amt -->|"CIRA :4433 (TLS)"| mps
+  agentapi --> db
+  rest --> db
+  relay --> db
+  mps --> db
+  monitoring -->|"scrapes /metrics"| rest
 ```
 
 ## Architecture Drift Checks
