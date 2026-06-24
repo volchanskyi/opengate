@@ -36,21 +36,27 @@ the boundary linters' job, not auto-extracted graphs.
 
 ## Decision
 
-### 1. Adopt native Mermaid C4, gated by a GitHub render check
+### 1. Adopt the C4 model, gated by a GitHub render check
 
-Architecture-level structure uses native Mermaid C4 blocks — `C4Context` (L1) and
-`C4Container` (L2) in [`docs/Architecture.md`](../Architecture.md), with
-`C4Component`/`C4Dynamic` available but used sparingly. Native C4 keeps one engine
-(Mermaid) and stays reviewable as plain Markdown.
+Architecture-level structure follows the C4 model — a context (L1) and a
+container (L2) view in [`docs/Architecture.md`](../Architecture.md). Native
+Mermaid `C4Context`/`C4Container` is the preferred notation (one engine, plain
+Markdown), with `C4Component`/`C4Dynamic` available but used sparingly.
 
-Native Mermaid C4 is marked experimental and has historically been fragile on
-GitHub's renderer. So the decision carries a **mandatory render-verification
-gate**: every C4 block is confirmed to render as a diagram (not an error box) on
-GitHub's own renderer before it ships. If a block will not render, it **falls
-back** to a plain `flowchart`/`sequenceDiagram` arranged along the same C4 level —
-identical containers and relationships, robust rendering. The current C4Context
-and C4Container blocks were render-verified before landing; no fallback was
-needed. The convention and fallback rule live in [`docs/README.md`](../README.md).
+Native Mermaid C4 is experimental and fragile on GitHub's renderer. So the
+decision carries a **mandatory render-verification gate**: every C4 block is
+confirmed to render **legibly** (labels not overlapping or clipped, inspected at
+full resolution) on GitHub's own renderer before it ships. If it will not, it
+**falls back** to a plain `flowchart`/`sequenceDiagram` arranged along the same C4
+level — identical containers and relationships, robust rendering.
+
+The gate fired: native C4 rendered without an error box but overlapped its
+relationship labels on GitHub (the documented fragility), so the context and
+container views ship as the `flowchart` fallback arranged along the C4 levels,
+with C4 roles carried in the node labels. This is the render-gate-plus-fallback
+design working as intended, not a reversal — native C4 remains the preferred
+notation if a future renderer lays the labels out cleanly. The convention and
+fallback rule live in [`docs/README.md`](../README.md).
 
 ### 2. CI-only Mermaid syntax validation
 

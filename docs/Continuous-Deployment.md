@@ -15,22 +15,22 @@ serialized by the workflow's concurrency configuration.
 
 ```mermaid
 flowchart TB
-  DEV["push to dev (human or Dependabot PR)"]
-  CI["CI gate (ci.yml: lint, test, e2e, sonar, CodeQL)"]
-  MERGE["merge-to-main (auto, after gate)"]
-  BUILD["build-image.yml: multi-arch then GHCR, Cosign, SBOM, Trivy"]
+  DEV["push to dev<br/>(human or Dependabot PR)"]
+  CI["CI gate (ci.yml)<br/>lint, test, e2e,<br/>sonar, CodeQL"]
+  MERGE["merge-to-main<br/>(auto, after gate)"]
+  BUILD["build-image.yml<br/>multi-arch, GHCR push<br/>Cosign, SBOM, Trivy"]
   subgraph CD["cd.yml"]
-    RESOLVE["resolve-tag + cosign verify"]
-    STAGING["deploy-staging-k8s: Helm upgrade + smoke + Playwright"]
-    PROD["deploy-production-k8s: Helm upgrade + smoke"]
+    RESOLVE["resolve-tag<br/>+ cosign verify"]
+    STAGING["deploy-staging-k8s<br/>Helm upgrade,<br/>smoke + Playwright"]
+    PROD["deploy-production-k8s<br/>Helm upgrade + smoke"]
   end
 
   DEV --> CI
-  CI -->|all gate jobs pass| MERGE
+  CI -->|"all gate jobs pass"| MERGE
   MERGE --> BUILD
   BUILD --> RESOLVE
   RESOLVE --> STAGING
-  STAGING -->|environment approval| PROD
+  STAGING -->|"environment approval"| PROD
 ```
 
 ## Deployment Model

@@ -140,12 +140,18 @@ the views follow the [C4 model](https://c4model.com/):
   `sequenceDiagram` remains the default for protocol flows.
 
 **Render-fallback rule (mandatory).** Native Mermaid C4 is marked experimental
-and has historically been fragile on GitHub's renderer. Every C4 block must be
-confirmed to render as a diagram (not an error box) on GitHub before it ships. If
-a C4 block will not render, fall back to a plain `flowchart` (or
-`sequenceDiagram`) arranged along the same C4 level — same containers and
-relationships, robust rendering — and note the fallback where the diagram lives.
-The CI syntax validator is a fast pre-filter; GitHub's renderer is authoritative.
+and is fragile on GitHub's renderer. Every C4 block must be confirmed to render
+**legibly** on GitHub before it ships — not merely free of an error box, but with
+relationship labels that do not overlap nodes or each other and node labels that
+are not clipped (inspect at full resolution, not a thumbnail). If a C4 block will
+not render legibly, fall back to a plain `flowchart` (or `sequenceDiagram`)
+arranged along the same C4 level — same containers and relationships, robust
+rendering — and note the fallback where the diagram lives. The CI syntax
+validator is a fast pre-filter; GitHub's renderer is authoritative.
+
+In practice native C4 overlaps its relationship labels on GitHub, so the
+Architecture context and container views use this `flowchart` fallback today
+(keep node labels short and wrap long ones with `<br/>` so they fit their boxes).
 
 #### Diagram coverage standard
 
@@ -153,8 +159,10 @@ The docs must carry at least these diagrams; each is pinned by
 [`scripts/tests/docs-diagrams.test.sh`](../scripts/tests/docs-diagrams.test.sh)
 so it cannot be dropped silently:
 
-1. **System context** — one `C4Context` (L1) — [Architecture.md](Architecture.md).
-2. **Container topology** — one `C4Container` (L2) — [Architecture.md](Architecture.md).
+1. **System context** — a C4 context (L1) view — [Architecture.md](Architecture.md)
+   (currently the `flowchart` fallback per the render rule above).
+2. **Container topology** — a C4 container (L2) view — [Architecture.md](Architecture.md)
+   (currently the `flowchart` fallback).
 3. **Each cross-component protocol flow** — a `sequenceDiagram` (agent handshake,
    relay) — [Architecture.md](Architecture.md) and
    [Wire-Protocol.md](Wire-Protocol.md).
