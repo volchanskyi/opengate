@@ -33,7 +33,7 @@ jobs:
     # block the scheduled run. This read-only workload uses repository-level OCI
     # credentials and creates only short-lived port-forwards and test pods.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v6
         with:

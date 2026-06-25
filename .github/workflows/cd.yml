@@ -39,7 +39,7 @@ jobs:
       target_digest: ${{ steps.preflight.outputs.target_digest }}
       should_skip_staging: ${{ steps.preflight.outputs.should_skip_staging }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -84,7 +84,7 @@ jobs:
 
       - name: Restore prior staging deploy state
         id: restore-state
-        uses: actions/cache/restore@v5
+        uses: actions/cache/restore@v6
         with:
           path: staging-deploy-state.json
           key: cd-deploy-state-staging-v1-${{ github.run_id }}
@@ -157,7 +157,7 @@ jobs:
       NAMESPACE: opengate-staging
       RELEASE: opengate-staging
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
@@ -250,7 +250,7 @@ jobs:
             > staging-deploy-state.json
 
       - name: Cache staging deploy state
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: staging-deploy-state.json
           key: cd-deploy-state-staging-v1-${{ github.run_id }}
@@ -269,7 +269,7 @@ jobs:
       NAMESPACE: opengate
       RELEASE: opengate
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: OCI + kubeconfig setup
         uses: ./.github/actions/oci-kube-setup
@@ -327,7 +327,7 @@ jobs:
     if: failure()
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: .github/scripts
           sparse-checkout-cone-mode: false
