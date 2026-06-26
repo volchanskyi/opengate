@@ -1,0 +1,57 @@
+name: Fuzz
+
+# Coverage-guided fuzzing of the mesh-protocol wire decoder, as observability.
+# Runs nightly on a bounded budget; never gates merges or deploys. libFuzzer
+# requires a nightly toolchain, so this is kept off the stable critical path —
+# the always-run guard is the stable corpus-replay test
+# (crates/mesh-protocol/tests/decode_corpus_test.rs), which runs in the normal
+# CI Rust test job. A crash here is minimized and committed under
+# agent/fuzz/corpus/decode so the stable replay re-runs it forever.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # nightly 04:00 UTC (after the 03:00 mutation/drift batch)
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Number of libFuzzer iterations
+        required: false
+        default: '5000000'
+
+concurrency:
+  group: fuzz
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  decode:
+    name: Fuzz mesh-protocol decode
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: nightly
+          components: rust-src
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: agent/fuzz
+      - uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2
+        with:
+          tool: cargo-fuzz
+      - name: Run bounded fuzz session
+        working-directory: ${{ github.workspace }}
+        run: make fuzz-rust FUZZ_RUNS=${{ github.event.inputs.runs || '5000000' }}
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: fuzz-decode-artifacts
+          path: agent/fuzz/artifacts/
+          if-no-files-found: ignore

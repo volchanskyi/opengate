@@ -50,6 +50,7 @@ POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:5432/opengate_test?ssl
 |-------|-------|----------|
 | **Unit (Go)** | `testing` + testify | `server/internal/*/` |
 | **Unit (Rust)** | `#[test]` + proptest | `agent/crates/*/` |
+| **Fuzz (Rust)** | cargo-fuzz / libFuzzer (nightly) + stable corpus replay | [`agent/fuzz/`](../agent/fuzz/), [`decode_corpus_test.rs`](../agent/crates/mesh-protocol/tests/decode_corpus_test.rs) |
 | **Integration** | `httptest` + real QUIC + live Postgres | `server/tests/integration/` |
 | **Golden** | Rust generates → Go verifies | `testdata/golden/` |
 | **Web Unit** | Vitest + React Testing Library | `web/src/**/*.test.{ts,tsx}` |
@@ -164,6 +165,24 @@ remains independent.
 
 The full design rationale is in
 [`.claude/plans/pr9-mutation-testing-as-observability.md`](../.claude/plans/archive/pr9-mutation-testing-as-observability.md).
+
+### Fuzzing
+
+The wire decoder is the agent's primary untrusted-input surface, so
+[`Frame::decode`](../agent/crates/mesh-protocol/src/codec.rs) has a coverage-guided
+cargo-fuzz / libFuzzer target ([`agent/fuzz/fuzz_targets/decode.rs`](../agent/fuzz/fuzz_targets/decode.rs))
+that asserts arbitrary bytes never panic. libFuzzer needs a nightly toolchain, so
+the bounded session runs as observability — `make fuzz-rust` locally, and the
+nightly [fuzz.yml workflow](../.github/workflows/fuzz.yml) in CI — never as a
+merge gate.
+
+The always-run guard on stable is
+[`decode_corpus_test.rs`](../agent/crates/mesh-protocol/tests/decode_corpus_test.rs):
+it replays every seed in [`agent/fuzz/corpus/decode/`](../agent/fuzz/corpus/decode/)
+(crafted edge cases per decode branch, a real encoded frame, plus any minimized
+crash) through the decoder under plain `cargo test`. A crash found by the nightly
+fuzzer is minimized and committed back into that corpus, so the stable replay
+re-runs it forever.
 
 ## Frontend Performance
 

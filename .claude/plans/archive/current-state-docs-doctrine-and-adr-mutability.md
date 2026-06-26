@@ -1,14 +1,14 @@
 # Current-State Docs Doctrine + ADR Mutability Flip
 
-**Status:** Complete; retained as the parent index for the archived micro-plans.
+**Status:** Complete and archived. Was the parent index for the now-archived DD-A…DD-E micro-plans.
 Execution order was **DD-A → DD-B → DD-INV → DD-C ∥ DD-D → DD-E**:
 
-- [`docs-doctrine-a-governance-flip.md`](archive/docs-doctrine-a-governance-flip.md) — **done** (archived; ADR consolidation folded in); teardown [TD6](archive/dormant-scale-out-td6-docs-adrs.md) is complete
-- [`docs-doctrine-b-link-checker.md`](archive/docs-doctrine-b-link-checker.md) — link-enforcement hook — **done** (archived)
-- [`docs-doctrine-inv-inventory-pass.md`](archive/docs-doctrine-inv-inventory-pass.md) — enumerate scope; defines "done" for C/D — **done** (archived)
-- [`docs-doctrine-c-docs-adr-cleanup.md`](archive/docs-doctrine-c-docs-adr-cleanup.md) — docs + ADR-body cleanup (**coordinate with teardown TD6**) — **done** (archived)
-- [`docs-doctrine-d-code-comments.md`](archive/docs-doctrine-d-code-comments.md) — ~65 source files — **done** (archived)
-- [`docs-doctrine-e-diagrams-as-code.md`](archive/docs-doctrine-e-diagrams-as-code.md) — **done** (archived)
+- [`docs-doctrine-a-governance-flip.md`](docs-doctrine-a-governance-flip.md) — **done** (archived; ADR consolidation folded in); teardown [TD6](dormant-scale-out-td6-docs-adrs.md) is complete
+- [`docs-doctrine-b-link-checker.md`](docs-doctrine-b-link-checker.md) — link-enforcement hook — **done** (archived)
+- [`docs-doctrine-inv-inventory-pass.md`](docs-doctrine-inv-inventory-pass.md) — enumerate scope; defines "done" for C/D — **done** (archived)
+- [`docs-doctrine-c-docs-adr-cleanup.md`](docs-doctrine-c-docs-adr-cleanup.md) — docs + ADR-body cleanup (**coordinate with teardown TD6**) — **done** (archived)
+- [`docs-doctrine-d-code-comments.md`](docs-doctrine-d-code-comments.md) — ~65 source files — **done** (archived)
+- [`docs-doctrine-e-diagrams-as-code.md`](docs-doctrine-e-diagrams-as-code.md) — **done** (archived)
 
 **Re-evaluation corrections (verified counts/drift):** (1) **M4's ~264
 `ADR-[0-9]|plans/` hits are mostly working links the doctrine wants to KEEP** — it
@@ -28,7 +28,7 @@ short-lived setup tasks, speculative-future notes, "negative-state" descriptions
 make every file/spec reference a working relative link, and fix rotted plan links.
 Two governance decisions were taken explicitly:
 
-- **ADRs become MUTABLE** (supersede [ADR-013](../../docs/adr/ADR-013-docs-in-repo-and-immutable-adrs.md)'s
+- **ADRs become MUTABLE** (supersede [ADR-013](../../../docs/adr/ADR-013-docs-in-repo-and-immutable-adrs.md)'s
   immutability clause) so ADRs can be corrected in place against current state.
 - **Success = content quality, not line count.** Net line delta is an *outcome*;
   removing genuine noise and adding correct clickable links both count as wins.
@@ -36,7 +36,7 @@ Two governance decisions were taken explicitly:
   would reward deleting durable rationale, which fights the TDD/coverage/ADR gates.)
 
 All new format rules must be **hook-enforced** (deterministic, no-bypass, <1.5s,
-zero-network) to match the existing [hooks](../../.claude/hooks/) posture.
+zero-network) to match the existing [hooks](../../../.claude/hooks/) posture.
 
 This is large (governance + hooks + every ADR + many docs + ~65 source files), so
 it executes as an **ordered sequence of commits**, each passing the full gauntlet.
@@ -76,23 +76,23 @@ One coherent commit; after it, ADRs are editable and the link rule changes.
   gates) — the real success signal is the Workstream-B link-checker + the
   inventory-hit greps trending to ~0; **(4)** plan links allowed **only** to
   `plans/archive/…`.
-- **Hook** [`pretooluse-write-guard.sh`](../../.claude/hooks/pretooluse-write-guard.sh):
+- **Hook** [`pretooluse-write-guard.sh`](../../../.claude/hooks/pretooluse-write-guard.sh):
   remove the `adr-immutable` block (lines ~35-40); change `adr-plan-link` from
   "block all plan links in ADRs" to "block links to **non-archived** plans"
   (allow `](…/plans/archive/….md)`, block `](…/plans/<other>….md)`) — this
   deterministically enforces directive #5 for every Write/Edit, ADR or doc.
-- **Hook tests** [`scripts/tests/hooks.test.sh`](../../scripts/tests/hooks.test.sh):
+- **Hook tests** [`scripts/tests/hooks.test.sh`](../../../scripts/tests/hooks.test.sh):
   flip the ADR-immutability cases to assert edits are now *allowed*; add cases for
   the archived-vs-active plan-link distinction.
 - **Rules/index + canonical docs**: rewrite the ADR sections of
-  [`plans-and-adrs.md`](../../.claude/rules/plans-and-adrs.md) and
-  [`editing-and-scope.md`](../../.claude/rules/editing-and-scope.md); **rewrite
-  [`docs/README.md`](../../docs/README.md) §2 "ADRs are immutable"** to the new
+  [`plans-and-adrs.md`](../../../.claude/rules/plans-and-adrs.md) and
+  [`editing-and-scope.md`](../../../.claude/rules/editing-and-scope.md); **rewrite
+  [`docs/README.md`](../../../docs/README.md) §2 "ADRs are immutable"** to the new
   regime (per-file ADRs 013+ are mutable + cross-checked; supersession still used for
   genuine decision *changes*; the 001–012 historical log **stays frozen** — keep that
-  statement and the directory-layout note); update [`CLAUDE.md`](../../CLAUDE.md) row
+  statement and the directory-layout note); update [`CLAUDE.md`](../../../CLAUDE.md) row
   + the wiki-audit/precommit skills that cite immutability; add the ADR-036 index row
-  to [`decisions.md`](../../.claude/decisions.md).
+  to [`decisions.md`](../../../.claude/decisions.md).
 
 ## Workstream B — deterministic link enforcement (Go-native, zero-network)
 
@@ -103,7 +103,7 @@ broken anchors" as a hook (the brainstorm's Vector-E conclusion).
   for each `](relative/path…)` verify
   the target file (and `#Lnn`/anchor) exists; flag links into non-archived
   `.claude/plans/`. Internal-only, no network. Wire into the precommit gauntlet
-  ([`scripts/precommit-gauntlet.sh`](../../scripts/precommit-gauntlet.sh)) and a
+  ([`scripts/precommit-gauntlet.sh`](../../../scripts/precommit-gauntlet.sh)) and a
   `PreToolUse` doc-write hook. TDD: fixtures for ok/broken/active-plan-link.
 
 ## Inventory pass (do **before** C and D — defines "done")
@@ -150,15 +150,15 @@ batches / worked examples, **not** the limit.
   Inventory).
 - **Broken plan links** — fix ADR-023 lines 17 & 136: repoint to
   `plans/archive/modular-monolith-evaluation.md` (now editable post-A), or fold the
-  pointer into [`decisions.md`](../../.claude/decisions.md).
+  pointer into [`decisions.md`](../../../.claude/decisions.md).
 - **Testing.md**: link the bare-text targets — `auth.spec.ts`,
   `security-permissions.spec.ts`, `ErrorBoundary.test.tsx`, `api-baseline.js`
   (resolve real paths via `find`), drop `(PR 9)` from the heading, replace
-  "at 03:00 UTC" with the [`mutation.yml`](../../.github/workflows/mutation.yml) link.
+  "at 03:00 UTC" with the [`mutation.yml`](../../../.github/workflows/mutation.yml) link.
 - **Negative-state purge**: remove the "no SARIF export…" sentence in
-  [`CI-Pipeline.md`](../../docs/CI-Pipeline.md):158. (The analogous sentence in the
+  [`CI-Pipeline.md`](../../../docs/CI-Pipeline.md):158. (The analogous sentence in the
   frozen `Architecture-Decision-Records.md` is **left as-is** — that file is frozen.)
-- **Schedule purge**: [`Infrastructure.md`](../../docs/Infrastructure.md):168
+- **Schedule purge**: [`Infrastructure.md`](../../../docs/Infrastructure.md):168
   "nightly at 03:00 UTC" → link `terraform-drift.yml`, drop the time.
 - **decisions.md / phases.md**: strip chronological prose + PR/phase logistics from
   free-text cells; keep the structural table + the decision substance. Add
@@ -170,10 +170,10 @@ batches / worked examples, **not** the limit.
 Apply the reconciliation rule above to **every** file in the inventory (not just the
 seed examples below). Batch by module/language so each commit is reviewable and keeps
 the gauntlet green. Seed examples:
-[`server/internal/usecase/session.go`](../../server/internal/usecase/session.go),
-[`server/internal/amt/repository.go`](../../server/internal/amt/repository.go),
-[`server/internal/db/models.go`](../../server/internal/db/models.go),
-[`server/internal/audit/handlers_test.go`](../../server/internal/audit/handlers_test.go).
+[`server/internal/usecase/session.go`](../../../server/internal/usecase/session.go),
+[`server/internal/amt/repository.go`](../../../server/internal/amt/repository.go),
+[`server/internal/db/models.go`](../../../server/internal/db/models.go),
+[`server/internal/audit/handlers_test.go`](../../../server/internal/audit/handlers_test.go).
 Find the set: `grep -rIlnE '(//|/\*|#).*\b(ADR-[0-9]|modular-monolith|Phase 1[0-9]|PR-[A-E])' server agent web/src`.
 
 Gate handling: comment edits to `*.go/.rs/.ts` are **source edits** → satisfy the
@@ -187,7 +187,7 @@ Watch PMAT-TDG: rewrite (don't delete) exported-symbol doc comments.
   would be a large positive byte/line delta and a drift surface). D2→SVG only earns
   its keep if rendering off-GitHub, which we don't.
 - **Drift:** do **not** auto-extract diagrams into docs (AST sprawl + drift). Reuse
-  the boundary tools already enforced ([`tooling.md`](../../.claude/rules/tooling.md)):
+  the boundary tools already enforced ([`tooling.md`](../../../.claude/rules/tooling.md)):
   `go-arch-lint`, `dependency-cruiser` (boundary-scoped), `cargo-modules`
   (metadata-only — *not* `cargo-expand`, which blows the 1.5s budget). Hand-curate a
   few high-level Mermaid diagrams; let the linters catch structural drift.
@@ -206,7 +206,7 @@ Watch PMAT-TDG: rewrite (don't delete) exported-symbol doc comments.
    then Testing.md, then docs schedule/negative-state purge, then ADR 013+ bodies,
    then decisions.md/phases.md). The frozen 001–012 log is excluded.
 5. **D** code comments, batched by module, over the full inventory.
-6. Update [`techdebt.md`](../../.claude/techdebt.md)/[`phases.md`](../../.claude/phases.md);
+6. Update [`techdebt.md`](../../../.claude/techdebt.md)/[`phases.md`](../../../.claude/phases.md);
    archive this plan.
 
 ## Risks

@@ -104,23 +104,23 @@ cancelled and that `mutation_score{language="go"}` reaches VictoriaMetrics; then
 `timeout-coefficient: 15` in [`server/.gremlins.yaml`](../server/.gremlins.yaml)
 could drop for a pure shard via a per-shard `--config` override.
 
-### Test-technique gaps — Rust fuzz targets, web property/fuzz
+### Test-technique gaps — web property/fuzz
 
 Property/fuzz testing now spans Go (the protocol fuzz
 [`codec_fuzz_test.go`](../server/internal/protocol/codec_fuzz_test.go) plus
 `pgregory.net/rapid` property tests over the APF parsers, model→API converters,
-pagination math, and relay framing) and Rust `proptest`
-([`property_test.rs`](../agent/crates/mesh-protocol/tests/property_test.rs)). Two
-gaps remain:
+pagination math, and relay framing) and Rust — `proptest`
+([`property_test.rs`](../agent/crates/mesh-protocol/tests/property_test.rs)) plus a
+`cargo-fuzz` libFuzzer target over `Frame::decode`
+([`agent/fuzz/fuzz_targets/decode.rs`](../agent/fuzz/fuzz_targets/decode.rs)),
+gated to a bounded nightly job with the stable corpus replay
+([`decode_corpus_test.rs`](../agent/crates/mesh-protocol/tests/decode_corpus_test.rs))
+as the always-run guard. One gap remains:
 
-1. **Rust dedicated fuzzing** — no `cargo-fuzz`/libfuzzer fuzz targets
-   (`libfuzzer-sys` appears only transitively via webrtc-rs benches per
-   [`agent/deny.toml`](../agent/deny.toml)). The agent's decoders have `proptest`
-   but no continuous fuzz corpus.
-2. **Web property/fuzz** — no `fast-check` or fuzzing for the TS client
+1. **Web property/fuzz** — no `fast-check` or fuzzing for the TS client
    (form validation, Zustand reducers, API-response handling).
 
 **Pay-down trigger:** expand opportunistically with the next substantial
-test/hardening commit — a `cargo-fuzz` target for `mesh-protocol` decode, and
-`fast-check` for the web store/validation logic. Prioritize parsing/boundary
-surfaces (highest defect density), where the existing fuzz/proptest already focus.
+test/hardening commit — `fast-check` for the web store/validation logic.
+Prioritize parsing/boundary surfaces (highest defect density), where the existing
+fuzz/proptest already focus.
