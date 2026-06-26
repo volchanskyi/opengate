@@ -1,15 +1,15 @@
 # Micro-Plan: Web Property-Based Testing (`fast-check`)
 
 **Parent:** `td-property-fuzz-testing-expansion.md` (track 3 of 3). **Register:**
-[techdebt.md](../techdebt.md) — "Test-technique gaps". **Branch:** `dev`. **Owner:** web.
+[techdebt.md](../../techdebt.md) — "Test-technique gaps". **Branch:** `dev`. **Owner:** web.
 
 ## 1. Goal
 
 Add `fast-check` property tests (run under vitest) to the highest-value web surfaces:
 form validation, Zustand reducers, and API-response handling — complementing the
 existing example-based store tests
-([connection-store.test.ts](../../web/src/features/session/state/connection-store.test.ts),
-[auth-store.test.ts](../../web/src/state/auth-store.test.ts), …).
+([connection-store.test.ts](../../../web/src/features/session/state/connection-store.test.ts),
+[auth-store.test.ts](../../../web/src/state/auth-store.test.ts), …).
 
 ## 2. Scope (prioritised)
 
@@ -29,7 +29,7 @@ existing example-based store tests
 | `web/package.json` / `package-lock.json` | add `fast-check` (devDependency). |
 | `web/src/**/<surface>.property.test.ts` | **New** per prioritised surface; co-locate with the existing `*.test.ts` (validators near their module; reducers near each store). |
 
-## 4. Determinism (mandatory — [tests-determinism.md](../rules/tests-determinism.md))
+## 4. Determinism (mandatory — [tests-determinism.md](../../rules/tests-determinism.md))
 
 - `fc.assert(fc.property(...), { numRuns: <fixed>, seed: <fixed> })` — pinned runs +
   seed so failures reproduce; no `.skip`/`.only`.

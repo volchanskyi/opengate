@@ -104,23 +104,24 @@ cancelled and that `mutation_score{language="go"}` reaches VictoriaMetrics; then
 `timeout-coefficient: 15` in [`server/.gremlins.yaml`](../server/.gremlins.yaml)
 could drop for a pure shard via a per-shard `--config` override.
 
-### Test-technique gaps — web property/fuzz
+### Test-technique gaps — RESOLVED
 
-Property/fuzz testing now spans Go (the protocol fuzz
+Property/fuzz testing now spans all three languages. Go: the protocol fuzz
 [`codec_fuzz_test.go`](../server/internal/protocol/codec_fuzz_test.go) plus
 `pgregory.net/rapid` property tests over the APF parsers, model→API converters,
-pagination math, and relay framing) and Rust — `proptest`
+pagination math, and relay framing. Rust: `proptest`
 ([`property_test.rs`](../agent/crates/mesh-protocol/tests/property_test.rs)) plus a
 `cargo-fuzz` libFuzzer target over `Frame::decode`
 ([`agent/fuzz/fuzz_targets/decode.rs`](../agent/fuzz/fuzz_targets/decode.rs)),
 gated to a bounded nightly job with the stable corpus replay
 ([`decode_corpus_test.rs`](../agent/crates/mesh-protocol/tests/decode_corpus_test.rs))
-as the always-run guard. One gap remains:
-
-1. **Web property/fuzz** — no `fast-check` or fuzzing for the TS client
-   (form validation, Zustand reducers, API-response handling).
-
-**Pay-down trigger:** expand opportunistically with the next substantial
-test/hardening commit — `fast-check` for the web store/validation logic.
-Prioritize parsing/boundary surfaces (highest defect density), where the existing
-fuzz/proptest already focus.
+as the always-run guard. Web: `fast-check` property suites over the highest-value
+TS surfaces — token-status validation
+([`token-status.property.test.ts`](../web/src/lib/token-status.property.test.ts)),
+the `file-store` reducer over arbitrary action sequences
+([`file-store.property.test.ts`](../web/src/features/file-manager/state/file-store.property.test.ts)),
+and the wire codec parser/roundtrip
+([`codec.property.test.ts`](../web/src/lib/protocol/codec.property.test.ts)). The
+web suite surfaced a fail-open defect (an unparseable token expiry was treated as
+not-expired) which was fixed in [`token-status.ts`](../web/src/lib/token-status.ts).
+All suites run deterministically under vitest (pinned `numRuns` + `seed`).
