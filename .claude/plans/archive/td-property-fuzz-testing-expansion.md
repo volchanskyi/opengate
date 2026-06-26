@@ -1,6 +1,6 @@
 # Index: Property-Based & Fuzz Testing Expansion (3 tracks)
 
-**Register entry:** [techdebt.md](../techdebt.md) — "Test-technique gaps — Go property
+**Register entry:** [techdebt.md](../../techdebt.md) — "Test-technique gaps — Go property
 libs, Rust fuzz targets, web property/fuzz." **Master:** `techdebt-paydown-master.md`.
 **Branch:** `dev`. **This file is now an index** — implement from the three per-language
 micro-plans below (each is independently shippable; ship one track per PR).
@@ -8,8 +8,8 @@ micro-plans below (each is independently shippable; ship one track per PR).
 ## 1. Problem
 
 Property/fuzz testing exists only on the wire protocol, split by language: Go fuzzing
-([codec_fuzz_test.go](../../server/internal/protocol/codec_fuzz_test.go)) and Rust
-`proptest` ([property_test.rs](../../agent/crates/mesh-protocol/tests/property_test.rs)).
+([codec_fuzz_test.go](../../../server/internal/protocol/codec_fuzz_test.go)) and Rust
+`proptest` ([property_test.rs](../../../agent/crates/mesh-protocol/tests/property_test.rs)).
 Three independent gaps remain, each its own micro-plan.
 
 ## 2. Track breakdown
@@ -22,7 +22,7 @@ Three independent gaps remain, each its own micro-plan.
 
 ## 3. Shared principle — determinism (binds all three)
 
-Per [tests-determinism.md](../rules/tests-determinism.md): every added test **runs
+Per [tests-determinism.md](../../rules/tests-determinism.md): every added test **runs
 deterministically in the gauntlet** — bounded iterations + pinned seed; no
 skip/build-tag/focus gating; the Rust libFuzzer target runs **bounded** (nightly) while
 a **stable corpus-replay** test is the always-run guard. Counterexamples/crash inputs
