@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-06-24. -->
+<!-- Last reviewed: 2026-06-26. -->
 
 ## Severity: High
 
@@ -74,18 +74,6 @@ TypeScript 6.x.
 **Pay-down trigger:** revisit once `openapi-typescript` ships a release supporting
 TypeScript 6.x (`npm view openapi-typescript versions` / its peerDependencies
 range), then bump both together.
-
-### Docker Hub authenticated fallback awaits workflow verification
-
-The shared
-[`docker-hub-mirror` action](../.github/actions/docker-hub-mirror/action.yml)
-supports authenticated direct Docker Hub fallback, and every protected workflow
-passes the optional repository credentials (`DOCKERHUB_USERNAME` /
-`DOCKERHUB_TOKEN`); the login intentionally skips when credentials are
-unavailable so forked pull requests stay runnable.
-
-**Pay-down trigger:** confirm a protected workflow logs the successful
-authenticated-login message without exposing either value.
 
 ### Go mutation run — sharded; nightly confirmation pending
 
