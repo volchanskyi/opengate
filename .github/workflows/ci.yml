@@ -70,7 +70,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@ace6ebe54a6a0c86dfb5f7764b17f793b6925bc3 # v2
+      - uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2
         with:
           tool: cargo-nextest
       - name: Tests
@@ -104,7 +104,7 @@ jobs:
           path: testdata/golden/
           retention-days: 20
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@ace6ebe54a6a0c86dfb5f7764b17f793b6925bc3 # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov
       - name: Generate Rust coverage
