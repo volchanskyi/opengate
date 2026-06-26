@@ -1,0 +1,28 @@
+# cargo-fuzz crate for mesh-protocol. Standalone workspace (the `[workspace]`
+# table below) so libFuzzer's nightly-only build never touches the stable agent
+# workspace: `cargo build`/`clippy --workspace` from `agent/` ignore it, and the
+# always-run guard is the stable replay in
+# crates/mesh-protocol/tests/decode_corpus_test.rs.
+[package]
+name = "mesh-protocol-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.mesh-protocol]
+path = "../crates/mesh-protocol"
+
+[[bin]]
+name = "decode"
+path = "fuzz_targets/decode.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

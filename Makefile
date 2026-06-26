@@ -1,5 +1,5 @@
 .PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick \
-	mutate mutate-rust mutate-go mutate-web taint-go taint-web pentest-review dead-code \
+	mutate mutate-rust mutate-go mutate-web fuzz-rust taint-go taint-web pentest-review dead-code \
 	terraform-test terraform-drift \
 	secrets-scan iac-policy iac-policy-fix iac-policy-custom lint-dockerfile lint-k8s \
 	test-parse-tfplan shell-check shell-fmt shell-test shell-quality \
@@ -355,6 +355,16 @@ mutate-go:
 
 mutate-web:
 	cd web && npx stryker run
+
+# Coverage-guided fuzzing — libFuzzer over mesh-protocol's wire decoder.
+# Bounded (FUZZ_RUNS iterations) so it terminates; libFuzzer needs nightly.
+# The always-run regression is the stable corpus replay in
+# crates/mesh-protocol/tests/decode_corpus_test.rs (runs in plain `cargo test`).
+FUZZ_RUNS ?= 100000
+fuzz-rust:
+	@command -v cargo-fuzz >/dev/null 2>&1 || { echo "ERROR: cargo-fuzz not found. Install with: cargo install cargo-fuzz"; exit 1; }
+	@rustup toolchain list | grep -q '^nightly' || { echo "ERROR: nightly toolchain not found. Install with: rustup toolchain install nightly"; exit 1; }
+	cd agent/fuzz && cargo +nightly fuzz run decode -- -runs=$(FUZZ_RUNS)
 
 # Static taint linting — catches data-flow paths from sources to sinks.
 taint-go:

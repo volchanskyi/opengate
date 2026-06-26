@@ -3,11 +3,11 @@
 **Type:** Master plan. To be **broken into micro-plans** for implementing engineers
 (per the review workflow). Do **not** implement directly from this file.
 **Status:** Complete — W1 through W5 landed; final decision captured in
-[`ADR-037`](../../docs/adr/ADR-037-client-first-fast-path-reconnect.md).
-**Supersedes / retires:** [`archive/quic-stream-ownership-fix.md`](archive/quic-stream-ownership-fix.md)
+[`ADR-037`](../../../docs/adr/ADR-037-client-first-fast-path-reconnect.md).
+**Supersedes / retires:** [`quic-stream-ownership-fix.md`](quic-stream-ownership-fix.md)
 (the old "wait for a quic-go fix, then revert" plan — disproven; see §2).
 **Readiness context:** this is the storm-defense prerequisite tracked in
-[`docs/Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md) §4.
+[`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) §4.
 
 ---
 
@@ -28,14 +28,14 @@ a deadlock misdiagnosed as a quic-go mTLS bug; ADR-037 supersedes that rationale
 | The deadlock is **not** mTLS-specific and **not** a quic-go bug | A 4-cell TLS/mTLS matrix written against the repo's own **quic-go v0.60.0**: "opener opens but doesn't write → peer `AcceptStream` times out" reproduced **identically** with server-only TLS *and* mutual TLS; writing one byte first fixed it; server-opens-writes-first (current design) works in both. It is RFC 9000 §2 stream-discovery. |
 | Server-opens was a **workaround**, not a design choice | The original Architecture Design (§2.1/§2.2/§3.3) has the **agent connect outbound and maintain the streams**, with the fast path explicitly **agent-initiated** (*"Agent sends [0x14]"*). The design is internally inconsistent (it also draws the full handshake server-message-first), which is the latent flaw the workaround mis-resolved. |
 | The misdiagnosis is original to Phase 4 | Commit `97cb935` (initial Phase 4) already shipped `OpenStreamSync` with the comment *"With mTLS, AcceptStream blocks until the client writes data"*. The server **never** called `AcceptStream` as code in committed history. |
-| The `0x14` fast path was never built | `MsgSkipAuth = 0x14` is a constant; `HandshakeResult.Skipped` is hardcoded `false` ([handshaker.go](../../server/internal/agentapi/handshaker.go)); no `git` history ever added `0x14` handling in `agentapi`. |
+| The `0x14` fast path was never built | `MsgSkipAuth = 0x14` is a constant; `HandshakeResult.Skipped` is hardcoded `false` ([handshaker.go](../../../server/internal/agentapi/handshaker.go)); no `git` history ever added `0x14` handling in `agentapi`. |
 | Changing this is **safe now** | Live prod (verified 2026-06-11): **1 node, 1 server replica, 1 connected agent**. Zero current operational impact; this is correctness/readiness debt. |
 
 Current code anchors: client-first branch
-[`handshaker.go`](../../server/internal/agentapi/handshaker.go), bounded
-`AcceptStream` [`server.go`](../../server/internal/agentapi/server.go), agent
-`open_bi` + write-first [`main.rs`](../../agent/crates/mesh-agent/src/main.rs), and
-mTLS `RequireAndVerifyClientCert` [`cert.go`](../../server/internal/cert/cert.go).
+[`handshaker.go`](../../../server/internal/agentapi/handshaker.go), bounded
+`AcceptStream` [`server.go`](../../../server/internal/agentapi/server.go), agent
+`open_bi` + write-first [`main.rs`](../../../agent/crates/mesh-agent/src/main.rs), and
+mTLS `RequireAndVerifyClientCert` [`cert.go`](../../../server/internal/cert/cert.go).
 
 ---
 
@@ -88,7 +88,7 @@ Fast path (reconnect):
 
 This master plan exists to make that conversation possible. The fast path is the
 necessary (not sufficient) prerequisite for surviving Large-tier reconnection
-storms — see [`docs/Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md) §4/§8.
+storms — see [`docs/Multiscale-Readiness.md`](../../../docs/Multiscale-Readiness.md) §4/§8.
 
 **Implementation reality (verified — settles the design question above):** the
 handshake today is **mTLS + a single `0x10`/`0x11` nonce/cert-hash exchange, with no
@@ -109,7 +109,7 @@ deferred because early data is replayable.
 ## 5. Workstreams (basis for the micro-plan breakdown)
 
 - **W1 — Client-first handshake (Go + Rust + goldens). Done.** Reorder
-  [handshaker.go](../../server/internal/agentapi/handshaker.go) to read AgentHello
+  [handshaker.go](../../../server/internal/agentapi/handshaker.go) to read AgentHello
   first then write ServerHello; switch the server to **accept** the
   control stream (replace `OpenStreamSync`/`openControlStream` with `AcceptStream`);
   switch the Rust agent to `open_bi` + write-first (replace `accept_bi`);
@@ -126,8 +126,8 @@ deferred because early data is replayable.
 - **W4 — ADR + decommission the misdiagnosis. Done.** Write a **new ADR** documenting
   client-first handshake + the storm-defense rationale, **superseding ADR-005's
   rationale** (the "quic-go bug" claim). Per the ADR-immutability rule, do **not**
-  edit the frozen [`Architecture-Decision-Records.md`](../../docs/Architecture-Decision-Records.md)
-  in place — supersede. Add a [`decisions.md`](../../.claude/decisions.md) row.
+  edit the frozen [`Architecture-Decision-Records.md`](../../../docs/Architecture-Decision-Records.md)
+  in place — supersede. Add a [`decisions.md`](../../decisions.md) row.
 - **W5 — Remove the workaround + harden. Done.** Delete the server-opens code path and
   the "(stream ownership workaround)" / "mTLS bug" comments; add a **bounded
   context** around the stream open/accept (the one valid idea from the retired
@@ -141,9 +141,14 @@ items, gated separately.
 
 ## 6. Sequencing & gating
 
-Completed order: `W1` → `W2` → `W3` → `W4` + `W5`. The remaining operational gate
-is the coordinated production server + signed-agent rollout tracked in
-[`techdebt.md`](../techdebt.md).
+Completed order: `W1` → `W2` → `W3` → `W4` + `W5`. The coordinated production
+server + signed-agent rollout is **complete and verified live (2026-06-18)**: the
+prod server (image `sha-c738b45`) runs the client-first `AcceptStream` path; the
+production agent auto-updated to 0.45.0 and reconnected across the cutover via the
+`0x14` fast path (`fast_path=true`) with no manual re-enrollment, and a subsequent
+fresh enrollment is connected and stable (`agents_connected=1`) on the cold-start
+full handshake (`fast_path=false`). The W1–W5 cutover-risk note has been cleared
+from [`techdebt.md`](../../techdebt.md).
 
 ---
 
@@ -156,8 +161,9 @@ is the coordinated production server + signed-agent rollout tracked in
       **skips** the ServerHello round-trip (assert `HandshakeResult.Skipped == true`),
       and a stale/invalid hash falls back to the full handshake.
 - [x] Cross-language golden tests regenerated and green (Rust ↔ Go).
-- [ ] Rollout handled (coordinated update or dual-mode) — the production agent
-      reconnects across the cutover without manual re-enrollment.
+- [x] Rollout handled (coordinated update) — the auto-updated 0.45.0 agent
+      reconnected across the cutover via the `0x14` fast path with no manual
+      re-enrollment; verified live 2026-06-18 (`agents_connected=1`).
 - [x] New ADR merged; ADR-005 rationale superseded (not edited in place);
       `decisions.md` row added.
 - [x] Server-opens code + "workaround"/"mTLS bug" comments removed; bounded timeout
@@ -167,7 +173,7 @@ is the coordinated production server + signed-agent rollout tracked in
 
 ## 8. Execution workflow (enforced — no bypass)
 
-Per [`CLAUDE.md`](../../CLAUDE.md): work on `dev`; **TDD** (failing handshake test
+Per [`CLAUDE.md`](../../../CLAUDE.md): work on `dev`; **TDD** (failing handshake test
 before the source reorder — and the wire-protocol change *needs* tests first);
 `/precommit` before every commit; `/refactor` after; author = Ivan, no
 `Co-Authored-By`. The golden-file regeneration is a generator step (`make golden`),
