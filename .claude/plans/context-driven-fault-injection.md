@@ -1,13 +1,39 @@
 # Context-Driven Fault Injection and Kubernetes Resilience Testing
 
-**Type:** Master plan. **Plan-only** — to be broken into micro-plans (FI1–FI6)
-per the master→micro-plan flow.
-**Status:** **Blocked on teardown.** Do **not** break into micro-plans yet.
-[`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md) is complete
-first, then this plan is **re-evaluated against the post-teardown tree** — the
-fault-point inventory (§6), scenario catalog (§7), and file/path references all
-depend on the deleted packages, the slimmed `SessionRegistry` port, and the
-final relay shape. Treat everything below as the pre-re-evaluation draft.
+**Type:** Master plan, **FI-lite scope**. To be broken into micro-plans
+(FI0–FI6) per the master→micro-plan flow.
+**Status:** **Ready to break into micro-plans.** The hard prerequisite —
+[`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md) — is
+**complete** (phases.md, "Dormant Multi-Replica Teardown"): one server replica,
+local relay pairing, the slim in-process `SessionRegistry`, no
+Redis/Sentinel/peer-proxy/KEDA/PDB/multi-node L4. This plan is written against
+that post-teardown tree.
+
+## Review resolution
+
+A post-teardown review cross-checked every fault point and finding against the
+source tree. All six findings were confirmed and are folded in here (the
+standalone review document has been removed now that its feedback is captured):
+
+1. **Stale gate** — fixed: header de-staled to the completed teardown.
+2. **`agent.control-write` is not a wrap-ready port** — confirmed
+   ([api.go](../../server/internal/api/api.go) returns concrete
+   `*agentapi.AgentConn`; handlers call concrete `Send*`). An **`AgentControl`
+   interface seam is now in scope** as workstream **FI0**, sequenced before FI2.
+3. **Smoke gate too disruptive** — resolved: promotion gates **only**
+   deterministic bounded app faults; pod-delete and bad-rollout produce evidence
+   on a **schedule** and gate promotion only after clean-run history.
+4. **Security contract** — resolved via **Model C activation** (Decision 5):
+   header-driven selection reachable **only on a cluster-internal path**
+   (kubectl port-forward), never the public staging Ingress; the token is
+   defence-in-depth, not the sole barrier.
+5. **Observability prerequisite** — the High-severity in-cluster-scrape techdebt
+   is now cleared (techdebt.md, "Severity: High — _None currently._"); still
+   **verify `up`/node-exporter/`/metrics`/ingress-log queries live** before any
+   infra scenario relies on them as acceptance evidence.
+6. **Vague SLOs** — FI1 turns every scenario into a falsifiable hypothesis with
+   an exact threshold; the pod-replacement SLO is fixed at **120 s** (Decision
+   8 / §14).
 
 ## 0. Decisions that shaped this plan
 
@@ -34,6 +60,31 @@ Settled with the user before drafting (do not re-litigate without the user):
    panic recovery, repository timeout, pod-kill recovery, bad-rollout rollback),
    **and** the methodology is built to be clean, documented, deterministic, and
    evidence-producing (a portfolio-grade resilience-engineering harness).
+4. **Gate-weighted dual purpose.** A reliability **promotion gate** is the
+   primary driver; the capability demonstration is the secondary benefit.
+   Promotion therefore gates only deterministic, bounded app-level faults;
+   disruptive infra drills run scheduled/manual until proven.
+5. **Activation = Model C (cluster-internal header path).** Faults are selected
+   by a named profile + scenario ID in controlled headers, but the
+   fault-selecting listener is bound to a **cluster-internal path only** —
+   reachable via the CI `kubectl port-forward` already used for staging smoke
+   tests ([cd.yml](../../.github/workflows/cd.yml)), never routed from the
+   public staging Ingress. Keeps per-request isolation (a faulted request spares
+   a concurrent unselected one) without exposing a public chaos control plane.
+   The bearer token stays as defence-in-depth. Rejected: Model B (public
+   header+token — needless public attack surface for a gate) and pure Model A
+   (kubectl-only — loses per-request isolation).
+6. **`AgentControl` seam is in scope (FI0).** Decoupling the API handlers from
+   the concrete `*agentapi.AgentConn` is the prerequisite for the
+   `agent.control-write` fault point and a net-positive decoupling regardless.
+   It ships as its own TDD micro-plan before FI2.
+7. **Mechanism chosen in FI1, not assumed.** The compiled-in injector vs
+   adapter-substitution call is made in FI1 with a disabled-overhead benchmark
+   in hand. §5 describes the compiled-in injector as the leading candidate; FI1
+   confirms or substitutes it.
+8. **Pod-replacement SLO = 120 s.** Realistic for single-node `Recreate` +
+   image pull + readiness on the shared free-tier ARM worker. Relay/agent
+   reconnect and Helm-rollback SLOs are measured first (FI1 §14).
 
 ## 1. Problem
 
@@ -124,6 +175,9 @@ enable flag. Request flow:
 1. Middleware checks whether injection is enabled (fail-closed otherwise).
 2. A selected request supplies a **named profile + scenario ID** via controlled
    headers and an auth token — never arbitrary duration/status/module names.
+   Per **Model C** (Decision 5), the fault-selecting listener accepts these
+   headers **only on the cluster-internal path** (kubectl port-forward); the
+   public staging Ingress is never routed to it.
 3. Middleware resolves the profile from startup config and stores a **typed,
    immutable** spec in `context.Context`.
 4. **Port decorators** inspect the context at named boundaries and execute the
@@ -143,6 +197,8 @@ enable flag. Request flow:
 
 ### Fail-closed when
 - enabled outside the staging namespace/environment;
+- the fault headers arrive on the public Ingress path rather than the
+  cluster-internal listener (Model C);
 - profile unknown; auth token absent/invalid; fault point not allowed by profile.
 
 ### Helm enablement
@@ -166,11 +222,17 @@ composition root:
 - `relay.session-drop` (close a live local-pairing relay connection)
 - `notifications.dispatch`
 - `amt.operator`
-- `agent.control-write`
+- `agent.control-write` — **blocked on FI0**: today the API holds a concrete
+  `*agentapi.AgentConn` ([api.go](../../server/internal/api/api.go),
+  handlers call concrete `Send*`), so this point is only wrappable once FI0
+  lands the `AgentControl` interface seam.
 - `websocket.before-upgrade`
 
 (Removed vs. the pre-teardown draft: `relay.peer-dial` — the `PeerDialer` is
-deleted.)
+deleted.) `relay.session-drop` stays **deferred** until its exact close
+semantics and scenario-token selection are reviewed; the gating core is
+`session.repository`, `device.repository`, and `api.before-handler`, all of
+which are already interfaces in `ServerConfig`.
 
 ## 7. Scenario catalog (reliability-focused)
 
@@ -185,7 +247,7 @@ deleted.)
 | WebSocket handshake failure | A/B | Client gets bounded failure and reconnects |
 | Edge 502 | A | Public client gets configured status; cleanup restores 2xx |
 | Edge 504 | A+B | Backend delay exceeds ingress timeout; public client times out |
-| Pod deletion | C1 | Replacement pod ready within SLO; clients reconnect |
+| Pod deletion | C1 | Replacement pod ready within **120 s** SLO; clients reconnect |
 | Bad rollout | C2 | Rollout fails; Helm rollback succeeds; prior image healthy |
 | *(deferred)* Packet latency/loss | D1 | Error/latency budget changes per profile and recovers |
 
@@ -199,7 +261,9 @@ Add `.github/workflows/fault-tolerance.yml`:
 - concurrency guard (no two overlapping staging fault runs);
 - a hard timeout longer than the longest bounded scenario.
 
-Activation by repository variable only (no manual app mutation):
+Activation by repository variable only (no manual app mutation). Per **Model C**,
+the workflow reaches the injector over the existing `kubectl port-forward`, not
+the public Ingress:
 - `STAGING_FAULT_TESTS=false` disables the staging CD invocation;
 - `STAGING_FAULT_PROFILE=smoke` selects the bounded post-deploy subset;
 - the deferred `network` profile (D1) is manual/scheduled only.
@@ -211,8 +275,13 @@ needs → start observation + record scenario ID → apply one fault → run bla
 upload assertions, logs, metrics, events.
 
 **Profiles:**
-- **smoke:** B (delay/panic/timeout), C1 pod deletion, C2 bad rollout — runs in
-  staging CD after E2E, gates production promotion.
+- **smoke (gating):** B app faults only (delay/panic/timeout/error on
+  `session.repository`, `device.repository`, `api.before-handler`) — runs in
+  staging CD after E2E and **gates production promotion**. Deterministic,
+  bounded, fast.
+- **infra (scheduled evidence):** C1 pod deletion, C2 bad rollout — runs
+  scheduled/manual, uploads evidence, and **does not gate promotion** until it
+  has a clean scheduled-run history (Decision 4).
 - **network (deferred):** D1 packet faults — manual/scheduled, never gates
   promotion.
 
@@ -242,8 +311,14 @@ upload assertions, logs, metrics, events.
 | Cost | Stays inside Always Free (no added reserved infra; delayed requests hold only their own goroutine/connection until the bounded context ends). |
 | Maintainability | Fault points + profiles enumerated and schema-validated, not assembled as arbitrary shell. |
 
-## 11. Workstreams → micro-plans (FI1–FI6, broken out after approval)
+## 11. Workstreams → micro-plans (FI0–FI6, broken out after approval)
 
+- **FI0 — `AgentControl` interface seam (TDD first).** Introduce an
+  `AgentControl` interface (the `Send*` surface the API uses) so handlers depend
+  on a port, not the concrete `*agentapi.AgentConn`. Net-positive decoupling on
+  its own; unblocks the `agent.control-write` fault point. Failing tests first,
+  then extract the interface, then re-point `AgentGetter`/handlers. No
+  fault-injection code yet.
 - **FI1 — Specification & safety contract.** Fault points, actions, profile
   schema, max duration, concurrency caps, staging-only/production-deny
   invariants, expected HTTP + typed errors per scenario. Record an ADR (this
@@ -272,12 +347,12 @@ upload assertions, logs, metrics, events.
 
 ## 12. Sequencing & risk
 
-- **Hard prerequisite:** [`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md)
-  completes first. Building this against the pre-teardown tree would wire fault
-  points (`relay.peer-dial`, Redis) that are about to be deleted.
-- Order: FI1 (spec/ADR) → FI2 (injector, the bulk) → FI3 (Helm) → FI4 (ingress)
-  → FI5 (k8s runner) → FI6 (CI/docs). Each micro-plan keeps the gauntlet green
-  per commit.
+- **Prerequisite met:** [`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md)
+  is complete, so the deleted fault points (`relay.peer-dial`, Redis) are
+  already out of this plan.
+- Order: FI0 (`AgentControl` seam) → FI1 (spec/ADR + mechanism choice) → FI2
+  (injector, the bulk) → FI3 (Helm) → FI4 (ingress) → FI5 (k8s runner) → FI6
+  (CI/docs). Each micro-plan keeps the gauntlet green per commit.
 - **Risk:** FI2 adds a cross-cutting mechanism to the live server — it must be
   provably inert when disabled (benchmark + a test asserting no goroutine/timer
   on the disabled path). Security-review the token + production-deny before
@@ -298,12 +373,23 @@ upload assertions, logs, metrics, events.
 9. No Redis/multiserver/cross-server scenario exists (consistent with teardown).
 10. The full precommit gauntlet and the staging smoke profile pass.
 
-## 14. Open decisions (for FI1)
+## 14. Decisions (settled vs. still open for FI1)
 
-1. Recovery SLOs for pod recreation, relay/agent reconnect, and rollout rollback.
-2. Which 2–3 module ports get the highest-value initial coverage (candidates:
-   `session.repository`, `agent.control-write`, `relay.session-drop`).
-3. Whether ingress 502 injection uses a reviewed critical-risk snippet or only a
-   controlled application/upstream failure (prefer the latter).
-4. Whether the smoke profile runs after every staging deploy or only when the
-   repository variable is set.
+**Settled** (do not re-litigate without the user):
+- **Pod-recreation SLO = 120 s** (Decision 8).
+- **Activation = Model C**, cluster-internal header path only (Decision 5).
+- **Gating core ports** = `session.repository`, `device.repository`,
+  `api.before-handler` (all already interfaces in `ServerConfig`);
+  `agent.control-write` lands after FI0; `relay.session-drop` deferred.
+- **Smoke profile gates promotion with app faults only**; infra drills are
+  scheduled evidence (Decision 4).
+
+**Open for FI1:**
+1. Recovery SLOs for relay/agent reconnect and rollout rollback — **measure
+   first** (run several scheduled drills, set the gate threshold above observed
+   p95), unlike the pre-set 120 s pod SLO.
+2. Whether ingress 502 injection uses a reviewed critical-risk snippet or only a
+   controlled application/upstream failure (prefer the latter; deferred until
+   the security contract is tightened).
+3. The mechanism choice (compiled-in injector vs adapter-substitution), made
+   with the disabled-overhead benchmark in hand (Decision 7).
