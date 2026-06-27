@@ -1,59 +1,83 @@
-# Service-Extraction Decision Lens — Balanced Coupling
+---
+adr: 040
+title: Service-Extraction Decision Lens (Balanced Coupling)
+status: Accepted
+date: 2026-06-26
+---
 
-**Type:** Decision lens (scoring rubric), **not** an active implementation plan.
-**Status:** Active as a lens. **Current decision: no service extraction.**
-**Last refreshed:** 2026-06-26 (data window: churn = commits last 120 days).
+# ADR-040: Service-Extraction Decision Lens (Balanced Coupling)
 
-Adopts Vlad Khononov's **Balanced Coupling** model as the explicit lens for "what,
-if anything, do we pull out of the modular monolith next, and when." Distilled
-from the [`vladikk/modularity`](https://github.com/vladikk/modularity) framework.
-This is a lens recorded per-extraction in ADRs, **not** a CI gate —
-[`go-arch-lint`](../../server/.go-arch-lint.yml) stays the deterministic boundary
-enforcer (for the constrained leaves; see the scoping note below), PMAT churn
-feeds the volatility axis, and the LLM `modularity` plugin is advisory only.
+## Status
 
-## What this is / isn't
+Accepted. **Current decision: no service extraction.** This ADR records a
+*lens* (a scoring rubric) for the recurring question "what, if anything, do we
+pull out of the modular monolith next, and when," plus the decision the lens
+currently yields. It is a mutable current-state record per
+[ADR-036](ADR-036-mutable-adrs-current-state-doctrine.md): refresh the score
+table from current churn/fan-in each time the lens is used, in place.
 
-- **Is:** a repeatable way to score a module before proposing a boundary change,
-  so the decision is data-driven and recorded in an ADR.
-- **Isn't:** a backlog of extractions to execute. As of the last refresh, the
-  production target is **OCI free-tier / single-node, one server replica**, and
-  **no concrete scale, availability, or isolation driver exists** — so the lens
-  output is "extract nothing; decouple in-place where fan-in is high."
+Data window: churn = commits over the last 120 days (last refreshed 2026-06-26).
 
-Relay scale-out is **not** tracked here. The multi-server relay design was
+## Context
+
+Adopts Vlad Khononov's **Balanced Coupling** model as the explicit lens for
+boundary-change decisions, distilled from the
+[`vladikk/modularity`](https://github.com/vladikk/modularity) framework. The
+lens is recorded per-extraction in ADRs, **not** a CI gate —
+[`go-arch-lint`](../../server/.go-arch-lint.yml) stays the deterministic
+boundary enforcer (for the constrained leaves; see the scoping caveat below),
+PMAT churn feeds the volatility axis, and the LLM `modularity` plugin is
+advisory only.
+
+**What this is:** a repeatable way to score a module before proposing a
+boundary change, so the decision is data-driven and recorded.
+
+**What this isn't:** a backlog of extractions to execute. As of the last
+refresh, the production target is **OCI free-tier / single-node, one server
+replica**, and **no concrete scale, availability, or isolation driver exists** —
+so the lens output is "extract nothing; decouple in-place where fan-in is high."
+
+Relay scale-out is **not** governed here. The multi-server relay design was
 evaluated and **removed** (local-pairing-only today; slim in-process
 `SessionRegistry` seam retained). The single sources of truth for any future
-relay scale-out are [ADR-023](../../docs/adr/ADR-023-relay-extraction-redis-session-registry.md)
-and [`Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md). See
-"Relay: status correction" below.
+relay scale-out are [ADR-023](ADR-023-relay-extraction-redis-session-registry.md)
+and [`Multiscale-Readiness.md`](../Multiscale-Readiness.md). See "Relay: status
+correction" below.
 
-## The rubric (the three axes)
+## Decision
+
+### The rubric (three axes)
 
 Score each candidate module on:
 
-1. **Integration strength** — how it couples to the rest: intrusive → functional →
-   model → **contract** (lowest/best). Lower strength ⇒ cheaper to put behind a
-   network boundary. **Scoping caveat (do not overstate):** `go-arch-lint` proves
-   contract-level integration only for the **constrained leaves** it lists —
-   `cert, audit, update, auth, device, notifications, session, usecase` (each
-   `mayDependOn: []`). The usual extraction *candidates* — `api`, `agentapi`,
-   `relay`, `protocol`, `db`, `amt/transport` — sit in the unconstrained `other`
-   catch-all (`anyProjectDeps: true`). So "ports exist" must be **proven
-   per-module** before extraction; a green `go-arch-lint check` is necessary, not
-   sufficient, and is *not* repo-wide service-readiness proof.
+1. **Integration strength** — how it couples to the rest: intrusive → functional
+   → model → **contract** (lowest/best). Lower strength ⇒ cheaper to put behind
+   a network boundary. **Scoping caveat (do not overstate):** `go-arch-lint`
+   proves contract-level integration only for the **constrained leaves** it
+   lists — `cert, audit, update, auth, device, notifications, session, usecase`
+   (each `mayDependOn: []`). The usual extraction *candidates* — `api`,
+   `agentapi`, `relay`, `protocol`, `db`, `amt/transport` — sit in the
+   unconstrained `other` catch-all (`anyProjectDeps: true`). So "ports exist"
+   must be **proven per-module** before extraction; a green `go-arch-lint check`
+   is necessary, not sufficient, and is *not* repo-wide service-readiness proof.
 2. **Distance cost = fan-in** — number of distinct internal **production**
    packages that would now cross a process/network boundary if the module were
    extracted (test-support packages excluded). Lower ⇒ cheaper.
 3. **Volatility = churn** — how often it changes. High volatility **+** high
-   distance = maximum maintenance pain; but volatility also *justifies* extraction
-   when it pairs with a real independent-scaling / availability / isolation driver.
+   distance = maximum maintenance pain; but volatility also *justifies*
+   extraction when it pairs with a real independent-scaling / availability /
+   isolation driver.
 
-**Decision rule:** extract a module only when **(a)** its integration strength is
-contract-level **and (b)** its fan-in is low **and (c)** there is a concrete
+### Decision rule
+
+Extract a module only when **(a)** its integration strength is contract-level
+**and (b)** its fan-in is low **and (c)** there is a concrete
 scaling/availability/security-isolation driver. If fan-in is high → **decouple
 in-place, do not extract**. If volatility is low → **leave it alone**. If no
 driver exists (the current case) → **extract nothing**.
+
+Apply this lens before proposing any service extraction, and record the score
+and outcome in the proposing ADR.
 
 ## Current scores
 
@@ -91,18 +115,19 @@ feature pressure. Its volatility therefore overstates any extraction case.
 
 ## Relay: status correction
 
-The earlier version of this file listed `relay → multi-server` as "in progress
-(finish C3, then PR-D/E)." That is **stale and must not be acted on**: the Redis
-adapter, Sentinel topology, ownership operations, cross-server WebSocket proxy,
-internal listener, degraded-mode state machine, and multiserver harness were
-**removed** ([ADR-023](../../docs/adr/ADR-023-relay-extraction-redis-session-registry.md);
-phases.md "Dormant Multi-Replica Teardown"). The `PeerDialer` and internal-listener
-ports no longer exist; only the slim `SessionRegistry`
+An earlier draft listed `relay → multi-server` as "in progress (finish C3, then
+PR-D/E)." That is **stale and must not be acted on**: the Redis adapter, Sentinel
+topology, ownership operations, cross-server WebSocket proxy, internal listener,
+degraded-mode state machine, and multiserver harness were **removed**
+([ADR-023](ADR-023-relay-extraction-redis-session-registry.md); phases.md
+"Dormant Multi-Replica Teardown"). The `PeerDialer` and internal-listener ports
+no longer exist; only the slim `SessionRegistry`
 ([`registry.go`](../../server/internal/relay/registry.go)) remains. Following the
 old roadmap would reintroduce removed dormant distributed infrastructure without
 the operational evidence its removal required. Multi-replica routing is a
-**rebuild with explicit readiness gates** ([`Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md) §8),
-not a configuration switch.
+**rebuild with explicit readiness gates**
+([`Multiscale-Readiness.md`](../Multiscale-Readiness.md) §8), not a configuration
+switch.
 
 ## Future triggers (when to re-score)
 
@@ -115,8 +140,9 @@ low fan-in / contract strength **and** the per-module contract-readiness is prov
   driver).
 - **`notifications`** — if web-push fan-out becomes a throughput hotspot, an async
   queue/worker split could be justified. Not now (no scaling pressure).
-- **Any relay scale-out** — gated entirely by [`Multiscale-Readiness.md`](../../docs/Multiscale-Readiness.md)
-  and a funded Large-tier decision, not by this lens.
+- **Any relay scale-out** — gated entirely by
+  [`Multiscale-Readiness.md`](../Multiscale-Readiness.md) and a funded Large-tier
+  decision, not by this lens.
 - Any module whose **volatility rises while fan-in stays low** and a
   scale/availability/security driver emerges.
 
@@ -134,7 +160,7 @@ saturation, alert metrics); **operability** (backup/restore, failover,
 scale-up/down, rollback runbooks); and **cost** (explicit free-tier vs paid-tier
 decision; no hidden always-on infrastructure).
 
-## Why this confirms current decisions
+## Consequences
 
 Applying the lens to current data validates the existing ADR-driven path: no
 extraction is justified, `api`/`agentapi` stay monolithic, `db` is the hotspot
@@ -147,14 +173,10 @@ The current engineering investment correctly goes to single-replica reliability,
 not distribution: the in-flight `context-driven-fault-injection` master plan
 (FI0–FI6) and the `td-agent-session-resumption-cache` micro-plan (agent
 key-permission hardening + in-process TLS-resumption observability, tracked under
-the "W3 decision" entry in [`techdebt.md`](../techdebt.md)).
+the "W3 decision" entry in [`techdebt.md`](../../.claude/techdebt.md)).
 
-## Follow-ups
-
-- **Optional:** formalize the lens itself as an ADR (next free number on disk is
-  ADR-040) if we want it immutable rather than a plan-located note. Record the
-  pointer in [`.claude/decisions.md`](../decisions.md), which can be kept current.
-- **Optional:** pilot `/modularity:review` on `db` once to compare its LLM output
-  against this churn/fan-in analysis — advisory only, never a gate.
-- Refresh the score table from current churn/fan-in each time an extraction is
-  considered (the table above is a snapshot, not a standing fact).
+An optional follow-up — pilot `/modularity:review` on `db` once to compare its
+LLM output against this churn/fan-in analysis — remains advisory only, never a
+gate. The working pointer (and any superseding lens revision) is tracked in the
+mutable [`.claude/decisions.md`](../../.claude/decisions.md) index, which can be
+kept current as plans move.

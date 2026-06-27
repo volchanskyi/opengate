@@ -311,7 +311,23 @@ upload assertions, logs, metrics, events.
 | Cost | Stays inside Always Free (no added reserved infra; delayed requests hold only their own goroutine/connection until the bounded context ends). |
 | Maintainability | Fault points + profiles enumerated and schema-validated, not assembled as arbitrary shell. |
 
-## 11. Workstreams → micro-plans (FI0–FI6, broken out after approval)
+## 11. Workstreams → micro-plans (FI0–FI6)
+
+**Broken out into self-contained micro-plan files** (each with file inventory,
+TDD steps, acceptance, reviewer checklist), all in `.claude/plans/`. Implement in
+order; only FI0 has no dependency (active-plan files are referenced by name, not
+linked — they move on archive):
+
+- FI0 — `fi0-agentcontrol-seam.md`
+- FI1 — `fi1-fault-injection-spec.md`
+- FI2 — `fi2-application-injector.md`
+- FI3 — `fi3-helm-fault-config.md`
+- FI4 — `fi4-ingress-fault-profiles.md`
+- FI5 — `fi5-k8s-scenario-runner.md`
+- FI6 — `fi6-fault-ci-integration-docs.md`
+
+The summaries below are the master-level description of each workstream:
+
 
 - **FI0 — `AgentControl` interface seam (TDD first).** Introduce an
   `AgentControl` interface (the `Send*` surface the API uses) so handlers depend
