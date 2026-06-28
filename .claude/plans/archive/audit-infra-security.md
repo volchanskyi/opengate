@@ -16,39 +16,39 @@ verified against the file it references; sections with no finding are recorded a
 - **Tracked secrets (§1):** `git ls-files` for `*.tfstate*`, `*.tfvars`, `*.pem`,
   `*.key`, `tfplan`, `.env` (non-example) → none tracked. Local
   `deploy/terraform/{terraform.tfstate,terraform.tfvars,apply.tfplan,backend.tfbackend}`
-  exist on disk but are gitignored ([`deploy/terraform/.gitignore`](../../deploy/terraform/.gitignore)
+  exist on disk but are gitignored ([`deploy/terraform/.gitignore`](../../../deploy/terraform/.gitignore)
   covers `*.tfstate*`, `terraform.tfvars`, `*.auto.tfvars`, `*.tfplan`,
   `backend.tfbackend`, `crash.*.log`).
 - **TF identity-variable sensitivity (§2a):** `tenancy_ocid`, `user_ocid`,
   `fingerprint`, `private_key_path`, `compartment_ocid`, `ssh_allowed_cidr` all
   carry `sensitive = true`; `ssh_allowed_cidr` additionally validates against
-  `0.0.0.0/0` ([`variables.tf`](../../deploy/terraform/variables.tf)).
+  `0.0.0.0/0` ([`variables.tf`](../../../deploy/terraform/variables.tf)).
 - **Compose env hygiene (§3):** every `${VAR}` in
-  [`deploy/docker-compose.yml`](../../deploy/docker-compose.yml) is documented in
-  [`deploy/.env.example`](../../deploy/.env.example) (completeness diff returned
+  [`deploy/docker-compose.yml`](../../../deploy/docker-compose.yml) is documented in
+  [`deploy/.env.example`](../../../deploy/.env.example) (completeness diff returned
   zero undocumented vars); no inline literal secrets.
 - **K8s workload hardening (§ deploy):** server + postgres + backup cronjob set
   `runAsNonRoot`, `runAsUser`, `seccompProfile`, `allowPrivilegeEscalation:false`,
   capability `drop`, and resource `requests`/`limits`
-  ([`server-deployment.yaml`](../../deploy/helm/opengate/templates/server-deployment.yaml),
-  [`postgres-statefulset.yaml`](../../deploy/helm/opengate/templates/postgres-statefulset.yaml)).
+  ([`server-deployment.yaml`](../../../deploy/helm/opengate/templates/server-deployment.yaml),
+  [`postgres-statefulset.yaml`](../../../deploy/helm/opengate/templates/postgres-statefulset.yaml)).
 - **Ingress security headers (§8):** X-Content-Type-Options, X-Frame-Options,
   Referrer-Policy, CSP, Permissions-Policy, conditional HSTS all set
-  ([`ingress.yaml`](../../deploy/helm/opengate/templates/ingress.yaml)).
+  ([`ingress.yaml`](../../../deploy/helm/opengate/templates/ingress.yaml)).
 - **Monitoring exposure (§10):** Loki/Promtail/Grafana ports are not host-published
   in compose; the Helm monitoring chart ships **no** ingress (matches ADR-035);
   production Grafana admin password is sourced from a Secret
-  ([`monitoring/templates/grafana.yaml`](../../deploy/helm/monitoring/templates/grafana.yaml)).
+  ([`monitoring/templates/grafana.yaml`](../../../deploy/helm/monitoring/templates/grafana.yaml)).
 
 ## Findings
 
 | # | Sev | Finding | Location | CI-caught? |
 |---|-----|---------|----------|-----------|
-| 1 | MEDIUM | `oke_cluster_id` output lacks `sensitive = true` though its own comment says it is stored as the `OKE_CLUSTER_ID` GitHub secret (consumed by `cd.yml`) | [`outputs.tf:26`](../../deploy/terraform/outputs.tf#L26) | No |
-| 2 | LOW | No top-level default-deny `permissions:` block (job-level perms exist, so blast radius is bounded; a future job added without its own block inherits the repo default token) | [`build-image.yml`](../../.github/workflows/build-image.yml), [`release-agent.yml`](../../.github/workflows/release-agent.yml) | Partly (actionlint) |
-| 3 | LOW | Postgres container omits `readOnlyRootFilesystem: true` (server container + backup cronjob set it; postgres can run read-only-root with writable mounts for the socket dir + temp) | [`postgres-statefulset.yaml`](../../deploy/helm/opengate/templates/postgres-statefulset.yaml) | No |
-| 4 | LOW | Ingress security headers depend on `nginx.ingress.kubernetes.io/configuration-snippet`, which needs cluster-wide `allowSnippetAnnotations=true` — a known ingress-nginx annotation-injection attack surface | [`ingress.yaml:19`](../../deploy/helm/opengate/templates/ingress.yaml#L19) | No |
-| 5 | LOW | Legacy `docker-compose.monitoring.yml` defaults `GF_SECURITY_ADMIN_PASSWORD` to `admin` (decommissioned VM path; production Helm path is correct) | [`docker-compose.monitoring.yml:43`](../../deploy/docker-compose.monitoring.yml#L43) | No |
+| 1 | MEDIUM | `oke_cluster_id` output lacks `sensitive = true` though its own comment says it is stored as the `OKE_CLUSTER_ID` GitHub secret (consumed by `cd.yml`) | [`outputs.tf:26`](../../../deploy/terraform/outputs.tf#L26) | No |
+| 2 | LOW | No top-level default-deny `permissions:` block (job-level perms exist, so blast radius is bounded; a future job added without its own block inherits the repo default token) | [`build-image.yml`](../../../.github/workflows/build-image.yml), [`release-agent.yml`](../../../.github/workflows/release-agent.yml) | Partly (actionlint) |
+| 3 | LOW | Postgres container omits `readOnlyRootFilesystem: true` (server container + backup cronjob set it; postgres can run read-only-root with writable mounts for the socket dir + temp) | [`postgres-statefulset.yaml`](../../../deploy/helm/opengate/templates/postgres-statefulset.yaml) | No |
+| 4 | LOW | Ingress security headers depend on `nginx.ingress.kubernetes.io/configuration-snippet`, which needs cluster-wide `allowSnippetAnnotations=true` — a known ingress-nginx annotation-injection attack surface | [`ingress.yaml:19`](../../../deploy/helm/opengate/templates/ingress.yaml#L19) | No |
+| 5 | LOW | Legacy `docker-compose.monitoring.yml` defaults `GF_SECURITY_ADMIN_PASSWORD` to `admin` (decommissioned VM path; production Helm path is correct) | [`docker-compose.monitoring.yml:43`](../../../deploy/docker-compose.monitoring.yml#L43) | No |
 
 PII/log-flow (`/infra-audit` §9/§11 — server `slog` redaction, `err.Error()`
 client leakage) overlaps the backend sweep and is covered in the backend audit

@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 	"testing"
 	"time"
 
@@ -173,4 +174,57 @@ func TestControlStream_SendAfterStreamCloseFailsAndReconciles(t *testing.T) {
 	// Just for documentation: assert the error chain doesn't include a
 	// nil-pointer dereference or other unexpected wrap.
 	assert.NotEmpty(t, err.Error(), "error must carry a message")
+}
+
+// TestControlStream_ManyConcurrentSendsAllDecodable stress-tests the writeMu
+// contract: with many writers racing on one stream, a missing mutex lets a
+// (5-byte envelope, N-byte payload) pair from one send interleave with
+// another's, so at least one frame fails to decode. Two racers (the test
+// above) only interleave probabilistically; N racers across mixed message
+// sizes make the corruption near-certain when the lock is gone, so this is
+// the test that actually fails if writeMu is removed. Runs under -race.
+func TestControlStream_ManyConcurrentSendsAllDecodable(t *testing.T) {
+	t.Parallel()
+	env, stream, deviceID := setupOnlineAgent(t)
+
+	ac := env.srv.GetAgent(deviceID)
+	require.NotNil(t, ac, "agent must be registered before issuing concurrent sends")
+
+	// Alternate two message types of different encoded sizes to widen the
+	// interleaving window a missing mutex would expose.
+	const sends = 64
+	errCh := make(chan error, sends)
+	var wg sync.WaitGroup
+	wg.Add(sends)
+	for i := 0; i < sends; i++ {
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				errCh <- ac.SendRequestHardwareReport(context.Background())
+			} else {
+				errCh <- ac.SendRequestDeviceLogs(context.Background(), device.LogFilter{Search: "concurrent"})
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err, "a concurrent send returned an error")
+	}
+
+	// Every frame must decode cleanly and the per-type counts must match what
+	// was sent — proof that no envelope/payload pair interleaved on the wire.
+	codec := &protocol.Codec{}
+	seen := map[protocol.ControlMessageType]int{}
+	for i := 0; i < sends; i++ {
+		require.NoError(t, stream.SetReadDeadline(time.Now().Add(5*time.Second)))
+		frameType, payload, err := codec.ReadFrame(stream)
+		require.NoError(t, err, "frame %d ReadFrame failed (envelope corruption?)", i)
+		require.Equal(t, protocol.FrameControl, frameType, "frame %d wrong type", i)
+		msg, err := codec.DecodeControl(payload)
+		require.NoError(t, err, "frame %d DecodeControl failed (payload corruption?)", i)
+		seen[msg.Type]++
+	}
+	assert.Equal(t, sends/2, seen[protocol.MsgRequestHardwareReport])
+	assert.Equal(t, sends/2, seen[protocol.MsgRequestDeviceLogs])
 }

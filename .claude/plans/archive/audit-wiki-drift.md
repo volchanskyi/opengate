@@ -9,7 +9,7 @@
 Greped `docs/**/*.md` + root `README.md` for the drift-prone patterns
 (percentages, version pins, file paths, ports, env vars, broken links) and
 verified each against its source of truth, per the link-over-paraphrase
-convention in [`docs/README.md`](../../docs/README.md). The combined historical
+convention in [`docs/README.md`](../../../docs/README.md). The combined historical
 ADR log (001–012) is frozen and excluded.
 
 ## Confirmed clean (evidence)
@@ -19,26 +19,26 @@ ADR log (001–012) is frozen and excluded.
   plans). Link integrity is additionally gated by the gauntlet step and the
   `docs-validate` workflow.
 - **Coverage numbers are correct:** every "80%" claim matches the enforced
-  thresholds — Go `THRESHOLD=80` ([`ci.yml:238`](../../.github/workflows/ci.yml#L238)),
-  Web `THRESHOLD=80` ([`ci.yml:410`](../../.github/workflows/ci.yml#L410)), Rust
-  `--fail-under-lines 80` ([`ci.yml:115`](../../.github/workflows/ci.yml#L115)),
+  thresholds — Go `THRESHOLD=80` ([`ci.yml:238`](../../../.github/workflows/ci.yml#L238)),
+  Web `THRESHOLD=80` ([`ci.yml:410`](../../../.github/workflows/ci.yml#L410)), Rust
+  `--fail-under-lines 80` ([`ci.yml:115`](../../../.github/workflows/ci.yml#L115)),
   Sonar new-code ≥80. The Go exclusion list in
-  [`CI-Pipeline.md:120`](../../docs/CI-Pipeline.md#L120)
+  [`CI-Pipeline.md:120`](../../../docs/CI-Pipeline.md#L120)
   (`testutil`/`metrics`/`openapi_gen.go`) matches the ci.yml grep.
 - **Migration drift handled:** SQLite is referenced only as the historical
-  cutover source ([`Database.md:39,220`](../../docs/Database.md#L39)); Caddy /
+  cutover source ([`Database.md:39,220`](../../../docs/Database.md#L39)); Caddy /
   Compose are explicitly labelled "dormant"/"former" and mapped to
-  ingress-nginx ([`Infrastructure.md:367`](../../docs/Infrastructure.md#L367),
-  [`Kubernetes.md:49`](../../docs/Kubernetes.md#L49),
-  [`Security-and-Dependencies.md:155`](../../docs/Security-and-Dependencies.md#L155)).
+  ingress-nginx ([`Infrastructure.md:367`](../../../docs/Infrastructure.md#L367),
+  [`Kubernetes.md:49`](../../../docs/Kubernetes.md#L49),
+  [`Security-and-Dependencies.md:155`](../../../docs/Security-and-Dependencies.md#L155)).
 
 ## Findings
 
 | # | Sev | Finding | File:line | Source of truth |
 |---|-----|---------|-----------|-----------------|
-| 1 | MEDIUM | "Go version **1.23.6** is pinned in CI" is stale by three minors — actual is **1.26**. | [`README.md:50`](../../README.md#L50) | [`go.mod:3`](../../server/go.mod#L3) (`go 1.26.0`); ci.yml `go-version: '1.26'` (lines 145/203/263) |
-| 2 | LOW | Coverage `80%` is hard-coded as a literal in several docs (currently correct, but rots silently if a threshold changes). Per link-over-paraphrase, link to the enforcing line instead. | [`README.md:45`](../../README.md#L45), [`Testing.md:92`](../../docs/Testing.md#L92), [`CI-Pipeline.md:116,120-122,166`](../../docs/CI-Pipeline.md#L116) | `ci.yml` THRESHOLD lines 115/238/410 |
-| 3 | LOW | Verify the Rust coverage **exclusion list** in prose (`main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/`) still matches the `cargo-llvm-cov` config — exclusion lists are classic drift. | [`CI-Pipeline.md:121`](../../docs/CI-Pipeline.md#L121) | Rust llvm-cov config / `ci.yml` Rust coverage step |
+| 1 | MEDIUM | "Go version **1.23.6** is pinned in CI" is stale by three minors — actual is **1.26**. | [`README.md:50`](../../../README.md#L50) | [`go.mod:3`](../../../server/go.mod#L3) (`go 1.26.0`); ci.yml `go-version: '1.26'` (lines 145/203/263) |
+| 2 | LOW | Coverage `80%` is hard-coded as a literal in several docs (currently correct, but rots silently if a threshold changes). Per link-over-paraphrase, link to the enforcing line instead. | [`README.md:45`](../../../README.md#L45), [`Testing.md:92`](../../../docs/Testing.md#L92), [`CI-Pipeline.md:116,120-122,166`](../../../docs/CI-Pipeline.md#L116) | `ci.yml` THRESHOLD lines 115/238/410 |
+| 3 | LOW | Verify the Rust coverage **exclusion list** in prose (`main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/`) still matches the `cargo-llvm-cov` config — exclusion lists are classic drift. | [`CI-Pipeline.md:121`](../../../docs/CI-Pipeline.md#L121) | Rust llvm-cov config / `ci.yml` Rust coverage step |
 
 ## Remediation plan
 

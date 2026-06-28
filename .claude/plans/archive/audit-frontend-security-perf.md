@@ -16,29 +16,29 @@ not re-reported.
 - **XSS (§1/§2):** zero `dangerouslySetInnerHTML` / `.innerHTML` /
   `insertAdjacentHTML` / `document.write` in `web/src/`; backed by `make taint-web`.
 - **Code splitting (§11b):** every route is `React.lazy` + `Suspense`
-  ([`router.tsx:10-57`](../../web/src/router.tsx#L10)) — dashboard, devices,
+  ([`router.tsx:10-57`](../../../web/src/router.tsx#L10)) — dashboard, devices,
   session (xterm/WebRTC), admin, profile all split. No eager-import finding.
 - **TS strictness (§19):** `"strict": true` in
-  [`tsconfig.app.json`](../../web/tsconfig.app.json) +
-  [`tsconfig.node.json`](../../web/tsconfig.node.json); **zero `any`** in
+  [`tsconfig.app.json`](../../../web/tsconfig.app.json) +
+  [`tsconfig.node.json`](../../../web/tsconfig.node.json); **zero `any`** in
   production code (grep count 0).
 - **Re-render hygiene (§14a):** zero full-store Zustand reads (`useXStore()`
   without a selector) — all store access is selector-based.
 - **Accessibility (§18):** zero clickable `<div>`/`<span>` (semantic `<button>`
   used); axe is exercised in E2E
-  ([`e2e/a11y.spec.ts`](../../web/e2e/a11y.spec.ts) + `e2e/a11y-baseline.json`).
+  ([`e2e/a11y.spec.ts`](../../../web/e2e/a11y.spec.ts) + `e2e/a11y-baseline.json`).
 - **Headers/CSP (§5):** CSP + security headers set at the ingress
-  ([`ingress.yaml`](../../deploy/helm/opengate/templates/ingress.yaml)) **and**
+  ([`ingress.yaml`](../../../deploy/helm/opengate/templates/ingress.yaml)) **and**
   app-level `SecurityHeaders` middleware on the server
-  ([`api.go:238`](../../server/internal/api/api.go#L238)).
+  ([`api.go:238`](../../../server/internal/api/api.go#L238)).
 - **ErrorBoundary (§8b):** present
-  ([`ErrorBoundary.tsx`](../../web/src/components/ErrorBoundary.tsx)) with a
+  ([`ErrorBoundary.tsx`](../../../web/src/components/ErrorBoundary.tsx)) with a
   graceful fallback UI + reload.
 
 ## Accepted risk (documented, not a fix)
 
 - **JWT in `localStorage` (§3a):** token stored in `localStorage`
-  ([`auth-store.ts:33,46`](../../web/src/state/auth-store.ts#L33)), cleared on
+  ([`auth-store.ts:33,46`](../../../web/src/state/auth-store.ts#L33)), cleared on
   logout (line 53). This is the standard accepted XSS tradeoff for a Bearer-token
   SPA; the compensating control is the zero-XSS-sink posture above. No change —
   recorded so a future reviewer does not re-flag it.
@@ -47,7 +47,7 @@ not re-reported.
 
 | # | Sev | Finding | Location | CI-caught? |
 |---|-----|---------|----------|-----------|
-| 1 | MEDIUM | No frontend error observability: `ErrorBoundary.componentDidCatch` only `console.error`s; no `window.onerror` / `unhandledrejection` handler; no `sendBeacon` to the server. Production crashes are invisible to operators (no Loki ingestion). | [`ErrorBoundary.tsx:18-20`](../../web/src/components/ErrorBoundary.tsx#L18) | No |
+| 1 | MEDIUM | No frontend error observability: `ErrorBoundary.componentDidCatch` only `console.error`s; no `window.onerror` / `unhandledrejection` handler; no `sendBeacon` to the server. Production crashes are invisible to operators (no Loki ingestion). | [`ErrorBoundary.tsx:18-20`](../../../web/src/components/ErrorBoundary.tsx#L18) | No |
 | 2 | LOW | No list virtualization (`@tanstack/react-virtual`/`react-window` absent). Currently bounded by server-side pagination; becomes a perf issue if page caps rise or infinite scroll is added (device list, audit log). | `web/src/features/devices/`, `web/src/features/admin/AuditLog.tsx` | No |
 
 ## Remediation plan
