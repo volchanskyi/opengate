@@ -10,10 +10,16 @@ on:
         required: true
         type: string
 
+# Default-deny at the workflow level: a job without its own permissions block
+# inherits no token scopes. Each job grants exactly what it needs.
+permissions: {}
+
 jobs:
   check-agent-changed:
     name: Check agent/ changed since previous tag
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       agent_changed: ${{ steps.gate.outputs.agent_changed }}
       prev_tag: ${{ steps.gate.outputs.prev_tag }}
@@ -38,6 +44,8 @@ jobs:
     needs: check-agent-changed
     if: needs.check-agent-changed.outputs.agent_changed == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:

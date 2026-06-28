@@ -59,10 +59,11 @@ tunable surface is documented inline in
 
 Installed once per cluster, outside the chart (the chart's
 [`NOTES.txt`](../deploy/helm/opengate/templates/NOTES.txt) prints the exact
-commands): **ingress-nginx** (with `controller.allowSnippetAnnotations=true` so
-the ported security-header snippets apply) and **cert-manager** (CRDs +
-controller). The OKE cluster + node pool are provisioned by the
-[`oke` Terraform module](../deploy/terraform/modules/oke/).
+commands): **ingress-nginx** (snippet annotations disabled; security headers are
+applied controller-side via the `add-headers` ConfigMap rendered by
+[`custom-headers-configmap.yaml`](../deploy/helm/opengate/templates/custom-headers-configmap.yaml))
+and **cert-manager** (CRDs + controller). The OKE cluster + node pool are
+provisioned by the [`oke` Terraform module](../deploy/terraform/modules/oke/).
 
 ### Secrets
 

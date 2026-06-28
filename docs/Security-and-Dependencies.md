@@ -152,12 +152,13 @@ The API server adds defense-in-depth headers via `SecurityHeaders` middleware:
 - `X-Frame-Options: DENY`
 - `Referrer-Policy: strict-origin-when-cross-origin`
 
-The app Helm chart ports the former Caddy security headers into ingress-nginx annotations:
-
-- `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload`
-- `Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' wss:; frame-ancestors 'none'`
-- `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`
-- `-Server` (strip server identity)
+At the edge, the app Helm chart applies the same headers (plus CSP and
+Permissions-Policy) controller-side through the ingress-nginx `add-headers`
+ConfigMap rendered by
+[`custom-headers-configmap.yaml`](../deploy/helm/opengate/templates/custom-headers-configmap.yaml)
+from the values in [`values.yaml`](../deploy/helm/opengate/values.yaml). This
+replaces the former per-ingress `configuration-snippet` annotation, so the
+controller runs with snippet annotations disabled.
 
 ## Logging and Token Redaction
 

@@ -47,7 +47,7 @@ back and edit this sentence?" If yes, replace the sentence with a link.
 
 > The server listens on port 8080 by default.
 
-> Go version 1.23.6 is pinned in CI.
+> Go version 1.26.0 is pinned in CI.
 
 **Examples — good:**
 

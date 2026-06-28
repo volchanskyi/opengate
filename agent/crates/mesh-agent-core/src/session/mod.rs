@@ -73,12 +73,12 @@ impl SessionHandler {
         injector: Box<dyn InputInjector>,
     ) -> Result<(), SessionError> {
         let url = build_relay_url(relay_url)?;
-        info!(token = %self.token.as_str(), url = %url, "connecting to relay");
+        info!(token = %self.token.redacted(), url = %url, "connecting to relay");
 
         let (ws, _response) = tokio_tungstenite::connect_async(&url).await?;
         let (ws_tx, mut ws_rx) = ws.split();
 
-        info!(token = %self.token.as_str(), "connected to relay");
+        info!(token = %self.token.redacted(), "connected to relay");
 
         // Channel for sending frames to the WebSocket
         let (frame_tx, frame_rx) = mpsc::channel::<Vec<u8>>(64);
@@ -133,7 +133,7 @@ impl SessionHandler {
         )
         .await;
 
-        info!(token = %self.token.as_str(), "session ended");
+        info!(token = %self.token.redacted(), "session ended");
         running.store(false, Ordering::Relaxed);
 
         Self::cleanup(capture_handle, terminal.as_ref(), writer_handle, &webrtc_pc).await;

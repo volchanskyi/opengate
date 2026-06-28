@@ -119,6 +119,7 @@ type Server struct {
 	webDir          string
 	metricsRegistry *prometheus.Registry
 	metrics         *appmetrics.Metrics
+	loginLimiter    *emailLimiter
 }
 
 // resolveAuditHandlers returns the per-domain Handlers from cfg, or
@@ -217,10 +218,18 @@ func NewServer(cfg ServerConfig) *Server {
 		webDir:          cfg.WebDir,
 		metricsRegistry: cfg.MetricsRegistry,
 		metrics:         cfg.Metrics,
+		loginLimiter:    newEmailLimiter(loginMaxFailures, loginFailureWindow),
 	}
 	s.routes()
 	return s
 }
+
+// Per-email failed-login throttle: lock an account's login path after
+// loginMaxFailures failures within loginFailureWindow, independent of source IP.
+const (
+	loginMaxFailures   = 10
+	loginFailureWindow = 15 * time.Minute
+)
 
 // ServeHTTP implements the http.Handler interface.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

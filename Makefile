@@ -361,10 +361,16 @@ mutate-web:
 # The always-run regression is the stable corpus replay in
 # crates/mesh-protocol/tests/decode_corpus_test.rs (runs in plain `cargo test`).
 FUZZ_RUNS ?= 100000
+# cargo-fuzz defaults its build --target to the triple cargo-fuzz itself was
+# compiled for. CI installs the musl prebuilt (via cargo-binstall), which would
+# make it build the fuzz target for x86_64-unknown-linux-musl — whose std is not
+# installed — and fail with E0463. Pin the build to the running host's triple so
+# the prebuilt std is always present, regardless of how cargo-fuzz was installed.
+FUZZ_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
 fuzz-rust:
 	@command -v cargo-fuzz >/dev/null 2>&1 || { echo "ERROR: cargo-fuzz not found. Install with: cargo install cargo-fuzz"; exit 1; }
 	@rustup toolchain list | grep -q '^nightly' || { echo "ERROR: nightly toolchain not found. Install with: rustup toolchain install nightly"; exit 1; }
-	cd agent/fuzz && cargo +nightly fuzz run decode -- -runs=$(FUZZ_RUNS)
+	cd agent/fuzz && cargo +nightly fuzz run --target $(FUZZ_TARGET) decode -- -runs=$(FUZZ_RUNS)
 
 # Static taint linting — catches data-flow paths from sources to sinks.
 taint-go:

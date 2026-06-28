@@ -21,6 +21,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/client-errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report a browser-side error for server-side log ingestion
+         * @description Unauthenticated, rate-limited endpoint that records frontend crashes in the server log (Loki) so production client errors are observable. The body is size-bounded; payloads must carry no token, credential, or PII.
+         */
+        post: operations["reportClientError"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/register": {
         parameters: {
             query?: never;
@@ -614,6 +634,14 @@ export interface components {
         TokenResponse: {
             token: string;
         };
+        /** @description Browser-side error report for server-side log ingestion. Must never contain tokens, credentials, or PII; the stack is truncated client-side. */
+        ClientErrorReport: {
+            message: string;
+            source?: string;
+            stack?: string;
+            url?: string;
+            user_agent?: string;
+        };
         User: {
             /** Format: uuid */
             id: string;
@@ -919,6 +947,37 @@ export interface operations {
             };
         };
     };
+    reportClientError: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientErrorReport"];
+            };
+        };
+        responses: {
+            /** @description Error recorded */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     register: {
         parameters: {
             query?: never;
@@ -985,6 +1044,15 @@ export interface operations {
             };
             /** @description Invalid credentials */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Too many failed login attempts for this account */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

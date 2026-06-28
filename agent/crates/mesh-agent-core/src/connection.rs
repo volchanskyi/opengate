@@ -147,7 +147,7 @@ impl<S: ControlStream> AgentConnection<S> {
         })
         .await?;
 
-        info!(token = %token.as_str(), "accepted session, connecting to relay");
+        info!(token = %token.redacted(), "accepted session, connecting to relay");
 
         // Spawn the session handler on a separate task
         let handler = SessionHandler::new(token, permissions);

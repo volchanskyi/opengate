@@ -62,6 +62,7 @@ spec:
             {{- toYaml .Values.postgres.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
@@ -71,10 +72,20 @@ spec:
             - name: init
               mountPath: /docker-entrypoint-initdb.d
               readOnly: true
+            # Writable mounts required under a read-only root filesystem: the
+            # Unix-socket dir and scratch space for temp files / lock files.
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: init
           configMap:
             name: {{ include "opengate.postgres.fullname" . }}-init
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
         {{- if not .Values.postgres.storage.persistent }}
         # Ephemeral DB (staging only, ADR-035): the data dir resets on restart.
         # E2E/smoke seed their own state, so no block volume is provisioned.

@@ -12,7 +12,26 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/auth"
+	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
+
+// relayPathPrefix is the URL prefix of the WebSocket relay route whose final
+// path segment is a secret session token that must never be logged in full.
+const relayPathPrefix = "/ws/relay/"
+
+// redactLogPath redacts the secret token segment of a relay WebSocket path so
+// request logs (shipped to Loki) never carry a full relay token. Non-relay
+// paths are returned unchanged.
+func redactLogPath(path string) string {
+	if !strings.HasPrefix(path, relayPathPrefix) {
+		return path
+	}
+	token := path[len(relayPathPrefix):]
+	if token == "" || strings.Contains(token, "/") {
+		return path
+	}
+	return relayPathPrefix + protocol.RedactToken(token)
+}
 
 // RequestTimeout returns middleware that applies a server-side timeout to requests.
 // It wraps http.TimeoutHandler, which does NOT implement http.Hijacker —
@@ -158,7 +177,7 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			next.ServeHTTP(ww, r)
 			logger.Info("request",
 				"method", r.Method,
-				"path", r.URL.Path,
+				"path", redactLogPath(r.URL.Path),
 				"status", ww.status,
 				"duration", time.Since(start),
 			)

@@ -64,12 +64,12 @@ func (c *JWTConfig) GenerateToken(userID uuid.UUID, email string, isAdmin bool) 
 // ValidateToken parses and validates a JWT string, returning the embedded claims.
 func (c *JWTConfig) ValidateToken(tokenString string) (*Claims, error) {
 	claims := &Claims{}
-	_, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
+	_, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
 		return []byte(c.Secret), nil
-	})
+	}, jwt.WithIssuer(c.Issuer), jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil {
 		return nil, fmt.Errorf("validate token: %w", err)
 	}
