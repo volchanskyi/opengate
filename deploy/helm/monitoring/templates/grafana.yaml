@@ -126,7 +126,7 @@ spec:
               mountPath: /etc/grafana/provisioning/alerting
               readOnly: true
       volumes:
-        # Ephemeral (ADR-035, free-tier block-volume cap): datasources, the five
+        # Ephemeral (ADR-035, free-tier block-volume cap): datasources, the
         # dashboards, and alerting are provisioned from the ConfigMaps below and
         # the admin password re-seeds from the Secret on every start, so a restart
         # only loses UI-created annotations / alert-state history — not config.
@@ -137,8 +137,8 @@ spec:
         - name: datasources
           configMap:
             name: {{ $name }}-datasources
-        # Created out-of-band from the canonical files so the 5 dashboard JSONs
-        # + alerting rules are not duplicated into the chart (see NOTES.txt).
+        # Created out-of-band from the canonical dashboard files so dashboard JSON
+        # files + alerting rules are not duplicated into the chart (see NOTES.txt).
         - name: dashboards
           configMap:
             name: {{ .Values.grafana.dashboardsConfigMap }}

@@ -48,7 +48,7 @@ grafana:
   # No PVC: /var/lib/grafana is an emptyDir (ADR-035). All config is provisioned
   # from ConfigMaps, so the only state lost on restart is annotations/alert history.
   rootUrl: ""    # set to https://<domain>/grafana when fronted by an ingress
-  # The five dashboard JSONs are NOT duplicated into the chart. Create the
+  # Dashboard JSONs are NOT duplicated into the chart. Create the
   # ConfigMap from the canonical files at deploy time (see NOTES.txt):
   #   kubectl -n <ns> create configmap <name> \
   #     --from-file=deploy/grafana/provisioning/dashboards
