@@ -369,6 +369,34 @@ describe('DeviceList', () => {
     });
   });
 
+  describe('virtualization', () => {
+    it('windows a large device list (renders a subset, not every card)', () => {
+      const many = Array.from({ length: 300 }, (_, i) => ({
+        id: 'd' + String(i),
+        group_id: 'g1',
+        hostname: 'host-' + String(i),
+        os: 'linux',
+        agent_version: '1.0.0',
+        capabilities: [],
+        status: 'online' as const,
+        last_seen: '',
+        created_at: '',
+        updated_at: '',
+      }));
+      useDeviceStore.setState({ devices: many });
+      renderDeviceList();
+
+      // The first card is in the rendered window...
+      expect(screen.getByText('host-0')).toBeInTheDocument();
+      // ...but a far-off card is virtualized away (not in the DOM).
+      expect(screen.queryByText('host-299')).toBeNull();
+      // Only a windowed subset of the 300 cards is mounted.
+      const renderedHostnames = document.querySelectorAll('h3');
+      expect(renderedHostnames.length).toBeGreaterThan(0);
+      expect(renderedHostnames.length).toBeLessThan(300);
+    });
+  });
+
   it('Device grid is hidden while isLoading is true', () => {
     useDeviceStore.setState({
       isLoading: true,
