@@ -6,7 +6,7 @@
 
 ## Scope & method
 
-Read [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) first, then
+Read [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) first, then
 inventoried Go integration tests, Playwright E2E, and cross-language goldens.
 Only gaps the **existing CI will not catch** are reported; everything CI already
 gates is recorded as clean. The skill's own example "missing E2E" matrix is
@@ -16,15 +16,15 @@ gates is recorded as clean. The skill's own example "missing E2E" matrix is
 ## Confirmed clean / already gated (evidence)
 
 - **Coverage gates:** Rust `--fail-under-lines 80`
-  ([`ci.yml:115`](../../.github/workflows/ci.yml#L115)); Go threshold over
-  prod-excluded paths ([`ci.yml:233`](../../.github/workflows/ci.yml#L233)); Web
-  threshold ([`ci.yml:404`](../../.github/workflows/ci.yml#L404)); plus the
+  ([`ci.yml:115`](../../../.github/workflows/ci.yml#L115)); Go threshold over
+  prod-excluded paths ([`ci.yml:233`](../../../.github/workflows/ci.yml#L233)); Web
+  threshold ([`ci.yml:404`](../../../.github/workflows/ci.yml#L404)); plus the
   SonarCloud new-code gate.
 - **`-race`** on both `go-unit` and `go-integration`
-  ([`ci.yml:208,268`](../../.github/workflows/ci.yml#L208)).
+  ([`ci.yml:208,268`](../../../.github/workflows/ci.yml#L208)).
 - **Goldens bidirectional:** forward (Go decodes Rust-encoded) **and** reverse
   (Go encodes) + sidecars in the `golden` job
-  ([`ci.yml:304-307`](../../.github/workflows/ci.yml#L304)); Phase A added 10
+  ([`ci.yml:304-307`](../../../.github/workflows/ci.yml#L304)); Phase A added 10
   cross-boundary goldens (session/file/chat/agent_update) + 5 edge-case goldens
   (empty / UTF-8 / >64 KiB / forward-compat / LE-length).
 - **Integration breadth** (`server/tests/integration/`): relay faults,
@@ -32,7 +32,7 @@ gates is recorded as clean. The skill's own example "missing E2E" matrix is
   agentapi, AMT, admin, security groups, session, WS middleware, auth edges.
 - **Concurrency on the shared agent stream:** `AgentConn.sendControl` serializes
   via `writeMu sync.Mutex`
-  ([`conn.go:46,95`](../../server/internal/agentapi/conn.go#L46)); covered
+  ([`conn.go:46,95`](../../../server/internal/agentapi/conn.go#L46)); covered
   indirectly under `-race`.
 - **Mutation / property / fuzz:** wired across all three languages (techdebt
   "test-technique gaps" is RESOLVED); one known equivalent mutant in
@@ -42,8 +42,8 @@ gates is recorded as clean. The skill's own example "missing E2E" matrix is
 
 | # | Sev | Gap | Has lower-level coverage? | Location |
 |---|-----|-----|---------------------------|----------|
-| 1 | MEDIUM | **Web Push** subscribe → VAPID → service-worker → delivery has no E2E (keywords `notification`/`subscribe` absent from `web/e2e/`). | Yes — [`push_handlers_test.go`](../../server/internal/api/push_handlers_test.go) | `web/e2e/` (no `push.spec.ts`) |
-| 2 | MEDIUM | **Agent Restart** button flow (confirm → restart → device-state reflect) has no E2E (`restart` absent from `web/e2e/`). | Yes — [`handlers_restart_test.go`](../../server/internal/api/handlers_restart_test.go) | `web/e2e/` (no restart spec) |
+| 1 | MEDIUM | **Web Push** subscribe → VAPID → service-worker → delivery has no E2E (keywords `notification`/`subscribe` absent from `web/e2e/`). | Yes — [`push_handlers_test.go`](../../../server/internal/api/push_handlers_test.go) | `web/e2e/` (no `push.spec.ts`) |
+| 2 | MEDIUM | **Agent Restart** button flow (confirm → restart → device-state reflect) has no E2E (`restart` absent from `web/e2e/`). | Yes — [`handlers_restart_test.go`](../../../server/internal/api/handlers_restart_test.go) | `web/e2e/` (no restart spec) |
 | 3 | MEDIUM | **Chat / messaging** has no end-to-end send→echo E2E (`chat` appears only in `capability-tabs.spec.ts` as tab-presence). | Partial — chat goldens + agent handlers | `web/e2e/` (no `chat.spec.ts`) |
 | 4 | LOW | **Hardware inventory** E2E is incidental (keyword appears in 4 specs as mentions); verify a spec actually asserts inventory fetch+render, not just tab presence. | Yes — device hardware handler tests | `web/e2e/capability-tabs.spec.ts` |
 | 5 | LOW | No **dedicated concurrent `sendControl`** test pinning `writeMu`'s intent (mutex exists + `-race` on, so risk is low). | Indirect (race detector) | `server/tests/integration/control_stream_faults_test.go` |
