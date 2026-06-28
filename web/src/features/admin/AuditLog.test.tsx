@@ -116,6 +116,28 @@ describe('AuditLog', () => {
     expect(screen.getByText('Next')).toBeDisabled();
   });
 
+  it('windows a large audit list (renders a subset, not every row)', () => {
+    const many = Array.from({ length: 500 }, (_, i) => ({
+      id: i + 1,
+      user_id: 'user-' + String(i),
+      action: 'act-' + String(i),
+      target: 't',
+      details: '',
+      created_at: '2024-01-01T00:00:00Z',
+    }));
+    useAdminStore.setState({ auditEvents: many });
+    render(<AuditLog />);
+
+    // First row is in the rendered window...
+    expect(screen.getByText('act-0')).toBeInTheDocument();
+    // ...but a far-off row is virtualized away (not in the DOM).
+    expect(screen.queryByText('act-499')).toBeNull();
+    // Only a windowed subset of the 500 rows is mounted.
+    const actionCells = screen.queryAllByText(/^act-\d+$/);
+    expect(actionCells.length).toBeGreaterThan(0);
+    expect(actionCells.length).toBeLessThan(500);
+  });
+
   it('user_id is rendered as 8-char prefix', () => {
     render(<AuditLog />);
     // 'u1-abcd-1234-5678-0000'.slice(0, 8) === 'u1-abcd-' — kills `slice(0, 8)`

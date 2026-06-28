@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useDeviceStore } from './state/device-store';
 import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
@@ -7,6 +8,37 @@ import { GroupSidebar } from './GroupSidebar';
 import { DeviceCard } from './DeviceCard';
 import { DeviceSearchBar } from './DeviceSearchBar';
 import { fireAndForget } from '../../lib/fire-and-forget';
+
+// Estimated rendered height of one DeviceCard row including the grid gap. Exact
+// precision is not required — the virtualizer only uses it to place rows; cards
+// have a stable size so a fixed estimate avoids per-row DOM measurement.
+const DEVICE_ROW_HEIGHT = 132;
+
+// Card columns per row, mirroring the responsive Tailwind grid this replaced
+// (grid-cols-1 / md:grid-cols-2 / lg:grid-cols-3). Virtualization needs the
+// column count in JS to map a flat device list onto virtual rows.
+const COLUMN_BREAKPOINTS = [
+  { minWidth: 1024, columns: 3 },
+  { minWidth: 768, columns: 2 },
+] as const;
+
+function useColumnCount(ref: RefObject<HTMLElement | null>): number {
+  const [columns, setColumns] = useState(1);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      const width = el.getBoundingClientRect().width;
+      const match = COLUMN_BREAKPOINTS.find((b) => width >= b.minWidth);
+      setColumns(match ? match.columns : 1);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => { observer.disconnect(); };
+  }, [ref]);
+  return columns;
+}
 
 export function DeviceList() {
   const devices = useDeviceStore((s) => s.devices);
@@ -34,6 +66,9 @@ export function DeviceList() {
     }, 15_000);
     return () => clearInterval(interval);
   }, [fetchDevices, selectedGroupId]);
+
+  const scrollParentRef = useRef<HTMLDivElement>(null);
+  const columns = useColumnCount(scrollParentRef);
 
   const handleSearch = useCallback((q: string) => setSearchQuery(q), []);
 
@@ -84,10 +119,18 @@ export function DeviceList() {
     setIsUpgradingAll(false);
   }, [outdatedDevices, manifests, upgradeAgent, addToast]);
 
+  const rowCount = Math.ceil(filteredDevices.length / columns);
+  const rowVirtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => scrollParentRef.current,
+    estimateSize: () => DEVICE_ROW_HEIGHT,
+    overscan: 4,
+  });
+
   return (
     <div className="flex h-[calc(100vh-57px)]">
       <GroupSidebar />
-      <div className="flex-1 p-6 space-y-4">
+      <div className="flex-1 p-6 flex flex-col gap-4 min-h-0">
         <div className="flex items-center justify-between">
           <DeviceSearchBar
             onSearch={handleSearch}
@@ -113,44 +156,68 @@ export function DeviceList() {
           </div>
         </div>
 
-        {isLoading && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-gray-800 border border-gray-700 rounded-lg p-4 animate-pulse">
-                <div className="h-5 bg-gray-700 rounded w-1/2 mb-3" />
-                <div className="h-4 bg-gray-700 rounded w-3/4 mb-2" />
-                <div className="h-4 bg-gray-700 rounded w-1/3" />
-              </div>
-            ))}
-          </div>
-        )}
+        <div ref={scrollParentRef} className="flex-1 overflow-auto min-h-0">
+          {isLoading && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="bg-gray-800 border border-gray-700 rounded-lg p-4 animate-pulse">
+                  <div className="h-5 bg-gray-700 rounded w-1/2 mb-3" />
+                  <div className="h-4 bg-gray-700 rounded w-3/4 mb-2" />
+                  <div className="h-4 bg-gray-700 rounded w-1/3" />
+                </div>
+              ))}
+            </div>
+          )}
 
-        {!isLoading && filteredDevices.length === 0 && (
-          <div className="text-center py-12">
-            <h3 className="text-lg font-semibold mb-2">
-              {searchQuery
-                ? 'No devices match your search'
-                : selectedGroupId
-                  ? 'No devices in this group'
-                  : 'Welcome to OpenGate'}
-            </h3>
-            <p className="text-gray-500 mb-4">
-              {searchQuery
-                ? 'Try a different search term.'
-                : selectedGroupId
-                  ? 'Download and install the agent to add devices.'
-                  : 'Select a group to filter devices, or add a new device to get started.'}
-            </p>
-          </div>
-        )}
+          {!isLoading && filteredDevices.length === 0 && (
+            <div className="text-center py-12">
+              <h3 className="text-lg font-semibold mb-2">
+                {searchQuery
+                  ? 'No devices match your search'
+                  : selectedGroupId
+                    ? 'No devices in this group'
+                    : 'Welcome to OpenGate'}
+              </h3>
+              <p className="text-gray-500 mb-4">
+                {searchQuery
+                  ? 'Try a different search term.'
+                  : selectedGroupId
+                    ? 'Download and install the agent to add devices.'
+                    : 'Select a group to filter devices, or add a new device to get started.'}
+              </p>
+            </div>
+          )}
 
-        {!isLoading && filteredDevices.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredDevices.map((device) => (
-              <DeviceCard key={device.id} device={device} />
-            ))}
-          </div>
-        )}
+          {/* Virtualized device grid: only rows in (or near) the viewport are
+              mounted, so the page stays responsive regardless of device count.
+              filteredDevices is mapped onto virtual rows of `columns` cards. */}
+          {!isLoading && filteredDevices.length > 0 && (
+            <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const start = virtualRow.index * columns;
+                const rowDevices = filteredDevices.slice(start, start + columns);
+                return (
+                  <div
+                    key={virtualRow.key}
+                    className="grid gap-4"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${String(virtualRow.start)}px)`,
+                      gridTemplateColumns: `repeat(${String(columns)}, minmax(0, 1fr))`,
+                    }}
+                  >
+                    {rowDevices.map((device) => (
+                      <DeviceCard key={device.id} device={device} />
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
