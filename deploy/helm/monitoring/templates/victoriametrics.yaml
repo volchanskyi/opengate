@@ -13,13 +13,12 @@ metadata:
   labels:
     {{- include "mon.labels" . | nindent 4 }}
 rules:
-  # kubernetes_sd discovery in files/vmagent-scrape.yaml uses the `node`, `pod`,
-  # and `endpoints` roles, so VictoriaMetrics must list/watch those plus the
-  # services backing the endpoints. Read-only metadata only — no `nodes/proxy`
-  # (avoids the kubelet-proxy privilege-escalation finding, KSV0047); targets are
-  # scraped directly, not through the API-server proxy.
+  # kubernetes_sd discovery in files/vmagent-scrape.yaml uses the `pod` and
+  # `endpoints` roles, so VictoriaMetrics must list/watch those plus the
+  # services backing the endpoints. Read-only metadata only; targets are scraped
+  # directly, not through the API-server proxy.
   - apiGroups: [""]
-    resources: [nodes, pods, endpoints, services]
+    resources: [pods, endpoints, services]
     verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
