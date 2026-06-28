@@ -2,7 +2,7 @@
   {
     "name": "JS bundle",
     "passed": true,
-    "size": 215440,
+    "size": 215496,
     "sizeLimit": 250000
   },
   {
@@ -14,7 +14,7 @@
   {
     "name": "Total",
     "passed": true,
-    "size": 221058,
+    "size": 221114,
     "sizeLimit": 260000
   }
 ]
