@@ -76,6 +76,90 @@ func RateLimiter(rps float64, burst int) func(http.Handler) http.Handler {
 	}
 }
 
+type emailEntry struct {
+	failures    int
+	windowStart time.Time
+}
+
+// emailLimiter throttles failed logins per (normalized) email address,
+// independently of source IP. It complements the per-IP AuthRateLimiter so a
+// distributed credential-stuffing attack spread across many IPs against a
+// single account still trips a lockout. A successful login resets the counter.
+type emailLimiter struct {
+	mu      sync.Mutex
+	entries map[string]*emailEntry
+	max     int
+	window  time.Duration
+}
+
+func newEmailLimiter(maxFailures int, window time.Duration) *emailLimiter {
+	l := &emailLimiter{
+		entries: make(map[string]*emailEntry),
+		max:     maxFailures,
+		window:  window,
+	}
+	go l.cleanup()
+	return l
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// allowed reports whether a login attempt for the email may proceed. It returns
+// false once max failures have accumulated within the active window.
+func (l *emailLimiter) allowed(email string) bool {
+	key := normalizeEmail(email)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e, ok := l.entries[key]
+	if !ok {
+		return true
+	}
+	if time.Since(e.windowStart) > l.window {
+		delete(l.entries, key)
+		return true
+	}
+	return e.failures < l.max
+}
+
+// recordFailure registers a failed login for the email, starting a fresh window
+// if none is active or the previous one has expired.
+func (l *emailLimiter) recordFailure(email string) {
+	key := normalizeEmail(email)
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e, ok := l.entries[key]
+	if !ok || now.Sub(e.windowStart) > l.window {
+		e = &emailEntry{windowStart: now}
+		l.entries[key] = e
+	}
+	e.failures++
+}
+
+// reset clears any accumulated failures for the email (call on success).
+func (l *emailLimiter) reset(email string) {
+	key := normalizeEmail(email)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.entries, key)
+}
+
+func (l *emailLimiter) cleanup() {
+	ticker := time.NewTicker(3 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		l.mu.Lock()
+		for key, e := range l.entries {
+			if time.Since(e.windowStart) > l.window {
+				delete(l.entries, key)
+			}
+		}
+		l.mu.Unlock()
+	}
+}
+
 func extractIP(r *http.Request) string {
 	// Trust X-Forwarded-For when behind a reverse proxy (Caddy).
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {

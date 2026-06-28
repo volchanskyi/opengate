@@ -26,6 +26,7 @@ output "bastion_id" {
 output "oke_cluster_id" {
   description = "OCID of the OKE cluster — `oci ce cluster create-kubeconfig` + the OKE_CLUSTER_ID GitHub secret (oci-kube-setup, cd.yml)"
   value       = module.oke.cluster_id
+  sensitive   = true
 }
 
 output "oke_node_pool_id" {

@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
 import { fireAndForget } from './lib/fire-and-forget';
+import { installGlobalErrorReporting } from './lib/report-error';
+
+installGlobalErrorReporting();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

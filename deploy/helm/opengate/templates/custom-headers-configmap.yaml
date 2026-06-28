@@ -1,0 +1,23 @@
+{{- if .Values.ingress.enabled -}}
+# Security response headers consumed by the ingress-nginx controller's
+# `add-headers` global config (controller.config.add-headers points here).
+# This replaces the per-ingress configuration-snippet annotation, which
+# required cluster-wide allowSnippetAnnotations=true — a header-injection
+# attack surface. See NOTES.txt for the controller wiring.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "opengate.fullname" . }}-custom-headers
+  labels:
+    {{- include "opengate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress
+data:
+  X-Content-Type-Options: "nosniff"
+  X-Frame-Options: "DENY"
+  Referrer-Policy: "strict-origin-when-cross-origin"
+  Content-Security-Policy: {{ .Values.ingress.csp | quote }}
+  Permissions-Policy: {{ .Values.ingress.permissionsPolicy | quote }}
+  {{- if .Values.ingress.hsts }}
+  Strict-Transport-Security: "max-age=63072000; includeSubDomains; preload"
+  {{- end }}
+{{- end }}

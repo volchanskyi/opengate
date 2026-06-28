@@ -28,10 +28,13 @@ fi
 
 # Operations that are intentionally public. Each MUST be justified here; adding
 # an entry is a security decision reviewed under ADR-027.
-#   register / login — pre-auth credential exchange (no token exists yet)
-#   enroll           — agent bootstrap, authorized by a single-use enrollment
-#                      token in the URL path, not a JWT
-ALLOWED_PUBLIC_MUTATIONS="register login enroll"
+#   register / login   — pre-auth credential exchange (no token exists yet)
+#   enroll             — agent bootstrap, authorized by a single-use enrollment
+#                        token in the URL path, not a JWT
+#   reportClientError  — browser-side crash reporting; must work before/without
+#                        auth (errors on the login page have no token). Body is
+#                        size-bounded, rate-limited, and logged only — no reads.
+ALLOWED_PUBLIC_MUTATIONS="register login enroll reportClientError"
 
 python3 - "$SPEC" "$ALLOWED_PUBLIC_MUTATIONS" <<'PY'
 import re, sys

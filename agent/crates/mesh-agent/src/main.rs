@@ -273,6 +273,8 @@ fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
     // Rolling file appender: daily rotation, 7 files retained.
     let log_dir = PathBuf::from(LOG_DIR);
     if let Err(e) = std::fs::create_dir_all(&log_dir) {
+        // Runs before the tracing subscriber is installed (`.init()` below), so
+        // stderr is the only working sink — a `tracing` macro here would be dropped.
         eprintln!(
             "warning: failed to create log dir {}: {e}",
             log_dir.display()

@@ -11,6 +11,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/opengate-server
 
+# Default-deny at the workflow level: a job without its own permissions block
+# inherits no token scopes. Each job grants exactly what it needs.
+permissions: {}
+
 jobs:
   # --------------------------------------------------------------------------
   # Path-gate: decide whether the diff vs the SHA that produced :latest

@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { reportClientError } from '../lib/report-error';
 
 interface Props {
   children: ReactNode;
@@ -17,6 +18,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('ErrorBoundary caught:', error, info.componentStack);
+    reportClientError({
+      message: error.message,
+      source: 'ErrorBoundary',
+      stack: error.stack ?? info.componentStack ?? undefined,
+    });
   }
 
   render() {
@@ -28,7 +34,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <p className="text-gray-400">An unexpected error occurred.</p>
             <button
               type="button"
-              onClick={() => window.location.reload()}
+              onClick={() => globalThis.location.reload()}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-medium"
             >
               Reload page

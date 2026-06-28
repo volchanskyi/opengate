@@ -86,17 +86,28 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 		return Login400JSONResponse{Error: "email and password are required"}, nil
 	}
 
+	// Per-email lockout, independent of source IP. Checked before lookup and
+	// applied identically to unknown and known emails so it adds no account
+	// enumeration signal.
+	if !s.loginLimiter.allowed(email) {
+		return Login429JSONResponse{Error: "too many failed login attempts; try again later"}, nil
+	}
+
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, auth.ErrUserNotFound) {
+			s.loginLimiter.recordFailure(email)
 			return Login401JSONResponse{Error: "invalid credentials"}, nil
 		}
 		return nil, err
 	}
 
 	if auth.CheckPassword(user.PasswordHash, request.Body.Password) != nil {
+		s.loginLimiter.recordFailure(email)
 		return Login401JSONResponse{Error: "invalid credentials"}, nil
 	}
+
+	s.loginLimiter.reset(email)
 
 	isAdmin, adminErr := s.securityGroups.IsUserInGroup(ctx, user.ID, auth.AdminGroupID)
 	if adminErr != nil {

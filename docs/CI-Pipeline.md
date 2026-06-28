@@ -113,7 +113,7 @@ The `go-lint` job verifies that generated Go code from the OpenAPI spec is up to
 
 ## Coverage
 
-All three language test jobs enforce an **80% minimum coverage** threshold — the build fails if coverage of production code drops below this level.
+All three language test jobs enforce a minimum line-coverage threshold — the build fails if coverage of production code drops below it. The enforced values and exclusion patterns are the `THRESHOLD` / `--fail-under-lines` settings in the coverage steps of [`ci.yml`](../.github/workflows/ci.yml); the table below summarizes them (verify against that file):
 
 | Language | Tool | Threshold | Exclusions | Output | Artifact |
 |----------|------|-----------|------------|--------|----------|

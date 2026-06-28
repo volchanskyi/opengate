@@ -1,14 +1,14 @@
 opengate ({{ .Release.Name }}) deployed to namespace {{ .Release.Namespace }}.
 
 Prerequisites (install once per cluster, outside this chart):
-  1. ingress-nginx — snippet annotations enabled AND risk level raised to
-     Critical (modern ingress-nginx classifies configuration-snippet as Critical,
-     so allowSnippetAnnotations alone is not enough) so the security headers in
-     templates/ingress.yaml take effect:
+  1. ingress-nginx — snippet annotations stay DISABLED. The security headers are
+     applied controller-side via the add-headers ConfigMap this chart renders
+     (templates/custom-headers-configmap.yaml), so no per-ingress snippet (and no
+     annotation-injection attack surface) is needed:
        helm install ingress-nginx ingress-nginx/ingress-nginx \
          --namespace ingress-nginx --create-namespace \
-         --set controller.allowSnippetAnnotations=true \
-         --set controller.config.annotations-risk-level=Critical
+         --set controller.allowSnippetAnnotations=false \
+         --set controller.config.add-headers={{ .Release.Namespace }}/{{ include "opengate.fullname" . }}-custom-headers
      On OKE, also annotate the controller Service for the Always-Free flexible LB
      (oci-load-balancer-shape=flexible, flex-min/max=10, subnet1=<lb-subnet>).
   2. cert-manager (CRDs + controller) for the ClusterIssuer:

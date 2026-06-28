@@ -13,18 +13,10 @@ metadata:
     # WebSocket-friendly timeouts for /ws.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    # Security headers ported verbatim from deploy/caddy/Caddyfile (headers-more
-    # module ships with ingress-nginx). Requires the controller to be installed
-    # with controller.allowSnippetAnnotations=true — see NOTES.txt.
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "X-Content-Type-Options: nosniff";
-      more_set_headers "X-Frame-Options: DENY";
-      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
-      more_set_headers "Content-Security-Policy: {{ .Values.ingress.csp }}";
-      more_set_headers "Permissions-Policy: {{ .Values.ingress.permissionsPolicy }}";
-      {{- if .Values.ingress.hsts }}
-      more_set_headers "Strict-Transport-Security: max-age=63072000; includeSubDomains; preload";
-      {{- end }}
+    # Security headers are applied controller-side via the add-headers ConfigMap
+    # (templates/custom-headers-configmap.yaml) instead of a per-ingress
+    # configuration-snippet, so the controller runs with snippet annotations
+    # disabled. See NOTES.txt.
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- if .Values.ingress.tls }}
