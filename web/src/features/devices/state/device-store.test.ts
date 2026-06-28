@@ -511,6 +511,16 @@ describe('device store', () => {
     expect(ok).toBe(false);
   });
 
+  it('restartAgent returns false on an empty-bodied 409 (no JSON error)', async () => {
+    // Regression: openapi-fetch leaves error undefined for an empty 409 body,
+    // which a response-blind apiAction would misread as success.
+    mockPost.mockResolvedValueOnce({ data: undefined, error: undefined, response: { ok: false, status: 409 } });
+
+    const ok = await useDeviceStore.getState().restartAgent('d1');
+
+    expect(ok).toBe(false);
+  });
+
   it('fetchLogs passes all query params correctly', async () => {
     mockGet.mockResolvedValueOnce({
       data: { entries: [], total: 0, has_more: false },
