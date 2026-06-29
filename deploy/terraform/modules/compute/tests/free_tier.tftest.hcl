@@ -43,20 +43,21 @@ run "free_tier_shape" {
   }
 }
 
-# Always Free A1.Flex caps: ≤4 OCPUs total, ≤24 GB memory total per tenancy.
-# Stamped here so a config tweak that pushes us over the cap is caught at plan
-# time, not at apply time when OCI returns LimitExceeded.
+# Always Free A1.Flex caps: ≤2 OCPUs total, ≤12 GB memory total per tenancy
+# (1,500 OCPU-hrs / 9,000 GB-hrs per month run continuously). Stamped here so a
+# config tweak that pushes us over the cap is caught at plan time, not at apply
+# time when OCI returns LimitExceeded.
 run "free_tier_compute_limits" {
   command = plan
 
   assert {
-    condition     = oci_core_instance.opengate.shape_config[0].ocpus <= 4
-    error_message = "Always Free A1.Flex tenant cap is 4 OCPUs total"
+    condition     = oci_core_instance.opengate.shape_config[0].ocpus <= 2
+    error_message = "Always Free A1.Flex tenant cap is 2 OCPUs total"
   }
 
   assert {
-    condition     = oci_core_instance.opengate.shape_config[0].memory_in_gbs <= 24
-    error_message = "Always Free A1.Flex tenant cap is 24 GB memory total"
+    condition     = oci_core_instance.opengate.shape_config[0].memory_in_gbs <= 12
+    error_message = "Always Free A1.Flex tenant cap is 12 GB memory total"
   }
 }
 

@@ -26,12 +26,12 @@ variable "instance_shape" {
 }
 
 variable "instance_ocpus" {
-  description = "Number of OCPUs for the instance (Always Free A1.Flex cap is 4 OCPUs total per tenancy)"
+  description = "Number of OCPUs for the instance (Always Free A1.Flex cap is 2 OCPUs total per tenancy)"
   type        = number
 }
 
 variable "instance_memory_gb" {
-  description = "Memory in GB for the instance (Always Free A1.Flex cap is 24 GB total per tenancy)"
+  description = "Memory in GB for the instance (Always Free A1.Flex cap is 12 GB total per tenancy)"
   type        = number
 }
 
