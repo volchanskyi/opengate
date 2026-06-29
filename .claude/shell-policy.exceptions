@@ -8,6 +8,7 @@ library	scripts/lib/mutation-shards.sh	-	Go mutation shard split sourced by the 
 aggregate	.claude/hooks/git-post-commit.sh	-	Best-effort post-commit automation must report failures without failing the commit.
 aggregate	.claude/hooks/pretooluse-gauntlet-nudge.sh	-	Background status nudge treats operational failures as a no-op.
 aggregate	.claude/hooks/sessionstart-install-git-hooks.sh	-	Session bootstrap is best-effort and must not block startup.
+aggregate	.claude/hooks/post-push-clean-caches.sh	-	Best-effort post-push cache reclaim must report failures without failing the push.
 aggregate	scripts/benchmark-summarize.sh	-	Aggregates multi-source benchmark parsing and regression outcomes into one summary.
 aggregate	scripts/pentest-review.sh	-	Collects multiple security-rule outcomes into one result.
 aggregate	scripts/pmat-vm-query.sh	-	Interprets expected missing-query and transport statuses.
@@ -22,3 +23,4 @@ aggregate	scripts/tests/pmat-precommit.test.sh	-	Plain-Bash harness accumulates 
 aggregate	scripts/tests/pmat-summarize.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/postgres-prereq.test.sh	-	Plain-Bash harness asserts expected non-zero probe results.
 aggregate	scripts/tests/sonar-coverage-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
+aggregate	scripts/tests/post-push-clean-caches.test.sh	-	Plain-Bash harness accumulates all assertion failures.

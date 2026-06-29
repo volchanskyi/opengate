@@ -84,6 +84,14 @@ dbg "rebased; marker now $(cat .claude/.markers/refactor.head)"
 if git push origin dev; then
   dbg "pushed ok"
   echo "auto-push: pushed $(git rev-parse --short HEAD) to origin/dev"
+  # 7. Post-push: reclaim large regenerable local caches (best-effort, never
+  #    fatal). Only runs after a successful push so a failed push keeps its
+  #    build cache for the retry.
+  cleaner="$root/.claude/hooks/post-push-clean-caches.sh"
+  if [ -x "$cleaner" ]; then
+    dbg "running post-push cache clean"
+    "$cleaner" "$root" || true
+  fi
 else
   dbg "push failed"
   echo "auto-push failed at 'git push origin dev' — push manually"

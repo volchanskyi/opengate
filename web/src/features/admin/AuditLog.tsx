@@ -59,7 +59,13 @@ export function AuditLog() {
         <>
           {/* Virtualized rows: only the windowed events are mounted; spacer
               rows reserve the scroll height so the native table layout holds. */}
-          <div ref={scrollParentRef} className="max-h-[calc(100vh-220px)] overflow-auto">
+          <div
+            ref={scrollParentRef}
+            role="region"
+            aria-label="Audit events"
+            tabIndex={0}
+            className="max-h-[calc(100vh-220px)] overflow-auto"
+          >
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-700 text-left text-gray-400">
