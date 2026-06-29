@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures";
-import type { Request, Response, Route } from "@playwright/test";
+import type { Request, Route } from "@playwright/test";
 
 // Web Push subscribe flow (NotificationCenter bell).
 //
@@ -59,28 +59,29 @@ test.describe("Web Push subscribe flow", () => {
   }) => {
     await installFakePush(authedPage);
 
-    let vapidFetched = false;
-    await authedPage.route("**/api/v1/push/vapid-key", (route: Route) => {
-      vapidFetched = true;
-      return route.fulfill({
+    await authedPage.route("**/api/v1/push/vapid-key", (route: Route) =>
+      route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ public_key: VAPID_KEY }),
-      });
-    });
+      }),
+    );
     await authedPage.route("**/api/v1/push/subscribe", (route: Route) => {
       if (route.request().method() !== "POST") return route.fallback();
       return route.fulfill({ status: 201, body: "" });
     });
 
     // Re-load so the init script + routes apply and NotificationCenter mounts.
-    await Promise.all([
-      authedPage.waitForResponse(
-        (r: Response) => r.url().includes("/api/v1/push/vapid-key") && r.status() === 200,
+    // Await the actual VAPID-key *request* our route serves — a single signal,
+    // so it cannot race a separately-awaited response the way a side-channel
+    // boolean set inside the handler could.
+    const [vapidRequest] = await Promise.all([
+      authedPage.waitForRequest((r: Request) =>
+        r.url().includes("/api/v1/push/vapid-key"),
       ),
       authedPage.reload(),
     ]);
-    expect(vapidFetched).toBe(true);
+    expect(vapidRequest.method()).toBe("GET");
 
     const subscribePost = authedPage.waitForRequest(
       (r: Request) => r.url().includes("/api/v1/push/subscribe") && r.method() === "POST",

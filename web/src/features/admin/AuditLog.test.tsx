@@ -65,6 +65,12 @@ describe('AuditLog', () => {
     expect(screen.getByText('Next')).toBeInTheDocument();
   });
 
+  it('makes the virtualized event table keyboard-scrollable', () => {
+    render(<AuditLog />);
+    const scrollRegion = screen.getByRole('region', { name: 'Audit events' });
+    expect(scrollRegion).toHaveAttribute('tabindex', '0');
+  });
+
   it('calls fetchAuditEvents on mount with limit=50, offset=0, no action filter', () => {
     const fetchFn = vi.fn();
     useAdminStore.setState({ fetchAuditEvents: fetchFn });
