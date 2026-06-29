@@ -1,256 +1,215 @@
-# Edge-Sentinel — Netdata-informed local anomaly detection for the Rust agent
+# Edge-Sentinel — Netdata-informed local anomaly detection + multi-tenant RMM telemetry
 
-> **Status:** Planning / research proposal — to be revisited. No code until a phase
-> is green-lit; every runtime behavior ships behind a **default-off** flag and
-> degrades silently (the sentinel must never block remote management).
->
-> This is the single canonical plan. It consolidates and supersedes the three
-> drafts `edge-sentinel-telemetry.md`, `edge-first-sentinel.md`, and
-> `edge-sentinel-ml-evaluation.md` (deleted on adoption of this file).
+> **Status:** Finalized planning — single rollout, **all workstreams built together**,
+> dependency-ordered, **no approval gates / no spike-then-wait**. Runtime behavior ships
+> behind a default-off flag and degrades silently (the sentinel must never block remote
+> management). Supersedes the deleted drafts.
 
 ## Context
 
-The Rust agent is **reactive**: it registers, heartbeats, accepts sessions, applies
-updates, and collects hardware/logs **on request**. Goal: evolve it into an **edge
-sentinel** — profile host health locally, detect anomalies with no labeled data
-(Netdata's unsupervised, zero-config approach), and surface low-cardinality insight
-to the server — **without** turning the OKE Always-Free deployment into a paid
-analytics stack.
+Evolve the reactive Rust agent into an **edge sentinel** — profile host health locally,
+detect anomalies with no labeled data (Netdata's unsupervised, zero-config engine), and
+surface insight to the server — framed for OpenGate's domain: a **multi-tenant RMM**.
 
-A third-party architect proposed a 5-phase design (ClickHouse/TimescaleDB sidecar,
-custom Go correlation engine, 20k-host heatmap). Cross-checking it against the real
-codebase surfaced **fatal mismatches**, all from missing context:
+A third-party architect reviewed the prior plan and found three **confirmed** gaps
+(verified against code this session):
 
-1. **Redundant storage.** VictoriaMetrics + Grafana + Loki + node/pg exporters are
-   already in prod ([deploy/helm/monitoring/values.yaml](../../deploy/helm/monitoring/values.yaml),
-   [ADR-038](../../docs/adr/ADR-038-victoriametrics-ci-trend-store.md)). ClickHouse/
-   TimescaleDB as always-on StatefulSets don't fit and aren't needed.
-2. **Phantom scale.** Sized for "20k concurrent endpoints"; proven scale is
-   single-node / 1 replica / ~1 agent, load-tested ~100–500
-   ([docs/Multiscale-Readiness.md](../../docs/Multiscale-Readiness.md),
-   [docs/Testing.md](../../docs/Testing.md)). Multi-replica is a **pending rebuild**
-   ([ADR-023](../../docs/adr/ADR-023-relay-extraction-redis-session-registry.md)).
-3. **Protocol misread.** A new `ControlMessage` is **additive** (golden Rust↔Go
-   compat tests exist) — not a "breaking upgrade." Option-B's "dedicated QUIC stream"
-   collides with the single-control-stream / stream-ownership workaround
-   (ADR-005/ADR-037).
-4. **Category error (vs Netdata).** The architect adopted Netdata's *ML* while
-   discarding its *architectural core*: **every agent is a store-and-query engine at
-   the edge; the center receives signal on-demand, not a firehose.** Re-centralizing
-   raw storage onto the one free-tier server is the opposite of edge-first.
+1. **Protocol compat was overstated.** Unknown control type → `ErrUnexpectedMessage`
+   ([conn.go:245](../../server/internal/agentapi/conn.go#L245)) → control loop drops the
+   connection ([server.go:260](../../server/internal/agentapi/server.go#L260)), pinned by
+   [conn_test.go:612](../../server/internal/agentapi/conn_test.go#L612). Additive is
+   wire-additive, **not operationally safe** until dispatch is made forward-compatible.
+2. **Tenancy is a product migration, not a label.** Confirmed **zero** `org_id`/tenant/RLS
+   anywhere ([001_initial.up.sql](../../server/internal/db/migrations/001_initial.up.sql);
+   no matches in server Go). Today's authz is `users.is_admin` + `security_groups` RBAC.
+3. **Storage math must be measured.** 20 dims × **4** aggregates × (86400/10) × 4 B =
+   **2.64 MiB/day/agent raw** → **38.6 GiB / 500 agents / 30 d**. Compression and **active-
+   series cardinality** swing this several-fold → measured in load-test, not estimated.
 
-The well-motivated kernel: **edge-local scoring** (ship compact summaries) — agents
-are **outbound-only behind NAT** (can't be scraped like node-exporter) and the
-**200 GB OCI block cap is fully consumed**, so raw centralization is doubly penalized.
+### Decisions locked (this session)
 
-### Decisions locked
-
-| Topic | Decision | Why |
-|---|---|---|
-| Edge intelligence | **Clean-room k=2 k-means ensemble** (Netdata shape: up to 18 staggered models/metric, consensus voting, **99th-percentile** training-distance threshold) | Faithful to Netdata's unsupervised engine; capability built now, model count configurable, **measured on ARM before default-on** |
-| License | **Clean-room only — no vendored/ported Netdata code** | Netdata is **GPL-3.0-or-later**; this workspace is **Apache-2.0** ([agent/Cargo.toml](../../agent/Cargo.toml)) — porting GPL code would relicense the agent |
-| Storage | **Edge ring-buffer (Tier 0, RAM) → summaries to VictoriaMetrics + latest state to Postgres → on-demand pull → (gated) Parquet cold tier queried by server-side embedded OLAP** | Mirrors Netdata's parent-child/RAM-child model; keeps Always-Free footprint intact; gives a real path to history without a new always-on DB |
-| ClickHouse/Timescale (hosted) | **Rejected for free tier** | No durable fit (4/4 block volumes used, 12 GB RAM node, 20 GB/50k-req object storage). Hosted DB deferred until off free tier |
-| UI | **Health badge + anomaly panel first; native React charting (uPlot) for timelines** | Cheapest operator value first; user chose native charting for the dense view |
-| Scope | **Design now, build incrementally** at proven scale; cardinality fan-out gated behind the multiscale rebuild | Delivers on today's single-replica path without blocking on ADR-023 |
-
-## Netdata alignment
-
-**ML kernel (clean-room replication of the *design*, not the *code*):** per-metric
-k=2 k-means; multiple staggered models trained on rolling windows (Netdata shape ≈18
-models, ~6 h each, 3 h stagger → ~54 h); feature vectors are **lagged windows**
-(current + N preceding samples) so *shape* anomalies are caught, not just level; the
-**anomaly bit is set only on consensus** (all trained models agree the sample exceeds
-their **99th-percentile** training-distance boundary × a guard-band) — consensus +
-percentile are Netdata's false-positive controls (the architect's `max×1.5` is a blind
-spot: one noisy training sample inflates `max`).
-
-**DBENGINE parent-child mapping — Netdata's own model validates this design:**
-Netdata's blog states children can run **RAM-mode** while **parents** persist via
-`dbengine`. That is exactly our split:
-
-| Netdata DBENGINE | OpenGate equivalent |
+| Topic | Decision |
 |---|---|
-| **RAM-mode child** (Tier 0 hot pages, no disk) | **Agent in-RAM ring buffer** feeding the ensemble |
-| **Parent** persisting via dbengine (append-only ring eviction of oldest datafile) | **Server → VictoriaMetrics** (retention-based eviction = same "ring on disk") |
-| Parent-child **streaming** | Agent→server summary over the existing QUIC control stream |
-| **Multi-tier downsampling** (T0 1 s ≈0.6 B/sample → T1 1 min → T2 1 hr) | **Split across the wire** (see below) — VM-enterprise downsampling or Timescale continuous aggregates only if 20k forces it |
+| Edge intelligence | Clean-room **k=2 k-means ensemble** (Netdata shape: ~18 staggered models/metric, consensus, **99th-pct** threshold), ARM-measured before default-on |
+| License | **Clean-room only** — no vendored/ported Netdata code (GPL-3 vs workspace Apache-2, [agent/Cargo.toml](../../agent/Cargo.toml)) |
+| **Tenancy** | **Full product-wide multi-tenancy + Postgres RLS now** (WS-0 foundation) |
+| **Hot store** | **TimescaleDB extension on the existing Postgres 17** (hypertable + compression + continuous aggregates + retention) |
+| **Aggregates** | **Full {min,max,avg,last} @10 s** |
+| **Metric families** | CPU + memory + disk + network + **process/service** |
+| **Process PII** | **Full name + cmdline**, with **on-by-default secret-redaction** of argv; descriptive fields in an RLS relational table; only numeric per-**top-N-rank** series in the hypertable (bounds cardinality) |
+| Correlation | **On-demand**, native SQL in Timescale (RLS-scoped), KS-test + anomaly-rate ranking; bounded concurrency/timeout |
+| Cold tier | **Parquet → OCI Object Storage** (tenant-partitioned, server-issued PARs), **DuckDB** on-demand for long-term/compliance + chunk offload to keep the shared Postgres lean |
+| Signal action | **Investigation-aid only first** (no auto-notify until FPR soak) |
+| Visibility | **Any device-viewer in the org** |
+| Protocol | **Forward-compat dispatch fix** (log-and-continue on unknown agent→server types) + flip the pinning test |
 
-So: **VictoriaMetrics plays the parent-dbengine role; the agent RAM buffer plays the
-RAM-mode child.** Among hosted engines, VM is closest to DBENGINE's storage internals
-(purpose-built compressed TSDB, quota eviction); Timescale **continuous aggregates**
-(OSS) are the closest match to DBENGINE's *tiered downsampling* (VM downsampling is
-enterprise-only).
+### Headline risk (accepted, mitigated, measured)
 
-## Target architecture (edge-first)
+Timescale-on-the-existing-Postgres + full aggregates @10 s + all families incl. process is
+the **highest-load path**, and free-tier has **no spare volume** (4/4 used), so telemetry
+**shares the Postgres that runs live relay/WebRTC/device control**. Mitigations are
+**mandatory, not optional**: native compression + continuous aggregates + retention +
+cold-chunk offload to Parquet, a measured **control-plane p99 budget**, and a documented
+**mitigation ladder** (coarsen interval → drop to 2 aggregates → isolate Timescale to its
+own instance). The ladder is a measurement-triggered contingency, **not** a build gate.
+
+## Architecture
 
 ```
- Managed host (spare capacity)                      OKE Always-Free (≈2 OCPU/12 GB, 1 node)
-┌──────────────────────────────────────┐          ┌──────────────────────────────┐
-│ sampler → ring-buffer (tiered) ─┐     │          │ control handler              │
-│   sysinfo   bounded, disk-capped │     │  mTLS    │  ├ latest state → Postgres   │
-│                                  ▼     │  QUIC    │  └ (opt) anomaly-rate → VM    │
-│ detector: k=2 ▸ consensus ▸ rate ──────┼─────────▶│ web: health badge + panel    │
-│   (99th-pct threshold)                 │ summary  │       + uPlot timeline        │
-│                                  ▲     │ + on-    │ (later) on-demand OLAP:       │
-│ Parquet flush ──┐                │     │ demand   │  DuckDB/chDB over Parquet     │
-└─────────────────┼────────────────┘     │ pull     └─────────────┬────────────────┘
-                  ▼ pre-signed PUT                                 │ range reads
-            OCI Object Storage (20 GB free, Parquet) ◀────────────┘
+ Managed host                                       OKE Always-Free (≈2 OCPU/12 GB, 1 node)
+┌──────────────────────────────────────┐          ┌───────────────────────────────────────┐
+│ sampler(cpu/mem/disk/net/proc) → ring │  mTLS    │ control handler (forward-compatible)   │
+│   bounded RAM, 1s (Tier 0, ephemeral) │  QUIC    │  ├ inventory+health → Postgres (RLS)   │
+│ detector: k=2 ▸ consensus ▸ 99th-pct  ├─────────▶│  ├ numeric series → Timescale hypertbl │
+│   per-family + node anomaly rate      │ summary  │  └ proc name+cmdline(redacted) → RLS tbl│
+│ + org_id; cmdline redaction at source │ + pull   │ on-demand correlation (SQL, RLS)       │
+│ Parquet flush (tenant-partitioned) ───┼──────────│ web: badge + panel + uPlot + drilldown │
+└───────────────────────────────┬───────┘ PAR PUT │ DuckDB over Parquet (cold/compliance)  │
+                                 ▼                  └───────────────────────────────────────┘
+            OCI Object Storage (20 GB free, Parquet, tenant-partitioned)
 ```
 
-Edge does detection **and** keeps recent history; the server gets a compact summary
-each heartbeat and can **pull** a bounded window on demand (Netdata-style replication
-over the existing control plane). The object-storage cold tier is a later, gated phase.
+DBENGINE tiering split across the wire: **T0** = agent RAM (1 s, ephemeral, ML only);
+**T1** = Timescale hypertable (compressed, continuous-aggregate rollups); **cold** =
+Parquet/object (long retention, DuckDB on-demand). Agents are outbound-only (NAT), so the
+server is the only writer to all stores; no standing agent credentials.
 
-## Storage & retention strategy (DBENGINE tiering, split across the wire)
+## Workstreams (one rollout, dependency-ordered)
 
-Emulate DBENGINE's tiers across the agent↔server boundary so the firehose never crosses
-the NAT:
+Each: **TDD first**, then `make golden`/tests, `/precommit`, commit, `/refactor`, push.
 
-- **Tier 0** = agent RAM, 1 s resolution, **ephemeral**, sole consumer is the ensemble.
-  Footprint ~tens of KB (e.g. 20 dims × 900 samples × 4 B ≈ 72 KB) — far below DBENGINE's
-  per-node cost because no persistent tiers live on the edge.
-- **Tier 1** = what crosses the wire: pre-downsampled 10–60 s windows (min/max/avg/last)
-  + anomaly bitmask → **VictoriaMetrics** (30 d); **latest state** → **Postgres** (for
-  UI/JOINs/alerts). Agent does the T0→T1 downsample, so central storage only holds
-  reduced data.
-- **Tier 2** = hourly rollups, **only if 20k forces it**: VM-enterprise downsampling or
-  TimescaleDB continuous aggregates (OSS).
-- **Cold/historical** = agent flushes **Parquet** to **OCI Object Storage** (Always-Free
-  20 GB / 50k req/mo) via **server-issued pre-signed PAR URLs** (no standing object-store
-  creds at the edge); queried **on-demand** by a **server-side embedded OLAP**
-  (DuckDB/MIT or chDB/Apache-2.0 — license-compatible, **never shipped in the agent**).
-  This is *where ClickHouse-class analytics actually fit on free tier*: embed the query
-  engine, don't host a DB.
+### WS-0 — Multi-tenancy foundation + RLS (prerequisite)
+- New `organizations` table; add `org_id UUID NOT NULL` to every tenant table (users,
+  groups_, devices, agent_sessions, audit_events, amt_devices, enrollment_tokens,
+  security_groups, device_* tables) via migration; **backfill** all existing rows to a
+  seeded default org.
+- **RLS** `ENABLE`/`FORCE` + policies `USING (org_id = current_setting('app.current_org')::uuid)`;
+  `is_admin` → cross-org bypass (BYPASSRLS role or policy exception).
+- Add `OrgID` to JWT `Claims` ([auth.go:21](../../server/internal/auth/auth.go#L21)); a
+  **tenant-context middleware** after auth in the authenticated chi group
+  ([api.go:277](../../server/internal/api/api.go#L277)); thread **per-transaction
+  `SET LOCAL app.current_org`** through the repository layer (queries run inside a
+  tenant-scoped tx — the invasive part).
+- Web: org context + (multi-org users) switcher.
+- *Tests:* **cross-tenant-deny** suite (every repo); middleware sets/clears GUC; admin bypass.
+- *ADR:* multi-tenant RLS model.
 
-**Per-scale storage math (why tiering is a 20k concern, not a now concern):** ~20 dims
-shipped as 10 s aggregates ≈ **0.7 MB/day/agent** in VM.
-- 1–500 agents → ~10 GB / 30 d → **fits the ~40 GB headroom** under VM's 50 GB OCI floor
-  (chart requests only 10 GiB, [values.yaml:26](../../deploy/helm/monitoring/values.yaml#L26)).
-  **Flat retention is fine.**
-- 20k agents → **~14 GB/day** → fills headroom in ~3 days → **must** downsample (Tier 2)
-  or push coarser aggregation to the edge (60 s windows). Decision deferred to that scale.
+### WS-1 — Protocol forward-compatibility
+- Change agent→server dispatch `default:` to **log-and-continue** (return nil) for
+  unrecognized types ([conn.go:245](../../server/internal/agentapi/conn.go#L245)); flip
+  `TestAgentConn_HandleUnknownMessage` to assert no-error (test-first).
 
-**Hosted ClickHouse free-tier verdict (recorded):** no durable fit — every path is
-ephemeral (emptyDir), quota-busting (S3-disk vs 50k req/mo), or evicts an existing store;
-defer until off free tier.
+### WS-2 — Edge ML + sampler (agent, clean-room, pure Rust)
+- New `mesh-agent-core/src/ml/`: `KMeansModel` (k=2), `EdgeMlEnsemble` (consensus,
+  99th-pct × guard-band), `AnomalyRateWindow` (bit-packed). Staggered training, **yields**
+  to session/control traffic; detection O(models), alloc-free post-load; **ARM bench**,
+  model-budget cap.
+- `MetricSampler` trait; binary impl reuses **`sysinfo` (already a dep)** —
+  ([main.rs:739](../../agent/crates/mesh-agent/src/main.rs#L739)). Families: CPU/mem/disk/net
+  + **process/service top-N by rank** (numeric cpu%/mem per rank). **cmdline secret-
+  redaction at source** (on by default). Bounded ring buffer, hard RAM/disk cap.
+- *Tests:* `cargo test -p mesh-agent-core` (consensus, percentile robustness, non-finite
+  rejection, ring rollover/eviction, **redaction unit tests** for known secret patterns).
 
-## Phased rollout (P0–P7)
+### WS-3 — Wire contract (additive, tenant-tagged, golden-gated)
+- Additive `ControlMessage` variants ([control.rs](../../agent/crates/mesh-protocol/src/control.rs),
+  `#[non_exhaustive]`), emitted from the 60 s heartbeat loop, reusing `FRAME_CONTROL`
+  (**no new QUIC stream**):
+  - `AgentHealthSummary { ts, org_id, node_anomaly_rate, per_family_rates, recent_bitmask, sampler_ver, model_ver }`
+  - `AgentMetricWindow { ts, org_id, per-dim {min,max,avg,last} @10 s }`
+  - `ProcessReport { ts, org_id, top_n: [{rank, name, cmdline(redacted), pid, cpu, mem}] }`
+  - `RequestHealthWindow` / `HealthWindowResponse` (bounded on-demand pull)
+- **Rust→Go goldens** ([golden_test.go](../../server/internal/protocol/golden_test.go)).
+- *Tests:* `make golden`; round-trips both languages.
 
-Each phase: independently shippable, **default-off**, gated on the prior phase's measured
-acceptance. Per phase: TDD → `make golden`/tests → `/precommit` → commit → `/refactor` → push.
+### WS-4 — Server ingest + TimescaleDB
+- Migration: enable `timescaledb`; `device_metrics` **hypertable** (numeric, `org_id` +
+  RLS), **compression** + **continuous aggregates** (1 min/1 hr rollups) + **retention**;
+  `device_processes` RLS relational table (name, **redacted** cmdline, pid, rank).
+- Handlers (mirror `handleHardwareReport`) for the new messages → tenant-scoped writes;
+  server-side **redaction guard** (defense-in-depth even if agent redaction is off).
+- *Tests:* Go handler/store (`testpg`), RLS deny, compression/CA policy applied.
 
-- **P0 — Detector kernel (clean-room, pure Rust).** New `mesh-agent-core` module:
-  `DetectorConfig`, `KMeansModel` (k=2), `EdgeMlEnsemble` (consensus via `minimum_votes`),
-  `AnomalyRateWindow` (bit-packed). 99th-pct boundary × guard-band. No task/protocol/infra.
-  *Accept:* `cargo test -p mesh-agent-core` (positive + negative: percentile robustness,
-  non-finite rejection, consensus, window roll/pack).
-- **P1 — Host sampler.** `MetricSampler` trait; binary impl uses **`sysinfo` (already a
-  workspace dep)** — reuse `collect_hardware_info()` patterns
-  ([main.rs:739](../../agent/crates/mesh-agent/src/main.rs#L739)). `FakeSampler` for tests.
-  CPU%, mem, disk per mount, net counters; **no root-only collectors**; bounded interval.
-  *Accept:* deterministic fake-sampler tests; one-shot dump.
-- **P2 — Edge ring-buffer + tiered downsample.** Bounded RAM ring + minute/hour tiers,
-  **hard RAM/disk cap** (reject growth). Optional disk spill via `arrow`/`parquet`
-  (Apache-2.0) — **new deps → ADR review** ([rules/code.md](../rules/code.md)).
-  *Accept:* property tests for ring/rollover/eviction; RSS + cap assertions.
-- **P3 — Training scheduler.** Staggered windows from the ring; **start with far fewer
-  than 18 models, measure CPU/RSS on A1-class ARM**, then scale toward the full ensemble.
-  Training **yields** to session/update/control traffic; detection stays O(models),
-  alloc-free post-load. *Accept:* ARM bench; model-budget cap enforced.
-- **P4 — Wire contract (summary + on-demand pull).** Extend `ControlMessage`
-  ([control.rs](../../agent/crates/mesh-protocol/src/control.rs) — `#[non_exhaustive]`,
-  `#[serde(tag="type")]`; precedent `HardwareReport`); emit from the 60 s heartbeat loop
-  ([main.rs ~L561](../../agent/crates/mesh-agent/src/main.rs#L561)). Reuse `FRAME_CONTROL`,
-  **no new QUIC stream**.
-  - `AgentHealthSummary { ts, node_anomaly_rate, per_family_rates, recent_bitmask, sampler_ver, model_ver }` — bounded, interval floor.
-  - `RequestHealthWindow` / `HealthWindowResponse` — server pulls a **bounded** recent
-    window from the ring buffer on demand (drill-down without central storage).
-  - **Rust-generated + Go-verified goldens**
-    ([protocol/golden_test.go](../../server/internal/protocol/golden_test.go)); server
-    ignores unknown summaries (mixed-version rollout). *Accept:* `make golden`; round-trips.
-- **P5 — Server persistence + UI (first surface).** Latest state per device in Postgres
-  ([device/postgres.go](../../server/internal/device/postgres.go) + migration) — no new DB.
-  Optional **low-cardinality** anomaly-rate → VM **after a cardinality estimate** (clamp to
-  `device_id`; no per-process/path labels). Web: device-list **health badge** +
-  device-detail **anomaly panel**. *Accept:* handler/store tests (`testpg`); `make e2e`;
-  documented VM cardinality estimate.
-- **P6 — Native React timeline (uPlot).** Add **uPlot** (canvas; tens of thousands of
-  points at 60 fps; Recharts as simpler-DX fallback) to
-  [web/package.json](../../web/package.json); device-detail metrics timeline backed by a
-  new REST VM range-query proxy. Vendor stylesheet imported as a vendor asset (respects the
-  Tailwind-only rule). *Accept:* `make e2e` for the chart; regen API both sides
-  (`oapi-codegen`; `npm run generate:api`).
-- **P7 — Cold tier + on-demand OLAP (gated on real need).** Agent flushes Parquet to OCI
-  Object Storage via **server-issued PAR URLs**; **server/operator-side** DuckDB/chDB
-  range-reads on demand (engine **never** in the agent). Grafana dashboard + Telegram alert
-  via the **existing** path. *Accept:* PAR issue/expiry tests; query smoke over sample
-  Parquet; stays within 20 GB / 50k-req budget.
+### WS-5 — Correlation engine (on-demand, Netdata Anomaly-Advisor)
+- `internal/correlate` + REST endpoint ([api/openapi.yaml](../../api/openapi.yaml)): given
+  window + tenant, rank top-N dimensions (KS-test two-sample + anomaly-rate volume) via
+  **native SQL on the hypertable** (RLS auto-scopes); bounded concurrency + timeout.
+- *Tests:* injected anomaly ranks #1; tenant-scope enforced; timeout/concurrency bounds.
 
-**Multiscale gate:** validate cardinality/VM RAM at load-test scale (500 agents) before
-fan-out beyond ~1k; full 20k validation is deferred behind the ADR-023 registry rebuild.
+### WS-6 — Web UI (native React)
+- Health **badge** on the virtualized device grid
+  ([DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx)); device-detail
+  **anomaly panel** + **uPlot** timelines (canvas) + **correlation drill-down** (window
+  select → top-N). Add `uplot` to [web/package.json](../../web/package.json) (vendor CSS as
+  a vendor asset). org-scoped via existing auth.
+- *Tests:* `make e2e` (badge, panel, timeline, drill-down for a seeded anomalous device).
+
+### WS-7 — Cold tier + DuckDB OLAP
+- Agent flushes **tenant-partitioned Parquet** to OCI Object Storage via **server-issued
+  PARs** (no standing creds); Timescale **chunk offload** of aged data → Parquet to keep
+  the shared Postgres lean. **Server-side** DuckDB `postgres_scanner` for historical +
+  cross-fleet relational correlation (engine **never** in the agent).
+- *Tests:* PAR issue/expiry; query smoke over sample Parquet; stays within 20 GB / 50k req.
+
+### WS-8 — Ops + measurement (informs tuning, not a gate)
+- Grafana dashboard (Postgres/Timescale datasource). Alerts **deferred** (investigation-aid
+  only). Extend [loadtest](../../server/tests/loadtest/main.go) to **500 multi-tenant
+  agents** with full telemetry; **measure**: control-plane p99 under load, ingest/
+  compression ratio, active-series cardinality, correlation latency, RLS overhead. Apply
+  the **mitigation ladder** if the p99 budget is exceeded.
 
 ## Non-functional requirements
 
-- **Performance.** Edge ML is cheap (Netdata: ~18 KB/model, 2–4% of one core per *10k*
-  metrics) → our ~10–25 dims = «1% CPU, <1 MB RSS, **on the managed host, not the A1
-  server**. Detection O(models), alloc-free post-load; ring hard-capped; server ingest
-  bounded by interval + batch. **Measure, don't assume** (ARM bench in P3).
-- **Security.** Health rides the existing **mTLS QUIC** control plane — **no standing
-  agent→VM or agent→object-store creds**; object uploads use short-lived pre-signed URLs.
-  Metric names/labels/Parquet columns must not leak usernames, paths, process command
-  lines, peer IPs, or secrets. Numeric aggregates only; config-gated; documented.
-- **Maintainability.** **No vendored GPL code (clean-room ML).** Embedded OLAP is
-  server-side only; the agent stays pure-Rust. New deps (`arrow`/`parquet`, object-store
-  client, DuckDB/chDB) each require **ADR review**. Telemetry modules independent of
-  session handlers; protocol changes golden-gated.
-- **Operability.** Default-off until P4/P5 land. Mixed agent versions supported. Failure =
-  silent degradation. Object/VM history is on-demand/bounded, never always-on.
+- **Security / privacy.** Health rides existing **mTLS QUIC**; **no standing agent→store or
+  agent→object creds** (PARs only). **cmdline argv secret-redaction** on by default
+  (agent + server defense-in-depth) — argv routinely carries credentials and health is
+  visible to any org device-viewer. Descriptive process data in an **RLS relational table**;
+  numeric only in the hypertable. **RLS cross-tenant-deny tested** on every repo. Numeric
+  metric labels carry no usernames/paths/secrets.
+- **Performance.** Edge ML «1 % CPU, <1 MB RSS, on the managed host (ARM-measured).
+  Detection O(models), alloc-free; ring hard-capped; correlation **on-demand only**.
+  **Control-plane p99 budget** enforced via the measured load-test + mitigation ladder.
+- **Maintainability.** **No vendored GPL code.** Embedded OLAP server-side only; agent
+  pure-Rust. New deps (`arrow`/`parquet`, object-store, **DuckDB — CGO**) + the TimescaleDB
+  custom image each via **ADR review**. Telemetry modules independent of session handlers;
+  protocol golden-gated.
+- **Operability.** Default-off until WS-3/WS-4 land. Forward-compatible dispatch supports
+  mixed agent versions. Failure = silent degradation.
 
-## Open decisions / clarifying questions (recommendations; confirm on revisit)
+## Storage / cardinality (measured in WS-8)
 
-1. **First metric families** → *Rec:* CPU + memory (highest-signal, unprivileged,
-   deterministic cross-platform); disk/net next; process/service later (PII-sensitive).
-2. **Storage reach for the first slice** → *Rec:* P2 edge ring + P4 on-demand pull; treat
-   P7 Parquet/OLAP as gated on a measured incident workflow.
-3. **Fleet/cardinality budget** → *Rec:* design for **tens** now (matches single-replica
-   prod) with strict per-device label caps; thousands forces summary-only + Parquet from
-   day one.
-4. **Signal action** → *Rec:* investigation-aid only first (badge + panel); wire the
-   existing `Notifier`/Telegram path only after a false-positive soak.
-5. **Visibility** → admins only, or any operator who can view the device?
-6. **OCI envelope nuance** → deployed node is **2 OCPU / 12 GB** (binding for co-tenancy);
-   whether the tenancy may grow to 4/24 is contested (repo terraform asserts a 4/24 cap;
-   current Oracle Always-Free docs indicate 2/12) — operator to verify. The 12 GB co-tenancy
-   squeeze holds either way.
+- Raw: ~25 base dims × 4 aggregates @10 s = ~2.6 MiB/day/agent **before** process metrics;
+  process adds top-N-rank numeric series (bounded) + a relational row set (not TSDB labels).
+- Timescale native compression (~10–20× on time-series) + continuous-aggregate rollups +
+  retention + cold-chunk offload keep the **shared 50 GB Postgres PVC** lean.
+- Real 20k limiter is **active-series cardinality** (4 aggregates × dims × agents); process
+  bounded by rank avoids explosion. Exact numbers come from the WS-8 load-test.
 
 ## Critical files
 
-- Agent: new `mesh-agent-core/src/ml/` (detector/sampler/ring), [main.rs](../../agent/crates/mesh-agent/src/main.rs) (loop + `collect_hardware_info`), [session/mod.rs](../../agent/crates/mesh-agent-core/src/session/mod.rs) (bounded-channel precedent)
-- Protocol: [mesh-protocol/src/control.rs](../../agent/crates/mesh-protocol/src/control.rs), [tests/golden_test.rs](../../agent/crates/mesh-protocol/tests/golden_test.rs); Go [protocol/types.go](../../server/internal/protocol/types.go), [protocol/golden_test.go](../../server/internal/protocol/golden_test.go)
-- Server: [agentapi/conn.go](../../server/internal/agentapi/conn.go), [device/postgres.go](../../server/internal/device/postgres.go), [db/migrations/](../../server/internal/db/migrations/), new `internal/vmingest/`, (P7) new `internal/olap/`
-- API/UI: [api/openapi.yaml](../../api/openapi.yaml), [web/package.json](../../web/package.json), [web/src/features/devices/DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx), new device-detail metrics view
-- Ops: [deploy/grafana/provisioning/dashboards/](../../deploy/grafana/provisioning/dashboards/), [deploy/helm/monitoring/values.yaml](../../deploy/helm/monitoring/values.yaml)
+- Agent: new `mesh-agent-core/src/ml/`, [main.rs](../../agent/crates/mesh-agent/src/main.rs), [session/mod.rs](../../agent/crates/mesh-agent-core/src/session/mod.rs) (bounded-channel precedent)
+- Protocol: [control.rs](../../agent/crates/mesh-protocol/src/control.rs), [golden_test.rs](../../agent/crates/mesh-protocol/tests/golden_test.rs); Go [types.go](../../server/internal/protocol/types.go), [golden_test.go](../../server/internal/protocol/golden_test.go)
+- Server: [conn.go](../../server/internal/agentapi/conn.go) (dispatch fix + handlers), [auth/auth.go](../../server/internal/auth/auth.go) (OrgID claim), [api/api.go](../../server/internal/api/api.go) (tenant middleware), [device/](../../server/internal/device/) repos (per-tx GUC), [db/migrations/](../../server/internal/db/migrations/) (org/RLS + timescale + process tbl), new `internal/correlate/`, `internal/olap/`
+- API/UI: [api/openapi.yaml](../../api/openapi.yaml), [web/package.json](../../web/package.json), [DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx), new device-detail metrics view
+- Ops: [deploy/grafana/provisioning/dashboards/](../../deploy/grafana/provisioning/dashboards/), [deploy/helm/](../../deploy/helm/) (TimescaleDB image), [loadtest](../../server/tests/loadtest/main.go)
 
 ## Verification
 
-- **Rust:** `cargo test -p mesh-agent-core` (detector/sampler/ring, positive + negative);
-  ARM bench for P3 budgets; RSS/CPU footprint measured, not assumed.
-- **Cross-language:** `make golden` for new `ControlMessage` variants; round-trips both langs.
-- **Server:** Go handler/store table tests; migration applied in `testpg`; VM push tested
-  (testcontainers/stub); `device_anomaly_events` rows on onset/clear.
-- **Load:** extend [loadtest](../../server/tests/loadtest/main.go) to 500 agents emitting
-  health; confirm VM ingest + server CPU bounded; record VM active-series count.
-- **Web/E2E:** `make e2e` for badge + panel (P5) and the uPlot timeline (P6).
-- **Manual:** `/run` the stack, inject CPU load, watch the bit flip in the UI and (P7) a
-  Telegram alert fire.
+- **Rust:** `cargo test -p mesh-agent-core` (detector/sampler/ring, redaction, positive +
+  negative); ARM bench; RSS/CPU measured.
+- **Cross-language:** `make golden` for new variants; forward-compat dispatch test flipped.
+- **Server:** Go handler/store tests; migrations in `testpg`; **RLS cross-tenant-deny**;
+  correlation ranking (injected anomaly ranks #1); compression/CA policies applied.
+- **Load (WS-8):** 500 multi-tenant agents → control-plane p99, ingest/compression,
+  cardinality, correlation latency recorded; mitigation ladder applied if needed.
+- **Web/E2E:** `make e2e` (badge, panel, uPlot, drill-down).
+- **Manual:** `/run` stack, inject CPU/disk load + a secret-bearing process, confirm bit
+  flips, correlation ranks it, cmdline is **redacted**, and RLS hides it cross-tenant.
 - **Gate:** `make lint`, `make sonar`, full `/precommit`; `/refactor` before push.
 
-## Housekeeping on execution
+## Housekeeping
 
-- Update [.claude/phases.md](../phases.md) (In-Progress row) and add an ADR in
-  [docs/adr/](../../docs/adr/) for the edge-first storage + clean-room-ML decision (index
-  row in [.claude/decisions.md](../decisions.md)).
-- New crates/deps (`arrow`/`parquet`, object-store, DuckDB/chDB) land via ADR review.
-- `/docs` update at each implementation phase (canonical developer docs).
+- ADRs: (a) edge-first + clean-room ML, (b) multi-tenant RLS, (c) TimescaleDB adoption +
+  on-existing-Postgres placement + mitigation ladder, (d) process-telemetry PII/redaction —
+  index rows in [.claude/decisions.md](../decisions.md). Update [.claude/phases.md](../phases.md).
+- New crates/deps + the TimescaleDB image via ADR review. `/docs` update each workstream.

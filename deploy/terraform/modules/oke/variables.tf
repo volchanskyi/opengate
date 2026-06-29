@@ -92,24 +92,24 @@ variable "node_shape" {
 }
 
 variable "node_pool_size" {
-  description = "Number of worker nodes. Bounded so total OCPU/memory stays inside the Always-Free 4 OCPU / 24 GB cap."
+  description = "Number of worker nodes. Bounded so total OCPU/memory stays inside the Always-Free 2 OCPU / 12 GB cap."
   type        = number
   default     = 1
 
   validation {
-    condition     = var.node_pool_size >= 1 && var.node_pool_size <= 4
-    error_message = "node_pool_size must be between 1 and 4 (Always-Free 4-OCPU ceiling, ≥1 OCPU per node)."
+    condition     = var.node_pool_size >= 1 && var.node_pool_size <= 2
+    error_message = "node_pool_size must be between 1 and 2 (Always-Free 2-OCPU ceiling, ≥1 OCPU per node)."
   }
 }
 
 variable "node_ocpus" {
-  description = "OCPUs per worker node. node_ocpus × node_pool_size must stay ≤ 4 (asserted in tests/free_tier.tftest.hcl)."
+  description = "OCPUs per worker node. node_ocpus × node_pool_size must stay ≤ 2 (asserted in tests/free_tier.tftest.hcl)."
   type        = number
   default     = 2
 }
 
 variable "node_memory_gb" {
-  description = "Memory (GB) per worker node. node_memory_gb × node_pool_size must stay ≤ 24."
+  description = "Memory (GB) per worker node. node_memory_gb × node_pool_size must stay ≤ 12."
   type        = number
   default     = 12
 }

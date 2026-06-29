@@ -40,20 +40,21 @@ run "node_shape_is_free_tier" {
   }
 }
 
-# Always-Free A1.Flex tenancy caps: ≤4 OCPUs and ≤24 GB across ALL nodes. A
-# config tweak that pushes the pool over the cap is caught at plan time, not at
-# apply when OCI returns LimitExceeded.
+# Always-Free A1.Flex tenancy caps: ≤2 OCPUs and ≤12 GB across ALL nodes
+# (1,500 OCPU-hrs / 9,000 GB-hrs per month run continuously). A config tweak
+# that pushes the pool over the cap is caught at plan time, not at apply when
+# OCI returns LimitExceeded.
 run "node_pool_within_compute_cap" {
   command = plan
 
   assert {
-    condition     = oci_containerengine_node_pool.opengate.node_shape_config[0].ocpus * oci_containerengine_node_pool.opengate.node_config_details[0].size <= 4
-    error_message = "Total node-pool OCPUs (ocpus × size) must stay ≤ 4 (Always-Free A1.Flex tenant cap)."
+    condition     = oci_containerengine_node_pool.opengate.node_shape_config[0].ocpus * oci_containerengine_node_pool.opengate.node_config_details[0].size <= 2
+    error_message = "Total node-pool OCPUs (ocpus × size) must stay ≤ 2 (Always-Free A1.Flex tenant cap)."
   }
 
   assert {
-    condition     = oci_containerengine_node_pool.opengate.node_shape_config[0].memory_in_gbs * oci_containerengine_node_pool.opengate.node_config_details[0].size <= 24
-    error_message = "Total node-pool memory (memory_in_gbs × size) must stay ≤ 24 GB (Always-Free A1.Flex tenant cap)."
+    condition     = oci_containerengine_node_pool.opengate.node_shape_config[0].memory_in_gbs * oci_containerengine_node_pool.opengate.node_config_details[0].size <= 12
+    error_message = "Total node-pool memory (memory_in_gbs × size) must stay ≤ 12 GB (Always-Free A1.Flex tenant cap)."
   }
 }
 
