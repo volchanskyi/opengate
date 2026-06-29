@@ -53,7 +53,7 @@ run_hook() {
   shift
   (
     cd "$root" || exit 99
-    env "PATH=$root/bin:$PATH" "$@" bash "$HOOK" "$root"
+    env -u CI -u GITHUB_ACTIONS "PATH=$root/bin:$PATH" "$@" bash "$HOOK" "$root"
   ) >/dev/null 2>&1
   HOOK_EXIT=$?
 }
