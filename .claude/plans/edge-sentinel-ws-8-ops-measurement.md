@@ -13,18 +13,18 @@ The locked combo (TimescaleDB extension on the existing Postgres + full {min,max
 mandates a measured **control-plane p99 budget** and a **mitigation ladder** (coarsen
 interval → drop to 2 aggregates → isolate Timescale to its own instance). This WS implements
 the measurement and the dashboard. The load-test harness already exists
-([`server/tests/loadtest/main.go`](../../../server/tests/loadtest/main.go)); VictoriaMetrics
-+ Grafana are deployed ([`deploy/helm/monitoring/values.yaml`](../../../deploy/helm/monitoring/values.yaml)).
+([`server/tests/loadtest/main.go`](../../server/tests/loadtest/main.go)); VictoriaMetrics
++ Grafana are deployed ([`deploy/helm/monitoring/values.yaml`](../../deploy/helm/monitoring/values.yaml)).
 
 ## File inventory
 
-- **Modify:** [`server/tests/loadtest/main.go`](../../../server/tests/loadtest/main.go) —
+- **Modify:** [`server/tests/loadtest/main.go`](../../server/tests/loadtest/main.go) —
   drive **500 multi-tenant agents** emitting full telemetry (summaries + windows + process).
 - **Create:** Grafana dashboard JSON under
-  [`deploy/grafana/provisioning/dashboards/`](../../../deploy/grafana/provisioning/dashboards/)
+  [`deploy/grafana/provisioning/dashboards/`](../../deploy/grafana/provisioning/dashboards/)
   (Postgres/Timescale datasource): anomaly-rate, ingest rate, active-series cardinality,
   control-plane query p99, correlation latency.
-- **Modify:** [`server/internal/metrics/`](../../../server/internal/metrics/) — counters for
+- **Modify:** [`server/internal/metrics/`](../../server/internal/metrics/) — counters for
   telemetry ingest + correlation if missing.
 
 ## Steps (TDD-first)

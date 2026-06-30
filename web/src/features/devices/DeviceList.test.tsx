@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
@@ -408,5 +408,84 @@ describe('DeviceList', () => {
     // The DeviceCard for 'visible-host' must NOT render while loading — kills the
     // `!isLoading && filteredDevices.length > 0` LogicalOperator mutants that flip || ↔ &&.
     expect(screen.queryByText('visible-host')).toBeNull();
+  });
+
+  describe('virtualized grid layout', () => {
+    function makeDevices(n: number) {
+      return Array.from({ length: n }, (_, i) => ({
+        id: 'd' + String(i),
+        group_id: 'g1',
+        hostname: 'host-' + String(i),
+        os: 'linux',
+        agent_version: '1.0.0',
+        capabilities: [],
+        status: 'online' as const,
+        last_seen: '',
+        created_at: '',
+        updated_at: '',
+      }));
+    }
+
+    it('lays out cards in 3 responsive columns and ceil(n/columns) rows at desktop width', () => {
+      // vitest.setup mocks every element to 1200px wide → the >= 1024 breakpoint → 3 columns.
+      useDeviceStore.setState({ devices: makeDevices(6) });
+      renderDeviceList();
+
+      const firstRow = screen.getByText('host-0').closest('div.grid.gap-4') as HTMLElement;
+      expect(firstRow).not.toBeNull();
+      // 3 columns: kills the useColumnCount effect/update BlockStatement removals (which leave
+      // the default 1 column), the COLUMN_BREAKPOINTS.find predicate mutants, and the
+      // gridTemplateColumns StringLiteral on the row style.
+      expect(firstRow).toHaveStyle({ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' });
+      // Row 0 holds the first 3 devices (slice [0,3)); row 1 holds the next 3 — validates the
+      // `index * columns` slice offset and the column count together.
+      expect(within(firstRow).getByText('host-0')).toBeInTheDocument();
+      expect(within(firstRow).getByText('host-2')).toBeInTheDocument();
+      expect(within(firstRow).queryByText('host-3')).toBeNull();
+
+      // 6 devices / 3 columns = 2 virtual rows. The `length / columns` → `length * columns`
+      // ArithmeticOperator mutant inflates rowCount and renders extra (empty) row elements.
+      const container = firstRow.parentElement as HTMLElement;
+      const rows = container.querySelectorAll(':scope > div.grid.gap-4');
+      expect(rows).toHaveLength(2);
+    });
+
+    it('absolutely positions each virtual row by translateY inside a relative, sized container', () => {
+      useDeviceStore.setState({ devices: makeDevices(6) });
+      renderDeviceList();
+
+      const firstRow = screen.getByText('host-0').closest('div.grid.gap-4') as HTMLElement;
+      const container = firstRow.parentElement as HTMLElement;
+
+      // Wrapper: position relative + full width + non-zero height (the virtualizer total
+      // size). Kills the ObjectLiteral→{} and the position/width StringLiteral mutants.
+      expect(container).toHaveStyle({ position: 'relative', width: '100%' });
+      expect(Number.parseFloat(container.style.height)).toBeGreaterThan(0);
+
+      // Row: absolutely positioned, full width, transformed to its virtual offset (0px for the
+      // first row). Kills the transform/position/width StringLiteral and ObjectLiteral mutants.
+      expect(firstRow).toHaveStyle({
+        position: 'absolute',
+        width: '100%',
+        transform: 'translateY(0px)',
+      });
+    });
+
+    it('drops to 2 columns at the md breakpoint (>= is inclusive; > would fall through to 1)', () => {
+      const originalRect = Element.prototype.getBoundingClientRect;
+      try {
+        // Exactly 768px → matches the 768 breakpoint via `>=` (2 columns). The
+        // `width > b.minWidth` EqualityOperator mutant fails 768 > 768 and falls to 1 column;
+        // the `(b) => true` ConditionalExpression mutant would match the first (1024 → 3) entry.
+        Element.prototype.getBoundingClientRect = () =>
+          ({ width: 768, height: 800, top: 0, left: 0, right: 768, bottom: 800, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+        useDeviceStore.setState({ devices: makeDevices(2) });
+        renderDeviceList();
+        const firstRow = screen.getByText('host-0').closest('div.grid.gap-4') as HTMLElement;
+        expect(firstRow).toHaveStyle({ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' });
+      } finally {
+        Element.prototype.getBoundingClientRect = originalRect;
+      }
+    });
   });
 });

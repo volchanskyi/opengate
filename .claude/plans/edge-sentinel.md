@@ -4,6 +4,11 @@
 > dependency-ordered, **no approval gates / no spike-then-wait**. Runtime behavior ships
 > behind a default-off flag and degrades silently (the sentinel must never block remote
 > management). Supersedes the deleted drafts.
+>
+> This is the **master plan + micro-plan index**. The per-workstream execution specs are
+> the sibling `edge-sentinel-ws-N-*.md` files in this directory. Per the doc-link rule,
+> plans reference **other plans** by plain path/code span (never markdown links) — only
+> repo source/docs are linked.
 
 ## Context
 
@@ -42,6 +47,7 @@ A third-party architect reviewed the prior plan and found three **confirmed** ga
 | Signal action | **Investigation-aid only first** (no auto-notify until FPR soak) |
 | Visibility | **Any device-viewer in the org** |
 | Protocol | **Forward-compat dispatch fix** (log-and-continue on unknown agent→server types) + flip the pinning test |
+| Web chart engine | **Thin adapter over uPlot** (canvas-2D); React owns chrome, the renderer owns pixels via typed arrays (see `edge-sentinel-ws-6-web-ui.md`) |
 
 ### Headline risk (accepted, mitigated, measured)
 
@@ -76,7 +82,35 @@ server is the only writer to all stores; no standing agent credentials.
 
 ## Workstreams (one rollout, dependency-ordered)
 
-Each: **TDD first**, then `make golden`/tests, `/precommit`, commit, `/refactor`, push.
+Each micro-plan is self-contained (objective, file inventory, TDD steps, gotchas, reviewer
+checklist, verification). Each: **TDD first**, then `make golden`/tests, `/precommit`,
+commit, `/refactor`, push.
+
+| WS | Micro-plan | Summary |
+|---|---|---|
+| WS-0 | `edge-sentinel-ws-0-tenancy-rls.md` | product-wide `org_id` + Postgres RLS foundation |
+| WS-1 | `edge-sentinel-ws-1-protocol-forward-compat.md` | dispatch tolerates unknown control types |
+| WS-2 | `edge-sentinel-ws-2-edge-ml-sampler.md` | clean-room k-means ensemble + `sysinfo` sampler (agent) |
+| WS-3 | `edge-sentinel-ws-3-wire-contract.md` | additive `ControlMessage` variants + Rust↔Go goldens |
+| WS-4 | `edge-sentinel-ws-4-server-ingest-timescale.md` | TimescaleDB hypertable + handlers + process RLS table |
+| WS-5 | `edge-sentinel-ws-5-correlation-engine.md` | on-demand SQL anomaly-advisor ranking |
+| WS-6 | `edge-sentinel-ws-6-web-ui.md` | uPlot chart engine: badge + anomaly panel + timelines + drill-down |
+| WS-7 | `edge-sentinel-ws-7-cold-tier-duckdb.md` | Parquet/object cold tier + server-side DuckDB |
+| WS-8 | `edge-sentinel-ws-8-ops-measurement.md` | Grafana, load-test, p99 budget + mitigation ladder |
+
+### Dependency graph / parallelization waves
+
+```
+Wave 1 (parallel):   WS-0 RLS foundation   WS-1 protocol fix   WS-2 agent ML+sampler
+Wave 2:              WS-3 wire contract        (needs WS-2 shapes; WS-1 for fwd-compat)
+Wave 3:              WS-4 server ingest+TSDB   (needs WS-0 + WS-3)
+Wave 4:              WS-5 correlation engine   (needs WS-4)
+Wave 5 (parallel):   WS-6 web UI (needs WS-5)  WS-7 cold tier (needs WS-4)
+Wave 6:              WS-8 ops + load-test      (needs WS-4 + WS-6)
+```
+
+WS-0, WS-1, WS-2 start immediately and in parallel. WS-1 (forward-compat dispatch) should
+**merge first** so later additive messages are tolerated by older builds.
 
 ### WS-0 — Multi-tenancy foundation + RLS (prerequisite)
 - New `organizations` table; add `org_id UUID NOT NULL` to every tenant table (users,
@@ -84,7 +118,8 @@ Each: **TDD first**, then `make golden`/tests, `/precommit`, commit, `/refactor`
   security_groups, device_* tables) via migration; **backfill** all existing rows to a
   seeded default org.
 - **RLS** `ENABLE`/`FORCE` + policies `USING (org_id = current_setting('app.current_org')::uuid)`;
-  `is_admin` → cross-org bypass (BYPASSRLS role or policy exception).
+  `is_admin` → cross-org bypass via a **policy** on a second GUC (`app.is_admin`), **never a
+  `BYPASSRLS` application role**.
 - Add `OrgID` to JWT `Claims` ([auth.go:21](../../server/internal/auth/auth.go#L21)); a
   **tenant-context middleware** after auth in the authenticated chi group
   ([api.go:277](../../server/internal/api/api.go#L277)); thread **per-transaction
@@ -128,6 +163,8 @@ Each: **TDD first**, then `make golden`/tests, `/precommit`, commit, `/refactor`
   `device_processes` RLS relational table (name, **redacted** cmdline, pid, rank).
 - Handlers (mirror `handleHardwareReport`) for the new messages → tenant-scoped writes;
   server-side **redaction guard** (defense-in-depth even if agent redaction is off).
+- Plus the **downsampled range endpoint** the chart engine consumes (see WS-6): a
+  continuous-aggregate-backed `GET …/metrics` that guarantees `points ≤ maxPoints`.
 - *Tests:* Go handler/store (`testpg`), RLS deny, compression/CA policy applied.
 
 ### WS-5 — Correlation engine (on-demand, Netdata Anomaly-Advisor)
@@ -136,13 +173,14 @@ Each: **TDD first**, then `make golden`/tests, `/precommit`, commit, `/refactor`
   **native SQL on the hypertable** (RLS auto-scopes); bounded concurrency + timeout.
 - *Tests:* injected anomaly ranks #1; tenant-scope enforced; timeout/concurrency bounds.
 
-### WS-6 — Web UI (native React)
-- Health **badge** on the virtualized device grid
-  ([DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx)); device-detail
-  **anomaly panel** + **uPlot** timelines (canvas) + **correlation drill-down** (window
-  select → top-N). Add `uplot` to [web/package.json](../../web/package.json) (vendor CSS as
-  a vendor asset). org-scoped via existing auth.
-- *Tests:* `make e2e` (badge, panel, timeline, drill-down for a seeded anomalous device).
+### WS-6 — Web UI (uPlot chart engine)
+- **Thin adapter over uPlot** (canvas-2D): React owns chrome, the renderer owns pixels via
+  typed arrays (never React-rendered points). Health **badge** on the virtualized device
+  grid ([DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx)); device-detail
+  **anomaly panel** + **uPlot** timelines + **correlation drill-down**; fleet-aggregate
+  overview. Lazy chart chunk + restructured size-limit budget. Full spec, proofs, and data
+  contract in `edge-sentinel-ws-6-web-ui.md`.
+- *Tests:* adapter `setData` shape (mocked canvas); `make e2e` (badge, panel, timeline, drill-down).
 
 ### WS-7 — Cold tier + DuckDB OLAP
 - Agent flushes **tenant-partitioned Parquet** to OCI Object Storage via **server-issued
@@ -192,6 +230,31 @@ Each: **TDD first**, then `make golden`/tests, `/precommit`, commit, `/refactor`
 - Server: [conn.go](../../server/internal/agentapi/conn.go) (dispatch fix + handlers), [auth/auth.go](../../server/internal/auth/auth.go) (OrgID claim), [api/api.go](../../server/internal/api/api.go) (tenant middleware), [device/](../../server/internal/device/) repos (per-tx GUC), [db/migrations/](../../server/internal/db/migrations/) (org/RLS + timescale + process tbl), new `internal/correlate/`, `internal/olap/`
 - API/UI: [api/openapi.yaml](../../api/openapi.yaml), [web/package.json](../../web/package.json), [DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx), new device-detail metrics view
 - Ops: [deploy/grafana/provisioning/dashboards/](../../deploy/grafana/provisioning/dashboards/), [deploy/helm/](../../deploy/helm/) (TimescaleDB image), [loadtest](../../server/tests/loadtest/main.go)
+
+## Shared conventions (apply to every WS — see [CLAUDE.md](../../CLAUDE.md))
+
+- **TDD, no bypass.** Failing test before source; positive + negative. No
+  `t.Skip`/`.skip`/`#[ignore]` — tests always run deterministically.
+- **Per WS:** `/precommit` (`scripts/precommit-gauntlet.sh`) before every commit → commit →
+  `/refactor` → push to `dev` only. Author = Ivan Volchanskyi, no co-authors.
+- **Protocol:** any `ControlMessage` change is golden-gated (`make golden`).
+- **No GPL** vendored/ported (Netdata GPL-3; workspace Apache-2). Clean-room only.
+- **New deps** (`arrow`/`parquet`, object-store, **DuckDB = CGO**, the TimescaleDB image,
+  **uplot**) each need an **ADR** in [docs/adr/](../../docs/adr/) + index row in
+  [decisions.md](../decisions.md).
+- **Default-off** behind a flag until WS-3/WS-4 land; failure = silent degradation.
+- **Tenancy:** after WS-0 every new tenant table carries `org_id` + RLS; every new repo
+  method runs in a tenant-scoped tx; add a **cross-tenant-deny test**.
+- **Docs:** end each WS with a [/docs](../../docs/) update (link, don't paraphrase).
+
+## Reviewer checklist template (Claude reviews each implementation)
+
+- [ ] Failing test existed before source (TDD); positive + negative covered.
+- [ ] Scope matches this WS only; no unrelated churn; no silent SKIP.
+- [ ] Repo rules: no GPL, no Sonar/lint suppressions, golden updated if protocol touched.
+- [ ] Tenancy: org_id + RLS + cross-tenant-deny test where applicable.
+- [ ] Security/NFR: no secrets/PII leak; bounded resources; mTLS-only transport; no standing creds.
+- [ ] `/precommit` green; `/docs` updated.
 
 ## Verification
 

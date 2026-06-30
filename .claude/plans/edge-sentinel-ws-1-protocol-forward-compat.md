@@ -10,16 +10,16 @@ with:** WS-0, WS-2.
 ## Context
 
 Today an unknown control type returns `ErrUnexpectedMessage`
-([`conn.go:245`](../../../server/internal/agentapi/conn.go#L245)) and the control loop
+([`conn.go:245`](../../server/internal/agentapi/conn.go#L245)) and the control loop
 **drops the connection** on any non-EOF error
-([`server.go:260`](../../../server/internal/agentapi/server.go#L260)). This is pinned by
-`TestAgentConn_HandleUnknownMessage` ([`conn_test.go:612`](../../../server/internal/agentapi/conn_test.go#L612)).
+([`server.go:260`](../../server/internal/agentapi/server.go#L260)). This is pinned by
+`TestAgentConn_HandleUnknownMessage` ([`conn_test.go:612`](../../server/internal/agentapi/conn_test.go#L612)).
 So "additive message" is wire-additive but **not** operationally safe yet.
 
 ## File inventory
 
-- **Modify:** [`server/internal/agentapi/conn.go`](../../../server/internal/agentapi/conn.go) (the `handleControl` `default:` arm)
-- **Modify:** [`server/internal/agentapi/conn_test.go`](../../../server/internal/agentapi/conn_test.go) (flip the pinning test)
+- **Modify:** [`server/internal/agentapi/conn.go`](../../server/internal/agentapi/conn.go) (the `handleControl` `default:` arm)
+- **Modify:** [`server/internal/agentapi/conn_test.go`](../../server/internal/agentapi/conn_test.go) (flip the pinning test)
 
 ## Steps (TDD-first)
 

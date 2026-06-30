@@ -10,7 +10,7 @@ WS-6, WS-7.
 
 ## Context
 
-Handlers live in [`conn.go`](../../../server/internal/agentapi/conn.go) (`handleControl`
+Handlers live in [`conn.go`](../../server/internal/agentapi/conn.go) (`handleControl`
 switch; mirror `handleHardwareReport`). DB is Postgres 17 via the repository pattern; WS-0
 added the tenant-scoped tx helper. Telemetry **shares the control-plane Postgres** (free-tier
 has no spare volume) — so compression + continuous aggregates + retention are **mandatory**.
@@ -23,11 +23,11 @@ has no spare volume) — so compression + continuous aggregates + retention are 
   cmdline, pid, cpu, mem, ts).
 - **Create:** `server/internal/telemetry/` repo (hypertable writes + process table writes,
   tenant-scoped).
-- **Modify:** [`conn.go`](../../../server/internal/agentapi/conn.go) — add cases for
+- **Modify:** [`conn.go`](../../server/internal/agentapi/conn.go) — add cases for
   `AgentHealthSummary`, `AgentMetricWindow`, `ProcessReport`; **server-side redaction guard**
   (defense-in-depth even if agent redaction is off); scope writes to the connection's
   device→org (never trust agent-supplied `org_id` for authz).
-- **Modify:** [`deploy/helm/`](../../../deploy/helm/) — Postgres image → `timescaledb` flavor
+- **Modify:** [`deploy/helm/`](../../deploy/helm/) — Postgres image → `timescaledb` flavor
   (ADR-gated).
 
 ## Steps (TDD-first)

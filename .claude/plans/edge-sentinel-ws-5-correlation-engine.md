@@ -17,10 +17,10 @@ auto-scopes every query when the tenant GUC is set in the request tx.
 
 - **Create:** `server/internal/correlate/` — ranking (KS-test + anomaly-rate volume),
   concurrency limiter, per-request timeout.
-- **Modify:** [`api/openapi.yaml`](../../../api/openapi.yaml) — `POST /devices/{id}/correlate`
+- **Modify:** [`api/openapi.yaml`](../../api/openapi.yaml) — `POST /devices/{id}/correlate`
   (or a fleet/tenant-scoped variant): body = window; response = ranked top-N + correlated
   events. Regenerate Go + TS (`oapi-codegen`; `npm run generate:api`).
-- **Modify:** [`server/internal/api/`](../../../server/internal/api/) handler wiring.
+- **Modify:** [`server/internal/api/`](../../server/internal/api/) handler wiring.
 
 ## Steps (TDD-first)
 

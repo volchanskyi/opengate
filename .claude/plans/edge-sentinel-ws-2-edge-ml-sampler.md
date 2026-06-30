@@ -10,7 +10,7 @@ WS-0, WS-1.
 ## Context
 
 Agent is tokio-based; `sysinfo` is already a workspace dep, used on-demand in
-`collect_hardware_info()` ([`main.rs:739`](../../../agent/crates/mesh-agent/src/main.rs#L739)).
+`collect_hardware_info()` ([`main.rs:739`](../../agent/crates/mesh-agent/src/main.rs#L739)).
 There is no continuous sampling and no ML today. Netdata's design (clean-room target): k=2,
 ~18 staggered models/metric, **consensus** (all models agree) at the **99th-percentile**
 training-distance boundary; lagged-window feature vectors catch shape, not just level.
@@ -21,10 +21,10 @@ training-distance boundary; lagged-window feature vectors catch shape, not just 
   k=2), `ensemble.rs` (`EdgeMlEnsemble`, consensus), `window.rs` (`AnomalyRateWindow`,
   bit-packed), `sampler.rs` (`MetricSampler` trait + `SysinfoSampler` + `FakeSampler`),
   `redact.rs` (argv secret-redaction).
-- **Modify:** [`agent/crates/mesh-agent/src/main.rs`](../../../agent/crates/mesh-agent/src/main.rs)
+- **Modify:** [`agent/crates/mesh-agent/src/main.rs`](../../agent/crates/mesh-agent/src/main.rs)
   (spawn a bounded background sampling task, default-off flag).
 - **Reference:** bounded-channel precedent in
-  [`session/mod.rs:84`](../../../agent/crates/mesh-agent-core/src/session/mod.rs#L84).
+  [`session/mod.rs:84`](../../agent/crates/mesh-agent-core/src/session/mod.rs#L84).
 
 ## Steps (TDD-first)
 

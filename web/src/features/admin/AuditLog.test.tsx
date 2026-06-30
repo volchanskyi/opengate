@@ -151,4 +151,39 @@ describe('AuditLog', () => {
     expect(screen.getByText('u1-abcd-')).toBeInTheDocument();
     expect(screen.getByText('u2-abcd-')).toBeInTheDocument();
   });
+
+  it('renders no spacer rows when every event fits the viewport', () => {
+    // beforeEach seeds 2 events × 41px ≪ the 800px mocked viewport → all rows fit, so both
+    // paddingTop and paddingBottom are 0 and no spacer <tr> is emitted. Asserting their
+    // absence kills the `paddingTop > 0` / `paddingBottom > 0` guard mutants that would
+    // otherwise always (>= 0, <= 0, true, &&→||) render a spacer cell.
+    render(<AuditLog />);
+    expect(document.querySelectorAll('td[colspan="5"]')).toHaveLength(0);
+  });
+
+  it('reserves only a bottom spacer, sized below the total height, when the list overflows', () => {
+    const count = 500;
+    const many = Array.from({ length: count }, (_, i) => ({
+      id: i + 1,
+      user_id: 'u' + String(i),
+      action: 'act-' + String(i),
+      target: 't',
+      details: '',
+      created_at: '2024-01-01T00:00:00Z',
+    }));
+    useAdminStore.setState({ auditEvents: many });
+    render(<AuditLog />);
+
+    const spacers = document.querySelectorAll('td[colspan="5"]');
+    // Not scrolled → paddingTop is 0 (no top spacer); only the bottom spacer reserves the
+    // off-screen height. A second spacer would mean a `paddingTop > 0` mutant fired.
+    expect(spacers).toHaveLength(1);
+
+    const height = Number.parseFloat((spacers[0] as HTMLElement).style.height);
+    // paddingBottom = getTotalSize() - lastRow.end ∈ (0, totalSize). The `-`→`+`
+    // ArithmeticOperator mutant exceeds totalSize (= count × AUDIT_ROW_HEIGHT = 41); the
+    // `> 0`→`<= 0`/`false` mutants drop the spacer entirely.
+    expect(height).toBeGreaterThan(0);
+    expect(height).toBeLessThan(count * 41);
+  });
 });
