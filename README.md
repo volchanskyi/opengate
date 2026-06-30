@@ -1,124 +1,180 @@
-# OpenGate
+<h1 align="center">OpenGate</h1>
+
+<h3 align="center">Secure RMM with edge-first health intelligence.</h3>
+
+<p align="center">
+OpenGate is a browser-based remote management and infrastructure monitoring platform. Monitor, detect, and take secure remote control across your entire infrastructure.
+</p>
 
 <!-- Badges track `dev` because that is the only branch CI runs on: per
      .claude/rules/git.md all work lands on dev; main only receives `[skip ci]`
      auto-merge commits, so a default-branch badge would freeze on whatever ran
-     last on main (which is months stale). -->
-[![CI](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev)
-[![Go Server Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/volchanskyi/cf505c74b56eab52c9497af517b53222/raw/opengate-coverage.json)](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev)
-[![Rust Agent Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/volchanskyi/cf505c74b56eab52c9497af517b53222/raw/opengate-rust-coverage.json)](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev)
-[![Web Client Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/volchanskyi/cf505c74b56eab52c9497af517b53222/raw/opengate-web-coverage.json)](https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev)
+     last on main. -->
+<p align="center">
+  <a href="https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev"><img alt="CI" src="https://github.com/volchanskyi/opengate/actions/workflows/ci.yml/badge.svg?branch=dev"></a>
+  <a href="https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev"><img alt="Go Server Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/volchanskyi/cf505c74b56eab52c9497af517b53222/raw/opengate-coverage.json"></a>
+  <a href="https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev"><img alt="Rust Agent Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/volchanskyi/cf505c74b56eab52c9497af517b53222/raw/opengate-rust-coverage.json"></a>
+  <a href="https://github.com/volchanskyi/opengate/actions/workflows/ci.yml?query=branch%3Adev"><img alt="Web Client Coverage" src="https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/volchanskyi/cf505c74b56eab52c9497af517b53222/raw/opengate-web-coverage.json"></a>
+</p>
 
-Remote device management platform.
+<p align="center">
+  <a href="#what-it-is">What It Is</a> |
+  <a href="#core-advantages">Core Advantages</a> |
+  <a href="#key-features">Key Features</a> |
+  <a href="#architecture">Architecture</a> |
+  <a href="#observe-control">Observe &amp; Control</a> |
+  <a href="#how-it-works">How It Works</a> |
+  <a href="#agent-capabilities">Agent Capabilities</a> |
+  <a href="#documentation">Documentation</a>
+</p>
 
-- **Agent** (Rust) — runs on managed devices (Windows/Linux)
-- **Server** (Go) — central hub with QUIC + WebSocket + REST API
-- **Web** (React/TypeScript) — browser-based management UI
+---
 
-> See [`docs/`](./docs/) for architecture, wire protocol, CI pipeline, and other detailed documentation. Start at [`docs/Home.md`](./docs/Home.md).
->
-> [API Reference](https://volchanskyi.github.io/opengate/docs/api/) — interactive OpenAPI documentation (Scalar)
+## What It Is
 
-## Quick Start
+OpenGate provides secure remote access and Intel AMT out-of-band
+endpoint management via remote agents. Agent`s edge-first health inteligence provides
+telemetry, host anomaly detection, and investigation-oriented correlation.
 
-```bash
-make build   # Build all components
-make test    # Run all tests
-make lint    # Run all linters
+The three-part architecture is built around these main components: a Zero-Configuration ML-Powered agent, a centralized server for configuration, user and data management, central alerts, and a web client for remote fleet operations, data visualisations, and dashboards.
+
+## Core Advantages
+
+- **Outbound-first fleet access** - agents connect to the server over QUIC with
+  mTLS, so managed devices do not need inbound administrative exposure.
+- **Secure enrollment and updates** - first boot uses CSR-based enrollment, and
+  agent updates are signed before being applied.
+- **Browser-native operations** - operators manage devices, terminal sessions,
+  files, logs, updates, and out-of-band actions from the web UI.
+- **Edge health intelligence** - Edge Sentinel samples host health locally, 
+  detects anomalies on the device, and sends summarized telemetry 
+  avoiding raw high-volume streams by default.
+- **Investigation first** - anomaly panels, timelines, and correlation drill-down
+  are designed as operator aids before automatic alerting.
+
+## Key Features
+
+| Area | Capability |
+|---|---|
+| Fleet inventory | Devices, groups, online/offline state, hardware inventory, and on-demand device logs |
+| Remote sessions | Browser-to-agent sessions over relay with terminal, file, desktop protocol frames, permissions, and teardown cleanup |
+| Terminal | PTY-backed terminal frames between web and agent |
+| File manager | Directory browsing plus file download/upload protocol support |
+| Intel AMT / MPS | CIRA/APF management presence server with AMT device tracking and power actions |
+| Agent lifecycle | CSR enrollment, QUIC mTLS registration, heartbeat, deregistration, restart, and signed OTA updates |
+| Web Push | Browser subscriptions for device and session lifecycle notifications |
+| Edge Sentinel telemetry | CPU, memory, disk, network, process, and service telemetry summarized at the edge |
+| Correlation drill-down | On-demand anomaly advisor using KS-test and anomaly-rate ranking with bounded concurrency |
+| Dense timelines | uPlot-based device timelines, anomaly badges, fleet overview, and drill-down UI |
+
+## Architecture
+
+| Component | Stack | Responsibilities |
+|---|---|---|
+| **Agent** | Rust workspace | CSR enrollment, QUIC mTLS control, registration, session handling, terminal/file/log/hardware paths, signed updates, local Edge Sentinel sampling, cmdline redaction, anomaly detection, and telemetry windows |
+| **Server** | Go module | REST API, QUIC agent API, WebSocket relay, auth, certificates, PostgreSQL persistence, Intel AMT MPS, Web Push, update manifests, tenant context/RLS, telemetry ingest, correlation, and cold-tier access |
+| **Web** | React / TypeScript | Dashboard, device list/detail, session UI, terminal, file manager, update settings, admin views, anomaly badges, telemetry timelines, fleet overview, and correlation drill-down |
+
+<a id="observe-control"></a>
+
+## Observe & Control
+
+| Surface | OpenGate view |
+|---|---|
+| Fleet state | Devices, groups, status, capabilities, and audit trail |
+| Remote operations | Browser sessions, terminal I/O, file operations|
+| Host inventory | CPU, memory, disk, network interfaces, hardware snapshots, and on-demand refresh |
+| Logs | Agent-collected device logs with filtering |
+| Edge telemetry | CPU, memory, disk, network, process, and service families sampled locally by the agent |
+| Process visibility | Top-N process/service metrics by rank with process names and command lines |
+| Anomaly state | Node anomaly rate, per-family rates, recent bitmask, model/sampler version, and device health badge |
+| Investigation | Device timelines, downsampled metric windows, selected-window correlation, and ranked likely contributors |
+| AMT | Intel AMT device inventory, CIRA connectivity, WSMAN device info, and power actions |
+| Security | JWT auth, bcrypt passwords, security groups, mTLS, CSR validation, RLS, secret redaction, and no standing edge storage credentials |
+
+## How It Works
+
+```mermaid
+flowchart LR
+  operator["Operator<br/>browser"]
+  web["Web UI<br/>React / TypeScript"]
+
+  subgraph server["OpenGate Server<br/>Go"]
+    rest["REST API<br/>auth + device ops"]
+    relay["WebSocket Relay<br/>session frames"]
+    agentapi["Agent API<br/>QUIC mTLS"]
+    mps["MPS<br/>AMT CIRA"]
+    ingest["Telemetry Ingest<br/>tenant scoped"]
+    correlate["Correlation<br/>on demand"]
+  end
+
+  subgraph agent["Managed Device<br/>Rust agent"]
+    sessions["Remote ops<br/>terminal + files + logs"]
+    sampler["Edge Sentinel<br/>sample + redact"]
+    detector["Local detector<br/>k=2 ensemble"]
+  end
+
+  postgres[("PostgreSQL<br/>core data + RLS")]
+  timescale[("TimescaleDB<br/>hot telemetry")]
+  cold[("Parquet / Object Storage<br/>cold history")]
+  duckdb["DuckDB<br/>historical queries"]
+  amt["Intel AMT device<br/>CIRA / APF"]
+  push["Web Push service"]
+
+  operator --> web
+  web --> rest
+  web --> relay
+  rest --> agentapi
+  agentapi --> sessions
+  sessions --> relay
+  sampler --> detector
+  detector --> agentapi
+  agentapi --> ingest
+  rest --> postgres
+  relay --> postgres
+  ingest --> timescale
+  ingest --> postgres
+  timescale --> correlate
+  correlate --> web
+  timescale --> cold
+  cold --> duckdb
+  duckdb --> correlate
+  amt --> mps
+  mps --> postgres
+  rest --> push
 ```
 
-### Running the server
+The remote-management path and the telemetry path share the same authenticated
+control plane. Edge Sentinel failures are designed to degrade silently so remote
+management remains the priority path.
 
-```bash
-cd server
-go build -o meshserver ./cmd/meshserver
+## Agent Capabilities
 
-# JWT_SECRET is required — pass via flag or env var
-# OPENGATE_GITHUB_REPO enables auto-sync of agent manifests from GitHub Releases
-# DATABASE_URL (or -database-url) is required — points at the PostgreSQL instance
-DATABASE_URL=postgres://opengate:opengate@localhost:5432/opengate?sslmode=disable \
-JWT_SECRET=changeme-must-be-at-least-32chars OPENGATE_GITHUB_REPO=volchanskyi/opengate ./meshserver \
-  -listen :8080 \
-  -quic-listen :9090 \
-  -mps-listen :4433 \
-  -data-dir ./data
-```
+| Capability | What it does |
+|---|---|
+| First-boot enrollment | Generates identity material, submits a CSR, receives the CA-signed certificate, and stores the server CA for future QUIC mTLS connections |
+| Control connection | Opens the QUIC control stream, performs the binary handshake, registers hostname/OS/architecture/version/capabilities, and maintains heartbeats |
+| Session handling | Accepts session requests and connects to the relay for terminal, file, desktop/control, and WebRTC upgrade flows |
+| Terminal | Spawns a PTY and bridges stdin/stdout with terminal frames |
+| File manager | Lists directories and transfers file chunks through the relay protocol |
+| Hardware and logs | Collects hardware inventory and log entries on demand through control messages |
+| Signed updates | Downloads update binaries, verifies SHA-256 and Ed25519 signatures, atomically replaces the agent, and signals service-manager restart |
+| Local sampling | Samples CPU, memory, disk, network, process, and service families with bounded memory/disk use |
+| Secret redaction | Redacts known secret patterns from process command lines at the source, with a server-side guard for defense in depth |
+| Anomaly detection | Runs clean-room local k-means ensemble detection and reports anomaly rates and recent anomaly bitmasks |
+| Telemetry windows | Sends summarized health, metric windows, and process reports over existing control frames with payload and interval bounds |
 
-Or run via Docker (multi-arch images published to GHCR on every push to `main`):
 
-```bash
-docker pull ghcr.io/volchanskyi/opengate-server:latest
-docker run -e JWT_SECRET=changeme-must-be-at-least-32chars -p 8080:8080 -p 9090:9090/udp \
-  -v opengate-data:/data ghcr.io/volchanskyi/opengate-server:latest
-```
+## Documentation
 
-Production runs on OKE via Helm and GitHub Actions CD. The current deployment
-model is documented in [`docs/Continuous-Deployment.md`](./docs/Continuous-Deployment.md)
-and [`docs/Kubernetes.md`](./docs/Kubernetes.md). The Docker Compose files under
-[`deploy/`](./deploy/) are local-test or dormant recovery artifacts, not the
-normal production path.
-
-## Project Structure
-
-```
-agent/                       Rust workspace
-├── crates/
-│   ├── mesh-agent/          Binary entry point (QUIC mTLS, handshake, control loop)
-│   ├── mesh-protocol/       Shared wire protocol (MessagePack codec, frame format)
-│   ├── mesh-agent-core/     Agent identity, QUIC connection, platform traits,
-│   │                        session handler, WebRTC peer connection
-│   ├── platform-linux/      Linux: runtime detection, systemd, X11 capture (feature-gated)
-│   └── platform-windows/    Windows: DXGI capture, Win32 input (cfg-gated)
-server/                      Go module
-├── cmd/meshserver/          Binary entry point
-├── internal/
-│   ├── agentapi/            QUIC server, handshake, agent connection lifecycle
-│   ├── api/                 HTTP REST handlers (oapi-codegen strict server, chi v5)
-│   ├── auth/                JWT + bcrypt authentication
-│   ├── cert/                CA management, mTLS certificate signing (ECDSA P-256, RSA 2048 for MPS)
-│   ├── db/                  PostgreSQL store (pgx/v5 stdlib), migrations (golang-migrate)
-│   ├── mps/                 Intel AMT Management Presence Server (CIRA/APF over TLS)
-│   ├── protocol/            Go-side wire protocol codec + golden file verification
-│   ├── notifications/       Web Push notifications (VAPID, webpush-go), Notifier interface
-│   ├── metrics/             Prometheus instrumentation (HTTP middleware, InstrumentedStore)
-│   ├── relay/               Message-oriented WebSocket relay for browser↔agent piping
-│   ├── signaling/           WebRTC signaling state machine, ICE config, session tracker
-│   ├── updater/             Agent auto-update: Ed25519 signing, GitHub release sync, manifests
-│   ├── clientapi/           Client-facing API helpers
-│   └── testutil/            Shared test helpers (excluded from coverage metrics)
-├── tests/integration/       Integration test suite (real QUIC + real PostgreSQL)
-api/openapi.yaml             OpenAPI 3.0.3 spec (single source of truth)
-docs/adr/                    Architecture Decision Records
-docs/api/                    Scalar API reference viewer
-web/                         React + TypeScript (Vite, Tailwind, Zustand)
-deploy/                      Deployment and infrastructure
-├── terraform/               OCI networking, OKE, bastion, remote tfstate
-├── helm/                    OKE application + monitoring charts
-├── scripts/                 Smoke tests, rollback helpers, bastion/session tooling
-├── docker-compose.test.yml  Local E2E test environment
-└── docker-compose*.yml      Dormant/local Compose artifacts, not normal production CD
-load/k6/scenarios/           k6 load test scripts (API baseline, relay, concurrent agents)
-testdata/golden/             Cross-language wire format fixtures
-```
-
-## Running tests locally
-
-```bash
-make test               # All tests — Rust + Go + Web
-make test-go            # Go server (unit + integration) with race detector
-make test-integration   # Integration suite only
-make test-rust          # Rust workspace
-make test-web           # React / TypeScript
-make test-coverage      # Go coverage report printed to stdout
-make golden             # Regenerate golden fixtures and verify cross-language compat
-make lint-deploy        # Validate deploy configs (Terraform, Helm/K8s, Compose/Caddy artifacts, YAML; runs terraform-test)
-make terraform-test     # Module-invariant assertions (mock_provider, no OCI creds)
-make terraform-drift    # Local refresh-only plan against the remote backend
-make e2e                # End-to-end Playwright tests via docker-compose.test.yml
-make load-test          # k6 HTTP/WS load tests against localhost:8080
-make load-test-quic     # Go QUIC load harness (100 concurrent agents)
-make mutate             # Mutation tests across Rust + Go + web (cargo-mutants, gremlins, stryker)
-make taint-go           # Static taint linting (gosec) for Go
-make taint-web          # Static taint linting (eslint-plugin-security + no-unsanitized) for web
-make dead-code          # Dead-code sweep (clippy -W dead_code, staticcheck U1000, ts-prune)
-```
+| Topic | Where to start |
+|---|---|
+| Docs index | [docs/Home.md](./docs/Home.md) |
+| Architecture | [docs/Architecture.md](./docs/Architecture.md) |
+| API and OpenAPI | [docs/API-Reference.md](./docs/API-Reference.md), [Scalar API Reference](https://volchanskyi.github.io/opengate/docs/api/) |
+| Wire protocol | [docs/Wire-Protocol.md](./docs/Wire-Protocol.md) |
+| Agent updates | [docs/Agent-Updates.md](./docs/Agent-Updates.md) |
+| Security and dependencies | [docs/Security-and-Dependencies.md](./docs/Security-and-Dependencies.md) |
+| Testing and quality | [docs/Testing.md](./docs/Testing.md), [docs/CI-Pipeline.md](./docs/CI-Pipeline.md) |
+| Deployment | [docs/Continuous-Deployment.md](./docs/Continuous-Deployment.md), [docs/Kubernetes.md](./docs/Kubernetes.md), [docs/Infrastructure.md](./docs/Infrastructure.md) |
+| Monitoring | [docs/Monitoring.md](./docs/Monitoring.md) |

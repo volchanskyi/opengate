@@ -1,57 +1,60 @@
-# WS-7 — Cold tier (Parquet → OCI Object Storage) + server-side DuckDB
+# WS-7 — Cold tier (VM retention + stream-agg rollups; optional Parquet export)
 
-**Objective:** Offload aged telemetry from the shared Postgres to tenant-partitioned Parquet
-in OCI Object Storage (via server-issued pre-authenticated requests), and query it on-demand
-with a server-side DuckDB for historical + cross-fleet relational correlation. Keeps the
-control-plane Postgres lean.
+**Objective:** Keep long-term telemetry cheap. The primary mechanism is **VictoriaMetrics OSS
+retention + stream-aggregation rollups** (set up in WS-4) — short raw retention, long-lived
+1-min/1-hr rollups. An **optional** server-side Parquet export of aged data to OCI Object
+Storage is provided for compliance/archival only. DuckDB is **deferred** (no CGO dependency in
+this rollout).
 
-**Dependencies:** WS-4 (hypertable + the data to offload). **Parallel with:** WS-6.
+**Dependencies:** WS-4 (VM ingest + stream-agg). **Parallel with:** WS-6.
 
-## Context
+## Why this shrank from the original
 
-OCI Always-Free object storage = 20 GB + 50k req/mo; the existing backup path already uses a
-**write-only PAR** ([`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml),
-ADR-035 pattern). DuckDB is Arrow-native, reads Parquet directly, and its `postgres_scanner`
-can JOIN Parquet ↔ Postgres inventory in one query. Engine is **server-side only** — never
-shipped in the agent.
+The original WS-7 (agent Parquet flush + server DuckDB `postgres_scanner` over a Timescale hot
+store) assumed Timescale and a storage squeeze. With telemetry on VM (48.9 GB free on its own
+volume, Gorilla compression, stream-agg rollups), the long-term tier is largely **already
+solved inside VM** — no Parquet/DuckDB needed for normal operation. OCI Always-Free object
+storage is 20 GB + **50k req/mo**, and per-agent uploads blow that budget instantly (500 agents
+hourly = 360k req/mo), so any object writes must be **server-side batched**, never per-agent.
 
 ## File inventory
 
-- **Create:** `server/internal/olap/` — DuckDB query layer (`postgres_scanner` JOINs;
-  range reads over Parquet); on-demand only.
-- **Create:** Timescale **chunk-offload** job (aged chunks → Parquet) + Parquet writer
-  (tenant-partitioned `org_id/device/day`).
-- **Modify:** object-store client + PAR issuance (server issues short-lived write-only PARs;
-  no standing creds at the edge). Optionally the agent flushes its own Parquet via PAR — if
-  so, gate behind WS-2/WS-3.
-- **Modify:** [`deploy/`](../../deploy/) — bucket + lifecycle policy + `*_PAR_URL` secret
-  (mirror the backup pattern).
+- **Modify:** [`deploy/helm/monitoring/`](../../deploy/helm/monitoring/) — confirm VM retention
+  split (raw vs rollup) and document the long-term-tier behavior (the real WS-7 deliverable).
+- **Create (optional/archival only):** a server-side aged-data → Parquet export job
+  (tenant-partitioned `org_id/day` keys) using the existing **write-only PAR** pattern
+  ([`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml), ADR-035). Batched,
+  coarse cadence (≤ daily), well within 50k req/mo. **No per-agent uploads.**
+- **Deferred:** DuckDB / `olap` package — only if a separate ADR proves a need that VM
+  MetricsQL + rollups cannot meet.
 
 ## Steps (TDD-first)
 
-1. **Test first:** PAR issuance/expiry tests (write-only, short-lived; cannot list/read).
-2. **Test first:** DuckDB query smoke over a sample Parquet fixture; `postgres_scanner` JOIN
-   returns tenant-scoped rows; the reader is handed only the tenant's prefix/manifest (assert a
-   broad glob is **not** used) so a cross-tenant partition is not readable.
-3. Implement chunk-offload + Parquet writer + object-store client; wire the OLAP query path.
+1. **Test first:** retention/rollup assertion — aged raw is dropped, rollups survive (drives
+   the VM retention config alongside WS-4).
+2. **Test first (only if Parquet export is built):** PAR issuance/expiry (write-only,
+   short-lived, prefix-scoped to one `org_id`); a broad bucket glob is **not** used; request
+   count per export stays within budget.
+3. Implement the export job only if archival is in scope this rollout; otherwise WS-7 = VM
+   retention + docs.
 
 ## Gotchas / constraints
 
-- **DuckDB = CGO** — new build dependency, **ADR** required; keep it server-side.
-- Stay within 20 GB / 50k-req budget — partition + lifecycle policy; batch reads.
-- No standing object-store creds; PARs only, short-lived, write-only for uploads.
-- Tenant isolation extends to Parquet partition paths: the server constrains the prefix/manifest
-  to the tenant's `org_id` partition **before** DuckDB reads — never a broad bucket glob +
-  `WHERE org_id` (RLS does not reach object storage; isolation **is** the file list).
+- **Server-side batched only** — per-agent object uploads are incompatible with 50k req/mo.
+- PARs (if used) are write-only, short-lived, **prefix-scoped to the tenant partition**; tenant
+  isolation in object storage **is** the file list (no RLS reaches objects).
+- Keep VM the source of truth for long-term; Parquet is archival, not a query path, unless a
+  DuckDB ADR is added later.
 
 ## Reviewer checklist
 
-- [ ] PAR write-only + short-lived; no standing creds; tests for expiry/scope.
-- [ ] DuckDB server-side only (ADR for the CGO dep); reads scoped by tenant **prefix/manifest**, not a post-filter.
-- [ ] Chunk-offload keeps Postgres lean; object budget respected.
+- [ ] VM retention split (short raw + long rollup) documented and applied.
+- [ ] Any object writes are server-side batched, ≤ daily, within 20 GB / 50k req; PARs
+      write-only + short-lived + prefix-scoped; expiry/scope tested.
+- [ ] DuckDB **not** introduced (no CGO dep) unless a separate ADR justifies it.
 - [ ] `/precommit` green.
 
 ## Verification
 
-`cd server && go test ./internal/olap/...` (sample Parquet fixture). `/precommit` green.
-`/docs`: Database/Monitoring + a cold-tier note.
+`cd server && go test ./internal/telemetry/...` (retention/rollup behavior; PAR scope if built).
+`/precommit` green. `/docs`: Database/Monitoring + a cold-tier note.

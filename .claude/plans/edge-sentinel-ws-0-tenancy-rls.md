@@ -54,13 +54,22 @@ pattern over `PostgresStore`.
    use bare `SET` on a pooled connection. Carry an **explicit redundant `WHERE org_id =
    current_setting('app.current_org')::uuid`** in tenant queries so the planner uses the
    `org_id`-leading indexes instead of applying RLS as a post-filter.
-5. Web: thread org into login/session state; add org switcher.
+5. **Migration rehearsal (Wave 0 gate item):** on a seeded copy, prove backfill correctness,
+   RLS cross-tenant deny, `pg_dump`/restore, and a clean `.down.sql` rollback **before** any
+   telemetry WS depends on this. Record the rehearsal log.
+6. Web: thread org into login/session state; add org switcher.
 
 ## Gotchas / constraints
 
 - **The correctness landmine:** `pgxpool` reuses connections. `SET LOCAL` **must** be inside
   a transaction (auto-resets at tx end). A bare `SET` leaks the org to the next request on
   that pooled conn. Every tenant-scoped query path must go through the tx helper.
+- **Classify every table before enabling RLS:** fail-closed RLS (no `app.current_org`) will break
+  any path that legitimately runs without a tenant. Inventory all ~13 tables (and every repo path)
+  as **tenant-scoped** (RLS + policy), **global/system** (no RLS — e.g. cross-org login lookup,
+  enrollment-token validation, migrations), **admin-only**, or **audit-retained** (survives tenant
+  deletion). Background jobs, enrollment, and auth that must run pre-tenant-context use the global
+  classification explicitly — never a silent `BYPASSRLS`.
 - **RLS perf is not optional here:** telemetry shares the control-plane Postgres, so RLS
   post-filter cost competes with live relay/WebRTC for the same node CPU. `org_id`-leading
   composite indexes + explicit `WHERE org_id` keep lookups index-driven. Admin bypass is a
@@ -68,6 +77,10 @@ pattern over `PostgresStore`.
   (a missed `SET LOCAL` then fails closed, not open).
 - RLS interacts with later WS-4 hypertable/continuous aggregates — flag for WS-4.
 - This is a large, cross-cutting change; keep it self-contained and fully tested before WS-4.
+- **CI grep gate:** forbid tenant-table queries outside the tenant-tx helper (a missed scope is
+  a security bug, not a style nit). Note WS-4's numeric path lives in VictoriaMetrics (no RLS);
+  its app-layer label scoping gets an analogous grep gate so neither store can be queried
+  unscoped.
 
 ## Reviewer checklist
 
@@ -78,6 +91,8 @@ pattern over `PostgresStore`.
 - [ ] Admin bypass is **policy-based** (second GUC); **no `BYPASSRLS` application role**.
 - [ ] `org_id`-leading composite indexes on tenant lookup/list paths; queries carry explicit `WHERE org_id`.
 - [ ] No query path bypasses RLS; web carries org context.
+- [ ] Migration rehearsal done (backfill, RLS deny, dump/restore, rollback) before WS-4 depends on it.
+- [ ] CI grep gate forbids unscoped tenant-table queries (and unscoped VM reads, per WS-4).
 
 ## Verification
 
