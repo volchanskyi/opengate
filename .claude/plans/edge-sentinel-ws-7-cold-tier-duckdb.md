@@ -10,7 +10,7 @@ control-plane Postgres lean.
 ## Context
 
 OCI Always-Free object storage = 20 GB + 50k req/mo; the existing backup path already uses a
-**write-only PAR** ([`secrets.example.yaml`](../../../deploy/helm/opengate/secrets.example.yaml),
+**write-only PAR** ([`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml),
 ADR-035 pattern). DuckDB is Arrow-native, reads Parquet directly, and its `postgres_scanner`
 can JOIN Parquet ↔ Postgres inventory in one query. Engine is **server-side only** — never
 shipped in the agent.
@@ -24,14 +24,15 @@ shipped in the agent.
 - **Modify:** object-store client + PAR issuance (server issues short-lived write-only PARs;
   no standing creds at the edge). Optionally the agent flushes its own Parquet via PAR — if
   so, gate behind WS-2/WS-3.
-- **Modify:** [`deploy/`](../../../deploy/) — bucket + lifecycle policy + `*_PAR_URL` secret
+- **Modify:** [`deploy/`](../../deploy/) — bucket + lifecycle policy + `*_PAR_URL` secret
   (mirror the backup pattern).
 
 ## Steps (TDD-first)
 
 1. **Test first:** PAR issuance/expiry tests (write-only, short-lived; cannot list/read).
 2. **Test first:** DuckDB query smoke over a sample Parquet fixture; `postgres_scanner` JOIN
-   returns tenant-scoped rows; cross-tenant partition is not readable.
+   returns tenant-scoped rows; the reader is handed only the tenant's prefix/manifest (assert a
+   broad glob is **not** used) so a cross-tenant partition is not readable.
 3. Implement chunk-offload + Parquet writer + object-store client; wire the OLAP query path.
 
 ## Gotchas / constraints
@@ -39,12 +40,14 @@ shipped in the agent.
 - **DuckDB = CGO** — new build dependency, **ADR** required; keep it server-side.
 - Stay within 20 GB / 50k-req budget — partition + lifecycle policy; batch reads.
 - No standing object-store creds; PARs only, short-lived, write-only for uploads.
-- Tenant isolation extends to Parquet partition paths; OLAP queries must filter by org.
+- Tenant isolation extends to Parquet partition paths: the server constrains the prefix/manifest
+  to the tenant's `org_id` partition **before** DuckDB reads — never a broad bucket glob +
+  `WHERE org_id` (RLS does not reach object storage; isolation **is** the file list).
 
 ## Reviewer checklist
 
 - [ ] PAR write-only + short-lived; no standing creds; tests for expiry/scope.
-- [ ] DuckDB server-side only (ADR for the CGO dep); tenant-scoped reads tested.
+- [ ] DuckDB server-side only (ADR for the CGO dep); reads scoped by tenant **prefix/manifest**, not a post-filter.
 - [ ] Chunk-offload keeps Postgres lean; object budget respected.
 - [ ] `/precommit` green.
 

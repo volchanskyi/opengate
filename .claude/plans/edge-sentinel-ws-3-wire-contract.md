@@ -10,16 +10,16 @@ protocol, with Rust→Go golden fixtures, reusing the existing single control st
 
 Protocol is MessagePack control frames, `[1-byte type][4-byte BE len][payload]`, golden-file
 drift-guarded both languages. Rust enum is `#[serde(tag="type")]`, `#[non_exhaustive]`
-([`control.rs`](../../../agent/crates/mesh-protocol/src/control.rs)); precedent is the
+([`control.rs`](../../agent/crates/mesh-protocol/src/control.rs)); precedent is the
 existing `HardwareReport`. Reuse `FRAME_CONTROL` — **no new QUIC stream** (ADR-005/037
 single-control-stream constraint).
 
 ## File inventory
 
-- **Modify:** [`agent/crates/mesh-protocol/src/control.rs`](../../../agent/crates/mesh-protocol/src/control.rs) (new variants)
-- **Modify:** [`agent/crates/mesh-protocol/tests/golden_test.rs`](../../../agent/crates/mesh-protocol/tests/golden_test.rs) (+ `testdata/golden/*.bin`)
-- **Modify:** Go [`server/internal/protocol/types.go`](../../../server/internal/protocol/types.go), [`server/internal/protocol/golden_test.go`](../../../server/internal/protocol/golden_test.go)
-- **Modify:** [`agent/crates/mesh-agent/src/main.rs`](../../../agent/crates/mesh-agent/src/main.rs) (emit from the 60 s heartbeat loop)
+- **Modify:** [`agent/crates/mesh-protocol/src/control.rs`](../../agent/crates/mesh-protocol/src/control.rs) (new variants)
+- **Modify:** [`agent/crates/mesh-protocol/tests/golden_test.rs`](../../agent/crates/mesh-protocol/tests/golden_test.rs) (+ `testdata/golden/*.bin`)
+- **Modify:** Go [`server/internal/protocol/types.go`](../../server/internal/protocol/types.go), [`server/internal/protocol/golden_test.go`](../../server/internal/protocol/golden_test.go)
+- **Modify:** [`agent/crates/mesh-agent/src/main.rs`](../../agent/crates/mesh-agent/src/main.rs) (emit from the 60 s heartbeat loop)
 
 ## New variants (agent→server unless noted)
 
