@@ -35,10 +35,13 @@ training-distance boundary; lagged-window feature vectors catch shape, not just 
 3. **Test first:** `window` tests (rate math; bit-pack/roll) → implement.
 4. **Test first:** `sampler` tests with `FakeSampler` (deterministic) → implement
    `SysinfoSampler` (CPU needs two refreshes ≥200 ms apart; mem/disk/net; process top-N by
-   **rank** with name + **full cmdline**).
+   **rank** with **executable basename** + an **optional cmdline hash**). **Full cmdline is not
+   collected by default** — it is fetched only via the on-demand, audited, elevated path
+   (CWE-214: argv routinely carries secrets, and redaction cannot know every app-specific
+   format).
 5. **Test first:** `redact` tests for known secret patterns (`--password=`, `token=`,
-   `api[_-]?key=`, bearer, AWS keys, connection strings) → implement redaction; **on by
-   default**.
+   `api[_-]?key=`, bearer, AWS keys, connection strings) → implement redaction; applied as
+   **defense-in-depth on the on-demand full-cmdline path** (not a default-collection step).
 6. Wire a bounded background task in `main.rs` (hard RAM/disk cap; training **yields** to
    session/control traffic; detection O(models), alloc-free post-load), default-off.
 
@@ -47,16 +50,20 @@ training-distance boundary; lagged-window feature vectors catch shape, not just 
 - **No GPL** — clean-room from Netdata docs only. **No `unwrap()`** in production (use `?`);
   `#[non_exhaustive]` on public enums; `///` docs on public items.
 - **Cardinality discipline:** process series are **top-N by rank** (rank is the series key);
-  name + cmdline are *values* carried for WS-3/WS-4, never metric labels.
-- Redaction runs **at source** before anything leaves the process boundary.
-- ARM footprint matters — keep a bench; target «1% CPU, <1 MB RSS.
+  basename is a *value* carried for WS-3/WS-4, never a metric label. Full cmdline never on the
+  default path.
+- Redaction runs **at source** on the on-demand full-cmdline path before anything leaves the
+  process boundary.
+- **ARM footprint is a Wave 0 gate item:** benchmark CPU, RSS, allocations, and `sysinfo`
+  process-enumeration cost on a small ARM target **before the WS-3 wire contract is frozen**;
+  target «1% CPU, <1 MB RSS; keep default-off until it passes.
 
 ## Reviewer checklist
 
 - [ ] Tests precede each module; positive + negative; redaction patterns covered.
 - [ ] Clean-room (no GPL); no `unwrap()`; `#[non_exhaustive]`; docs on public items.
 - [ ] Ring buffer + model count hard-capped; training yields; detection alloc-free.
-- [ ] Process top-N by rank; cmdline redacted on by default.
+- [ ] Process top-N by rank; default = basename (+ optional cmdline hash); no full cmdline by default.
 - [ ] Default-off; agent never blocked by sentinel failure.
 
 ## Verification

@@ -56,7 +56,7 @@ TimeSeriesChart adapter  ──imperative──▶  uPlot instance (owns canvas,
         ▲ typed arrays (Float64 x, Float32 y), NEVER React-rendered points
         │
 Server (downsampled window)  ◀── poll ──  GET /devices/{id}/metrics?from&to&dims&maxPoints
-   Timescale continuous-aggregate pick (10 s raw → 1 min → 1 hr by window)
+   VM rollup pick via the scoped query client (10 s raw → 1 min → 1 hr stream-agg by window)
    + LTTB/min-max decimation so points ≤ maxPoints (≈ chart pixel width)
 ```
 
@@ -73,7 +73,9 @@ adapter does zero reshaping:
 ```
 { "t": number[],                                  // unix seconds, ascending
   "series": [ { "name": "cpu.util",
-               "avg": number[], "min": number[], "max": number[] } ],
+               "avg": number[],                    // central (VM) — always present
+               "min": number[], "max": number[],   // optional — see provenance below
+               "min_max_source": "local|avg_of_10s|none" } ],
   "downsampled": true, "bucket_s": 60 }            // provenance for the legend
 ```
 
@@ -82,6 +84,24 @@ Adapter builds `Float64Array(t)` + `Float32Array(series.avg/min/max)`, calls
 the 100-series total decomposes into ~4 readable charts (CPU/mem/disk/net), each cheap.
 The endpoint, decimation, and continuous-aggregate selection are **server work**
 (WS-4/WS-5); WS-6 owns the contract it consumes.
+
+**Min/max provenance — central VM is `avg`-only.** Per the master-plan cardinality decision,
+VM stores `avg` only (storing all four aggregates ≈ 4× active series). So `min`/`max` are **not**
+served from the central range endpoint. **True host min/max is fetched via an on-demand,
+server-mediated WS-15 local-history pull** (`min_max_source: "local"`) — the agent-local TSDB
+(WS-14b) is the only honest source of host min/max. Because WS-14b is **spike-gated and may not
+ship**, and even when it does the data is unavailable while an agent is offline / not yet
+backfilled / too old for the window, WS-6 **must degrade gracefully** rather than render a broken
+band:
+
+- `min_max_source: "local"` — true host min/max from the WS-15 pull (deep-dive / explicit request).
+- `min_max_source: "avg_of_10s"` — band = min/max **across the 10 s-avg samples** in the bucket
+  (cheap, always available from VM raw retention); the legend must label it as such, **not** as true
+  host min/max (do not visually imply host extrema the source can't back).
+- `min_max_source: "none"` — avg line only + anomaly overlay; no band.
+
+Default chart load uses `avg_of_10s` (or `none`); the true-min/max `local` pull is an explicit,
+bounded on-demand action (it costs an agent round-trip via WS-15).
 
 ## File inventory
 
@@ -135,10 +155,11 @@ silent erosion of the app budget.
   device-detail with all families. Add a perf assertion (point-count bound) + measure under
   the WS-8 load-test.
 - **Security.** Canvas-2D only — no eval/WASM/network in uPlot. Data is org-scoped
-  server-side (RLS); client renders only returned data. **Charts plot numeric series
-  only** — descriptive process data (name/redacted cmdline) stays in its RLS table and is
-  never a chart label/tooltip. Vendor CSS self-hosted (`style-src 'self'`); **no CSP change
-  required**.
+  server-side: numeric via the scoped VM query client (`org_id` label matcher), descriptive
+  process data via its **Postgres RLS** table. Client renders only returned data. **Charts plot
+  numeric series only** — process basename stays in its RLS table and is never a chart
+  label/tooltip; full cmdline is never charted. Vendor CSS self-hosted (`style-src 'self'`);
+  **no CSP change required**.
 - **Maintainability.** uPlot isolated to one adapter behind a stable interface (swap seam).
   Strict TS, no `any` (uPlot ships types). Tailwind-only honored (CSS as vendor asset).
 

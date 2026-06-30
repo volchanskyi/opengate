@@ -659,16 +659,18 @@ real dependency seam, **not** given a fake-green stub test.
 
 Seven self-contained micro-plans, one per ordered commit. Each carries its own
 file inventory, steps, and reviewer checklist. They land in order on `dev`.
+The detailed W1…W7 files were pruned during archive cleanup after the outcomes
+were captured here, in `.claude/phases.md`, and in the shell-quality docs.
 
 | # | Micro-plan | Commit theme |
 |---|---|---|
-| W1 | [`shell-quality-w1-tooling-and-policy-tests.md`](shell-quality-w1-tooling-and-policy-tests.md) | Pinned provisioner, ShellCheck/shfmt config, `shell-quality.sh` runner, Make targets, failing policy tests, SC1091 baseline cleanup |
-| W2 | [`shell-quality-w2-shfmt-baseline.md`](shell-quality-w2-shfmt-baseline.md) | Isolated formatting-only reformat of every tracked `.sh` |
-| W3 | [`shell-quality-w3-strict-mode-classifier.md`](shell-quality-w3-strict-mode-classifier.md) | `check-shell-policy.sh` + exception manifest; de-leak the two sourced libs |
-| W4 | [`shell-quality-w4-universal-enforcement.md`](shell-quality-w4-universal-enforcement.md) | Wire `shell-check` into the gauntlet + CI; actionlint→pinned ShellCheck; changed-file fast path |
-| W5 | [`shell-quality-w5-composite-action-extraction.md`](shell-quality-w5-composite-action-extraction.md) | Extract `verify-oci-tfstate-creds` (and the next-largest) inline shell into gated `.sh` + stub tests |
-| W6 | [`shell-quality-w6-critical-behavioral-tests.md`](shell-quality-w6-critical-behavioral-tests.md) | Offline command-stub tests for installer, bastion, deploy/rollback/smoke, Loki transports |
-| W7 | [`shell-quality-w7-docs-and-migration-heuristic.md`](shell-quality-w7-docs-and-migration-heuristic.md) | `/docs` canonical commands + strict-mode classes; Bash-vs-Go migration heuristic; archive |
+| W1 | Tooling and policy tests | Pinned provisioner, ShellCheck/shfmt config, `shell-quality.sh` runner, Make targets, failing policy tests, SC1091 baseline cleanup |
+| W2 | shfmt baseline | Isolated formatting-only reformat of every tracked `.sh` |
+| W3 | Strict-mode classifier | `check-shell-policy.sh` + exception manifest; de-leak the two sourced libs |
+| W4 | Universal enforcement | Wire `shell-check` into the gauntlet + CI; actionlint→pinned ShellCheck; changed-file fast path |
+| W5 | Composite-action extraction | Extract `verify-oci-tfstate-creds` (and the next-largest) inline shell into gated `.sh` + stub tests |
+| W6 | Critical behavioral tests | Offline command-stub tests for installer, bastion, deploy/rollback/smoke, Loki transports |
+| W7 | Docs and migration heuristic | `/docs` canonical commands + strict-mode classes; Bash-vs-Go migration heuristic; archive |
 
 ## Sequencing Notes
 
