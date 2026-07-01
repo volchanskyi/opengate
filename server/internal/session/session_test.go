@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
@@ -18,7 +19,7 @@ func TestPostgres_SessionCRUD(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestSessions(t, store)
-	ctx := context.Background()
+	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, owner.ID)
 	dev := testutil.SeedDevice(t, ctx, store, group.ID)
@@ -68,6 +69,38 @@ func TestPostgres_SessionCRUD(t *testing.T) {
 		err := repo.Delete(ctx, "nope")
 		assert.True(t, errors.Is(err, session.ErrSessionNotFound))
 	})
+}
+
+func TestPostgresSessions_TenantDeny(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewTestStore(t)
+	repo := testutil.NewTestSessions(t, store)
+	orgB := uuid.New()
+	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
+	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
+	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+
+	userA := testutil.SeedUser(t, ctxA, store)
+	userB := testutil.SeedUser(t, ctxB, store)
+	groupA := testutil.SeedGroup(t, ctxA, store, userA.ID)
+	groupB := testutil.SeedGroup(t, ctxB, store, userB.ID)
+	deviceA := testutil.SeedDevice(t, ctxA, store, groupA.ID)
+	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
+	sessionA := testutil.SeedAgentSession(t, ctxA, store, deviceA.ID, userA.ID)
+	sessionB := testutil.SeedAgentSession(t, ctxB, store, deviceB.ID, userB.ID)
+
+	_, err := repo.Get(ctxA, sessionB.Token)
+	assert.ErrorIs(t, err, session.ErrSessionNotFound)
+	active, err := repo.ListActiveForDevice(ctxA, deviceB.ID)
+	require.NoError(t, err)
+	assert.Empty(t, active)
+	active, err = repo.ListActiveForDevice(ctxA, deviceA.ID)
+	require.NoError(t, err)
+	require.Len(t, active, 1)
+	assert.Equal(t, sessionA.Token, active[0].Token)
+
+	_, err = repo.Get(context.Background(), sessionA.Token)
+	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 
 // fakeObserver records every Observe call for the Instrumented decorator test.

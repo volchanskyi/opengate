@@ -22,9 +22,13 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
-// URLEnv names the environment variable that, when set, supplies an external
-// test database and bypasses container auto-provisioning.
-const URLEnv = "POSTGRES_TEST_URL"
+const (
+	// URLEnv names the environment variable that, when set, supplies an external
+	// test database and bypasses container auto-provisioning.
+	URLEnv = "POSTGRES_TEST_URL"
+	// PostgresImage is the pinned test database image and client-binary source.
+	PostgresImage = "postgres:17-alpine"
+)
 
 var (
 	once     sync.Once
@@ -89,7 +93,7 @@ func startContainer() (string, error) {
 	// The container object is not retained: the Docker container keeps running
 	// independently of this Go handle and is reaped by the testcontainers Ryuk
 	// reaper when the test process exits, so no explicit Terminate is needed.
-	c, err := postgres.Run(ctx, "postgres:17-alpine",
+	c, err := postgres.Run(ctx, PostgresImage,
 		postgres.WithDatabase("opengate_test"),
 		postgres.WithUsername("opengate"),
 		postgres.WithPassword("opengate"),

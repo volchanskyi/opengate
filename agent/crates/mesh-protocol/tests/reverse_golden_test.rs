@@ -165,6 +165,15 @@ fn reverse_golden_restart_agent() {
 }
 
 #[test]
+fn reverse_golden_unknown_future_server_to_agent() {
+    let Some(frame) = decode_frame("go_control_unknown_future_server_to_agent.bin") else {
+        eprintln!("skipping: go_control_unknown_future_server_to_agent.bin not present");
+        return;
+    };
+    assert!(matches!(frame, Frame::Control(ControlMessage::Unknown)));
+}
+
+#[test]
 fn reverse_golden_desktop_frame() {
     let Some(frame) = decode_frame("go_desktop_frame.bin") else {
         eprintln!("skipping: go_desktop_frame.bin not present");

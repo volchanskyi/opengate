@@ -18,6 +18,7 @@ var ErrUserNotFound = errors.New("user not found")
 // User represents an authenticated user of the system.
 type User struct {
 	ID           UserID    `json:"id"`
+	OrgID        uuid.UUID `json:"org_id"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
 	DisplayName  string    `json:"display_name"`

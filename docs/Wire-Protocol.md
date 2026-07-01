@@ -68,6 +68,12 @@ enum ControlMessage {
 
 The `type` field is a string that identifies the variant, enabling cross-language deserialization between Rust (`rmp-serde`) and Go (`vmihailenco/msgpack`).
 
+Unknown future control types are tolerated at the message-dispatch layer. The
+Go server decodes the unknown `type` string and logs/ignores it without dropping
+the agent connection. The Rust protocol crate decodes unknown server-to-agent
+tags into `ControlMessage::Unknown`, allowing the agent control loop to ignore
+the frame and continue. Malformed frames and oversized payloads remain fatal.
+
 ### Control Message Variants
 
 | Variant | Direction | Fields |
@@ -106,6 +112,21 @@ The `type` field is a string that identifies the variant, enabling cross-languag
 | `DeviceLogsResponse` | Agent → Server | `log_entries` (Vec\<LogEntry\>), `total_count`, `has_more` |
 | `DeviceLogsError` | Agent → Server | `error` |
 
+### Capabilities
+
+`AgentRegister.capabilities` is the negotiation surface for additive
+server-to-agent control messages. The server must not send a new
+server-to-agent variant unless the connected agent advertised the matching
+capability. Current additive gates:
+
+| Capability | Gates |
+|------------|-------|
+| `HardwareInventory` | `RequestHardwareReport` |
+| `DeviceLogs` | `RequestDeviceLogs` |
+
+Tolerant unknown-message decoding is a backstop for mixed fleets; capability
+gating is the primary safety mechanism.
+
 ### LogEntry Struct
 
 The `DeviceLogsResponse` message carries an array of `LogEntry` structs:
@@ -141,8 +162,13 @@ Golden file tests guarantee bit-identical encoding between Rust and Go:
 
 1. Rust tests serialize known messages to binary and write them to `testdata/golden/`
 2. Go tests read the same files and deserialize, asserting field-level equality
+3. Go reverse-golden tests serialize representative frames to `go_*.bin`
+4. Rust reverse-golden tests read those files and assert field-level equality
 
-This catches any encoding drift between the two codecs. The CI pipeline sequences the golden verification job after the Rust test job to ensure fixtures are always freshly generated.
+This catches encoding drift in both directions. Unknown future control-type
+fixtures are included for both agent-to-server and server-to-agent compatibility.
+The CI pipeline sequences the golden verification job after the Rust test job
+to ensure fixtures are always freshly generated.
 
 ### Fixture Location
 

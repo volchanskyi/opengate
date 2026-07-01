@@ -33,7 +33,7 @@ func waitForDeviceStatus(t *testing.T, store *db.PostgresStore, deviceID protoco
 	t.Helper()
 	devs := device.NewPostgresDevices(store.DB())
 	require.Eventually(t, func() bool {
-		dev, err := devs.Get(context.Background(), deviceID)
+		dev, err := devs.Get(defaultTenantContext(), deviceID)
 		return err == nil && dev.Status == want
 	}, 3*time.Second, 25*time.Millisecond,
 		"device %s never reached status %q", deviceID, want)

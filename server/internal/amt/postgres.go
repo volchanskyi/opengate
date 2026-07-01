@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
 // PostgresAMTDevices implements [Repository] against PostgreSQL. The db
@@ -23,24 +24,34 @@ func NewPostgresAMTDevices(d *sql.DB) *PostgresAMTDevices {
 }
 
 func (p *PostgresAMTDevices) Upsert(ctx context.Context, d *db.AMTDevice) error {
-	_, err := p.db.ExecContext(ctx,
-		`INSERT INTO amt_devices (uuid, hostname, model, firmware, status, last_seen)
-		 VALUES ($1, $2, $3, $4, $5, NOW())
-		 ON CONFLICT (uuid) DO UPDATE SET
-		   hostname  = CASE WHEN EXCLUDED.hostname = '' THEN amt_devices.hostname ELSE EXCLUDED.hostname END,
-		   model     = CASE WHEN EXCLUDED.model    = '' THEN amt_devices.model    ELSE EXCLUDED.model    END,
-		   firmware  = CASE WHEN EXCLUDED.firmware = '' THEN amt_devices.firmware ELSE EXCLUDED.firmware END,
-		   status    = EXCLUDED.status,
-		   last_seen = NOW()`,
-		d.UUID, d.Hostname, d.Model, d.Firmware, string(d.Status))
-	return err
+	tenant, ok := dbtx.TenantFromContext(ctx)
+	if !ok {
+		return dbtx.ErrTenantRequired
+	}
+	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO amt_devices (uuid, org_id, hostname, model, firmware, status, last_seen)
+			 VALUES ($1, $2, $3, $4, $5, $6, NOW())
+			 ON CONFLICT (uuid) DO UPDATE SET
+			   org_id    = EXCLUDED.org_id,
+			   hostname  = CASE WHEN EXCLUDED.hostname = '' THEN amt_devices.hostname ELSE EXCLUDED.hostname END,
+			   model     = CASE WHEN EXCLUDED.model    = '' THEN amt_devices.model    ELSE EXCLUDED.model    END,
+			   firmware  = CASE WHEN EXCLUDED.firmware = '' THEN amt_devices.firmware ELSE EXCLUDED.firmware END,
+			   status    = EXCLUDED.status,
+			   last_seen = NOW()`,
+			d.UUID, tenant.OrgID, d.Hostname, d.Model, d.Firmware, string(d.Status))
+		return err
+	})
 }
 
 func (p *PostgresAMTDevices) Get(ctx context.Context, id uuid.UUID) (*db.AMTDevice, error) {
 	var d db.AMTDevice
-	err := p.db.QueryRowContext(ctx,
-		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices WHERE uuid = $1`,
-		id).Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen)
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx,
+			`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices
+			 WHERE org_id = current_setting('app.current_org')::uuid AND uuid = $1`,
+			id).Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen)
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrAMTDeviceNotFound
 	}
@@ -51,37 +62,44 @@ func (p *PostgresAMTDevices) Get(ctx context.Context, id uuid.UUID) (*db.AMTDevi
 }
 
 func (p *PostgresAMTDevices) List(ctx context.Context) ([]*db.AMTDevice, error) {
-	rows, err := p.db.QueryContext(ctx,
-		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var devices []*db.AMTDevice
-	for rows.Next() {
-		var d db.AMTDevice
-		if err := rows.Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen); err != nil {
-			return nil, err
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices
+			 WHERE org_id = current_setting('app.current_org')::uuid`)
+		if err != nil {
+			return err
 		}
-		devices = append(devices, &d)
-	}
-	return devices, rows.Err()
+		defer rows.Close()
+
+		for rows.Next() {
+			var d db.AMTDevice
+			if err := rows.Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen); err != nil {
+				return err
+			}
+			devices = append(devices, &d)
+		}
+		return rows.Err()
+	})
+	return devices, err
 }
 
 func (p *PostgresAMTDevices) SetStatus(ctx context.Context, id uuid.UUID, status db.DeviceStatus) error {
-	res, err := p.db.ExecContext(ctx,
-		`UPDATE amt_devices SET status = $1, last_seen = NOW() WHERE uuid = $2`,
-		string(status), id)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrAMTDeviceNotFound
-	}
-	return nil
+	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE amt_devices SET status = $1, last_seen = NOW()
+			 WHERE org_id = current_setting('app.current_org')::uuid AND uuid = $2`,
+			string(status), id)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrAMTDeviceNotFound
+		}
+		return nil
+	})
 }

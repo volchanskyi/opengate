@@ -32,11 +32,13 @@ func GenerateSessionToken() SessionToken {
 type AgentCapability string
 
 const (
-	CapRemoteDesktop AgentCapability = "RemoteDesktop"
-	CapTerminal      AgentCapability = "Terminal"
-	CapFileManager   AgentCapability = "FileManager"
-	CapInput         AgentCapability = "InputInjection"
-	CapProcess       AgentCapability = "ProcessManager"
+	CapRemoteDesktop     AgentCapability = "RemoteDesktop"
+	CapTerminal          AgentCapability = "Terminal"
+	CapFileManager       AgentCapability = "FileManager"
+	CapInput             AgentCapability = "InputInjection"
+	CapProcess           AgentCapability = "ProcessManager"
+	CapHardwareInventory AgentCapability = "HardwareInventory"
+	CapDeviceLogs        AgentCapability = "DeviceLogs"
 )
 
 // DeviceStatus represents the current connection state of a device.

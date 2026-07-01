@@ -1,13 +1,42 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-06-29. -->
+<!-- Last reviewed: 2026-07-01. -->
 
 ## Severity: High
 
 _None currently._
 
 ## Severity: Medium
+
+### Edge-Sentinel ARM sampler artifact and default-on flip pending
+
+WS-2 ships the default-off sampler plus always-run allocation/RSS guards and a
+Criterion bench harness, but the Phase 0 hardware artifact still needs to be
+recorded on a small ARM target:
+
+1. Wire an ARM CI runner or equivalent repeatable ARM bench environment.
+2. Run `mesh-agent-core`'s Edge Sentinel bench harness and record detection
+   latency, `sysinfo` sampling cost, RSS, and allocation evidence.
+3. Use the measured per-entity `sysinfo` cost to finalize per-entity caps before
+   WS-3 freezes the wire contract and WS-4 depends on the cardinality budget.
+
+The sampler remains default-off until ARM evidence confirms the target footprint.
+
+**Pay-down trigger:** attach the ARM artifact to the Edge-Sentinel Phase 0 record,
+finalize per-entity caps, and flip the sampler default only if the gate passes.
+
+### Multi-org membership API and web org switcher deferred
+
+WS-0 satisfies "web carries org context" by retaining the JWT `org` claim in the
+auth store as display/UX state only; the server derives authorization scope from
+the signed token and never trusts a browser-supplied org value. There is not yet a
+multi-org membership API, so a web org switcher has no authoritative membership
+surface to switch between.
+
+**Pay-down trigger:** when multi-org membership is introduced, add the server
+membership/switching API, issue refreshed tokens for the selected org, and build
+the web org switcher against that server-trusted flow.
 
 ### W3 decision — adopt 1-RTT TLS session resumption; agent-side enablement pending; 0-RTT deferred
 

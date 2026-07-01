@@ -18,6 +18,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
@@ -110,7 +111,7 @@ func main() {
 	usersRepo := auth.NewInstrumentedUsers(auth.NewPostgresUsers(store.DB()), appMetrics)
 
 	// Reset stale online statuses from a prior run via the device repository.
-	if err := devicesRepo.ResetAllStatuses(context.Background()); err != nil {
+	if err := devicesRepo.ResetAllStatuses(dbtx.WithDefaultTenant(context.Background(), false)); err != nil {
 		logger.Error("reset device statuses on startup", "error", err)
 		os.Exit(1)
 	}

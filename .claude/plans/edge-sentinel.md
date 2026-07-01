@@ -23,7 +23,7 @@ code **and live OCI/cluster data**. The confirmed findings:
 1. **Protocol compat was overstated, in *both* directions.** Agent→server: unknown control type
    → `ErrUnexpectedMessage` ([conn.go:245](../../server/internal/agentapi/conn.go#L245)) → the
    control loop drops the connection ([server.go:260](../../server/internal/agentapi/server.go#L260)),
-   pinned by [conn_test.go:612](../../server/internal/agentapi/conn_test.go#L612). Server→agent:
+   pinned by [conn_part8_test.go:44](../../server/internal/agentapi/conn_part8_test.go#L44). Server→agent:
    the Rust enum is `#[serde(tag="type")]`+`#[non_exhaustive]` — `#[non_exhaustive]` does **not**
    make serde tolerate unknown tags, so a new server→agent variant breaks old agents at decode.
    WS-1 now fixes **both** directions + adds capability negotiation.

@@ -55,4 +55,11 @@ cfg.pop("credsStore", None)
 cfg.pop("credHelpers", None)
 json.dump(cfg, open(dst, "w"))
 PY
+if [ -d "$src_dir/cli-plugins" ]; then
+  mkdir -p "$out_dir/cli-plugins"
+  for plugin in "$src_dir"/cli-plugins/*; do
+    [ -x "$plugin" ] || continue
+    ln -sf "$(readlink -f "$plugin")" "$out_dir/cli-plugins/$(basename "$plugin")"
+  done
+fi
 printf '%s\n' "$out_dir"

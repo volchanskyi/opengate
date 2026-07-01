@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { useAuthStore } from './auth-store';
+import { orgIdFromToken, useAuthStore } from './auth-store';
 
 const mockPost = vi.fn();
 const mockGet = vi.fn();
@@ -11,12 +11,19 @@ vi.mock('../lib/api', () => ({
   },
 }));
 
+function jwtWithOrg(orgId: string): string {
+  const encode = (value: object) =>
+    btoa(JSON.stringify(value)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+  return `${encode({ alg: 'none' })}.${encode({ org: orgId })}.sig`;
+}
+
 describe('auth store', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
     useAuthStore.setState({
       token: null,
+      orgId: null,
       user: null,
       isLoading: false,
       hydrated: false,
@@ -25,8 +32,9 @@ describe('auth store', () => {
   });
 
   it('login stores token and fetches user', async () => {
+    const token = jwtWithOrg('00000000-0000-0000-0000-000000000002');
     mockPost.mockResolvedValueOnce({
-      data: { token: 'jwt-123' },
+      data: { token },
       error: undefined,
     });
     mockGet.mockResolvedValueOnce({
@@ -37,8 +45,9 @@ describe('auth store', () => {
 
     await useAuthStore.getState().login('a@b.com', 'pass');
 
-    expect(localStorage.getItem('token')).toBe('jwt-123');
-    expect(useAuthStore.getState().token).toBe('jwt-123');
+    expect(localStorage.getItem('token')).toBe(token);
+    expect(useAuthStore.getState().token).toBe(token);
+    expect(useAuthStore.getState().orgId).toBe('00000000-0000-0000-0000-000000000002');
     expect(useAuthStore.getState().user?.email).toBe('a@b.com');
     expect(useAuthStore.getState().error).toBeNull();
   });
@@ -74,17 +83,30 @@ describe('auth store', () => {
 
   it('logout clears state', () => {
     localStorage.setItem('token', 'old-token');
-    useAuthStore.setState({ token: 'old-token', user: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false, created_at: '', updated_at: '' } });
+    useAuthStore.setState({
+      token: 'old-token',
+      orgId: '00000000-0000-0000-0000-000000000002',
+      user: {
+        id: '1',
+        email: 'a@b.com',
+        display_name: 'A',
+        is_admin: false,
+        created_at: '',
+        updated_at: '',
+      },
+    });
 
     useAuthStore.getState().logout();
 
     expect(localStorage.getItem('token')).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().orgId).toBeNull();
     expect(useAuthStore.getState().user).toBeNull();
   });
 
   it('hydrate reads token from localStorage and fetches user', async () => {
-    localStorage.setItem('token', 'stored-token');
+    const token = jwtWithOrg('11111111-1111-1111-1111-111111111111');
+    localStorage.setItem('token', token);
     mockGet.mockResolvedValueOnce({
       data: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false },
       error: undefined,
@@ -93,7 +115,8 @@ describe('auth store', () => {
 
     await useAuthStore.getState().hydrate();
 
-    expect(useAuthStore.getState().token).toBe('stored-token');
+    expect(useAuthStore.getState().token).toBe(token);
+    expect(useAuthStore.getState().orgId).toBe('11111111-1111-1111-1111-111111111111');
     expect(useAuthStore.getState().user?.email).toBe('a@b.com');
     expect(useAuthStore.getState().hydrated).toBe(true);
   });
@@ -118,5 +141,10 @@ describe('auth store', () => {
 
     expect(useAuthStore.getState().token).toBeNull();
     expect(localStorage.getItem('token')).toBeNull();
+  });
+
+  it('orgIdFromToken fails closed on malformed tokens', () => {
+    expect(orgIdFromToken('not-a-jwt')).toBeNull();
+    expect(orgIdFromToken('a.b.c')).toBeNull();
   });
 });

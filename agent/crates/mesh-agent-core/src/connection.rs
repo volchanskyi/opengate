@@ -672,6 +672,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn receive_control_decodes_unknown_control_as_catch_all() {
+        let (client, mut server) = tokio::io::duplex(4096);
+        let mut conn = AgentConnection::new(client);
+        let payload = rmp_serde::to_vec_named(&std::collections::BTreeMap::from([(
+            "type",
+            "FutureServerControl",
+        )]))
+        .unwrap();
+        let payload_len = (payload.len() as u32).to_be_bytes();
+
+        tokio::spawn(async move {
+            AsyncWriteExt::write_all(&mut server, &[FRAME_CONTROL])
+                .await
+                .unwrap();
+            AsyncWriteExt::write_all(&mut server, &payload_len)
+                .await
+                .unwrap();
+            AsyncWriteExt::write_all(&mut server, &payload)
+                .await
+                .unwrap();
+        });
+
+        let msg = conn.receive_control().await.unwrap();
+        assert_eq!(msg, ControlMessage::Unknown);
+    }
+
+    #[tokio::test]
     async fn test_reconnect_backoff_all_failures() {
         let result: Result<u32, _> = reconnect_with_backoff(
             || async { Err::<u32, String>("always fail".to_string()) },

@@ -7,6 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -20,6 +21,7 @@ type JWTConfig struct {
 // Claims represents the JWT claims embedded in a token.
 type Claims struct {
 	UserID  uuid.UUID `json:"uid"`
+	OrgID   uuid.UUID `json:"org"`
 	Email   string    `json:"email"`
 	IsAdmin bool      `json:"admin"`
 	jwt.RegisteredClaims
@@ -40,10 +42,15 @@ func CheckPassword(hash, password string) error {
 }
 
 // GenerateToken creates a signed JWT for the given user.
-func (c *JWTConfig) GenerateToken(userID uuid.UUID, email string, isAdmin bool) (string, error) {
+func (c *JWTConfig) GenerateToken(userID uuid.UUID, email string, isAdmin bool, orgIDs ...uuid.UUID) (string, error) {
 	now := time.Now()
+	orgID := dbtx.DefaultOrgID
+	if len(orgIDs) > 0 && orgIDs[0] != uuid.Nil {
+		orgID = orgIDs[0]
+	}
 	claims := &Claims{
 		UserID:  userID,
+		OrgID:   orgID,
 		Email:   email,
 		IsAdmin: isAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{

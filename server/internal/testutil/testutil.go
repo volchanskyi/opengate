@@ -16,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -228,12 +229,32 @@ func NewTestUsers(t testing.TB, s *db.PostgresStore) auth.UserRepository {
 	return auth.NewPostgresUsers(s.DB())
 }
 
+// EnsureOrganization inserts orgID if it does not exist. Tests that exercise
+// cross-tenant behavior can create extra organizations without depending on a
+// specific repository package.
+func EnsureOrganization(t testing.TB, ctx context.Context, s *db.PostgresStore, orgID uuid.UUID, name string) {
+	t.Helper()
+	_, err := s.DB().ExecContext(ctx,
+		`INSERT INTO organizations (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
+		orgID, name)
+	require.NoError(t, err)
+}
+
+func tenantOrDefault(ctx context.Context, isAdmin bool) (context.Context, dbtx.Tenant) {
+	if tenant, ok := dbtx.TenantFromContext(ctx); ok {
+		return ctx, tenant
+	}
+	return dbtx.WithDefaultTenant(ctx, isAdmin), dbtx.Tenant{OrgID: dbtx.DefaultOrgID, IsAdmin: isAdmin}
+}
+
 // SeedUser inserts a minimal user via the auth.UserRepository. The email is
 // randomised to avoid uniqueness conflicts across parallel tests.
 func SeedUser(t testing.TB, ctx context.Context, s *db.PostgresStore) *auth.User {
 	t.Helper()
+	ctx, tenant := tenantOrDefault(ctx, false)
 	u := &auth.User{
 		ID:           uuid.New(),
+		OrgID:        tenant.OrgID,
 		Email:        "test-" + uuid.New().String()[:8] + "@example.com",
 		PasswordHash: "hash",
 		DisplayName:  "Test User",
@@ -247,6 +268,7 @@ func SeedUser(t testing.TB, ctx context.Context, s *db.PostgresStore) *auth.User
 // avoid forcing every test setup to thread a repo through.
 func SeedGroup(t testing.TB, ctx context.Context, s *db.PostgresStore, ownerID uuid.UUID) *device.Group {
 	t.Helper()
+	ctx, _ = tenantOrDefault(ctx, false)
 	g := &device.Group{
 		ID:      uuid.New(),
 		Name:    "group-" + uuid.New().String()[:8],
@@ -259,6 +281,7 @@ func SeedGroup(t testing.TB, ctx context.Context, s *db.PostgresStore, ownerID u
 // SeedDevice inserts an offline device belonging to groupID into the store and returns it.
 func SeedDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, groupID uuid.UUID) *device.Device {
 	t.Helper()
+	ctx, _ = tenantOrDefault(ctx, false)
 	d := &device.Device{
 		ID:       uuid.New(),
 		GroupID:  groupID,
@@ -274,6 +297,7 @@ func SeedDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, groupID 
 // via the session.Repository.
 func SeedAgentSession(t testing.TB, ctx context.Context, s *db.PostgresStore, deviceID, userID uuid.UUID) *session.Session {
 	t.Helper()
+	ctx, _ = tenantOrDefault(ctx, false)
 	sess := &session.Session{
 		Token:    string(protocol.GenerateSessionToken()),
 		DeviceID: deviceID,
@@ -287,11 +311,13 @@ func SeedAgentSession(t testing.TB, ctx context.Context, s *db.PostgresStore, de
 // and adds them to the Administrators security group.
 func SeedAdminUser(t testing.TB, ctx context.Context, s *db.PostgresStore) (*auth.User, string) {
 	t.Helper()
+	ctx, tenant := tenantOrDefault(ctx, true)
 	password := "admin-pass-" + uuid.New().String()[:8]
 	hash, err := auth.HashPassword(password)
 	require.NoError(t, err)
 	u := &auth.User{
 		ID:           uuid.New(),
+		OrgID:        tenant.OrgID,
 		Email:        "admin-" + uuid.New().String()[:8] + "@example.com",
 		PasswordHash: hash,
 		DisplayName:  "Admin User",
@@ -306,6 +332,7 @@ func SeedAdminUser(t testing.TB, ctx context.Context, s *db.PostgresStore) (*aut
 // SeedAMTDevice inserts an AMT device record via the amt.Repository.
 func SeedAMTDevice(t testing.TB, ctx context.Context, s *db.PostgresStore) *db.AMTDevice {
 	t.Helper()
+	ctx, _ = tenantOrDefault(ctx, false)
 	d := &db.AMTDevice{
 		UUID:     uuid.New(),
 		Hostname: "amt-" + uuid.New().String()[:8],

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/audit"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
@@ -25,7 +26,7 @@ func newTestRepo(t *testing.T) audit.Repository {
 func TestPostgres_WriteAndQuery(t *testing.T) {
 	t.Parallel()
 	repo := newTestRepo(t)
-	ctx := context.Background()
+	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	userID := uuid.New()
 
 	t.Run("write and query by user", func(t *testing.T) {
@@ -78,6 +79,33 @@ func TestPostgres_WriteAndQuery(t *testing.T) {
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(events), 1)
 	})
+}
+
+func TestPostgresAudit_TenantDeny(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewTestStore(t)
+	repo := testutil.NewTestAudit(t, store)
+	orgB := uuid.New()
+	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
+	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
+	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	userA := uuid.New()
+	userB := uuid.New()
+
+	require.NoError(t, repo.Write(ctxA, &audit.Event{UserID: userA, Action: "tenant-a"}))
+	require.NoError(t, repo.Write(ctxB, &audit.Event{UserID: userB, Action: "tenant-b"}))
+
+	events, err := repo.Query(ctxA, audit.Query{UserID: &userB, Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, events)
+
+	events, err = repo.Query(ctxA, audit.Query{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, events, 1)
+	assert.Equal(t, "tenant-a", events[0].Action)
+
+	_, err = repo.Query(context.Background(), audit.Query{Limit: 1})
+	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 
 // fakeObserver records every Observe call for the Instrumented decorator test.

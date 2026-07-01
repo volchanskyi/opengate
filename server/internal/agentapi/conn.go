@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -9,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -87,6 +89,15 @@ func (a *AgentConn) sendControl(msg *protocol.ControlMessage) error {
 	return nil
 }
 
+func (a *AgentConn) requireCapability(cap protocol.AgentCapability) error {
+	for _, advertised := range a.Capabilities {
+		if advertised == cap {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: %s", ErrCapabilityNotAdvertised, cap)
+}
+
 // writeFrame writes a single framed message to the agent stream while
 // holding writeMu so concurrent writers (API-handler-initiated sendControl
 // plus the read-loop's FramePong response) cannot interleave envelope and
@@ -136,6 +147,9 @@ func (a *AgentConn) SendRestartAgent(ctx context.Context, reason string) error {
 
 // SendRequestHardwareReport asks the agent to collect and send hardware info.
 func (a *AgentConn) SendRequestHardwareReport(ctx context.Context) error {
+	if err := a.requireCapability(protocol.CapHardwareInventory); err != nil {
+		return err
+	}
 	return a.sendControl(&protocol.ControlMessage{
 		Type: protocol.MsgRequestHardwareReport,
 	})
@@ -143,6 +157,9 @@ func (a *AgentConn) SendRequestHardwareReport(ctx context.Context) error {
 
 // SendRequestDeviceLogs asks the agent to collect and send filtered log entries.
 func (a *AgentConn) SendRequestDeviceLogs(ctx context.Context, filter device.LogFilter) error {
+	if err := a.requireCapability(protocol.CapDeviceLogs); err != nil {
+		return err
+	}
 	offset := clampNonNegativeUint32(filter.Offset)
 	limit := clampNonNegativeUint32(filter.Limit)
 	return a.sendControl(&protocol.ControlMessage{
@@ -186,6 +203,10 @@ func (a *AgentConn) Close() error {
 
 // handleControl reads and dispatches a single control message from the stream.
 func (a *AgentConn) handleControl(ctx context.Context) error {
+	if _, ok := dbtx.TenantFromContext(ctx); !ok {
+		ctx = dbtx.WithDefaultTenant(ctx, false)
+	}
+
 	frameType, payload, err := a.codec.ReadFrame(a.stream)
 	if err != nil {
 		return fmt.Errorf("read frame: %w", err)
@@ -243,8 +264,15 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		a.logger.Warn("device logs error from agent", "device_id", a.DeviceID, "error", msg.AckError)
 		return nil
 	default:
-		return fmt.Errorf("%w: %s", ErrUnexpectedMessage, msg.Type)
+		a.logger.Debug("ignoring unknown control message", "device_id", a.DeviceID, "type", msg.Type)
+		return nil
 	}
+}
+
+// IsCapabilityError reports whether err means an agent did not advertise the
+// capability required for a server-to-agent control variant.
+func IsCapabilityError(err error) bool {
+	return errors.Is(err, ErrCapabilityNotAdvertised)
 }
 
 func (a *AgentConn) handleHardwareReport(ctx context.Context, msg *protocol.ControlMessage) error {

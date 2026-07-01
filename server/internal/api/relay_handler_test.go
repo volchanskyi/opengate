@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -95,11 +96,12 @@ func waitForRelayWired(t *testing.T, ctx context.Context, srv *Server, token pro
 // relay WebSocket subtests.
 func seedRelaySession(t *testing.T, ctx context.Context, srv *Server, cfg *auth.JWTConfig) (token, jwtToken string) {
 	t.Helper()
+	ctx = dbtx.WithDefaultTenant(ctx, true)
 	user := testutil.SeedUser(t, ctx, srv.store)
 	group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
 	device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
 	sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
-	jwt, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	jwt, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
 	require.NoError(t, err)
 	return sess.Token, jwt
 }
@@ -230,19 +232,20 @@ func TestRelayWebSocket(t *testing.T) {
 
 	t.Run("browser_connects_waits", func(t *testing.T) {
 		ts, srv, cfg := newRelayTestServer(t)
+		tenantCtx := dbtx.WithDefaultTenant(context.Background(), true)
 
-		user := testutil.SeedUser(t, context.Background(), srv.store)
-		group := testutil.SeedGroup(t, context.Background(), srv.store, user.ID)
-		device := testutil.SeedDevice(t, context.Background(), srv.store, group.ID)
+		user := testutil.SeedUser(t, tenantCtx, srv.store)
+		group := testutil.SeedGroup(t, tenantCtx, srv.store, user.ID)
+		device := testutil.SeedDevice(t, tenantCtx, srv.store, group.ID)
 
 		token := protocol.GenerateSessionToken()
-		require.NoError(t, srv.sessions.Create(context.Background(), &session.Session{
+		require.NoError(t, srv.sessions.Create(tenantCtx, &session.Session{
 			Token:    string(token),
 			DeviceID: device.ID,
 			UserID:   user.ID,
 		}))
 
-		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
+		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
 		require.NoError(t, err)
 
 		// Browser connects — should block waiting for peer

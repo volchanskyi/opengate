@@ -45,6 +45,8 @@ pub enum AgentCapability {
     FileManager,
     InputInjection,
     ProcessManager,
+    HardwareInventory,
+    DeviceLogs,
 }
 
 /// Current status of a device.

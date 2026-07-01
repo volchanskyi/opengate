@@ -189,4 +189,9 @@ pub enum ControlMessage {
     DeviceLogsError {
         error: String,
     },
+
+    /// Unknown future control message. Agents ignore this and keep the
+    /// control stream alive; malformed frames still fail before this point.
+    #[serde(other)]
+    Unknown,
 }

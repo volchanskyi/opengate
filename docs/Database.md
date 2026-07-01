@@ -1,10 +1,10 @@
 # Database
 
-OpenGate uses PostgreSQL 17 as its single storage backend behind the
-[`db.Store` interface](../server/internal/db/store.go). The server requires
-the `DATABASE_URL` env var (or `-database-url` flag) at startup and exits
-fast if it is unset. See [ADR-014](adr/ADR-014-postgres-migration.md) for
-the rationale behind the PostgreSQL choice and the supersession of ADR-003.
+OpenGate uses PostgreSQL 17 as its single storage backend behind per-domain
+repositories. The server requires the `DATABASE_URL` env var (or
+`-database-url` flag) at startup and exits fast if it is unset. See
+[ADR-014](adr/ADR-014-postgres-migration.md) for the rationale behind the
+PostgreSQL choice and the supersession of ADR-003.
 
 ## Driver & connection pool
 
@@ -32,11 +32,37 @@ Native Postgres types throughout — no TEXT/INTEGER shims.
 | JSON columns | `JSONB` |
 | Upsert semantics | `ON CONFLICT ... DO UPDATE` / `DO NOTHING` |
 
+## Multi-Tenancy
+
+Every tenant-owned table carries `org_id UUID NOT NULL` and is protected by
+Postgres Row-Level Security. The server derives the active organization from
+the JWT `org` claim, stores it in request context, and each repository method
+opens a tenant-scoped transaction through `dbtx.Scoped`.
+
+Inside that transaction the server issues `SET LOCAL app.current_org = ...`
+and `SET LOCAL app.is_admin = ...`; the settings reset automatically on commit
+or rollback, so pooled connections do not leak tenant state between requests.
+Tenant queries also carry explicit `WHERE org_id =
+current_setting('app.current_org')::uuid` predicates so the `org_id`-leading
+indexes stay usable instead of relying on RLS as a post-filter.
+
+Admin cross-org access is policy-based: RLS policies also allow rows when
+`app.is_admin` is true. The application role does not use `BYPASSRLS`; a missing
+tenant GUC fails closed. Pre-tenant paths such as login lookup and enrollment
+token validation opt into the default organization explicitly.
+
+The RLS boundary is covered by per-repository cross-tenant-deny tests plus
+[`TestMultitenancyMigrationRehearsal`](../server/internal/db/store_test.go),
+which applies `002_multitenancy` to seeded pre-tenant data, verifies backfill and
+RLS behavior, runs in-container `pg_dump`/restore, re-verifies the restored copy,
+and rolls the migration down cleanly.
+
 ## Schema
 
-Thirteen tables managed by `golang-migrate`. The current schema is a single
-flat migration ([`001_initial.up.sql`](../server/internal/db/migrations/001_initial.up.sql))
-produced by Phase 13a's fresh-start cutover from SQLite.
+Tables are managed by `golang-migrate`. The Phase 13a fresh-start schema lives
+in [`001_initial.up.sql`](../server/internal/db/migrations/001_initial.up.sql);
+the multi-tenant RLS layer lives in
+[`002_multitenancy.up.sql`](../server/internal/db/migrations/002_multitenancy.up.sql).
 
 ```
 ┌─────────────────────┐       ┌─────────────────────┐
@@ -93,6 +119,8 @@ Note: the groups table is named `groups_` (trailing underscore) to avoid
 collision with the Postgres `GROUP` reserved word. All column lists,
 indexes, and the Administrators seed row live in
 [`001_initial.up.sql`](../server/internal/db/migrations/001_initial.up.sql).
+
+All tenant tables below include `org_id` in addition to the domain columns shown.
 
 ### Enrollment Tokens Table
 
@@ -222,7 +250,18 @@ eleven SQLite migrations into a single flat Postgres-native migration:
 - [`001_initial.up.sql`](../server/internal/db/migrations/001_initial.up.sql)
   creates every table, index, and the Administrators seed row in one pass.
 - [`001_initial.down.sql`](../server/internal/db/migrations/001_initial.down.sql)
-  drops them in FK-safe order.
+  drops the base schema in FK-safe order.
+- [`002_multitenancy.up.sql`](../server/internal/db/migrations/002_multitenancy.up.sql)
+  creates `organizations`, seeds the default org
+  (`00000000-0000-0000-0000-000000000002`), backfills tenant tables, adds
+  `org_id`-leading indexes, and enables forced RLS policies.
+- [`002_multitenancy.down.sql`](../server/internal/db/migrations/002_multitenancy.down.sql)
+  removes those policies, indexes, and columns for rollback rehearsal.
+
+The automated rollback/dump rehearsal lives in
+[`server/internal/db/store_test.go`](../server/internal/db/store_test.go) and
+logs the Wave-0 evidence when run with `go test -v ./internal/db -run
+TestMultitenancyMigrationRehearsal`.
 
 On first startup, `NewPostgresStore` opens a connection, runs migrations,
 and the server is ready. Schema changes made after Phase 13a land as new

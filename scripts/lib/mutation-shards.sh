@@ -51,7 +51,7 @@ mutation_go_shard_pkgs() {
     # api is the irreducible hotspot (largest CI cost) — isolated.
     go-api) echo "api" ;;
     # Remaining Postgres-backed packages, spread so they do not cluster.
-    go-db) echo "agentapi auth db device session audit usecase" ;;
+    go-db) echo "agentapi auth db dbtx device session audit usecase" ;;
     # Pure + crypto (no Postgres) incl. the high-count but cheap amt.
     go-pure) echo "amt protocol relay metrics signaling osutil testpg testvm clientapi cert notifications updater" ;;
     *)

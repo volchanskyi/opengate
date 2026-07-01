@@ -55,7 +55,7 @@ func sendAgentRegister(t *testing.T, stream *quic.Stream) {
 	codec := &protocol.Codec{}
 	regMsg := &protocol.ControlMessage{
 		Type:         protocol.MsgAgentRegister,
-		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
+		Capabilities: []protocol.AgentCapability{protocol.CapTerminal, protocol.CapHardwareInventory, protocol.CapDeviceLogs},
 		Hostname:     "integration-test-host",
 		OS:           "linux",
 		Arch:         "amd64",
@@ -139,7 +139,7 @@ func (e *agentTestEnv) caCertHash() [48]byte {
 // the server can resolve its group during accept() without a race.
 func (e *agentTestEnv) seedDevice(t *testing.T, deviceID, groupID uuid.UUID) {
 	t.Helper()
-	require.NoError(t, e.devices.Upsert(context.Background(), &device.Device{
+	require.NoError(t, e.devices.Upsert(defaultTenantContext(), &device.Device{
 		ID:       deviceID,
 		GroupID:  groupID,
 		Hostname: "pre-seed",
@@ -210,7 +210,7 @@ func (e *agentTestEnv) connectAgentFastPath(t *testing.T, groupID uuid.UUID, cac
 // getDevice fetches a device by ID, failing the test on error.
 func getDevice(t *testing.T, env *agentTestEnv, deviceID uuid.UUID) *device.Device {
 	t.Helper()
-	d, err := env.devices.Get(context.Background(), deviceID)
+	d, err := env.devices.Get(defaultTenantContext(), deviceID)
 	require.NoError(t, err)
 	return d
 }
@@ -240,7 +240,7 @@ func TestAgentConnect_HeartbeatUpdatesLastSeen(t *testing.T) {
 
 	// Verify last_seen updated, still online
 	require.Eventually(t, func() bool {
-		d, err := env.devices.Get(context.Background(), deviceID)
+		d, err := env.devices.Get(defaultTenantContext(), deviceID)
 		return err == nil && !d.UpdatedAt.Before(originalLastSeen)
 	}, 2*time.Second, 50*time.Millisecond)
 	assert.Equal(t, db.StatusOnline, getDevice(t, env, deviceID).Status)

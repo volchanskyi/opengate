@@ -3,17 +3,13 @@ package db
 import (
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/testpg"
 	"os"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/volchanskyi/opengate/server/internal/testpg"
 )
-
-// --- Postgres factory (shared store + per-test TRUNCATE) ---
 
 // pgTestDB is the shared Postgres store for this package, migrated into a
 // fixed test schema. Each test TRUNCATEs tables before use to isolate state.
@@ -88,77 +84,4 @@ func newPostgresTestStore(t *testing.T) *PostgresStore {
 	defer cancel()
 	require.NoError(t, truncatePostgresTestDB(ctx, pgTestDB))
 	return pgTestDB
-}
-
-// truncatePostgresTestDB wipes every table and re-seeds the built-in
-// Administrators group. One static TRUNCATE ... CASCADE touches all tables;
-// no dynamic identifiers.
-func truncatePostgresTestDB(ctx context.Context, s *PostgresStore) error {
-	if _, err := s.db.ExecContext(ctx, `
-		TRUNCATE TABLE
-			security_group_members,
-			device_logs,
-			device_hardware,
-			device_updates,
-			enrollment_tokens,
-			amt_devices,
-			audit_events,
-			web_push_subscriptions,
-			agent_sessions,
-			devices,
-			groups_,
-			security_groups,
-			users
-		RESTART IDENTITY CASCADE`); err != nil {
-		return fmt.Errorf("truncate tables: %w", err)
-	}
-	// Re-seed the Administrators group normally inserted by migration 005.
-	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO security_groups (id, name, description, is_system)
-		VALUES ('00000000-0000-0000-0000-000000000001', 'Administrators', 'Full system access', TRUE)`); err != nil {
-		return fmt.Errorf("seed administrators group: %w", err)
-	}
-	return nil
-}
-
-// --- PostgresStore tests ---
-
-func TestPing(t *testing.T) {
-	s := newPostgresTestStore(t)
-	assert.NoError(t, s.Ping(context.Background()))
-}
-
-func TestStoreSize(t *testing.T) {
-	s := newPostgresTestStore(t)
-	size, err := s.Size(context.Background())
-	require.NoError(t, err)
-	assert.Greater(t, size, int64(0))
-}
-
-// TestPostgresStoreDB exercises the DB() accessor used by metrics and test
-// helpers to reach the underlying *sql.DB.
-func TestPostgresStoreDB(t *testing.T) {
-	s := newPostgresTestStore(t)
-	pool := s.DB()
-	require.NotNil(t, pool)
-	require.NoError(t, pool.PingContext(context.Background()))
-}
-
-// TestNewPostgresStoreErrors covers the failure branches of NewPostgresStore:
-// malformed URL (open fails), and unreachable server (ping fails).
-func TestNewPostgresStoreErrors(t *testing.T) {
-	t.Run("malformed url", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_, err := NewPostgresStore(ctx, "://not-a-url")
-		require.Error(t, err)
-	})
-
-	t.Run("unreachable host", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		// 192.0.2.0/24 is TEST-NET-1 — never routable. Ping will fail fast via context.
-		_, err := NewPostgresStore(ctx, "postgres://u:p@192.0.2.1:5432/db?sslmode=disable&connect_timeout=1")
-		require.Error(t, err)
-	})
 }

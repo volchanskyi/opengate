@@ -13,7 +13,7 @@ fleets.
   ([`conn.go:245`](../../server/internal/agentapi/conn.go#L245)) and the control loop **drops
   the connection** on any non-EOF error
   ([`server.go:260`](../../server/internal/agentapi/server.go#L260)), pinned by
-  `TestAgentConn_HandleUnknownMessage` ([`conn_test.go:612`](../../server/internal/agentapi/conn_test.go#L612)).
+  `TestAgentConn_HandleUnknownMessage` ([`conn_part8_test.go:44`](../../server/internal/agentapi/conn_part8_test.go#L44)).
 - **Server→agent (the gap WS-1 originally missed):** the Rust `ControlMessage` is
   `#[serde(tag="type")]` + `#[non_exhaustive]`
   ([`control.rs:10-13`](../../agent/crates/mesh-protocol/src/control.rs#L10)). **`#[non_exhaustive]`

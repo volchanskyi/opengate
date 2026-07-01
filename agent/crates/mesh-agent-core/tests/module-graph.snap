@@ -5,6 +5,12 @@ crate mesh_agent_core
 ├── mod error: pub
 ├── mod file_ops: pub
 ├── mod identity: pub
+├── mod ml: pub
+│   ├── mod ensemble: pub
+│   ├── mod kmeans: pub
+│   ├── mod redact: pub
+│   ├── mod sampler: pub
+│   └── mod window: pub
 ├── mod platform: pub
 ├── mod session: pub
 │   ├── mod handler: pub(self)

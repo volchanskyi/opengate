@@ -55,7 +55,7 @@ func (s *Server) PublishUpdate(ctx context.Context, request PublishUpdateRequest
 		return nil, fmt.Errorf("store manifest: %w", err)
 	}
 
-	s.auditLog(ContextUserID(ctx), "update.publish",
+	s.auditLog(ctx, ContextUserID(ctx), "update.publish",
 		fmt.Sprintf("%s/%s", m.OS, m.Arch),
 		fmt.Sprintf("version=%s", m.Version))
 
@@ -115,7 +115,7 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 		}
 	}
 
-	s.auditLog(ContextUserID(ctx), "update.push",
+	s.auditLog(ctx, ContextUserID(ctx), "update.push",
 		fmt.Sprintf("%s/%s", request.Body.Os, request.Body.Arch),
 		fmt.Sprintf("version=%s pushed=%d", m.Version, pushed))
 

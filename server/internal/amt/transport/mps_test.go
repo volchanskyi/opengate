@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/testpg"
 )
 
@@ -27,30 +28,31 @@ type pgAMTState struct{ pool *db.PostgresStore }
 
 func (p *pgAMTState) Upsert(ctx context.Context, d *db.AMTDevice) error {
 	_, err := p.pool.DB().ExecContext(ctx,
-		`INSERT INTO amt_devices (uuid, hostname, model, firmware, status, last_seen)
-		 VALUES ($1, $2, $3, $4, $5, NOW())
+		`INSERT INTO amt_devices (uuid, org_id, hostname, model, firmware, status, last_seen)
+		 VALUES ($1, $2, $3, $4, $5, $6, NOW())
 		 ON CONFLICT (uuid) DO UPDATE SET
+		   org_id    = EXCLUDED.org_id,
 		   hostname  = CASE WHEN EXCLUDED.hostname = '' THEN amt_devices.hostname ELSE EXCLUDED.hostname END,
 		   model     = CASE WHEN EXCLUDED.model    = '' THEN amt_devices.model    ELSE EXCLUDED.model    END,
 		   firmware  = CASE WHEN EXCLUDED.firmware = '' THEN amt_devices.firmware ELSE EXCLUDED.firmware END,
 		   status    = EXCLUDED.status,
 		   last_seen = NOW()`,
-		d.UUID, d.Hostname, d.Model, d.Firmware, string(d.Status))
+		d.UUID, dbtx.DefaultOrgID, d.Hostname, d.Model, d.Firmware, string(d.Status))
 	return err
 }
 
 func (p *pgAMTState) SetStatus(ctx context.Context, id uuid.UUID, status db.DeviceStatus) error {
 	_, err := p.pool.DB().ExecContext(ctx,
-		`UPDATE amt_devices SET status = $1, last_seen = NOW() WHERE uuid = $2`,
-		string(status), id)
+		`UPDATE amt_devices SET status = $1, last_seen = NOW() WHERE org_id = $2 AND uuid = $3`,
+		string(status), dbtx.DefaultOrgID, id)
 	return err
 }
 
 func (p *pgAMTState) Get(ctx context.Context, id uuid.UUID) (*db.AMTDevice, error) {
 	var d db.AMTDevice
 	err := p.pool.DB().QueryRowContext(ctx,
-		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices WHERE uuid = $1`,
-		id).Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen)
+		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices WHERE org_id = $1 AND uuid = $2`,
+		dbtx.DefaultOrgID, id).Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen)
 	if err != nil {
 		return nil, err
 	}

@@ -46,7 +46,7 @@ func (s *Server) DeleteUser(ctx context.Context, request DeleteUserRequestObject
 		return nil, err
 	}
 
-	s.auditLog(ContextUserID(ctx), "user.delete", request.Id.String(), "")
+	s.auditLog(ctx, ContextUserID(ctx), "user.delete", request.Id.String(), "")
 
 	return DeleteUser204Response{}, nil
 }
@@ -103,7 +103,7 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 		return nil, err
 	}
 
-	s.auditLog(ContextUserID(ctx), "user.update", user.Email, "")
+	s.auditLog(ctx, ContextUserID(ctx), "user.update", user.Email, "")
 
 	return UpdateUser200JSONResponse(userToAPI(user)), nil
 }

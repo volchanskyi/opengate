@@ -38,10 +38,11 @@ func TestHandlerStoreFailures(t *testing.T) {
 	require.NoError(t, err)
 	userID := uuid.New()
 	usersRepo := testutil.NewTestUsers(t, store)
-	require.NoError(t, usersRepo.Upsert(t.Context(), &auth.User{
+	user := &auth.User{
 		ID: userID, Email: email, PasswordHash: hash,
-	}))
-	token, err := cfg.GenerateToken(userID, email, true)
+	}
+	require.NoError(t, usersRepo.Upsert(testTenantContext(t), user))
+	token, err := cfg.GenerateToken(userID, email, true, user.OrgID)
 	require.NoError(t, err)
 
 	srv := NewServer(ServerConfig{

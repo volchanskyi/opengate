@@ -3,6 +3,8 @@ package audit
 import (
 	"context"
 	"database/sql"
+
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
 // Postgres implements [Repository] against a PostgreSQL database.
@@ -17,10 +19,17 @@ func NewPostgres(db *sql.DB) *Postgres {
 }
 
 func (p *Postgres) Write(ctx context.Context, event *Event) error {
-	_, err := p.db.ExecContext(ctx,
-		`INSERT INTO audit_events (user_id, action, target, details, created_at) VALUES ($1, $2, $3, $4, NOW())`,
-		event.UserID, event.Action, event.Target, event.Details)
-	return err
+	tenant, ok := dbtx.TenantFromContext(ctx)
+	if !ok {
+		return dbtx.ErrTenantRequired
+	}
+	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO audit_events (org_id, user_id, action, target, details, created_at)
+			 VALUES ($1, $2, $3, $4, $5, NOW())`,
+			tenant.OrgID, event.UserID, event.Action, event.Target, event.Details)
+		return err
+	})
 }
 
 func (p *Postgres) Query(ctx context.Context, q Query) ([]*Event, error) {
@@ -31,25 +40,29 @@ func (p *Postgres) Query(ctx context.Context, q Query) ([]*Event, error) {
 		userID = *q.UserID
 	}
 
-	rows, err := p.db.QueryContext(ctx,
-		`SELECT id, user_id, action, target, details, created_at FROM audit_events
-		 WHERE ($1::uuid IS NULL OR user_id = $1)
-		   AND ($2 = '' OR action = $2)
-		 ORDER BY created_at DESC, id DESC
-		 LIMIT NULLIF($3, 0) OFFSET $4`,
-		userID, q.Action, q.Limit, q.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var events []*Event
-	for rows.Next() {
-		var e Event
-		if err := rows.Scan(&e.ID, &e.UserID, &e.Action, &e.Target, &e.Details, &e.CreatedAt); err != nil {
-			return nil, err
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx,
+			`SELECT id, user_id, action, target, details, created_at FROM audit_events
+			 WHERE org_id = current_setting('app.current_org')::uuid
+			   AND ($1::uuid IS NULL OR user_id = $1)
+			   AND ($2 = '' OR action = $2)
+			 ORDER BY created_at DESC, id DESC
+			 LIMIT NULLIF($3, 0) OFFSET $4`,
+			userID, q.Action, q.Limit, q.Offset)
+		if err != nil {
+			return err
 		}
-		events = append(events, &e)
-	}
-	return events, rows.Err()
+		defer rows.Close()
+
+		for rows.Next() {
+			var e Event
+			if err := rows.Scan(&e.ID, &e.UserID, &e.Action, &e.Target, &e.Details, &e.CreatedAt); err != nil {
+				return err
+			}
+			events = append(events, &e)
+		}
+		return rows.Err()
+	})
+	return events, err
 }

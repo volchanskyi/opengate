@@ -47,9 +47,10 @@ async fn test_quic_agent_register_roundtrip() {
                 assert_eq!(os, std::env::consts::OS);
                 assert_eq!(arch, std::env::consts::ARCH);
                 assert_eq!(version, env!("CARGO_PKG_VERSION"));
-                assert_eq!(capabilities.len(), 2);
                 assert!(capabilities.contains(&AgentCapability::Terminal));
                 assert!(capabilities.contains(&AgentCapability::FileManager));
+                assert!(capabilities.contains(&AgentCapability::HardwareInventory));
+                assert!(capabilities.contains(&AgentCapability::DeviceLogs));
             }
             other => panic!("expected AgentRegister, got {:?}", other),
         }
@@ -73,7 +74,12 @@ async fn test_quic_agent_register_roundtrip() {
 
     agent_conn
         .send_control(ControlMessage::AgentRegister {
-            capabilities: vec![AgentCapability::Terminal, AgentCapability::FileManager],
+            capabilities: vec![
+                AgentCapability::Terminal,
+                AgentCapability::FileManager,
+                AgentCapability::HardwareInventory,
+                AgentCapability::DeviceLogs,
+            ],
             hostname: gethostname::gethostname().to_string_lossy().to_string(),
             os: std::env::consts::OS.to_string(),
             arch: std::env::consts::ARCH.to_string(),
