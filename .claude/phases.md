@@ -1,6 +1,6 @@
 # Implementation Phases
 
-<!-- Last updated: 2026-06-23 -->
+<!-- Last updated: 2026-06-30 -->
 <!-- Update this file after completing or starting any significant phase of work. -->
 
 ## Completed
@@ -103,4 +103,6 @@
 
 ## In Progress
 
-_Nothing actively in progress._
+| Phase | Summary | Version | Plan |
+|-------|---------|---------|------|
+| Edge-Sentinel — Phase 0 feasibility gate | Netdata-informed local anomaly detection + multi-tenant RMM telemetry; started the evidence-first Wave 0 gate that must pass before feature work. **Block 1:** [`server/internal/testvm`](../server/internal/testvm/testvm.go) throwaway-VictoriaMetrics harness (mirrors `testpg`, pins the deployed `v1.114.0`, auto-starts or honors `VICTORIAMETRICS_TEST_URL`) so telemetry integration tests always run deterministically. **Block 2:** [`server/tests/vmcardinality`](../server/tests/vmcardinality/spike_test.go) ingest/cardinality spike — measured VM active-series matches the avg-only model exactly (typical host 40/agent → 20k at 500 agents, within the 50k budget); centralising all four aggregates would be ~3.5× (71k), grounding the avg-only-central decision. Remaining Phase 0: backfill bucket-correctness, bidirectional protocol fixtures, tenancy migration rehearsal, ARM ML bench, redaction corpus. | — | `plans/edge-sentinel.md` (+ `edge-sentinel-ws-*.md`) |
