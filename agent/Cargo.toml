@@ -53,3 +53,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 proptest = "1"
 tempfile = "3"
 mockito = "1"
+criterion = { version = "0.8", features = ["html_reports"] }

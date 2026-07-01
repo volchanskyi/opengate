@@ -515,6 +515,26 @@ fn golden_control_chat_message_forward_compat() {
 }
 
 #[test]
+fn golden_control_unknown_future_agent_to_server() {
+    // Forward-compatibility: a newer agent emits an unknown control type.
+    // The Go server must decode the frame, keep the type string, and ignore it
+    // at dispatch without dropping the connection.
+    #[derive(Serialize)]
+    struct FutureControl<'a> {
+        #[serde(rename = "type")]
+        ty: &'a str,
+        window_id: u32,
+    }
+    let payload = rmp_serde::to_vec_named(&FutureControl {
+        ty: "FutureTelemetryWindow",
+        window_id: 7,
+    })
+    .unwrap();
+    let encoded = frame_wrap(0x01, &payload);
+    golden_check("control_unknown_future_agent_to_server.bin", &encoded);
+}
+
+#[test]
 fn golden_frame_control_le_length() {
     // Negative test: frame length field encoded little-endian instead of big-endian.
     // Under BE interpretation the declared length (10 in LE = 0x0a000000 in BE =

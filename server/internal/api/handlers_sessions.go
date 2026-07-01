@@ -86,7 +86,7 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 		iceServers = &servers
 	}
 
-	s.auditLog(userID, "session.create", deviceID.String(), "")
+	s.auditLog(ctx, userID, "session.create", deviceID.String(), "")
 	startedEvt := notifications.Event{
 		Type:      notifications.EventSessionStarted,
 		DeviceID:  deviceID,

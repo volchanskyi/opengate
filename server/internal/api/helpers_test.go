@@ -17,6 +17,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/amt/transport/wsman"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -69,6 +70,11 @@ func testJWTConfig() *auth.JWTConfig {
 		Issuer:   "opengate-test",
 		Duration: 15 * time.Minute,
 	}
+}
+
+func testTenantContext(t *testing.T) context.Context {
+	t.Helper()
+	return dbtx.WithDefaultTenant(t.Context(), true)
 }
 
 // newTestServer creates a Server backed by a Postgres test store and a test JWTConfig.
@@ -145,10 +151,11 @@ func seedTestUser(t *testing.T, srv *Server, cfg *auth.JWTConfig, email string, 
 		DisplayName:  "Test User",
 		IsAdmin:      isAdmin,
 	}
-	err = srv.users.Upsert(t.Context(), user)
+	ctx := testTenantContext(t)
+	err = srv.users.Upsert(ctx, user)
 	require.NoError(t, err)
 
-	token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin)
+	token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
 	require.NoError(t, err)
 
 	return user, token

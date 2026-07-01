@@ -7,10 +7,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/auth"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
 // Register implements StrictServerInterface.
 func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (RegisterResponseObject, error) {
+	ctx = dbtx.WithDefaultTenant(ctx, false)
 	email := string(request.Body.Email)
 	if email == "" || request.Body.Password == "" {
 		return Register400JSONResponse{Error: "email and password are required"}, nil
@@ -69,12 +71,12 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 	if adminErr != nil {
 		s.logger.Warn("admin lookup failed", "user_id", user.ID, "error", adminErr)
 	}
-	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin)
+	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin, user.OrgID)
 	if err != nil {
 		return nil, err
 	}
 
-	s.auditLog(user.ID, "user.register", user.Email, "")
+	s.auditLog(ctx, user.ID, "user.register", user.Email, "")
 
 	return Register201JSONResponse{Token: token}, nil
 }
@@ -109,16 +111,17 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 
 	s.loginLimiter.reset(email)
 
-	isAdmin, adminErr := s.securityGroups.IsUserInGroup(ctx, user.ID, auth.AdminGroupID)
+	tenantCtx := dbtx.WithTenant(ctx, user.OrgID, user.IsAdmin)
+	isAdmin, adminErr := s.securityGroups.IsUserInGroup(tenantCtx, user.ID, auth.AdminGroupID)
 	if adminErr != nil {
 		s.logger.Warn("admin lookup failed", "user_id", user.ID, "error", adminErr)
 	}
-	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin)
+	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin, user.OrgID)
 	if err != nil {
 		return nil, err
 	}
 
-	s.auditLog(user.ID, "user.login", user.Email, "")
+	s.auditLog(tenantCtx, user.ID, "user.login", user.Email, "")
 
 	return Login200JSONResponse{Token: token}, nil
 }

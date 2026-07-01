@@ -102,7 +102,7 @@ func TestAMTPowerActionDeviceNotConnected(t *testing.T) {
 	assert.Contains(t, errResp.Error, "not connected")
 
 	// Verify device is still in DB unchanged
-	d, err := testutil.NewTestAMTDevices(t, env.store).Get(ctx, amtDevice.UUID)
+	d, err := testutil.NewTestAMTDevices(t, env.store).Get(defaultTenantContext(), amtDevice.UUID)
 	require.NoError(t, err)
 	assert.Equal(t, db.StatusOffline, d.Status)
 }

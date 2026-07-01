@@ -128,8 +128,9 @@ The `mesh-agent` binary (`agent/crates/mesh-agent/src/main.rs`) is the entry poi
 - **CSR enrollment**: On first boot, generates CSR and enrolls via HTTP to obtain a CA-signed certificate
 - **QUIC mTLS connection**: Connects to the server using `quinn` with ALPN protocol `"opengate"`, client cert from the agent's identity, and the server CA for root verification
 - **Binary handshake**: Sends `AgentHello` first on the cold path, reads `ServerHello` for the CA hash, and may use `SkipAuth` on reconnect
-- **Registration**: Sends `AgentRegister` with hostname, OS, architecture, version, and capabilities (Terminal, FileManager on Linux; RemoteDesktop added on Windows/Mac)
-- **Control loop**: Dispatches `SessionRequest` (spawns session handler), `AgentUpdate` (semver check, apply, ack, exit code 42 for systemd restart), and handles pings
+- **Registration**: Sends `AgentRegister` with hostname, OS, architecture, version, and capabilities. Linux reports Terminal, FileManager, HardwareInventory, and DeviceLogs; desktop capture/input capabilities are platform-specific.
+- **Control loop**: Dispatches `SessionRequest` (spawns session handler), capability-gated hardware/log requests, `AgentUpdate` (semver check, apply, ack, exit code 42 for systemd restart), and pings
+- **Edge Sentinel sampler**: Optional `--edge-sentinel` / `OPENGATE_EDGE_SENTINEL=true` background sampler logs bounded local host/process metrics through a pure-Rust k=2 ensemble kernel; it is default-off, does not publish telemetry yet, and has local allocation/RSS guards plus a Criterion footprint bench before ARM default-on evidence is recorded.
 - **Auto-update**: Downloads binary, verifies SHA-256 + Ed25519 signature, atomic replace with `.prev` backup, rollback watchdog on restart. See [Agent Updates](Agent-Updates.md)
 - **Deregistration**: On receiving `AgentDeregistered`, removes local identity files (certs, keys, device ID) and exits cleanly. The server maintains an in-memory tombstone set to reject reconnection attempts from deleted devices
 - **Reconnection**: Exponential backoff (1s→30s cap, 10 max attempts) via `reconnect_with_backoff`

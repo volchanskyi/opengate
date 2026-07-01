@@ -8,6 +8,7 @@ pub mod connection;
 pub mod error;
 pub mod file_ops;
 pub mod identity;
+pub mod ml;
 pub mod platform;
 pub mod session;
 pub mod session_error;

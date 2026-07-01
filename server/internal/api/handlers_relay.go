@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/session"
@@ -127,6 +128,10 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // validateRelayToken checks that the given token exists in the agent session store.
 func (s *Server) validateRelayToken(r *http.Request, token string) error {
-	_, err := s.sessions.Get(r.Context(), token)
+	ctx := r.Context()
+	if _, ok := dbtx.TenantFromContext(ctx); !ok {
+		ctx = dbtx.WithDefaultTenant(ctx, true)
+	}
+	_, err := s.sessions.Get(ctx, token)
 	return err
 }

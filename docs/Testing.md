@@ -216,7 +216,7 @@ runners are noisy.
 | Language | What's Benchmarked | Tool |
 |----------|--------------------|------|
 | Go | Protocol codec, cert signing, DB operations, handshake | `testing.B` + `-benchmem` |
-| Rust | Frame encode/decode, handshake encode/decode | Criterion 0.5 |
+| Rust | Frame/handshake encode/decode; Edge Sentinel detection, sampler, RSS probe | Criterion 0.8 |
 
 ### Running benchmarks locally
 
@@ -226,6 +226,7 @@ cd server && go test -bench=. -benchmem -run='^$' ./internal/...
 
 # Rust
 cd agent && cargo bench -p mesh-protocol
+cd agent && cargo bench -p mesh-agent-core --bench edge_sentinel_bench
 ```
 
 ### Regression model

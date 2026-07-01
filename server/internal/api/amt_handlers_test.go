@@ -2,13 +2,12 @@ package api
 
 import (
 	"encoding/json"
-	"net/http"
-	"testing"
-
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"net/http"
+	"testing"
 )
 
 const (
@@ -36,7 +35,7 @@ func TestListAMTDevicesWithDevices(t *testing.T) {
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
 	id := uuid.New()
-	err := srv.amtDevices.Upsert(t.Context(), &db.AMTDevice{
+	err := srv.amtDevices.Upsert(testTenantContext(t), &db.AMTDevice{
 		UUID:     id,
 		Hostname: "amt-host",
 		Model:    "ModelX",
@@ -69,7 +68,7 @@ func TestGetAMTDeviceFound(t *testing.T) {
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 
 	id := uuid.New()
-	err := srv.amtDevices.Upsert(t.Context(), &db.AMTDevice{
+	err := srv.amtDevices.Upsert(testTenantContext(t), &db.AMTDevice{
 		UUID:     id,
 		Hostname: "found-host",
 		Model:    "ModelY",
@@ -94,26 +93,4 @@ func TestGetAMTDeviceNotFound(t *testing.T) {
 
 	w := doRequest(srv, http.MethodGet, testPathAMTOne+uuid.New().String(), token, nil)
 	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestAmtPowerActionNotConnected(t *testing.T) {
-	t.Parallel()
-	srv, cfg := newTestServer(t)
-	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
-
-	body := AMTPowerRequest{Action: HardReset}
-	w := doRequest(srv, http.MethodPost, testPathAMTOne+uuid.New().String()+"/power", token, body)
-	assert.Equal(t, http.StatusConflict, w.Code)
-
-	var apiErr ApiError
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&apiErr))
-	assert.Equal(t, "device not connected", apiErr.Error)
-}
-
-func TestAmtPowerActionUnauthorized(t *testing.T) {
-	t.Parallel()
-	srv, _ := newTestServer(t)
-	body := AMTPowerRequest{Action: PowerOn}
-	w := doRequest(srv, http.MethodPost, testPathAMTOne+uuid.New().String()+"/power", "", body)
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

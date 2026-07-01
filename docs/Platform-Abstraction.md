@@ -46,9 +46,9 @@ Null implementations are returned when running in containers or environments whe
 
 ## Capability Detection
 
-Linux agents statically report **Terminal** and **FileManager** capabilities. Windows/Mac agents additionally report **RemoteDesktop**. There is no runtime display detection on Linux — the capability set is fixed at compile time.
+Linux agents statically report **Terminal**, **FileManager**, **HardwareInventory**, and **DeviceLogs** capabilities. Windows/Mac agents additionally report desktop capture/input capabilities when those platform backends exist. There is no runtime display detection on Linux — the desktop capability set is fixed at compile time.
 
-Capabilities are sent in the `AgentRegister` control message, persisted to the `devices.capabilities` JSON column in the database, and exposed via the Device REST API. The web client uses them to hide unsupported session tabs (e.g., Desktop and Chat tabs are hidden for agents without `RemoteDesktop`).
+Capabilities are sent in the `AgentRegister` control message, persisted to the `devices.capabilities` JSON column in the database, and exposed via the Device REST API. The web client uses them to hide unsupported session tabs (e.g., Desktop and Chat tabs are hidden for agents without `RemoteDesktop`). The server also gates newer server-to-agent messages on these advertised capabilities so old agents never receive variants they cannot decode.
 
 ## Compilation
 

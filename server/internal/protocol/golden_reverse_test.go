@@ -145,6 +145,10 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Reason: "restart requested from web UI",
 	})
 
+	writeReverseControlFrame(t, dir, codec, "control_unknown_future_server_to_agent", &ControlMessage{
+		Type: ControlMessageType("FutureHealthWindow"),
+	})
+
 	// desktop_frame — different frame type, exercises the byte-data payload.
 	{
 		f := &DesktopFrame{

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/auth"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
@@ -86,6 +87,7 @@ func AuthMiddleware(jwtCfg *auth.JWTConfig) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), claimsKey, claims)
+			ctx = dbtx.WithTenant(ctx, claims.OrgID, claims.IsAdmin)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

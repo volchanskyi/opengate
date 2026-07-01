@@ -434,6 +434,18 @@ fn test_request_device_logs_missing_fields() {
 }
 
 #[test]
+fn test_unknown_control_tag_decodes_to_catch_all() {
+    use std::collections::BTreeMap;
+
+    let mut map = BTreeMap::new();
+    map.insert("type", "FutureServerControl");
+    let encoded = rmp_serde::to_vec_named(&map).unwrap();
+
+    let decoded: ControlMessage = rmp_serde::from_slice(&encoded).unwrap();
+    assert_eq!(decoded, ControlMessage::Unknown);
+}
+
+#[test]
 fn test_key_event_msgpack_roundtrip() {
     let events = vec![
         KeyEvent {

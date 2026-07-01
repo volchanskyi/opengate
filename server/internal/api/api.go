@@ -21,6 +21,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
@@ -364,9 +365,16 @@ func (s *Server) oapiAuthMiddleware() MiddlewareFunc {
 }
 
 // auditLog writes an audit event in a fire-and-forget goroutine.
-func (s *Server) auditLog(userID db.UserID, action, target, details string) {
+func (s *Server) auditLog(ctx context.Context, userID db.UserID, action, target, details string) {
+	tenant, ok := dbtx.TenantFromContext(ctx)
+	auditCtx := context.Background()
+	if ok {
+		auditCtx = dbtx.WithTenant(auditCtx, tenant.OrgID, tenant.IsAdmin)
+	} else {
+		auditCtx = dbtx.WithDefaultTenant(auditCtx, false)
+	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(auditCtx, 5*time.Second)
 		defer cancel()
 		if err := s.audit.Write(ctx, &audit.Event{
 			UserID:    userID,

@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"
 	"github.com/volchanskyi/opengate/server/internal/cert"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -197,6 +198,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		return
 	}
 
+	ctx = dbtx.WithDefaultTenant(ctx, false)
 	groupID, hostname := s.lookupDeviceMeta(ctx, result.DeviceID)
 
 	ac := &AgentConn{
@@ -236,6 +238,7 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 		s.count.Add(-1)
 		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		offlineCtx = dbtx.WithDefaultTenant(offlineCtx, false)
 		if err := s.devices.SetStatus(offlineCtx, ac.DeviceID, device.StatusOffline); err != nil {
 			logger.Error("set device offline", "error", err)
 		}

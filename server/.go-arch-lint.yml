@@ -3,6 +3,7 @@
 # Constrained components:
 #   - cert  — leaf module, no internal imports
 #   - audit — audit aggregate, no internal imports
+#   - dbtx  — shared tenant transaction helper, no internal imports
 #
 # `audit` is intentionally narrow: it depends only on stdlib + uuid (vendor).
 # The 3rd-party pgx driver is registered as a database/sql driver in main.go,
@@ -38,6 +39,11 @@ components:
   # leaf module today (imports stdlib only). The rule preserves that.
   cert:
     in: internal/cert
+
+  # Constrained: shared tenant context + SET LOCAL transaction helper used by
+  # Postgres adapters. It imports no domain modules.
+  dbtx:
+    in: internal/dbtx
 
   # Constrained: the audit module owns the audit-log aggregate. Repository
   # interface, Postgres adapter, and Instrumented
@@ -106,6 +112,10 @@ deps:
     # the schema (at least one allow-flag must be set per component).
     mayDependOn: []
     anyVendorDeps: true
+  dbtx:
+    # Project-internal: dbtx may NOT import any domain module.
+    mayDependOn: []
+    anyVendorDeps: true
   audit:
     # Project-internal: audit owns its outbound port and the Postgres adapter
     # entirely; it has no project-internal imports. The Instrumented decorator
@@ -114,28 +124,32 @@ deps:
     # type flowing into NewInstrumented at the call site and flag it as a
     # dependency. The audit source code itself imports nothing project-internal,
     # so the looser non-deepScan check is the correct rule here.
-    mayDependOn: []
+    mayDependOn:
+      - dbtx
     anyVendorDeps: true
     deepScan: false
   update:
     # Same rationale as audit: leaf module, owns its ports + adapters +
     # decorators. deepScan disabled because the Instrumented decorators
     # accept the same duck-typed Observer interface as audit.
-    mayDependOn: []
+    mayDependOn:
+      - dbtx
     anyVendorDeps: true
     deepScan: false
   auth:
     # Same rationale as audit and update: leaf module, owns its ports +
     # adapters + decorators. deepScan disabled because the Instrumented
     # decorator accepts the same duck-typed Observer interface as audit/update.
-    mayDependOn: []
+    mayDependOn:
+      - dbtx
     anyVendorDeps: true
     deepScan: false
   device:
     # Same leaf-module pattern as audit/update/auth. The four repository
     # interfaces (Devices/Groups/Hardware/Logs) and their Postgres + Instrumented
     # adapters live entirely in this package; no internal imports.
-    mayDependOn: []
+    mayDependOn:
+      - dbtx
     anyVendorDeps: true
     deepScan: false
   notifications:
@@ -143,14 +157,16 @@ deps:
     # repository + Postgres adapter + Instrumented decorator + PushNotifier
     # + NoopNotifier + VAPID helpers all live entirely in this package;
     # no internal imports.
-    mayDependOn: []
+    mayDependOn:
+      - dbtx
     anyVendorDeps: true
     deepScan: false
   session:
     # Same leaf-module pattern as audit/update/auth/device/notifications.
     # The Repository interface, Postgres adapter, and Instrumented
     # decorator live entirely in this package; no internal imports.
-    mayDependOn: []
+    mayDependOn:
+      - dbtx
     anyVendorDeps: true
     deepScan: false
   usecase:

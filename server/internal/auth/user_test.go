@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
@@ -18,7 +19,7 @@ func TestPostgres_UserCRUD(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestUsers(t, store)
-	ctx := context.Background()
+	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 
 	t.Run("upsert and get", func(t *testing.T) {
 		u := &auth.User{
@@ -91,6 +92,39 @@ func TestPostgres_UserCRUD(t *testing.T) {
 		err := repo.Delete(ctx, uuid.New())
 		assert.True(t, errors.Is(err, auth.ErrUserNotFound))
 	})
+}
+
+func TestPostgresUsers_TenantDeny(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewTestStore(t)
+	repo := testutil.NewTestUsers(t, store)
+	orgB := uuid.New()
+	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
+	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
+	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+
+	userA := &auth.User{ID: uuid.New(), Email: "a-" + uuid.New().String()[:8] + "@example.com"}
+	userB := &auth.User{ID: uuid.New(), Email: "b-" + uuid.New().String()[:8] + "@example.com"}
+	require.NoError(t, repo.Upsert(ctxA, userA))
+	require.NoError(t, repo.Upsert(ctxB, userB))
+
+	_, err := repo.Get(ctxA, userB.ID)
+	assert.ErrorIs(t, err, auth.ErrUserNotFound)
+	_, err = repo.GetByEmail(ctxA, userB.Email)
+	assert.ErrorIs(t, err, auth.ErrUserNotFound)
+
+	users, err := repo.List(ctxA)
+	require.NoError(t, err)
+	seen := map[uuid.UUID]bool{}
+	for _, u := range users {
+		seen[u.ID] = true
+		assert.Equal(t, dbtx.DefaultOrgID, u.OrgID)
+	}
+	assert.True(t, seen[userA.ID])
+	assert.False(t, seen[userB.ID])
+
+	_, err = repo.Get(context.Background(), userA.ID)
+	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 
 // fakeUserObserver records every Observe call for the Instrumented decorator test.

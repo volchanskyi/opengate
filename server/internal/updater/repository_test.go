@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -98,7 +99,7 @@ func TestPostgresDeviceUpdates_CRUD(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestDeviceUpdates(t, store)
-	ctx := context.Background()
+	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 
 	user := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, user.ID)
@@ -136,11 +137,40 @@ func TestPostgresDeviceUpdates_CRUD(t *testing.T) {
 	})
 }
 
+func TestPostgresDeviceUpdates_TenantDeny(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewTestStore(t)
+	repo := testutil.NewTestDeviceUpdates(t, store)
+	orgB := uuid.New()
+	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
+	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
+	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+
+	userA := testutil.SeedUser(t, ctxA, store)
+	userB := testutil.SeedUser(t, ctxB, store)
+	groupA := testutil.SeedGroup(t, ctxA, store, userA.ID)
+	groupB := testutil.SeedGroup(t, ctxB, store, userB.ID)
+	deviceA := testutil.SeedDevice(t, ctxA, store, groupA.ID)
+	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
+	require.NoError(t, repo.Create(ctxA, &updater.DeviceUpdate{DeviceID: deviceA.ID, Version: "tenant-deny", Status: updater.StatusPending}))
+	require.NoError(t, repo.Create(ctxB, &updater.DeviceUpdate{DeviceID: deviceB.ID, Version: "tenant-deny", Status: updater.StatusPending}))
+
+	updates, err := repo.ListByVersion(ctxA, "tenant-deny")
+	require.NoError(t, err)
+	require.Len(t, updates, 1)
+	assert.Equal(t, deviceA.ID, updates[0].DeviceID)
+	err = repo.SetStatus(ctxA, deviceB.ID, "tenant-deny", updater.StatusSuccess, "")
+	assert.ErrorIs(t, err, updater.ErrNotFound)
+
+	_, err = repo.ListByVersion(context.Background(), "tenant-deny")
+	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
+}
+
 func TestPostgresEnrollment_CRUD(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestEnrollment(t, store)
-	ctx := context.Background()
+	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 
 	creator := testutil.SeedUser(t, ctx, store)
 
@@ -205,6 +235,48 @@ func TestPostgresEnrollment_CRUD(t *testing.T) {
 		_, err := repo.GetByToken(ctx, tok.Token)
 		require.Error(t, err)
 	})
+}
+
+func TestPostgresEnrollment_TenantDeny(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewTestStore(t)
+	repo := testutil.NewTestEnrollment(t, store)
+	orgB := uuid.New()
+	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
+	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
+	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+
+	creatorA := testutil.SeedUser(t, ctxA, store)
+	creatorB := testutil.SeedUser(t, ctxB, store)
+	tokenA := &updater.EnrollmentToken{
+		ID:        uuid.New(),
+		Token:     "tenant-a-" + uuid.New().String(),
+		CreatedBy: creatorA.ID,
+		MaxUses:   1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	tokenB := &updater.EnrollmentToken{
+		ID:        uuid.New(),
+		Token:     "tenant-b-" + uuid.New().String(),
+		CreatedBy: creatorB.ID,
+		MaxUses:   1,
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	require.NoError(t, repo.Create(ctxA, tokenA))
+	require.NoError(t, repo.Create(ctxB, tokenB))
+
+	_, err := repo.GetByToken(ctxA, tokenB.Token)
+	assert.ErrorIs(t, err, updater.ErrNotFound)
+	tokens, err := repo.List(ctxA, creatorB.ID)
+	require.NoError(t, err)
+	assert.Empty(t, tokens)
+	err = repo.IncrementUseCount(ctxA, tokenB.ID)
+	assert.ErrorIs(t, err, updater.ErrNotFound)
+	err = repo.Delete(ctxA, tokenB.ID)
+	assert.ErrorIs(t, err, updater.ErrNotFound)
+
+	_, err = repo.List(context.Background(), creatorA.ID)
+	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 
 func TestInstrumentedDeviceUpdates_ObservesAllMethods(t *testing.T) {

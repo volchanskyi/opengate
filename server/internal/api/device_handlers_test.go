@@ -21,9 +21,10 @@ func TestDeviceHandlers(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	user, token := seedTestUser(t, srv, cfg, "dev@example.com", false)
+	ctx := testTenantContext(t)
 
 	group := &device.Group{ID: uuid.New(), Name: "test-group", OwnerID: user.ID}
-	require.NoError(t, srv.groups.Create(t.Context(), group))
+	require.NoError(t, srv.groups.Create(ctx, group))
 
 	dev := &device.Device{
 		ID:       uuid.New(),
@@ -32,7 +33,7 @@ func TestDeviceHandlers(t *testing.T) {
 		OS:       "linux",
 		Status:   db.StatusOnline,
 	}
-	require.NoError(t, srv.devices.Upsert(t.Context(), dev))
+	require.NoError(t, srv.devices.Upsert(ctx, dev))
 
 	t.Run("list devices", func(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathDevices+"?group_id="+group.ID.String(), token, nil)
@@ -69,7 +70,7 @@ func TestDeviceHandlers(t *testing.T) {
 
 	t.Run("update device group", func(t *testing.T) {
 		newGroup := &device.Group{ID: uuid.New(), Name: "new-group", OwnerID: user.ID}
-		require.NoError(t, srv.groups.Create(t.Context(), newGroup))
+		require.NoError(t, srv.groups.Create(ctx, newGroup))
 
 		body := map[string]interface{}{"group_id": newGroup.ID.String()}
 		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), token, body)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/google/uuid"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
 // PostgresWebPush implements [WebPushRepository] against PostgreSQL. The db
@@ -20,44 +21,73 @@ func NewPostgresWebPush(db *sql.DB) *PostgresWebPush {
 }
 
 func (p *PostgresWebPush) Upsert(ctx context.Context, sub *WebPushSubscription) error {
-	_, err := p.db.ExecContext(ctx,
-		`INSERT INTO web_push_subscriptions (endpoint, user_id, p256dh, auth)
-		 VALUES ($1, $2, $3, $4)
-		 ON CONFLICT (endpoint) DO UPDATE SET
-		   user_id = EXCLUDED.user_id,
-		   p256dh = EXCLUDED.p256dh,
-		   auth = EXCLUDED.auth`,
-		sub.Endpoint, sub.UserID, sub.P256dh, sub.Auth)
-	return err
+	tenant, ok := dbtx.TenantFromContext(ctx)
+	if !ok {
+		return dbtx.ErrTenantRequired
+	}
+	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO web_push_subscriptions (endpoint, org_id, user_id, p256dh, auth)
+			 VALUES ($1, $2, $3, $4, $5)
+			 ON CONFLICT (endpoint) DO UPDATE SET
+			   org_id = EXCLUDED.org_id,
+			   user_id = EXCLUDED.user_id,
+			   p256dh = EXCLUDED.p256dh,
+			   auth = EXCLUDED.auth`,
+			sub.Endpoint, tenant.OrgID, sub.UserID, sub.P256dh, sub.Auth)
+		return err
+	})
 }
 
 func (p *PostgresWebPush) ListForUser(ctx context.Context, userID uuid.UUID) ([]*WebPushSubscription, error) {
-	return queryWebPushList(ctx, p.db,
-		`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions WHERE user_id = $1`,
-		userID)
+	var subs []*WebPushSubscription
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		var err error
+		subs, err = queryWebPushList(ctx, tx,
+			`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions
+			 WHERE org_id = current_setting('app.current_org')::uuid AND user_id = $1`,
+			userID)
+		return err
+	})
+	return subs, err
 }
 
 func (p *PostgresWebPush) ListAll(ctx context.Context) ([]*WebPushSubscription, error) {
-	return queryWebPushList(ctx, p.db,
-		`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions`)
+	var subs []*WebPushSubscription
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		var err error
+		subs, err = queryWebPushList(ctx, tx,
+			`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions
+			 WHERE org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean`)
+		return err
+	})
+	return subs, err
 }
 
 func (p *PostgresWebPush) Delete(ctx context.Context, endpoint string) error {
-	res, err := p.db.ExecContext(ctx, `DELETE FROM web_push_subscriptions WHERE endpoint = $1`, endpoint)
-	if err != nil {
-		return err
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrSubscriptionNotFound
-	}
-	return nil
+	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`DELETE FROM web_push_subscriptions
+			 WHERE org_id = current_setting('app.current_org')::uuid AND endpoint = $1`, endpoint)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrSubscriptionNotFound
+		}
+		return nil
+	})
 }
 
-func queryWebPushList(ctx context.Context, db *sql.DB, query string, args ...any) ([]*WebPushSubscription, error) {
+type queryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func queryWebPushList(ctx context.Context, db queryer, query string, args ...any) ([]*WebPushSubscription, error) {
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

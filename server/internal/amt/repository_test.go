@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
@@ -19,7 +20,7 @@ func TestPostgres_AMTDeviceCRUD(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestAMTDevices(t, store)
-	ctx := context.Background()
+	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 
 	t.Run("upsert and get", func(t *testing.T) {
 		d := &db.AMTDevice{
@@ -86,6 +87,29 @@ func TestPostgres_AMTDeviceCRUD(t *testing.T) {
 		err := repo.SetStatus(ctx, uuid.New(), db.StatusOnline)
 		assert.True(t, errors.Is(err, amt.ErrAMTDeviceNotFound))
 	})
+}
+
+func TestPostgresAMTDevices_TenantDeny(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewTestStore(t)
+	repo := testutil.NewTestAMTDevices(t, store)
+	orgB := uuid.New()
+	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
+	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
+	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+
+	deviceA := testutil.SeedAMTDevice(t, ctxA, store)
+	deviceB := testutil.SeedAMTDevice(t, ctxB, store)
+
+	_, err := repo.Get(ctxA, deviceB.UUID)
+	assert.ErrorIs(t, err, amt.ErrAMTDeviceNotFound)
+	devices, err := repo.List(ctxA)
+	require.NoError(t, err)
+	require.Len(t, devices, 1)
+	assert.Equal(t, deviceA.UUID, devices[0].UUID)
+
+	_, err = repo.Get(context.Background(), deviceA.UUID)
+	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 
 // fakeObserver records every Observe call for the Instrumented decorator test.

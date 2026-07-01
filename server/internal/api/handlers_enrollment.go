@@ -55,7 +55,7 @@ func (s *Server) CreateEnrollmentToken(ctx context.Context, request CreateEnroll
 		return nil, fmt.Errorf("create enrollment token: %w", err)
 	}
 
-	s.auditLog(ContextUserID(ctx), "enrollment.create", et.ID.String(),
+	s.auditLog(ctx, ContextUserID(ctx), "enrollment.create", et.ID.String(),
 		fmt.Sprintf("label=%s max_uses=%d expires_in=%dh", label, maxUses, expiresInHours))
 
 	return CreateEnrollmentToken201JSONResponse(enrollmentTokenToAPI(et)), nil
@@ -92,7 +92,7 @@ func (s *Server) DeleteEnrollmentToken(ctx context.Context, request DeleteEnroll
 		return nil, fmt.Errorf("delete enrollment token: %w", err)
 	}
 
-	s.auditLog(ContextUserID(ctx), "enrollment.delete", request.Id.String(), "")
+	s.auditLog(ctx, ContextUserID(ctx), "enrollment.delete", request.Id.String(), "")
 	return DeleteEnrollmentToken204Response{}, nil
 }
 

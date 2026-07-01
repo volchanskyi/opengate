@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -54,7 +53,7 @@ func TestAuthExpiredJWTAllEndpoints(t *testing.T) {
 func TestAuthDeletedUser(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
-	ctx := context.Background()
+	ctx := defaultTenantContext()
 
 	// Register user and get token
 	token := env.register(t, "tobedeleted@example.com", "pass1234")

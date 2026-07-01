@@ -160,7 +160,7 @@ Protected endpoints require a JWT bearer token in the `Authorization` header:
 Authorization: Bearer <token>
 ```
 
-Tokens are obtained via `/api/v1/auth/login` or `/api/v1/auth/register`. JWT claims include `uid` (user ID), `email`, and `admin` (boolean).
+Tokens are obtained via `/api/v1/auth/login` or `/api/v1/auth/register`. JWT claims include `uid` (user ID), `email`, `admin` (boolean), and `org` (active organization ID). The server uses `org` to scope repository transactions and RLS policies.
 
 ## Error Format
 

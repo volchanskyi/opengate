@@ -4,6 +4,7 @@
 //! handles session requests, and applies binary updates.
 //! Exit code 42 signals the service manager to restart after an update.
 
+mod edge_sentinel;
 mod logs;
 
 use std::net::SocketAddr;
@@ -45,6 +46,10 @@ struct Args {
     /// Enrollment token for first-boot CSR enrollment.
     #[arg(long, env = "OPENGATE_ENROLL_TOKEN")]
     enroll_token: Option<String>,
+
+    /// Enable the local Edge-Sentinel sampler. Default off until ARM budgets pass.
+    #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_SENTINEL")]
+    edge_sentinel: bool,
 }
 
 /// Exit code that tells systemd (RestartForceExitStatus=42) to restart the agent
@@ -415,6 +420,13 @@ async fn main() -> Result<()> {
     lifecycle.notify_ready();
     info!("agent ready, connecting to server");
 
+    let _edge_sentinel_sampler = if args.edge_sentinel {
+        info!("edge-sentinel sampler enabled");
+        Some(edge_sentinel::spawn_sampler())
+    } else {
+        None
+    };
+
     // Shutdown signal handler
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
 
@@ -522,6 +534,8 @@ async fn main() -> Result<()> {
                 capabilities: vec![
                     mesh_protocol::AgentCapability::Terminal,
                     mesh_protocol::AgentCapability::FileManager,
+                    mesh_protocol::AgentCapability::HardwareInventory,
+                    mesh_protocol::AgentCapability::DeviceLogs,
                 ],
                 hostname: gethostname::gethostname().to_string_lossy().to_string(),
                 os: os_pretty_name(),
@@ -1026,6 +1040,7 @@ mod tests {
         assert_eq!(args.server_ca, PathBuf::from("/tmp/ca.pem"));
         assert_eq!(args.data_dir, PathBuf::from("/var/lib/mesh-agent"));
         assert!(args.update_public_key.is_none());
+        assert!(!args.edge_sentinel);
     }
 
     #[test]
@@ -1057,6 +1072,30 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(args.update_public_key, Some(key_hex));
+    }
+
+    #[test]
+    fn test_cli_args_edge_sentinel_default_off_and_opt_in() {
+        let default_args = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+        ])
+        .unwrap();
+        assert!(!default_args.edge_sentinel);
+
+        let enabled = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+            "--edge-sentinel",
+        ])
+        .unwrap();
+        assert!(enabled.edge_sentinel);
     }
 
     #[test]

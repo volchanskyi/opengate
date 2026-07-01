@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
@@ -53,16 +54,16 @@ func pgStore(t *testing.T) (*db.PostgresStore, *sql.DB) {
 func seedDeviceRow(t *testing.T, ctx context.Context, sqlDB *sql.DB, id uuid.UUID, lastSeen time.Time) {
 	t.Helper()
 	_, err := sqlDB.ExecContext(ctx, `
-		INSERT INTO devices (id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-		VALUES ($1, NULL, 'native-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', $2, NOW(), NOW())
-	`, id, lastSeen)
+		INSERT INTO devices (id, org_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+		VALUES ($1, $2, NULL, 'native-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', $3, NOW(), NOW())
+	`, id, dbtx.DefaultOrgID, lastSeen)
 	require.NoError(t, err)
 }
 
 func TestPostgresTIMESTAMPTZNormalizesNonUTCOffsetToUTC(t *testing.T) {
 	t.Parallel()
 	_, sqlDB := pgStore(t)
-	ctx := t.Context()
+	ctx := defaultTenantContext()
 
 	// IST is UTC+05:30 — chosen for a non-whole-hour offset so a stripped
 	// offset would be detectable both in the hour and minute fields.
@@ -94,7 +95,7 @@ func TestPostgresTIMESTAMPTZNormalizesNonUTCOffsetToUTC(t *testing.T) {
 func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 	t.Parallel()
 	store, _ := pgStore(t)
-	ctx := t.Context()
+	ctx := defaultTenantContext()
 
 	owner := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, owner.ID)
@@ -161,9 +162,9 @@ func TestPostgresUUIDRejectsMalformedAtBoundary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := sqlDB.ExecContext(ctx, `
-				INSERT INTO devices (id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-				VALUES ($1, 'x', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
-			`, tt.raw)
+					INSERT INTO devices (id, org_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+					VALUES ($1, $2, 'x', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
+				`, tt.raw, dbtx.DefaultOrgID)
 			require.Error(t, err, "postgres must reject malformed UUID %q", tt.raw)
 			assert.Contains(t, strings.ToLower(err.Error()), "invalid input syntax")
 		})
@@ -173,7 +174,7 @@ func TestPostgresUUIDRejectsMalformedAtBoundary(t *testing.T) {
 func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
 	t.Parallel()
 	_, sqlDB := pgStore(t)
-	ctx := t.Context()
+	ctx := defaultTenantContext()
 
 	canonical := "550e8400-e29b-41d4-a716-446655440000"
 	tests := []struct {
@@ -190,10 +191,10 @@ func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := sqlDB.ExecContext(ctx, `
-				INSERT INTO devices (id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-				VALUES ($1, 'case-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
-				ON CONFLICT (id) DO UPDATE SET hostname = EXCLUDED.hostname
-			`, tt.raw)
+					INSERT INTO devices (id, org_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+					VALUES ($1, $2, 'case-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
+					ON CONFLICT (id) DO UPDATE SET hostname = EXCLUDED.hostname
+				`, tt.raw, dbtx.DefaultOrgID)
 			require.NoError(t, err)
 
 			var got uuid.UUID
@@ -208,7 +209,7 @@ func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
 func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 	t.Parallel()
 	store, _ := pgStore(t)
-	ctx := t.Context()
+	ctx := defaultTenantContext()
 
 	owner := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, owner.ID)
@@ -256,7 +257,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 	t.Parallel()
 	store, _ := pgStore(t)
-	ctx := t.Context()
+	ctx := defaultTenantContext()
 
 	owner := testutil.SeedUser(t, ctx, store)
 	group := testutil.SeedGroup(t, ctx, store, owner.ID)
@@ -299,9 +300,9 @@ func TestPostgresMalformedUUIDInsertRollbackable(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := sqlDB.ExecContext(ctx, `
-		INSERT INTO devices (id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-		VALUES ($1, 'malformed', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
-	`, "not-a-uuid")
+		INSERT INTO devices (id, org_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+		VALUES ($1, $2, 'malformed', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
+	`, "not-a-uuid", dbtx.DefaultOrgID)
 	require.Error(t, err)
 
 	// The pool must still be usable.

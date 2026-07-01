@@ -10,13 +10,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
 func TestPostgres_WebPushCRUD(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	store := testutil.NewTestStore(t)
 	owner := testutil.SeedUser(t, ctx, store)
 	repo := testutil.NewTestWebPush(t, store)
@@ -99,6 +100,36 @@ func TestPostgres_WebPushCRUD(t *testing.T) {
 		assert.True(t, endpoints[sub1.Endpoint])
 		assert.True(t, endpoints[sub2.Endpoint])
 	})
+}
+
+func TestPostgresWebPush_TenantDeny(t *testing.T) {
+	t.Parallel()
+	store := testutil.NewTestStore(t)
+	repo := testutil.NewTestWebPush(t, store)
+	orgB := uuid.New()
+	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
+	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
+	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+
+	userA := testutil.SeedUser(t, ctxA, store)
+	userB := testutil.SeedUser(t, ctxB, store)
+	subA := &notifications.WebPushSubscription{Endpoint: "https://push.example.com/a-" + uuid.New().String(), UserID: userA.ID}
+	subB := &notifications.WebPushSubscription{Endpoint: "https://push.example.com/b-" + uuid.New().String(), UserID: userB.ID}
+	require.NoError(t, repo.Upsert(ctxA, subA))
+	require.NoError(t, repo.Upsert(ctxB, subB))
+
+	subs, err := repo.ListForUser(ctxA, userB.ID)
+	require.NoError(t, err)
+	assert.Empty(t, subs)
+	all, err := repo.ListAll(ctxA)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.Equal(t, subA.Endpoint, all[0].Endpoint)
+	err = repo.Delete(ctxA, subB.Endpoint)
+	assert.ErrorIs(t, err, notifications.ErrSubscriptionNotFound)
+
+	_, err = repo.ListAll(context.Background())
+	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 
 // fakeObserver records every Observe call for the Instrumented decorator test.

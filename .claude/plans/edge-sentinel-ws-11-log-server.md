@@ -19,7 +19,7 @@ label).
 The reused `handleDeviceLogsResponse`
 ([conn.go:318-334](../../server/internal/agentapi/conn.go#L318)) calls
 `deviceLogs.Upsert`, which DELETE-then-INSERTs raw `message` text into the central `device_logs`
-table ([postgres.go:262-280](../../server/internal/device/postgres.go#L262);
+table ([postgres_logs.go:22-40](../../server/internal/device/postgres_logs.go#L22);
 [001_initial.up.sql:143-155](../../server/internal/db/migrations/001_initial.up.sql)). This is a
 privacy/compliance gap, not wording. **Resolve as the first step of WS-11, before the broker is
 wired** — pick one and record it in the raw-log-privacy ADR:
