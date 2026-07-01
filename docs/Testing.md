@@ -163,8 +163,9 @@ sends a Telegram alert via the existing `DEPLOY_TELEGRAM_BOT_TOKEN` /
 `DEPLOY_TELEGRAM_CHAT_ID` secrets. Nothing else blocks; `merge-to-main`
 remains independent.
 
-The full design rationale is in
-[`.claude/plans/pr9-mutation-testing-as-observability.md`](../.claude/plans/archive/pr9-mutation-testing-as-observability.md).
+Mutation testing runs as a **non-blocking observability signal**, not a merge
+gate: a survived-mutant regression turns the workflow red and alerts, but never
+blocks `merge-to-main`.
 
 ### Fuzzing
 

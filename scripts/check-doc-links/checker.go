@@ -29,8 +29,8 @@ func (c *checker) checkLink(sourcePath string, parsedLink link) string {
 	if issue != "" {
 		return issue
 	}
-	if isActivePlan(targetPath) && targetPath != sourcePath {
-		return fmt.Sprintf("links to active plan %q; only .claude/plans/archive/ is allowed", destination)
+	if issue := planLinkIssue(sourcePath, targetPath, destination); issue != "" {
+		return issue
 	}
 	info, exists, err := c.targetInfo(targetPath)
 	if err != nil {
@@ -130,12 +130,41 @@ func (c *checker) resolveTarget(sourcePath, destinationPath string) (string, err
 	return target, nil
 }
 
-func isActivePlan(targetPath string) bool {
-	const plansPrefix = ".claude/plans/"
-	if !strings.HasPrefix(targetPath, plansPrefix) {
-		return false
+// planLinkIssue enforces the plan-link doctrine. Plans — including archived ones
+// — are ephemeral and get cleaned up, so documentation under docs/ (other than
+// ADRs) must not link them at all. ADRs may still link archived plans (a
+// stable-enough target for a decision record), and active-plan links are refused
+// from every source. See .claude/rules/plans-and-adrs.md.
+func planLinkIssue(sourcePath, targetPath, destination string) string {
+	if !isPlanLink(targetPath) || targetPath == sourcePath {
+		return ""
 	}
-	return !strings.HasPrefix(targetPath, plansPrefix+"archive/")
+	if isDocsSource(sourcePath) && !isADRSource(sourcePath) {
+		return fmt.Sprintf("documentation under docs/ must not link plan files (%q); move the rationale inline or reference .claude/decisions.md", destination)
+	}
+	if isActivePlan(targetPath) {
+		return fmt.Sprintf("links to active plan %q; only .claude/plans/archive/ is allowed", destination)
+	}
+	return ""
+}
+
+func isPlanLink(targetPath string) bool {
+	return strings.HasPrefix(targetPath, ".claude/plans/")
+}
+
+func isActivePlan(targetPath string) bool {
+	return isPlanLink(targetPath) && !strings.HasPrefix(targetPath, ".claude/plans/archive/")
+}
+
+// isDocsSource reports whether the link originates in the published docs tree.
+func isDocsSource(sourcePath string) bool {
+	return strings.HasPrefix(sourcePath, "docs/")
+}
+
+// isADRSource matches an ADR file (docs/adr/ADR-*.md), the one docs class still
+// permitted to link archived plans.
+func isADRSource(sourcePath string) bool {
+	return strings.HasPrefix(sourcePath, "docs/adr/ADR-") && strings.HasSuffix(sourcePath, ".md")
 }
 
 func (c *checker) targetInfo(relativePath string) (fs.FileInfo, bool, error) {

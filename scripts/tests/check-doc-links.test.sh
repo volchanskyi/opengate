@@ -105,6 +105,7 @@ run_fixture broken-line 1 'docs/index.md:3: line anchor "#L4" exceeds 3 lines'
 run_fixture active-plan-link 1 'links to active plan'
 run_fixture active-plan-self-anchor 0
 run_fixture archived-plan-link 0
+run_fixture docs-plan-link 1 'documentation under docs/ must not link plan files'
 
 if "$CHECKER" --root "$FIXTURES/broken-file" --write-baseline "$TMP_DIR/baseline.txt" >/dev/null 2>&1 \
   && "$CHECKER" --root "$FIXTURES/broken-file" --baseline "$TMP_DIR/baseline.txt" >/dev/null 2>&1; then
