@@ -77,7 +77,8 @@ wins; a "net-negative-or-you're-wrong" line budget is explicitly rejected — it
 would reward deleting durable rationale and fight the coverage / TDD / ADR / PMAT
 gates. The real success signals are deterministic:
 
-- the doc link-checker hook reports zero broken or active-plan links, and
+- the doc link-checker reports zero broken links, zero active-plan links, and
+  zero plan links (archived included) from non-ADR docs under `docs/`, and
 - the inventory greps (dates-in-prose, commit/PR IDs, phase/PR tokens,
   config-duplicated schedules) trend to ~0 across the scoped trees.
 

@@ -28,8 +28,14 @@ When recording a new architectural decision:
 1. Add a new file in [`docs/adr/`](../../docs/adr/) with the next sequential number.
 2. Add an index row in [`.claude/decisions.md`](../decisions.md).
 
-### ADRs may link only archived plans
+### Plan links from docs
 
-Active plans get archived and renamed, so an ADR→active-plan link rots. ADRs may link a plan **only** under `plans/archive/…` (a stable target), alongside other stable targets: other ADRs, code, or external URLs. Put the rationale that matters **inline** in the ADR (it is the durable record), and any working-plan pointer in the mutable [`.claude/decisions.md`](../decisions.md) index, which *can* be kept current when plans move.
+Plans are **ephemeral** — active plans get archived/renamed, and archived plans get **deleted** in cleanups. So permanent documentation must not depend on them. Two rules, by document class:
 
-Enforced by [`pretooluse-write-guard.sh`](../hooks/pretooluse-write-guard.sh) (`adr-plan-link`): a Write/Edit/MultiEdit of an ADR whose new content links a **non-archived** plan (`](…plans/….md)` not under `plans/archive/`) is blocked.
+- **ADRs** (`docs/adr/ADR-*.md`) may link a plan **only** under `plans/archive/…` — a stable-enough target for a decision record — alongside other stable targets (other ADRs, code, external URLs). Never link an **active** plan (it rots when archived). Put the rationale that matters **inline** in the ADR (it is the durable record), and any working-plan pointer in the mutable [`.claude/decisions.md`](../decisions.md) index.
+- **All other docs under `docs/`** (Testing.md, Home.md, …) must **not link any plan at all** — archived or active. Fold the rationale inline or reference [`.claude/decisions.md`](../decisions.md). A doc that links an archived plan breaks the moment that plan is cleaned up.
+
+Enforced by two mechanisms:
+
+- [`pretooluse-write-guard.sh`](../hooks/pretooluse-write-guard.sh) (`adr-plan-link`): a Write/Edit/MultiEdit of an ADR whose new content links a **non-archived** plan (`](…plans/….md)` not under `plans/archive/`) is blocked.
+- [`scripts/check-doc-links`](../../scripts/check-doc-links/) (gauntlet): refuses any **active-plan** link from anywhere, and any **plan link at all** (archived included) from a non-ADR doc under `docs/`.
