@@ -70,7 +70,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2
+      - uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2
         with:
           tool: cargo-nextest
       - name: Tests
@@ -104,7 +104,7 @@ jobs:
           path: testdata/golden/
           retention-days: 20
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@682e7d9e49c5e653d371fc6adbda67653461378a # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov
       - name: Generate Rust coverage
@@ -653,7 +653,7 @@ jobs:
           make shell-test
 
       # GitHub Actions workflow lint
-      - uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8 # v2
+      - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
         with:
           flags: -shellcheck=/home/runner/.local/bin/shellcheck
 
@@ -757,7 +757,7 @@ jobs:
         run: terraform -chdir=deploy/terraform validate
 
       # Terraform linting
-      - uses: terraform-linters/setup-tflint@b480b8fcdaa6f2c577f8e4fa799e89e756bb7c93 # v6
+      - uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6
       - name: Tflint init (with retry)
         run: |
           set -e
