@@ -28,12 +28,15 @@ In order, with elapsed time printed per step:
 5. **Coverage thresholds** — Go ≥ 80% (excluding `testutil/`, `metrics/`, `amt/transport/wsman/`, `openapi_gen.go`), Web ≥ 80% lines, Rust ≥ 80% lines (excluding `main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/`).
 6. **Security audits** — `govulncheck`, `npm audit --audit-level=high`, `cargo audit`.
 7. **Benchmarks** — Go `go test -bench` and Rust `cargo bench -p mesh-protocol`. Skip with `PRECOMMIT_SKIP_BENCH=1` only for clearly non-perf-touching iterations.
-8. **E2E** — `make e2e` (full Playwright suite against the docker-compose test stack).
-9. **SonarCloud** — `make sonar` (full scan with fresh coverage upload). **No skip.** Quality-gate evaluation against stale coverage previously let `new_coverage` regressions surface only in CI; the gauntlet now uploads fresh coverage on every commit.
+8. **PMAT TDG gate** — `pmat tdg check-quality` on each changed code file at the **B+** floor (Clean-as-You-Code; docs-only / CI-only commits pass trivially). Ordered before the slow E2E + SonarCloud phase because it is fast and frequently the failing check.
+9. **E2E** — `make e2e` (full Playwright suite against the docker-compose test stack).
+10. **SonarCloud** — `make sonar` (full scan with fresh coverage upload). **No skip.** Quality-gate evaluation against stale coverage previously let `new_coverage` regressions surface only in CI; the gauntlet now uploads fresh coverage on every commit.
+
+Steps 9–10 (E2E + SonarCloud) are skipped when any earlier check has **already** failed — the commit is doomed regardless, so this changes runtime, never the pass/fail outcome.
 
 ## Why every commit
 
-Lockfile audits (`cargo audit`, `govulncheck`, `npm audit`) gate on the **current advisory database**, not the diff — a vuln published today fails a docs-only commit tomorrow. SonarCloud, lints, and e2e gate on full-repo state. Selective skipping rots the gate; the script never skips.
+Lockfile audits (`cargo audit`, `govulncheck`, `npm audit`) gate on the **current advisory database**, not the diff — a vuln published today fails a docs-only commit tomorrow. SonarCloud, lints, and e2e gate on full-repo state. Selective skipping to force a green commit rots the gate, and the script never does that — the sole conditional is deferring the E2E + SonarCloud phase when a cheaper check has already failed the commit.
 
 ## TDD interaction
 

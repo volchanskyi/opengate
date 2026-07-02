@@ -315,27 +315,37 @@ else
   run_check "rust benchmarks" -- bash -c 'cd agent && cargo bench -p mesh-protocol'
 fi
 
-# Phase 7: end-to-end + SonarCloud (the slowest).
-banner "E2E"
-run_check "make e2e" -- make e2e
-
-banner "SonarCloud"
-# Always the full scan with fresh coverage upload. `sonar-quick` is intentionally
-# not wired in: a quality-gate evaluation against stale coverage was the gap
-# that let new_coverage regressions reach CI undetected.
-run_check "make sonar" -- make sonar
-# new_coverage margin guard: `make sonar` enforces the gate at 80, but a value
-# like 79.95% displays as "80.0" and flips green→red between local and CI due to
-# sub-line coverage nondeterminism. This fails locally unless new_coverage clears
-# a buffer above 80, keeping the result off the boundary (CI run 26929821908).
-run_check "sonar new-coverage margin" -- bash scripts/sonar-coverage-guard.sh
-
-# Phase 8: PMAT TDG gate (ADR-019 §"Integration point 2", Amendment 1). Appended
-# last so it never masks faster checks. Grades ONLY changed code files at the
-# B+ floor (Clean-as-You-Code) and passes trivially on docs-only / CI-only
-# commits. Wrapper owns the changed-file resolution + exact-version pin.
+# Phase 7: PMAT TDG gate. Placed before the slow E2E + SonarCloud phase: it is
+# fast and frequently the check that fails, so running it first surfaces those
+# failures without first paying the long SonarCloud run. Grades ONLY changed
+# code files at the B+ floor (Clean-as-You-Code) and passes trivially on
+# docs-only / CI-only commits. Wrapper owns the changed-file resolution +
+# exact-version pin.
 banner "PMAT TDG gate"
 run_check "pmat tdg ≥ B+ (changed code)" -- bash scripts/pmat-precommit.sh
+
+# Phase 8: end-to-end + SonarCloud (the slowest, and `make sonar` uploads fresh
+# coverage to an external service). Skipped when any earlier check already
+# failed: the commit is doomed regardless, so there is no reason to spend the
+# long runtime or push a coverage upload for a commit that cannot land. Every
+# cheaper failure has already surfaced above in one pass.
+if [ "$FAIL_COUNT" -gt 0 ]; then
+  banner "E2E + SonarCloud (SKIPPED — $FAIL_COUNT earlier check(s) failed; fix those first)"
+else
+  banner "E2E"
+  run_check "make e2e" -- make e2e
+
+  banner "SonarCloud"
+  # Always the full scan with fresh coverage upload. `sonar-quick` is intentionally
+  # not wired in: a quality-gate evaluation against stale coverage was the gap
+  # that let new_coverage regressions reach CI undetected.
+  run_check "make sonar" -- make sonar
+  # new_coverage margin guard: `make sonar` enforces the gate at 80, but a value
+  # like 79.95% displays as "80.0" and flips green→red between local and CI due to
+  # sub-line coverage nondeterminism. This fails locally unless new_coverage clears
+  # a buffer above 80, keeping the result off the boundary (CI run 26929821908).
+  run_check "sonar new-coverage margin" -- bash scripts/sonar-coverage-guard.sh
+fi
 
 # Summary.
 ELAPSED=$(($(date +%s) - START_EPOCH))
