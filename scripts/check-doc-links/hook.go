@@ -53,7 +53,7 @@ func (c *checker) readHookOverlay(reader io.Reader) (string, []byte, bool, error
 		}
 		return "", nil, false, err
 	}
-	if !isScopedMarkdown(relativePath) {
+	if !inScope(relativePath) {
 		return "", nil, false, nil
 	}
 

@@ -231,7 +231,7 @@ run_check "depcruise" -- bash -c '
 '
 run_check "shell-check" -- make shell-check
 run_check "actionlint" -- actionlint -shellcheck="$(command -v shellcheck)"
-run_check "doc links" -- bash -c 'GO111MODULE=off go run ./scripts/check-doc-links --baseline .claude/doc-link-baseline.txt'
+run_check "doc links" -- bash -c 'GO111MODULE=off go run ./scripts/check-doc-links'
 run_check "taint (go)" -- make taint-go
 run_check "taint (web)" -- make taint-web
 # ADR-027 adversarial pen-test gate. Diff vs origin/dev so a local dev-push

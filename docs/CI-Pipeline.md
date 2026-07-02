@@ -14,7 +14,7 @@ human commits  ──► dev ──► main
 
 - **`dev`** — primary development branch. Human commits land directly; Dependabot opens PRs against it. After all CI checks pass, the `merge-to-main` job forwards `dev` → `main`.
 - **`main`** — stable branch. Receives code from `dev` only, via the automated `merge-to-main` job. Protected: requires 1 PR review for non-admin pushes; force-push and deletion disabled.
-- **Dependabot** — PRs open against `dev` with the same gate any human commit clears. [`dependabot-auto-merge.yml`](../../.github/workflows/dependabot-auto-merge.yml) squash-merges patch + minor updates once CI is green; major-version bumps stay open for review.
+- **Dependabot** — PRs open against `dev` with the same gate any human commit clears. [`dependabot-auto-merge.yml`](../.github/workflows/dependabot-auto-merge.yml) squash-merges patch + minor updates once CI is green; major-version bumps stay open for review.
 
 ## Job Graph
 
@@ -305,9 +305,9 @@ Dependabot PRs target `dev` directly — same target a human contributor would u
 
 1. Dependabot opens a grouped PR against `dev` (one PR per ecosystem)
 2. CI runs on the PR (`pull_request` trigger — same 19 gate jobs as a human PR)
-3. [`dependabot-auto-merge.yml`](../../.github/workflows/dependabot-auto-merge.yml) classifies the update via `dependabot/fetch-metadata`:
+3. [`dependabot-auto-merge.yml`](../.github/workflows/dependabot-auto-merge.yml) classifies the update via `dependabot/fetch-metadata`:
    - **Patch + minor:** calls `gh pr merge --auto --squash`. GitHub auto-merges once required checks pass.
    - **Major:** stays open with a "needs human review" comment.
 4. Once merged into `dev`, the next CI run on the `dev` push fires `merge-to-main`, forwarding the commit to `main` — same as any human commit.
 
-Grouping configuration in [`.github/dependabot.yml`](../../.github/dependabot.yml) batches all updates per ecosystem into a single PR. Auto-merge requires the repository setting "Allow auto-merge" (Settings → General).
+Grouping configuration in [`.github/dependabot.yml`](../.github/dependabot.yml) batches all updates per ecosystem into a single PR. Auto-merge requires the repository setting "Allow auto-merge" (Settings → General).

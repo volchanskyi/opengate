@@ -1,6 +1,6 @@
 # Agent Auto-Update
 
-See also: [ADR-005 in Architecture Decision Records](Architecture-Decision-Records)
+See also: [ADR-005 in Architecture Decision Records](Architecture-Decision-Records.md)
 
 ## Overview
 

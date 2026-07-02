@@ -60,7 +60,7 @@ grep -rEn 'v[0-9]+\.[0-9]+\.[0-9]+' docs/ README.md
 
 Verify each version against:
 - Go: [`server/go.mod`](../../../server/go.mod) `go` directive
-- Rust: [`rust-toolchain.toml`](../../../rust-toolchain.toml) if present, else
+- Rust: [`rust-toolchain.toml`](../../../agent/rust-toolchain.toml) if present, else
   `Cargo.toml` `rust-version`
 - Node: `.nvmrc` or `package.json` `engines`
 - GitHub Actions: `uses:` lines in [`.github/workflows/`](../../../.github/workflows/)
@@ -155,7 +155,7 @@ grep -rEn '0x[0-9a-fA-F]{2}|\b[0-9]+-byte\b' docs/
 ```
 
 Verify against:
-- Frame format: [`agent/crates/mesh-protocol/src/frame.rs`](../../../agent/crates/mesh-protocol/src/frame.rs)
+- Frame format: [`agent/crates/mesh-protocol/src/types/frame.rs`](../../../agent/crates/mesh-protocol/src/types/frame.rs)
 - Type bytes: same file, const declarations
 - Golden fixtures: [`testdata/golden/`](../../../testdata/golden/)
 
