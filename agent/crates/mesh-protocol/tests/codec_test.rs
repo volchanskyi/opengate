@@ -514,6 +514,49 @@ fn test_request_health_window_missing_fields() {
 }
 
 #[test]
+fn test_edge_sentinel_agent_reports_tolerate_go_omitempty_zero_fields() {
+    // Simulate Go encoding a flat ControlMessage where omitempty drops zero-valued
+    // Edge-Sentinel fields.
+    use std::collections::BTreeMap;
+
+    let decode_type_only = |msg_type: &str| {
+        let mut map = BTreeMap::new();
+        map.insert("type", msg_type);
+        let encoded = rmp_serde::to_vec_named(&map).unwrap();
+        rmp_serde::from_slice::<ControlMessage>(&encoded).unwrap()
+    };
+
+    assert_eq!(
+        decode_type_only("AgentHealthSummary"),
+        ControlMessage::AgentHealthSummary {
+            ts: 0,
+            org_id: String::new(),
+            node_anomaly_rate: 0.0,
+            per_family_rates: Vec::new(),
+            recent_bitmask: Vec::new(),
+            sampler_ver: String::new(),
+            model_ver: String::new(),
+        }
+    );
+    assert_eq!(
+        decode_type_only("AgentMetricWindow"),
+        ControlMessage::AgentMetricWindow {
+            ts: 0,
+            org_id: String::new(),
+            dims: Vec::new(),
+        }
+    );
+    assert_eq!(
+        decode_type_only("ProcessReport"),
+        ControlMessage::ProcessReport {
+            ts: 0,
+            org_id: String::new(),
+            top_n: Vec::new(),
+        }
+    );
+}
+
+#[test]
 fn test_agent_health_summary_recent_bitmask_roundtrip() {
     let msg = ControlMessage::AgentHealthSummary {
         ts: 1700000100,

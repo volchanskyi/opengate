@@ -23,20 +23,15 @@ fn golden_dir() -> PathBuf {
     path
 }
 
-/// Read a Go-generated golden file. Skips the test (rather than failing) when
-/// the file is absent — the file lands once the Go reverse generator has been
-/// run via `make golden`. This keeps `cargo test` standalone-runnable.
-fn read_go_golden(name: &str) -> Option<Vec<u8>> {
+/// Read a Go-generated golden file. The reverse fixtures are committed, so a
+/// missing file is a test failure rather than a soft pass.
+fn read_go_golden(name: &str) -> Vec<u8> {
     let path = golden_dir().join(name);
-    match std::fs::read(&path) {
-        Ok(data) => Some(data),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => panic!("reading {}: {}", path.display(), e),
-    }
+    std::fs::read(&path).unwrap_or_else(|e| panic!("reading {}: {}", path.display(), e))
 }
 
-fn decode_frame(name: &str) -> Option<Frame> {
-    let bytes = read_go_golden(name)?;
+fn decode_frame(name: &str) -> Frame {
+    let bytes = read_go_golden(name);
     let (frame, consumed) =
         Frame::decode(&bytes).unwrap_or_else(|e| panic!("Rust decoder rejected {}: {:?}", name, e));
     assert_eq!(
@@ -47,7 +42,7 @@ fn decode_frame(name: &str) -> Option<Frame> {
         consumed,
         bytes.len()
     );
-    Some(frame)
+    frame
 }
 
 const GOLDEN_SESSION_TOKEN: &str =
@@ -55,28 +50,19 @@ const GOLDEN_SESSION_TOKEN: &str =
 
 #[test]
 fn reverse_golden_ping() {
-    let Some(frame) = decode_frame("go_ping.bin") else {
-        eprintln!("skipping: go_ping.bin not present (run `make golden` to generate)");
-        return;
-    };
+    let frame = decode_frame("go_ping.bin");
     assert!(matches!(frame, Frame::Ping));
 }
 
 #[test]
 fn reverse_golden_pong() {
-    let Some(frame) = decode_frame("go_pong.bin") else {
-        eprintln!("skipping: go_pong.bin not present");
-        return;
-    };
+    let frame = decode_frame("go_pong.bin");
     assert!(matches!(frame, Frame::Pong));
 }
 
 #[test]
 fn reverse_golden_heartbeat() {
-    let Some(frame) = decode_frame("go_control_heartbeat.bin") else {
-        eprintln!("skipping: go_control_heartbeat.bin not present");
-        return;
-    };
+    let frame = decode_frame("go_control_heartbeat.bin");
     match frame {
         Frame::Control(ControlMessage::AgentHeartbeat { timestamp }) => {
             assert_eq!(timestamp, 1_700_000_000);
@@ -87,10 +73,7 @@ fn reverse_golden_heartbeat() {
 
 #[test]
 fn reverse_golden_agent_register() {
-    let Some(frame) = decode_frame("go_control_agent_register.bin") else {
-        eprintln!("skipping: go_control_agent_register.bin not present");
-        return;
-    };
+    let frame = decode_frame("go_control_agent_register.bin");
     match frame {
         Frame::Control(ControlMessage::AgentRegister {
             capabilities,
@@ -113,10 +96,7 @@ fn reverse_golden_agent_register() {
 
 #[test]
 fn reverse_golden_session_request() {
-    let Some(frame) = decode_frame("go_control_session_request.bin") else {
-        eprintln!("skipping: go_control_session_request.bin not present");
-        return;
-    };
+    let frame = decode_frame("go_control_session_request.bin");
     match frame {
         Frame::Control(ControlMessage::SessionRequest {
             token,
@@ -137,10 +117,7 @@ fn reverse_golden_session_request() {
 
 #[test]
 fn reverse_golden_chat_message() {
-    let Some(frame) = decode_frame("go_control_chat_message.bin") else {
-        eprintln!("skipping: go_control_chat_message.bin not present");
-        return;
-    };
+    let frame = decode_frame("go_control_chat_message.bin");
     match frame {
         Frame::Control(ControlMessage::ChatMessage { text, sender }) => {
             assert_eq!(text, "hello from the operator");
@@ -152,10 +129,7 @@ fn reverse_golden_chat_message() {
 
 #[test]
 fn reverse_golden_restart_agent() {
-    let Some(frame) = decode_frame("go_control_restart_agent.bin") else {
-        eprintln!("skipping: go_control_restart_agent.bin not present");
-        return;
-    };
+    let frame = decode_frame("go_control_restart_agent.bin");
     match frame {
         Frame::Control(ControlMessage::RestartAgent { reason }) => {
             assert_eq!(reason, "restart requested from web UI");
@@ -166,10 +140,7 @@ fn reverse_golden_restart_agent() {
 
 #[test]
 fn reverse_golden_request_health_window() {
-    let Some(frame) = decode_frame("go_control_request_health_window.bin") else {
-        eprintln!("skipping: go_control_request_health_window.bin not present");
-        return;
-    };
+    let frame = decode_frame("go_control_request_health_window.bin");
     match frame {
         Frame::Control(ControlMessage::RequestHealthWindow { since_ts, limit }) => {
             assert_eq!(since_ts, 1_700_000_000);
@@ -181,19 +152,13 @@ fn reverse_golden_request_health_window() {
 
 #[test]
 fn reverse_golden_unknown_future_server_to_agent() {
-    let Some(frame) = decode_frame("go_control_unknown_future_server_to_agent.bin") else {
-        eprintln!("skipping: go_control_unknown_future_server_to_agent.bin not present");
-        return;
-    };
+    let frame = decode_frame("go_control_unknown_future_server_to_agent.bin");
     assert!(matches!(frame, Frame::Control(ControlMessage::Unknown)));
 }
 
 #[test]
 fn reverse_golden_desktop_frame() {
-    let Some(frame) = decode_frame("go_desktop_frame.bin") else {
-        eprintln!("skipping: go_desktop_frame.bin not present");
-        return;
-    };
+    let frame = decode_frame("go_desktop_frame.bin");
     match frame {
         Frame::Desktop(f) => {
             assert_eq!(f.sequence, 42);

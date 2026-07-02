@@ -63,24 +63,33 @@ pub enum ControlMessage {
         timestamp: i64,
     },
     AgentHealthSummary {
+        #[serde(default)]
         ts: i64,
+        #[serde(default)]
         org_id: String,
+        #[serde(default)]
         node_anomaly_rate: f64,
         #[serde(default)]
         per_family_rates: Vec<FamilyAnomalyRate>,
         #[serde(default, with = "serde_bytes")]
         recent_bitmask: Vec<u8>,
+        #[serde(default)]
         sampler_ver: String,
+        #[serde(default)]
         model_ver: String,
     },
     AgentMetricWindow {
+        #[serde(default)]
         ts: i64,
+        #[serde(default)]
         org_id: String,
         #[serde(default)]
         dims: Vec<MetricDim>,
     },
     ProcessReport {
+        #[serde(default)]
         ts: i64,
+        #[serde(default)]
         org_id: String,
         #[serde(default)]
         top_n: Vec<ProcessReportEntry>,

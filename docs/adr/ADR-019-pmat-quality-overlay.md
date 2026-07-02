@@ -44,7 +44,7 @@ Append a single fast check to [`scripts/precommit-gauntlet.sh`](../../scripts/pr
 pmat tdg --since-commit HEAD~1 --threshold B+
 ```
 
-Runs on changed files only. Fails the commit if any changed file's TDG grade drops below **B+** from day one. Appended last so failures don't mask faster checks. Same no-suppression policy as SonarCloud — exceptions require an ADR reference, not an inline suppression directive.
+Runs on changed files only. Fails the commit if any changed file's TDG grade drops below **B+** from day one. Ordered immediately **before** the slow E2E + SonarCloud phase (not appended last): it is fast and is frequently the check that fails, so running it ahead of the long SonarCloud upload surfaces those failures without first paying that cost, and the E2E + SonarCloud phase is skipped entirely whenever any earlier check — PMAT included — has already failed (the commit is doomed regardless, so there is no reason to spend the runtime or push a coverage upload for it). All cheaper failures still surface in one pass. Same no-suppression policy as SonarCloud — exceptions require an ADR reference, not an inline suppression directive.
 
 Not added: `pmat repo-score` or `pmat mutate` at commit time — too slow per commit and overlapping with existing gates.
 
