@@ -144,6 +144,9 @@ mirrored by `make mutate-go`). Each shard mutates only its packages
 per-mutant budget can't collapse onto the restored test cache, and per-shard
 reports merge via [`scripts/mutation-merge-go.sh`](../scripts/mutation-merge-go.sh)
 (a missing shard fails the merge rather than reporting a partial score).
+The mutation drop gate now restores the previous per-language baseline from
+VictoriaMetrics before summarizing, so a >2pp gradual score slide is visible
+before it falls through the absolute floor.
 
 **Pay-down trigger:** confirm across 3 consecutive nightly runs that no shard is
 cancelled and that `mutation_score{language="go"}` reaches VictoriaMetrics; then

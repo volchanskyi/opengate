@@ -7,8 +7,9 @@ single sample, today's PMAT behavior) and `vm_query_window` (a window statistic 
 multi-dimensional load-test case). Repoint PMAT at it, **behavior-preserving**.
 Foundation for M1 (latest) and M2/M3 (window); **no behavior change to PMAT**.
 
-**Dependencies:** none. **Blocks:** M1 (`vm-readback-m1-mutation-drop-gate.md`),
-M2 (`vm-readback-m2-benchmark-nsop-gate.md`), M3 (`vm-readback-m3-loadtest-gate.md`).
+**Dependencies:** none. **Blocks:** M2 (`vm-readback-m2-benchmark-nsop-gate.md`),
+M3 (`vm-readback-m3-loadtest-gate.md`). M1 is complete
+(`plans/archive/vm-readback-m1-mutation-drop-gate.md`).
 
 ## Context
 

@@ -59,9 +59,6 @@ human commits  ──► dev ──► main
         Benchmark Trends Workflow (nightly / workflow_dispatch)
         └─ Go + Rust benchmarks → VictoriaMetrics → Grafana Benchmark Trends
 
-        Perf Publish (needs e2e + bundle-size, dev push only → gh-pages)
-        └─ Lighthouse history + bundle size trending
-
         Build & Push Container Image Workflow
         (main push / CI success on dev)
                     │
@@ -93,7 +90,6 @@ The CI workflow jobs are grouped by concern:
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
 | **SonarCloud** | `sonarcloud` | Static analysis + coverage aggregation via SonarSource scan action |
 | **E2E** | `e2e` | Playwright end-to-end + Lighthouse CI audits via `docker-compose.test.yml` (needs all prior checks + bundle-size) |
-| **Perf Publish** | `perf-publish` | Publishes Lighthouse scores and bundle size history to gh-pages for trending (dev push only, not gated) |
 | **Load** | `load-test` | k6 HTTP/WS load test scenarios (on-demand/scheduled only) |
 | **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after the required upstream jobs in [`ci.yml`](../.github/workflows/ci.yml) pass; updates Go/Rust/Web coverage badges on `dev` pushes |
 | **Auto-tag** | `auto-tag` | Determines semver bump from conventional commits, generates Keep a Changelog entry, commits CHANGELOG.md, and pushes a git tag (triggers `release-agent.yml`) |
@@ -291,13 +287,19 @@ After Playwright tests pass, [Lighthouse CI](https://github.com/GoogleChrome/lig
 
 Results are uploaded as the `lighthouse-results` artifact and a score summary is added to the step summary.
 
-### Performance Trend Tracking (gh-pages)
+### Browser Performance Evidence
 
-The `perf-publish` job (dev push only, non-blocking) pushes Lighthouse scores and bundle size data to `gh-pages/dev/perf/` for historical trending. Keeps the last 100 entries.
+Lighthouse and bundle-size evidence stays per-run: Lighthouse uploads the
+`lighthouse-results` artifact from the `e2e` job, and bundle size uploads the
+`bundle-size-report` artifact from the `web-bundle-size` job. CI no longer
+pushes volatile browser performance history to `gh-pages`.
 
 ### PageSpeed Insights (CD — Informational)
 
-PageSpeed Insights is not part of the current CD workflow. Browser performance evidence comes from Lighthouse CI in the `e2e` job and the non-blocking `perf-publish` history path. If PageSpeed is reintroduced, document the workflow step and secret in [`cd.yml`](../.github/workflows/cd.yml) at the same time.
+PageSpeed Insights is not part of the current CD workflow. Browser performance
+evidence comes from Lighthouse CI in the `e2e` job and the bundle-size gate in
+`web-bundle-size`. If PageSpeed is reintroduced, document the workflow step and
+secret in [`cd.yml`](../.github/workflows/cd.yml) at the same time.
 
 ## Dependabot Flow
 
