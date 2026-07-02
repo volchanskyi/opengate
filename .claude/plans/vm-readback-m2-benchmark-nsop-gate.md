@@ -23,18 +23,47 @@ tol; the k6 relay 112–136ms runner→OCI RTT-jitter comment). Copying mutation
 mutation's (push → Telegram → hard fail-red) but the **baseline** is noise-robust:
 **A — `median_over_time(ns[14d])` + a frozen variance-derived tol + an absolute ceiling**.
 
-## Calibration — empirical, not guessed (do FIRST; ship numbers here)
+## Calibration — empirical, not guessed (DONE; numbers frozen here)
 
-Query the live 14–30d VM series for each benchmark's `ns_op` (via M0's `vm_query_window`
-transport), compute run-to-run CV = σ/μ, and set `tol = k × CV` so the band sits just
-outside historical no-change noise. Freeze per benchmark. Record the derived numbers in
-this table **before** coding the band (per locked decision 5 — numbers live in the plan,
-not in code comments):
+Queried the **live VM** `benchmark_ns_op` series (2026-07-02, ~40d export, n≈15
+nightly samples per series over 18 series) via M0's transport, computed run-to-run
+CV = σ/μ and the worst historical excursion `max/median` per series (the largest
+no-change spike a hard gate must clear). Full per-series numbers:
 
-| benchmark | lang | 30d median ns | CV | frozen rel tol | abs ceiling |
+| lang | series | n | median ns | CV | max/median |
 |---|---|---|---|---|---|
-| _(codec_bench/…)_ | rust | TBD | TBD | TBD | TBD |
-| _(Benchmark…)_ | go | TBD | TBD | TBD | TBD |
+| go | BenchmarkQUICHandshake_Cold | 15 | 1 921 517 | 3.40% | 1.059 |
+| go | BenchmarkQUICHandshake_Resumed | 15 | 1 445 489 | 2.99% | 1.074 |
+| go | BenchmarkManager_SignServer | 15 | 157 067 | 3.50% | 1.071 |
+| go | BenchmarkManager_SignAgent | 15 | 156 337 | 3.73% | 1.081 |
+| go | BenchmarkNewManager_Generate | 15 | 307 093 | 7.03% | 1.154 |
+| go | BenchmarkNewManager_Load | 15 | 48 719 | 7.98% | 1.081 |
+| go | BenchmarkHandshaker_PerformHandshake | 15 | 16 066 | 3.89% | 1.106 |
+| go | BenchmarkCodec_EncodeControl | 15 | 2 670 | 8.08% | 1.280 |
+| go | BenchmarkCodec_DecodeControl | 15 | 1 307 | 5.94% | 1.119 |
+| go | BenchmarkCodec_ReadFrame | 15 | 291.9 | 9.99% | 1.201 |
+| go | BenchmarkCodec_WriteFrame | 15 | 33.9 | 4.43% | 1.170 |
+| go | BenchmarkEncodeServerHello | 15 | 7.5 | 7.68% | 1.080 |
+| go | BenchmarkDecodeServerHello | 15 | 10.3 | 9.61% | 1.132 |
+| rust | frame_encode_control | 15 | 302.6 | 2.90% | 1.041 |
+| rust | frame_decode_control | 15 | 744.4 | 5.77% | 1.039 |
+| rust | encode_server_hello | 15 | 23.6 | 6.57% | 1.124 |
+| rust | decode_server_hello | 15 | 16.2 | 12.40% | 1.200 |
+| rust | frame_encode_ping | 15 | 24.1 | 7.89% | 1.152 |
+
+**Aggregate:** go median CV 5.94% / max 9.99%; rust median CV 6.57% / max 12.40%.
+Worst single no-change excursion above the median across all 18 series = **+28.0%**
+(go/Codec_EncodeControl), rust worst +20.0%.
+
+**Frozen constants** (one band for both languages — their noise profiles coincide,
+and 18 per-benchmark bands is over-fitting at n≈15):
+
+| constant | value | derivation |
+|---|---|---|
+| `NS_REL_TOL` | **0.50** (50%) | ≈ 4× the median CV, ≈ 1.8× the worst observed no-change excursion (+28%). Clears runner jitter + heavy-tail + one runner-generation step change, yet reds any real ≥50% ns/op blow-up. Replaces the old never-firing 150% advisory. |
+| `NS_ABS_CEIL_TOL` | **1.0** (ceiling = committed-baseline ns × 2.0) | The committed [`baseline.json`](../../benchmarks/baseline.json) ns_op is the frozen, drift-proof anchor (updated only via the deliberate `--update-baseline` dispatch), so it — not the self-updating window median — is the boiling-frog backstop. A sustained 2× over a reviewed baseline is unambiguous vs. the 28%-max noise; per-benchmark ceilings come free from the existing baseline (no hand-coded ns magic numbers that rot). |
+| `NS_WINDOW_DAYS` | **14** | < 30d VM retention (decision 10); ~14 nightly samples. |
+| `NS_MIN_WINDOW_SAMPLES` | **3** | Cold-start floor: < 3 window samples ⇒ relative rule skipped, absolute-only. |
 
 ## Two-rule structure (mirrors mutation's `drop OR floor`)
 

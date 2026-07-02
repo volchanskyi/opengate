@@ -251,9 +251,23 @@ nightly schedule and by `workflow_dispatch`:
 - **Rust benchmarks** — Criterion for frame/handshake encode/decode.
 
 The workflow publishes canonical rows to VictoriaMetrics through
-[`scripts/benchmark-vm-push.sh`](../scripts/benchmark-vm-push.sh). Allocation metrics are
-gated against [`benchmarks/baseline.json`](../benchmarks/baseline.json); wall-clock
-`ns/op` trends are advisory and rendered in Grafana's **Benchmark Trends** dashboard.
+[`scripts/benchmark-vm-push.sh`](../scripts/benchmark-vm-push.sh) and hard-gates
+regressions in two ways, by metric class:
+
+- **Deterministic allocation metrics** (`allocs/op`, `bytes/op`) are gated against the
+  committed [`benchmarks/baseline.json`](../benchmarks/baseline.json) at ±2% — the same
+  code yields the same count, so a small fixed tolerance never false-fires.
+- **Machine-dependent `ns/op`** is hard-gated against a noise-robust VictoriaMetrics
+  window baseline read back through [`scripts/lib/vm-query.sh`](../scripts/lib/vm-query.sh):
+  a run reds when its `ns/op` exceeds **either** the 14-day window median × a frozen
+  relative band **or** an absolute ceiling anchored on the committed baseline (the
+  drift-proof boiling-frog backstop). The band and ceiling are calibrated from the live
+  series' measured run-to-run variance, not hand-picked. The gate is fail-open: a VM or
+  transport failure falls back to the absolute rule only and never reds on infra, and a
+  cold-start window (too few samples) skips the relative rule. This replaces the earlier
+  advisory-only `ns/op` treatment.
+
+All benchmark trends are also rendered in Grafana's **Benchmark Trends** dashboard.
 
 ## Frontend Performance Monitoring
 

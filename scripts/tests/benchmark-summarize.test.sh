@@ -73,6 +73,53 @@ run_clean() {
     GITHUB_SHA="deadbeef" "$SUMMARIZE"
 }
 
+# --- VM-window ns/op gate: mock kubectl on PATH -------------------------------
+# The ns/op gate reads a 14d window median (and sample count for cold-start) from
+# VictoriaMetrics through scripts/lib/vm-query.sh's kubectl curl-pod transport.
+# This mock serves canned /api/v1/query vectors keyed by {benchmark,lang},
+# selecting median vs. count by the aggregation in the PromQL. VM_PROFILE picks a
+# scenario; empty/transport-fail exercise fail-open (⇒ absolute-only, never red on
+# infra). The mock also records its args so we can assert the current commit is
+# excluded from the window query.
+BIN_DIR="$WORK/bin"
+mkdir -p "$BIN_DIR"
+cat >"$BIN_DIR/kubectl" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+printf '%s\n' "$*" >>"${KUBECTL_ARGS:-/dev/null}"
+args="$*"
+vec() { printf '{"status":"success","data":{"resultType":"vector","result":[%s]}}\n' "$1"; }
+s() { printf '{"metric":{"benchmark":"%s","lang":"%s"},"value":[2000,"%s"]}' "$1" "$2" "$3"; }
+case "${VM_PROFILE:-full}" in
+  empty) ;;
+  *)
+    if printf '%s' "$args" | grep -q 'count_over_time'; then
+      # ${VM_COUNT:-10} runs per series — < NS_MIN_WINDOW_SAMPLES forces cold-start.
+      vec "$(s BenchmarkEncodeFrame go "${VM_COUNT:-10}"),$(s BenchmarkDecodeFrame go "${VM_COUNT:-10}"),$(s encode_frame rust "${VM_COUNT:-10}")"
+    elif printf '%s' "$args" | grep -q 'median_over_time'; then
+      vec "$(s BenchmarkEncodeFrame go 123),$(s BenchmarkDecodeFrame go 245),$(s encode_frame rust 987)"
+    fi
+    ;;
+esac
+exit "${KUBECTL_STATUS:-0}"
+EOF
+chmod +x "$BIN_DIR/kubectl"
+
+# Write a one-line go.txt benchmark for EncodeFrame at the given ns/op, with the
+# baseline's own bytes/allocs so only the ns/op dimension moves.
+write_go_ns() { printf 'BenchmarkEncodeFrame-8   1000000   %s ns/op   64 B/op   2 allocs/op\n' "$1" >"$WORK/go-ns.txt"; }
+
+# Run the summarizer with the mock kubectl on PATH and the VM transport env.
+# Per-case knobs (VM_PROFILE / VM_COUNT / KUBECTL_STATUS) are inherited.
+run_ns_gate() {
+  (
+    export PATH="$BIN_DIR:$PATH"
+    export KUBECTL_ARGS="$WORK/kubectl.args"
+    GO_BENCH_FILE="$WORK/go-ns.txt" CRITERION_ROOT="$WORK/criterion" \
+      BASELINE_FILE="$WORK/baseline.json" GITHUB_SHA="deadbeef" "$SUMMARIZE"
+  )
+}
+
 echo "canonical rows:"
 OUT="$(run_clean)"
 RC=$?
@@ -98,17 +145,71 @@ else
   pass "allocs/op bump fails"
 fi
 
-cat >"$WORK/go-ns-wobble.txt" <<'GO'
-BenchmarkEncodeFrame-8        1000000      1000.0 ns/op      64 B/op      2 allocs/op
-GO
-if GO_BENCH_FILE="$WORK/go-ns-wobble.txt" CRITERION_ROOT="$WORK/criterion" BASELINE_FILE="$WORK/baseline.json" "$SUMMARIZE" >/dev/null 2>&1; then
-  pass "ns/op-only wobble stays advisory"
-else
-  fail "ns/op-only wobble should not fail"
-fi
-
 ALERT_COUNT="$(GO_BENCH_FILE="$WORK/go-alloc-regression.txt" CRITERION_ROOT="$WORK/criterion" BASELINE_FILE="$WORK/baseline.json" "$SUMMARIZE" 2>&1 | grep -c '^REGRESSION_ALERT:' || true)"
 if [ "$ALERT_COUNT" -gt 0 ]; then pass "regression emits alert lines"; else fail "regression should emit alert lines"; fi
+
+echo
+echo "ns/op VM-window gate:"
+
+# Relative rule, isolated: 200 ns/op > window median 123 × (1 + 0.50) = 184.5, but
+# < absolute ceiling (baseline 120 × 2 = 240). Only the window rule may fire.
+write_go_ns 200
+if OUT="$(run_ns_gate 2>&1)"; then
+  fail "ns/op over the window band should fail red"
+else
+  if printf '%s\n' "$OUT" | grep -q '^REGRESSION_ALERT:.*ns_op'; then
+    pass "ns/op over window median×1.5 reds and alerts (relative rule)"
+  else
+    fail "ns/op window regression should emit an ns_op alert (got: $OUT)"
+  fi
+fi
+
+# Current commit must be excluded from the window query so a re-run never compares
+# against its own just-pushed sample.
+if grep -qF 'commit!="deadbeef"' "$WORK/kubectl.args"; then
+  pass "window query excludes the current commit"
+else
+  fail "window query must exclude the current commit"
+fi
+
+# Sub-tol: 150 ns/op < 184.5 band and < 240 ceiling ⇒ silent (no red).
+write_go_ns 150
+if run_ns_gate >/dev/null 2>&1; then
+  pass "ns/op inside the window band stays silent"
+else
+  fail "ns/op inside the window band should not fail"
+fi
+
+# Absolute ceiling, isolated: window empty (cold-start) so the relative rule is
+# skipped; 300 ns/op > baseline 120 × 2 = 240 ⇒ the absolute backstop reds.
+write_go_ns 300
+if VM_PROFILE=empty run_ns_gate >/dev/null 2>&1; then
+  fail "ns/op over the absolute ceiling should fail even with no window history"
+else
+  pass "ns/op over baseline×2 reds via the absolute backstop (cold-start)"
+fi
+
+# Cold-start fail-open: window empty AND under the ceiling ⇒ exit 0, never a red
+# or an exit-2 on missing history.
+write_go_ns 150
+rc=0
+VM_PROFILE=empty run_ns_gate >/dev/null 2>&1 || rc=$?
+assert_eq "empty window under ceiling is fail-open (exit 0)" "0" "$rc"
+
+# Transport failure fail-open: kubectl non-zero ⇒ absolute-only, no red on infra.
+write_go_ns 200
+rc=0
+KUBECTL_STATUS=19 run_ns_gate >/dev/null 2>&1 || rc=$?
+assert_eq "VM transport failure is fail-open (exit 0)" "0" "$rc"
+
+# Thin window (fewer than NS_MIN_WINDOW_SAMPLES): the relative rule is skipped even
+# though a median exists; 200 ns/op is over the band but under the ceiling ⇒ silent.
+write_go_ns 200
+if VM_COUNT=2 run_ns_gate >/dev/null 2>&1; then
+  pass "thin window (< min samples) skips the relative rule, stays silent"
+else
+  fail "thin window should not red on the relative rule"
+fi
 
 echo
 echo "baseline generation:"

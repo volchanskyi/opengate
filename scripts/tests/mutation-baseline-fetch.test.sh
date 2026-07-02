@@ -86,9 +86,13 @@ run_fetch() {
   )
 }
 
-# json_eq A B → 0 when A and B are the same JSON value (key order ignored).
+# json_eq A B → 0 when A and B are the same JSON value (key order ignored, and
+# numbers compared by value not literal). jq 1.7+ preserves a number's original
+# text, so 90.0 and 90 render differently under a bare `jq -S .`; forcing each
+# number through `+ 0` canonicalizes both so the comparison stays version-stable.
 json_eq() {
-  [ "$(jq -S . <<<"$1" 2>/dev/null)" = "$(jq -S . <<<"$2" 2>/dev/null)" ]
+  local norm='walk(if type == "number" then . + 0 else . end)'
+  [ "$(jq -S "$norm" <<<"$1" 2>/dev/null)" = "$(jq -S "$norm" <<<"$2" 2>/dev/null)" ]
 }
 
 echo "mutation-baseline-fetch:"
