@@ -4,6 +4,46 @@ use crate::types::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Per-family anomaly rate inside an Edge Sentinel health summary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FamilyAnomalyRate {
+    pub family: String,
+    pub rate: f64,
+}
+
+/// Averaged metric dimension in an Edge Sentinel metric window.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MetricDim {
+    pub name: String,
+    pub avg: f64,
+}
+
+/// Sanitized process sample row for Edge Sentinel reporting.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProcessReportEntry {
+    pub rank: u32,
+    pub basename: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmdline_hash: Option<String>,
+    pub pid: u32,
+    pub cpu: f64,
+    pub mem: f64,
+}
+
+/// Bounded health summary point returned for read-back requests.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HealthSummary {
+    pub ts: i64,
+    pub org_id: String,
+    pub node_anomaly_rate: f64,
+    #[serde(default)]
+    pub per_family_rates: Vec<FamilyAnomalyRate>,
+    #[serde(default, with = "serde_bytes")]
+    pub recent_bitmask: Vec<u8>,
+    pub sampler_ver: String,
+    pub model_ver: String,
+}
+
 /// All control messages exchanged between agent and server.
 /// Uses internally tagged representation so msgpack output matches Go's flat struct:
 /// {"type": "AgentRegister", "capabilities": [...], "hostname": "...", "os": "..."}
@@ -21,6 +61,29 @@ pub enum ControlMessage {
     },
     AgentHeartbeat {
         timestamp: i64,
+    },
+    AgentHealthSummary {
+        ts: i64,
+        org_id: String,
+        node_anomaly_rate: f64,
+        #[serde(default)]
+        per_family_rates: Vec<FamilyAnomalyRate>,
+        #[serde(default, with = "serde_bytes")]
+        recent_bitmask: Vec<u8>,
+        sampler_ver: String,
+        model_ver: String,
+    },
+    AgentMetricWindow {
+        ts: i64,
+        org_id: String,
+        #[serde(default)]
+        dims: Vec<MetricDim>,
+    },
+    ProcessReport {
+        ts: i64,
+        org_id: String,
+        #[serde(default)]
+        top_n: Vec<ProcessReportEntry>,
     },
     SessionAccept {
         token: SessionToken,
@@ -188,6 +251,20 @@ pub enum ControlMessage {
     /// Agent reports a log retrieval error.
     DeviceLogsError {
         error: String,
+    },
+
+    /// Server asks the agent for its bounded recent health summary window.
+    RequestHealthWindow {
+        #[serde(default)]
+        since_ts: i64,
+        #[serde(default)]
+        limit: u32,
+    },
+
+    /// Agent responds with a bounded recent health summary window.
+    HealthWindowResponse {
+        #[serde(default)]
+        summaries: Vec<HealthSummary>,
     },
 
     /// Unknown future control message. Agents ignore this and keep the

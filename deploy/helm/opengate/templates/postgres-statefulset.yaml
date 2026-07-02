@@ -41,6 +41,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.server.existingSecret }}
                   key: POSTGRES_PASSWORD
+            - name: POSTGRES_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.server.existingSecret }}
+                  key: POSTGRES_APP_PASSWORD
             # Subdir keeps initdb away from the volume's lost+found.
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
@@ -82,6 +87,7 @@ spec:
         - name: init
           configMap:
             name: {{ include "opengate.postgres.fullname" . }}-init
+            defaultMode: 0555
         - name: run
           emptyDir: {}
         - name: tmp

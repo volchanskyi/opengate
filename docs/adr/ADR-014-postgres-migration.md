@@ -72,8 +72,10 @@ Postgres runs inside the app Helm release as a Kubernetes
 [`StatefulSet`](../../deploy/helm/opengate/templates/postgres-statefulset.yaml)
 using `docker.io/library/postgres:17-alpine`. The server reaches it through the
 chart's headless Service DNS name, generated in
-[`server-deployment.yaml`](../../deploy/helm/opengate/templates/server-deployment.yaml)
-as `postgres://opengate:$(POSTGRES_PASSWORD)@<release>-postgres:5432/opengate?sslmode=disable`.
+[`server-deployment.yaml`](../../deploy/helm/opengate/templates/server-deployment.yaml).
+The chart bootstraps the dedicated runtime role in
+[`zz-app-role.sh`](../../deploy/helm/opengate/files/zz-app-role.sh), while the CD
+workflow repairs existing clusters before rollout.
 
 Production uses a persistent `oci-bv` volume claim. Staging sets
 `postgres.storage.persistent=false` in

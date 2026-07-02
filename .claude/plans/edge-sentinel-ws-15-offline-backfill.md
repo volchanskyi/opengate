@@ -51,6 +51,11 @@ WS-4 (VM tiers + scoped reader), WS-1 (capability). **Wave:** after WS-14b.
 
 ## File inventory
 
+- **Reuse (do not rebuild):** [`server/internal/testvm`](../../server/internal/testvm/testvm.go)
+  (`testvm.BaseURL(t)`) for the VM bucket-correctness test (Step 6);
+  [`server/tests/vmbackfill`](../../server/tests/vmbackfill/spike_test.go) already proves the import
+  API preserves original timestamps (import-not-stream-agg) — reuse its import + `/api/v1/export`
+  assertion pattern.
 - **Modify:** [`control.rs`](../../agent/crates/mesh-protocol/src/control.rs) / Go protocol —
   additive, capability-gated: `MetricBackfillBatch { tier, historical samples, cursor }`,
   `RequestLocalHistory`/`LocalHistoryResponse` (bounded), `RequestBackfillSlot`/`GrantBackfill`/
@@ -80,7 +85,8 @@ WS-4 (VM tiers + scoped reader), WS-1 (capability). **Wave:** after WS-14b.
    broker bounded + cross-tenant deny; reconnect re-validates identity → implement; regen OpenAPI.
 6. **Test first (VM bucket correctness):** a real-VM integration test imports historical rollups
    with **old timestamps** after a simulated reconnect delay, then `query_range`-verifies the
-   samples land in the **correct time buckets** (proving backfill bypassed stream-agg). Throwaway VM.
+   samples land in the **correct time buckets** (proving backfill bypassed stream-agg). Throwaway VM
+   via `server/internal/testvm`; reuse the `server/tests/vmbackfill` import + `/api/v1/export` pattern.
 
 ## Gotchas / constraints
 

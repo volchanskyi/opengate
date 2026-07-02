@@ -5,17 +5,20 @@ package protocol
 type ControlMessageType string
 
 const (
-	MsgAgentRegister  ControlMessageType = "AgentRegister"
-	MsgAgentHeartbeat ControlMessageType = "AgentHeartbeat"
-	MsgSessionAccept  ControlMessageType = "SessionAccept"
-	MsgSessionReject  ControlMessageType = "SessionReject"
-	MsgSessionRequest ControlMessageType = "SessionRequest"
-	MsgAgentUpdate    ControlMessageType = "AgentUpdate"
-	MsgAgentUpdateAck ControlMessageType = "AgentUpdateAck"
-	MsgRelayReady     ControlMessageType = "RelayReady"
-	MsgSwitchToWebRTC ControlMessageType = "SwitchToWebRTC"
-	MsgSwitchAck      ControlMessageType = "SwitchAck"
-	MsgIceCandidate   ControlMessageType = "IceCandidate"
+	MsgAgentRegister      ControlMessageType = "AgentRegister"
+	MsgAgentHeartbeat     ControlMessageType = "AgentHeartbeat"
+	MsgAgentHealthSummary ControlMessageType = "AgentHealthSummary"
+	MsgAgentMetricWindow  ControlMessageType = "AgentMetricWindow"
+	MsgProcessReport      ControlMessageType = "ProcessReport"
+	MsgSessionAccept      ControlMessageType = "SessionAccept"
+	MsgSessionReject      ControlMessageType = "SessionReject"
+	MsgSessionRequest     ControlMessageType = "SessionRequest"
+	MsgAgentUpdate        ControlMessageType = "AgentUpdate"
+	MsgAgentUpdateAck     ControlMessageType = "AgentUpdateAck"
+	MsgRelayReady         ControlMessageType = "RelayReady"
+	MsgSwitchToWebRTC     ControlMessageType = "SwitchToWebRTC"
+	MsgSwitchAck          ControlMessageType = "SwitchAck"
+	MsgIceCandidate       ControlMessageType = "IceCandidate"
 
 	// Input (browser → agent via relay)
 	MsgMouseMove      ControlMessageType = "MouseMove"
@@ -42,6 +45,8 @@ const (
 	MsgRequestDeviceLogs     ControlMessageType = "RequestDeviceLogs"
 	MsgDeviceLogsResponse    ControlMessageType = "DeviceLogsResponse"
 	MsgDeviceLogsError       ControlMessageType = "DeviceLogsError"
+	MsgRequestHealthWindow   ControlMessageType = "RequestHealthWindow"
+	MsgHealthWindowResponse  ControlMessageType = "HealthWindowResponse"
 )
 
 // ControlMessage is the envelope for all control-plane messages.
@@ -60,6 +65,20 @@ type ControlMessage struct {
 
 	// AgentHeartbeat
 	Timestamp int64 `msgpack:"timestamp,omitempty"`
+
+	// Edge Sentinel telemetry
+	TS              int64                `msgpack:"ts,omitempty"`
+	OrgID           string               `msgpack:"org_id,omitempty"`
+	NodeAnomalyRate float64              `msgpack:"node_anomaly_rate,omitempty"`
+	PerFamilyRates  []FamilyAnomalyRate  `msgpack:"per_family_rates,omitempty"`
+	RecentBitmask   []byte               `msgpack:"recent_bitmask,omitempty"`
+	SamplerVersion  string               `msgpack:"sampler_ver,omitempty"`
+	ModelVersion    string               `msgpack:"model_ver,omitempty"`
+	Dims            []MetricDim          `msgpack:"dims,omitempty"`
+	TopN            []ProcessReportEntry `msgpack:"top_n,omitempty"`
+	SinceTS         int64                `msgpack:"since_ts,omitempty"`
+	Limit           uint32               `msgpack:"limit,omitempty"`
+	Summaries       []HealthSummary      `msgpack:"summaries,omitempty"`
 
 	// SessionAccept / SessionReject / SessionRequest
 	Token    SessionToken `msgpack:"token,omitempty"`
@@ -142,4 +161,37 @@ type LogEntry struct {
 	Level     string `msgpack:"level"`
 	Target    string `msgpack:"target"`
 	Message   string `msgpack:"message"`
+}
+
+// FamilyAnomalyRate is a per-family anomaly rate inside an Edge Sentinel summary.
+type FamilyAnomalyRate struct {
+	Family string  `msgpack:"family"`
+	Rate   float64 `msgpack:"rate"`
+}
+
+// MetricDim is an averaged metric dimension in an Edge Sentinel metric window.
+type MetricDim struct {
+	Name string  `msgpack:"name"`
+	Avg  float64 `msgpack:"avg"`
+}
+
+// ProcessReportEntry is a sanitized process sample row from Edge Sentinel.
+type ProcessReportEntry struct {
+	Rank        uint32  `msgpack:"rank"`
+	Basename    string  `msgpack:"basename"`
+	CmdlineHash *string `msgpack:"cmdline_hash,omitempty"`
+	PID         uint32  `msgpack:"pid"`
+	CPU         float64 `msgpack:"cpu"`
+	Mem         float64 `msgpack:"mem"`
+}
+
+// HealthSummary is one bounded health summary point returned for read-back requests.
+type HealthSummary struct {
+	TS              int64               `msgpack:"ts"`
+	OrgID           string              `msgpack:"org_id"`
+	NodeAnomalyRate float64             `msgpack:"node_anomaly_rate"`
+	PerFamilyRates  []FamilyAnomalyRate `msgpack:"per_family_rates"`
+	RecentBitmask   []byte              `msgpack:"recent_bitmask"`
+	SamplerVersion  string              `msgpack:"sampler_ver"`
+	ModelVersion    string              `msgpack:"model_ver"`
 }

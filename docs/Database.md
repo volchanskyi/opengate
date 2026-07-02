@@ -47,9 +47,14 @@ current_setting('app.current_org')::uuid` predicates so the `org_id`-leading
 indexes stay usable instead of relying on RLS as a post-filter.
 
 Admin cross-org access is policy-based: RLS policies also allow rows when
-`app.is_admin` is true. The application role does not use `BYPASSRLS`; a missing
-tenant GUC fails closed. Pre-tenant paths such as login lookup and enrollment
-token validation opt into the default organization explicitly.
+`app.is_admin` is true. Helm deployments build the server `DATABASE_URL` for the
+dedicated runtime role in
+[`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml);
+[`zz-app-role.sh`](../deploy/helm/opengate/files/zz-app-role.sh) and
+[`cd.yml`](../.github/workflows/cd.yml) keep that role non-superuser and without
+`BYPASSRLS`, so a missing tenant GUC fails closed. Pre-tenant paths such as login
+lookup and enrollment token validation opt into the default organization
+explicitly.
 
 The RLS boundary is covered by per-repository cross-tenant-deny tests plus
 [`TestMultitenancyMigrationRehearsal`](../server/internal/db/store_test.go),

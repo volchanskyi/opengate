@@ -16,6 +16,11 @@ func TestGoldenFrameWireFormat(t *testing.T) {
 	}{
 		{"AgentRegister", "control_agent_register.bin", FrameControl},
 		{"Heartbeat", "control_heartbeat.bin", FrameControl},
+		{"AgentHealthSummary", "control_agent_health_summary.bin", FrameControl},
+		{"AgentMetricWindow", "control_agent_metric_window.bin", FrameControl},
+		{"ProcessReport", "control_process_report.bin", FrameControl},
+		{"RequestHealthWindow", "control_request_health_window.bin", FrameControl},
+		{"HealthWindowResponse", "control_health_window_response.bin", FrameControl},
 		{"RelayReady", "control_relay_ready.bin", FrameControl},
 		{"DesktopFrame", "desktop_frame.bin", FrameDesktop},
 		{"SwitchToWebRTC", "control_switch_to_webrtc.bin", FrameControl},

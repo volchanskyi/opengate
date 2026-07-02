@@ -321,13 +321,18 @@ autonomous active response; revisit only behind a dedicated privilege/platform A
 - Live `df`: VM `/storage` = **26 MB / 48.9 GB (0%)**; Loki 1%; Postgres 0%. ~146 GB paid-for
   block storage idle. Space was never the constraint — volume **count** (4/4 at the 200 GB cap)
   and I/O contention were; VM sidesteps both (its own volume, off the control-plane DB).
-- **Cardinality is not yet grounded — Wave 0 must measure it.** The per-agent series count is
-  **host-dependent**: per-core CPU, per-disk, per-interface, per-filesystem all multiply the base
-  dims, and in the VM model each aggregate is its **own series**. With the **avg-only-central +
-  per-entity-cap** decision, central series stay bounded (~50k-class at 500 agents, depending on the
-  measured base-dim count); storing all four aggregates centrally would be ~4×. min/max/last + 1 s
-  live agent-local (WS-14b) and shard cardinality **per host**, so central growth is ~linear in
-  agent count, not host size. Final budget ratified by the Wave 0 ingest spike on representative hosts.
+- **Cardinality — modelled and VM-verified in the Wave 0 spike; real per-host dim counts still owed
+  by the WS-2 ARM bench.** The per-agent series count is **host-dependent**: per-core CPU, per-disk,
+  per-interface, per-filesystem all multiply the base dims, and in the VM model each aggregate is its
+  **own series**. The ingest spike ([`server/tests/vmcardinality`](../../server/tests/vmcardinality/spike_test.go))
+  ingested a representative avg-only schema into a real VM and **measured active-series exactly
+  matching the model**: a **typical host ≈ 40 series/agent → 20k at 500 agents**, a fully
+  per-entity-capped **large host ≈ 99/agent → 49.5k** (both under the **50k** budget); centralising
+  all four aggregates would be **~3.5× (71k at 500)**. This confirms the **avg-only-central +
+  per-entity-cap** decision keeps central series bounded and ~linear in agent count; min/max/last +
+  1 s stay agent-local (WS-14b), sharding cardinality **per host**. **Caveat:** these counts use a
+  representative *synthetic* schema — the real base-dim + per-entity numbers are the WS-2 ARM
+  sampler bench's Wave 0 deliverable, and the harness re-runs to re-ratify the budget once they land.
 - Live `df` earlier showed VM `/storage` ~0% used (~48.9 GB free), so disk headroom exists; the
   binding constraint is the **measured** sample-rate × retention × bytes/sample and query p95 — not
   series count per se (single-node VM handles millions of series).

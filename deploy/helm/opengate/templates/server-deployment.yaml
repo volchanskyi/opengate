@@ -59,13 +59,13 @@ spec:
             - "-vapid-contact"
             - "$(VAPID_CONTACT)"
           env:
-            # POSTGRES_PASSWORD must precede DATABASE_URL so k8s resolves the
-            # $(POSTGRES_PASSWORD) reference below.
-            - name: POSTGRES_PASSWORD
+            # POSTGRES_APP_PASSWORD must precede DATABASE_URL so k8s resolves
+            # the $(POSTGRES_APP_PASSWORD) reference below.
+            - name: POSTGRES_APP_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.server.existingSecret }}
-                  key: POSTGRES_PASSWORD
+                  key: POSTGRES_APP_PASSWORD
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -105,7 +105,7 @@ spec:
               value: {{ .Values.server.logLevel | quote }}
             {{- end }}
             - name: DATABASE_URL
-              value: "postgres://opengate:$(POSTGRES_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
+              value: "postgres://opengate_app:$(POSTGRES_APP_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
           ports:
             - name: http
               containerPort: {{ .Values.server.httpPort }}
