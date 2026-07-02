@@ -54,17 +54,21 @@ jobs:
       # packages that re-pay schema setup per mutant.
       matrix:
         include:
-          - { language: rust }
+          # rust runs the whole agent workspace unsharded; the Edge Sentinel ML
+          # crates (detection/sampler/rss/redact) pushed it from ~52min past the
+          # shared 75min cap, so it carries its own higher cap. Splitting the
+          # workspace with `cargo mutants --shard` is the horizontal lever once a
+          # single leg approaches the 6h runner max.
+          - { language: rust, timeout-minutes: 110 }
           - { language: web }
           - { language: go, shard: go-api }
           - { language: go, shard: go-db }
           - { language: go, shard: go-pure }
     runs-on: ubuntu-latest
-    # `api` is the irreducible hotspot (~45min CI, one unsplittable package) on
-    # its own shard; 75min leaves headroom for it and for runner variance (rust
-    # ~52min, web ~25min). The real lever to lower the floor is cutting the
-    # per-mutant Postgres setup cost (separate follow-up).
-    timeout-minutes: 75
+    # `api` is the irreducible Go hotspot (~45min CI, one unsplittable package)
+    # on its own shard; the default 75min leaves headroom for it and for runner
+    # variance (web ~25min). rust overrides this via matrix.timeout-minutes.
+    timeout-minutes: ${{ matrix.timeout-minutes || 75 }}
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-hub-mirror

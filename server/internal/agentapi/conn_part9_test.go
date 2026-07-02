@@ -177,6 +177,77 @@ func TestAgentConn_TelemetryWriterDoesNotBlockControlLoop(t *testing.T) {
 	_ = receiveTelemetryCall(t, writer.calls)
 }
 
+func TestAgentConn_HandleHealthWindowResponseFansOutSummaries(t *testing.T) {
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
+	ac.telemetry = writer
+
+	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
+		Type: protocol.MsgHealthWindowResponse,
+		Summaries: []protocol.HealthSummary{{
+			TS:              time.Now().Unix(),
+			NodeAnomalyRate: 0.4,
+			SamplerVersion:  "s1",
+			ModelVersion:    "m1",
+			PerFamilyRates:  []protocol.FamilyAnomalyRate{{Family: "net", Rate: 0.2}},
+		}},
+	})
+
+	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
+
+	call := receiveTelemetryCall(t, writer.calls)
+	require.Len(t, call.samples, 2)
+	assert.Equal(t, "health_window", call.samples[0].Labels["source"])
+	assert.Equal(t, "net", call.samples[1].Labels["family"])
+	assert.Equal(t, "health_window", call.samples[1].Labels["source"])
+}
+
+func TestAgentConn_PersistTelemetryDropsWhenTenantMissing(t *testing.T) {
+	ac, _ := newTestAgentConn(t, uuid.New(), nil)
+
+	called := false
+	// A context without a tenant must never reach the persistence closure.
+	ac.persistTelemetry(context.Background(), func(context.Context, dbtx.Tenant) error {
+		called = true
+		return nil
+	})
+
+	assert.Equal(t, uint64(1), ac.DroppedTelemetryCount())
+	assert.False(t, called)
+}
+
+func TestSanitizeProcessBasename(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"whitespace only", "   ", ""},
+		{"embedded space redacted", "post gres", "[redacted]"},
+		{"embedded tab redacted", "post\tgres", "[redacted]"},
+		{"unix path stripped", "/usr/bin/postgres", "postgres"},
+		{"windows path stripped", `C:\Windows\app.exe`, "app.exe"},
+		{"trailing separator kept", "/svc/", "/svc/"},
+		{"plain name kept", "postgres", "postgres"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, sanitizeProcessBasename(tt.in))
+		})
+	}
+}
+
+func TestTelemetryTimestamp(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, time.Unix(1_700_000_000, 0).UTC(), telemetryTimestamp(1_700_000_000))
+
+	got := telemetryTimestamp(0)
+	assert.WithinDuration(t, time.Now().UTC(), got, 5*time.Second)
+	assert.Equal(t, time.UTC, got.Location())
+}
+
 func receiveTelemetryCall(t *testing.T, calls <-chan telemetryWriteCall) telemetryWriteCall {
 	t.Helper()
 	select {
