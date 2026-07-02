@@ -80,6 +80,9 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 |---------|-----------|--------|
 | `AgentRegister` | Agent → Server | `capabilities`, `hostname`, `os`, `arch`, `version` |
 | `AgentHeartbeat` | Agent → Server | `timestamp` |
+| `AgentHealthSummary` | Agent → Server | `ts`, `org_id`, `node_anomaly_rate`, `per_family_rates`, `recent_bitmask`, `sampler_ver`, `model_ver` |
+| `AgentMetricWindow` | Agent → Server | `ts`, `org_id`, `dims` |
+| `ProcessReport` | Agent → Server | `ts`, `org_id`, `top_n` |
 | `SessionAccept` | Agent → Server | `token`, `relay_url` |
 | `SessionReject` | Agent → Server | `token`, `reason` |
 | `SessionRequest` | Server → Agent | `token`, `relay_url`, `permissions` |
@@ -111,6 +114,15 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `RequestDeviceLogs` | Server → Agent | `log_level`, `time_from`, `time_to`, `search`, `log_offset`, `log_limit` |
 | `DeviceLogsResponse` | Agent → Server | `log_entries` (Vec\<LogEntry\>), `total_count`, `has_more` |
 | `DeviceLogsError` | Agent → Server | `error` |
+| `RequestHealthWindow` | Server → Agent | `since_ts`, `limit` |
+| `HealthWindowResponse` | Agent → Server | `summaries` |
+
+The Edge Sentinel telemetry variants are a wire contract only in the current
+agent build: the sampler remains default-off and does not emit telemetry until
+server ingest, tenant-authoritative persistence, and telemetry write arbitration
+land. The source-of-truth payload definitions are the Rust
+[`ControlMessage`](../agent/crates/mesh-protocol/src/control.rs) enum and Go
+[`ControlMessage`](../server/internal/protocol/control.go) flat struct.
 
 ### Capabilities
 
@@ -123,6 +135,7 @@ capability. Current additive gates:
 |------------|-------|
 | `HardwareInventory` | `RequestHardwareReport` |
 | `DeviceLogs` | `RequestDeviceLogs` |
+| `HealthWindow` | `RequestHealthWindow` |
 
 Tolerant unknown-message decoding is a backstop for mixed fleets; capability
 gating is the primary safety mechanism.

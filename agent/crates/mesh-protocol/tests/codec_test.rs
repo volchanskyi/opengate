@@ -13,6 +13,68 @@ fn test_control_message_roundtrip_msgpack() {
         ControlMessage::AgentHeartbeat {
             timestamp: 1700000000,
         },
+        ControlMessage::AgentHealthSummary {
+            ts: 1700000100,
+            org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            node_anomaly_rate: 0.125,
+            per_family_rates: vec![
+                FamilyAnomalyRate {
+                    family: "cpu".to_string(),
+                    rate: 0.25,
+                },
+                FamilyAnomalyRate {
+                    family: "process".to_string(),
+                    rate: 0.5,
+                },
+            ],
+            recent_bitmask: vec![0xAA, 0x55, 0xF0],
+            sampler_ver: "sysinfo-k2".to_string(),
+            model_ver: "k2-baseline-v1".to_string(),
+        },
+        ControlMessage::AgentMetricWindow {
+            ts: 1700000160,
+            org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            dims: vec![
+                MetricDim {
+                    name: "cpu.total".to_string(),
+                    avg: 42.5,
+                },
+                MetricDim {
+                    name: "mem.rss".to_string(),
+                    avg: 2048.0,
+                },
+            ],
+        },
+        ControlMessage::ProcessReport {
+            ts: 1700000220,
+            org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            top_n: vec![ProcessReportEntry {
+                rank: 1,
+                basename: "postgres".to_string(),
+                cmdline_hash: Some("sha256:abcdef".to_string()),
+                pid: 4242,
+                cpu: 12.5,
+                mem: 3.25,
+            }],
+        },
+        ControlMessage::RequestHealthWindow {
+            since_ts: 1700000000,
+            limit: 12,
+        },
+        ControlMessage::HealthWindowResponse {
+            summaries: vec![HealthSummary {
+                ts: 1700000100,
+                org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+                node_anomaly_rate: 0.125,
+                per_family_rates: vec![FamilyAnomalyRate {
+                    family: "cpu".to_string(),
+                    rate: 0.25,
+                }],
+                recent_bitmask: vec![0xAA, 0x55, 0xF0],
+                sampler_ver: "sysinfo-k2".to_string(),
+                model_ver: "k2-baseline-v1".to_string(),
+            }],
+        },
         ControlMessage::SessionAccept {
             token: SessionToken::generate(),
             relay_url: "wss://relay.example.com/abc".to_string(),
@@ -431,6 +493,56 @@ fn test_request_device_logs_missing_fields() {
             log_limit: 0,
         }
     );
+}
+
+#[test]
+fn test_request_health_window_missing_fields() {
+    // Simulate what Go sends when fields are empty (omitempty drops them).
+    // Only "type" is present; all other fields are missing.
+    use std::collections::BTreeMap;
+    let mut map = BTreeMap::new();
+    map.insert("type", "RequestHealthWindow");
+    let encoded = rmp_serde::to_vec_named(&map).unwrap();
+    let decoded: ControlMessage = rmp_serde::from_slice(&encoded).unwrap();
+    assert_eq!(
+        decoded,
+        ControlMessage::RequestHealthWindow {
+            since_ts: 0,
+            limit: 0,
+        }
+    );
+}
+
+#[test]
+fn test_agent_health_summary_recent_bitmask_roundtrip() {
+    let msg = ControlMessage::AgentHealthSummary {
+        ts: 1700000100,
+        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        node_anomaly_rate: 0.125,
+        per_family_rates: vec![FamilyAnomalyRate {
+            family: "cpu".to_string(),
+            rate: 0.25,
+        }],
+        recent_bitmask: vec![0xAA, 0x55, 0xF0],
+        sampler_ver: "sysinfo-k2".to_string(),
+        model_ver: "k2-baseline-v1".to_string(),
+    };
+
+    let encoded = rmp_serde::to_vec_named(&msg).unwrap();
+    assert!(
+        encoded
+            .windows(5)
+            .any(|w| w == [0xC4, 0x03, 0xAA, 0x55, 0xF0]),
+        "recent_bitmask must encode as a MessagePack bin blob, not an integer array"
+    );
+    let decoded: ControlMessage = rmp_serde::from_slice(&encoded).unwrap();
+    assert_eq!(msg, decoded);
+    match decoded {
+        ControlMessage::AgentHealthSummary { recent_bitmask, .. } => {
+            assert_eq!(recent_bitmask, vec![0xAA, 0x55, 0xF0]);
+        }
+        other => panic!("expected AgentHealthSummary, got {other:?}"),
+    }
 }
 
 #[test]

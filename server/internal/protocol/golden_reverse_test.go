@@ -145,6 +145,12 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Reason: "restart requested from web UI",
 	})
 
+	writeReverseControlFrame(t, dir, codec, "control_request_health_window", &ControlMessage{
+		Type:    MsgRequestHealthWindow,
+		SinceTS: 1_700_000_000,
+		Limit:   12,
+	})
+
 	writeReverseControlFrame(t, dir, codec, "control_unknown_future_server_to_agent", &ControlMessage{
 		Type: ControlMessageType("FutureHealthWindow"),
 	})

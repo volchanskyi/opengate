@@ -18,13 +18,28 @@ recorded on a small ARM target:
 1. Wire an ARM CI runner or equivalent repeatable ARM bench environment.
 2. Run `mesh-agent-core`'s Edge Sentinel bench harness and record detection
    latency, `sysinfo` sampling cost, RSS, and allocation evidence.
-3. Use the measured per-entity `sysinfo` cost to finalize per-entity caps before
-   WS-3 freezes the wire contract and WS-4 depends on the cardinality budget.
+3. Use the measured per-entity `sysinfo` cost to finalize live telemetry caps
+   before enabling emission beyond the additive WS-3 wire contract.
 
 The sampler remains default-off until ARM evidence confirms the target footprint.
 
 **Pay-down trigger:** attach the ARM artifact to the Edge-Sentinel Phase 0 record,
 finalize per-entity caps, and flip the sampler default only if the gate passes.
+
+### Edge-Sentinel live telemetry emission and write arbitration deferred
+
+WS-3 adds the additive control-message contract and cross-language goldens for
+`AgentHealthSummary`, `AgentMetricWindow`, `ProcessReport`, `RequestHealthWindow`,
+and `HealthWindowResponse`, but the agent still does not emit telemetry on the
+live control stream. Before emission is enabled, WS-4 must add the server ingest
+handler, scope persistence by the enrolled device's authoritative org rather
+than the payload `org_id`, enforce a small telemetry payload cap and interval
+floor, and add drop accounting / write arbitration so telemetry cannot
+backpressure restart/session/heartbeat traffic.
+
+**Pay-down trigger:** land WS-4 ingest with tenant-authoritative persistence,
+bounded telemetry payloads, interval-floor tests, and a drop counter or priority
+write queue before any agent advertises/emits live Edge Sentinel telemetry.
 
 ### Multi-org membership API and web org switcher deferred
 
@@ -32,11 +47,24 @@ WS-0 satisfies "web carries org context" by retaining the JWT `org` claim in the
 auth store as display/UX state only; the server derives authorization scope from
 the signed token and never trusts a browser-supplied org value. There is not yet a
 multi-org membership API, so a web org switcher has no authoritative membership
-surface to switch between.
+surface to switch between. The deferred multi-org design must also settle:
+
+1. Split platform-admin from org-scoped admin. Today `users.is_admin` is mirrored
+   from Administrators membership and drives the `app.is_admin` RLS policy bypass;
+   that is correct only while every user is in the default org.
+2. Thread the device's actual org into agent-originated writes. The agent control
+   path still uses the default tenant because there is no multi-org device
+   assignment surface yet.
+3. Decide the login/email uniqueness model. The current global `users.email`
+   uniqueness keeps login lookup unambiguous, but it also blocks per-org email
+   reuse and makes the new `(org_id, email)` index advisory until multi-org
+   membership exists.
 
 **Pay-down trigger:** when multi-org membership is introduced, add the server
-membership/switching API, issue refreshed tokens for the selected org, and build
-the web org switcher against that server-trusted flow.
+membership/switching API, issue refreshed tokens for the selected org, split
+platform-admin from org-admin bypass semantics, thread device orgs through agent
+writes, choose the email uniqueness model, and build the web org switcher against
+that server-trusted flow.
 
 ### W3 decision — adopt 1-RTT TLS session resumption; agent-side enablement pending; 0-RTT deferred
 
@@ -65,6 +93,18 @@ quinn caches and presents tickets and a reconnecting production agent is observe
 resuming (`DidResume`).
 
 ## Severity: Low
+
+### Edge-Sentinel audited command-line redaction not wired into sampler output
+
+`redact_cmdline` is implemented and tested in the agent ML redaction module, but
+the live sampler currently stores only a process basename plus optional
+`cmdline_hash`; it does not emit redacted command lines. That is intentional for
+WS-2's default-off local sampler, but the audited on-demand flow must wire the
+redactor before any raw command-line text leaves the agent.
+
+**Pay-down trigger:** when an audited command-line collection/reporting path is
+added, route command lines through `redact_cmdline` before serialization and add
+an end-to-end test that proves secrets are redacted in the emitted payload.
 
 ### ADR-035 — residual external uptime/DNS follow-ups (user-owned)
 

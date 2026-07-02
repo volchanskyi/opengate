@@ -8,3 +8,5 @@ metadata:
 data:
   init.sql: |
 {{ .Files.Get "files/init.sql" | indent 4 }}
+  zz-app-role.sh: |
+{{ .Files.Get "files/zz-app-role.sh" | indent 4 }}

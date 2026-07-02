@@ -165,6 +165,21 @@ fn reverse_golden_restart_agent() {
 }
 
 #[test]
+fn reverse_golden_request_health_window() {
+    let Some(frame) = decode_frame("go_control_request_health_window.bin") else {
+        eprintln!("skipping: go_control_request_health_window.bin not present");
+        return;
+    };
+    match frame {
+        Frame::Control(ControlMessage::RequestHealthWindow { since_ts, limit }) => {
+            assert_eq!(since_ts, 1_700_000_000);
+            assert_eq!(limit, 12);
+        }
+        other => panic!("expected RequestHealthWindow, got {:?}", other),
+    }
+}
+
+#[test]
 fn reverse_golden_unknown_future_server_to_agent() {
     let Some(frame) = decode_frame("go_control_unknown_future_server_to_agent.bin") else {
         eprintln!("skipping: go_control_unknown_future_server_to_agent.bin not present");

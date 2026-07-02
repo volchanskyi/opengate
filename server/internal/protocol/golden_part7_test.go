@@ -58,6 +58,71 @@ func TestGoldenControlAgentRegisterUTF8(t *testing.T) {
 	assert.Equal(t, CapRemoteDesktop, msg.Capabilities[0])
 }
 
+func TestGoldenControlAgentHealthSummary(t *testing.T) {
+	msg := decodeControlFrame(t, "control_agent_health_summary.bin")
+	assert.Equal(t, MsgAgentHealthSummary, msg.Type)
+	assert.Equal(t, int64(1700000100), msg.TS)
+	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.OrgID)
+	assert.InEpsilon(t, 0.125, msg.NodeAnomalyRate, 0.0001)
+	require.Len(t, msg.PerFamilyRates, 2)
+	assert.Equal(t, "cpu", msg.PerFamilyRates[0].Family)
+	assert.InEpsilon(t, 0.25, msg.PerFamilyRates[0].Rate, 0.0001)
+	assert.Equal(t, "process", msg.PerFamilyRates[1].Family)
+	assert.InEpsilon(t, 0.5, msg.PerFamilyRates[1].Rate, 0.0001)
+	assert.Equal(t, []byte{0xAA, 0x55, 0xF0}, msg.RecentBitmask)
+	assert.Equal(t, "sysinfo-k2", msg.SamplerVersion)
+	assert.Equal(t, "k2-baseline-v1", msg.ModelVersion)
+}
+
+func TestGoldenControlAgentMetricWindow(t *testing.T) {
+	msg := decodeControlFrame(t, "control_agent_metric_window.bin")
+	assert.Equal(t, MsgAgentMetricWindow, msg.Type)
+	assert.Equal(t, int64(1700000160), msg.TS)
+	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.OrgID)
+	require.Len(t, msg.Dims, 2)
+	assert.Equal(t, "cpu.total", msg.Dims[0].Name)
+	assert.InEpsilon(t, 42.5, msg.Dims[0].Avg, 0.0001)
+	assert.Equal(t, "mem.rss", msg.Dims[1].Name)
+	assert.InEpsilon(t, 2048.0, msg.Dims[1].Avg, 0.0001)
+}
+
+func TestGoldenControlProcessReport(t *testing.T) {
+	msg := decodeControlFrame(t, "control_process_report.bin")
+	assert.Equal(t, MsgProcessReport, msg.Type)
+	assert.Equal(t, int64(1700000220), msg.TS)
+	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.OrgID)
+	require.Len(t, msg.TopN, 1)
+	assert.Equal(t, uint32(1), msg.TopN[0].Rank)
+	assert.Equal(t, "postgres", msg.TopN[0].Basename)
+	require.NotNil(t, msg.TopN[0].CmdlineHash)
+	assert.Equal(t, "sha256:abcdef", *msg.TopN[0].CmdlineHash)
+	assert.Equal(t, uint32(4242), msg.TopN[0].PID)
+	assert.InEpsilon(t, 12.5, msg.TopN[0].CPU, 0.0001)
+	assert.InEpsilon(t, 3.25, msg.TopN[0].Mem, 0.0001)
+}
+
+func TestGoldenControlRequestHealthWindow(t *testing.T) {
+	msg := decodeControlFrame(t, "control_request_health_window.bin")
+	assert.Equal(t, MsgRequestHealthWindow, msg.Type)
+	assert.Equal(t, int64(1700000000), msg.SinceTS)
+	assert.Equal(t, uint32(12), msg.Limit)
+}
+
+func TestGoldenControlHealthWindowResponse(t *testing.T) {
+	msg := decodeControlFrame(t, "control_health_window_response.bin")
+	assert.Equal(t, MsgHealthWindowResponse, msg.Type)
+	require.Len(t, msg.Summaries, 1)
+	assert.Equal(t, int64(1700000100), msg.Summaries[0].TS)
+	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.Summaries[0].OrgID)
+	assert.InEpsilon(t, 0.125, msg.Summaries[0].NodeAnomalyRate, 0.0001)
+	require.Len(t, msg.Summaries[0].PerFamilyRates, 1)
+	assert.Equal(t, "cpu", msg.Summaries[0].PerFamilyRates[0].Family)
+	assert.InEpsilon(t, 0.25, msg.Summaries[0].PerFamilyRates[0].Rate, 0.0001)
+	assert.Equal(t, []byte{0xAA, 0x55, 0xF0}, msg.Summaries[0].RecentBitmask)
+	assert.Equal(t, "sysinfo-k2", msg.Summaries[0].SamplerVersion)
+	assert.Equal(t, "k2-baseline-v1", msg.Summaries[0].ModelVersion)
+}
+
 func TestGoldenControlHardwareReportLargeSize(t *testing.T) {
 	data := readGolden(t, "control_hardware_report_large_size.bin")
 	// Frame length high bytes must be non-zero — proves the 4-byte BE header

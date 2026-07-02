@@ -47,7 +47,8 @@ server:
   # budget-free on the single-node deployment and preserves the client source
   # IP that AMT CIRA / QUIC need.
   hostPortL4: true
-  # Secret with keys: JWT_SECRET, POSTGRES_PASSWORD, AMT_PASS, VAPID_CONTACT.
+  # Secret with keys: JWT_SECRET, POSTGRES_PASSWORD, POSTGRES_APP_PASSWORD,
+  # AMT_PASS, VAPID_CONTACT.
   # Created out-of-band (kubectl / sealed-secrets); see secrets.example.yaml.
   existingSecret: opengate-secrets
   resources:

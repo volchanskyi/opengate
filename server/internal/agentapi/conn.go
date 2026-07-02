@@ -155,6 +155,18 @@ func (a *AgentConn) SendRequestHardwareReport(ctx context.Context) error {
 	})
 }
 
+// SendRequestHealthWindow asks the agent for its bounded recent health summary window.
+func (a *AgentConn) SendRequestHealthWindow(ctx context.Context, sinceTS int64, limit uint32) error {
+	if err := a.requireCapability(protocol.CapHealthWindow); err != nil {
+		return err
+	}
+	return a.sendControl(&protocol.ControlMessage{
+		Type:    protocol.MsgRequestHealthWindow,
+		SinceTS: sinceTS,
+		Limit:   limit,
+	})
+}
+
 // SendRequestDeviceLogs asks the agent to collect and send filtered log entries.
 func (a *AgentConn) SendRequestDeviceLogs(ctx context.Context, filter device.LogFilter) error {
 	if err := a.requireCapability(protocol.CapDeviceLogs); err != nil {

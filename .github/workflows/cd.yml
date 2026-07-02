@@ -185,15 +185,82 @@ jobs:
           AMT_PASS: ${{ secrets.DEPLOY_STAGING_AMT_PASS }}
           VAPID_CONTACT: ${{ secrets.DEPLOY_STAGING_VAPID_CONTACT }}
           POSTGRES_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
+          POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_APP_PASSWORD || secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
         run: |
           kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
           if ! kubectl -n "$NAMESPACE" get secret opengate-secrets >/dev/null 2>&1; then
             kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
               --from-literal=JWT_SECRET="$JWT_SECRET" \
               --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+              --from-literal=POSTGRES_APP_PASSWORD="$POSTGRES_APP_PASSWORD" \
               --from-literal=AMT_PASS="$AMT_PASS" \
               --from-literal=VAPID_CONTACT="$VAPID_CONTACT"
+          else
+            APP_PASSWORD_B64="$(printf '%s' "$POSTGRES_APP_PASSWORD" | base64 | tr -d '\n')"
+            kubectl -n "$NAMESPACE" patch secret opengate-secrets --type merge \
+              -p "{\"data\":{\"POSTGRES_APP_PASSWORD\":\"${APP_PASSWORD_B64}\"}}"
           fi
+
+      - name: Ensure database role honors RLS
+        env:
+          POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_APP_PASSWORD || secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
+        run: |
+          if ! kubectl -n "$NAMESPACE" get statefulset "${RELEASE}-postgres" >/dev/null 2>&1; then
+            echo "Postgres StatefulSet not present yet; zz-app-role.sh will create opengate_app on first bootstrap."
+            exit 0
+          fi
+          kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
+            psql -U opengate -d opengate -v ON_ERROR_STOP=1 \
+              --set=app_password="$POSTGRES_APP_PASSWORD" <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'opengate_app') THEN
+              CREATE ROLE opengate_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+            END IF;
+          END
+          $$;
+
+          ALTER ROLE opengate_app WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'app_password';
+          GRANT CONNECT ON DATABASE opengate TO opengate_app;
+          GRANT USAGE, CREATE ON SCHEMA public TO opengate_app;
+          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO opengate_app;
+          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO opengate_app;
+
+          DO $$
+          DECLARE
+            obj record;
+          BEGIN
+            FOR obj IN
+              SELECT quote_ident(schemaname) || '.' || quote_ident(tablename) AS name
+              FROM pg_tables
+              WHERE schemaname = 'public'
+            LOOP
+              EXECUTE format('ALTER TABLE %s OWNER TO opengate_app', obj.name);
+            END LOOP;
+
+            FOR obj IN
+              SELECT quote_ident(sequence_schema) || '.' || quote_ident(sequence_name) AS name
+              FROM information_schema.sequences
+              WHERE sequence_schema = 'public'
+            LOOP
+              EXECUTE format('ALTER SEQUENCE %s OWNER TO opengate_app', obj.name);
+            END LOOP;
+          END
+          $$;
+
+          DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1
+              FROM pg_roles
+              WHERE rolname = 'opengate_app'
+                AND (rolsuper OR rolbypassrls)
+            ) THEN
+              RAISE EXCEPTION 'database role opengate_app must be NOSUPERUSER and NOBYPASSRLS';
+            END IF;
+          END
+          $$;
+          SQL
 
       - name: Helm upgrade
         run: |
@@ -230,8 +297,8 @@ jobs:
               enrollment_tokens, amt_devices, audit_events, web_push_subscriptions,
               agent_sessions, devices, groups_, security_groups, users
             RESTART IDENTITY CASCADE;
-            INSERT INTO security_groups (id, name, description, is_system)
-            VALUES ('00000000-0000-0000-0000-000000000001', 'Administrators', 'Full system access', TRUE)
+            INSERT INTO security_groups (id, org_id, name, description, is_system)
+            VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Administrators', 'Full system access', TRUE)
             ON CONFLICT (id) DO NOTHING;"
 
       - name: Run Playwright E2E against staging
@@ -287,15 +354,82 @@ jobs:
           AMT_PASS: ${{ secrets.DEPLOY_AMT_PASS }}
           VAPID_CONTACT: ${{ secrets.DEPLOY_VAPID_CONTACT }}
           POSTGRES_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_PASSWORD }}
+          POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_APP_PASSWORD || secrets.DEPLOY_POSTGRES_PASSWORD }}
         run: |
           kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
           if ! kubectl -n "$NAMESPACE" get secret opengate-secrets >/dev/null 2>&1; then
             kubectl -n "$NAMESPACE" create secret generic opengate-secrets \
               --from-literal=JWT_SECRET="$JWT_SECRET" \
               --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+              --from-literal=POSTGRES_APP_PASSWORD="$POSTGRES_APP_PASSWORD" \
               --from-literal=AMT_PASS="$AMT_PASS" \
               --from-literal=VAPID_CONTACT="$VAPID_CONTACT"
+          else
+            APP_PASSWORD_B64="$(printf '%s' "$POSTGRES_APP_PASSWORD" | base64 | tr -d '\n')"
+            kubectl -n "$NAMESPACE" patch secret opengate-secrets --type merge \
+              -p "{\"data\":{\"POSTGRES_APP_PASSWORD\":\"${APP_PASSWORD_B64}\"}}"
           fi
+
+      - name: Ensure database role honors RLS
+        env:
+          POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_APP_PASSWORD || secrets.DEPLOY_POSTGRES_PASSWORD }}
+        run: |
+          if ! kubectl -n "$NAMESPACE" get statefulset "${RELEASE}-postgres" >/dev/null 2>&1; then
+            echo "Postgres StatefulSet not present yet; zz-app-role.sh will create opengate_app on first bootstrap."
+            exit 0
+          fi
+          kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
+            psql -U opengate -d opengate -v ON_ERROR_STOP=1 \
+              --set=app_password="$POSTGRES_APP_PASSWORD" <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'opengate_app') THEN
+              CREATE ROLE opengate_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+            END IF;
+          END
+          $$;
+
+          ALTER ROLE opengate_app WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'app_password';
+          GRANT CONNECT ON DATABASE opengate TO opengate_app;
+          GRANT USAGE, CREATE ON SCHEMA public TO opengate_app;
+          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO opengate_app;
+          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO opengate_app;
+
+          DO $$
+          DECLARE
+            obj record;
+          BEGIN
+            FOR obj IN
+              SELECT quote_ident(schemaname) || '.' || quote_ident(tablename) AS name
+              FROM pg_tables
+              WHERE schemaname = 'public'
+            LOOP
+              EXECUTE format('ALTER TABLE %s OWNER TO opengate_app', obj.name);
+            END LOOP;
+
+            FOR obj IN
+              SELECT quote_ident(sequence_schema) || '.' || quote_ident(sequence_name) AS name
+              FROM information_schema.sequences
+              WHERE sequence_schema = 'public'
+            LOOP
+              EXECUTE format('ALTER SEQUENCE %s OWNER TO opengate_app', obj.name);
+            END LOOP;
+          END
+          $$;
+
+          DO $$
+          BEGIN
+            IF EXISTS (
+              SELECT 1
+              FROM pg_roles
+              WHERE rolname = 'opengate_app'
+                AND (rolsuper OR rolbypassrls)
+            ) THEN
+              RAISE EXCEPTION 'database role opengate_app must be NOSUPERUSER and NOBYPASSRLS';
+            END IF;
+          END
+          $$;
+          SQL
 
       - name: Helm upgrade
         run: |

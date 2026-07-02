@@ -47,6 +47,7 @@ pub enum AgentCapability {
     ProcessManager,
     HardwareInventory,
     DeviceLogs,
+    HealthWindow,
 }
 
 /// Current status of a device.

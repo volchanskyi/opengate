@@ -71,6 +71,103 @@ fn golden_control_frame_heartbeat() {
 }
 
 #[test]
+fn golden_control_frame_agent_health_summary() {
+    let msg = ControlMessage::AgentHealthSummary {
+        ts: 1700000100,
+        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        node_anomaly_rate: 0.125,
+        per_family_rates: vec![
+            FamilyAnomalyRate {
+                family: "cpu".to_string(),
+                rate: 0.25,
+            },
+            FamilyAnomalyRate {
+                family: "process".to_string(),
+                rate: 0.5,
+            },
+        ],
+        recent_bitmask: vec![0xAA, 0x55, 0xF0],
+        sampler_ver: "sysinfo-k2".to_string(),
+        model_ver: "k2-baseline-v1".to_string(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_agent_health_summary.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_agent_metric_window() {
+    let msg = ControlMessage::AgentMetricWindow {
+        ts: 1700000160,
+        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        dims: vec![
+            MetricDim {
+                name: "cpu.total".to_string(),
+                avg: 42.5,
+            },
+            MetricDim {
+                name: "mem.rss".to_string(),
+                avg: 2048.0,
+            },
+        ],
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_agent_metric_window.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_process_report() {
+    let msg = ControlMessage::ProcessReport {
+        ts: 1700000220,
+        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        top_n: vec![ProcessReportEntry {
+            rank: 1,
+            basename: "postgres".to_string(),
+            cmdline_hash: Some("sha256:abcdef".to_string()),
+            pid: 4242,
+            cpu: 12.5,
+            mem: 3.25,
+        }],
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_process_report.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_request_health_window() {
+    let msg = ControlMessage::RequestHealthWindow {
+        since_ts: 1700000000,
+        limit: 12,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_request_health_window.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_health_window_response() {
+    let msg = ControlMessage::HealthWindowResponse {
+        summaries: vec![HealthSummary {
+            ts: 1700000100,
+            org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            node_anomaly_rate: 0.125,
+            per_family_rates: vec![FamilyAnomalyRate {
+                family: "cpu".to_string(),
+                rate: 0.25,
+            }],
+            recent_bitmask: vec![0xAA, 0x55, 0xF0],
+            sampler_ver: "sysinfo-k2".to_string(),
+            model_ver: "k2-baseline-v1".to_string(),
+        }],
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_health_window_response.bin", &encoded);
+}
+
+#[test]
 fn golden_control_frame_relay_ready() {
     let msg = ControlMessage::RelayReady;
     let frame = Frame::Control(msg);

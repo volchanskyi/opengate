@@ -30,6 +30,14 @@ scrape-only; this WS adds a server **push** path (`remote_write` / `/api/v1/impo
 
 ## File inventory
 
+- **Reuse (do not rebuild):** [`server/internal/testvm`](../../server/internal/testvm/testvm.go) —
+  the throwaway-VictoriaMetrics harness; `testvm.BaseURL(t)` gives a pinned `v1.114.0` instance for
+  the client/handler tests (auto-starts a container or honors `VICTORIAMETRICS_TEST_URL`, never
+  skips). Confirmed test-side HTTP APIs: seed via `POST /api/v1/import/prometheus` +
+  `GET /internal/force_flush`, assert via `GET /api/v1/status/tsdb` (`data.totalSeries`) /
+  `GET /api/v1/export`. The avg-only series model + 50k budget live in
+  [`server/tests/vmcardinality`](../../server/tests/vmcardinality/spike_test.go) — keep this WS's
+  emitted schema within that budget.
 - **Create:** `server/internal/telemetry/` — a VM `remote_write` client (numeric series with an
   `org_id` label) + a Postgres process-table repo (tenant-scoped via the WS-0 tx helper).
 - **Create:** `server/internal/db/migrations/003_telemetry.{up,down}.sql` — `device_processes`
@@ -49,8 +57,8 @@ scrape-only; this WS adds a server **push** path (`remote_write` / `/api/v1/impo
 ## Steps (TDD-first)
 
 1. **Test first:** `telemetry` VM-client tests — series carry the `org_id` label; the scoped
-   query client refuses/auto-injects so org A cannot read org B series. Use a throwaway VM
-   (Testcontainers/compose) so the test always runs deterministically.
+   query client refuses/auto-injects so org A cannot read org B series. Use the existing
+   `server/internal/testvm` harness (`testvm.BaseURL(t)`) so the test always runs deterministically.
 2. **Test first:** process-repo tests in `testpg` (insert + read; **RLS cross-tenant-deny**;
    `.down.sql` reverses) → write `003` + the repo.
 3. **Test first:** `conn.go` handler tests (each new message persists to the right store;

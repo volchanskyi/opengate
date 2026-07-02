@@ -20,6 +20,7 @@ Required Secret (NOT created by this chart — see secrets.example.yaml):
     --namespace {{ .Release.Namespace }} \
     --from-literal=JWT_SECRET=... \
     --from-literal=POSTGRES_PASSWORD=... \
+    --from-literal=POSTGRES_APP_PASSWORD=... \
     --from-literal=AMT_PASS=... \
     --from-literal=VAPID_CONTACT=mailto:ops@example.com{{ if .Values.postgres.backup.enabled }} \
     --from-literal=BACKUP_PAR_URL=https://objectstorage.<region>.oraclecloud.com/p/<token>/n/<ns>/b/opengate-pg-backups/o/{{ end }}

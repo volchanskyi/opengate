@@ -33,6 +33,12 @@ Use logical multi-tenancy in the shared PostgreSQL database:
   predicates and `org_id`-leading indexes on tenant lookup/list paths.
 - Permit administrator cross-org reads through RLS policy checks on
   `app.is_admin`, not through a `BYPASSRLS` application role.
+- Run Helm application traffic through the dedicated non-superuser runtime role
+  created by
+  [`zz-app-role.sh`](../../deploy/helm/opengate/files/zz-app-role.sh); existing
+  clusters are repaired/verified in
+  [`cd.yml`](../../.github/workflows/cd.yml). The original Postgres role remains
+  available for maintenance and full backups.
 - Test the boundary with per-repository cross-tenant deny coverage, a static
   tenant-table SQL scoped-helper gate, and an automated migration rehearsal that
   proves backfill, RLS deny/admin bypass, `pg_dump`/restore, and `.down.sql`
@@ -44,6 +50,8 @@ the default tenant explicitly. They are not hidden unscoped database reads.
 ## Consequences
 
 - A missed tenant context fails closed under forced RLS.
+- Runtime traffic cannot bypass RLS through superuser or `BYPASSRLS` role
+  attributes; maintenance and backup access stays separate from the app role.
 - Pooled connections do not leak tenant state because `SET LOCAL` lives inside a
   transaction.
 - Repositories have more boilerplate, but the security boundary is close to the

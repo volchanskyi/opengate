@@ -122,8 +122,10 @@ tokens carry the active `org` claim; authenticated middleware stores it in
 context, and repository methods execute inside transactions that set
 `app.current_org` and `app.is_admin` with `SET LOCAL`. Policies permit only rows
 for the current org, with an admin policy bypass controlled by `app.is_admin`.
-The application role does not use `BYPASSRLS`, so missing tenant context fails
-closed instead of leaking rows across organizations.
+The Helm runtime role is created by
+[`zz-app-role.sh`](../deploy/helm/opengate/files/zz-app-role.sh) and checked by
+[`cd.yml`](../.github/workflows/cd.yml) as non-superuser and non-`BYPASSRLS`, so
+missing tenant context fails closed instead of leaking rows across organizations.
 
 ### Rate Limiting
 
