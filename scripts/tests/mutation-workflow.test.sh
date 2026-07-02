@@ -233,6 +233,103 @@ else
   fail "scripts/mutation-summarize.sh must exist and be executable"
 fi
 
+# --- Summarizer drop-rule fires only when a previous baseline is supplied -----
+# The drop-rule ("score fell >2pp from the previous run") is dead in CI unless
+# HISTORY_FILE carries a prior row: the in-repo history file was retired, so
+# previous_row is null and only the <85 floor ever trips. mutation-baseline-fetch.sh
+# restores that row from VM; these cases pin the behavior it re-enables. web is
+# kept ABOVE the 85 floor so ONLY the drop-rule can catch it.
+web_report() { # $1=killed $2=survived → Stryker-shaped JSON at killed/(killed+survived)%
+  jq -nc --argjson k "$1" --argjson s "$2" \
+    '{files:{"a.ts":{mutants:
+       ([range(0; $k) | {status: "Killed"}] + [range(0; $s) | {status: "Survived"}])}}}'
+}
+
+if [ -x "$SUMMARIZE" ]; then
+  tmp="$(mktemp -d)"
+  printf '%s' '{"caught":95,"missed":5,"timeout":0,"unviable":0}' >"$tmp/rust.json"                                    # 95.0
+  printf '%s' '{"mutants_killed":95,"mutants_lived":5,"mutants_not_covered":0,"mutants_not_viable":0}' >"$tmp/go.json" # 95.0
+  web_report 87 13 >"$tmp/web.json"                                                                                    # 87.0 (> floor)
+
+  # prev web 89.5 → curr 87.0 = 2.5pp drop (> 2pp); rust/go flat.
+  printf '%s\n' '{"scores":{"rust":{"score_pct":95.0},"go":{"score_pct":95.0},"web":{"score_pct":89.5}}}' >"$tmp/hist-drop.jsonl"
+  code=0
+  out="$(RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" WEB_REPORT="$tmp/web.json" \
+    HISTORY_FILE="$tmp/hist-drop.jsonl" "$SUMMARIZE" 2>&1)" || code=$?
+  if [ "$code" = "1" ] \
+    && printf '%s\n' "$out" | grep -q '(drop > 2pp)' \
+    && printf '%s\n' "$out" | grep -q 'WEB:' \
+    && ! printf '%s\n' "$out" | grep -q 'below 85% floor'; then
+    pass "drop-rule fires on a >2pp fall from the restored baseline (above the floor)"
+  else
+    fail "drop-rule must fire (exit 1, '(drop > 2pp)') on a >2pp baseline fall (code=$code, out=$out)"
+  fi
+
+  # prev web 88.5 → curr 87.0 = 1.5pp drop (< 2pp): no regression.
+  printf '%s\n' '{"scores":{"rust":{"score_pct":95.0},"go":{"score_pct":95.0},"web":{"score_pct":88.5}}}' >"$tmp/hist-nodrop.jsonl"
+  code=0
+  out="$(RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" WEB_REPORT="$tmp/web.json" \
+    HISTORY_FILE="$tmp/hist-nodrop.jsonl" "$SUMMARIZE" 2>&1)" || code=$?
+  if [ "$code" = "0" ]; then
+    pass "drop-rule stays silent on a <2pp fall from the restored baseline"
+  else
+    fail "a <2pp fall must not be flagged (code=$code, out=$out)"
+  fi
+
+  # Alert branch label derives from GITHUB_REF_NAME (the failing run was the
+  # scheduled MAIN run, previously mislabeled 'dev').
+  out="$(GITHUB_REF_NAME=main RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" \
+    WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/hist-drop.jsonl" "$SUMMARIZE" 2>&1)" || true
+  if printf '%s\n' "$out" | grep -q 'regression on main'; then
+    pass "alert branch label derives from GITHUB_REF_NAME"
+  else
+    fail "alert header must say 'regression on main' when GITHUB_REF_NAME=main (out=$out)"
+  fi
+
+  out="$(env -u GITHUB_REF_NAME RUST_OUTCOMES="$tmp/rust.json" GO_REPORT="$tmp/go.json" \
+    WEB_REPORT="$tmp/web.json" HISTORY_FILE="$tmp/hist-drop.jsonl" "$SUMMARIZE" 2>&1)" || true
+  if printf '%s\n' "$out" | grep -q 'regression on dev'; then
+    pass "alert branch label falls back to dev when GITHUB_REF_NAME is unset"
+  else
+    fail "alert header must fall back to 'regression on dev' when GITHUB_REF_NAME is unset (out=$out)"
+  fi
+  rm -rf "$tmp"
+else
+  fail "scripts/mutation-summarize.sh must exist and be executable"
+fi
+
+# --- Workflow wires the VM baseline restore before Summarize ------------------
+# The fetch needs kubectl, so OCI+kube setup must precede the Restore step, and
+# Restore must precede Summarize so previous_row sees the reconstructed row.
+line_of() { grep -nE "$1" "$WORKFLOW" | head -1 | cut -d: -f1; }
+oci_line="$(line_of 'uses:[[:space:]]*\./\.github/actions/oci-kube-setup')"
+fetch_line="$(line_of 'mutation-baseline-fetch\.sh')"
+summ_line="$(line_of 'mutation-summarize\.sh')"
+
+if [ -n "$fetch_line" ] && [ -n "$summ_line" ] && [ "$fetch_line" -lt "$summ_line" ]; then
+  pass "workflow restores the VM baseline before Summarize"
+else
+  fail "workflow must run mutation-baseline-fetch.sh before mutation-summarize.sh (fetch=$fetch_line summ=$summ_line)"
+fi
+
+if [ -n "$oci_line" ] && [ -n "$fetch_line" ] && [ "$oci_line" -lt "$fetch_line" ]; then
+  pass "OCI + kube setup precedes the baseline restore (fetch needs kubectl)"
+else
+  fail "oci-kube-setup must precede the baseline restore (oci=$oci_line fetch=$fetch_line)"
+fi
+
+if [ "$(grep -cE 'uses:[[:space:]]*\./\.github/actions/oci-kube-setup' "$WORKFLOW")" = "1" ]; then
+  pass "OCI + kube setup is moved, not duplicated"
+else
+  fail "workflow must contain exactly one oci-kube-setup step (moved ahead of Restore, not duplicated)"
+fi
+
+if grep -qE 'VM_EXCLUDE_COMMIT:[[:space:]]*\$\{\{[[:space:]]*github\.sha' "$WORKFLOW"; then
+  pass "baseline restore excludes the current commit (VM_EXCLUDE_COMMIT=github.sha)"
+else
+  fail "restore step must set VM_EXCLUDE_COMMIT to github.sha"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

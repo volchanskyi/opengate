@@ -34,8 +34,11 @@ if grep -n -E 'benchmark-action/github-action-benchmark|^[[:space:]]+(go-bench|r
   "$REPO_ROOT/.github/workflows/ci.yml" >/dev/null; then
   fail "legacy gh-pages benchmark publishing still exists"
 fi
-grep -q 'rm -rf gh-pages/dev/bench' "$REPO_ROOT/.github/workflows/ci.yml" \
-  || fail "gh-pages benchmark data cleanup is not wired into its deployment owner"
+
+if grep -n -E '^[[:space:]]+perf-publish:|gh-pages/dev/perf|lighthouse-history|latest-bundle-size' \
+  "$REPO_ROOT/.github/workflows/ci.yml" >/dev/null; then
+  fail "volatile performance history still publishes to gh-pages"
+fi
 
 grep -q 'pmat-vm-query\.sh repo_score' "$REPO_ROOT/.github/workflows/pmat-trend.yml" \
   || fail "PMAT workflow does not read its previous score from VM"

@@ -415,8 +415,9 @@ cd server && go run ./tests/loadtest/ -agents=500 -addr=staging.example.com:9090
 - **E2E** runs on every push and gates `merge-to-main` (includes Lighthouse CI audits)
 - **Bundle size** runs on every push and gates `merge-to-main` (size-limit gzip check)
 - **Load tests** run on `workflow_dispatch` and weekly schedule only (not on every push)
-- **Browser performance history** comes from Lighthouse CI and the non-blocking
-  `perf-publish` path; PageSpeed Insights is not part of the current CD workflow.
+- **Browser performance evidence** comes from Lighthouse CI artifacts/summaries
+  and the bundle-size gate; PageSpeed Insights is not part of the current CD
+  workflow.
 
 ## Investigating Test Failures in Production
 

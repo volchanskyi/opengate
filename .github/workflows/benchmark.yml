@@ -123,6 +123,19 @@ jobs:
           name: bench-rust-criterion
           path: artifacts/rust
 
+      # Must precede Summarize: the ns/op gate reads a VictoriaMetrics window
+      # baseline through the in-cluster VM Service, so the kubeconfig has to exist
+      # before the summarizer runs (the later Push step reuses the same setup).
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
       - name: Summarize and check regression
         id: summarize
         env:
@@ -201,16 +214,6 @@ jobs:
           path: benchmarks/baseline.json
           retention-days: 90
 
-      - name: OCI + kubeconfig setup
-        uses: ./.github/actions/oci-kube-setup
-        with:
-          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
-          oci-region: ${{ secrets.OCI_REGION }}
-          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
-
       - name: Push to VictoriaMetrics
         run: ./scripts/benchmark-vm-push.sh benchmark-rows.json
 
@@ -280,5 +283,5 @@ jobs:
       - name: Fail workflow red on regression
         if: always() && steps.summarize.outputs.regression == '1'
         run: |
-          echo "Benchmark allocation regression detected — see workflow summary and Telegram alert (if delivered) above."
+          echo "Benchmark regression detected (allocs/bytes vs committed baseline, or ns/op vs VM window baseline / absolute ceiling) — see workflow summary and Telegram alert (if delivered) above."
           exit 1

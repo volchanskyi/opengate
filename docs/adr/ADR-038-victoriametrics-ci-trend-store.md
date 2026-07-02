@@ -61,12 +61,14 @@ The old Loki push transport, family wrappers, and LogQL trend queries are
 retired. Loki's runtime deployment, persistence, Promtail path, and log
 dashboards are unchanged.
 
-### Branch-hosted benchmark history is retired
+### Branch-hosted numeric history is retired
 
 The benchmark feeder and publisher jobs are removed from
-[`ci.yml`](../../.github/workflows/ci.yml). The remaining `gh-pages` deployment
-owner removes the obsolete benchmark directory while preserving API docs and
-the separate Lighthouse/bundle-size history.
+[`ci.yml`](../../.github/workflows/ci.yml). The volatile Lighthouse and
+bundle-size history publisher is also retired: those checks keep their per-run
+artifacts and GitHub step summaries, but no longer append JSON snapshots to
+`gh-pages` on every `dev` push. `gh-pages` remains a low-churn publication path
+for API docs.
 
 ### Retention and audit trail
 

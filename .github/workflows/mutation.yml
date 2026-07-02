@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 # Default to read-only at the workflow level. The publish job no longer
-# commits anything to the repo (trend data lives in Loki + workflow artifacts);
+# commits anything to the repo (trend data lives in VictoriaMetrics + workflow artifacts);
 # read-only is sufficient throughout.
 permissions:
   contents: read
@@ -275,12 +275,36 @@ jobs:
           echo "--- placed artifacts ---"
           ls -la agent/mutants.out/ server/ web/reports/mutation/ 2>&1 || true
 
+      - name: OCI + kubeconfig setup
+        id: infra
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      - name: Restore baseline from VM
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          VM_EXCLUDE_COMMIT: ${{ github.sha }}
+        run: |
+          ./scripts/mutation-baseline-fetch.sh > mutation-baseline.jsonl
+          if [ -s mutation-baseline.jsonl ]; then
+            echo "HISTORY_FILE=$PWD/mutation-baseline.jsonl" >> "$GITHUB_ENV"
+          else
+            rm -f mutation-baseline.jsonl
+          fi
+
       - name: Summarize + regression check (canonical row to stdout)
         id: summarize
         env:
           GITHUB_SHA: ${{ github.sha }}
         # Run the summarize script (APPEND unset → no on-disk history file
-        # written; trend data lives in Loki). Capture the canonical row and
+        # written; trend data lives in VictoriaMetrics). Capture the canonical row and
         # any REGRESSION_ALERT lines for downstream steps. Script exits 1 on
         # regression — we capture that but do NOT fail this step yet (the
         # alert step needs to run). Exit 2 means missing/malformed input, so
@@ -334,18 +358,6 @@ jobs:
           name: mutation-canonical-row
           path: canonical-row.json
           retention-days: 90
-
-      - name: OCI + kubeconfig setup
-        id: infra
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-        uses: ./.github/actions/oci-kube-setup
-        with:
-          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
-          oci-user: ${{ secrets.OCI_USER_OCID }}
-          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
-          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
-          oci-region: ${{ secrets.OCI_REGION }}
-          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
       - name: Push to VictoriaMetrics
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

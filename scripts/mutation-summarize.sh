@@ -187,6 +187,7 @@ previous_row() {
 # When PREV_ROW is null (first run), only the absolute-floor rule applies.
 regression_check() {
   local curr="$1" prev="$2"
+  local branch="${GITHUB_REF_NAME:-dev}"
 
   local result
   result="$(jq -nc \
@@ -231,7 +232,7 @@ regression_check() {
 
       [fmt("rust"; .rust), fmt("go"; .go), fmt("web"; .web)] | join("\n")
     ' <<<"$result")"
-    echo "REGRESSION_ALERT:⚠️ Mutation score regression on dev"
+    echo "REGRESSION_ALERT:⚠️ Mutation score regression on $branch"
     echo "REGRESSION_ALERT:"
     while IFS= read -r line; do
       echo "REGRESSION_ALERT:$line"

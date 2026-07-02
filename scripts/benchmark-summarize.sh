@@ -1,13 +1,35 @@
 #!/usr/bin/env bash
 # Build canonical benchmark rows from Go -benchmem output and Criterion JSON,
-# then compare deterministic allocation metrics against the committed baseline.
+# then gate regressions. Deterministic allocation metrics (allocs/op, bytes/op)
+# are compared against the committed baseline at ±2%. The machine-dependent ns/op
+# metric is hard-gated against a noise-robust VictoriaMetrics window baseline (14d
+# median × a frozen relative band) OR an absolute ceiling anchored on the committed
+# baseline — either rule reds. The frozen band/ceiling were calibrated from the
+# live VM series' measured run-to-run variance; fail-open on any VM failure.
 set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/vm-query.sh
+. "$SCRIPT_DIR/lib/vm-query.sh"
 
 GO_BENCH_FILE="${GO_BENCH_FILE:-bench-go.txt}"
 CRITERION_ROOT="${CRITERION_ROOT:-agent/target/criterion}"
 BASELINE_FILE="${BASELINE_FILE:-benchmarks/baseline.json}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Exclude the current commit from every window query so a workflow re-run never
+# compares against its own just-pushed sample (the exclusion lives in vm-query.sh
+# and is keyed off VM_EXCLUDE_COMMIT).
+export VM_EXCLUDE_COMMIT="${VM_EXCLUDE_COMMIT:-$COMMIT_SHA}"
+
+# ns/op window-gate constants — frozen from live-VM calibration (measured
+# run-to-run CV ≤ 12.4%, worst no-change excursion +28%). See the plan
+# vm-readback-m2-benchmark-nsop-gate.md for the derivation; do not hand-tune here.
+NS_WINDOW_DAYS=14       # < 30d VM retention; ~14 nightly samples
+NS_REL_TOL=0.50         # regress if ns/op > window median × (1 + this)
+NS_ABS_CEIL_TOL=1.0     # regress if ns/op > committed-baseline ns × (1 + this)
+NS_MIN_WINDOW_SAMPLES=3 # fewer window samples ⇒ relative rule skipped (cold-start)
 
 parse_go_bench() {
   local file="$1"
@@ -138,25 +160,90 @@ hard_regressions() {
   ' <<<"$baseline"
 }
 
-ns_advisories() {
-  local rows="$1" baseline="$2"
-  jq -r --argjson rows "$rows" '
+# Fetch the per-{benchmark,lang} ns/op window statistic from VictoriaMetrics: the
+# 14d median (relative-rule baseline) and the run count (cold-start guard). Each is
+# an instant aggregation over the range that drops the per-commit series — quantile
+# for the robust center, count for the sample size — grouped by {benchmark,lang}.
+# Prints TSV "lang<TAB>name<TAB>median<TAB>count", one line per series that has a
+# median. FAIL-OPEN: any VM/transport failure yields no lines (⇒ absolute-only).
+ns_window_stats() {
+  local sel window
+  sel="benchmark_ns_op{$(vm_query_selector 'env="ci"')}"
+  window="[${NS_WINDOW_DAYS}d]"
+  {
+    vm_query_window "quantile(0.5, median_over_time(${sel}${window})) by (benchmark, lang)" \
+      | sed 's/^/M\t/'
+    vm_query_window "count(count_over_time(${sel}${window})) by (benchmark, lang)" \
+      | sed 's/^/C\t/'
+  } | awk -F'\t' '
+    {
+      kind = $1; sig = $2; val = $3
+      bench = ""; lang = ""
+      n = split(sig, parts, ",")
+      for (i = 1; i <= n; i++) {
+        split(parts[i], kv, "=")
+        if (kv[1] == "benchmark") bench = kv[2]
+        if (kv[1] == "lang") lang = kv[2]
+      }
+      if (bench == "" || lang == "") next
+      key = lang "\t" bench
+      if (kind == "M") med[key] = val; else cnt[key] = val
+    }
+    END {
+      for (k in med) {
+        c = (k in cnt) ? cnt[k] : 0
+        print k "\t" med[k] "\t" c
+      }
+    }
+  '
+}
+
+# Build the window map "{\"lang/name\":{median,count}}" from ns_window_stats, or an
+# empty object on any failure (fail-open ⇒ relative rule uniformly skipped).
+ns_window_map() {
+  local map
+  map="$(ns_window_stats | jq -Rn '
+    [ inputs
+      | split("\t")
+      | select(length >= 4)
+      | { key: (.[0] + "/" + .[1]), value: { median: .[2], count: (.[3] | tonumber) } }
+    ] | from_entries
+  ' 2>/dev/null || true)"
+  [[ -n "$map" ]] && printf '%s' "$map" || printf '{}'
+}
+
+# ns/op two-rule gate. Regress if EITHER current ns/op > window median × (1+tol)
+# (relative — only when the window has ≥ NS_MIN_WINDOW_SAMPLES samples), OR current
+# > committed-baseline ns × (1+ceil) (absolute backstop — always applies, catches
+# slow drift the self-updating window would track). Emits TSV per regressed series:
+# lang, name, "ns_op", baseline_value, current, tol_pct, rule-label.
+ns_window_regressions() {
+  local rows="$1" baseline="$2" window="$3"
+  jq -r \
+    --argjson rows "$rows" \
+    --argjson window "$window" \
+    --argjson reltol "$NS_REL_TOL" \
+    --argjson ceiltol "$NS_ABS_CEIL_TOL" \
+    --argjson minn "$NS_MIN_WINDOW_SAMPLES" '
     . as $baseline
-    | ($baseline.default_tolerances // {}) as $defaults
     | $rows[] as $row
     | ($baseline.benchmarks[]? | select(.name == $row.name and .lang == $row.lang)) as $base
     | select($base.ns_op != null and $row.ns_op != null)
-    | ($base.tolerances.ns_op // $defaults.ns_op // 1.5) as $tolerance
-    | select(($row.ns_op | tonumber) > (($base.ns_op | tonumber) * (1 + $tolerance)))
-    | [
-        $row.lang,
-        $row.name,
-        "ns_op",
-        ($base.ns_op | tostring),
-        ($row.ns_op | tostring),
-        (($tolerance * 100) | tostring)
-      ]
-      | @tsv
+    | ($window[$row.lang + "/" + $row.name]) as $win
+    | ($base.ns_op | tonumber) as $base_ns
+    | ($row.ns_op | tonumber) as $cur_ns
+    | ($base_ns * (1 + $ceiltol)) as $ceiling
+    | (if ($win != null and ($win.count // 0) >= $minn and $win.median != null)
+         then (($win.median | tonumber) * (1 + $reltol)) else null end) as $band
+    | (if $band != null and $cur_ns > $band then "window"
+       elif $cur_ns > $ceiling then "ceiling"
+       else null end) as $rule
+    | select($rule != null)
+    | if $rule == "window"
+        then [$row.lang, $row.name, "ns_op", ($win.median | tostring), ($cur_ns | tostring), (($reltol * 100) | tostring), "window median"]
+        else [$row.lang, $row.name, "ns_op", ($base_ns | tostring), ($cur_ns | tostring), (($ceiltol * 100) | tostring), "baseline ceiling"]
+      end
+    | @tsv
   ' <<<"$baseline"
 }
 
@@ -173,26 +260,32 @@ regression_check() {
     return 2
   }
 
-  local line
+  # Read-back the ns/op window baseline once (fail-open to {} on any VM failure).
+  local window
+  window="$(ns_window_map)"
+
+  local branch="${GITHUB_REF_NAME:-dev}"
+  local lines=()
+
+  # Deterministic allocs/bytes gate — committed baseline ±2% (unchanged).
   while IFS=$'\t' read -r lang name metric old new tolerance; do
     [[ -n "${lang:-}" ]] || continue
-    echo "BENCHMARK_ADVISORY: ${lang}/${name} ${metric} ${old} → ${new} (>${tolerance}% tolerance; advisory only)"
-  done < <(ns_advisories "$rows" "$baseline")
-
-  local regressed=0
-  local hard=()
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    hard+=("$line")
-    regressed=1
+    lines+=("  • ${lang}/${name} ${metric}: ${old} → ${new} (>${tolerance}% tolerance)")
   done < <(hard_regressions "$rows" "$baseline")
 
-  if ((regressed)); then
-    echo "REGRESSION_ALERT:⚠️ Benchmark allocation regression on dev"
+  # Noise-robust ns/op gate — VM window median band OR committed-baseline ceiling.
+  while IFS=$'\t' read -r lang name metric old new tolerance rule; do
+    [[ -n "${lang:-}" ]] || continue
+    lines+=("  • ${lang}/${name} ${metric}: ${old} → ${new} (>${tolerance}% ${rule})")
+  done < <(ns_window_regressions "$rows" "$baseline" "$window")
+
+  if ((${#lines[@]})); then
+    echo "REGRESSION_ALERT:⚠️ Benchmark regression on ${branch}"
     echo "REGRESSION_ALERT:"
-    while IFS=$'\t' read -r lang name metric old new tolerance; do
-      echo "REGRESSION_ALERT:  • ${lang}/${name} ${metric}: ${old} → ${new} (>${tolerance}% tolerance)"
-    done < <(printf '%s\n' "${hard[@]}")
+    local l
+    for l in "${lines[@]}"; do
+      echo "REGRESSION_ALERT:${l}"
+    done
     return 1
   fi
 

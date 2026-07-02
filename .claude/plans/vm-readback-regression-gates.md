@@ -4,7 +4,7 @@
 > micro-plan index. The per-item execution specs are the sibling `vm-readback-*.md`
 > files in this directory (M0–M3 + the Criterion-HTML retirement). **Consolidated**
 > the standalone `mutation-regression-baseline-wiring` plan into
-> `vm-readback-m1-mutation-drop-gate.md` (that file is deleted). Per the doc-link
+> `plans/archive/vm-readback-m1-mutation-drop-gate.md` (M1 is complete). Per the doc-link
 > rule, this plan references **other plans** by plain path/code span (never markdown
 > links) — only repo source/docs are linked.
 
@@ -212,9 +212,9 @@ live VM before coding the band**.
 | Micro-plan | File | Summary |
 |---|---|---|
 | **HTML retire** | `vm-readback-criterion-html-retire.md` | drop Criterion `html_reports` (data-only artifacts); independent, land **before/with M2** (shared `benchmark.yml`) |
-| **M0** | `vm-readback-m0-shared-vm-query-lib.md` | extract `lib/vm-query.sh` (`vm_query_latest` + `vm_query_window`); repoint PMAT behavior-preserving. **Foundation for M1–M3** |
-| **M1** | `vm-readback-m1-mutation-drop-gate.md` | fetch per-language baseline from VM ⇒ engage the dead `drop > 2pp` rule; branch label from `GITHUB_REF_NAME` |
-| **M2** | `vm-readback-m2-benchmark-nsop-gate.md` | ns/op hard gate via VM window median + calibrated band + abs ceiling; keep allocs/bytes committed-baseline; amend CI-Pipeline doctrine |
+| **M0** | `plans/archive/vm-readback-m0-shared-vm-query-lib.md` | **Done:** extracted `lib/vm-query.sh` (`vm_query_latest` + `vm_query_window`); repointed PMAT behavior-preserving. **Foundation for M1–M3** |
+| **M1** | `plans/archive/vm-readback-m1-mutation-drop-gate.md` | **Done:** fetch per-language baseline from VM ⇒ engage the dead `drop > 2pp` rule; branch label from `GITHUB_REF_NAME` |
+| **M2** | `vm-readback-m2-benchmark-nsop-gate.md` | **Done:** ns/op hard gate via VM window median × frozen 50% band OR committed-baseline×2 ceiling; allocs/bytes stay committed-baseline ±2%; CI-Pipeline doctrine amended |
 | **M3** | `vm-readback-m3-loadtest-gate.md` | new publish job; per-`{scenario,phase,source}` window gate on latency/rps + abs ceiling on error_rate; p99 alert-only; supersede ADR-038 visibility-only clause |
 
 ## Related cleanup — retire benchmark HTML reports (independent of M0–M3)
@@ -229,11 +229,12 @@ the file inventory and steps.
 ## Execution order
 
 0. **Done:** `mutation-regression-baseline-wiring.md` deleted (folded into
-   `vm-readback-m1-mutation-drop-gate.md`).
+   `plans/archive/vm-readback-m1-mutation-drop-gate.md`).
 1. **`vm-readback-criterion-html-retire.md`** (independent; leaves a clean
    `benchmark.yml` for M2).
-2. **M0** — `vm-readback-m0-shared-vm-query-lib.md` (foundation for M1–M3).
-3. **M1–M3** — sequential, or parallel micro-plans to other engineers after M0.
+2. **Done:** M0 — `plans/archive/vm-readback-m0-shared-vm-query-lib.md`.
+3. **Done:** M1 — `plans/archive/vm-readback-m1-mutation-drop-gate.md`.
+4. **Done:** M2 — `vm-readback-m2-benchmark-nsop-gate.md`. **M3** remains (loadtest gate).
 
 ## Open decisions
 
