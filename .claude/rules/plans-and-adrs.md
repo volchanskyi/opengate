@@ -38,4 +38,4 @@ Plans are **ephemeral** — active plans get archived/renamed, and archived plan
 Enforced by two mechanisms:
 
 - [`pretooluse-write-guard.sh`](../hooks/pretooluse-write-guard.sh) (`adr-plan-link`): a Write/Edit/MultiEdit of an ADR whose new content links a **non-archived** plan (`](…plans/….md)` not under `plans/archive/`) is blocked.
-- [`scripts/check-doc-links`](../../scripts/check-doc-links/) (gauntlet): refuses any **active-plan** link from anywhere, and any **plan link at all** (archived included) from a non-ADR doc under `docs/`.
+- [`scripts/check-doc-links`](../../scripts/check-doc-links/) (gauntlet): scans durable sources only — `docs/**` and `.claude/**` **minus the ephemeral `.claude/plans/**` working-area** (active plans and `archive/`), whose files are deletion-bound and whose internal links rot by design. Within that scope it refuses any **active-plan** link and any **plan link at all** (archived included) from a non-ADR doc under `docs/`. Plan files remain valid link *targets*; they are simply no longer scanned as *sources*, so the gate is a clean "zero broken links" with no baseline ledger to maintain.

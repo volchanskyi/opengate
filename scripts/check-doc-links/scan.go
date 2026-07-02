@@ -97,20 +97,27 @@ func (c *checker) collectMarkdownPath(
 	if walkErr != nil {
 		return walkErr
 	}
-	if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".md") {
-		return nil
-	}
 	relativePath, err := filepath.Rel(c.root, path)
 	if err != nil {
 		return err
 	}
-	fileSet[filepath.ToSlash(relativePath)] = struct{}{}
+	relSlash := filepath.ToSlash(relativePath)
+	if entry.IsDir() {
+		if relSlash == ".claude/plans" {
+			return fs.SkipDir
+		}
+		return nil
+	}
+	if !inScope(relSlash) {
+		return nil
+	}
+	fileSet[relSlash] = struct{}{}
 	return nil
 }
 
 func addOverlayFiles(fileSet map[string]struct{}, overlays map[string][]byte) {
 	for relativePath := range overlays {
-		if isScopedMarkdown(relativePath) {
+		if inScope(relativePath) {
 			fileSet[relativePath] = struct{}{}
 		}
 	}
@@ -125,8 +132,18 @@ func sortedPaths(fileSet map[string]struct{}) []string {
 	return files
 }
 
-func isScopedMarkdown(relativePath string) bool {
+// inScope reports whether a repository-relative Markdown path is a link SOURCE
+// the checker validates. The durable roots are docs/ and .claude/, minus the
+// ephemeral plan working-area (.claude/plans/, active and archive/): those files
+// are deletion-bound and their internal relative links rot by design, so
+// scanning them as sources is pure noise. Plan files remain valid link TARGETS —
+// the plan-link policy (see checker.go) still governs links TO them from durable
+// sources. Both the directory walk and the hook overlay route through this.
+func inScope(relativePath string) bool {
 	if !strings.EqualFold(filepath.Ext(relativePath), ".md") {
+		return false
+	}
+	if strings.HasPrefix(relativePath, ".claude/plans/") {
 		return false
 	}
 	return relativePath == "docs" ||

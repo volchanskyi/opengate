@@ -47,17 +47,17 @@ Test fixtures with deliberate fake credentials (e.g. [`deploy/tests/fixtures/lea
 
 ### Dependabot
 
-[Dependabot](../../.github/dependabot.yml) checks all four ecosystems (Go, Cargo, npm, GitHub Actions) daily. PRs target `dev` directly — same target a human contributor would use.
+[Dependabot](../.github/dependabot.yml) checks all four ecosystems (Go, Cargo, npm, GitHub Actions) daily. PRs target `dev` directly — same target a human contributor would use.
 
 Updates are **grouped per ecosystem** — one PR per ecosystem rather than one per package — reducing noise.
 
-The [auto-merge workflow](../../.github/workflows/dependabot-auto-merge.yml) classifies each PR via `dependabot/fetch-metadata` and squash-merges patch + minor updates as soon as CI is green; major-version bumps stay open with a comment requesting human review. The full propagation path is:
+The [auto-merge workflow](../.github/workflows/dependabot-auto-merge.yml) classifies each PR via `dependabot/fetch-metadata` and squash-merges patch + minor updates as soon as CI is green; major-version bumps stay open with a comment requesting human review. The full propagation path is:
 
 ```
 dependabot/* PR → dev → (CI) → main
 ```
 
-The existing `merge-to-main` job in [`ci.yml`](../../.github/workflows/ci.yml) forwards `dev` → `main` after the same gate any human commit clears. No separate integration branch; no nightly sync workflow.
+The existing `merge-to-main` job in [`ci.yml`](../.github/workflows/ci.yml) forwards `dev` → `main` after the same gate any human commit clears. No separate integration branch; no nightly sync workflow.
 
 ## Adversarial Pen-Test Gate
 

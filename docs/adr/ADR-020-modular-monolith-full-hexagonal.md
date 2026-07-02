@@ -8,7 +8,7 @@ Status: Accepted
 OpenGate is partially modular by language: Rust is a 5-crate workspace, the Go server has 17 internal packages, the web has 11 feature folders. Modularity is enforced informally — via code review and a handful of declared interfaces (`AgentGetter`, `AMTOperator`, `CertProvider`, `notifications.Notifier`, `relay.Conn`) — but not by CI. Two structural pinch-points have accumulated:
 
 - **God-struct `*Server`** at [`server/internal/api/api.go:74-93`](../../server/internal/api/api.go#L74-L93) — 17 fields holding every dependency; oapi-codegen mounts all handlers through one `StrictHandlerWithOptions` call at [`api.go:143`](../../server/internal/api/api.go#L143).
-- **Monolithic `db.Store`** at [`server/internal/db/store.go:16-98`](../../server/internal/db/store.go#L16-L98) — 56 methods spanning 13 entity groups; imported from 51 files.
+- **Monolithic `db.Store`** at [`server/internal/db/store.go:16-98`](../../server/internal/db/store.go) — 56 methods spanning 13 entity groups; imported from 51 files.
 
 Three forces motivate making modularity explicit and enforced now:
 

@@ -7,7 +7,7 @@ Status: Accepted; mutation trend-store clause superseded by ADR-038
 
 Three CI/CD issues converged this week and required architectural decisions, not symptom patches:
 
-1. **IaC plan preview did not gate direct-to-dev pushes.** The project's workflow is "push directly to `dev`; CI auto-merges to `main`." The standalone [`.github/workflows/iac-plan-preview.yml`](../../.github/workflows/iac-plan-preview.yml) only triggered on `pull_request` and was not in `merge-to-main.needs:`. For our own pushes the destroy-blocklist did nothing — drift detection was the only line of defence, and it reports a day after the fact.
+1. **IaC plan preview did not gate direct-to-dev pushes.** The project's workflow is "push directly to `dev`; CI auto-merges to `main`." The standalone `.github/workflows/iac-plan-preview.yml` only triggered on `pull_request` and was not in `merge-to-main.needs:`. For our own pushes the destroy-blocklist did nothing — drift detection was the only line of defence, and it reports a day after the fact.
 
 2. **Mutation testing's nightly publish job repeatedly failed** with `GH013: Repository rule violations found for refs/heads/dev` — the bot's `chore(mutation): nightly score snapshot` commit could never land because `dev` branch protection requires 19 status checks the new commit has not run. Three prior "fixes" (retarget main → dev, add rebase, add 3× retry) treated symptoms; the root cause is structural: a fresh bot commit cannot acquire required-check evidence without re-running CI on it, and `[skip ci]` would only make it worse.
 

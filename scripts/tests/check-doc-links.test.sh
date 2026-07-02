@@ -107,13 +107,6 @@ run_fixture active-plan-self-anchor 0
 run_fixture archived-plan-link 0
 run_fixture docs-plan-link 1 'documentation under docs/ must not link plan files'
 
-if "$CHECKER" --root "$FIXTURES/broken-file" --write-baseline "$TMP_DIR/baseline.txt" >/dev/null 2>&1 \
-  && "$CHECKER" --root "$FIXTURES/broken-file" --baseline "$TMP_DIR/baseline.txt" >/dev/null 2>&1; then
-  pass "baseline suppresses an existing problem"
-else
-  fail "baseline suppresses an existing problem"
-fi
-
 run_hook_case \
   "hook rejects broken Write" \
   hook-overlay \
@@ -160,10 +153,10 @@ run_hook_case \
   0
 
 if grep -qF 'run_check "doc links"' "$REPO_ROOT/scripts/precommit-gauntlet.sh" \
-  && grep -qF -- '--baseline .claude/doc-link-baseline.txt' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
-  pass "gauntlet registers doc-link checker"
+  && ! grep -qF -- '--baseline' "$REPO_ROOT/scripts/precommit-gauntlet.sh"; then
+  pass "gauntlet registers doc-link checker without a baseline"
 else
-  fail "gauntlet registers doc-link checker"
+  fail "gauntlet registers doc-link checker without a baseline"
 fi
 
 if python3 - "$REPO_ROOT/.claude/settings.json" <<'PY'; then
