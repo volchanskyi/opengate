@@ -10,13 +10,13 @@ fleets.
 ## Context (both directions are broken today)
 
 - **Agent→server:** an unknown control type returns `ErrUnexpectedMessage`
-  ([`conn.go:245`](../../server/internal/agentapi/conn.go#L245)) and the control loop **drops
+  ([`conn.go:245`](../../../server/internal/agentapi/conn.go#L245)) and the control loop **drops
   the connection** on any non-EOF error
-  ([`server.go:260`](../../server/internal/agentapi/server.go#L260)), pinned by
-  `TestAgentConn_HandleUnknownMessage` ([`conn_part8_test.go:44`](../../server/internal/agentapi/conn_part8_test.go#L44)).
+  ([`server.go:260`](../../../server/internal/agentapi/server.go#L260)), pinned by
+  `TestAgentConn_HandleUnknownMessage` ([`conn_part8_test.go:44`](../../../server/internal/agentapi/conn_part8_test.go#L44)).
 - **Server→agent (the gap WS-1 originally missed):** the Rust `ControlMessage` is
   `#[serde(tag="type")]` + `#[non_exhaustive]`
-  ([`control.rs:10-13`](../../agent/crates/mesh-protocol/src/control.rs#L10)). **`#[non_exhaustive]`
+  ([`control.rs:10-13`](../../../agent/crates/mesh-protocol/src/control.rs#L10)). **`#[non_exhaustive]`
   does not make serde tolerate unknown tags** — an unknown tag fails at *decode*, before any
   match arm runs. So a server sending `RequestHealthWindow` (WS-3) to an old agent breaks it.
 
@@ -24,10 +24,10 @@ So "additive message" is wire-additive but **not** operationally safe in either 
 
 ## File inventory
 
-- **Modify:** [`server/internal/agentapi/conn.go`](../../server/internal/agentapi/conn.go) (relax the `handleControl` `default:` arm)
-- **Modify:** [`server/internal/agentapi/conn_test.go`](../../server/internal/agentapi/conn_test.go) (flip the pinning test)
-- **Modify:** [`agent/crates/mesh-protocol/src/control.rs`](../../agent/crates/mesh-protocol/src/control.rs) — an `Unknown`/catch-all decode path so unknown server→agent tags deserialize-then-ignore instead of erroring
-- **Modify:** capability advertisement at register (reuse the existing `AgentCapability` set in [`types/device.rs`](../../agent/crates/mesh-protocol/src/types/device.rs) + Go `protocol`); the server gates new server→agent variants on the agent's advertised capabilities
+- **Modify:** [`server/internal/agentapi/conn.go`](../../../server/internal/agentapi/conn.go) (relax the `handleControl` `default:` arm)
+- **Modify:** [`server/internal/agentapi/conn_test.go`](../../../server/internal/agentapi/conn_test.go) (flip the pinning test)
+- **Modify:** [`agent/crates/mesh-protocol/src/control.rs`](../../../agent/crates/mesh-protocol/src/control.rs) — an `Unknown`/catch-all decode path so unknown server→agent tags deserialize-then-ignore instead of erroring
+- **Modify:** capability advertisement at register (reuse the existing `AgentCapability` set in [`types/device.rs`](../../../agent/crates/mesh-protocol/src/types/device.rs) + Go `protocol`); the server gates new server→agent variants on the agent's advertised capabilities
 
 ## Steps (TDD-first)
 

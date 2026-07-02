@@ -117,12 +117,15 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `RequestHealthWindow` | Server → Agent | `since_ts`, `limit` |
 | `HealthWindowResponse` | Agent → Server | `summaries` |
 
-The Edge Sentinel telemetry variants are a wire contract only in the current
-agent build: the sampler remains default-off and does not emit telemetry until
-server ingest, tenant-authoritative persistence, and telemetry write arbitration
-land. The source-of-truth payload definitions are the Rust
+The Edge Sentinel telemetry variants are ingested by the server when received,
+but the agent sampler remains default-off until the footprint and soak gates
+pass. Server ingest ignores payload `org_id` for authorization, resolves the
+device's authoritative organization after handshake, applies a telemetry payload
+cap and interval floor, and drops/counts telemetry when the bounded persistence
+path is saturated. The source-of-truth payload definitions are the Rust
 [`ControlMessage`](../agent/crates/mesh-protocol/src/control.rs) enum and Go
-[`ControlMessage`](../server/internal/protocol/control.go) flat struct.
+[`ControlMessage`](../server/internal/protocol/control.go) flat struct; the
+store decision is [ADR-044](./adr/ADR-044-edge-sentinel-server-telemetry-ingest.md).
 
 ### Capabilities
 

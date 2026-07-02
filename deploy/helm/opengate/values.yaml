@@ -43,6 +43,9 @@ server:
   baseURL: ""
   # Server log verbosity; "debug" enables verbose logging, anything else is info.
   logLevel: ""
+  # VictoriaMetrics base URL for Edge Sentinel numeric telemetry ingestion.
+  # Empty disables numeric writes; process snapshots still use Postgres RLS.
+  victoriaMetricsURL: "http://monitoring-victoriametrics.monitoring.svc:8428"
   # L4 exposure: bind QUIC+MPS straight to the node IP via hostPort. This is
   # budget-free on the single-node deployment and preserves the client source
   # IP that AMT CIRA / QUIC need.

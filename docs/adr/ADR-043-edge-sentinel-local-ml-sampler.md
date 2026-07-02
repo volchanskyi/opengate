@@ -26,8 +26,9 @@ Add a default-off agent sampler and ML kernel:
   `SysinfoSampler`, `FakeSampler`, and command-line redaction helpers.
 - Process samples are bounded top-N ranks with executable basename and optional
   command-line hash. Full command lines are not collected by default.
-- Secret redaction covers common assignment forms, bearer tokens, AWS access
-  keys, and credential-bearing URLs for future elevated/on-demand paths.
+- Secret redaction covers common assignment and flag-value forms, bearer tokens,
+  AWS access keys, and credential-bearing URLs for future elevated/on-demand
+  paths.
 - `mesh-agent` starts the sampler only with `--edge-sentinel` or
   `OPENGATE_EDGE_SENTINEL=true`; failures are logged and do not block normal
   control/session traffic.

@@ -20,18 +20,18 @@ the cold-tier/DuckDB prefix-scoping correction lives in `edge-sentinel-ws-7-cold
 ## Context
 
 Today there is **no** tenancy: authz is `users.is_admin` + `security_groups` RBAC, and the
-schema ([`001_initial.up.sql`](../../server/internal/db/migrations/001_initial.up.sql))
+schema ([`001_initial.up.sql`](../../../server/internal/db/migrations/001_initial.up.sql))
 has no `org_id`/RLS. Auth is JWT `Claims{UserID,…}`
-([`auth.go:21`](../../server/internal/auth/auth.go#L21)) over a chi authenticated group
-([`api.go:277`](../../server/internal/api/api.go#L277)); data access is a repository
+([`auth.go:21`](../../../server/internal/auth/auth.go#L21)) over a chi authenticated group
+([`api.go:277`](../../../server/internal/api/api.go#L277)); data access is a repository
 pattern over `PostgresStore`.
 
 ## File inventory
 
 - **Create:** `server/internal/db/migrations/002_multitenancy.{up,down}.sql`
-- **Modify:** [`server/internal/auth/auth.go`](../../server/internal/auth/auth.go) (add `OrgID` to `Claims`, `GenerateToken`, `ValidateToken`)
-- **Create:** tenant-context middleware in [`server/internal/api/`](../../server/internal/api/) (sets `app.current_org`)
-- **Modify:** repository layer under [`server/internal/device/`](../../server/internal/device/) and the `PostgresStore` tx helper — run each query inside a tenant-scoped tx
+- **Modify:** [`server/internal/auth/auth.go`](../../../server/internal/auth/auth.go) (add `OrgID` to `Claims`, `GenerateToken`, `ValidateToken`)
+- **Create:** tenant-context middleware in [`server/internal/api/`](../../../server/internal/api/) (sets `app.current_org`)
+- **Modify:** repository layer under [`server/internal/device/`](../../../server/internal/device/) and the `PostgresStore` tx helper — run each query inside a tenant-scoped tx
 - **Modify:** web auth/store to carry org context; org switcher for multi-org users
 
 ## Steps (TDD-first)

@@ -56,6 +56,37 @@ func insertSecondTenantRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	require.NoError(t, tx.Commit())
 }
 
+func assertTelemetryProcessRLS(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+	t.Helper()
+	const roleName = "opengate_rls_rehearsal"
+	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
+
+	rehearsalExecNoTx(t, ctx, db,
+		`INSERT INTO device_processes (org_id, device_id, ts, rank, basename, pid, cpu, mem)
+		 VALUES
+		   ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000103', '2026-07-02T00:00:00Z', 1, 'tenant-a', 100, 1, 2),
+		   ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000204', '2026-07-02T00:00:00Z', 1, 'tenant-b', 200, 3, 4)
+		 ON CONFLICT DO NOTHING`)
+
+	txA := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), false)
+	defer txA.Rollback() //nolint:errcheck // harmless after assertions
+	var visibleToA int
+	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_processes`).Scan(&visibleToA))
+	assert.Equal(t, 1, visibleToA)
+
+	adminTx := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), true)
+	defer adminTx.Rollback() //nolint:errcheck // harmless after assertions
+	var visibleToAdmin int
+	require.NoError(t, adminTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_processes`).Scan(&visibleToAdmin))
+	assert.Equal(t, 2, visibleToAdmin)
+}
+
+func rehearsalExecNoTx(t *testing.T, ctx context.Context, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	_, err := db.ExecContext(ctx, query, args...)
+	require.NoError(t, err)
+}
+
 func rehearsalExec(t *testing.T, ctx context.Context, tx *sql.Tx, query string, args ...any) {
 	t.Helper()
 	_, err := tx.ExecContext(ctx, query, args...)

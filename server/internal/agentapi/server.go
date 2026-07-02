@@ -19,6 +19,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -29,6 +30,8 @@ type AgentServer struct {
 	hardware      device.HardwareRepository
 	deviceLogs    device.LogsRepository
 	deviceUpdates updater.DeviceUpdateRepository
+	telemetry     telemetry.NumericWriter
+	processes     telemetry.ProcessRepository
 	relay         *relay.Relay
 	notifier      notifications.Notifier
 	quicHost      string   // extra DNS SAN for the server certificate
@@ -49,6 +52,8 @@ type AgentServerConfig struct {
 	Hardware      device.HardwareRepository
 	DeviceLogs    device.LogsRepository
 	DeviceUpdates updater.DeviceUpdateRepository
+	Telemetry     telemetry.NumericWriter
+	Processes     telemetry.ProcessRepository
 	Relay         *relay.Relay
 	Notifier      notifications.Notifier
 	QuicHost      string
@@ -63,6 +68,8 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		hardware:      cfg.Hardware,
 		deviceLogs:    cfg.DeviceLogs,
 		deviceUpdates: cfg.DeviceUpdates,
+		telemetry:     cfg.Telemetry,
+		processes:     cfg.Processes,
 		relay:         cfg.Relay,
 		notifier:      cfg.Notifier,
 		quicHost:      cfg.QuicHost,
@@ -198,11 +205,12 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		return
 	}
 
-	ctx = dbtx.WithDefaultTenant(ctx, false)
+	ctx = s.scopeForDevice(ctx, result.DeviceID, logger)
 	groupID, hostname := s.lookupDeviceMeta(ctx, result.DeviceID)
 
 	ac := &AgentConn{
 		DeviceID:      result.DeviceID,
+		OrgID:         agentOrgID(ctx),
 		GroupID:       groupID,
 		stream:        stream,
 		codec:         &protocol.Codec{},
@@ -210,6 +218,8 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		hardware:      s.hardware,
 		deviceLogs:    s.deviceLogs,
 		deviceUpdates: s.deviceUpdates,
+		telemetry:     s.telemetry,
+		processes:     s.processes,
 		logger:        logger,
 	}
 
@@ -238,7 +248,11 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 		s.count.Add(-1)
 		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		offlineCtx = dbtx.WithDefaultTenant(offlineCtx, false)
+		if ac.OrgID != uuid.Nil {
+			offlineCtx = dbtx.WithTenant(offlineCtx, ac.OrgID, false)
+		} else {
+			offlineCtx = dbtx.WithDefaultTenant(offlineCtx, false)
+		}
 		if err := s.devices.SetStatus(offlineCtx, ac.DeviceID, device.StatusOffline); err != nil {
 			logger.Error("set device offline", "error", err)
 		}
@@ -255,6 +269,26 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 	_ = stream.Close()
 	_ = conn.CloseWithError(0, "bye")
 	logger.Info("agent disconnected")
+}
+
+func (s *AgentServer) scopeForDevice(ctx context.Context, deviceID uuid.UUID, logger *slog.Logger) context.Context {
+	resolveCtx := dbtx.WithDefaultTenant(ctx, true)
+	orgID, err := s.devices.OrgForDevice(resolveCtx, deviceID)
+	if err != nil {
+		if !errors.Is(err, device.ErrDeviceNotFound) {
+			logger.Warn("resolve device org failed; falling back to default org", "error", err)
+		}
+		return dbtx.WithDefaultTenant(ctx, false)
+	}
+	return dbtx.WithTenant(ctx, orgID, false)
+}
+
+func agentOrgID(ctx context.Context) uuid.UUID {
+	tenant, ok := dbtx.TenantFromContext(ctx)
+	if !ok {
+		return uuid.Nil
+	}
+	return tenant.OrgID
 }
 
 // runControlLoop processes control messages until the stream errors or the context is cancelled.

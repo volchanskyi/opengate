@@ -34,6 +34,7 @@ flowchart LR
   end
 
   VM -- kubernetes_sd scrape --> Server
+  Server -- Edge Sentinel import --> VM
   VM -- scrape --> NodeExporter
   VM -- scrape --> PgExporter
   PgExporter -- SQL metrics --> PG
@@ -54,10 +55,12 @@ flowchart LR
 | App chart and overlays | [`deploy/helm/opengate`](../deploy/helm/opengate/) |
 | Grafana dashboards and alerting ConfigMaps | [`deploy/grafana/provisioning`](../deploy/grafana/provisioning/) |
 | VictoriaMetrics scrape config | [`vmagent-scrape.yaml`](../deploy/helm/monitoring/files/vmagent-scrape.yaml) |
+| Edge Sentinel stream aggregation | [`edge-sentinel-stream-aggr.yaml`](../deploy/helm/monitoring/files/edge-sentinel-stream-aggr.yaml) |
 | Promtail pod-log config | [`promtail-config.yaml`](../deploy/helm/monitoring/files/promtail-config.yaml) |
 | Loki retention/config | [`loki-config.yml`](../deploy/helm/monitoring/files/loki-config.yml) |
 | CI trend VM transport | [`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh) |
 | CI trend-store decision | [ADR-038](./adr/ADR-038-victoriametrics-ci-trend-store.md) |
+| Edge Sentinel telemetry-store decision | [ADR-044](./adr/ADR-044-edge-sentinel-server-telemetry-ingest.md) |
 
 ## Components
 
@@ -111,6 +114,21 @@ API. The in-cluster VictoriaMetrics scrape configuration discovers the server
 Services via Kubernetes endpoint metadata rather than hard-coded Docker hostnames.
 Metric names and registration live under
 [`server/internal/metrics`](../server/internal/metrics/).
+
+Edge Sentinel numeric telemetry is pushed by the server, not scraped from
+agents. The app chart wires the VM endpoint into the server through
+[`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml),
+and the scoped client lives in
+[`server/internal/telemetry`](../server/internal/telemetry/). VM reads for
+future API/UI work must use that client so the server injects the authoritative
+`org_id` matcher. Process snapshots with basenames and optional command-line
+hashes stay in Postgres RLS; see [Database](Database.md#device-processes-table).
+
+The monitoring chart passes the Edge Sentinel stream-aggregation config to
+single-node VictoriaMetrics through
+[`victoriametrics.yaml`](../deploy/helm/monitoring/templates/victoriametrics.yaml).
+The config produces live rollups for `opengate_edge_*` metrics while preserving
+raw matched input.
 
 Promtail reads Kubernetes pod logs, enriches each stream with Kubernetes labels,
 and pushes to Loki. The previous Docker-log path under

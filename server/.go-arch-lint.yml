@@ -1,13 +1,7 @@
 # OpenGate Go architecture lint policy.
 #
-# Constrained components:
-#   - cert  — leaf module, no internal imports
-#   - audit — audit aggregate, no internal imports
-#   - dbtx  — shared tenant transaction helper, no internal imports
-#
-# `audit` is intentionally narrow: it depends only on stdlib + uuid (vendor).
-# The 3rd-party pgx driver is registered as a database/sql driver in main.go,
-# so audit imports nothing project-internal.
+# Constrained components include the small leaf/domain modules listed under
+# `components:` below. The catch-all `other` component remains unconstrained.
 #
 # The catch-all `other` component covers everything else with no restrictions,
 # so these rules do NOT gate code outside the constrained components.
@@ -91,6 +85,12 @@ components:
   session:
     in: internal/session
 
+  # Constrained: the telemetry module owns Edge Sentinel numeric VM access and
+  # the Postgres RLS process table. It imports only dbtx for tenant-scoped
+  # transactions; raw VM read paths stay behind this package.
+  telemetry:
+    in: internal/telemetry
+
   # Constrained: the usecase module owns cross-aggregate orchestration that
   # would violate leaf-module boundaries if pushed into a single domain
   # module. It composes per-aggregate Repository ports from the leaf modules.
@@ -165,6 +165,13 @@ deps:
     # Same leaf-module pattern as audit/update/auth/device/notifications.
     # The Repository interface, Postgres adapter, and Instrumented
     # decorator live entirely in this package; no internal imports.
+    mayDependOn:
+      - dbtx
+    anyVendorDeps: true
+    deepScan: false
+  telemetry:
+    # Owns its VM client and Postgres process adapter; dbtx is the only
+    # project-internal dependency for tenant-scoped RLS transactions.
     mayDependOn:
       - dbtx
     anyVendorDeps: true

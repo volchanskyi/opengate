@@ -62,6 +62,12 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, recent)
 
+	resolvedOrg, err := devices.OrgForDevice(dbtx.WithDefaultTenant(context.Background(), true), deviceB.ID)
+	require.NoError(t, err)
+	assert.Equal(t, orgB, resolvedOrg)
+	_, err = devices.OrgForDevice(ctxA, deviceB.ID)
+	assert.ErrorIs(t, err, device.ErrDeviceNotFound)
+
 	_, err = devices.ListAll(context.Background())
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 	_, err = groups.Get(context.Background(), groupA.ID)
@@ -102,6 +108,10 @@ func (m *memDevices) Upsert(_ context.Context, _ *device.Device) error { return 
 
 func (m *memDevices) Get(_ context.Context, _ device.DeviceID) (*device.Device, error) {
 	return &device.Device{}, m.maybeFail()
+}
+
+func (m *memDevices) OrgForDevice(_ context.Context, _ device.DeviceID) (uuid.UUID, error) {
+	return uuid.Nil, m.maybeFail()
 }
 
 func (m *memDevices) List(_ context.Context, _ device.GroupID) ([]*device.Device, error) {

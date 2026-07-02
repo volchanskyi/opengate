@@ -43,16 +43,25 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	runMigrationSteps(t, dbURL, 1)
 	assertAllRowsBackfilledToDefaultOrg(t, ctx, rehearsalDB)
-	assertMigrationNoChange(t, dbURL)
 	insertSecondTenantRows(t, ctx, rehearsalDB)
 	assertRehearsalRLS(t, ctx, rehearsalDB, "public")
 	t.Log("rehearsal: 002 backfill, idempotence, cross-tenant deny, and admin bypass verified")
+
+	runMigrationSteps(t, dbURL, 1)
+	assertTelemetryProcessRLS(t, ctx, rehearsalDB, "public")
+	assertMigrationNoChange(t, dbURL)
+	t.Log("rehearsal: 003 process telemetry table, RLS, and idempotence verified")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
 	defer restoredDB.Close() //nolint:errcheck // test cleanup
 	assertRehearsalRLS(t, ctx, restoredDB, "public")
+	assertTelemetryProcessRLS(t, ctx, restoredDB, "public")
 	t.Log("rehearsal: pg_dump -> pg_restore completed and restored DB re-verified")
+
+	runMigrationSteps(t, dbURL, -1)
+	assertTelemetryDownReversal(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 003 down rollback removed device_processes cleanly")
 
 	runMigrationSteps(t, dbURL, -1)
 	assertMultitenancyDownReversal(t, ctx, rehearsalDB)

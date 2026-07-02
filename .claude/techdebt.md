@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-07-01. -->
+<!-- Last reviewed: 2026-07-02. -->
 
 ## Severity: High
 
@@ -12,8 +12,9 @@ _None currently._
 ### Edge-Sentinel ARM sampler artifact and default-on flip pending
 
 WS-2 ships the default-off sampler plus always-run allocation/RSS guards and a
-Criterion bench harness, but the Phase 0 hardware artifact still needs to be
-recorded on a small ARM target:
+Criterion bench harness. WS-4 now provides server ingest, tenant-authoritative
+persistence, bounded telemetry dispatch, and VM stream aggregation, but the
+Phase 0 hardware artifact still needs to be recorded on a small ARM target:
 
 1. Wire an ARM CI runner or equivalent repeatable ARM bench environment.
 2. Run `mesh-agent-core`'s Edge Sentinel bench harness and record detection
@@ -21,25 +22,11 @@ recorded on a small ARM target:
 3. Use the measured per-entity `sysinfo` cost to finalize live telemetry caps
    before enabling emission beyond the additive WS-3 wire contract.
 
-The sampler remains default-off until ARM evidence confirms the target footprint.
+The sampler and live emission remain default-off until ARM evidence confirms the
+target footprint and the WS-8 soak/default-on gate passes.
 
 **Pay-down trigger:** attach the ARM artifact to the Edge-Sentinel Phase 0 record,
 finalize per-entity caps, and flip the sampler default only if the gate passes.
-
-### Edge-Sentinel live telemetry emission and write arbitration deferred
-
-WS-3 adds the additive control-message contract and cross-language goldens for
-`AgentHealthSummary`, `AgentMetricWindow`, `ProcessReport`, `RequestHealthWindow`,
-and `HealthWindowResponse`, but the agent still does not emit telemetry on the
-live control stream. Before emission is enabled, WS-4 must add the server ingest
-handler, scope persistence by the enrolled device's authoritative org rather
-than the payload `org_id`, enforce a small telemetry payload cap and interval
-floor, and add drop accounting / write arbitration so telemetry cannot
-backpressure restart/session/heartbeat traffic.
-
-**Pay-down trigger:** land WS-4 ingest with tenant-authoritative persistence,
-bounded telemetry payloads, interval-floor tests, and a drop counter or priority
-write queue before any agent advertises/emits live Edge Sentinel telemetry.
 
 ### Multi-org membership API and web org switcher deferred
 
@@ -52,19 +39,21 @@ surface to switch between. The deferred multi-org design must also settle:
 1. Split platform-admin from org-scoped admin. Today `users.is_admin` is mirrored
    from Administrators membership and drives the `app.is_admin` RLS policy bypass;
    that is correct only while every user is in the default org.
-2. Thread the device's actual org into agent-originated writes. The agent control
-   path still uses the default tenant because there is no multi-org device
-   assignment surface yet.
+2. Decide whether `organizations` itself remains globally enumerable or gains a
+   membership-scoped read surface once users can belong to more than one org.
 3. Decide the login/email uniqueness model. The current global `users.email`
    uniqueness keeps login lookup unambiguous, but it also blocks per-org email
    reuse and makes the new `(org_id, email)` index advisory until multi-org
    membership exists.
+4. Reconcile globally unique `security_groups.name` with per-org system groups
+   before creating non-default organizations that need their own Administrators
+   group name.
 
 **Pay-down trigger:** when multi-org membership is introduced, add the server
 membership/switching API, issue refreshed tokens for the selected org, split
-platform-admin from org-admin bypass semantics, thread device orgs through agent
-writes, choose the email uniqueness model, and build the web org switcher against
-that server-trusted flow.
+platform-admin from org-admin bypass semantics, choose the org/email/security
+group uniqueness model, decide the organization visibility model, and build the
+web org switcher against that server-trusted flow.
 
 ### W3 decision — adopt 1-RTT TLS session resumption; agent-side enablement pending; 0-RTT deferred
 

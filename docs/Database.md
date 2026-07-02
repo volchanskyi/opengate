@@ -68,6 +68,8 @@ Tables are managed by `golang-migrate`. The Phase 13a fresh-start schema lives
 in [`001_initial.up.sql`](../server/internal/db/migrations/001_initial.up.sql);
 the multi-tenant RLS layer lives in
 [`002_multitenancy.up.sql`](../server/internal/db/migrations/002_multitenancy.up.sql).
+Edge Sentinel process snapshots are added by
+[`003_telemetry.up.sql`](../server/internal/db/migrations/003_telemetry.up.sql).
 
 ```
 ┌─────────────────────┐       ┌─────────────────────┐
@@ -246,6 +248,28 @@ Indexes: `device_id`, `(device_id, level)`, `(device_id, timestamp)`.
 
 The 5-minute TTL avoids repeated round-trips to the agent. When `HasRecentLogs` returns true, the server serves from cache; otherwise it sends a `RequestDeviceLogs` control message and returns HTTP 202.
 
+### Device Processes Table
+
+The `device_processes` table stores sanitized Edge Sentinel process snapshots:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BIGINT PK | Identity column |
+| `org_id` | UUID FK | Tenant scope, protected by forced RLS |
+| `device_id` | UUID FK | References `devices(id)`, CASCADE delete |
+| `ts` | TIMESTAMPTZ | Agent sample timestamp |
+| `rank` | INTEGER | Top-N rank assigned by the agent sampler |
+| `basename` | TEXT | Executable basename only |
+| `cmdline_hash` | TEXT nullable | Optional hash, no raw command line |
+| `pid` | BIGINT | Process id at sample time |
+| `cpu` / `mem` | DOUBLE PRECISION | Reported process utilization values |
+| `created_at` | TIMESTAMPTZ | Ingest timestamp |
+
+The Postgres adapter lives in
+[`server/internal/telemetry`](../server/internal/telemetry/) and always runs
+through `dbtx.Scoped`. Numeric process metrics use rank-only labels in
+VictoriaMetrics; basenames, PIDs, and command-line hashes stay in the RLS table.
+
 ## Migrations
 
 Migrations live in [`server/internal/db/migrations/`](../server/internal/db/migrations/)
@@ -262,6 +286,11 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   `org_id`-leading indexes, and enables forced RLS policies.
 - [`002_multitenancy.down.sql`](../server/internal/db/migrations/002_multitenancy.down.sql)
   removes those policies, indexes, and columns for rollback rehearsal.
+- [`003_telemetry.up.sql`](../server/internal/db/migrations/003_telemetry.up.sql)
+  creates the forced-RLS `device_processes` table for Edge Sentinel process
+  snapshots.
+- [`003_telemetry.down.sql`](../server/internal/db/migrations/003_telemetry.down.sql)
+  removes the process table for rollback.
 
 The automated rollback/dump rehearsal lives in
 [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) and

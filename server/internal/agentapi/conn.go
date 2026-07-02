@@ -8,12 +8,14 @@ import (
 	"log/slog"
 	"math"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -23,6 +25,8 @@ type AgentConn struct {
 	DeviceID protocol.DeviceID
 	// GroupID is the group this agent belongs to (set during registration).
 	GroupID uuid.UUID
+	// OrgID is the authoritative organization resolved by the server.
+	OrgID uuid.UUID
 	// OS reported by the agent during registration.
 	OS string
 	// Arch reported by the agent during registration.
@@ -32,13 +36,18 @@ type AgentConn struct {
 	// Capabilities reported by the agent during registration.
 	Capabilities []protocol.AgentCapability
 
-	stream        io.ReadWriter
-	codec         *protocol.Codec
-	devices       device.Repository
-	hardware      device.HardwareRepository
-	deviceLogs    device.LogsRepository
-	deviceUpdates updater.DeviceUpdateRepository
-	logger        *slog.Logger
+	stream         io.ReadWriter
+	codec          *protocol.Codec
+	devices        device.Repository
+	hardware       device.HardwareRepository
+	deviceLogs     device.LogsRepository
+	deviceUpdates  updater.DeviceUpdateRepository
+	telemetry      telemetry.NumericWriter
+	processes      telemetry.ProcessRepository
+	logger         *slog.Logger
+	telemetryLast  map[protocol.ControlMessageType]int64
+	telemetrySlots chan struct{}
+	telemetryDrops atomic.Uint64
 
 	// writeMu serializes writes to stream. protocol.Codec.WriteFrame issues
 	// a 5-byte envelope write followed by an N-byte payload write; without
@@ -53,12 +62,15 @@ type AgentConn struct {
 // parameter cap while the shared Store dependency was split into narrow ports.
 type AgentConnConfig struct {
 	DeviceID      protocol.DeviceID
+	OrgID         uuid.UUID
 	GroupID       uuid.UUID
 	Stream        io.ReadWriter
 	Devices       device.Repository
 	Hardware      device.HardwareRepository
 	DeviceLogs    device.LogsRepository
 	DeviceUpdates updater.DeviceUpdateRepository
+	Telemetry     telemetry.NumericWriter
+	Processes     telemetry.ProcessRepository
 	Logger        *slog.Logger
 }
 
@@ -66,6 +78,7 @@ type AgentConnConfig struct {
 func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 	return &AgentConn{
 		DeviceID:      cfg.DeviceID,
+		OrgID:         cfg.OrgID,
 		GroupID:       cfg.GroupID,
 		stream:        cfg.Stream,
 		codec:         &protocol.Codec{},
@@ -73,6 +86,8 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		hardware:      cfg.Hardware,
 		deviceLogs:    cfg.DeviceLogs,
 		deviceUpdates: cfg.DeviceUpdates,
+		telemetry:     cfg.Telemetry,
+		processes:     cfg.Processes,
 		logger:        cfg.Logger,
 	}
 }
@@ -275,10 +290,23 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 	case protocol.MsgDeviceLogsError:
 		a.logger.Warn("device logs error from agent", "device_id", a.DeviceID, "error", msg.AckError)
 		return nil
+	case protocol.MsgAgentHealthSummary:
+		return a.handleAgentHealthSummary(ctx, msg, len(payload))
+	case protocol.MsgAgentMetricWindow:
+		return a.handleAgentMetricWindow(ctx, msg, len(payload))
+	case protocol.MsgProcessReport:
+		return a.handleProcessReport(ctx, msg, len(payload))
+	case protocol.MsgHealthWindowResponse:
+		return a.handleHealthWindowResponse(ctx, msg, len(payload))
 	default:
 		a.logger.Debug("ignoring unknown control message", "device_id", a.DeviceID, "type", msg.Type)
 		return nil
 	}
+}
+
+// DroppedTelemetryCount returns telemetry messages dropped by local bounds.
+func (a *AgentConn) DroppedTelemetryCount() uint64 {
+	return a.telemetryDrops.Load()
 }
 
 // IsCapabilityError reports whether err means an agent did not advertise the

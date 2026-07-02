@@ -29,6 +29,13 @@ func assertMultitenancyDownReversal(t *testing.T, ctx context.Context, db *sql.D
 	assert.Zero(t, orgIDColumns)
 }
 
+func assertTelemetryDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	var deviceProcesses sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.device_processes')`).Scan(&deviceProcesses))
+	assert.False(t, deviceProcesses.Valid)
+}
+
 func restoredDatabaseURL(t *testing.T, dbURL, dbName string) string {
 	t.Helper()
 	parsed, err := url.Parse(dbURL)
