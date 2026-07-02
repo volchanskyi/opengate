@@ -23,30 +23,30 @@ downsampling Timescale CAGGs would have provided is covered by VM OSS **stream a
 
 ## Context
 
-Handlers live in [`conn.go`](../../server/internal/agentapi/conn.go) (`handleControl`
+Handlers live in [`conn.go`](../../../server/internal/agentapi/conn.go) (`handleControl`
 switch; mirror `handleHardwareReport`). The server is the **sole writer** to VM — agents never
 hold store credentials; writes are scoped by the connection's enrolled device→org. VM today is
 scrape-only; this WS adds a server **push** path (`remote_write` / `/api/v1/import`).
 
 ## File inventory
 
-- **Reuse (do not rebuild):** [`server/internal/testvm`](../../server/internal/testvm/testvm.go) —
+- **Reuse (do not rebuild):** [`server/internal/testvm`](../../../server/internal/testvm/testvm.go) —
   the throwaway-VictoriaMetrics harness; `testvm.BaseURL(t)` gives a pinned `v1.114.0` instance for
   the client/handler tests (auto-starts a container or honors `VICTORIAMETRICS_TEST_URL`, never
   skips). Confirmed test-side HTTP APIs: seed via `POST /api/v1/import/prometheus` +
   `GET /internal/force_flush`, assert via `GET /api/v1/status/tsdb` (`data.totalSeries`) /
   `GET /api/v1/export`. The avg-only series model + 50k budget live in
-  [`server/tests/vmcardinality`](../../server/tests/vmcardinality/spike_test.go) — keep this WS's
+  [`server/tests/vmcardinality`](../../../server/tests/vmcardinality/spike_test.go) — keep this WS's
   emitted schema within that budget.
 - **Create:** `server/internal/telemetry/` — a VM `remote_write` client (numeric series with an
   `org_id` label) + a Postgres process-table repo (tenant-scoped via the WS-0 tx helper).
 - **Create:** `server/internal/db/migrations/003_telemetry.{up,down}.sql` — `device_processes`
   RLS table (org_id, ts, rank, basename, pid, cpu, mem, optional cmdline_hash). **No Timescale.**
-- **Modify:** [`conn.go`](../../server/internal/agentapi/conn.go) — cases for
+- **Modify:** [`conn.go`](../../../server/internal/agentapi/conn.go) — cases for
   `AgentHealthSummary`, `AgentMetricWindow`, `ProcessReport`: numeric → VM client, process →
   Postgres; scope by connection device→org (**never** trust agent-supplied `org_id` for authz);
   server-side redaction guard (defense-in-depth even if agent redaction is off).
-- **Create/Modify:** [`deploy/helm/monitoring/`](../../deploy/helm/monitoring/) — a VM
+- **Create/Modify:** [`deploy/helm/monitoring/`](../../../deploy/helm/monitoring/) — a VM
   `-streamAggr.config` (1-min + 1-hr min/max/avg/last rollups) + retention split (short raw,
   long rollup). **VM `-retentionPeriod` is a sized parameter (default ~90 d** — fits the existing
   free volume for 500 agents at ~15-39 GB; **not a hard cap**, grow as disk allows). Backfill

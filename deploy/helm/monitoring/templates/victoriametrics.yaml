@@ -45,6 +45,8 @@ metadata:
 data:
   scrape.yml: |
 {{ .Files.Get "files/vmagent-scrape.yaml" | indent 4 }}
+  stream-aggr.yml: |
+{{ .Files.Get "files/edge-sentinel-stream-aggr.yaml" | indent 4 }}
 ---
 apiVersion: v1
 kind: Service
@@ -95,6 +97,8 @@ spec:
             - "-storageDataPath=/storage"
             - "-retentionPeriod={{ .Values.victoriametrics.retention }}"
             - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+            - "-streamAggr.config=/etc/victoriametrics/stream-aggr.yml"
+            - "-streamAggr.keepInput"
             - "-httpListenAddr=:8428"
           ports:
             - name: http

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/cert"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -86,6 +87,27 @@ func TestAgentServer_ListConnectedAgents(t *testing.T) {
 
 	agents := srv.ListConnectedAgents()
 	assert.Len(t, agents, 2)
+}
+
+func TestAgentServer_ScopeForDeviceUsesStoredOrganization(t *testing.T) {
+	store := testutil.NewTestStore(t)
+	orgB := uuid.New()
+	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
+	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	owner := testutil.SeedUser(t, ctxB, store)
+	group := testutil.SeedGroup(t, ctxB, store, owner.ID)
+	d := testutil.SeedDevice(t, ctxB, store, group.ID)
+	srv := AgentServer{
+		devices: testutil.NewTestDevices(t, store),
+		logger:  testLogger(),
+	}
+
+	scoped := srv.scopeForDevice(context.Background(), d.ID, testLogger())
+
+	tenant, ok := dbtx.TenantFromContext(scoped)
+	require.True(t, ok)
+	assert.Equal(t, orgB, tenant.OrgID)
+	assert.False(t, tenant.IsAdmin)
 }
 
 func TestAgentServer_DeregisterAgent(t *testing.T) {

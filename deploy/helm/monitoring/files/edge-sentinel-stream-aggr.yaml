@@ -1,0 +1,12 @@
+# VictoriaMetrics stream aggregation for live Edge Sentinel telemetry.
+# Raw matched input is preserved by -streamAggr.keepInput in the StatefulSet;
+# these rules add chart-friendly rollups without giving agents VM credentials.
+- name: edge-sentinel-1m
+  match: '{__name__=~"opengate_edge_.*"}'
+  interval: 1m
+  outputs: [avg, min, max, last]
+
+- name: edge-sentinel-1h
+  match: '{__name__=~"opengate_edge_.*"}'
+  interval: 1h
+  outputs: [avg, min, max, last]

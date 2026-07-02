@@ -25,6 +25,11 @@ pub fn redact_cmdline(cmdline: &str) -> String {
             redact_next = true;
             continue;
         }
+        if is_secret_flag(&lower) {
+            redacted.push(token);
+            redact_next = true;
+            continue;
+        }
         if is_secret_assignment(&lower) {
             redacted.push(redact_assignment(token));
             continue;
@@ -55,6 +60,14 @@ fn is_secret_assignment(lower: &str) -> bool {
         "secret=",
     ];
     NEEDLES.iter().any(|needle| lower.contains(needle))
+}
+
+fn is_secret_flag(lower: &str) -> bool {
+    let flag = lower.trim_start_matches('-');
+    matches!(
+        flag,
+        "password" | "passwd" | "token" | "api_key" | "api-key" | "apikey" | "secret"
+    )
 }
 
 fn redact_assignment(token: &str) -> &str {

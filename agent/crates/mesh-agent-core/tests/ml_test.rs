@@ -97,7 +97,7 @@ fn fake_sampler_returns_deterministic_process_ranks_without_full_cmdline() {
 
 #[test]
 fn redact_cmdline_covers_common_secret_shapes() {
-    let input = "app --password=hunter2 token=abc api_key=xyz Bearer secret AKIAIOSFODNN7EXAMPLE postgres://u:p@db/app";
+    let input = "app --password=hunter2 --token abc --api-key xyz Bearer secret AKIAIOSFODNN7EXAMPLE postgres://u:p@db/app";
     let redacted = redact_cmdline(input);
 
     assert!(!redacted.contains("hunter2"));

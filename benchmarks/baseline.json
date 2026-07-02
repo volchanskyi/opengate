@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-06-19T00:07:24Z",
+  "generated_at": "2026-07-02T00:00:00Z",
   "default_tolerances": {
     "allocs_op": 0.02,
     "bytes_op": 0.02,
@@ -10,16 +10,16 @@
     {
       "name": "BenchmarkCodec_DecodeControl",
       "lang": "go",
-      "ns_op": 962.4,
-      "bytes_op": 953,
+      "ns_op": 1404,
+      "bytes_op": 1208,
       "allocs_op": 15
     },
     {
       "name": "BenchmarkCodec_EncodeControl",
       "lang": "go",
-      "ns_op": 1783,
-      "bytes_op": 1177,
-      "allocs_op": 45
+      "ns_op": 3417,
+      "bytes_op": 1472,
+      "allocs_op": 57
     },
     {
       "name": "BenchmarkCodec_ReadFrame",

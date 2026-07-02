@@ -10,16 +10,16 @@ protocol, with Rust→Go golden fixtures, reusing the existing single control st
 
 Protocol is MessagePack control frames, `[1-byte type][4-byte BE len][payload]`, golden-file
 drift-guarded both languages. Rust enum is `#[serde(tag="type")]`, `#[non_exhaustive]`
-([`control.rs`](../../agent/crates/mesh-protocol/src/control.rs)); precedent is the
+([`control.rs`](../../../agent/crates/mesh-protocol/src/control.rs)); precedent is the
 existing `HardwareReport`. Reuse `FRAME_CONTROL` — **no new QUIC stream** (ADR-005/037
 single-control-stream constraint).
 
 ## File inventory
 
-- **Modify:** [`agent/crates/mesh-protocol/src/control.rs`](../../agent/crates/mesh-protocol/src/control.rs) (new variants)
-- **Modify:** [`agent/crates/mesh-protocol/tests/golden_test.rs`](../../agent/crates/mesh-protocol/tests/golden_test.rs) (+ `testdata/golden/*.bin`)
-- **Modify:** Go [`server/internal/protocol/types.go`](../../server/internal/protocol/types.go), [`server/internal/protocol/golden_test.go`](../../server/internal/protocol/golden_test.go)
-- **Modify:** [`agent/crates/mesh-agent/src/main.rs`](../../agent/crates/mesh-agent/src/main.rs) (emit from the 60 s heartbeat loop)
+- **Modify:** [`agent/crates/mesh-protocol/src/control.rs`](../../../agent/crates/mesh-protocol/src/control.rs) (new variants)
+- **Modify:** [`agent/crates/mesh-protocol/tests/golden_test.rs`](../../../agent/crates/mesh-protocol/tests/golden_test.rs) (+ `testdata/golden/*.bin`)
+- **Modify:** Go [`server/internal/protocol/types.go`](../../../server/internal/protocol/types.go), [`server/internal/protocol/golden_test.go`](../../../server/internal/protocol/golden_test.go)
+- **Modify:** [`agent/crates/mesh-agent/src/main.rs`](../../../agent/crates/mesh-agent/src/main.rs) (emit from the 60 s heartbeat loop)
 
 ## New variants (agent→server unless noted)
 
@@ -68,10 +68,10 @@ single-control-stream constraint).
 
 The wire is one flat struct per side, not per-variant types. Adding a variant touches four things, in TDD order:
 
-1. **Rust enum** — [`control.rs`](../../agent/crates/mesh-protocol/src/control.rs): add struct-style variants *after* the existing ones, keeping `#[serde(tag = "type")]` and `#[non_exhaustive]`. The `Unknown` `#[serde(other)]` arm stays **last**. Precedent to copy: `HardwareReport`.
-2. **Go type constants + flat struct** — ⚠️ the constants and the flat `ControlMessage` struct live in [`control.go`](../../server/internal/protocol/control.go) (`MsgRequestHardwareReport…`, struct with `omitempty` msgpack fields), **not** `types.go`. New `MsgAgentHealthSummary`-style consts and new fields go there. Only new **capabilities** go in [`types.go`](../../server/internal/protocol/types.go), next to `CapHardwareInventory`/`CapDeviceLogs`.
-3. **New capability** for server→agent `RequestHealthWindow`: add e.g. `CapHealthWindow` in both `types.go` (Go) and the Rust `AgentCapability`, then gate the send with `requireCapability(...)` — copy the WS-1 pattern in [`conn.go`](../../server/internal/agentapi/conn.go) `SendRequestHardwareReport`, and map its `IsCapabilityError` to an "unavailable" response like [`handlers_device_inventory.go`](../../server/internal/api/handlers_device_inventory.go).
-4. **Dispatch** — extend the `switch msg.Type` in [`conn.go`](../../server/internal/agentapi/conn.go) `handleControl`. Since WS-1 the `default` arm *ignores* unknown types, so a half-wired variant fails **silent** — the golden test is the real guard, not the dispatch.
+1. **Rust enum** — [`control.rs`](../../../agent/crates/mesh-protocol/src/control.rs): add struct-style variants *after* the existing ones, keeping `#[serde(tag = "type")]` and `#[non_exhaustive]`. The `Unknown` `#[serde(other)]` arm stays **last**. Precedent to copy: `HardwareReport`.
+2. **Go type constants + flat struct** — ⚠️ the constants and the flat `ControlMessage` struct live in [`control.go`](../../../server/internal/protocol/control.go) (`MsgRequestHardwareReport…`, struct with `omitempty` msgpack fields), **not** `types.go`. New `MsgAgentHealthSummary`-style consts and new fields go there. Only new **capabilities** go in [`types.go`](../../../server/internal/protocol/types.go), next to `CapHardwareInventory`/`CapDeviceLogs`.
+3. **New capability** for server→agent `RequestHealthWindow`: add e.g. `CapHealthWindow` in both `types.go` (Go) and the Rust `AgentCapability`, then gate the send with `requireCapability(...)` — copy the WS-1 pattern in [`conn.go`](../../../server/internal/agentapi/conn.go) `SendRequestHardwareReport`, and map its `IsCapabilityError` to an "unavailable" response like [`handlers_device_inventory.go`](../../../server/internal/api/handlers_device_inventory.go).
+4. **Dispatch** — extend the `switch msg.Type` in [`conn.go`](../../../server/internal/agentapi/conn.go) `handleControl`. Since WS-1 the `default` arm *ignores* unknown types, so a half-wired variant fails **silent** — the golden test is the real guard, not the dispatch.
 
 ### Golden workflow (Rust generates, Go verifies — this direction)
 
@@ -81,10 +81,10 @@ The wire is one flat struct per side, not per-variant types. Adding a variant to
 
 ### Non-obvious correctness constraints (easy to miss in review)
 
-- **Never trust agent-supplied `org_id` for authz.** It rides in-message for defense-in-depth only; the server scopes by the connection's enrolled device→org. The agent read-loop is pinned to `WithDefaultTenant` ([`server.go`](../../server/internal/agentapi/server.go)), so a payload `org_id` that disagrees must not widen scope — WS-4 persists under the connection's org, not the payload's.
+- **Never trust agent-supplied `org_id` for authz.** It rides in-message for defense-in-depth only; the server scopes by the connection's enrolled device→org. The agent read-loop is pinned to `WithDefaultTenant` ([`server.go`](../../../server/internal/agentapi/server.go)), so a payload `org_id` that disagrees must not widen scope — WS-4 persists under the connection's org, not the payload's.
 - **`serde_bytes` on `recent_bitmask`** — without it `rmp_serde` encodes `Vec<u8>` as an array of ints, not a bin blob, and the Go `[]byte` decode mismatches. Likely first golden failure.
 - **Telemetry shares `FRAME_CONTROL`** — no new QUIC stream (ADR-005/037). The priority-queue/drop-with-counter arbitration (interactive terminal/file ops > control > telemetry) is load-bearing; a cap alone is not scheduling. Any deferral must be written down, not omitted.
-- **Emission default-off** until WS-4's handler exists — same discipline as WS-2's `--edge-sentinel` flag in [`main.rs`](../../agent/crates/mesh-agent/src/main.rs).
+- **Emission default-off** until WS-4's handler exists — same discipline as WS-2's `--edge-sentinel` flag in [`main.rs`](../../../agent/crates/mesh-agent/src/main.rs).
 
 ### Reviewer checklist
 

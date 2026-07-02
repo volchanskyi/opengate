@@ -6,8 +6,9 @@
 > never block remote management). Supersedes the deleted drafts and the prior Timescale-based
 > revision (a third-party analyst review + live OCI/cluster data drove the pivot below).
 >
-> This is the **master plan + micro-plan index**. The per-workstream execution specs are
-> the sibling `edge-sentinel-ws-N-*.md` files in this directory. Per the doc-link rule,
+> This is the **master plan + micro-plan index**. Active per-workstream execution specs are
+> sibling `edge-sentinel-ws-N-*.md` files in this directory; completed specs are archived under
+> `archive/`. Per the doc-link rule,
 > plans reference **other plans** by plain path/code span (never markdown links) — only
 > repo source/docs are linked.
 
@@ -102,11 +103,11 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 
 | WS | Micro-plan | Summary |
 |---|---|---|
-| WS-0 | `edge-sentinel-ws-0-tenancy-rls.md` | product-wide `org_id` + Postgres RLS foundation (standalone migration) |
-| WS-1 | `edge-sentinel-ws-1-protocol-forward-compat.md` | bidirectional unknown-type tolerance + capability negotiation |
-| WS-2 | `edge-sentinel-ws-2-edge-ml-sampler.md` | clean-room k-means ensemble + `sysinfo` sampler (agent); ARM-benched |
-| WS-3 | `edge-sentinel-ws-3-wire-contract.md` | additive `ControlMessage` variants + Rust↔Go goldens; payload caps |
-| WS-4 | `edge-sentinel-ws-4-server-ingest-vm.md` | VictoriaMetrics remote_write + stream-agg + Postgres process RLS table |
+| WS-0 | `archive/edge-sentinel-ws-0-tenancy-rls.md` | product-wide `org_id` + Postgres RLS foundation (standalone migration) |
+| WS-1 | `archive/edge-sentinel-ws-1-protocol-forward-compat.md` | bidirectional unknown-type tolerance + capability negotiation |
+| WS-2 | `archive/edge-sentinel-ws-2-edge-ml-sampler.md` | clean-room k-means ensemble + `sysinfo` sampler (agent); ARM-benched |
+| WS-3 | `archive/edge-sentinel-ws-3-wire-contract.md` | additive `ControlMessage` variants + Rust↔Go goldens; payload caps |
+| WS-4 | `archive/edge-sentinel-ws-4-server-ingest-vm.md` | VictoriaMetrics ingest + stream-agg + Postgres process RLS table |
 | WS-5 | `edge-sentinel-ws-5-correlation-engine.md` | on-demand Go KS-test ranking over VM (MetricsQL) |
 | WS-6 | `edge-sentinel-ws-6-web-ui.md` | uPlot chart engine: badge + anomaly panel + timelines + drill-down |
 | WS-7 | `edge-sentinel-ws-7-cold-tier-duckdb.md` | VM retention/rollups + optional Parquet archival (DuckDB deferred) |
@@ -353,8 +354,9 @@ autonomous active response; revisit only behind a dedicated privilege/platform A
   `/refactor` → push to `dev` only. Author = Ivan Volchanskyi, no co-authors.
 - **Protocol:** any `ControlMessage` change is golden-gated (`make golden`).
 - **No GPL** vendored/ported (Netdata GPL-3; workspace Apache-2). Clean-room only.
-- **New deps** (`uplot`, the VM stream-agg config) each need an **ADR** in [docs/adr/](../../docs/adr/) +
-  index row in [decisions.md](../decisions.md). **Not** introduced this rollout: Timescale image,
+- **New deps** (`uplot`, future storage/query substrates) each need an **ADR** in [docs/adr/](../../docs/adr/) +
+  index row in [decisions.md](../decisions.md). The VM stream-agg/server-ingest decision is
+  recorded in [ADR-044](../../docs/adr/ADR-044-edge-sentinel-server-telemetry-ingest.md). **Not** introduced this rollout: Timescale image,
   DuckDB/CGO, `arrow`/`parquet` (only if optional archival is built).
 - **Default-off** behind a flag until Wave 0 + WS-3/WS-4 land + soak passes; failure = silent degradation.
 - **Tenancy:** after WS-0 every new tenant table carries `org_id` + RLS; every new repo method runs
@@ -387,8 +389,8 @@ autonomous active response; revisit only behind a dedicated privilege/platform A
 ## Housekeeping
 
 - ADRs: (a) edge-first + clean-room ML, (b) multi-tenant RLS, (c) **telemetry storage =
-  VictoriaMetrics OSS + stream-aggregation** (records the RLS-triangle rationale + live free-tier
-  data; supersedes the Timescale direction), (d) process-telemetry PII (basename+hash default;
+  VictoriaMetrics OSS + stream-aggregation** ([ADR-044](../../docs/adr/ADR-044-edge-sentinel-server-telemetry-ingest.md)),
+  (d) process-telemetry PII (basename+hash default;
   on-demand full cmdline), (e) protocol capability negotiation, (f) charting/bundle budget,
   (g) endpoint-log model (edge-stored, server-proxied; why not Loki), (h) raw-log privacy
   (no central storage; audited on-demand; elevated permission), (i) journald/Windows reader

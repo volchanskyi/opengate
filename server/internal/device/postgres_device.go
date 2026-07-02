@@ -59,6 +59,25 @@ func (p *PostgresDevices) Get(ctx context.Context, id DeviceID) (*Device, error)
 	return d, err
 }
 
+// OrgForDevice resolves the owning organization for a device id in the current
+// tenant scope. Internal agent-ingest code calls this with an admin-scoped
+// tenant so the subsequent control loop can run as the device's actual org.
+func (p *PostgresDevices) OrgForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error) {
+	var orgID uuid.UUID
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx,
+			`SELECT org_id
+			 FROM devices
+			 WHERE id = $1
+			   AND (org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean)`,
+			id).Scan(&orgID)
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return uuid.Nil, ErrDeviceNotFound
+	}
+	return orgID, err
+}
+
 func (p *PostgresDevices) List(ctx context.Context, groupID GroupID) ([]*Device, error) {
 	var devices []*Device
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {

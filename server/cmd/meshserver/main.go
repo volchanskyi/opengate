@@ -26,6 +26,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
+	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
@@ -38,6 +39,7 @@ func main() {
 	jwtSecret := flag.String("jwt-secret", "", "JWT signing secret (or JWT_SECRET env)")
 	vapidContact := flag.String("vapid-contact", "", "VAPID contact email for web push (optional)")
 	webDir := flag.String("web-dir", "", "directory containing SPA static assets (optional)")
+	victoriaMetricsURL := flag.String("victoriametrics-url", "", "VictoriaMetrics base URL (or OPENGATE_VICTORIAMETRICS_URL env; optional)")
 	amtUser := flag.String("amt-user", "admin", "AMT WSMAN username for device management")
 	amtPass := flag.String("amt-pass", "", "AMT WSMAN password for device management")
 	flag.Parse()
@@ -109,6 +111,19 @@ func main() {
 	amtRepo := amt.NewInstrumented(amt.NewPostgresAMTDevices(store.DB()), appMetrics)
 	sessionsRepo := session.NewInstrumented(session.NewPostgresSessions(store.DB()), appMetrics)
 	usersRepo := auth.NewInstrumentedUsers(auth.NewPostgresUsers(store.DB()), appMetrics)
+	processesRepo := telemetry.NewPostgresProcessRepository(store.DB())
+
+	vmURL := *victoriaMetricsURL
+	if vmURL == "" {
+		vmURL = os.Getenv("OPENGATE_VICTORIAMETRICS_URL")
+	}
+	var telemetryWriter telemetry.NumericWriter
+	if vmURL != "" {
+		telemetryWriter = telemetry.NewVMClient(vmURL, nil)
+		logger.Info("edge sentinel telemetry writer enabled", "victoriametrics_url", vmURL)
+	} else {
+		logger.Warn("edge sentinel numeric telemetry disabled: set --victoriametrics-url or OPENGATE_VICTORIAMETRICS_URL")
+	}
 
 	// Reset stale online statuses from a prior run via the device repository.
 	if err := devicesRepo.ResetAllStatuses(dbtx.WithDefaultTenant(context.Background(), false)); err != nil {
@@ -158,6 +173,8 @@ func main() {
 		Hardware:      hardwareRepo,
 		DeviceLogs:    deviceLogsRepo,
 		DeviceUpdates: deviceUpdatesRepo,
+		Telemetry:     telemetryWriter,
+		Processes:     processesRepo,
 		Relay:         agentRelay,
 		Notifier:      notifier,
 		QuicHost:      quicHost,

@@ -104,6 +104,10 @@ spec:
             - name: LOG_LEVEL
               value: {{ .Values.server.logLevel | quote }}
             {{- end }}
+            {{- if .Values.server.victoriaMetricsURL }}
+            - name: OPENGATE_VICTORIAMETRICS_URL
+              value: {{ .Values.server.victoriaMetricsURL | quote }}
+            {{- end }}
             - name: DATABASE_URL
               value: "postgres://opengate_app:$(POSTGRES_APP_PASSWORD)@{{ include "opengate.postgres.fullname" . }}:5432/opengate?sslmode=disable"
           ports:

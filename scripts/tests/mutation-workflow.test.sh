@@ -49,10 +49,19 @@ fi
 
 # --- Static workflow contract -------------------------------------------------
 
-if grep -qE '^[[:space:]]*timeout-minutes:[[:space:]]*75([[:space:]]|$)' "$WORKFLOW"; then
-  pass "mutation matrix timeout is 75 minutes (sharded; headroom for the api hotspot)"
+# The job timeout defaults to 75 minutes (Go/web legs) and lets a matrix entry
+# override it (rust carries a higher cap since the Edge Sentinel ML crates grew
+# its unsharded workspace run past 75min).
+if grep -qE "^[[:space:]]*timeout-minutes:[[:space:]]*\\\$\{\{[[:space:]]*matrix\.timeout-minutes[[:space:]]*\|\|[[:space:]]*75[[:space:]]*\}\}" "$WORKFLOW"; then
+  pass "mutation job timeout defaults to 75 minutes with per-leg override"
 else
-  fail "mutation matrix timeout must be 75 minutes"
+  fail "mutation job timeout must default to 75 minutes (matrix.timeout-minutes override)"
+fi
+
+if grep -qE '^[[:space:]]*-[[:space:]]*\{[[:space:]]*language:[[:space:]]*rust,[[:space:]]*timeout-minutes:[[:space:]]*[0-9]+' "$WORKFLOW"; then
+  pass "rust mutation leg carries its own timeout override"
+else
+  fail "rust mutation leg must set a matrix.timeout-minutes override above the 75min default"
 fi
 
 if grep -q 'SUMMARY_STATUS=' "$WORKFLOW" \

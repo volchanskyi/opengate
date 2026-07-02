@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-<!-- Last updated: 2026-07-01 -->
+<!-- Last updated: 2026-07-02 -->
 <!-- Compact index. Full ADR text lives in /docs: -->
 <!--   - ADR-001 through ADR-012: docs/Architecture-Decision-Records.md (frozen historical log) -->
 <!--   - ADR-013 onward:          docs/adr/ADR-NNN-title.md (one mutable file per decision) -->
@@ -50,3 +50,4 @@
 | 041 | Postgres RLS multi-tenancy — default organization backfill, `org_id` on tenant tables, forced RLS policies, tenant context from JWT `org` through `dbtx.Scoped`, policy-based admin bypass, dedicated non-superuser/non-`BYPASSRLS` Helm runtime role; per-repo deny tests + automated dump/restore/down migration rehearsal | Edge-Sentinel WS-0 | Accepted |
 | 042 | Control protocol forward compatibility — unknown control types tolerated both directions and new server→agent variants capability-gated through `AgentRegister` (`HardwareInventory`, `DeviceLogs`); bidirectional unknown-type goldens | Edge-Sentinel WS-1 | Accepted |
 | 043 | Edge Sentinel local ML sampler — clean-room pure-Rust k=2 ensemble/window/sampler/redaction kernel, process top-N by rank, no full cmdline by default, agent background task default-off; allocation/RSS guards + Criterion ARM-footprint bench harness | Edge-Sentinel WS-2 | Accepted |
+| 044 | Edge Sentinel server telemetry ingest — numeric samples go to VictoriaMetrics through a scoped server client that injects `org_id`; process snapshots go to forced-RLS Postgres `device_processes`; agent writes are scoped by the server-resolved device org, not payload `org_id`; telemetry has cap/interval/drop arbitration and VM stream aggregation | Edge-Sentinel WS-4 | Accepted |

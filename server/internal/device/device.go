@@ -109,6 +109,7 @@ type LogFilter struct {
 type Repository interface {
 	Upsert(ctx context.Context, d *Device) error
 	Get(ctx context.Context, id DeviceID) (*Device, error)
+	OrgForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error)
 	List(ctx context.Context, groupID GroupID) ([]*Device, error)
 	ListAll(ctx context.Context) ([]*Device, error)
 	ListForOwner(ctx context.Context, ownerID uuid.UUID) ([]*Device, error)
