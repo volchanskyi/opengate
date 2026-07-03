@@ -16,8 +16,10 @@
 # runner), so DB-package time >> pure-package time regardless of mutant count.
 # `api` alone is the single largest cost (~45min CI) and is one package that
 # cannot be split, so it gets its own shard; the other DB packages are spread so
-# no shard clusters them; pure/crypto packages (incl. the high-count but cheap
-# `amt`) share the third shard. Add a shard if a DB package pushes one over cap.
+# no shard clusters them; the pure/crypto packages are split across two shards
+# (amt anchors one, the wire/relay/observability packages the other) after the
+# Edge Sentinel telemetry/correlate growth pushed the single pure shard past the
+# 75min cap. Add a shard if a package pushes one over cap.
 #
 # Consumed by the Makefile (make mutate-go), the workflow Go step + publish merge,
 # and scripts/tests/mutation-workflow.test.sh (partition + drift guards). Source
@@ -40,7 +42,7 @@ mutation_go_global_excludes() {
 # Shard ids, in run order. Named for what they hold (the workflow job appears as
 # "Mutation (<shard>)").
 mutation_go_shards() {
-  echo "go-api go-db go-pure"
+  echo "go-api go-db go-pure-1 go-pure-2"
 }
 
 # Space-separated internal package names for a shard id (no path prefix).
@@ -52,8 +54,13 @@ mutation_go_shard_pkgs() {
     go-api) echo "api" ;;
     # Remaining Postgres-backed packages, spread so they do not cluster.
     go-db) echo "agentapi auth db dbtx device session audit usecase" ;;
-    # Pure + crypto (no Postgres) incl. the high-count but cheap amt.
-    go-pure) echo "amt protocol relay metrics signaling osutil telemetry correlate testpg testvm clientapi cert notifications updater" ;;
+    # Pure + crypto (no Postgres), split into two shards balanced by non-test
+    # source size (~2.8k LOC each) after telemetry/correlate growth pushed the
+    # single pure shard past the 75min cap (cancelled 2026-07-02). amt dominates
+    # (crypto, high mutant count) so it anchors go-pure-1; go-pure-2 carries the
+    # wire/relay/observability packages.
+    go-pure-1) echo "amt updater notifications cert" ;;
+    go-pure-2) echo "protocol correlate telemetry relay metrics signaling testpg testvm osutil clientapi" ;;
     *)
       echo "unknown mutation shard: $1" >&2
       return 1

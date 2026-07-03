@@ -1,5 +1,5 @@
-# Sourced from deploy/loki/loki-config.yml — kept in sync so the chart is
-# self-contained. Single-binary Loki for OpenGate monitoring.
+# Single-binary Loki config for OpenGate monitoring, mounted by
+# templates/loki.yaml.
 
 auth_enabled: false
 

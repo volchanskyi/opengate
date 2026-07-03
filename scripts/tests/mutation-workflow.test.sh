@@ -23,6 +23,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORKFLOW="$REPO_ROOT/.github/workflows/mutation.yml"
 SHARDS_LIB="$REPO_ROOT/scripts/lib/mutation-shards.sh"
 MERGE="$REPO_ROOT/scripts/mutation-merge-go.sh"
+MERGE_RUST="$REPO_ROOT/scripts/mutation-merge-rust.sh"
 SUMMARIZE="$REPO_ROOT/scripts/mutation-summarize.sh"
 
 PASS=0
@@ -49,19 +50,28 @@ fi
 
 # --- Static workflow contract -------------------------------------------------
 
-# The job timeout defaults to 75 minutes (Go/web legs) and lets a matrix entry
-# override it (rust carries a higher cap since the Edge Sentinel ML crates grew
-# its unsharded workspace run past 75min).
-if grep -qE "^[[:space:]]*timeout-minutes:[[:space:]]*\\\$\{\{[[:space:]]*matrix\.timeout-minutes[[:space:]]*\|\|[[:space:]]*75[[:space:]]*\}\}" "$WORKFLOW"; then
-  pass "mutation job timeout defaults to 75 minutes with per-leg override"
+# The job timeout is a flat 75 minutes. Every leg fits under it: the Go leg is
+# package-sharded and the rust leg is split with `cargo mutants --shard`.
+if grep -qE "^[[:space:]]*timeout-minutes:[[:space:]]*75[[:space:]]*$" "$WORKFLOW"; then
+  pass "mutation job timeout is a flat 75 minutes (every sharded leg fits under it)"
 else
-  fail "mutation job timeout must default to 75 minutes (matrix.timeout-minutes override)"
+  fail "mutation job must set timeout-minutes: 75"
 fi
 
-if grep -qE '^[[:space:]]*-[[:space:]]*\{[[:space:]]*language:[[:space:]]*rust,[[:space:]]*timeout-minutes:[[:space:]]*[0-9]+' "$WORKFLOW"; then
-  pass "rust mutation leg carries its own timeout override"
+# rust is sharded with `cargo mutants --shard k/n` (>=2 legs), so each leg
+# mutates a fraction of the workspace and fits under the 75min default — the
+# Edge Sentinel ML crates had grown the unsharded run past it.
+rust_shard_legs="$(grep -cE '^[[:space:]]*-[[:space:]]*\{[[:space:]]*language:[[:space:]]*rust,[[:space:]]*shard:[[:space:]]*rust-[0-9]+' "$WORKFLOW")"
+if [ "$rust_shard_legs" -ge 2 ]; then
+  pass "rust mutation leg is sharded into $rust_shard_legs parallel legs"
 else
-  fail "rust mutation leg must set a matrix.timeout-minutes override above the 75min default"
+  fail "rust mutation leg must be sharded (>=2 'language: rust, shard: rust-N' matrix entries)"
+fi
+
+if grep -qE 'cargo mutants .*--shard[[:space:]]+.*matrix\.rust_shard' "$WORKFLOW"; then
+  pass "rust step selects its shard via cargo mutants --shard (matrix.rust_shard)"
+else
+  fail "rust step must run cargo mutants with --shard from matrix.rust_shard"
 fi
 
 if grep -q 'SUMMARY_STATUS=' "$WORKFLOW" \
@@ -127,7 +137,7 @@ if [ -f "$SHARDS_LIB" ]; then
 
   # Workflow matrix go shard ids must match the shard map (no drift).
   want_ids="$(mutation_go_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
-  have_ids="$(grep -oE 'shard:[[:space:]]*go-[a-z0-9]+' "$WORKFLOW" \
+  have_ids="$(grep -oE 'shard:[[:space:]]*go-[a-z0-9-]+' "$WORKFLOW" \
     | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
   if [ "$want_ids" = "$have_ids" ]; then
     pass "workflow matrix go shard ids match the shard map"
@@ -210,6 +220,44 @@ if [ -x "$MERGE" ]; then
   rm -rf "$tmp"
 else
   fail "scripts/mutation-merge-go.sh must exist and be executable"
+fi
+
+# --- Rust shard-outcome merge -------------------------------------------------
+
+if [ -x "$MERGE_RUST" ]; then
+  tmp="$(mktemp -d)"
+  printf '%s' '{"caught":10,"missed":2,"timeout":1,"unviable":3}' >"$tmp/r1.json"
+  printf '%s' '{"caught":5,"missed":1,"timeout":0,"unviable":4}' >"$tmp/r2.json"
+  if "$MERGE_RUST" "$tmp/out.json" "$tmp/r1.json" "$tmp/r2.json" >/dev/null 2>&1 \
+    && [ "$(jq -r '.caught' "$tmp/out.json")" = "15" ] \
+    && [ "$(jq -r '.missed' "$tmp/out.json")" = "3" ] \
+    && [ "$(jq -r '.timeout' "$tmp/out.json")" = "1" ] \
+    && [ "$(jq -r '.unviable' "$tmp/out.json")" = "7" ]; then
+    pass "mutation-merge-rust.sh sums shard outcome counts element-wise"
+  else
+    fail "mutation-merge-rust.sh must sum shard outcome counts"
+  fi
+  # A missing shard outcome file (cancelled/failed shard) must FAIL the merge and
+  # write no output, mirroring the Go merge: publish then reports an incomplete
+  # run rather than a silent partial score from the surviving shard.
+  rm -f "$tmp/out.json"
+  if "$MERGE_RUST" "$tmp/out.json" "$tmp/r1.json" "$tmp/MISSING.json" >/dev/null 2>&1; then
+    fail "mutation-merge-rust.sh must fail when a shard outcome file is missing"
+  elif [ -f "$tmp/out.json" ]; then
+    fail "mutation-merge-rust.sh must not write a partial report when a shard is missing"
+  else
+    pass "mutation-merge-rust.sh fails (no output) on a missing shard outcome file"
+  fi
+  rm -rf "$tmp"
+else
+  fail "scripts/mutation-merge-rust.sh must exist and be executable"
+fi
+
+# publish must merge the rust shards through that script.
+if grep -q 'mutation-merge-rust\.sh' "$WORKFLOW"; then
+  pass "publish merges the rust shards via mutation-merge-rust.sh"
+else
+  fail "publish must merge rust shards via mutation-merge-rust.sh"
 fi
 
 # --- Summarizer error propagation (single clear error, no jq noise) -----------

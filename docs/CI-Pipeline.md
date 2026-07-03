@@ -325,8 +325,7 @@ Results are uploaded as the `lighthouse-results` artifact and a score summary is
 
 Lighthouse and bundle-size evidence stays per-run: Lighthouse uploads the
 `lighthouse-results` artifact from the `e2e` job, and bundle size uploads the
-`bundle-size-report` artifact from the `web-bundle-size` job. CI no longer
-pushes volatile browser performance history to `gh-pages`.
+`bundle-size-report` artifact from the `web-bundle-size` job.
 
 ### PageSpeed Insights (CD — Informational)
 

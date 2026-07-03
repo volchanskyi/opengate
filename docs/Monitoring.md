@@ -9,9 +9,8 @@ intended topology is the Helm chart at
 workloads Ready, plus the production and staging app releases running in their
 own namespaces.
 
-The old VPS/Docker Compose monitoring stack is no longer the production path.
-The compose files under [`deploy/`](../deploy/) remain local or dormant
-compatibility artifacts; current production monitoring is Kubernetes-native.
+Production monitoring is entirely Kubernetes-native, delivered by the
+`monitoring` Helm release.
 
 ## Architecture
 
@@ -132,9 +131,7 @@ The config produces live rollups for `opengate_edge_*` metrics while preserving
 raw matched input.
 
 Promtail reads Kubernetes pod logs, enriches each stream with Kubernetes labels,
-and pushes to Loki. The previous Docker-log path under
-[`deploy/promtail/promtail-config.yml`](../deploy/promtail/promtail-config.yml)
-is a compose-era artifact; the active chart uses
+and pushes to Loki via
 [`deploy/helm/monitoring/files/promtail-config.yaml`](../deploy/helm/monitoring/files/promtail-config.yaml).
 
 ## Dashboards And Alerts
@@ -204,8 +201,8 @@ Validation sources:
 - [`scripts/tests/pmat-vm-query.test.sh`](../scripts/tests/pmat-vm-query.test.sh)
   verifies newest-sample selection and fail-soft PMAT baseline reads.
 - [`scripts/tests/ci-trend-retirement.test.sh`](../scripts/tests/ci-trend-retirement.test.sh)
-  prevents the retired trend transports from returning while pinning Loki's
-  runtime log deployment.
+  keeps the CI trend transport VictoriaMetrics-only and pins Loki's runtime log
+  deployment.
 - [`scripts/tests/benchmark-summarize.test.sh`](../scripts/tests/benchmark-summarize.test.sh)
   verifies benchmark parsing, baseline generation, deterministic allocation
   regression detection, and `ns/op` advisory-only behavior.
@@ -224,8 +221,8 @@ Validation sources:
 
 ## Ad-hoc Investigation
 
-Use `/observe` or the underlying kubectl/Loki helpers instead of SSHing to a
-retired VM path. The active investigation path is cluster-native:
+Use `/observe` or the underlying kubectl/Loki helpers. The investigation path
+is cluster-native:
 
 ```bash
 kubectl -n monitoring get pods

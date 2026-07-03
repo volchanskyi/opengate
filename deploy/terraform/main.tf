@@ -59,17 +59,11 @@ module "networking" {
   ssh_allowed_cidr = var.ssh_allowed_cidr
 }
 
-# The compose VM (oci_core_instance.opengate) was decommissioned once the OKE
-# cutover stabilised (Phase 13b, ADR-030/ADR-034). The `compute` module is left
-# in the tree, tested and reusable, as the documented rollback path
-# (docs/Kubernetes-Migration.md → Rollback: re-instantiate it + restore a
-# pg_dump) — it is simply no longer instantiated here.
-
-# OCI Bastion service — operator access plane. Since the VM was decommissioned
-# its target is the OKE worker-node subnet, so `make ssh` reaches the node for
-# node-level debugging (deploy/scripts/bastion-session.sh resolves the node IP
-# from the node pool). CI uses `.github/actions/oci-kube-setup` and the
-# Kubernetes API instead of SSH/Bastion. See ADR-018 for the decision rationale.
+# OCI Bastion service — operator access plane. Its target is the OKE worker-node
+# subnet, so `make ssh` reaches the node for node-level debugging
+# (deploy/scripts/bastion-session.sh resolves the node IP from the node pool). CI
+# uses `.github/actions/oci-kube-setup` and the Kubernetes API instead of
+# SSH/Bastion. See ADR-018 for the decision rationale.
 module "bastion" {
   source = "./modules/bastion"
 
@@ -134,19 +128,4 @@ moved {
 moved {
   from = oci_core_route_table.opengate
   to   = module.networking.oci_core_route_table.opengate
-}
-
-moved {
-  from = oci_core_network_security_group.cd_deploy
-  to   = module.networking.oci_core_network_security_group.cd_deploy
-}
-
-moved {
-  from = oci_core_security_list.opengate
-  to   = module.networking.oci_core_security_list.opengate
-}
-
-moved {
-  from = oci_core_subnet.opengate_public
-  to   = module.networking.oci_core_subnet.opengate_public
 }

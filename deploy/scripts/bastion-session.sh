@@ -32,9 +32,9 @@
 #   BASTION_SSH_KEY                # default: ~/.ssh/id_ed25519
 #   OPENGATE_TERRAFORM_DIR         # default: deploy/terraform
 #
-# The SSH target is the OKE worker node (the compose VM it formerly fronted was
-# decommissioned). The node's OCID + private IP are resolved live from the
-# cluster node pool (oke_node_pool_id terraform output) via `oci ce node-pool get`.
+# The SSH target is the OKE worker node. The node's OCID + private IP are
+# resolved live from the cluster node pool (oke_node_pool_id terraform output)
+# via `oci ce node-pool get`.
 #
 # Prerequisites: oci CLI, jq, terraform (if not pre-setting the OCIDs).
 # IAM: `manage bastion-session` on the compartment + `read instance` on the

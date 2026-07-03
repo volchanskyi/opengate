@@ -26,4 +26,4 @@ Backup scripts, retention jobs, alerting routines, and similar operational tooli
 
 Each implementation phase ends with a [`/docs`](../../docs/) update step. The previous GitHub Wiki is deprecated; do not edit it.
 
-Read [`/docs/README.md`](../../docs/README.md) before editing any doc — it defines the two non-negotiable conventions: (1) **link, don't paraphrase** — do not copy numbers, versions, flags, or paths into prose, link to the source; (2) **per-file ADRs (013+) are mutable** — edit them in place to keep them accurate; supersede with a new file only for genuine decision *changes* (the frozen 001–012 log stays untouched).
+Read [`/docs/README.md`](../../docs/README.md) before editing any doc — it defines the non-negotiable conventions: (1) **link, don't paraphrase** — do not copy numbers, versions, flags, or paths into prose, link to the source; (2) **all ADRs are mutable** — edit them in place to keep them accurate (including the combined 001–012 log); supersede with a new file only for genuine decision *changes*; (3) **docs and comments describe live state only** — never narrate removed/retired things ([`docs-live-state.md`](docs-live-state.md)).

@@ -5,7 +5,7 @@ variable "compartment_id" {
 }
 
 variable "ssh_allowed_cidr" {
-  description = "CIDR block allowed to reach TCP 22 on the public subnet (operator IP)"
+  description = "CIDR block allowed to reach TCP 22 on the OKE worker-node break-glass rule (operator IP)"
   type        = string
   sensitive   = true
 

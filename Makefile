@@ -72,10 +72,6 @@ shell-test:
 
 shell-quality: shell-check shell-test
 
-DEPLOY_DUMMY_ENV := JWT_SECRET=dummy AMT_USER=admin AMT_PASS=dummy \
-	VAPID_CONTACT=dummy IMAGE_TAG=latest DOMAIN=example.com \
-	POSTGRES_PASSWORD=dummy
-
 lint-deploy:
 	@command -v yamllint >/dev/null 2>&1 || { echo "ERROR: yamllint not found. Install with: pip install yamllint"; exit 1; }
 	yamllint -c .yamllint.yml deploy/
@@ -90,28 +86,11 @@ lint-deploy:
 	terraform -chdir=deploy/terraform validate
 	@command -v tflint >/dev/null 2>&1 || { echo "ERROR: tflint not found. Install from: https://github.com/terraform-linters/tflint"; exit 1; }
 	tflint --init --chdir=deploy/terraform && tflint --chdir=deploy/terraform --format=compact
-	@# Output-sensitivity grep — cheaper and more deterministic than asserting in tftest.
-	@# cd_nsg_id contains an OCID retained for rollback tooling — it MUST stay
-	@# marked `sensitive = true` in deploy/terraform/outputs.tf so it never
-	@# appears in plan/apply logs. (instance_id was dropped when the compute VM
-	@# was decommissioned.)
-	@for out in cd_nsg_id; do \
-	  grep -A3 "output \"$$out\"" deploy/terraform/outputs.tf | grep -q "sensitive *= *true" \
-	    || { echo "ERROR: output \"$$out\" must have sensitive = true in deploy/terraform/outputs.tf"; exit 1; }; \
-	done
 	@$(MAKE) terraform-test
-	cd deploy && $(DEPLOY_DUMMY_ENV) docker compose config --quiet
-	cd deploy && $(DEPLOY_DUMMY_ENV) STAGING_JWT_SECRET=dummy STAGING_POSTGRES_PASSWORD=dummy \
-	  docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet
 	cd deploy && docker compose -f docker-compose.test.yml config --quiet
-	@command -v caddy >/dev/null 2>&1 || { echo "ERROR: caddy not found. Install from: https://caddyserver.com/docs/install"; exit 1; }
-	caddy fmt --diff deploy/caddy/Caddyfile && caddy fmt --diff deploy/caddy/Caddyfile.staging \
-	  && caddy validate --config deploy/caddy/Caddyfile --adapter caddyfile \
-	  && caddy validate --config deploy/caddy/Caddyfile.staging --adapter caddyfile
 	@command -v trivy >/dev/null 2>&1 || { echo "ERROR: trivy not found. Install from: https://aquasecurity.github.io/trivy"; exit 1; }
 	trivy config --severity HIGH,CRITICAL --exit-code 1 deploy/ \
 	  && trivy config --severity HIGH,CRITICAL --exit-code 1 Dockerfile
-	bash deploy/tests/validate-configs.sh
 
 # Module-invariant assertions for the Terraform config (mock_provider, no OCI creds).
 # Each submodule and the root carry their own tftest suite; the umbrella target runs
@@ -119,8 +98,6 @@ lint-deploy:
 terraform-test:
 	terraform -chdir=deploy/terraform/modules/networking init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform/modules/networking test
-	terraform -chdir=deploy/terraform/modules/compute init -backend=false -input=false >/dev/null
-	terraform -chdir=deploy/terraform/modules/compute test
 	terraform -chdir=deploy/terraform/modules/bastion init -backend=false -input=false >/dev/null
 	terraform -chdir=deploy/terraform/modules/bastion test
 	terraform -chdir=deploy/terraform/modules/oke init -backend=false -input=false >/dev/null
@@ -209,7 +186,6 @@ lint-dockerfile:
 # checks run against committed files directly so they always work in CI.
 iac-policy-custom:
 	@command -v conftest >/dev/null 2>&1 || { echo "ERROR: conftest not found. Install: https://github.com/open-policy-agent/conftest/releases"; exit 1; }
-	conftest test --policy policy/docker_compose deploy/docker-compose.yml deploy/docker-compose.staging.yml
 	conftest test --policy policy/github_actions .github/workflows/*.yml
 	@# Terraform policy needs a plan-file (HCL2 parser leaves ${var.X} unresolved).
 	@# Operator: terraform plan -out=/tmp/tfplan.binary && terraform show -json /tmp/tfplan.binary > /tmp/tfplan.json

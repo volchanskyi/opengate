@@ -52,12 +52,6 @@ variable "ssh_allowed_cidr" {
   }
 }
 
-# Note: the instance_shape / instance_ocpus / instance_memory_gb / boot_volume_gb
-# variables were removed when the compute VM was decommissioned (their only
-# consumer was the now-removed module.compute instantiation). The compute module
-# still declares its own equivalents in modules/compute/variables.tf, so a
-# rollback that re-adds the module block re-introduces these root inputs.
-
 # --- OKE (Phase 13b cutover) -------------------------------------------------
 # Defaults are the live values resolved at wiring time (region us-sanjose-1,
 # 2026-06-06): `oci ce cluster-options get` for the version and

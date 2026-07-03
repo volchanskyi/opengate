@@ -1,6 +1,6 @@
 # Infrastructure
 
-OpenGate uses Terraform for OCI infrastructure and Helm for the current OKE runtime. Docker Compose files remain in the repo for local tests and dormant recovery paths, but production and staging deploy through Kubernetes.
+OpenGate uses Terraform for OCI infrastructure and Helm for the OKE runtime. Production and staging deploy through Kubernetes; Docker Compose is used only for local and E2E tests.
 
 ## Cloud Provider
 
@@ -14,10 +14,9 @@ deploy/
 ├── helm/
 │   ├── opengate/             # Application chart + staging/production overlays
 │   └── monitoring/           # VictoriaMetrics, Grafana, Loki, exporters
-├── scripts/                  # Smoke tests, rollback helpers, bastion wrapper
-├── docker-compose.test.yml   # Local/E2E test environment
-├── docker-compose*.yml       # Dormant/local Compose artifacts
-└── caddy/                    # Dormant Caddyfiles kept with the Compose path
+├── grafana/provisioning/     # Grafana dashboards + alerting (templated into the chart)
+├── scripts/                  # Smoke test, server-wait, bastion, tfplan-parse helpers
+└── docker-compose.test.yml   # Local/E2E test environment
 ```
 
 ## Terraform Resources
@@ -27,7 +26,7 @@ the human operator access plane, and the off-cluster backup substrate. The
 resource inventory is the Terraform root module plus `networking`, `oke`,
 `bastion`, and `backups` modules in [`deploy/terraform`](../deploy/terraform/):
 
-- VCN, route table, public subnets, security list, and OKE NSGs.
+- VCN, internet gateway, route table, and the OKE subnets, NSGs, and load-balancer security list.
 - OKE Basic cluster and node pool.
 - OCI Bastion targeting the OKE worker-node subnet.
 - Postgres backup bucket, its retention lifecycle rule, and the
@@ -136,7 +135,7 @@ Generate a new Customer Secret Key for `tf-state-writer`, update `~/.oci/terrafo
 
 ### Custom IaC policies
 
-Project-specific invariants (Always-Free shape, required tags, image pinning, action SHA-pinning) live in [`policy/`](../policy/) and are enforced via [Conftest](https://www.conftest.dev/) (OPA Rego). Run with `make iac-policy-custom`; full per-policy listing in the directory READMEs. The compute and tag rules ALSO run inside `terraform test` ([`modules/networking/tests/`](../deploy/terraform/modules/networking/tests/), [`modules/compute/tests/`](../deploy/terraform/modules/compute/tests/)) — overlap is deliberate per [ADR-015](adr/ADR-015-iac-defense-in-depth.md).
+Project-specific invariants (Always-Free shape, required tags, image pinning, action SHA-pinning) live in [`policy/`](../policy/) and are enforced via [Conftest](https://www.conftest.dev/) (OPA Rego). Run with `make iac-policy-custom`; full per-policy listing in the directory READMEs. The shape and tag rules ALSO run inside `terraform test` ([`modules/networking/tests/`](../deploy/terraform/modules/networking/tests/), [`modules/oke/tests/`](../deploy/terraform/modules/oke/tests/)) — overlap is deliberate per [ADR-015](adr/ADR-015-iac-defense-in-depth.md).
 
 The terraform Rego check requires a plan-file because conftest's HCL2 parser leaves `${var.X}` references unresolved. Operator runs:
 
@@ -211,10 +210,9 @@ Quarterly: audit that the `tf-drift-readers` policy document has not been broade
 
 #### Known interactions
 
-The historical CD path temporarily mutated the `cd_deploy` NSG for just-in-time
-SSH, but current CD uses [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml)
-and the OKE API. A refresh-only Terraform drift now represents real OCI drift
-rather than expected deploy-time SSH churn.
+CD uses [`oci-kube-setup`](../.github/actions/oci-kube-setup/action.yml) and the
+OKE API, so a refresh-only Terraform drift represents real OCI drift rather than
+deploy-time churn.
 
 #### Grafana
 
@@ -364,15 +362,6 @@ and the Helm values files. The high-level model is:
   the app chart values.
 - MPS uses the server's Intel AMT-compatible TLS path.
 
-## Dormant Compose / Caddy Artifacts
-
-The Docker Compose and Caddy files under [`deploy/`](../deploy/) are no longer
-invoked by the normal GitHub Actions CD path. They are still linted so the
-recovery/local artifacts do not silently rot, but current staging and production
-state comes from Helm. Do not document Compose as the production deployment
-mechanism unless the root Terraform module re-instantiates the compute module
-and CD is explicitly moved back to that path.
-
 ## Secrets Management
 
 No secrets are committed to the repository. Runtime secrets enter through three
@@ -406,5 +395,4 @@ locally through `make lint-deploy` / `make lint-k8s`.
 | `terraform test` | Terraform modules and root | Module invariants and variable validation |
 | `helm lint` / `helm template` / `kubeconform` | Helm charts | Chart/schema drift |
 | Checkov / Trivy / Conftest | IaC, Dockerfile, workflow, Kubernetes policy | Security misconfiguration and project-specific invariants |
-| `docker compose config` / `caddy validate` | Dormant/local artifacts | Keeps fallback/local configs parseable |
-| [`deploy/tests/validate-configs.sh`](../deploy/tests/validate-configs.sh) | Cross-config consistency | Port, env-var, tfvars, and config-shape invariants |
+| `docker compose config` (test stack) | Local/E2E infra | Keeps the test compose parseable |

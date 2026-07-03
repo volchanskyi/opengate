@@ -3,16 +3,6 @@ output "vcn_id" {
   value       = module.networking.vcn_id
 }
 
-output "subnet_id" {
-  description = "OCID of the public subnet"
-  value       = module.networking.subnet_id
-}
-
-output "cd_nsg_id" {
-  description = "OCID of the legacy CD deploy NSG (sensitive; retained for rollback tooling)"
-  value       = module.networking.nsg_id
-  sensitive   = true
-}
 
 output "bastion_id" {
   description = "OCID of the OCI Bastion resource — consumed by deploy/scripts/bastion-session.sh to create Managed SSH sessions for operator access"

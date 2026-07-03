@@ -261,7 +261,7 @@ func (s *Server) routes() {
 	r.Use(MaxBodySize(maxRequestBodySize))
 	r.Use(RequestLogger(s.logger))
 
-	// Prometheus metrics endpoint (not proxied by Caddy — internal only)
+	// Prometheus metrics endpoint (internal only — not exposed through the ingress)
 	if s.metricsRegistry != nil {
 		r.Handle("/metrics", promhttp.HandlerFor(s.metricsRegistry, promhttp.HandlerOpts{}))
 	}

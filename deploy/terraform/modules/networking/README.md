@@ -1,6 +1,6 @@
 # Networking submodule
 
-Owns the OpenGate VCN and shared network surfaces: internet gateway, route table, the legacy `cd_deploy` network security group, the dormant public-subnet security list/subnet, and the active OKE API, worker-node, and load-balancer subnets/NSGs. The root module wires [bastion](../bastion/) to the OKE worker-node subnet for human node access; [compute](../compute/) is retained as a tested rollback module rather than an active production instance.
+Owns the OpenGate VCN and its shared surfaces — internet gateway and route table — plus the OKE API, worker-node, and load-balancer subnets and NSGs. The root module wires [bastion](../bastion/) to the OKE worker-node subnet for human node access.
 
 ## Inputs
 
@@ -14,10 +14,12 @@ Owns the OpenGate VCN and shared network surfaces: internet gateway, route table
 | Output | Purpose |
 |---|---|
 | `vcn_id` | OCID of the VCN. |
-| `subnet_id` | OCID of the dormant public subnet — consumed by the compute rollback module if the compose VM is re-instantiated. |
-| `nsg_id` | OCID of the legacy `cd_deploy` NSG. Kept sensitive because OCIDs were historically consumed through GitHub Secrets and may be reused by rollback tooling. |
-| `security_list_id` | OCID of the public-subnet security list (verified by `tests/integration.tftest.hcl`). |
+| `oke_api_endpoint_subnet_id` | OCID of the OKE API-endpoint subnet. |
+| `oke_node_subnet_id` | OCID of the OKE worker-node subnet. |
+| `oke_lb_subnet_id` | OCID of the OKE load-balancer subnet. |
+| `oke_cp_nsg_id` | OCID of the OKE control-plane NSG. |
+| `oke_node_nsg_id` | OCID of the OKE worker-node NSG. |
 
 ## Test coverage
 
-- [`tests/security.tftest.hcl`](tests/security.tftest.hcl) — security-list invariants: no SSH to world, public TCP ports = {80, 443, 4433}, public UDP ports = {443, 9090}, egress is stateful, and the dormant public-subnet Bastion recovery rule remains present. Runs against a mock provider — no OCI creds required.
+- [`tests/security.tftest.hcl`](tests/security.tftest.hcl) — asserts the operator break-glass SSH CIDR (`var.ssh_allowed_cidr`, applied to the OKE worker-node NSG) can never be `0.0.0.0/0`. Runs against a mock provider — no OCI creds required.
