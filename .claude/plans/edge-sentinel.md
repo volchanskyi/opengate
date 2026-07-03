@@ -108,7 +108,7 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-2 | `archive/edge-sentinel-ws-2-edge-ml-sampler.md` | clean-room k-means ensemble + `sysinfo` sampler (agent); ARM-benched |
 | WS-3 | `archive/edge-sentinel-ws-3-wire-contract.md` | additive `ControlMessage` variants + Rust↔Go goldens; payload caps |
 | WS-4 | `archive/edge-sentinel-ws-4-server-ingest-vm.md` | VictoriaMetrics ingest + stream-agg + Postgres process RLS table |
-| WS-5 | `edge-sentinel-ws-5-correlation-engine.md` | on-demand Go KS-test ranking over VM (MetricsQL) |
+| WS-5 | `archive/edge-sentinel-ws-5-correlation-engine.md` | on-demand Go KS-test ranking over VM (MetricsQL) |
 | WS-6 | `edge-sentinel-ws-6-web-ui.md` | uPlot chart engine: badge + anomaly panel + timelines + drill-down |
 | WS-7 | `edge-sentinel-ws-7-cold-tier-duckdb.md` | VM retention/rollups + optional Parquet archival (DuckDB deferred) |
 | WS-8 | `edge-sentinel-ws-8-ops-measurement.md` | Grafana + sustained soak + default-on gate |

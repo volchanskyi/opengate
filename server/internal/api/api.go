@@ -14,12 +14,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
+	"github.com/volchanskyi/opengate/server/internal/correlate"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
@@ -47,6 +49,13 @@ type CertProvider interface {
 	SignAgentCSR(csrDER []byte) ([]byte, error)
 }
 
+// CorrelationRanker ranks anomalous metric dimensions for a device window on
+// demand. Implemented by *correlate.Engine; nil when telemetry is not
+// configured, in which case the correlate endpoint reports 503.
+type CorrelationRanker interface {
+	Correlate(ctx context.Context, orgID uuid.UUID, req correlate.Request) (correlate.Result, error)
+}
+
 // ServerConfig holds all dependencies for the API server.
 type ServerConfig struct {
 	Store                 *db.PostgresStore
@@ -70,6 +79,7 @@ type ServerConfig struct {
 	Agents                AgentGetter
 	AMT                   amt.Operator
 	Cert                  CertProvider
+	Correlate             CorrelationRanker
 	Relay                 *relay.Relay
 	Signaling             *signaling.Tracker
 	Notifier              notifications.Notifier
@@ -107,6 +117,7 @@ type Server struct {
 	agents          AgentGetter
 	amt             amt.Operator
 	cert            CertProvider
+	correlate       CorrelationRanker
 	relay           *relay.Relay
 	signaling       *signaling.Tracker
 	notifier        notifications.Notifier
@@ -206,6 +217,7 @@ func NewServer(cfg ServerConfig) *Server {
 		agents:          cfg.Agents,
 		amt:             cfg.AMT,
 		cert:            cfg.Cert,
+		correlate:       cfg.Correlate,
 		relay:           cfg.Relay,
 		signaling:       cfg.Signaling,
 		notifier:        cfg.Notifier,
