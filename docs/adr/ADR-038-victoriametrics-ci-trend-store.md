@@ -1,7 +1,7 @@
 ---
 adr: 038
 title: VictoriaMetrics as the canonical CI trend store
-status: Accepted
+status: Accepted; load-test visibility-only consequence superseded by ADR-045
 date: 2026-06-19
 supersedes: ADR-017 and ADR-019 (CI trend-store clauses only)
 ---
@@ -10,7 +10,8 @@ supersedes: ADR-017 and ADR-019 (CI trend-store clauses only)
 
 ## Status
 
-Accepted.
+Accepted; load-test visibility-only consequence superseded by
+[ADR-045](ADR-045-load-test-regression-gate.md).
 
 This ADR supersedes only the CI trend-storage clauses in
 [ADR-017](ADR-017-ci-gates-consolidation.md) and
@@ -86,8 +87,11 @@ pipeline emits them. They are not a second trend database.
 - Numeric CI dashboards use one PromQL/VictoriaMetrics pattern.
 - Regression and Telegram rules remain pipeline-owned; changing the store does
   not change their thresholds or pass/fail semantics.
-- Load-test trends remain visibility-only; their existing k6 and QUIC checks
-  remain the only pass/fail gates.
+- Load-test trend storage remains in VictoriaMetrics. The former
+  visibility-only consequence is superseded by
+  [ADR-045](ADR-045-load-test-regression-gate.md): load-test workflows now add a
+  VM read-back regression gate while preserving their existing k6 and QUIC
+  checks.
 - Loki has a single responsibility as the log backend.
 - CI trend history follows the same retention and availability envelope as the
   cluster's runtime metrics.

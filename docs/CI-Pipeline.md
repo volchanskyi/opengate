@@ -59,6 +59,9 @@ human commits  ──► dev ──► main
         Benchmark Trends Workflow (nightly / workflow_dispatch)
         └─ Go + Rust benchmarks → VictoriaMetrics → Grafana Benchmark Trends
 
+        Load-Test Workflow (scheduled / workflow_dispatch)
+        └─ k6 + QUIC summary artifact → VM read-back gate → VictoriaMetrics → Telegram/fail-red
+
         Build & Push Container Image Workflow
         (main push / CI success on dev)
                     │
@@ -90,7 +93,7 @@ The CI workflow jobs are grouped by concern:
 | **CodeQL** | `codeql-go`, `codeql-js`, `codeql-rust` | GitHub Code Scanning with `security-and-quality` queries |
 | **SonarCloud** | `sonarcloud` | Static analysis + coverage aggregation via SonarSource scan action |
 | **E2E** | `e2e` | Playwright end-to-end + Lighthouse CI audits via `docker-compose.test.yml` (needs all prior checks + bundle-size) |
-| **Load** | `load-test` | k6 HTTP/WS load test scenarios (on-demand/scheduled only) |
+| **Load** | `load-test` | k6 HTTP/WS and QUIC load test workflow (scheduled/dispatchable; independent of merge gating) |
 | **Merge** | `merge-to-main` | Auto-merge `dev` → `main` after the required upstream jobs in [`ci.yml`](../.github/workflows/ci.yml) pass; updates Go/Rust/Web coverage badges on `dev` pushes |
 | **Auto-tag** | `auto-tag` | Determines semver bump from conventional commits, generates Keep a Changelog entry, commits CHANGELOG.md, and pushes a git tag (triggers `release-agent.yml`) |
 | **Notify** | `notify-failure` | Auto-creates GitHub Issues when any job fails (push/schedule/dispatch only — not PRs). One issue per failed job per branch, with error log excerpts. |
@@ -268,6 +271,23 @@ regressions in two ways, by metric class:
   advisory-only `ns/op` treatment.
 
 All benchmark trends are also rendered in Grafana's **Benchmark Trends** dashboard.
+
+## Load-Test Trend Workflow
+
+[`load-test.yml`](../.github/workflows/load-test.yml) runs the staging k6 and
+QUIC load scenarios on its own schedule and by `workflow_dispatch`; it is not in
+the `merge-to-main` gate graph. The run job uploads the canonical summary rows,
+and the publish job reads the VictoriaMetrics window baseline through
+[`scripts/loadtest-regression-check.sh`](../scripts/loadtest-regression-check.sh),
+pushes the current rows through
+[`scripts/loadtest-vm-push.sh`](../scripts/loadtest-vm-push.sh), sends Telegram on
+regression, and then fails the workflow red for an audit trail.
+
+The regression semantics are recorded in
+[ADR-045](./adr/ADR-045-load-test-regression-gate.md). In short: latency and rps
+are evaluated per `{source, scenario, phase}` against VM read-back baselines plus
+absolute limits, error rate has hard ceilings, p99 is advisory-only, and missing
+VM history or transport failure does not create a false red.
 
 ## Frontend Performance Monitoring
 

@@ -1,8 +1,8 @@
 # VM read-back regression gates — generalize the pattern across mutation, benchmark, load-test
 
-> **Status: READY (design locked) — decomposed into micro-plans.** Master plan +
-> micro-plan index. The per-item execution specs are the sibling `vm-readback-*.md`
-> files in this directory (M0–M3 + the Criterion-HTML retirement). **Consolidated**
+> **Status: COMPLETE — all micro-plans implemented and archived.** Master plan +
+> micro-plan index. Every execution spec (M0–M3 + the Criterion-HTML retirement)
+> shipped and now lives beside this file under `plans/archive/`. **Consolidated**
 > the standalone `mutation-regression-baseline-wiring` plan into
 > `plans/archive/vm-readback-m1-mutation-drop-gate.md` (M1 is complete). Per the doc-link
 > rule, this plan references **other plans** by plain path/code span (never markdown
@@ -211,16 +211,16 @@ live VM before coding the band**.
 
 | Micro-plan | File | Summary |
 |---|---|---|
-| **HTML retire** | `vm-readback-criterion-html-retire.md` | drop Criterion `html_reports` (data-only artifacts); independent, land **before/with M2** (shared `benchmark.yml`) |
+| **HTML retire** | `plans/archive/vm-readback-criterion-html-retire.md` | **Done:** dropped Criterion `html_reports` via `default-features = false` + `cargo_bench_support`; `plotters*` removed from `Cargo.lock`; `benchmark.yml` copies only `new/estimates.json` into the renamed `bench-rust-estimates` artifact |
 | **M0** | `plans/archive/vm-readback-m0-shared-vm-query-lib.md` | **Done:** extracted `lib/vm-query.sh` (`vm_query_latest` + `vm_query_window`); repointed PMAT behavior-preserving. **Foundation for M1–M3** |
 | **M1** | `plans/archive/vm-readback-m1-mutation-drop-gate.md` | **Done:** fetch per-language baseline from VM ⇒ engage the dead `drop > 2pp` rule; branch label from `GITHUB_REF_NAME` |
-| **M2** | `vm-readback-m2-benchmark-nsop-gate.md` | **Done:** ns/op hard gate via VM window median × frozen 50% band OR committed-baseline×2 ceiling; allocs/bytes stay committed-baseline ±2%; CI-Pipeline doctrine amended |
+| **M2** | `plans/archive/vm-readback-m2-benchmark-nsop-gate.md` | **Done:** ns/op hard gate via VM window median × frozen 50% band OR committed-baseline×2 ceiling; allocs/bytes stay committed-baseline ±2%; CI-Pipeline doctrine amended |
 | **M3** | `vm-readback-m3-loadtest-gate.md` | new publish job; per-`{scenario,phase,source}` window gate on latency/rps + abs ceiling on error_rate; p99 alert-only; supersede ADR-038 visibility-only clause |
 
 ## Related cleanup — retire benchmark HTML reports (independent of M0–M3)
 
-Now its own micro-plan `vm-readback-criterion-html-retire.md` (land **before/with
-M2** — shared file `benchmark.yml`). Rationale: benchmark trends live in VM
+Now its own micro-plan `plans/archive/vm-readback-criterion-html-retire.md` (**done**;
+landed with M2 — shared file `benchmark.yml`). Rationale: benchmark trends live in VM
 (ADR-038), so Criterion's HTML is dead weight — the summarizer only reads
 `new/estimates.json`. `html_reports` is a *default* feature, so retiring it needs
 `default-features = false` + re-adding `cargo_bench_support`. See the micro-plan for
@@ -228,20 +228,23 @@ the file inventory and steps.
 
 ## Execution order
 
+All items complete; the whole effort is archived.
+
 0. **Done:** `mutation-regression-baseline-wiring.md` deleted (folded into
    `plans/archive/vm-readback-m1-mutation-drop-gate.md`).
-1. **`vm-readback-criterion-html-retire.md`** (independent; leaves a clean
-   `benchmark.yml` for M2).
+1. **Done:** `plans/archive/vm-readback-criterion-html-retire.md` (independent; left a
+   clean data-only `benchmark.yml`).
 2. **Done:** M0 — `plans/archive/vm-readback-m0-shared-vm-query-lib.md`.
 3. **Done:** M1 — `plans/archive/vm-readback-m1-mutation-drop-gate.md`.
-4. **Done:** M2 — `vm-readback-m2-benchmark-nsop-gate.md`. **M3** remains (loadtest gate).
+4. **Done:** M2 — `plans/archive/vm-readback-m2-benchmark-nsop-gate.md`.
+5. **Done:** M3 — `plans/archive/vm-readback-m3-loadtest-gate.md` (loadtest gate).
 
 ## Open decisions
 
-- **Sequencing only:** M1–M3 sequential vs parallel micro-plans post-M0. Every
-  design decision — scope, gate mechanism, transport, baseline statistic
-  (**A: median + frozen tol**), empirical calibration, p95-hard/p99-alert — is
-  locked.
+- **None.** All design decisions — scope, gate mechanism, transport, baseline
+  statistic (**A: median + frozen tol**), empirical calibration, p95-hard/p99-alert
+  — are locked and shipped. B (control chart) is retained as a documented future
+  upgrade iff the window widens toward 30d and the frozen tol proves too static.
 
 ## Verification (per family, at implementation)
 
