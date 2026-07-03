@@ -17,7 +17,7 @@ The API is defined in `api/openapi.yaml` (OpenAPI 3.0.3). This file is the **sin
 | Target | Tool | Output |
 |--------|------|--------|
 | Go server | `oapi-codegen` (strict server + chi) | `server/internal/api/openapi_gen.go` |
-| TypeScript client | `openapi-typescript` | `web/src/types/api.ts` |
+| TypeScript client | `openapi-typescript` | `web/src/types/api.d.ts` |
 
 ```bash
 # Regenerate Go server code
@@ -80,6 +80,7 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/devices/{id}/restart` | POST | JWT | Restart agent on device (optional `reason` field) |
 | `/api/v1/devices/{id}/hardware` | GET | JWT | Get hardware inventory for device (200 cached / 202 requested from agent) |
 | `/api/v1/devices/{id}/logs` | GET | JWT | Get device log entries (on-demand via agent) |
+| `/api/v1/devices/{id}/correlate` | POST | JWT | Rank anomalous metric dimensions for a window (on-demand, server-side over VictoriaMetrics) |
 | `/api/v1/sessions` | POST | JWT | Create a remote session |
 | `/api/v1/sessions` | GET | JWT | List sessions (requires `device_id` query param) |
 | `/api/v1/sessions/{token}` | DELETE | JWT | Delete a session |
@@ -140,6 +141,36 @@ const { data, error } = await api.GET('/api/v1/groups');
   "has_more": true
 }
 ```
+
+### Metric Correlation
+
+`POST /api/v1/devices/{id}/correlate` ranks the metric dimensions that "broke
+pattern" during an incident window. The engine
+([`server/internal/correlate`](../server/internal/correlate)) fetches the
+device's numeric telemetry from VictoriaMetrics through the tenant-scoped read
+client ([`server/internal/telemetry/vm.go`](../server/internal/telemetry/vm.go),
+which injects the `org_id` label matcher) and computes the ranking server-side
+in Go — VictoriaMetrics' MetricsQL has no native KS test or join.
+
+Each `{focus_start, focus_end}` window is compared against a baseline window
+(the equal-length window immediately before focus, unless `baseline_start` /
+`baseline_end` are given). Every dimension is scored by three signals — a
+two-sample Kolmogorov–Smirnov distribution shift, the fraction of focus samples
+outside the baseline band (anomaly rate), and the normalized mean shift
+(magnitude/volume). Ranking is on-demand only (no background matrix) and bounded
+by a concurrency limiter, a per-request timeout, and per-request caps on series
+and points.
+
+**Response Codes**
+
+| Code | Meaning |
+|------|---------|
+| `200` | Ranked correlation result (`ranked`, `series_considered`, `series_truncated`) |
+| `400` | Invalid window (e.g. `focus_end` not after `focus_start`) |
+| `401` | Unauthorized |
+| `403` | Forbidden (caller does not own the device's group) |
+| `404` | Device not found (also the cross-tenant deny — a device in another org is not visible) |
+| `503` | Correlation not configured (no VictoriaMetrics URL) or the engine is at capacity |
 
 ## Rate Limiting
 

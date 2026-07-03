@@ -266,6 +266,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices/{id}/correlate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rank anomalous metric dimensions for a device window
+         * @description On-demand correlation: fetches the device's numeric telemetry from VictoriaMetrics (tenant-scoped) over the focus window and ranks the dimensions that broke pattern versus a baseline window, using a server-side two-sample KS test plus anomaly-rate and shift-magnitude volume signals. Bounded by concurrency, timeout, and fetch caps.
+         */
+        post: operations["correlateDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -674,6 +694,55 @@ export interface components {
         };
         RestartDeviceRequest: {
             reason?: string;
+        };
+        CorrelateDeviceRequest: {
+            /**
+             * Format: date-time
+             * @description Start of the incident (focus) window to investigate.
+             */
+            focus_start: string;
+            /**
+             * Format: date-time
+             * @description End of the incident (focus) window.
+             */
+            focus_end: string;
+            /**
+             * Format: date-time
+             * @description Optional baseline window start. When omitted, the baseline is the window of equal length immediately preceding the focus window.
+             */
+            baseline_start?: string;
+            /**
+             * Format: date-time
+             * @description Optional baseline window end (defaults to focus_start).
+             */
+            baseline_end?: string;
+            /** @description Maximum number of ranked dimensions to return. */
+            top_n?: number;
+        };
+        CorrelatedDimension: {
+            /** @description Metric name of the ranked dimension. */
+            metric: string;
+            /** @description Identifying labels (org_id/device_id stripped). */
+            labels?: {
+                [key: string]: string;
+            };
+            /** @description Blended rank score in [0,1] (KS, anomaly rate, shift magnitude). */
+            score: number;
+            /** @description Two-sample Kolmogorov–Smirnov distribution-shift statistic in [0,1]. */
+            ks_statistic: number;
+            /** @description Fraction of focus samples outside the baseline band in [0,1]. */
+            anomaly_rate: number;
+            /** @description Normalized mean shift versus baseline scale in [0,1]. */
+            shift_magnitude: number;
+            baseline_samples: number;
+            focus_samples: number;
+        };
+        CorrelateResponse: {
+            ranked: components["schemas"]["CorrelatedDimension"][];
+            /** @description Number of candidate series evaluated (after the fetch cap). */
+            series_considered: number;
+            /** @description True when more series existed than the per-request cap allowed. */
+            series_truncated: boolean;
         };
         DeviceHardware: {
             /** Format: uuid */
@@ -1741,6 +1810,77 @@ export interface operations {
             };
             /** @description Device not found or logs unavailable */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    correlateDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorrelateDeviceRequest"];
+            };
+        };
+        responses: {
+            /** @description Ranked correlation result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorrelateResponse"];
+                };
+            };
+            /** @description Invalid window */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Correlation unavailable or at capacity */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

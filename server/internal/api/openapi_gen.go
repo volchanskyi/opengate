@@ -217,6 +217,58 @@ type ClientErrorReport struct {
 	UserAgent *string `json:"user_agent,omitempty"`
 }
 
+// CorrelateDeviceRequest defines model for CorrelateDeviceRequest.
+type CorrelateDeviceRequest struct {
+	// BaselineEnd Optional baseline window end (defaults to focus_start).
+	BaselineEnd *time.Time `json:"baseline_end,omitempty"`
+
+	// BaselineStart Optional baseline window start. When omitted, the baseline is the window of equal length immediately preceding the focus window.
+	BaselineStart *time.Time `json:"baseline_start,omitempty"`
+
+	// FocusEnd End of the incident (focus) window.
+	FocusEnd time.Time `json:"focus_end"`
+
+	// FocusStart Start of the incident (focus) window to investigate.
+	FocusStart time.Time `json:"focus_start"`
+
+	// TopN Maximum number of ranked dimensions to return.
+	TopN *int `json:"top_n,omitempty"`
+}
+
+// CorrelateResponse defines model for CorrelateResponse.
+type CorrelateResponse struct {
+	Ranked []CorrelatedDimension `json:"ranked"`
+
+	// SeriesConsidered Number of candidate series evaluated (after the fetch cap).
+	SeriesConsidered int `json:"series_considered"`
+
+	// SeriesTruncated True when more series existed than the per-request cap allowed.
+	SeriesTruncated bool `json:"series_truncated"`
+}
+
+// CorrelatedDimension defines model for CorrelatedDimension.
+type CorrelatedDimension struct {
+	// AnomalyRate Fraction of focus samples outside the baseline band in [0,1].
+	AnomalyRate     float32 `json:"anomaly_rate"`
+	BaselineSamples int     `json:"baseline_samples"`
+	FocusSamples    int     `json:"focus_samples"`
+
+	// KsStatistic Two-sample Kolmogorov–Smirnov distribution-shift statistic in [0,1].
+	KsStatistic float32 `json:"ks_statistic"`
+
+	// Labels Identifying labels (org_id/device_id stripped).
+	Labels *map[string]string `json:"labels,omitempty"`
+
+	// Metric Metric name of the ranked dimension.
+	Metric string `json:"metric"`
+
+	// Score Blended rank score in [0,1] (KS, anomaly rate, shift magnitude).
+	Score float32 `json:"score"`
+
+	// ShiftMagnitude Normalized mean shift versus baseline scale in [0,1].
+	ShiftMagnitude float32 `json:"shift_magnitude"`
+}
+
 // CreateEnrollmentTokenRequest defines model for CreateEnrollmentTokenRequest.
 type CreateEnrollmentTokenRequest struct {
 	ExpiresInHours *int    `json:"expires_in_hours,omitempty"`
@@ -522,6 +574,9 @@ type ReportClientErrorJSONRequestBody = ClientErrorReport
 // UpdateDeviceJSONRequestBody defines body for UpdateDevice for application/json ContentType.
 type UpdateDeviceJSONRequestBody = UpdateDeviceRequest
 
+// CorrelateDeviceJSONRequestBody defines body for CorrelateDevice for application/json ContentType.
+type CorrelateDeviceJSONRequestBody = CorrelateDeviceRequest
+
 // RestartDeviceJSONRequestBody defines body for RestartDevice for application/json ContentType.
 type RestartDeviceJSONRequestBody = RestartDeviceRequest
 
@@ -593,6 +648,9 @@ type ServerInterface interface {
 	// Update device fields
 	// (PATCH /api/v1/devices/{id})
 	UpdateDevice(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
+	// Rank anomalous metric dimensions for a device window
+	// (POST /api/v1/devices/{id}/correlate)
+	CorrelateDevice(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// Get hardware info for a device
 	// (GET /api/v1/devices/{id}/hardware)
 	GetDeviceHardware(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
@@ -767,6 +825,12 @@ func (_ Unimplemented) GetDevice(w http.ResponseWriter, r *http.Request, id open
 // Update device fields
 // (PATCH /api/v1/devices/{id})
 func (_ Unimplemented) UpdateDevice(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rank anomalous metric dimensions for a device window
+// (POST /api/v1/devices/{id}/correlate)
+func (_ Unimplemented) CorrelateDevice(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1287,6 +1351,37 @@ func (siw *ServerInterfaceWrapper) UpdateDevice(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateDevice(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CorrelateDevice operation middleware
+func (siw *ServerInterfaceWrapper) CorrelateDevice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CorrelateDevice(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2372,6 +2467,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/api/v1/devices/{id}", wrapper.UpdateDevice)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/api/v1/devices/{id}/correlate", wrapper.CorrelateDevice)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/devices/{id}/hardware", wrapper.GetDeviceHardware)
 	})
 	r.Group(func(r chi.Router) {
@@ -2922,6 +3020,69 @@ type UpdateDevice404JSONResponse ApiError
 func (response UpdateDevice404JSONResponse) VisitUpdateDeviceResponse(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CorrelateDeviceRequestObject struct {
+	Id   openapi_types.UUID `json:"id"`
+	Body *CorrelateDeviceJSONRequestBody
+}
+
+type CorrelateDeviceResponseObject interface {
+	VisitCorrelateDeviceResponse(w http.ResponseWriter) error
+}
+
+type CorrelateDevice200JSONResponse CorrelateResponse
+
+func (response CorrelateDevice200JSONResponse) VisitCorrelateDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CorrelateDevice400JSONResponse ApiError
+
+func (response CorrelateDevice400JSONResponse) VisitCorrelateDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CorrelateDevice401JSONResponse ApiError
+
+func (response CorrelateDevice401JSONResponse) VisitCorrelateDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CorrelateDevice403JSONResponse ApiError
+
+func (response CorrelateDevice403JSONResponse) VisitCorrelateDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CorrelateDevice404JSONResponse ApiError
+
+func (response CorrelateDevice404JSONResponse) VisitCorrelateDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+
+	return json.NewEncoder(w).Encode(response)
+}
+
+type CorrelateDevice503JSONResponse ApiError
+
+func (response CorrelateDevice503JSONResponse) VisitCorrelateDeviceResponse(w http.ResponseWriter) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(503)
 
 	return json.NewEncoder(w).Encode(response)
 }
@@ -4309,6 +4470,9 @@ type StrictServerInterface interface {
 	// Update device fields
 	// (PATCH /api/v1/devices/{id})
 	UpdateDevice(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error)
+	// Rank anomalous metric dimensions for a device window
+	// (POST /api/v1/devices/{id}/correlate)
+	CorrelateDevice(ctx context.Context, request CorrelateDeviceRequestObject) (CorrelateDeviceResponseObject, error)
 	// Get hardware info for a device
 	// (GET /api/v1/devices/{id}/hardware)
 	GetDeviceHardware(ctx context.Context, request GetDeviceHardwareRequestObject) (GetDeviceHardwareResponseObject, error)
@@ -4751,6 +4915,39 @@ func (sh *strictHandler) UpdateDevice(w http.ResponseWriter, r *http.Request, id
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateDeviceResponseObject); ok {
 		if err := validResponse.VisitUpdateDeviceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CorrelateDevice operation middleware
+func (sh *strictHandler) CorrelateDevice(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	var request CorrelateDeviceRequestObject
+
+	request.Id = id
+
+	var body CorrelateDeviceJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CorrelateDevice(ctx, request.(CorrelateDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CorrelateDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CorrelateDeviceResponseObject); ok {
+		if err := validResponse.VisitCorrelateDeviceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -5722,81 +5919,96 @@ func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id o
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
+	"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",
+	"AAA=",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

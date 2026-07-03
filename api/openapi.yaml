@@ -139,6 +139,76 @@ components:
         reason:
           type: string
 
+    CorrelateDeviceRequest:
+      type: object
+      required: [focus_start, focus_end]
+      properties:
+        focus_start:
+          type: string
+          format: date-time
+          description: Start of the incident (focus) window to investigate.
+        focus_end:
+          type: string
+          format: date-time
+          description: End of the incident (focus) window.
+        baseline_start:
+          type: string
+          format: date-time
+          description: >-
+            Optional baseline window start. When omitted, the baseline is the
+            window of equal length immediately preceding the focus window.
+        baseline_end:
+          type: string
+          format: date-time
+          description: Optional baseline window end (defaults to focus_start).
+        top_n:
+          type: integer
+          description: Maximum number of ranked dimensions to return.
+
+    CorrelatedDimension:
+      type: object
+      required: [metric, score, ks_statistic, anomaly_rate, shift_magnitude, baseline_samples, focus_samples]
+      properties:
+        metric:
+          type: string
+          description: Metric name of the ranked dimension.
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: Identifying labels (org_id/device_id stripped).
+        score:
+          type: number
+          description: Blended rank score in [0,1] (KS, anomaly rate, shift magnitude).
+        ks_statistic:
+          type: number
+          description: Two-sample Kolmogorov–Smirnov distribution-shift statistic in [0,1].
+        anomaly_rate:
+          type: number
+          description: Fraction of focus samples outside the baseline band in [0,1].
+        shift_magnitude:
+          type: number
+          description: Normalized mean shift versus baseline scale in [0,1].
+        baseline_samples:
+          type: integer
+        focus_samples:
+          type: integer
+
+    CorrelateResponse:
+      type: object
+      required: [ranked, series_considered, series_truncated]
+      properties:
+        ranked:
+          type: array
+          items:
+            $ref: "#/components/schemas/CorrelatedDimension"
+        series_considered:
+          type: integer
+          description: Number of candidate series evaluated (after the fetch cap).
+        series_truncated:
+          type: boolean
+          description: True when more series existed than the per-request cap allowed.
+
     DeviceHardware:
       type: object
       required: [device_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces, updated_at]
@@ -1270,6 +1340,69 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found or logs unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/correlate:
+    post:
+      operationId: correlateDevice
+      summary: Rank anomalous metric dimensions for a device window
+      description: >-
+        On-demand correlation: fetches the device's numeric telemetry from
+        VictoriaMetrics (tenant-scoped) over the focus window and ranks the
+        dimensions that broke pattern versus a baseline window, using a
+        server-side two-sample KS test plus anomaly-rate and shift-magnitude
+        volume signals. Bounded by concurrency, timeout, and fetch caps.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CorrelateDeviceRequest"
+      responses:
+        "200":
+          description: Ranked correlation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CorrelateResponse"
+        "400":
+          description: Invalid window
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Correlation unavailable or at capacity
           content:
             application/json:
               schema:

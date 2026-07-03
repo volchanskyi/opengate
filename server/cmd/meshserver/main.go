@@ -17,6 +17,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/cert"
+	"github.com/volchanskyi/opengate/server/internal/correlate"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
@@ -118,8 +119,16 @@ func main() {
 		vmURL = os.Getenv("OPENGATE_VICTORIAMETRICS_URL")
 	}
 	var telemetryWriter telemetry.NumericWriter
+	var correlationEngine api.CorrelationRanker
 	if vmURL != "" {
-		telemetryWriter = telemetry.NewVMClient(vmURL, nil)
+		vmClient := telemetry.NewVMClient(vmURL, nil)
+		telemetryWriter = vmClient
+		engine, err := correlate.NewEngine(correlate.Config{Fetcher: correlate.NewVMFetcher(vmClient)})
+		if err != nil {
+			logger.Error("init correlation engine", "error", err)
+			os.Exit(1)
+		}
+		correlationEngine = engine
 		logger.Info("edge sentinel telemetry writer enabled", "victoriametrics_url", vmURL)
 	} else {
 		logger.Warn("edge sentinel numeric telemetry disabled: set --victoriametrics-url or OPENGATE_VICTORIAMETRICS_URL")
@@ -218,6 +227,7 @@ func main() {
 		Agents:                agentSrv,
 		AMT:                   amtSvc,
 		Cert:                  certMgr,
+		Correlate:             correlationEngine,
 		Relay:                 agentRelay,
 		Signaling:             sigTracker,
 		Notifier:              notifier,
