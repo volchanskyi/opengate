@@ -88,14 +88,18 @@ jobs:
           set -euo pipefail
           cd agent
           cargo bench --package mesh-protocol --bench codec_bench
-          mkdir -p "$GITHUB_WORKSPACE/bench-rust-criterion"
-          cp -R target/criterion/. "$GITHUB_WORKSPACE/bench-rust-criterion/"
+          DEST="$GITHUB_WORKSPACE/bench-rust-estimates"
+          mkdir -p "$DEST"
+          # Data-only artifact: Criterion no longer emits HTML, and the summarizer
+          # reads only new/estimates.json. Copy just those, preserving the
+          # <bench>/new/estimates.json layout the summarizer globs.
+          ( cd target/criterion && find . -path '*/new/estimates.json' -exec cp --parents {} "$DEST/" \; )
 
       - uses: actions/upload-artifact@v7
         if: matrix.lang == 'rust'
         with:
-          name: bench-rust-criterion
-          path: bench-rust-criterion
+          name: bench-rust-estimates
+          path: bench-rust-estimates
           if-no-files-found: error
           retention-days: 30
 
@@ -120,7 +124,7 @@ jobs:
       - name: Download Rust benchmark results
         uses: actions/download-artifact@v8
         with:
-          name: bench-rust-criterion
+          name: bench-rust-estimates
           path: artifacts/rust
 
       # Must precede Summarize: the ns/op gate reads a VictoriaMetrics window

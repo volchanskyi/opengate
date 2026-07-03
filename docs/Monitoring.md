@@ -60,6 +60,7 @@ flowchart LR
 | Loki retention/config | [`loki-config.yml`](../deploy/helm/monitoring/files/loki-config.yml) |
 | CI trend VM transport | [`scripts/lib/vm-push.sh`](../scripts/lib/vm-push.sh) |
 | CI trend-store decision | [ADR-038](./adr/ADR-038-victoriametrics-ci-trend-store.md) |
+| Load-test regression decision | [ADR-045](./adr/ADR-045-load-test-regression-gate.md) |
 | Edge Sentinel telemetry-store decision | [ADR-044](./adr/ADR-044-edge-sentinel-server-telemetry-ingest.md) |
 
 ## Components
@@ -158,11 +159,14 @@ VictoriaMetrics:
 - [`terraform-drift.yml`](../.github/workflows/terraform-drift.yml) →
   [`scripts/terraform-drift-vm-push.sh`](../scripts/terraform-drift-vm-push.sh)
 - [`load-test.yml`](../.github/workflows/load-test.yml) →
+  [`scripts/loadtest-regression-check.sh`](../scripts/loadtest-regression-check.sh) →
   [`scripts/loadtest-vm-push.sh`](../scripts/loadtest-vm-push.sh)
 
 VictoriaMetrics is the canonical numeric CI-trend store; Loki is reserved for
-logs per [ADR-038](./adr/ADR-038-victoriametrics-ci-trend-store.md). PMAT reads
-its previous day-over-day baseline through
+logs per [ADR-038](./adr/ADR-038-victoriametrics-ci-trend-store.md). Load-test
+regression semantics are recorded in
+[ADR-045](./adr/ADR-045-load-test-regression-gate.md). PMAT reads its previous
+day-over-day baseline through
 [`pmat-vm-query.sh`](../scripts/pmat-vm-query.sh) before publishing the current
 sample.
 
@@ -211,6 +215,9 @@ Validation sources:
 - [`scripts/tests/loadtest-summarize.test.sh`](../scripts/tests/loadtest-summarize.test.sh)
   verifies k6 summary-export and QUIC harness output parsing for load-test
   trend rows, including partial failed-run capture.
+- [`scripts/tests/loadtest-regression-check.test.sh`](../scripts/tests/loadtest-regression-check.test.sh)
+  verifies per-series VM read-back regression checks, p99 advisory behavior,
+  cold-start handling, and VM fail-open behavior.
 - [`scripts/tests/loadtest-vm-push.test.sh`](../scripts/tests/loadtest-vm-push.test.sh)
   verifies load-test trend rows map to Prometheus text before reaching the
   shared VM transport.

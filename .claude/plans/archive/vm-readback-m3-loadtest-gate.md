@@ -30,11 +30,20 @@ Per series, query the live 14–30d VM window, compute run-to-run CV, freeze `to
 Record before coding (locked decision 5 — numbers in the plan, not code comments). The k6
 SLA numbers are the natural `error_rate` / latency absolute ceilings.
 
-| metric | scenario / phase / source | 30d median | CV | frozen rel tol | abs ceiling |
-|---|---|---|---|---|---|
-| latency_p95_ms | api-baseline / http / k6 | TBD | TBD | TBD | TBD |
-| rps | concurrent-agents / http / k6 | TBD | TBD | TBD | TBD |
-| error_rate | quic-agents / aggregate / quic | — | — | — | TBD |
+Live query date: 2026-07-02. VictoriaMetrics retained 15 QUIC load-test samples and no k6
+load-test samples in the 30d window, so k6 starts in cold-start absolute-only mode until
+new history lands. Frozen bands: latency p50/p95 = 200% (covers the seeded QUIC worst
+normal excursions; roughly 4x the worst seeded latency CV, rounded up), rps = 50% (roughly
+2x the seeded rps CV, rounded up), p99 advisory = 300% and never red.
+
+| metric | scenario / phase / source | 30d median | CV | frozen rel tol | abs ceiling/floor |
+|---|---|---:|---:|---:|---:|
+| latency_p95_ms | api-baseline / http / k6 | cold-start (no 30d samples) | n/a | 200% once seeded | ceiling 200 ms |
+| rps | concurrent-agents / http / k6 | cold-start (no 30d samples) | n/a | 50% once seeded | floor 5 rps |
+| latency_p95_ms | quic-agents / connect / quic | 257 ms | 43.9% | 200% | ceiling 1000 ms |
+| latency_p95_ms | quic-agents / handshake / quic | 169 ms | 29.1% | 200% | ceiling 500 ms |
+| rps | quic-agents / aggregate / quic | 198.807157 | 23.1% | 50% | floor 50 rps |
+| error_rate | quic-agents / aggregate / quic | 0 | n/a | previous-sample only | ceiling 0 |
 
 ## File inventory
 
