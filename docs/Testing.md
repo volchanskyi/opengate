@@ -142,10 +142,8 @@ emit a row per run to:
 - **Workflow artifact** — each run uploads `mutation-canonical-row` (the
   per-run JSON object) with 90-day retention for one-off audits.
 
-The previous in-repo `docs/mutation-history.jsonl` was removed: the bot push
-that maintained it was rejected by branch protection on `dev` (required
-status checks block direct bot commits), and VictoriaMetrics + Grafana is the
-right home for numeric time-series telemetry.
+Numeric mutation-score history lives in VictoriaMetrics + Grafana, the right
+home for time-series telemetry.
 
 **Regression alert rules** — fired when any language regresses on either
 condition:

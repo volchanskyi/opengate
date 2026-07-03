@@ -309,7 +309,7 @@ an init container dumps + gzips the database into a shared `emptyDir`, then a
 `curl` container streams it to OCI Object Storage via a **write-only**
 pre-authenticated request (PAR) URL — there is no in-cluster backup volume, and
 the off-cluster copy survives total cluster loss. Retention is an Object Storage
-lifecycle policy on the bucket (the chart no longer prunes). The schedule,
+lifecycle policy on the bucket. The schedule,
 retention threshold, and upload image are the `postgres.backup`
 [values](../deploy/helm/opengate/values.yaml); the bucket / PAR / lifecycle setup
 commands are in the chart
@@ -317,13 +317,10 @@ commands are in the chart
 50 GB block volume this frees under the OCI free-tier cap):
 [ADR-035](adr/ADR-035-oke-free-tier-block-volume-remediation.md).
 
-The decommissioned compose stack used a `postgres-backup` sidecar writing to a
-local Docker volume; that path is dormant (rollback only).
-
 ## Data directory
 
-The `-data-dir` flag (default: `./data`) no longer stores the database. It
-holds just the TLS/VAPID material that still lives on disk:
+The `-data-dir` flag (default: `./data`) holds the TLS/VAPID material that
+lives on disk:
 
 ```
 data/

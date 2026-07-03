@@ -19,7 +19,7 @@ Plans and memory serve different purposes. Never confuse them:
 
 ## ADRs
 
-Per-file ADRs in [`docs/adr/`](../../docs/adr/) (ADR-013 onward) are **mutable** — edit them in place to keep them accurate against current state (fix a rotted link, correct a moved path, strip chronological noise). git history (`git log --follow` per file) is the audit trail. The combined historical log [`docs/Architecture-Decision-Records.md`](../../docs/Architecture-Decision-Records.md) (ADR-001–012) stays **frozen** — never edited or appended to.
+All ADRs are **mutable** — edit them in place to keep them accurate against current state (fix a rotted link, correct a moved path, strip chronological/past-state noise per [`docs-live-state.md`](docs-live-state.md)). This covers both the per-file ADRs in [`docs/adr/`](../../docs/adr/) (ADR-013 onward) and the combined historical log [`docs/Architecture-Decision-Records.md`](../../docs/Architecture-Decision-Records.md) (ADR-001–012). git history (`git log --follow` per file) is the audit trail.
 
 Supersession is still used for genuine **decision changes** (a reversal or replacement, not a correction): create a new ADR with the next number, set its `supersedes:` frontmatter, and update the prior ADR's `status:`. Mutability keeps an ADR *true*; supersession records what *changed*. See [`docs/adr/ADR-036`](../../docs/adr/ADR-036-mutable-adrs-current-state-doctrine.md).
 

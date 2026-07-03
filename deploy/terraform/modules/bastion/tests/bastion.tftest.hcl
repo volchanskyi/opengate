@@ -1,7 +1,5 @@
-# OCI Bastion service — operator access plane for human SSH sessions.
-# Replaces the static `var.ssh_allowed_cidr` ingress rule used previously; the
-# dev-machine IP becomes irrelevant because IAM gates session creation instead
-# of an L4 CIDR allow-list.
+# OCI Bastion service — operator access plane for human SSH sessions. IAM gates
+# session creation, so the dev-machine IP is irrelevant (no L4 CIDR allow-list).
 #
 # See `docs/adr/ADR-018-oci-bastion-operator-access.md`.
 

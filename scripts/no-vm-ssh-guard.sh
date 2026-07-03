@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Reject reintroduction of the retired CI path to the decommissioned compose VM.
+# Guard the Kubernetes-only fleet: fail if any CI file reintroduces an SSH path
+# to a compute VM. The pattern table below names the building blocks that would
+# reconstruct such a path.
 
 set -euo pipefail
 

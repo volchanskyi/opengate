@@ -17,20 +17,13 @@ The [IaC Security Testing Pyramid plan](../../.claude/plans/archive/iac-security
 
 ## Decision
 
-1. **Add Checkov** as the primary built-in policy scanner. Framework set: `terraform`, `dockerfile`, `github_actions`. The `secrets` framework is intentionally omitted — gitleaks owns that surface (see S1 of the plan and [Security-and-Dependencies.md → Secrets scanning](../Security-and-Dependencies.md#secrets-scanning)). The `docker_compose` framework is unavailable in Checkov 3.x; compose policy lives in [Conftest/Rego](../../policy/docker_compose/) (S3).
-2. **Add Hadolint** as a Dockerfile-specific scanner alongside Checkov. The two are *orthogonal*, not redundant: Hadolint catches BIDI smuggling, RUN-merge opportunities, instruction ordering, and shell-injection patterns that Checkov's Docker rules do not; Checkov catches policy-level concerns (USER, HEALTHCHECK, base-image immutability) that Hadolint does not.
+1. **Add Checkov** as the primary built-in policy scanner. Framework set: `terraform`, `dockerfile`, `github_actions`. The `secrets` framework is intentionally omitted — gitleaks owns that surface (see S1 of the plan and [Security-and-Dependencies.md → Secrets scanning](../Security-and-Dependencies.md#secrets-scanning)).2. **Add Hadolint** as a Dockerfile-specific scanner alongside Checkov. The two are *orthogonal*, not redundant: Hadolint catches BIDI smuggling, RUN-merge opportunities, instruction ordering, and shell-injection patterns that Checkov's Docker rules do not; Checkov catches policy-level concerns (USER, HEALTHCHECK, base-image immutability) that Hadolint does not.
 3. **Keep Trivy** in `lint-deploy` (do not retire it). The Checkov-Trivy overlap on the Dockerfile and on terraform `oci_*` resources is deliberate: each engine has its own rule database, parser, and severity model, and they regularly catch different things on the same file.
 4. **Baseline-as-suppression** is the only accepted suppression mechanism for Checkov. Findings that are *not* fixable in the current PR are added to [`.checkov.baseline`](../../.checkov.baseline). Per-rule `# checkov:skip=CKV_X:reason` inline comments are NOT permitted (the project's [hooks](../../.claude/hooks/pretooluse-write-guard.sh) do not block `checkov:skip` today, but treating the baseline as the single source of authoritative exceptions keeps the surface auditable in one place).
 
 ## Currently baselined findings
 
-The following findings live in `.checkov.baseline` at the time of this ADR. Each has a recorded rationale that is reviewed quarterly.
-
-| Check | Resource | Why baselined |
-|---|---|---|
-| `CKV_OCI_4` (boot volume in-transit encryption) | `module.compute.oci_core_instance.opengate` | The compute module is now a dormant rollback module, not the active production path. Keep the baseline while the module remains uninstantiated; fix or consciously re-baseline before re-enabling the VM rollback path. |
-| `CKV_OCI_5` (legacy IMDS endpoint disabled) | `module.compute.oci_core_instance.opengate` | Same dormant-module rationale as CKV_OCI_4. If the compute rollback module is re-instantiated, disable legacy IMDS as part of that rebuild. |
-| `CKV_OCI_17` (security list ingress stateless) | `module.networking.oci_core_security_list.opengate` | **Design choice, not deferred fix.** Stateful ingress is required so return traffic on TCP connections does not need a reciprocal egress rule. Reaffirmed by [`modules/networking/tests/security.tftest.hcl`](../../deploy/terraform/modules/networking/tests/security.tftest.hcl) `run "egress_is_unrestricted_but_stateful"`, which asserts the opposite egress invariant. Will never come out of the baseline. |
+`.checkov.baseline` carries no baselined findings — every Checkov check passes. Any future baseline entry records its rationale here and is reviewed quarterly.
 
 ## Consequences
 

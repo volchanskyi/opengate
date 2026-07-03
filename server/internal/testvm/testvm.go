@@ -5,8 +5,8 @@
 // never silently skip.
 //
 // The image tag is pinned to the same version the monitoring stack deploys
-// (deploy/helm/monitoring/values.yaml and deploy/docker-compose.monitoring.yml)
-// so the test harness mirrors production. Like testpg, this is a leaf package —
+// (deploy/helm/monitoring/values.yaml) so the test harness mirrors production.
+// Like testpg, this is a leaf package —
 // it imports no internal/* package — so any test package can depend on it
 // without risking an import cycle.
 package testvm

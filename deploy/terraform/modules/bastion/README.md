@@ -1,6 +1,6 @@
 # Bastion submodule
 
-Owns the OCI Bastion service that fronts human SSH access to the OKE worker node. It replaced the old static `var.ssh_allowed_cidr` operator path with IAM-gated, time-limited sessions — the dev-machine IP becomes irrelevant because OCI IAM decides who may create a session, not an L4 CIDR allow-list. See [ADR-018](../../../../docs/adr/ADR-018-oci-bastion-operator-access.md) for the decision rationale.
+Owns the OCI Bastion service that fronts human SSH access to the OKE worker node via IAM-gated, time-limited sessions — the dev-machine IP is irrelevant because OCI IAM decides who may create a session, not an L4 CIDR allow-list. See [ADR-018](../../../../docs/adr/ADR-018-oci-bastion-operator-access.md) for the decision rationale.
 
 CI uses [`.github/actions/oci-kube-setup`](../../../../.github/actions/oci-kube-setup/action.yml) and talks to Kubernetes directly — the bastion is for **human** node-level access only.
 

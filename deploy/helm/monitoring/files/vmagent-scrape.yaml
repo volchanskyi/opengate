@@ -1,5 +1,4 @@
-# VictoriaMetrics scrape config — replaces the static compose targets in
-# deploy/victoriametrics/scrape.yml with Kubernetes service discovery. Scrapes
+# VictoriaMetrics scrape config with Kubernetes service discovery. Scrapes
 # pods annotated with prometheus.io/scrape, plus annotated monitoring Service
 # endpoints such as node-exporter and postgres-exporter.
 

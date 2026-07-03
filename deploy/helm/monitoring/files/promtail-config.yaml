@@ -1,5 +1,4 @@
-# Kubernetes promtail config — replaces the docker-socket tailing of
-# deploy/promtail/promtail-config.yml with pod-log discovery. Scrapes
+# Kubernetes promtail config with pod-log discovery. Scrapes
 # /var/log/pods/* and enriches each stream with namespace/pod/container labels
 # via the kubernetes_sd_configs pod role.
 

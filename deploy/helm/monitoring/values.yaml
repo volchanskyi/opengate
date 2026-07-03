@@ -1,5 +1,6 @@
-# Monitoring stack values. Ports the docker-compose.monitoring.yml services
-# to Kubernetes (ADR-030). Resource limits mirror the compose `deploy.resources`.
+# Monitoring stack values — the Kubernetes deployment of Grafana,
+# VictoriaMetrics, Loki, Promtail, and the exporters. Resource limits are tuned
+# per component below.
 
 nameOverride: ""
 fullnameOverride: ""

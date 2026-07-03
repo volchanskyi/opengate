@@ -109,10 +109,6 @@ helm rollback "$RELEASE" "$REVISION" -n "$NAMESPACE" --wait
 kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server"
 ```
 
-The Compose manifests and host deployment scripts under [`deploy/`](../deploy/)
-remain dormant disaster-recovery artifacts. GitHub Actions no longer invoke
-that path.
-
 ## Load Testing
 
 [`load-test.yml`](../.github/workflows/load-test.yml) validates staging without

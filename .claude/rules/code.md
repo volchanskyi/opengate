@@ -1,5 +1,11 @@
 # Code Conventions
 
+## Comments
+
+Code, config, and workflow comments describe the **current** behavior only —
+never narrate what was removed, retired, or replaced (say what the code does
+now, not what it stopped doing). See [`docs-live-state.md`](docs-live-state.md).
+
 ## Rust
 
 - `thiserror` for library crate errors, `anyhow` for binary crates only

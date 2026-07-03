@@ -62,12 +62,11 @@ stays explicit. The difference: mutability covers *keeping an ADR true*;
 supersession covers *changing what was decided*. git history is the audit
 trail for both.
 
-### 2. The combined historical log (001–012) stays frozen
+### 2. The combined historical log (001–012) is mutable on the same terms
 
 [`docs/Architecture-Decision-Records.md`](../Architecture-Decision-Records.md)
-(ADR-001 through ADR-012) is **out of scope** — it remains the frozen historical
-log per ADR-013 #2 and [`docs/README.md`](../README.md). Mutability reaches only
-the per-file ADRs (013+); the combined log is never edited or appended to.
+(ADR-001 through ADR-012) is edited in place to keep it accurate against current
+state, exactly like the per-file ADRs (013+). See [`docs/README.md`](../README.md).
 
 ### 3. Success = content quality; net line delta is explicitly NOT a gate
 

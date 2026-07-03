@@ -87,8 +87,8 @@ why — never delete substantive rationale**, and keep the
 New ADRs live as individual files using the `ADR-NNN-kebab-title.md` naming
 convention. The combined
 [`Architecture-Decision-Records.md`](./Architecture-Decision-Records.md) is the
-historical log from before the per-file regime and stays **frozen** — never
-edited or appended to; mutability does not reach it. The compact
+historical log from before the per-file regime; it is **mutable on the same
+terms** — edit it in place to keep it accurate against current state. The compact
 [`index`](../.claude/decisions.md) is updated for every new ADR. See
 [`adr/ADR-036`](./adr/ADR-036-mutable-adrs-current-state-doctrine.md) for the
 full doctrine.
@@ -197,7 +197,7 @@ docs/
 ├── Infrastructure.md                   Terraform, OKE networking, bastion, secrets
 ├── Agent-Updates.md                    OTA update pipeline
 ├── Security-and-Dependencies.md        Vulnerability scanning, Dependabot
-├── Architecture-Decision-Records.md    Frozen historical ADR log (ADR-001 … ADR-012)
+├── Architecture-Decision-Records.md    Historical ADR log (ADR-001 … ADR-012)
 ├── adr/                                Per-file mutable ADRs (ADR-013+)
 │   └── ADR-NNN-title.md
 └── api/                                Generated Scalar OpenAPI reference

@@ -161,7 +161,7 @@ func (l *emailLimiter) cleanup() {
 }
 
 func extractIP(r *http.Request) string {
-	// Trust X-Forwarded-For when behind a reverse proxy (Caddy).
+	// Trust X-Forwarded-For when behind the ingress reverse proxy.
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		first, _, _ := strings.Cut(xff, ",")
 		return strings.TrimSpace(first)

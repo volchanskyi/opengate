@@ -54,21 +54,24 @@ jobs:
       # packages that re-pay schema setup per mutant.
       matrix:
         include:
-          # rust runs the whole agent workspace unsharded; the Edge Sentinel ML
-          # crates (detection/sampler/rss/redact) pushed it from ~52min past the
-          # shared 75min cap, so it carries its own higher cap. Splitting the
-          # workspace with `cargo mutants --shard` is the horizontal lever once a
-          # single leg approaches the 6h runner max.
-          - { language: rust, timeout-minutes: 110 }
+          # rust is sharded with `cargo mutants --shard k/n`: the Edge Sentinel ML
+          # crates (detection/sampler/rss/redact) had pushed the unsharded run
+          # from ~52min past the shared 75min cap, so each shard now mutates half
+          # the workspace and fits under the default. rust_shard is the k/n
+          # selector; add a shard (and bump every n) if a half nears the cap.
+          - { language: rust, shard: rust-1, rust_shard: "0/2" }
+          - { language: rust, shard: rust-2, rust_shard: "1/2" }
           - { language: web }
           - { language: go, shard: go-api }
           - { language: go, shard: go-db }
-          - { language: go, shard: go-pure }
+          - { language: go, shard: go-pure-1 }
+          - { language: go, shard: go-pure-2 }
     runs-on: ubuntu-latest
     # `api` is the irreducible Go hotspot (~45min CI, one unsplittable package)
-    # on its own shard; the default 75min leaves headroom for it and for runner
-    # variance (web ~25min). rust overrides this via matrix.timeout-minutes.
-    timeout-minutes: ${{ matrix.timeout-minutes || 75 }}
+    # on its own shard; 75min leaves headroom for it and for runner variance
+    # (web ~25min, each rust/pure shard ~35-45min). Every leg fits under a flat
+    # 75min now that both the Go and rust legs are sharded.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/docker-hub-mirror
@@ -119,7 +122,7 @@ jobs:
         # that should clutter the Annotations panel on every nightly run.
         run: |
           cd agent
-          cargo mutants --workspace --no-shuffle --jobs 4 --annotations none || EXIT=$?
+          cargo mutants --workspace --shard ${{ matrix.rust_shard }} --no-shuffle --jobs 4 --annotations none || EXIT=$?
           # cargo-mutants exits non-zero when any mutant survives. For an
           # observability workflow that is expected; capture and continue.
           echo "cargo-mutants exit: ${EXIT:-0}"
@@ -249,9 +252,17 @@ jobs:
           # Move each into the path the summarize script expects. The Go leg is
           # sharded (mutation-go-1, mutation-go-2, ...); merge the shard reports
           # into the single canonical report parse_go consumes.
-          if [ -d "artifacts/mutation-rust/agent/mutants.out" ]; then
-            mkdir -p agent
-            mv artifacts/mutation-rust/agent/mutants.out agent/mutants.out
+          # rust is sharded via `cargo mutants --shard`; merge the shard outcome
+          # files into the single outcomes.json parse_rust consumes. Same
+          # missing-shard → absent → incomplete contract as the Go merge below.
+          rust_expected=(
+            artifacts/mutation-rust-1/agent/mutants.out/outcomes.json
+            artifacts/mutation-rust-2/agent/mutants.out/outcomes.json
+          )
+          mkdir -p agent/mutants.out
+          if ! ./scripts/mutation-merge-rust.sh agent/mutants.out/outcomes.json "${rust_expected[@]}"; then
+            echo "::warning::A rust mutation shard outcome file is missing (a shard was cancelled or failed); leaving the canonical rust outcomes absent so this is reported as an incomplete run, not a partial score."
+            rm -f agent/mutants.out/outcomes.json
           fi
           # Merge EVERY expected shard report (not a glob of whatever is
           # present): if a shard was cancelled/failed its report is absent, the

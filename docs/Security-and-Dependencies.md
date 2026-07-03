@@ -180,7 +180,7 @@ Session tokens are sensitive routing credentials. All log and audit entries reda
 - Relay handler logs (`api/handlers_relay.go`) — registration and peer wait errors
 - Audit logs (`api/handlers_sessions.go`) — session deletion events
 
-Kubernetes deploys create or reuse Secrets via [`cd.yml`](../.github/workflows/cd.yml); the dormant Compose scripts still use atomic file updates for the retired VM recovery path, but normal CD no longer edits `.env` files.
+Kubernetes deploys create or reuse Secrets via [`cd.yml`](../.github/workflows/cd.yml).
 
 ## Certificate Hierarchy
 
