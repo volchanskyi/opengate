@@ -30,6 +30,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
+	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 	"github.com/volchanskyi/opengate/server/internal/usecase"
 )
@@ -56,6 +57,15 @@ type CorrelationRanker interface {
 	Correlate(ctx context.Context, orgID uuid.UUID, req correlate.Request) (correlate.Result, error)
 }
 
+// MetricsReader reads tenant-scoped numeric telemetry for chart windows and the
+// fleet health badge. Implemented by *telemetry.VMClient; nil when telemetry is
+// not configured, in which case the metrics endpoint reports 503 and the device
+// list omits anomaly_rate.
+type MetricsReader interface {
+	QueryRange(ctx context.Context, orgID uuid.UUID, rq telemetry.RangeQuery) ([]telemetry.RangeSeries, error)
+	QueryInstant(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]telemetry.InstantValue, error)
+}
+
 // ServerConfig holds all dependencies for the API server.
 type ServerConfig struct {
 	Store                 *db.PostgresStore
@@ -80,6 +90,7 @@ type ServerConfig struct {
 	AMT                   amt.Operator
 	Cert                  CertProvider
 	Correlate             CorrelationRanker
+	TelemetryReader       MetricsReader
 	Relay                 *relay.Relay
 	Signaling             *signaling.Tracker
 	Notifier              notifications.Notifier
@@ -118,6 +129,7 @@ type Server struct {
 	amt             amt.Operator
 	cert            CertProvider
 	correlate       CorrelationRanker
+	telemetryReader MetricsReader
 	relay           *relay.Relay
 	signaling       *signaling.Tracker
 	notifier        notifications.Notifier
@@ -218,6 +230,7 @@ func NewServer(cfg ServerConfig) *Server {
 		amt:             cfg.AMT,
 		cert:            cfg.Cert,
 		correlate:       cfg.Correlate,
+		telemetryReader: cfg.TelemetryReader,
 		relay:           cfg.Relay,
 		signaling:       cfg.Signaling,
 		notifier:        cfg.Notifier,

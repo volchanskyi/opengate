@@ -44,6 +44,105 @@ func TestVMClientWritesOrgScopedSamples(t *testing.T) {
 	assert.Equal(t, []float64{41}, series[0].Values)
 }
 
+func TestVMClientQueryRangeDownsamplesAndScopes(t *testing.T) {
+	base := testvm.BaseURL(t)
+	client := NewVMClient(base, nil)
+	ctx := context.Background()
+
+	orgA := uuid.New()
+	orgB := uuid.New()
+	deviceID := uuid.New()
+	// Ten-second-avg samples across a 10-minute window: 60 raw points.
+	end := time.Now().UTC().Truncate(10 * time.Second)
+	start := end.Add(-10 * time.Minute)
+	for i := 0; ; i++ {
+		ts := start.Add(time.Duration(i) * 10 * time.Second)
+		if ts.After(end) {
+			break
+		}
+		require.NoError(t, client.WriteSamples(ctx, orgA, deviceID, []Sample{{
+			Name: "opengate_edge_metric_avg", Value: float64(i), TS: ts,
+			Labels: map[string]string{"dim": "cpu.util"},
+		}}))
+		require.NoError(t, client.WriteSamples(ctx, orgB, deviceID, []Sample{{
+			Name: "opengate_edge_metric_avg", Value: 999, TS: ts,
+			Labels: map[string]string{"dim": "cpu.util"},
+		}}))
+	}
+	require.NoError(t, client.Flush(ctx))
+
+	// One-minute step over ten minutes → at most ~11 points, never the 60 raw.
+	series, err := client.QueryRange(ctx, orgA, RangeQuery{
+		Metric:   "opengate_edge_metric_avg",
+		Matchers: map[string]string{"device_id": deviceID.String(), "dim": "cpu.util"},
+		Agg:      RangeAvg, Start: start, End: end, Step: time.Minute,
+	})
+	require.NoError(t, err)
+	require.Len(t, series, 1)
+	assert.Equal(t, orgA.String(), series[0].Labels["org_id"])
+	assert.LessOrEqual(t, len(series[0].Values), 12, "step must bound the point count")
+	assert.Positive(t, len(series[0].Values))
+	require.Len(t, series[0].Timestamps, len(series[0].Values))
+	// orgB's constant 999 never leaks into orgA's downsampled averages.
+	for _, v := range series[0].Values {
+		assert.Less(t, v, 999.0)
+	}
+
+	// max aggregation returns the bucket peak, strictly above the avg.
+	maxSeries, err := client.QueryRange(ctx, orgA, RangeQuery{
+		Metric:   "opengate_edge_metric_avg",
+		Matchers: map[string]string{"device_id": deviceID.String(), "dim": "cpu.util"},
+		Agg:      RangeMax, Start: start, End: end, Step: time.Minute,
+	})
+	require.NoError(t, err)
+	require.Len(t, maxSeries, 1)
+	assert.GreaterOrEqual(t, maxSeries[0].Values[len(maxSeries[0].Values)-1], series[0].Values[len(series[0].Values)-1])
+}
+
+func TestVMClientQueryRangeRejectsBadInput(t *testing.T) {
+	t.Parallel()
+	client := NewVMClient("http://127.0.0.1:0", nil)
+	ctx := context.Background()
+	start := time.Unix(1_700_000_000, 0)
+	end := start.Add(time.Hour)
+	_, err := client.QueryRange(ctx, uuid.New(), RangeQuery{Metric: "opengate_edge_metric_avg", Agg: RangeAvg, Start: start, End: end, Step: 0})
+	require.Error(t, err, "zero step must be rejected")
+	_, err = client.QueryRange(ctx, uuid.New(), RangeQuery{Metric: "opengate_edge_metric_avg", Matchers: map[string]string{"org_id": "x"}, Agg: RangeAvg, Start: start, End: end, Step: time.Minute})
+	require.ErrorIs(t, err, ErrOrgMatcherNotAllowed)
+	_, err = client.QueryRange(ctx, uuid.New(), RangeQuery{Metric: "bad name", Agg: RangeAvg, Start: start, End: end, Step: time.Minute})
+	require.Error(t, err, "invalid metric name must be rejected")
+	_, err = client.QueryRange(ctx, uuid.New(), RangeQuery{Metric: "opengate_edge_metric_avg", Agg: RangeAgg("sum"), Start: start, End: end, Step: time.Minute})
+	require.Error(t, err, "unsupported aggregation must be rejected")
+}
+
+func TestVMClientQueryInstantScopesToOrg(t *testing.T) {
+	base := testvm.BaseURL(t)
+	client := NewVMClient(base, nil)
+	ctx := context.Background()
+
+	orgA := uuid.New()
+	orgB := uuid.New()
+	devA := uuid.New()
+	devB := uuid.New()
+	ts := time.Now().UTC().Truncate(time.Second)
+	require.NoError(t, client.WriteSamples(ctx, orgA, devA, []Sample{{Name: "opengate_edge_node_anomaly_rate", Value: 0.42, TS: ts}}))
+	require.NoError(t, client.WriteSamples(ctx, orgA, devB, []Sample{{Name: "opengate_edge_node_anomaly_rate", Value: 0.13, TS: ts}}))
+	require.NoError(t, client.WriteSamples(ctx, orgB, devA, []Sample{{Name: "opengate_edge_node_anomaly_rate", Value: 0.99, TS: ts}}))
+	require.NoError(t, client.Flush(ctx))
+
+	// VM applies a 30 s search latency offset, so evaluate past that boundary.
+	vals, err := client.QueryInstant(ctx, orgA, "opengate_edge_node_anomaly_rate", nil, ts.Add(time.Minute))
+	require.NoError(t, err)
+	require.Len(t, vals, 2, "both orgA devices, neither orgB")
+	byDevice := map[string]float64{}
+	for _, v := range vals {
+		assert.Equal(t, orgA.String(), v.Labels["org_id"])
+		byDevice[v.Labels["device_id"]] = v.Value
+	}
+	assert.InDelta(t, 0.42, byDevice[devA.String()], 1e-9)
+	assert.InDelta(t, 0.13, byDevice[devB.String()], 1e-9)
+}
+
 func TestScopeSelector(t *testing.T) {
 	t.Parallel()
 	const org = "11111111-1111-1111-1111-111111111111"

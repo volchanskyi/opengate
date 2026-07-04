@@ -25,7 +25,9 @@ func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObje
 		return nil, err
 	}
 
-	return ListDevices200JSONResponse(devicesToAPI(devices)), nil
+	apiDevices := devicesToAPI(devices)
+	s.enrichAnomalyRates(ctx, apiDevices)
+	return ListDevices200JSONResponse(apiDevices), nil
 }
 
 // GetDevice implements StrictServerInterface.
@@ -42,5 +44,8 @@ func (s *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 		return GetDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
-	return GetDevice200JSONResponse(deviceToAPI(d)), nil
+	apiDevice := deviceToAPI(d)
+	single := []Device{apiDevice}
+	s.enrichAnomalyRates(ctx, single)
+	return GetDevice200JSONResponse(single[0]), nil
 }

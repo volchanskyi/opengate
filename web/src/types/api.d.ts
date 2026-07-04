@@ -286,6 +286,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices/{id}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Downsampled numeric telemetry for a device window
+         * @description Returns column-oriented numeric telemetry for the device over the window, read tenant-scoped from VictoriaMetrics. The server picks a bucket width so the point count stays within max_points regardless of window span, mapping 1:1 to a client charting engine's aligned data. Charts numeric dimensions only; process basenames and cmdlines are never returned here.
+         */
+        get: operations["getDeviceMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -691,6 +711,8 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+            /** @description Latest edge-node anomaly rate in [0,1] from telemetry, for the fleet health badge. Omitted when the device has no recent sample. */
+            anomaly_rate?: number;
         };
         RestartDeviceRequest: {
             reason?: string;
@@ -743,6 +765,30 @@ export interface components {
             series_considered: number;
             /** @description True when more series existed than the per-request cap allowed. */
             series_truncated: boolean;
+        };
+        MetricSeries: {
+            /** @description Numeric dimension name (e.g. cpu.util). Never a process basename or cmdline. */
+            name: string;
+            /** @description Central average per bucket, aligned 1:1 with the response t array; null for a bucket with no sample. */
+            avg: (number | null)[];
+            /** @description Lower band per bucket, aligned with t. Present only when min_max_source is not none. */
+            min?: (number | null)[];
+            /** @description Upper band per bucket, aligned with t. Present only when min_max_source is not none. */
+            max?: (number | null)[];
+            /**
+             * @description Provenance of the band. local = true host min/max from an on-demand local-history pull; avg_of_10s = min/max across the 10 s averages in the bucket (not host extrema); none = avg line only, no band.
+             * @enum {string}
+             */
+            min_max_source: "local" | "avg_of_10s" | "none";
+        };
+        MetricRangeResponse: {
+            /** @description Bucket timestamps in unix seconds, ascending. Aligns 1:1 with each series. */
+            t: number[];
+            series: components["schemas"]["MetricSeries"][];
+            /** @description True when the server collapsed raw samples into buckets to honor max_points. */
+            downsampled: boolean;
+            /** @description Bucket width in seconds (the query step) chosen to keep points within max_points. */
+            bucket_s: number;
         };
         DeviceHardware: {
             /** Format: uuid */
@@ -1880,6 +1926,82 @@ export interface operations {
                 };
             };
             /** @description Correlation unavailable or at capacity */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getDeviceMetrics: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                /** @description Numeric dimension names to fetch. Omit for all recorded dimensions. */
+                dims?: string[];
+                /** @description Upper bound on buckets per series (approximately the chart pixel width). */
+                max_points?: number;
+                /** @description Band provenance to compute alongside the avg line. */
+                band?: "none" | "avg_of_10s";
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Downsampled telemetry window */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricRangeResponse"];
+                };
+            };
+            /** @description Invalid window or parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Telemetry unavailable */
             503: {
                 headers: {
                     [name: string]: unknown;

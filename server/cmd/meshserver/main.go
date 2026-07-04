@@ -120,9 +120,11 @@ func main() {
 	}
 	var telemetryWriter telemetry.NumericWriter
 	var correlationEngine api.CorrelationRanker
+	var metricsReader api.MetricsReader
 	if vmURL != "" {
 		vmClient := telemetry.NewVMClient(vmURL, nil)
 		telemetryWriter = vmClient
+		metricsReader = vmClient
 		engine, err := correlate.NewEngine(correlate.Config{Fetcher: correlate.NewVMFetcher(vmClient)})
 		if err != nil {
 			logger.Error("init correlation engine", "error", err)
@@ -228,6 +230,7 @@ func main() {
 		AMT:                   amtSvc,
 		Cert:                  certMgr,
 		Correlate:             correlationEngine,
+		TelemetryReader:       metricsReader,
 		Relay:                 agentRelay,
 		Signaling:             sigTracker,
 		Notifier:              notifier,

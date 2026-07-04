@@ -132,6 +132,11 @@ components:
         updated_at:
           type: string
           format: date-time
+        anomaly_rate:
+          type: number
+          description: >-
+            Latest edge-node anomaly rate in [0,1] from telemetry, for the fleet
+            health badge. Omitted when the device has no recent sample.
 
     RestartDeviceRequest:
       type: object
@@ -208,6 +213,63 @@ components:
         series_truncated:
           type: boolean
           description: True when more series existed than the per-request cap allowed.
+
+    MetricSeries:
+      type: object
+      required: [name, avg, min_max_source]
+      properties:
+        name:
+          type: string
+          description: Numeric dimension name (e.g. cpu.util). Never a process basename or cmdline.
+        avg:
+          type: array
+          items:
+            type: number
+            format: double
+            nullable: true
+          description: Central average per bucket, aligned 1:1 with the response t array; null for a bucket with no sample.
+        min:
+          type: array
+          items:
+            type: number
+            format: double
+            nullable: true
+          description: Lower band per bucket, aligned with t. Present only when min_max_source is not none.
+        max:
+          type: array
+          items:
+            type: number
+            format: double
+            nullable: true
+          description: Upper band per bucket, aligned with t. Present only when min_max_source is not none.
+        min_max_source:
+          type: string
+          enum: [local, avg_of_10s, none]
+          description: >-
+            Provenance of the band. local = true host min/max from an on-demand
+            local-history pull; avg_of_10s = min/max across the 10 s averages in
+            the bucket (not host extrema); none = avg line only, no band.
+
+    MetricRangeResponse:
+      type: object
+      required: [t, series, downsampled, bucket_s]
+      properties:
+        t:
+          type: array
+          items:
+            type: integer
+            format: int64
+          description: Bucket timestamps in unix seconds, ascending. Aligns 1:1 with each series.
+        series:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetricSeries"
+        downsampled:
+          type: boolean
+          description: True when the server collapsed raw samples into buckets to honor max_points.
+        bucket_s:
+          type: integer
+          description: Bucket width in seconds (the query step) chosen to keep points within max_points.
 
     DeviceHardware:
       type: object
@@ -1403,6 +1465,100 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "503":
           description: Correlation unavailable or at capacity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/metrics:
+    get:
+      operationId: getDeviceMetrics
+      summary: Downsampled numeric telemetry for a device window
+      description: >-
+        Returns column-oriented numeric telemetry for the device over the
+        window, read tenant-scoped from VictoriaMetrics. The server picks a
+        bucket width so the point count stays within max_points regardless of
+        window span, mapping 1:1 to a client charting engine's aligned data.
+        Charts numeric dimensions only; process basenames and cmdlines are never
+        returned here.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: dims
+          in: query
+          description: Numeric dimension names to fetch. Omit for all recorded dimensions.
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+        - name: max_points
+          in: query
+          description: Upper bound on buckets per series (approximately the chart pixel width).
+          schema:
+            type: integer
+            default: 1000
+            minimum: 10
+            maximum: 2000
+        - name: band
+          in: query
+          description: Band provenance to compute alongside the avg line.
+          schema:
+            type: string
+            enum: [none, avg_of_10s]
+            default: avg_of_10s
+      responses:
+        "200":
+          description: Downsampled telemetry window
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricRangeResponse"
+        "400":
+          description: Invalid window or parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Telemetry unavailable
           content:
             application/json:
               schema:
