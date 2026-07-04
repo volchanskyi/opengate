@@ -4,7 +4,7 @@
 sustained for N s) alongside the WS-2 ML anomaly detection, evaluated locally every window so a
 breach is flagged in ~1 s — no central polling cycle.
 
-**Dependencies:** WS-2 (sampler/ensemble + window cadence). **Extends:** WS-8 (dashboards/soak).
+**Dependencies:** WS-2 (sampler/ensemble + window cadence). **Extends:** WS-15b (dashboards/soak).
 **Wave:** small; with WS-13/WS-12.
 
 ## Context
@@ -23,7 +23,7 @@ investigation-aid only** (no auto-notify) per the master-plan posture until the 
 - **Modify:** rule config delivery — rules are tenant-scoped config pushed to the agent (server→agent,
   capability-gated) or shipped in agent config; default ruleset minimal.
 - **Modify:** [`deploy/grafana/provisioning/dashboards/`](../../deploy/grafana/provisioning/dashboards/) —
-  surface breach counts (WS-8 dashboard).
+  surface breach counts (WS-15b dashboard).
 
 ## Steps (TDD-first)
 
@@ -32,11 +32,11 @@ investigation-aid only** (no auto-notify) per the master-plan posture until the 
 2. **Test first (cross-lang):** breach state round-trips in `AgentHealthSummary`; capability-gated;
    `make golden`.
 3. **Test first:** rule-config plumbing is tenant-scoped (org A's rules never reach org B) → implement.
-4. Surface breach counts on the WS-8 dashboard.
+4. Surface breach counts on the WS-15b dashboard.
 
 ## Gotchas / constraints
 
-- **Investigation-aid only** — no auto-notify until the FPR soak (WS-8 posture); breaches are signals.
+- **Investigation-aid only** — no auto-notify until the FPR soak (WS-15b posture); breaches are signals.
 - Hysteresis + sustain duration to avoid flapping; bounded rule count per tenant.
 - Reuse `AgentHealthSummary` (additive) — avoid a new message/QUIC stream; respect WS-3 caps.
 

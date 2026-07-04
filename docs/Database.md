@@ -269,6 +269,8 @@ The Postgres adapter lives in
 [`server/internal/telemetry`](../server/internal/telemetry/) and always runs
 through `dbtx.Scoped`. Numeric process metrics use rank-only labels in
 VictoriaMetrics; basenames, PIDs, and command-line hashes stay in the RLS table.
+The numeric side's retention and long-term (cold) tier are covered in
+[Monitoring](Monitoring.md#long-term-cold-tier).
 
 ## Migrations
 

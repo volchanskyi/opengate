@@ -21,7 +21,7 @@ WS-4 (VM tiers + scoped reader), WS-1 (capability). **Wave:** after WS-14b.
   Collapses a 200-agent/30-day storm from ~51.8 B samples (naïve 1 s) to ~1.15 B (~45× less).
 - **Hybrid ordering:** live always current; backfill the **recent window first** (10 s), then drain
   the older 1 min/1 hr remainder oldest-first from a watermark. Robust to interruption.
-- **Clamp to configured VM retention** (≈90 d, parameterized — WS-4/WS-8; not a hard cap): never
+- **Clamp to configured VM retention** (≈90 d, parameterized — WS-4/WS-15b; not a hard cap): never
   push samples older than `now − retention`; older history reachable via on-demand pull.
 - **Backfill MUST bypass live stream-aggregation (correctness-critical).** VM stream-aggregation by
   default **ignores input timestamps and aggregates by ingestion time**, `ignoreOldSamples` *drops*
@@ -41,7 +41,7 @@ WS-4 (VM tiers + scoped reader), WS-1 (capability). **Wave:** after WS-14b.
 - **Priority classes (strict preemption):** P0 control-plane > P1 live telemetry > P2 recent-window
   backfill > P3 historical-rollup backfill. Backfill always yields to live + control.
 - **Admission:** global concurrency cap + a **load-adaptive token-bucket ingest budget** computed
-  from live headroom (server CPU, live ingest rate, VM ingest/query latency, the WS-8 control-plane
+  from live headroom (server CPU, live ingest rate, VM ingest/query latency, the WS-15b control-plane
   p99 budget). Agents **request a slot** → `GrantBackfill{rate, deadline}` or
   `DeferBackfill{retry_after}`; deferred agents hold durable data and retry with jittered backoff.
 - **Fairness:** weighted **max-min fair-share across orgs** (per-tenant concurrency cap); within a
