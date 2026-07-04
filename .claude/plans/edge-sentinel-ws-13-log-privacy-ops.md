@@ -2,9 +2,9 @@
 
 **Objective:** Close the cross-cutting concerns for endpoint logs: a raw-log redaction corpus, the
 no-GPL reader-sourcing ADR, edge reader benchmarks (Linux + Windows) before default-on, and a soak
-that folds logs into the WS-8 default-on decision.
+that folds logs into the WS-15b default-on decision.
 
-**Dependencies:** WS-9..WS-12. **Parallel with:** WS-12. **Feeds:** WS-8 default-on gate.
+**Dependencies:** WS-9..WS-12. **Parallel with:** WS-12. **Feeds:** WS-15b default-on gate.
 
 ## Context
 
@@ -32,9 +32,9 @@ unproven and gates default-on.
 2. **Benchmark:** run the edge readers on a Linux host and a Windows host; record CPU/RSS/enumeration
    cost; assert within budget before default-on.
 3. **Soak:** extend the load harness to drive log-rate ingest + periodic raw pulls under multi-tenant
-   load; record control-plane p99 (must stay within the WS-8 budget), VM cardinality/disk, raw-pull
+   load; record control-plane p99 (must stay within the WS-15b budget), VM cardinality/disk, raw-pull
    latency, audit-event volume.
-4. Add the Grafana panels; write the ADRs; flip default-on **only if every budget passes** (with WS-8).
+4. Add the Grafana panels; write the ADRs; flip default-on **only if every budget passes** (with WS-15b).
 
 ## Gotchas / constraints
 
@@ -47,7 +47,7 @@ unproven and gates default-on.
 
 - [ ] Redaction corpus covers the common secret shapes; agent + server guards tested.
 - [ ] Edge reader benchmark (Linux + Windows) recorded; within budget; default-off until passed.
-- [ ] Soak adds log-rate ingest + raw pulls; control-plane p99 within the WS-8 budget; dashboards added.
+- [ ] Soak adds log-rate ingest + raw pulls; control-plane p99 within the WS-15b budget; dashboards added.
 - [ ] ADRs written (model, raw privacy, reader sourcing); `/precommit` green.
 
 ## Verification

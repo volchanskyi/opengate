@@ -1,12 +1,20 @@
-# WS-8 — Ops + sustained soak + default-on gate (Grafana, load-test)
+# WS-15b — Ops + sustained soak + default-on gate (Grafana, load-test)
+
+**Status: deferred until the offline track (WS-15) lands.** The sustained soak that decides
+default-on must exercise the *whole* default telemetry path — offline durability + reconnect-storm
+backfill (WS-14b/WS-15) and the log/discovery/alert tracks — and the default-on decision needs
+*real* measured soak numbers. None of that exists yet, so this whole workstream waits; it is not
+split into a partial. Renumbered from WS-8 to WS-15b to encode the dependency: it runs after
+WS-15, as the final confirmation wave.
 
 **Objective:** Make the telemetry path observable and run the **sustained soak** that decides
 default-on. Baseline feasibility measurement has moved **earlier** — it is now the **Wave 0
-gate** (see root plan); WS-8 is the long-running confirmation at the intended default level.
+gate** (see root plan); WS-15b is the long-running confirmation at the intended default level.
 Alerts are deferred (investigation-aid only).
 
-**Dependencies:** WS-4 (ingest) + WS-6 (full path). Final wave. **Pairs with:** the Wave 0
-feasibility gate (same harness, longer duration, default settings).
+**Dependencies:** WS-4 (ingest) + WS-6 (full path) + WS-15 (offline/backfill scheduler) + the
+log/discovery/alert tracks it soaks. Final wave. **Pairs with:** the Wave 0 feasibility gate
+(same harness, longer duration, default settings).
 
 ## Context
 

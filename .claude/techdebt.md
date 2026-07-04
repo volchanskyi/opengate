@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-07-02; Edge-Sentinel WS-5 correlation engine added no active debt. -->
+<!-- Last reviewed: 2026-07-03; Edge-Sentinel WS-6 web UI in progress. -->
 
 ## Severity: High
 
@@ -23,7 +23,7 @@ Phase 0 hardware artifact still needs to be recorded on a small ARM target:
    before enabling emission beyond the additive WS-3 wire contract.
 
 The sampler and live emission remain default-off until ARM evidence confirms the
-target footprint and the WS-8 soak/default-on gate passes.
+target footprint and the WS-15b soak/default-on gate passes.
 
 **Pay-down trigger:** attach the ARM artifact to the Edge-Sentinel Phase 0 record,
 finalize per-entity caps, and flip the sampler default only if the gate passes.
@@ -152,25 +152,3 @@ before it falls through the absolute floor.
 cancelled and that `mutation_score{language="go"}` reaches VictoriaMetrics; then
 `timeout-coefficient: 15` in [`server/.gremlins.yaml`](../server/.gremlins.yaml)
 could drop for a pure shard via a per-shard `--config` override.
-
-### Test-technique gaps — RESOLVED
-
-Property/fuzz testing now spans all three languages. Go: the protocol fuzz
-[`codec_fuzz_test.go`](../server/internal/protocol/codec_fuzz_test.go) plus
-`pgregory.net/rapid` property tests over the APF parsers, model→API converters,
-pagination math, and relay framing. Rust: `proptest`
-([`property_test.rs`](../agent/crates/mesh-protocol/tests/property_test.rs)) plus a
-`cargo-fuzz` libFuzzer target over `Frame::decode`
-([`agent/fuzz/fuzz_targets/decode.rs`](../agent/fuzz/fuzz_targets/decode.rs)),
-gated to a bounded nightly job with the stable corpus replay
-([`decode_corpus_test.rs`](../agent/crates/mesh-protocol/tests/decode_corpus_test.rs))
-as the always-run guard. Web: `fast-check` property suites over the highest-value
-TS surfaces — token-status validation
-([`token-status.property.test.ts`](../web/src/lib/token-status.property.test.ts)),
-the `file-store` reducer over arbitrary action sequences
-([`file-store.property.test.ts`](../web/src/features/file-manager/state/file-store.property.test.ts)),
-and the wire codec parser/roundtrip
-([`codec.property.test.ts`](../web/src/lib/protocol/codec.property.test.ts)). The
-web suite surfaced a fail-open defect (an unparseable token expiry was treated as
-not-expired) which was fixed in [`token-status.ts`](../web/src/lib/token-status.ts).
-All suites run deterministically under vitest (pinned `numRuns` + `seed`).

@@ -58,7 +58,7 @@ code **and live OCI/cluster data**. The confirmed findings:
 | Signal action | **Investigation-aid only first** (no auto-notify until FPR soak) |
 | Visibility | **Any device-viewer in the org** |
 | Protocol | **Bidirectional** forward-compat + **capability negotiation**; flip the pinning test |
-| Web chart engine | **Thin adapter over uPlot** (canvas-2D); React owns chrome, the renderer owns pixels via typed arrays (see `edge-sentinel-ws-6-web-ui.md`) |
+| Web chart engine | **Thin adapter over uPlot** (canvas-2D); React owns chrome, the renderer owns pixels via typed arrays (see `archive/edge-sentinel-ws-6-web-ui.md`) |
 
 ### Headline risk (largely eliminated; what remains is gated)
 
@@ -109,9 +109,8 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-3 | `archive/edge-sentinel-ws-3-wire-contract.md` | additive `ControlMessage` variants + Rust↔Go goldens; payload caps |
 | WS-4 | `archive/edge-sentinel-ws-4-server-ingest-vm.md` | VictoriaMetrics ingest + stream-agg + Postgres process RLS table |
 | WS-5 | `archive/edge-sentinel-ws-5-correlation-engine.md` | on-demand Go KS-test ranking over VM (MetricsQL) |
-| WS-6 | `edge-sentinel-ws-6-web-ui.md` | uPlot chart engine: badge + anomaly panel + timelines + drill-down |
+| WS-6 | `archive/edge-sentinel-ws-6-web-ui.md` | uPlot chart engine: badge + anomaly panel + timelines + drill-down |
 | WS-7 | `edge-sentinel-ws-7-cold-tier-duckdb.md` | VM retention/rollups + optional Parquet archival (DuckDB deferred) |
-| WS-8 | `edge-sentinel-ws-8-ops-measurement.md` | Grafana + sustained soak + default-on gate |
 | WS-9 | `edge-sentinel-ws-9-log-readers.md` | endpoint log readers (journald/syslog, Windows Event Log, self-logs) + rate extractor (agent) |
 | WS-10 | `edge-sentinel-ws-10-log-wire.md` | log-rate dims + extended on-demand query; capability-gated, golden-tested |
 | WS-11 | `edge-sentinel-ws-11-log-server.md` | rate dims → VM; on-demand raw broker + audit + elevated-permission gate |
@@ -120,6 +119,7 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-14a | `edge-sentinel-ws-14a-offline-tsdb-spike.md` | local-TSDB substrate bake-off (append-only / redb / fjall / tsink / no-persist) on a fixture corpus + gates |
 | WS-14b | `edge-sentinel-ws-14b-offline-tsdb-build.md` | build the chosen multi-tier persistent store (holds min/max/last + 1 s; inline anomaly scores) |
 | WS-15 | `edge-sentinel-ws-15-offline-backfill.md` | reconnect backfill to VM (throttled) + on-demand server-mediated local-history pull |
+| WS-15b | `edge-sentinel-ws-15b-ops-measurement.md` | Grafana + sustained soak + default-on gate (deferred until WS-15) |
 | WS-16 | `edge-sentinel-ws-16-discovery-agent.md` | auto-discovery collectors (ports/services/DBs/containers/packages) + `DiscoveryReport` wire |
 | WS-17 | `edge-sentinel-ws-17-inventory-server.md` | inventory RLS store + API |
 | WS-18 | `edge-sentinel-ws-18-inventory-web.md` | inventory web view (generative dashboards deferred) |
@@ -144,15 +144,15 @@ final pass** (Phase 8): one real ARM device, one real Windows endpoint, one `/ru
 | **0 — Feasibility gate** | VM ingest spike @100/500 **measuring real active-series + per-entity expansion** (decide avg-only vs more); **backfill bucket-correctness via import API (not stream-agg)**; bidirectional protocol fixtures; tenancy migration rehearsal (backfill/deny/restore/rollback); ARM ML bench harness; privacy policy + redaction corpus | throwaway VM + `testpg` + `cargo` + golden; CI artifacts | none |
 | **1 — Foundation (parallel)** | **1.1** WS-1 protocol+capability (merge **first**). **1.2** WS-0 tenancy split: 1.2a migration+RLS+deny → 1.2b OrgID claim+middleware → 1.2c repo tx threading → 1.2d web org ctx. **1.3** WS-2 ML+sampler functional | `make golden`; `testpg`; `cargo` | none |
 | **2 — Metric spine (thin slice first)** | **2.1** WS-3 *minimal* `AgentHealthSummary` only → **2.2** WS-4 *minimal* VM client + ingest + scoped reader + process-table skeleton (first end-to-end metric) → **2.3** enrich: `AgentMetricWindow` + `ProcessReport` + stream-agg + 90 d retention | golden; throwaway VM + `testpg` | none |
-| **3 — First visible product** | **3.1** WS-6 badge+timelines+range endpoint+chunk budget — bands ship with the **`avg_of_10s` fallback** (decoupled from WS-14x; true host min/max is enriched in Phase 5 via WS-15) → **3.2** WS-5 correlation → **3.3** WS-8 *partial* (dashboards + load harness for metric ingest) | vitest + `make e2e` + `npm run size`; `go test`; load harness | none |
+| **3 — First visible product** | **3.1** WS-6 badge+timelines+range endpoint+chunk budget — bands ship with the **`avg_of_10s` fallback** (decoupled from WS-14x; true host min/max is enriched in Phase 5 via WS-15) → **3.2** WS-5 correlation | vitest + `make e2e` + `npm run size`; `go test` | none |
 | **4 — Feature tracks (priority-ordered: D → T → L)** | **D** discovery: WS-16→17→18 (RMM table-stakes, RLS-only, lowest risk) → **T** alerts: WS-19 (smallest, high operator value) → **L** logs: WS-9→10→11→12→13 (heaviest — **WS-11 first resolves the `device_logs` raw-persistence precondition**). Tracks are independent and *may* parallelize given capacity; default order is value-/risk-first | `cargo`/golden/`testpg`/`make e2e` (fixtures for readers) | none (CI fixtures) |
 | **5 — Offline durability (full track in v1)** | **5.1** WS-14a spike (5-candidate bake-off: append-only / redb / fjall / tsink / no-persist + rubric/gates) → **5.2** WS-14b build chosen substrate (compression+footprint asserts, crash-recovery; **skip the bespoke layer if tsink wins**) → **5.3** WS-15 backfill+scheduler (offline→online, tiered, **import-not-streamAggr** bucket test, fairness, clock bounds, fleet-storm; **source of true min/max for WS-6 bands**) | `cargo` (+ ARM/Windows bench CI); throwaway VM + simulated disconnect + load harness | none |
 | **6 — Cold tier (optional/deferrable)** | WS-7 VM retention/rollups (+ optional Parquet export) | `go test` | none |
 | **7 — Lifecycle erasure** | WS-20 tombstone → orchestrator+cascade → GC → reconnect deprovision | `testpg` + throwaway VM + `make e2e` | none |
-| **8 — Final soak + default-on** | WS-8 *completion*: sustained multi-tenant soak incl. logs/offline/discovery/alerts + fleet-reconnect storm; flip default-on only if budgets pass | load harness + dashboards | **consolidated:** 1 ARM device, 1 Windows endpoint, 1 web `/run` smoke |
+| **8 — Final soak + default-on** | WS-15b: sustained multi-tenant soak incl. logs/offline/discovery/alerts + fleet-reconnect storm; flip default-on only if budgets pass | load harness + dashboards | **consolidated:** 1 ARM device, 1 Windows endpoint, 1 web `/run` smoke |
 
 **Critical path:** Phase 0 → WS-1/WS-0/WS-2 → WS-3 → WS-4 → WS-6/WS-5 → (feature tracks ‖ offline) →
-WS-20 → WS-8 soak. **Everything hangs off WS-0 (tenancy) + WS-4 (VM ingest)** — they are the real
+WS-20 → WS-15b soak. **Everything hangs off WS-0 (tenancy) + WS-4 (VM ingest)** — they are the real
 unblockers; land them early and stable. WS-6's `avg_of_10s` band fallback means Phase 3 (visible
 product) **does not block on** the Phase-5 offline track; true min/max is a Phase-5 enrichment.
 
@@ -215,7 +215,7 @@ change is tolerated by older builds in both directions — the single biggest fr
   ([DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx)); device-detail anomaly panel +
   timelines + correlation drill-down. Range endpoint guarantees `points ≤ maxPoints` (VM rollup
   pick + decimation). Lazy chart chunk + **explicit `charts` chunk size budget**. Full spec in
-  `edge-sentinel-ws-6-web-ui.md`. **Min/max bands:** central VM is `avg`-only, so chart bands carry
+  `archive/edge-sentinel-ws-6-web-ui.md`. **Min/max bands:** central VM is `avg`-only, so chart bands carry
   a `min_max_source` provenance — true host min/max via the on-demand WS-15 local-history pull
   (`local`), with graceful fallback to `avg_of_10s` (min/max of 10 s averages, honestly labelled)
   or `none` when WS-14b/WS-15 are unavailable. **WS-6 bands therefore soft-depend on the
@@ -228,11 +228,13 @@ change is tolerated by older builds in both directions — the single biggest fr
   50k req/mo; tenant-prefix-scoped). **DuckDB deferred** — no CGO dep unless a later ADR justifies.
 - *Tests:* retention/rollup behavior; PAR scope/expiry if the export is built.
 
-### WS-8 — Ops + soak + default-on gate
+### WS-15b — Ops + soak + default-on gate (deferred until WS-15)
 - Grafana dashboard (existing **VM datasource**): anomaly-rate, ingest, VM cardinality + disk
   growth, control-plane p99, correlation latency, drop count. Extend
   [loadtest](../../server/tests/loadtest/main.go) to **500 multi-tenant agents**; sustained soak.
   **Default-on only if every quality metric passes** (metrics **and** logs). Alerts deferred.
+  Deferred until the offline track (WS-15) lands — the soak covers offline/reconnect-storm and
+  default-on needs real measured numbers, so this whole workstream runs after WS-15.
 
 ### Endpoint logs (WS-9–13) — edge-first, server-proxied (Netdata-informed)
 
@@ -254,7 +256,7 @@ raw logs into Loki is rejected (Netdata's own argument + the 200 GB cap / 2-OCPU
 - **WS-12 (web):** logs explorer + log-rate sparkline (WS-6 adapter) + "logs for this anomaly
   window" jump (the metrics↔logs correlation win).
 - **WS-13 (privacy/ops):** raw-log redaction corpus; reader-sourcing ADR (no-GPL); Linux + Windows
-  reader benchmark before default-on; soak folds into the WS-8 gate.
+  reader benchmark before default-on; soak folds into the WS-15b gate.
 
 ### Autonomous offline + auto-discovery + threshold alerts (WS-14–19)
 
@@ -378,7 +380,7 @@ autonomous active response; revisit only behind a dedicated privilege/platform A
 - **Cross-language:** `make golden` for new variants; bidirectional forward-compat + capability fixtures.
 - **Server:** Go handler/store tests; migrations in `testpg`; **RLS cross-tenant-deny** (process table);
   VM label-scope deny; correlation ranking (injected anomaly ranks #1).
-- **Load (Wave 0 + WS-8):** VM ingest spike then sustained soak → control-plane p99, VM ingest/
+- **Load (Wave 0 + WS-15b):** VM ingest spike then sustained soak → control-plane p99, VM ingest/
   cardinality/disk growth, correlation latency recorded; default-on only if budgets pass.
 - **Web/E2E:** `make e2e` (badge, panel, uPlot, drill-down); `npm run size` (chunk budget).
 - **Manual:** `/run` stack, inject CPU/disk load + a secret-bearing process, confirm bit flips,

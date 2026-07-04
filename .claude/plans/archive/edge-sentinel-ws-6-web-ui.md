@@ -15,13 +15,13 @@ The concern is real: React reconciling per-point (SVG/DOM nodes) collapses at ~1
 series/device × thousands of points. The fix is architectural, not a library swap —
 **React owns chrome; an imperative canvas renderer owns pixels**, fed typed arrays via
 refs, never through React state. This is already how the app renders remote desktop
-([`use-remote-desktop.ts`](../../web/src/features/remote-desktop/use-remote-desktop.ts) +
-[`desktop-worker.ts`](../../web/src/features/remote-desktop/desktop-worker.ts)).
+([`use-remote-desktop.ts`](../../../web/src/features/remote-desktop/use-remote-desktop.ts) +
+[`desktop-worker.ts`](../../../web/src/features/remote-desktop/desktop-worker.ts)).
 
 Web is React 19 / TS strict, Vitest + RTL, Tailwind-only, Zustand. The device grid is
 virtualized via `@tanstack/react-virtual`
-([`DeviceList.tsx`](../../web/src/features/devices/DeviceList.tsx)); routes are already
-lazy ([`router.tsx`](../../web/src/router.tsx)); the dashboard polls every 15 s. **No
+([`DeviceList.tsx`](../../../web/src/features/devices/DeviceList.tsx)); routes are already
+lazy ([`router.tsx`](../../../web/src/router.tsx)); the dashboard polls every 15 s. **No
 charting library exists today.**
 
 ## Decisions (locked with user)
@@ -105,28 +105,28 @@ bounded on-demand action (it costs an agent round-trip via WS-15).
 
 ## File inventory
 
-- **Modify:** [`web/package.json`](../../web/package.json) (`uplot`),
-  [`web/vite.config.ts`](../../web/vite.config.ts) (`manualChunks: charts`),
-  [`web/.size-limit.json`](../../web/.size-limit.json) (entry vs charts budgets),
-  [`DeviceDetail.tsx`](../../web/src/features/devices/DeviceDetail.tsx),
-  [`DeviceList.tsx`](../../web/src/features/devices/DeviceList.tsx) (badge),
-  [`Dashboard.tsx`](../../web/src/features/dashboard/Dashboard.tsx) (overview),
+- **Modify:** [`web/package.json`](../../../web/package.json) (`uplot`),
+  [`web/vite.config.ts`](../../../web/vite.config.ts) (`manualChunks: charts`),
+  [`web/.size-limit.json`](../../../web/.size-limit.json) (entry vs charts budgets),
+  [`DeviceDetail.tsx`](../../../web/src/features/devices/DeviceDetail.tsx),
+  [`DeviceList.tsx`](../../../web/src/features/devices/DeviceList.tsx) (badge),
+  [`Dashboard.tsx`](../../../web/src/features/dashboard/Dashboard.tsx) (overview),
   `web/src/types/api.d.ts` (regen after the metrics endpoint lands in `openapi.yaml`).
 - **Create:** `TimeSeriesChart` adapter (the only module importing `uplot`; imperative
   wrapper — create in `useLayoutEffect`, `setData` on prop change, `setSize` on
   ResizeObserver, destroy on unmount; stable interface so a WebGL backend can swap in) +
   device-detail metrics view + telemetry Zustand slice (metadata only) under
-  [`web/src/features/devices/`](../../web/src/features/devices/); vendor CSS import of
+  [`web/src/features/devices/`](../../../web/src/features/devices/); vendor CSS import of
   `uplot/dist/uPlot.min.css`.
 
 ## Bundle strategy (binding constraint)
 
-[`web/.size-limit.json`](../../web/.size-limit.json) measures `dist/assets/*.js` as a
+[`web/.size-limit.json`](../../../web/.size-limit.json) measures `dist/assets/*.js` as a
 **summed glob** = 250 KB gzip; app is at **223 KB** (~27 KB headroom). uPlot ~23 KB pushes
 the *total* near the cap even though it only loads on the (already-lazy) device-detail
 route. Fix the budget to model reality:
 
-1. Add a `manualChunks` rule in [`vite.config.ts`](../../web/vite.config.ts) giving uPlot
+1. Add a `manualChunks` rule in [`vite.config.ts`](../../../web/vite.config.ts) giving uPlot
    a stable chunk name (`charts`).
 2. Restructure `.size-limit.json`: an **initial/entry** budget that **excludes**
    `charts-*.js` (protects first paint) + a **named `charts` chunk budget** (~30 KB) so the
@@ -142,7 +142,7 @@ silent erosion of the app budget.
 2. **Test first:** anomaly panel renders current rate + last transition → implement.
 3. **Test first:** the `TimeSeriesChart` adapter calls `setData` with the right typed-array
    shape given a mocked window payload (mock canvas — precedent
-   [`desktop-worker.test.ts`](../../web/src/features/remote-desktop/desktop-worker.test.ts));
+   [`desktop-worker.test.ts`](../../../web/src/features/remote-desktop/desktop-worker.test.ts));
    assert no `any`. Then implement the imperative wrapper.
 4. **Test first:** drill-down posts the selected window and renders top-N (debounce
    window-select) → implement.
@@ -153,7 +153,7 @@ silent erosion of the app budget.
 
 - **Performance.** Server caps payload at ≤ maxPoints; target <16 ms/frame per chart on
   device-detail with all families. Add a perf assertion (point-count bound) + measure under
-  the WS-8 load-test.
+  the WS-15b load-test.
 - **Security.** Canvas-2D only — no eval/WASM/network in uPlot. Data is org-scoped
   server-side: numeric via the scoped VM query client (`org_id` label matcher), descriptive
   process data via its **Postgres RLS** table. Client renders only returned data. **Charts plot
@@ -178,7 +178,7 @@ silent erosion of the app budget.
 ## Verification
 
 `cd web && npm test`; `npm run size` (size-limit); `make e2e` (full Docker lifecycle —
-never bare `npx playwright`). WS-8 load-test records frame time + payload point-count under
+never bare `npx playwright`). WS-15b load-test records frame time + payload point-count under
 a 500-agent window. `/precommit` green. `/docs`: web/UI + Wire-Protocol pages.
 
 ## Open items to confirm before/at implementation

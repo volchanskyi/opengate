@@ -8,7 +8,7 @@ end, race-safe.
 
 **Dependencies:** WS-0 (org/device ownership + tenant scope), WS-4 (VM series), WS-11 (log-rate
 series + audit), WS-17 (inventory), WS-7 (cold tier, if built), WS-14b/15 (agent local purge +
-deprovision-on-reconnect). **Wave:** with WS-8 (lifecycle hardening).
+deprovision-on-reconnect). **Wave:** with WS-15b (lifecycle hardening).
 
 ## What must be erased per subject
 

@@ -119,16 +119,32 @@ Edge Sentinel numeric telemetry is pushed by the server, not scraped from
 agents. The app chart wires the VM endpoint into the server through
 [`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml),
 and the scoped client lives in
-[`server/internal/telemetry`](../server/internal/telemetry/). VM reads for
-future API/UI work must use that client so the server injects the authoritative
-`org_id` matcher. Process snapshots with basenames and optional command-line
-hashes stay in Postgres RLS; see [Database](Database.md#device-processes-table).
+[`server/internal/telemetry`](../server/internal/telemetry/). VM reads go through
+that client so the server injects the authoritative `org_id` matcher. Process
+snapshots with basenames and optional command-line hashes stay in Postgres RLS;
+see [Database](Database.md#device-processes-table).
 
 The monitoring chart passes the Edge Sentinel stream-aggregation config to
 single-node VictoriaMetrics through
 [`victoriametrics.yaml`](../deploy/helm/monitoring/templates/victoriametrics.yaml).
-The config produces live rollups for `opengate_edge_*` metrics while preserving
-raw matched input.
+The [rollup config](../deploy/helm/monitoring/files/edge-sentinel-stream-aggr.yaml)
+produces coarse `avg`-only rollups for `opengate_edge_*` metrics at two intervals
+while `-streamAggr.keepInput` preserves the raw matched input. Central rollups
+carry `avg` alone because each aggregate is its own series, so emitting
+min/max/last centrally would multiply active series past the budget ratified in
+[`spike_test.go`](../server/tests/vmcardinality/spike_test.go); chart bands are
+computed from min/max over the raw 10 s samples instead.
+
+### Long-term (cold) tier
+
+Single-node OSS VictoriaMetrics applies **one global retention window** set by
+`victoriametrics.retention` in
+[`values.yaml`](../deploy/helm/monitoring/values.yaml) — per-series retention and
+downsampling are Enterprise features, so raw 10 s samples and the `avg` rollups
+share the same window. The rollups exist for query efficiency: a long range reads
+coarse pre-aggregated series instead of scanning raw. Within that window
+VictoriaMetrics is the source of truth for central numeric telemetry, stored with
+its native Gorilla compression.
 
 Promtail reads Kubernetes pod logs, enriches each stream with Kubernetes labels,
 and pushes to Loki via
