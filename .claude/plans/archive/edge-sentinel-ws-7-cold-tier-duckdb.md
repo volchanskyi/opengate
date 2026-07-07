@@ -19,11 +19,11 @@ hourly = 360k req/mo), so any object writes must be **server-side batched**, nev
 
 ## File inventory
 
-- **Modify:** [`deploy/helm/monitoring/`](../../deploy/helm/monitoring/) — confirm VM retention
+- **Modify:** [`deploy/helm/monitoring/`](../../../deploy/helm/monitoring/) — confirm VM retention
   split (raw vs rollup) and document the long-term-tier behavior (the real WS-7 deliverable).
 - **Create (optional/archival only):** a server-side aged-data → Parquet export job
   (tenant-partitioned `org_id/day` keys) using the existing **write-only PAR** pattern
-  ([`secrets.example.yaml`](../../deploy/helm/opengate/secrets.example.yaml), ADR-035). Batched,
+  ([`secrets.example.yaml`](../../../deploy/helm/opengate/secrets.example.yaml), ADR-035). Batched,
   coarse cadence (≤ daily), well within 50k req/mo. **No per-agent uploads.**
 - **Deferred:** DuckDB / `olap` package — only if a separate ADR proves a need that VM
   MetricsQL + rollups cannot meet.

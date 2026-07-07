@@ -5,6 +5,7 @@
 //! Exit code 42 signals the service manager to restart after an update.
 
 mod edge_sentinel;
+mod host_logs;
 mod logs;
 
 use std::net::SocketAddr;
@@ -50,6 +51,11 @@ struct Args {
     /// Enable the local Edge-Sentinel sampler. Default off until ARM budgets pass.
     #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_SENTINEL")]
     edge_sentinel: bool,
+
+    /// Enable the bounded Edge-Sentinel host log-rate readers (journald /
+    /// Windows Event Log / self logs). Default off; yields to control traffic.
+    #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_LOG_READERS")]
+    edge_log_readers: bool,
 }
 
 /// Exit code that tells systemd (RestartForceExitStatus=42) to restart the agent
@@ -423,6 +429,13 @@ async fn main() -> Result<()> {
     let _edge_sentinel_sampler = if args.edge_sentinel {
         info!("edge-sentinel sampler enabled");
         Some(edge_sentinel::spawn_sampler())
+    } else {
+        None
+    };
+
+    let _edge_log_readers = if args.edge_log_readers {
+        info!("edge-sentinel host log readers enabled");
+        Some(edge_sentinel::spawn_log_readers(PathBuf::from(LOG_DIR)))
     } else {
         None
     };
@@ -1096,6 +1109,30 @@ mod tests {
         ])
         .unwrap();
         assert!(enabled.edge_sentinel);
+    }
+
+    #[test]
+    fn test_cli_args_edge_log_readers_default_off_and_opt_in() {
+        let default_args = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+        ])
+        .unwrap();
+        assert!(!default_args.edge_log_readers);
+
+        let enabled = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+            "--edge-log-readers",
+        ])
+        .unwrap();
+        assert!(enabled.edge_log_readers);
     }
 
     #[test]

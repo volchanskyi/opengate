@@ -8,7 +8,18 @@ All agent plans must be created in **this repo's** `.claude/plans/` directory (i
 
 - Use a descriptive kebab-case name (e.g. `fix-auth-bug.md`, `phase-16-feature.md`). Never use auto-generated random names.
 - If plan mode suggests a path under `~/.claude/plans/`, ignore it and use the project-local path instead.
-- Completed plans are archived to `.claude/plans/archive/`.
+
+### Archive a plan the moment its work is done (MANDATORY)
+
+**Enforced by:** [`scripts/tests/plans-archive-consistency.test.sh`](../../scripts/tests/plans-archive-consistency.test.sh) (gauntlet shell-tests step) + [`scripts/check-doc-links`](../../scripts/check-doc-links/). **No bypass.**
+
+The commit that lands a micro-plan's final implementation MUST also retire the plan — do **not** leave it for "later" (that has been forgotten repeatedly). In the **same commit**:
+
+1. `git mv .claude/plans/<plan>.md .claude/plans/archive/<plan>.md`.
+2. Bump every internal relative link **one `../` deeper** (`../../` → `../../../`) — a freshly-archived plan isn't baselined, so stale links fail the doc-links gate. Validate with `GO111MODULE=off go run ./scripts/check-doc-links`.
+3. Repoint every reference to it — the master-plan index row, the `phases.md` **Completed** row (link `plans/archive/<plan>.md`), and cross-refs in sibling plans — to the `archive/` path.
+
+The consistency gate refuses any `phases.md` **Completed** row whose Plan link resolves to a **non-archived** plan, so recording a phase as done forces its plan into `archive/`. Pair this with the existing "update `phases.md` after completing significant work" rule in [`CLAUDE.md`](../../CLAUDE.md): finishing a workstream means a `phases.md` Completed row **and** the plan archived, together, in the completing commit.
 
 ### Plans vs memory
 

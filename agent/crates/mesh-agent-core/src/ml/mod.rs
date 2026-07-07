@@ -5,6 +5,7 @@
 
 pub mod ensemble;
 pub mod kmeans;
+pub mod log_rate;
 pub mod redact;
 pub mod sampler;
 pub mod window;
