@@ -272,6 +272,10 @@ async fn perform_fast_handshake(
 /// Default log directory for persistent log files.
 const LOG_DIR: &str = "/var/log/mesh-agent";
 
+/// Bounded backlog of log-rate telemetry windows awaiting the control loop.
+/// Windows beyond this are dropped so telemetry never backpressures control.
+const LOG_RATE_TELEMETRY_CAP: usize = 32;
+
 /// Set up tracing with both stdout and rolling file appender.
 /// Returns the guard that must be held for the lifetime of the program.
 fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
@@ -433,9 +437,14 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Log-rate windows produced by the reader task reach the control loop over a
+    // bounded channel; the receiver is drained when connected (see below).
+    let mut log_rate_rx: Option<std::sync::mpsc::Receiver<mesh_protocol::ControlMessage>> = None;
     let _edge_log_readers = if args.edge_log_readers {
         info!("edge-sentinel host log readers enabled");
-        Some(edge_sentinel::spawn_log_readers(PathBuf::from(LOG_DIR)))
+        let (tx, rx) = std::sync::mpsc::sync_channel(LOG_RATE_TELEMETRY_CAP);
+        log_rate_rx = Some(rx);
+        Some(edge_sentinel::spawn_log_readers(PathBuf::from(LOG_DIR), tx))
     } else {
         None
     };
@@ -610,6 +619,26 @@ async fn main() -> Result<()> {
                         break;
                     }
                     tracing::debug!("heartbeat sent");
+
+                    // Forward any queued log-rate windows. Drain into a Vec first
+                    // so the receiver is never held across the send await; the
+                    // bounded channel already dropped anything beyond capacity, so
+                    // a log burst never backpressures the control stream.
+                    let windows: Vec<mesh_protocol::ControlMessage> = match log_rate_rx.as_ref() {
+                        Some(rx) => std::iter::from_fn(|| rx.try_recv().ok()).collect(),
+                        None => Vec::new(),
+                    };
+                    let mut telemetry_lost = false;
+                    for window in windows {
+                        if let Err(e) = conn.send_control(window).await {
+                            warn!(error = %e, "log-rate telemetry send failed, will reconnect");
+                            telemetry_lost = true;
+                            break;
+                        }
+                    }
+                    if telemetry_lost {
+                        break;
+                    }
                 }
                 msg = conn.receive_control() => {
                     match msg {
@@ -692,6 +721,10 @@ async fn main() -> Result<()> {
                             search,
                             log_offset,
                             log_limit,
+                            // This path returns the agent's own log files; the
+                            // host-source selector and unit filter are not
+                            // consumed here.
+                            ..
                         }) => {
                             info!("device logs requested by server");
                             let collector = logs::LogCollector::new(PathBuf::from(LOG_DIR));

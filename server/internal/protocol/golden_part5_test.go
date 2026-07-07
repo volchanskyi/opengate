@@ -25,4 +25,7 @@ func TestGoldenControlRequestDeviceLogs(t *testing.T) {
 	assert.Equal(t, "connection", msg.Search)
 	assert.Equal(t, uint32(0), msg.LogOffset)
 	assert.Equal(t, uint32(100), msg.LogLimit)
+	// Host-source selector + structured emitting-unit filter.
+	assert.Equal(t, "journald", msg.Source)
+	assert.Equal(t, "nginx.service", msg.Unit)
 }

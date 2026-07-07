@@ -491,6 +491,8 @@ fn test_request_device_logs_missing_fields() {
             search: String::new(),
             log_offset: 0,
             log_limit: 0,
+            source: String::new(),
+            unit: String::new(),
         }
     );
 }

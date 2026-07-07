@@ -148,6 +148,10 @@ type ControlMessage struct {
 	Search    string `msgpack:"search,omitempty"`
 	LogOffset uint32 `msgpack:"log_offset,omitempty"`
 	LogLimit  uint32 `msgpack:"log_limit,omitempty"`
+	// Source selects the host log source ("self", "journald", "windows"); empty
+	// means the agent's own files. Unit is a structured emitting-unit filter.
+	Source string `msgpack:"source,omitempty"`
+	Unit   string `msgpack:"unit,omitempty"`
 
 	// DeviceLogsResponse
 	LogEntries []LogEntry `msgpack:"log_entries,omitempty"`
