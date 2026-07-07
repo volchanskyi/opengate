@@ -314,6 +314,8 @@ fn golden_control_frame_hardware_report_error() {
 
 #[test]
 fn golden_control_frame_request_device_logs() {
+    // The on-demand log query carries a host-source selector and a structured
+    // emitting-unit filter, both additive and default-empty.
     let msg = ControlMessage::RequestDeviceLogs {
         log_level: "WARN".to_string(),
         time_from: "2026-04-01T00:00:00Z".to_string(),
@@ -321,10 +323,66 @@ fn golden_control_frame_request_device_logs() {
         search: "connection".to_string(),
         log_offset: 0,
         log_limit: 100,
+        source: "journald".to_string(),
+        unit: "nginx.service".to_string(),
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
     golden_check("control_request_device_logs.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_agent_metric_window_log_rates() {
+    // Endpoint log-rate signals ride the existing AgentMetricWindow telemetry
+    // path — no dedicated variant. Each dim is named `log.rate.<source>.<field>`,
+    // carrying only level counts, top-unit ranks, and volume (never a unit name
+    // or message text) so central cardinality stays bounded. This fixture pins
+    // that naming contract for the server.
+    let msg = ControlMessage::AgentMetricWindow {
+        ts: 1700000260,
+        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        dims: vec![
+            MetricDim {
+                name: "log.rate.journald.error".to_string(),
+                avg: 2.0,
+            },
+            MetricDim {
+                name: "log.rate.journald.warn".to_string(),
+                avg: 1.0,
+            },
+            MetricDim {
+                name: "log.rate.journald.info".to_string(),
+                avg: 10.0,
+            },
+            MetricDim {
+                name: "log.rate.journald.debug".to_string(),
+                avg: 0.0,
+            },
+            MetricDim {
+                name: "log.rate.journald.trace".to_string(),
+                avg: 0.0,
+            },
+            MetricDim {
+                name: "log.rate.journald.unit_rank1".to_string(),
+                avg: 8.0,
+            },
+            MetricDim {
+                name: "log.rate.journald.unit_rank2".to_string(),
+                avg: 3.0,
+            },
+            MetricDim {
+                name: "log.rate.journald.unit_rank3".to_string(),
+                avg: 2.0,
+            },
+            MetricDim {
+                name: "log.rate.journald.volume".to_string(),
+                avg: 13.0,
+            },
+        ],
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_agent_metric_window_log_rates.bin", &encoded);
 }
 
 #[test]

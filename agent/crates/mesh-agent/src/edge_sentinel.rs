@@ -1,10 +1,11 @@
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::mpsc::SyncSender;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tracing::{debug, warn};
 
-use crate::host_logs::{collect_host_logs, log_rate_vector, LogSource};
-use mesh_agent_core::ml::log_rate::LOG_RATE_DIMS;
+use crate::host_logs::{build_log_rate_window, collect_host_logs, LogSource};
+use mesh_protocol::ControlMessage;
 
 /// Interval between host log-rate windows. Long enough that the bounded reads
 /// never compete with control or session traffic on constrained fleet hosts.
@@ -19,28 +20,40 @@ const LOG_SOURCES: [LogSource; 3] = [
 ];
 
 /// Spawn the bounded, default-off host log-rate reader task. Each window it
-/// reads a capped slice of every host source, folds it into the WS-2 log-rate
-/// feature vector (level counts + top-unit ranks + volume — never message
-/// text), and yields for [`LOG_READER_INTERVAL`] between windows.
-pub(crate) fn spawn_log_readers(log_dir: PathBuf) -> tokio::task::JoinHandle<()> {
+/// reads a capped slice of every host source, folds it into the log-rate
+/// feature vector (level counts + top-unit ranks + volume — never message text),
+/// and forwards it to the control loop as a metric window over `sink`. A window
+/// is dropped when the channel is full so a log burst can never backpressure the
+/// control stream. The task yields for [`LOG_READER_INTERVAL`] between windows.
+pub(crate) fn spawn_log_readers(
+    log_dir: PathBuf,
+    sink: SyncSender<ControlMessage>,
+) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || loop {
         std::thread::sleep(LOG_READER_INTERVAL);
         for source in LOG_SOURCES {
             let entries = collect_host_logs(source, &log_dir);
-            if entries.is_empty() {
+            let Some(window) = build_log_rate_window(source, &entries, unix_now()) else {
                 continue;
-            }
-            let rates = log_rate_vector(&entries);
+            };
             debug!(
                 ?source,
                 entries = entries.len(),
-                error = rates[0],
-                warn = rates[1],
-                volume = rates[LOG_RATE_DIMS - 1],
                 "edge-sentinel log-rate window"
             );
+            if sink.try_send(window).is_err() {
+                debug!(?source, "log-rate window dropped: telemetry channel full");
+            }
         }
     })
+}
+
+/// Current Unix time in whole seconds, clamped to 0 before the epoch.
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 pub(crate) fn spawn_sampler() -> tokio::task::JoinHandle<()> {

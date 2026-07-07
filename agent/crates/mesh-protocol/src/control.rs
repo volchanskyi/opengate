@@ -248,6 +248,14 @@ pub enum ControlMessage {
         log_offset: u32,
         #[serde(default)]
         log_limit: u32,
+        /// Host log source to query ("self", "journald", "windows"). Empty
+        /// selects the agent's own files, so older servers stay compatible.
+        #[serde(default)]
+        source: String,
+        /// Structured filter on the emitting unit (systemd unit or Windows
+        /// provider). Empty matches every unit.
+        #[serde(default)]
+        unit: String,
     },
 
     /// Agent responds with log entries.

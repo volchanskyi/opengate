@@ -8,7 +8,7 @@
 
 use crate::logs::{LogCollector, LogFilter};
 use mesh_agent_core::ml::log_rate::{LogRateExtractor, LOG_RATE_DIMS};
-use mesh_protocol::LogEntry;
+use mesh_protocol::{ControlMessage, LogEntry, MetricDim};
 use std::io::{self, BufRead};
 use std::path::Path;
 
@@ -168,6 +168,64 @@ pub fn log_rate_vector(entries: &[LogEntry]) -> [f32; LOG_RATE_DIMS] {
         extractor.observe_label(&entry.level, &entry.target);
     }
     extractor.finish()
+}
+
+/// Stable, bounded label for a host log source, embedded in metric dim names so
+/// central series never grow with host shape.
+fn source_label(source: LogSource) -> &'static str {
+    match source {
+        LogSource::AgentSelf => "self",
+        LogSource::Journald => "journald",
+        LogSource::WindowsEventLog => "windows",
+    }
+}
+
+/// Field labels for the nine log-rate dims, in feature-vector slot order: five
+/// severity levels, three top-emitting-unit ranks, then total volume.
+const LOG_RATE_FIELD_LABELS: [&str; LOG_RATE_DIMS] = [
+    "error",
+    "warn",
+    "info",
+    "debug",
+    "trace",
+    "unit_rank1",
+    "unit_rank2",
+    "unit_rank3",
+    "volume",
+];
+
+/// Names a log-rate feature vector as metric dims `log.rate.<source>.<field>`.
+/// The names carry only level counts, top-unit ranks, and volume — never a unit
+/// name or message text — so central cardinality stays bounded.
+pub fn log_rate_dims(source: LogSource, vector: &[f32; LOG_RATE_DIMS]) -> Vec<MetricDim> {
+    let label = source_label(source);
+    LOG_RATE_FIELD_LABELS
+        .iter()
+        .zip(vector.iter())
+        .map(|(field, &value)| MetricDim {
+            name: format!("log.rate.{label}.{field}"),
+            avg: f64::from(value),
+        })
+        .collect()
+}
+
+/// Builds the log-rate telemetry window for one source, or `None` when the
+/// window has no records to report. The window rides the shared metric-window
+/// message; the server assigns the authoritative org, so `org_id` is left empty.
+pub fn build_log_rate_window(
+    source: LogSource,
+    entries: &[LogEntry],
+    ts: i64,
+) -> Option<ControlMessage> {
+    if entries.is_empty() {
+        return None;
+    }
+    let vector = log_rate_vector(entries);
+    Some(ControlMessage::AgentMetricWindow {
+        ts,
+        org_id: String::new(),
+        dims: log_rate_dims(source, &vector),
+    })
 }
 
 /// Reads the most recent host log records for `source`, normalized and bounded
@@ -351,6 +409,83 @@ mod tests {
         // An empty/missing directory yields no entries rather than erroring.
         let empty = TempDir::new().unwrap();
         assert!(collect_host_logs(LogSource::AgentSelf, empty.path()).is_empty());
+    }
+
+    /// The nine log-rate values map to metric dims named
+    /// `log.rate.<source>.<field>`, in feature-vector slot order, carrying only
+    /// counts — never a unit name or message text.
+    #[test]
+    fn log_rate_dims_name_by_source_and_field() {
+        let mut vector = [0.0f32; LOG_RATE_DIMS];
+        for (slot, value) in vector.iter_mut().enumerate() {
+            *value = slot as f32; // 0,1,2,…,8 → one distinct value per slot
+        }
+        let dims = log_rate_dims(LogSource::Journald, &vector);
+        assert_eq!(dims.len(), LOG_RATE_DIMS);
+        assert_eq!(dims[0].name, "log.rate.journald.error");
+        assert_eq!(dims[0].avg, 0.0);
+        assert_eq!(dims[4].name, "log.rate.journald.trace");
+        assert_eq!(dims[4].avg, 4.0);
+        assert_eq!(dims[5].name, "log.rate.journald.unit_rank1");
+        assert_eq!(dims[5].avg, 5.0);
+        assert_eq!(dims[LOG_RATE_DIMS - 1].name, "log.rate.journald.volume");
+        assert_eq!(dims[LOG_RATE_DIMS - 1].avg, 8.0);
+    }
+
+    /// Each source maps to a stable, bounded label so the metric name never
+    /// grows with host shape.
+    #[test]
+    fn log_rate_dims_source_labels_are_bounded() {
+        let vector = [0.0f32; LOG_RATE_DIMS];
+        for (source, label) in [
+            (LogSource::AgentSelf, "self"),
+            (LogSource::Journald, "journald"),
+            (LogSource::WindowsEventLog, "windows"),
+        ] {
+            let dims = log_rate_dims(source, &vector);
+            assert_eq!(dims[0].name, format!("log.rate.{label}.error"));
+        }
+    }
+
+    /// A non-empty window builds an `AgentMetricWindow` carrying the source's
+    /// log-rate dims at the given timestamp; the server assigns the authoritative
+    /// org, so the agent leaves `org_id` empty.
+    #[test]
+    fn build_log_rate_window_wraps_dims_with_empty_org() {
+        let entries = vec![
+            LogEntry {
+                timestamp: "t".into(),
+                level: "ERROR".into(),
+                target: "busy.service".into(),
+                message: "secret".into(),
+            },
+            LogEntry {
+                timestamp: "t".into(),
+                level: "INFO".into(),
+                target: "busy.service".into(),
+                message: "secret".into(),
+            },
+        ];
+        let win = build_log_rate_window(LogSource::Journald, &entries, 1_700_000_000)
+            .expect("non-empty window emits a metric window");
+        match win {
+            mesh_protocol::ControlMessage::AgentMetricWindow { ts, org_id, dims } => {
+                assert_eq!(ts, 1_700_000_000);
+                assert!(org_id.is_empty(), "agent must not assert an org");
+                assert_eq!(dims.len(), LOG_RATE_DIMS);
+                assert_eq!(dims[0].name, "log.rate.journald.error");
+                assert_eq!(dims[0].avg, 1.0, "one ERROR entry");
+                assert_eq!(dims[2].avg, 1.0, "one INFO entry");
+                assert_eq!(dims[LOG_RATE_DIMS - 1].avg, 2.0, "two total");
+            }
+            other => panic!("expected AgentMetricWindow, got {other:?}"),
+        }
+    }
+
+    /// An empty window carries nothing to report, so no frame is produced.
+    #[test]
+    fn build_log_rate_window_is_none_when_empty() {
+        assert!(build_log_rate_window(LogSource::Journald, &[], 1).is_none());
     }
 
     /// The log-rate vector counts levels and ranks units without carrying any

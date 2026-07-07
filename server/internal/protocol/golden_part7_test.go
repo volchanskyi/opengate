@@ -86,6 +86,35 @@ func TestGoldenControlAgentMetricWindow(t *testing.T) {
 	assert.InEpsilon(t, 2048.0, msg.Dims[1].Avg, 0.0001)
 }
 
+func TestGoldenControlAgentMetricWindowLogRates(t *testing.T) {
+	// Log-rate signals ride the AgentMetricWindow telemetry path. Each dim is
+	// named log.rate.<source>.<field>, carrying only counts/ranks — never a unit
+	// name or message text — so the server can route them without unbounded series.
+	msg := decodeControlFrame(t, "control_agent_metric_window_log_rates.bin")
+	assert.Equal(t, MsgAgentMetricWindow, msg.Type)
+	assert.Equal(t, int64(1700000260), msg.TS)
+	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.OrgID)
+	require.Len(t, msg.Dims, 9)
+	want := []struct {
+		name string
+		avg  float64
+	}{
+		{"log.rate.journald.error", 2.0},
+		{"log.rate.journald.warn", 1.0},
+		{"log.rate.journald.info", 10.0},
+		{"log.rate.journald.debug", 0.0},
+		{"log.rate.journald.trace", 0.0},
+		{"log.rate.journald.unit_rank1", 8.0},
+		{"log.rate.journald.unit_rank2", 3.0},
+		{"log.rate.journald.unit_rank3", 2.0},
+		{"log.rate.journald.volume", 13.0},
+	}
+	for i, w := range want {
+		assert.Equal(t, w.name, msg.Dims[i].Name, "dim %d name", i)
+		assert.Equal(t, w.avg, msg.Dims[i].Avg, "dim %d avg", i)
+	}
+}
+
 func TestGoldenControlProcessReport(t *testing.T) {
 	msg := decodeControlFrame(t, "control_process_report.bin")
 	assert.Equal(t, MsgProcessReport, msg.Type)

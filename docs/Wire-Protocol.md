@@ -111,7 +111,7 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `UpdateCheckResponse` | Server → Agent | `available`, `version`, `url`, `sha256`, `signature` |
 | `RequestChatToken` | Agent → Server | `device_id` |
 | `ChatTokenResponse` | Server → Agent | `url`, `token`, `expires_at` |
-| `RequestDeviceLogs` | Server → Agent | `log_level`, `time_from`, `time_to`, `search`, `log_offset`, `log_limit` |
+| `RequestDeviceLogs` | Server → Agent | `log_level`, `time_from`, `time_to`, `search`, `log_offset`, `log_limit`, `source`, `unit` |
 | `DeviceLogsResponse` | Agent → Server | `log_entries` (Vec\<LogEntry\>), `total_count`, `has_more` |
 | `DeviceLogsError` | Agent → Server | `error` |
 | `RequestHealthWindow` | Server → Agent | `since_ts`, `limit` |
@@ -126,6 +126,17 @@ path is saturated. The source-of-truth payload definitions are the Rust
 [`ControlMessage`](../agent/crates/mesh-protocol/src/control.rs) enum and Go
 [`ControlMessage`](../server/internal/protocol/control.go) flat struct; the
 store decision is [ADR-044](./adr/ADR-044-edge-sentinel-server-telemetry-ingest.md).
+
+Endpoint log-rate signals reuse `AgentMetricWindow`: each `dims` entry is named
+`log.rate.<source>.<field>`, where `<source>` is `self`, `journald`, or `windows`
+and `<field>` is a severity level (`error`/`warn`/`info`/`debug`/`trace`), a
+top-emitting-unit rank (`unit_rank1`–`unit_rank3`), or `volume`. The dims carry
+only counts and ranks — never a unit name or message text — so central series stay
+bounded. The agent produces these windows only when host log readers are enabled
+(default-off) and forwards them over a bounded channel that drops under pressure,
+so log bursts never backpressure the control stream. On the on-demand query,
+`RequestDeviceLogs.source` selects a host log source and `unit` narrows to one
+emitting unit; an empty `source` reads the agent's own files.
 
 ### Capabilities
 

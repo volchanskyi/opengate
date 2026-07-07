@@ -9,21 +9,21 @@ log query to host sources — additive, capability-gated, golden-tested.
 ## Context
 
 Protocol is MessagePack control frames, golden-gated both languages. `RequestDeviceLogs` already
-exists ([control.rs:166](../../agent/crates/mesh-protocol/src/control.rs#L166),
-[control.go:42](../../server/internal/protocol/control.go#L42)); this WS extends its filter and
+exists ([control.rs:166](../../../agent/crates/mesh-protocol/src/control.rs#L166),
+[control.go:42](../../../server/internal/protocol/control.go#L42)); this WS extends its filter and
 adds log-rate dims. Rate dims **reuse WS-3 `AgentMetricWindow`** (no new variant if the dim schema
 fits); only the on-demand request grows.
 
 ## File inventory
 
-- **Modify:** [`control.rs`](../../agent/crates/mesh-protocol/src/control.rs) — extend
+- **Modify:** [`control.rs`](../../../agent/crates/mesh-protocol/src/control.rs) — extend
   `RequestDeviceLogs` filter (source selector + structured fields); confirm rate dims fit
   `AgentMetricWindow`.
-- **Modify:** Go [`control.go`](../../server/internal/protocol/control.go) +
-  [`types.go`](../../server/internal/protocol/types.go) — mirror.
-- **Modify:** goldens — [`golden_test.rs`](../../agent/crates/mesh-protocol/tests/golden_test.rs) +
-  [`golden_test.go`](../../server/internal/protocol/golden_test.go) (+ `testdata`).
-- **Modify:** [`main.rs`](../../agent/crates/mesh-agent/src/main.rs) — emit rate dims from the
+- **Modify:** Go [`control.go`](../../../server/internal/protocol/control.go) +
+  [`types.go`](../../../server/internal/protocol/types.go) — mirror.
+- **Modify:** goldens — [`golden_test.rs`](../../../agent/crates/mesh-protocol/tests/golden_test.rs) +
+  [`golden_test.go`](../../../server/internal/protocol/golden_test.go) (+ `testdata`).
+- **Modify:** [`main.rs`](../../../agent/crates/mesh-agent/src/main.rs) — emit rate dims from the
   heartbeat loop (default-off until WS-11 handler exists).
 
 ## Steps (TDD-first)
