@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -44,6 +45,13 @@ func TestPostgresProcessRepositoryTenantDeny(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "tenant-a", got[0].Basename)
 
+	// A non-positive limit falls back to the default page size, so the single
+	// seeded row is still returned (a stricter `< 0` guard would leave limit at
+	// 0 and select nothing).
+	got, err = repo.ListLatest(ctxA, deviceA.ID, 0)
+	require.NoError(t, err)
+	require.Len(t, got, 1, "limit=0 must fall back to the default page size")
+
 	got, err = repo.ListLatest(ctxA, deviceB.ID, 10)
 	require.NoError(t, err)
 	assert.Empty(t, got, "tenant A must not read tenant B process rows")
@@ -64,4 +72,14 @@ func TestUint32FromDBRejectsOutOfRange(t *testing.T) {
 	got, err := uint32FromDB("pid", 42)
 	require.NoError(t, err)
 	assert.Equal(t, uint32(42), got)
+
+	// Exact range boundaries must be accepted, pinning the `< 0` and
+	// `> MaxUint32` comparisons against off-by-one mutations.
+	got, err = uint32FromDB("rank", 0)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0), got)
+
+	got, err = uint32FromDB("pid", math.MaxUint32)
+	require.NoError(t, err)
+	assert.Equal(t, uint32(math.MaxUint32), got)
 }
