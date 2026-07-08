@@ -38,6 +38,28 @@ class ResizeObserverStub implements ResizeObserver {
 
 globalThis.ResizeObserver = ResizeObserverStub
 
+// uPlot reads window.matchMedia at import time to pick the device pixel ratio,
+// and components scroll a focused region into view — jsdom implements neither.
+// Shim both so chart-mounting and scroll-on-focus code runs under test.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  configurable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener(): void { /* deprecated no-op */ },
+    removeListener(): void { /* deprecated no-op */ },
+    addEventListener(): void { /* no-op: jsdom has no media queries */ },
+    removeEventListener(): void { /* no-op */ },
+    dispatchEvent: (): boolean => false,
+  }),
+})
+
+Element.prototype.scrollIntoView = function scrollIntoView(): void {
+  // no-op: jsdom has no layout engine to scroll
+}
+
 // @tanstack/virtual-core sizes its scroll viewport from offsetWidth/offsetHeight
 // (jsdom returns 0 for both), so stub them alongside getBoundingClientRect.
 Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {

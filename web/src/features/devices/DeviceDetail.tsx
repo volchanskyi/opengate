@@ -7,6 +7,7 @@ import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { StatusBadge } from './StatusBadge';
 import { DeviceLogs } from './DeviceLogs';
+import { DeviceMetrics } from './DeviceMetrics';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
@@ -130,6 +131,9 @@ export function DeviceDetail() {
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [showAmtInstructions, setShowAmtInstructions] = useState(false);
+  // Correlation jump target: the metrics panel hands up a unix-second window,
+  // which the logs explorer consumes (as ISO) to pre-filter and fetch.
+  const [logWindow, setLogWindow] = useState<{ from: string; to: string } | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -423,7 +427,22 @@ export function DeviceDetail() {
 
       {/* Agent Logs Card (separate tile, right side) */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
-        <DeviceLogs deviceId={device.id} />
+        <DeviceLogs deviceId={device.id} focusWindow={logWindow} />
+      </div>
+
+      {/* Telemetry (metrics timelines + anomaly correlation), full width */}
+      <div className="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <h3 className="text-sm font-semibold text-gray-300 mb-3">Telemetry</h3>
+        <DeviceMetrics
+          deviceId={device.id}
+          anomalyRate={device.anomaly_rate}
+          onViewLogs={(fromSec, toSec) => {
+            setLogWindow({
+              from: new Date(fromSec * 1000).toISOString(),
+              to: new Date(toSec * 1000).toISOString(),
+            });
+          }}
+        />
       </div>
     </div>
   );

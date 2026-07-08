@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import type { components } from '../../types/api';
 import { StatusBadge } from './StatusBadge';
+import { HealthBadge } from './HealthBadge';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 type Device = components['schemas']['Device'];
@@ -32,6 +33,9 @@ export function DeviceCard({ device }: Readonly<{ device: Device }>) {
       <div className="text-sm text-gray-400 space-y-1">
         <p>OS: {device.os_display || device.os}</p>
         <p>Last seen: {timeAgo(device.last_seen)}</p>
+        {device.anomaly_rate != null && (
+          <HealthBadge anomalyRate={device.anomaly_rate} />
+        )}
       </div>
     </button>
   );

@@ -166,8 +166,52 @@ describe('DeviceLogs', () => {
       ] },
     });
     render(<DeviceLogs deviceId="d1" />);
-    const td = screen.getByText(/UNKNOWN/);
-    expect(td.className).toContain('text-gray-400');
+    // The level also appears as a facet chip; target the table cell specifically.
+    const td = screen.getAllByText(/UNKNOWN/).find((el) => el.tagName === 'TD');
+    expect(td?.className).toContain('text-gray-400');
+  });
+
+  it('a time-range chip fetches a bounded window', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    render(<DeviceLogs deviceId="d1" />);
+    await user.click(screen.getByRole('button', { name: '1h' }));
+    const [, args] = fetchLogs.mock.calls[0]!;
+    expect(typeof args.from).toBe('string');
+    expect(new Date(args.to).getTime() - new Date(args.from).getTime()).toBe(3600 * 1000);
+  });
+
+  it('clears an active window filter', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    render(<DeviceLogs deviceId="d1" />);
+    await user.click(screen.getByRole('button', { name: '6h' }));
+    await user.click(screen.getByRole('button', { name: /✕/ }));
+    const lastArgs = fetchLogs.mock.calls.at(-1)![1];
+    expect(lastArgs.from).toBeUndefined();
+    expect(lastArgs.to).toBeUndefined();
+  });
+
+  it('clicking a level facet chip quick-filters that level', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs, logs: sampleLogs });
+    render(<DeviceLogs deviceId="d1" />);
+    await user.click(screen.getByRole('button', { name: /ERROR 1/ }));
+    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({ level: 'ERROR', offset: 0 }));
+  });
+
+  it('correlation jump: a focusWindow pre-filters and fetches that window', () => {
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    render(<DeviceLogs deviceId="d1" focusWindow={{ from: '2026-07-08T00:00:00Z', to: '2026-07-08T01:00:00Z' }} />);
+    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({
+      from: '2026-07-08T00:00:00Z',
+      to: '2026-07-08T01:00:00Z',
+      offset: 0,
+    }));
   });
 
   it('Showing total clamps to logs.total (Math.min branch)', () => {

@@ -1,5 +1,5 @@
 [
-  { "name": "JS bundle",  "path": "dist/assets/*.js",  "limit": "250 KB", "gzip": true },
-  { "name": "CSS bundle", "path": "dist/assets/*.css", "limit": "10 KB",  "gzip": true },
-  { "name": "Total",      "path": "dist/assets/*",     "limit": "260 KB", "gzip": true }
+  { "name": "App JS (initial, excl. charts)", "path": ["dist/assets/*.js", "!dist/assets/charts-*.js"], "limit": "250 KB", "gzip": true },
+  { "name": "Charts chunk (lazy uPlot)",       "path": "dist/assets/charts-*.js",                       "limit": "30 KB",  "gzip": true },
+  { "name": "CSS bundle",                       "path": "dist/assets/*.css",                             "limit": "12 KB",  "gzip": true }
 ]

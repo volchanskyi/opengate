@@ -1,0 +1,174 @@
+import { render, screen, fireEvent, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { useDeviceStore } from './state/device-store';
+import { DeviceMetrics } from './DeviceMetrics';
+
+// Stub the imperative chart so these tests never touch uPlot/canvas; expose the
+// drag-select callback via a button so the correlation drill-down is testable.
+vi.mock('./charts/TimeSeriesChart', () => ({
+  TimeSeriesChart: ({ ariaLabel, onSelectWindow }: { ariaLabel?: string; onSelectWindow?: (f: number, t: number) => void }) => (
+    <div data-testid="chart" aria-label={ariaLabel}>
+      <button type="button" onClick={() => onSelectWindow?.(1_700_000_000, 1_700_003_600)}>select-{ariaLabel}</button>
+    </div>
+  ),
+}));
+
+const sampleMetrics = {
+  t: [1_700_000_000, 1_700_000_060, 1_700_000_120],
+  series: [
+    { name: 'cpu.util', avg: [10, 20, 30], min: [5, 15, 25], max: [15, 25, 35], min_max_source: 'avg_of_10s' as const },
+    { name: 'mem.used', avg: [40, 50, 60], min_max_source: 'avg_of_10s' as const },
+  ],
+  downsampled: true,
+  bucket_s: 60,
+};
+
+const sampleCorrelation = {
+  ranked: [
+    { metric: 'cpu.util', score: 0.91, ks_statistic: 0.8, anomaly_rate: 0.5, shift_magnitude: 0.4, baseline_samples: 100, focus_samples: 50 },
+  ],
+  series_considered: 12,
+  series_truncated: false,
+};
+
+function resetStore(overrides: Record<string, unknown> = {}) {
+  useDeviceStore.setState({
+    metrics: null,
+    metricsLoading: false,
+    correlation: null,
+    correlationLoading: false,
+    fetchMetrics: vi.fn().mockResolvedValue(undefined),
+    correlate: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  });
+}
+
+describe('DeviceMetrics', () => {
+  beforeEach(() => { resetStore(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('fetches the metrics window on mount with an avg_of_10s band', () => {
+    const fetchMetrics = vi.fn().mockResolvedValue(undefined);
+    resetStore({ fetchMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(fetchMetrics).toHaveBeenCalledWith('d1', expect.objectContaining({ band: 'avg_of_10s' }));
+    const [, params] = fetchMetrics.mock.calls[0]!;
+    expect(typeof params.from).toBe('string');
+    expect(typeof params.to).toBe('string');
+  });
+
+  it('renders one timeline chart per metric family', () => {
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    const charts = screen.getAllByTestId('chart');
+    expect(charts).toHaveLength(2); // cpu + mem
+    expect(screen.getByLabelText('cpu metrics')).toBeInTheDocument();
+    expect(screen.getByLabelText('mem metrics')).toBeInTheDocument();
+  });
+
+  it('labels the band provenance honestly (avg_of_10s is not host extrema)', () => {
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(screen.getAllByText(/10 s averages/i).length).toBeGreaterThan(0);
+  });
+
+  it('shows the current anomaly rate in the anomaly panel', () => {
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(screen.getByText('50%')).toBeInTheDocument();
+  });
+
+  it('shows an empty-state message when the window has no telemetry', () => {
+    resetStore({ metrics: { t: [], series: [], downsampled: false, bucket_s: 60 } });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={null} />);
+    expect(screen.getByText(/no telemetry/i)).toBeInTheDocument();
+  });
+
+  it('re-fetches with a wider window when a preset is selected', async () => {
+    const fetchMetrics = vi.fn().mockResolvedValue(undefined);
+    resetStore({ fetchMetrics, metrics: sampleMetrics });
+    const user = userEvent.setup();
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    fetchMetrics.mockClear();
+    await user.click(screen.getByRole('button', { name: '24h' }));
+    expect(fetchMetrics).toHaveBeenCalledTimes(1);
+    const [, params] = fetchMetrics.mock.calls[0]!;
+    const span = new Date(params.to).getTime() - new Date(params.from).getTime();
+    expect(span).toBeGreaterThan(23 * 3600 * 1000);
+  });
+
+  it('drag-selecting a window fires a debounced correlation for that window', () => {
+    vi.useFakeTimers();
+    const correlate = vi.fn().mockResolvedValue(undefined);
+    resetStore({ correlate, metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+
+    fireEvent.click(screen.getByText('select-cpu metrics'));
+    expect(correlate).not.toHaveBeenCalled(); // debounced
+    act(() => { vi.advanceTimersByTime(500); });
+
+    expect(correlate).toHaveBeenCalledWith('d1', expect.objectContaining({
+      focusStart: new Date(1_700_000_000 * 1000).toISOString(),
+      focusEnd: new Date(1_700_003_600 * 1000).toISOString(),
+    }));
+  });
+
+  it('renders the ranked correlation dimensions once results arrive', () => {
+    resetStore({ metrics: sampleMetrics, correlation: sampleCorrelation });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(screen.getByText(/top.*dimensions/i)).toBeInTheDocument();
+    expect(screen.getByText('cpu.util')).toBeInTheDocument();
+  });
+
+  it('excludes the log family (it has a dedicated sparkline beside the logs)', () => {
+    resetStore({
+      metrics: { ...sampleMetrics, series: [...sampleMetrics.series, { name: 'log.rate.self.error', avg: [1, 2, 3], min_max_source: 'none' as const }] },
+    });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(screen.getByLabelText('cpu metrics')).toBeInTheDocument();
+    expect(screen.queryByLabelText('log metrics')).toBeNull();
+  });
+
+  it('jumps to logs for the current window via onViewLogs', () => {
+    const onViewLogs = vi.fn();
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} onViewLogs={onViewLogs} />);
+    fireEvent.click(screen.getByText('View logs for this window'));
+    const [from, to] = onViewLogs.mock.calls[0]!;
+    expect(to - from).toBe(6 * 3600); // default 6h window
+  });
+
+  it('jumps to logs for a drag-selected window when one exists', () => {
+    const onViewLogs = vi.fn();
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} onViewLogs={onViewLogs} />);
+    fireEvent.click(screen.getByText('select-cpu metrics'));
+    fireEvent.click(screen.getByText('View logs for this window'));
+    expect(onViewLogs).toHaveBeenCalledWith(1_700_000_000, 1_700_003_600);
+  });
+
+  it('hides the view-logs affordance when no handler is wired', () => {
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(screen.queryByText('View logs for this window')).toBeNull();
+  });
+
+  it('shows a loading state while the first metrics window is in flight', () => {
+    resetStore({ metrics: null, metricsLoading: true });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(screen.getByText(/loading metrics/i)).toBeInTheDocument();
+  });
+
+  it('shows a correlating state while a correlation is in flight', () => {
+    resetStore({ metrics: sampleMetrics, correlationLoading: true });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(screen.getByText(/correlating window/i)).toBeInTheDocument();
+  });
+
+  it('reports when no dimension broke pattern in the selected window', () => {
+    resetStore({ metrics: sampleMetrics, correlation: { ranked: [], series_considered: 4, series_truncated: false } });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(screen.getByText(/no dimension broke pattern/i)).toBeInTheDocument();
+  });
+});

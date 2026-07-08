@@ -9,6 +9,26 @@ type Device = components['schemas']['Device'];
 type Group = components['schemas']['Group'];
 type DeviceHardware = components['schemas']['DeviceHardware'];
 type DeviceLogsResponse = components['schemas']['DeviceLogsResponse'];
+type MetricRangeResponse = components['schemas']['MetricRangeResponse'];
+type CorrelateResponse = components['schemas']['CorrelateResponse'];
+
+/** Downsampled-window request for the device metrics timelines. */
+export interface MetricsParams {
+  from: string;
+  to: string;
+  dims?: string[];
+  maxPoints?: number;
+  band?: 'none' | 'avg_of_10s';
+}
+
+/** Focus/baseline window for the on-demand correlation drill-down. */
+export interface CorrelateParams {
+  focusStart: string;
+  focusEnd: string;
+  baselineStart?: string;
+  baselineEnd?: string;
+  topN?: number;
+}
 
 interface DeviceState {
   devices: Device[];
@@ -18,6 +38,10 @@ interface DeviceState {
   hardware: DeviceHardware | null;
   logs: DeviceLogsResponse | null;
   logsLoading: boolean;
+  metrics: MetricRangeResponse | null;
+  metricsLoading: boolean;
+  correlation: CorrelateResponse | null;
+  correlationLoading: boolean;
   isLoading: boolean;
   error: string | null;
   fetchGroups: () => Promise<void>;
@@ -32,6 +56,8 @@ interface DeviceState {
   restartAgent: (id: string) => Promise<boolean>;
   fetchHardware: (id: string) => Promise<void>;
   fetchLogs: (id: string, params?: { level?: string; from?: string; to?: string; search?: string; offset?: number; limit?: number }) => Promise<void>;
+  fetchMetrics: (id: string, params: MetricsParams) => Promise<void>;
+  correlate: (id: string, params: CorrelateParams) => Promise<void>;
   upgradeAgent: (deviceId: string, version: string, os: string, arch: string) => Promise<boolean>;
 }
 
@@ -57,6 +83,10 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   hardware: null,
   logs: null,
   logsLoading: false,
+  metrics: null,
+  metricsLoading: false,
+  correlation: null,
+  correlationLoading: false,
   isLoading: false,
   error: null,
 
@@ -76,7 +106,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   fetchDevice: async (id) => {
     // Reset per-device fields so stale data from a previously viewed device
     // does not leak into this one while we wait for the fetch to complete.
-    set({ selectedDevice: null, hardware: null, logs: null });
+    set({ selectedDevice: null, hardware: null, logs: null, metrics: null, correlation: null });
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/{id}', { params: { path: { id } } }),
     );
@@ -192,6 +222,44 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     };
     useToastStore.getState().addToast(messages[response.status] ?? 'Failed to fetch logs.', 'error');
     set({ logsLoading: false });
+  },
+
+  fetchMetrics: async (id, params) => {
+    set({ metricsLoading: true });
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/devices/{id}/metrics', {
+        params: {
+          path: { id },
+          query: {
+            from: params.from,
+            to: params.to,
+            ...(params.dims && params.dims.length > 0 ? { dims: params.dims } : {}),
+            ...(params.maxPoints != null ? { max_points: params.maxPoints } : {}),
+            ...(params.band ? { band: params.band } : {}),
+          },
+        },
+      }), false,
+    );
+    if (res.ok) set({ metrics: res.data, metricsLoading: false });
+    else set({ metricsLoading: false });
+  },
+
+  correlate: async (id, params) => {
+    set({ correlationLoading: true });
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/devices/{id}/correlate', {
+        params: { path: { id } },
+        body: {
+          focus_start: params.focusStart,
+          focus_end: params.focusEnd,
+          ...(params.baselineStart ? { baseline_start: params.baselineStart } : {}),
+          ...(params.baselineEnd ? { baseline_end: params.baselineEnd } : {}),
+          ...(params.topN != null ? { top_n: params.topN } : {}),
+        },
+      }), false,
+    );
+    if (res.ok) set({ correlation: res.data, correlationLoading: false });
+    else set({ correlationLoading: false });
   },
 
   upgradeAgent: async (deviceId, version, os, arch) => {

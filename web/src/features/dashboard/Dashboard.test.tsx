@@ -61,6 +61,22 @@ describe('Dashboard', () => {
     expect(screen.getByText('Online')).toBeInTheDocument();
   });
 
+  it('renders the fleet health overview', () => {
+    renderDashboard();
+    expect(screen.getByText('Fleet Health')).toBeInTheDocument();
+  });
+
+  it('rolls up device anomaly rates into the fleet health bands', () => {
+    useDeviceStore.setState({
+      devices: [
+        { id: 'd1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '1', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '', anomaly_rate: 0.9 },
+      ],
+    });
+    renderDashboard();
+    expect(screen.getByLabelText('Fleet health distribution')).toBeInTheDocument();
+    expect(screen.getByText('Anomalous').closest('div')).toHaveTextContent('1');
+  });
+
   it('polls devices every 15 seconds', () => {
     const fetchDevicesFn = vi.fn();
     useDeviceStore.setState({ fetchDevices: fetchDevicesFn });

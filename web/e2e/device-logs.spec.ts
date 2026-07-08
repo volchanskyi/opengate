@@ -77,6 +77,12 @@ test.describe("Device logs UI", () => {
       `**/api/v1/devices/${DEVICE_ID}/hardware`,
       (route: Route) => route.fulfill({ status: 404, body: "" }),
     );
+    // DeviceDetail mounts the telemetry panel, which fetches metrics on load;
+    // keep it deterministic (empty window -> "no telemetry") for the logs tests.
+    await authedPage.route(
+      `**/api/v1/devices/${DEVICE_ID}/metrics*`,
+      (route: Route) => ok(route, { t: [], series: [], downsampled: false, bucket_s: 60 }),
+    );
   });
 
   test("renders fetched logs and paginates via Load More", async ({
