@@ -107,7 +107,6 @@ func main() {
 	devicesRepo := device.NewInstrumentedDevices(device.NewPostgresDevices(store.DB()), appMetrics)
 	groupsRepo := device.NewInstrumentedGroups(device.NewPostgresGroups(store.DB()), appMetrics)
 	hardwareRepo := device.NewInstrumentedHardware(device.NewPostgresHardware(store.DB()), appMetrics)
-	deviceLogsRepo := device.NewInstrumentedLogs(device.NewPostgresLogs(store.DB()), appMetrics)
 	webPushRepo := notifications.NewInstrumentedWebPush(notifications.NewPostgresWebPush(store.DB()), appMetrics)
 	amtRepo := amt.NewInstrumented(amt.NewPostgresAMTDevices(store.DB()), appMetrics)
 	sessionsRepo := session.NewInstrumented(session.NewPostgresSessions(store.DB()), appMetrics)
@@ -182,7 +181,6 @@ func main() {
 		Cert:          certMgr,
 		Devices:       devicesRepo,
 		Hardware:      hardwareRepo,
-		DeviceLogs:    deviceLogsRepo,
 		DeviceUpdates: deviceUpdatesRepo,
 		Telemetry:     telemetryWriter,
 		Processes:     processesRepo,
@@ -218,7 +216,6 @@ func main() {
 		Devices:               devicesRepo,
 		Groups:                groupsRepo,
 		Hardware:              hardwareRepo,
-		DeviceLogs:            deviceLogsRepo,
 		WebPush:               webPushRepo,
 		NotificationsHandlers: notifHandlers,
 		AMTDevices:            amtRepo,

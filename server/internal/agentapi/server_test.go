@@ -29,7 +29,6 @@ func newTestAgentServer(t *testing.T) *AgentServer {
 		Cert:          cm,
 		Devices:       testutil.NewTestDevices(t, store),
 		Hardware:      testutil.NewTestHardware(t, store),
-		DeviceLogs:    testutil.NewTestLogs(t, store),
 		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
 		Relay:         relay.NewRelay(slog.Default()),
 		Notifier:      &notifications.NoopNotifier{},

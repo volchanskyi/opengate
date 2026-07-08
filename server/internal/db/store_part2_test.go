@@ -15,7 +15,6 @@ func truncatePostgresTestDB(ctx context.Context, s *PostgresStore) error {
 	if _, err := s.db.ExecContext(ctx, `
 		TRUNCATE TABLE
 			security_group_members,
-			device_logs,
 			device_hardware,
 			device_updates,
 			enrollment_tokens,

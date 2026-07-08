@@ -6,10 +6,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
-	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"testing"
 )
 
@@ -52,48 +50,22 @@ func TestAgentConn_SendRequestDeviceLogsRequiresCapability(t *testing.T) {
 	assert.Zero(t, buf.Len(), "old agents must not receive unsupported server-to-agent variants")
 }
 
-func TestAgentConn_HandleDeviceLogsResponse(t *testing.T) {
-	store := testutil.NewTestStore(t)
-	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-
-	user := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, user.ID)
-	d := testutil.SeedDevice(t, ctx, store, group.ID)
-
+// TestAgentConn_HandleDeviceLogsResponse_NoWaiterDrops proves the read loop
+// never blocks on an unsolicited raw-log response: with no broker pull in
+// flight the response is dropped, not persisted anywhere.
+func TestAgentConn_HandleDeviceLogsResponse_NoWaiterDrops(t *testing.T) {
+	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 	codec := &protocol.Codec{}
 
-	msg := &protocol.ControlMessage{
+	var frameBuf bytes.Buffer
+	writeControlMsg(t, codec, &frameBuf, &protocol.ControlMessage{
 		Type: protocol.MsgDeviceLogsResponse,
 		LogEntries: []protocol.LogEntry{
 			{Timestamp: "2026-01-01T00:00:01Z", Level: "INFO", Target: "agent", Message: "started"},
-			{Timestamp: "2026-01-01T00:00:02Z", Level: "ERROR", Target: "network", Message: "connection lost"},
 		},
-		TotalCount: 2,
-	}
-	payload, err := codec.EncodeControl(msg)
-	require.NoError(t, err)
+		TotalCount: 1,
+	})
+	ac.stream = &frameBuf
 
-	var frameBuf bytes.Buffer
-	err = codec.WriteFrame(&frameBuf, protocol.FrameControl, payload)
-	require.NoError(t, err)
-
-	ac := &AgentConn{
-		DeviceID:   d.ID,
-		GroupID:    group.ID,
-		stream:     &frameBuf,
-		codec:      codec,
-		devices:    testutil.NewTestDevices(t, store),
-		hardware:   testutil.NewTestHardware(t, store),
-		deviceLogs: testutil.NewTestLogs(t, store),
-		logger:     testLogger(),
-	}
-
-	err = ac.handleControl(ctx)
-	require.NoError(t, err)
-
-	// Verify logs were stored
-	entries, total, err := testutil.NewTestLogs(t, store).Query(ctx, d.ID, device.LogFilter{Limit: 100})
-	require.NoError(t, err)
-	assert.Equal(t, 2, total)
-	assert.Len(t, entries, 2)
+	require.NoError(t, ac.handleControl(context.Background()))
 }

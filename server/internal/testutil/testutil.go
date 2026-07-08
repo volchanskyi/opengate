@@ -195,12 +195,6 @@ func NewTestHardware(t testing.TB, s *db.PostgresStore) device.HardwareRepositor
 	return device.NewPostgresHardware(s.DB())
 }
 
-// NewTestLogs returns a Postgres-backed device.LogsRepository.
-func NewTestLogs(t testing.TB, s *db.PostgresStore) device.LogsRepository {
-	t.Helper()
-	return device.NewPostgresLogs(s.DB())
-}
-
 // NewTestWebPush returns a Postgres-backed notifications.WebPushRepository
 // sharing the connection pool of s.
 func NewTestWebPush(t testing.TB, s *db.PostgresStore) notifications.WebPushRepository {

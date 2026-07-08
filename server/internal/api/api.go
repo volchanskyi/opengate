@@ -77,7 +77,6 @@ type ServerConfig struct {
 	Devices               device.Repository
 	Groups                device.GroupRepository
 	Hardware              device.HardwareRepository
-	DeviceLogs            device.LogsRepository
 	WebPush               notifications.WebPushRepository
 	NotificationsHandlers *notifications.Handlers
 	AMTDevices            amt.Repository
@@ -116,7 +115,6 @@ type Server struct {
 	devices         device.Repository
 	groups          device.GroupRepository
 	hardware        device.HardwareRepository
-	deviceLogs      device.LogsRepository
 	webPush         notifications.WebPushRepository
 	notifHandlers   *notifications.Handlers
 	amtDevices      amt.Repository
@@ -217,7 +215,6 @@ func NewServer(cfg ServerConfig) *Server {
 		devices:         cfg.Devices,
 		groups:          cfg.Groups,
 		hardware:        cfg.Hardware,
-		deviceLogs:      cfg.DeviceLogs,
 		webPush:         cfg.WebPush,
 		notifHandlers:   resolveNotificationsHandlers(cfg),
 		amtDevices:      cfg.AMTDevices,

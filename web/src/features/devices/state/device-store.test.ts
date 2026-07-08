@@ -84,8 +84,7 @@ describe('device store', () => {
     await promise;
   });
 
-  it('fetchLogs adds refresh=true only when explicitly requested', async () => {
-    // No-refresh path: the query object must NOT contain `refresh`.
+  it('fetchLogs never sends a refresh param (the broker is always live)', async () => {
     mockGet.mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
     await useDeviceStore.getState().fetchLogs('d1', { level: 'INFO' });
     expect(mockGet).toHaveBeenLastCalledWith('/api/v1/devices/{id}/logs', {
@@ -323,66 +322,19 @@ describe('device store', () => {
     expect(useDeviceStore.getState().logsLoading).toBe(false);
   });
 
-  it('fetchLogs sets logsLoading on 202 and retries', async () => {
-    vi.useFakeTimers();
-    mockGet
-      .mockResolvedValueOnce({ data: undefined, response: { status: 202 } })
-      .mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
+  it.each([403, 404, 409, 504, 500])(
+    'fetchLogs clears loading and leaves logs null on %s',
+    async (status) => {
+      mockGet.mockResolvedValueOnce({ data: undefined, response: { status } });
 
-    const promise = useDeviceStore.getState().fetchLogs('d1');
-    await promise;
+      await useDeviceStore.getState().fetchLogs('d1');
 
-    // After 202 the store stays in loading state until the retry
-    expect(useDeviceStore.getState().logsLoading).toBe(true);
-
-    // Advance past the 3s retry timeout
-    vi.advanceTimersByTime(3500);
-    await vi.runAllTimersAsync();
-
-    expect(mockGet).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
-  });
-
-  it('fetchLogs retry error with Error shows toast and clears loading', async () => {
-    vi.useFakeTimers();
-    mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 202 } });
-    mockGet.mockRejectedValueOnce(new Error('network error'));
-
-    await useDeviceStore.getState().fetchLogs('d1');
-
-    expect(useDeviceStore.getState().logsLoading).toBe(true);
-
-    vi.advanceTimersByTime(3500);
-    await vi.runAllTimersAsync();
-
-    expect(useDeviceStore.getState().logsLoading).toBe(false);
-    expect(mockGet).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
-  });
-
-  it('fetchLogs retry error with non-Error shows toast via String()', async () => {
-    vi.useFakeTimers();
-    mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 202 } });
-    mockGet.mockRejectedValueOnce('string rejection');
-
-    await useDeviceStore.getState().fetchLogs('d1');
-
-    vi.advanceTimersByTime(3500);
-    await vi.runAllTimersAsync();
-
-    expect(useDeviceStore.getState().logsLoading).toBe(false);
-    expect(mockGet).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
-  });
-
-  it('fetchLogs clears loading on non-200/202', async () => {
-    mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 404 } });
-
-    await useDeviceStore.getState().fetchLogs('d1');
-
-    expect(useDeviceStore.getState().logsLoading).toBe(false);
-    expect(useDeviceStore.getState().logs).toBeNull();
-  });
+      // Synchronous broker: a single request, no retry.
+      expect(mockGet).toHaveBeenCalledTimes(1);
+      expect(useDeviceStore.getState().logsLoading).toBe(false);
+      expect(useDeviceStore.getState().logs).toBeNull();
+    },
+  );
 
   it('upgradeAgent calls POST and returns true on success', async () => {
     mockPost.mockResolvedValueOnce({ data: {}, error: undefined });
@@ -534,7 +486,6 @@ describe('device store', () => {
       search: 'timeout',
       offset: 100,
       limit: 50,
-      refresh: true,
     });
 
     expect(mockGet).toHaveBeenCalledWith('/api/v1/devices/{id}/logs', {
@@ -547,31 +498,9 @@ describe('device store', () => {
           search: 'timeout',
           offset: 100,
           limit: 50,
-          refresh: 'true',
         },
       },
     });
-  });
-
-  it('fetchLogs 202 retry omits refresh param', async () => {
-    vi.useFakeTimers();
-    mockGet
-      .mockResolvedValueOnce({ data: undefined, response: { status: 202 } })
-      .mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
-
-    await useDeviceStore.getState().fetchLogs('d1', { refresh: true, level: 'INFO' });
-
-    vi.advanceTimersByTime(3500);
-    await vi.runAllTimersAsync();
-
-    // Retry call should have level but NOT refresh
-    const retryCall = mockGet.mock.calls[1];
-    expect(retryCall![1]).toEqual(expect.objectContaining({
-      params: expect.objectContaining({
-        query: expect.not.objectContaining({ refresh: 'true' }),
-      }),
-    }));
-    vi.useRealTimers();
   });
 
   it('refreshDevice updates selectedDevice without clearing hardware or logs', async () => {

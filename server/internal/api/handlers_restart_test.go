@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
@@ -23,8 +24,8 @@ type deviceTestEnv struct {
 	ctx           context.Context
 	devices       device.Repository
 	hardware      device.HardwareRepository
-	deviceLogs    device.LogsRepository
 	device        *device.Device
+	user          *auth.User
 	srv           *Server
 	ownerToken    string
 	agentStream   *bytes.Buffer
@@ -48,7 +49,7 @@ func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 
 	lookup := &stubAgentGetter{}
 	if online {
-		ac := agentapi.NewAgentConn(agentapi.AgentConnConfig{DeviceID: device.ID, GroupID: group.ID, Stream: &agentStream, Devices: testutil.NewTestDevices(t, store), Hardware: testutil.NewTestHardware(t, store), DeviceLogs: testutil.NewTestLogs(t, store), DeviceUpdates: testutil.NewTestDeviceUpdates(t, store), Logger: logger})
+		ac := agentapi.NewAgentConn(agentapi.AgentConnConfig{DeviceID: device.ID, GroupID: group.ID, Stream: &agentStream, Devices: testutil.NewTestDevices(t, store), Hardware: testutil.NewTestHardware(t, store), DeviceUpdates: testutil.NewTestDeviceUpdates(t, store), Logger: logger})
 		ac.Capabilities = []protocol.AgentCapability{protocol.CapHardwareInventory, protocol.CapDeviceLogs}
 		lookup = &stubAgentGetter{
 			agents: map[protocol.DeviceID]*agentapi.AgentConn{device.ID: ac},
@@ -65,8 +66,8 @@ func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 		ctx:         ctx,
 		devices:     testutil.NewTestDevices(t, store),
 		hardware:    testutil.NewTestHardware(t, store),
-		deviceLogs:  testutil.NewTestLogs(t, store),
 		device:      device,
+		user:        user,
 		srv:         srv,
 		ownerToken:  token,
 		agentStream: &agentStream,

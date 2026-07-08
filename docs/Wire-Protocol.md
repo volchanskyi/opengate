@@ -165,7 +165,7 @@ The `DeviceLogsResponse` message carries an array of `LogEntry` structs:
 | `target` | string | Rust tracing target (module path) |
 | `message` | string | Log message body |
 
-The agent parses daily-rotated log files written by `tracing-subscriber` and returns matching entries. The server caches individual rows in the `device_logs` table with a 5-minute TTL to avoid repeated round-trips.
+The agent parses daily-rotated log files written by `tracing-subscriber` and returns matching entries. The server redacts known secrets from the bounded response and streams it straight back to the requesting administrator; nothing is persisted centrally (see [ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md)).
 
 ### Data Frame Types
 

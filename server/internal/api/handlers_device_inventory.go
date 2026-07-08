@@ -47,29 +47,62 @@ func (s *Server) requestHardwareFromAgent(ctx context.Context, id device.DeviceI
 	return GetDeviceHardware202Response{}, nil
 }
 
-// GetDeviceLogs implements StrictServerInterface.
+// logFetchTimeout bounds how long a raw-log pull may block waiting on the
+// agent. Raw lines are secret-dense, so exposure is time-bounded as well as
+// length-bounded.
+const logFetchTimeout = 15 * time.Second
+
+// GetDeviceLogs brokers an on-demand raw-log pull from the connected agent.
+// The response is transient — bounded, redacted, audited, and streamed straight
+// through with nothing persisted centrally. Reading raw logs is an elevated
+// action gated on admin.
 func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequestObject) (GetDeviceLogsResponseObject, error) {
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if resp, denied := denyIfNotAdmin(ctx, GetDeviceLogs403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
+	}
+
+	if _, err := s.devices.Get(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return GetDeviceLogs404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
 	}
 
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return GetDeviceLogs403JSONResponse{Error: msgForbidden}, nil
+	ac := s.agents.GetAgent(request.Id)
+	if ac == nil {
+		return GetDeviceLogs404JSONResponse{Error: "logs not available — device offline"}, nil
 	}
 
 	filter := logFilterFromParams(request.Params)
-	hasRecent, err := s.deviceLogs.HasRecent(ctx, request.Id, 5*time.Minute)
+	fetchCtx, cancel := context.WithTimeout(ctx, logFetchTimeout)
+	defer cancel()
+
+	entries, total, err := ac.RequestLogsSync(fetchCtx, filter)
 	if err != nil {
+		return logsBrokerErrorResponse(err)
+	}
+
+	entries = boundLogEntries(entries)
+	redactLogEntries(entries)
+	// Audit every raw pull: who, which device, and the requested window/filters.
+	s.auditLog(ctx, ContextUserID(ctx), "device.logs.read", request.Id.String(), logAuditDetails(filter))
+	return GetDeviceLogs200JSONResponse(deviceLogsToAPI(entries, total, filter)), nil
+}
+
+// logsBrokerErrorResponse maps broker failures to bounded HTTP responses without
+// leaking internals: unsupported agents and busy/timeout conditions are
+// client-visible, everything else is a 500.
+func logsBrokerErrorResponse(err error) (GetDeviceLogsResponseObject, error) {
+	switch {
+	case agentapi.IsCapabilityError(err):
+		return GetDeviceLogs404JSONResponse{Error: "logs not available"}, nil
+	case errors.Is(err, agentapi.ErrLogsBusy):
+		return GetDeviceLogs409JSONResponse{Error: "a log request is already in progress for this device"}, nil
+	case errors.Is(err, context.DeadlineExceeded):
+		return GetDeviceLogs504JSONResponse{Error: "device did not return logs in time"}, nil
+	default:
 		return nil, err
 	}
-	if hasRecent && !boolParam(request.Params.Refresh) {
-		return s.cachedLogsResponse(ctx, request.Id, filter, "logs not available")
-	}
-	return s.refreshLogsFromAgent(ctx, request.Id, filter)
 }
 
 func logFilterFromParams(params GetDeviceLogsParams) device.LogFilter {
@@ -79,35 +112,6 @@ func logFilterFromParams(params GetDeviceLogsParams) device.LogFilter {
 		To:     derefStr(params.To),
 		Search: derefStr(params.Search),
 		Offset: derefInt(params.Offset, 0),
-		Limit:  derefInt(params.Limit, 300),
+		Limit:  clampLogLimit(derefInt(params.Limit, defaultLogLimit)),
 	}
-}
-
-func boolParam(v *bool) bool {
-	return v != nil && *v
-}
-
-func (s *Server) cachedLogsResponse(ctx context.Context, id device.DeviceID, filter device.LogFilter, missing string) (GetDeviceLogsResponseObject, error) {
-	entries, total, err := s.deviceLogs.Query(ctx, id, filter)
-	if err != nil {
-		return nil, err
-	}
-	if total == 0 {
-		return GetDeviceLogs404JSONResponse{Error: missing}, nil
-	}
-	return GetDeviceLogs200JSONResponse(deviceLogsToAPI(entries, total, filter)), nil
-}
-
-func (s *Server) refreshLogsFromAgent(ctx context.Context, id device.DeviceID, filter device.LogFilter) (GetDeviceLogsResponseObject, error) {
-	ac := s.agents.GetAgent(id)
-	if ac == nil {
-		return s.cachedLogsResponse(ctx, id, filter, "logs not available — device offline")
-	}
-	if err := ac.SendRequestDeviceLogs(ctx, device.LogFilter{Limit: 1000}); err != nil {
-		if agentapi.IsCapabilityError(err) {
-			return GetDeviceLogs404JSONResponse{Error: "logs not available"}, nil
-		}
-		return nil, err
-	}
-	return GetDeviceLogs202Response{}, nil
 }

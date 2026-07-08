@@ -17,12 +17,11 @@ func seedOwner(t *testing.T, ctx context.Context, store *db.PostgresStore) uuid.
 	return u.ID
 }
 
-func newRepos(t *testing.T) (device.Repository, device.GroupRepository, device.HardwareRepository, device.LogsRepository, *db.PostgresStore) {
+func newRepos(t *testing.T) (device.Repository, device.GroupRepository, device.HardwareRepository, *db.PostgresStore) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
 	return testutil.NewTestDevices(t, store),
 		testutil.NewTestGroups(t, store),
 		testutil.NewTestHardware(t, store),
-		testutil.NewTestLogs(t, store),
 		store
 }

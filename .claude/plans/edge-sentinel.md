@@ -113,7 +113,7 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-7 | `archive/edge-sentinel-ws-7-cold-tier-duckdb.md` | VM retention/rollups + optional Parquet archival (DuckDB deferred) |
 | WS-9 | `archive/edge-sentinel-ws-9-log-readers.md` | endpoint log readers (journald/syslog, Windows Event Log, self-logs) + rate extractor (agent) |
 | WS-10 | `archive/edge-sentinel-ws-10-log-wire.md` | log-rate dims + extended on-demand query; capability-gated, golden-tested |
-| WS-11 | `edge-sentinel-ws-11-log-server.md` | rate dims → VM; on-demand raw broker + audit + elevated-permission gate |
+| WS-11 | `archive/edge-sentinel-ws-11-log-server.md` | rate dims → VM; on-demand raw broker + audit + elevated-permission gate |
 | WS-12 | `edge-sentinel-ws-12-log-web.md` | logs explorer + log-rate sparkline + metrics↔logs correlation jump |
 | WS-13 | `edge-sentinel-ws-13-log-privacy-ops.md` | raw-log redaction corpus + reader-sourcing ADR + Linux/Windows benchmark + soak |
 | WS-14a | `edge-sentinel-ws-14a-offline-tsdb-spike.md` | local-TSDB substrate bake-off (append-only / redb / fjall / tsink / no-persist) on a fixture corpus + gates |
@@ -248,11 +248,10 @@ raw logs into Loki is rejected (Netdata's own argument + the 200 GB cap / 2-OCPU
 - **WS-10 (wire):** rate dims reuse **WS-3 `AgentMetricWindow`**; extend `RequestDeviceLogs` for
   host sources; capability-gated; goldens.
 - **WS-11 (server):** rate dims → the **WS-4 VM client**; on-demand **raw broker** with **audit
-  events** + an **elevated permission**. **Precondition:** today's `handleDeviceLogsResponse` →
-  `device_logs` path *does* persist raw `message` text centrally (verified in code), so WS-11 must
-  first either **retire that cache** (truly transient broker) or **reclassify it** (RLS + TTL +
-  audit + elevated) — the "nothing raw centrally persisted" goal is an end state to reach, not a
-  current fact. See `edge-sentinel-ws-11-log-server.md`.
+  events** + an **elevated permission**. The central `device_logs` cache was **retired** (option a):
+  the broker is truly transient (per-connection single-flight waiter, nothing persisted), so
+  "nothing raw centrally persisted" is now structural. See
+  `archive/edge-sentinel-ws-11-log-server.md` and ADR-046.
 - **WS-12 (web):** logs explorer + log-rate sparkline (WS-6 adapter) + "logs for this anomaly
   window" jump (the metrics↔logs correlation win).
 - **WS-13 (privacy/ops):** raw-log redaction corpus; reader-sourcing ADR (no-GPL); Linux + Windows

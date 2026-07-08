@@ -64,7 +64,6 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 			codec:         codec,
 			devices:       testutil.NewTestDevices(t, store),
 			hardware:      testutil.NewTestHardware(t, store),
-			deviceLogs:    testutil.NewTestLogs(t, store),
 			deviceUpdates: deviceUpdates,
 			logger:        testLogger(),
 		}
@@ -99,7 +98,6 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 			codec:         codec,
 			devices:       testutil.NewTestDevices(t, store),
 			hardware:      testutil.NewTestHardware(t, store),
-			deviceLogs:    testutil.NewTestLogs(t, store),
 			deviceUpdates: deviceUpdates,
 			logger:        testLogger(),
 		}

@@ -12,4 +12,8 @@ var (
 	ErrCapabilityNotAdvertised = errors.New("agent capability not advertised")
 	// ErrConnectionClosed indicates the agent connection was closed.
 	ErrConnectionClosed = errors.New("agent connection closed")
+	// ErrLogsBusy indicates a raw-log pull is already in flight for the
+	// connection. The broker serves one on-demand request at a time because
+	// responses carry no correlation id.
+	ErrLogsBusy = errors.New("device logs request already in flight")
 )

@@ -61,14 +61,13 @@ func TestAgentConn_HandleHardwareReport(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID:   d.ID,
-		GroupID:    group.ID,
-		stream:     &frameBuf,
-		codec:      codec,
-		devices:    testutil.NewTestDevices(t, store),
-		hardware:   testutil.NewTestHardware(t, store),
-		deviceLogs: testutil.NewTestLogs(t, store),
-		logger:     testLogger(),
+		DeviceID: d.ID,
+		GroupID:  group.ID,
+		stream:   &frameBuf,
+		codec:    codec,
+		devices:  testutil.NewTestDevices(t, store),
+		hardware: testutil.NewTestHardware(t, store),
+		logger:   testLogger(),
 	}
 
 	err = ac.handleControl(ctx)

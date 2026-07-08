@@ -256,7 +256,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get log entries for a device */
+        /**
+         * Broker an on-demand raw-log pull from a device
+         * @description Streams a bounded, redacted, audited snapshot of the device's raw logs straight from the connected agent. Nothing is persisted centrally; the request blocks until the agent responds or times out. Reading raw logs is an elevated action restricted to administrators.
+         */
         get: operations["getDeviceLogs"];
         put?: never;
         post?: never;
@@ -1810,7 +1813,6 @@ export interface operations {
                 search?: string;
                 offset?: number;
                 limit?: number;
-                refresh?: boolean;
             };
             header?: never;
             path: {
@@ -1829,13 +1831,6 @@ export interface operations {
                     "application/json": components["schemas"]["DeviceLogsResponse"];
                 };
             };
-            /** @description Log retrieval requested, poll again shortly */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
             /** @description Unauthorized */
             401: {
                 headers: {
@@ -1845,7 +1840,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Forbidden */
+            /** @description Forbidden — administrator access required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -1854,8 +1849,26 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Device not found or logs unavailable */
+            /** @description Device not found or offline */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A log request is already in progress for this device */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device did not return logs in time */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };

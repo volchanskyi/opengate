@@ -49,15 +49,24 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	runMigrationSteps(t, dbURL, 1)
 	assertTelemetryProcessRLS(t, ctx, rehearsalDB, "public")
+	t.Log("rehearsal: 003 process telemetry table and RLS verified")
+
+	runMigrationSteps(t, dbURL, 1)
+	assertDeviceLogsRetired(t, ctx, rehearsalDB)
 	assertMigrationNoChange(t, dbURL)
-	t.Log("rehearsal: 003 process telemetry table, RLS, and idempotence verified")
+	t.Log("rehearsal: 004 retired device_logs; head is idempotent")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
 	defer restoredDB.Close() //nolint:errcheck // test cleanup
 	assertRehearsalRLS(t, ctx, restoredDB, "public")
 	assertTelemetryProcessRLS(t, ctx, restoredDB, "public")
+	assertDeviceLogsRetired(t, ctx, restoredDB)
 	t.Log("rehearsal: pg_dump -> pg_restore completed and restored DB re-verified")
+
+	runMigrationSteps(t, dbURL, -1)
+	assertDeviceLogsRestored(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 004 down rollback recreated device_logs cleanly")
 
 	runMigrationSteps(t, dbURL, -1)
 	assertTelemetryDownReversal(t, ctx, rehearsalDB)

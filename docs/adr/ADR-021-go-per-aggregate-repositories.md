@@ -28,7 +28,6 @@ Per-aggregate repositories at module landing:
 | `EnrollmentTokenRepository` | `update` | 5 |
 | `AuditStore` | `audit` | 2 |
 | `DeviceHardwareRepository` | `device` | 2 |
-| `DeviceLogsRepository` | `device` | 3 |
 | `DeviceUpdateRepository` | `update` | 3 |
 | `SecurityGroupRepository` | `auth` (membership semantics) | 8 |
 

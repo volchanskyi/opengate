@@ -128,7 +128,7 @@ This page contains the full text of all Architecture Decision Records (ADRs) for
 
 ## ADR 011 — On-Demand Device Logs via Control Path
 
-**Status:** Accepted  
+**Status:** Accepted — server-side caching superseded by [ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md) (raw logs are now brokered transiently; nothing is persisted centrally)  
 **Date:** 2026-04-02
 
 ### Context
@@ -145,12 +145,14 @@ Retrieve device logs on demand via the existing QUIC control path using three ne
 
 Each `LogEntry` contains: `timestamp`, `level`, `target`, `message`.
 
-**Server-side caching:** Retrieved log entries are stored as individual rows in a `device_logs` table with a **5-minute cache TTL**. The `HasRecentLogs` store method checks whether cached data is fresh enough to serve directly, avoiding repeated round-trips to the agent.
+**Transient broker (per [ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md)):** The server sends `RequestDeviceLogs`, blocks on a per-connection single-flight waiter for the agent's bounded response, redacts known secrets, and streams the lines straight back. Nothing is persisted centrally.
 
-**REST API:** `GET /api/v1/devices/{id}/logs` with query parameters for filtering (level, from, to, search) and pagination (offset, limit). Returns:
-- **200** — cached data served from the database
-- **202** — request forwarded to the agent, client should poll again
-- **404** — device not found or device is offline with no cached data
+**REST API:** `GET /api/v1/devices/{id}/logs` with query parameters for filtering (level, from, to, search) and pagination (offset, limit). Reading raw logs is an elevated action restricted to administrators and writes a `device.logs.read` audit event. Returns:
+- **200** — bounded, redacted log entries
+- **403** — administrator access required
+- **404** — device not found or offline
+- **409** — a log request is already in progress for this device
+- **504** — device did not return logs in time
 
 **Agent-side `LogCollector`:** Reads daily-rotated log files from `/var/log/mesh-agent/`, parses the `tracing-subscriber` format, applies level/time/keyword filters, and supports offset/limit pagination.
 
@@ -158,9 +160,9 @@ Each `LogEntry` contains: `timestamp`, `level`, `target`, `message`.
 
 ### Consequences
 
-- No streaming — logs are fetched on demand and cached. Suitable for troubleshooting, not real-time monitoring.
-- 5-minute TTL is a trade-off between freshness and control-path load. Can be tuned later.
-- SQL-level filtering on cached rows enables fast re-queries within the TTL window without contacting the agent.
+- No streaming and no central store — logs are brokered on demand and stream through. Suitable for troubleshooting, not real-time monitoring.
+- Raw logs are readable only while the device is online; a disconnected device exposes no central history, and there is nothing secret-dense to erase or leak centrally.
+- Filtering and pagination are applied by the agent per request rather than by re-querying a cache.
 - Individual rows (not a single JSON blob) allow efficient filtering by level and timestamp at the database layer.
 - Golden file tests cover the three new control messages to ensure Rust/Go encoding compatibility.
 

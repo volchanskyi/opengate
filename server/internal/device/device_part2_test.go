@@ -12,7 +12,7 @@ import (
 
 func TestPostgresDevices_CRUD(t *testing.T) {
 	t.Parallel()
-	devices, groups, _, _, store := newRepos(t)
+	devices, groups, _, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := seedOwner(t, ctx, store)
 

@@ -65,7 +65,6 @@ func newTestEnv(t *testing.T) *testEnv {
 	devicesRepo := testutil.NewTestDevices(t, store)
 	groupsRepo := testutil.NewTestGroups(t, store)
 	hardwareRepo := testutil.NewTestHardware(t, store)
-	deviceLogsRepo := testutil.NewTestLogs(t, store)
 
 	jwtCfg := &auth.JWTConfig{
 		Secret:   "integration-test-secret-32-bytes!",
@@ -82,7 +81,6 @@ func newTestEnv(t *testing.T) *testEnv {
 		Devices:        devicesRepo,
 		Groups:         groupsRepo,
 		Hardware:       hardwareRepo,
-		DeviceLogs:     deviceLogsRepo,
 		WebPush:        testutil.NewTestWebPush(t, store),
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
