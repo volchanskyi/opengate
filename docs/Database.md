@@ -222,31 +222,15 @@ The `device_hardware` table stores on-demand hardware inventory collected from a
 
 Hardware data is collected on demand via `RequestHardwareReport` control message and upserted via `UpsertDeviceHardware`. Retrieved via `GetDeviceHardware`.
 
-### Device Logs Table
+### Device Logs
 
-The `device_logs` table caches log entries retrieved on demand from agents via the control path:
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `id` | BIGINT PK | Identity column |
-| `device_id` | UUID FK | References `devices(id)`, CASCADE delete |
-| `timestamp` | TEXT | Raw timestamp string as emitted by the agent |
-| `level` | TEXT | Log level (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`) |
-| `target` | TEXT | Tracing target / module path (default `''`) |
-| `message` | TEXT | Log message body (default `''`) |
-| `fetched_at` | TIMESTAMPTZ | When the row was cached (default `NOW()`) |
-
-Indexes: `device_id`, `(device_id, level)`, `(device_id, timestamp)`.
-
-### Store Methods (Device Logs)
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `UpsertDeviceLogs` | `(ctx, DeviceID, []LogEntry) error` | Inserts or replaces cached log entries for a device |
-| `QueryDeviceLogs` | `(ctx, DeviceID, filters) ([]LogEntry, int, error)` | Queries cached logs with level/time/search filters and pagination |
-| `HasRecentLogs` | `(ctx, DeviceID) (bool, error)` | Returns true if cached logs exist within the 5-minute TTL window |
-
-The 5-minute TTL avoids repeated round-trips to the agent. When `HasRecentLogs` returns true, the server serves from cache; otherwise it sends a `RequestDeviceLogs` control message and returns HTTP 202.
+Raw device logs have no database table. They are brokered on demand: the server
+sends a `RequestDeviceLogs` control message, blocks on the agent's bounded
+response, redacts known secrets, and streams the lines straight back in the same
+HTTP response. Nothing raw is persisted centrally, so tenant isolation for raw
+logs is the agent connection's scope rather than an RLS row. See
+[ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md) and the
+[API reference](API-Reference.md).
 
 ### Device Processes Table
 

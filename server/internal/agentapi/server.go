@@ -28,7 +28,6 @@ type AgentServer struct {
 	cert          *cert.Manager
 	devices       device.Repository
 	hardware      device.HardwareRepository
-	deviceLogs    device.LogsRepository
 	deviceUpdates updater.DeviceUpdateRepository
 	telemetry     telemetry.NumericWriter
 	processes     telemetry.ProcessRepository
@@ -50,7 +49,6 @@ type AgentServerConfig struct {
 	Cert          *cert.Manager
 	Devices       device.Repository
 	Hardware      device.HardwareRepository
-	DeviceLogs    device.LogsRepository
 	DeviceUpdates updater.DeviceUpdateRepository
 	Telemetry     telemetry.NumericWriter
 	Processes     telemetry.ProcessRepository
@@ -66,7 +64,6 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		cert:          cfg.Cert,
 		devices:       cfg.Devices,
 		hardware:      cfg.Hardware,
-		deviceLogs:    cfg.DeviceLogs,
 		deviceUpdates: cfg.DeviceUpdates,
 		telemetry:     cfg.Telemetry,
 		processes:     cfg.Processes,
@@ -216,7 +213,6 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		codec:         &protocol.Codec{},
 		devices:       s.devices,
 		hardware:      s.hardware,
-		deviceLogs:    s.deviceLogs,
 		deviceUpdates: s.deviceUpdates,
 		telemetry:     s.telemetry,
 		processes:     s.processes,

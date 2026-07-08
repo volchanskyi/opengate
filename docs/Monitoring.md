@@ -124,6 +124,13 @@ that client so the server injects the authoritative `org_id` matcher. Process
 snapshots with basenames and optional command-line hashes stay in Postgres RLS;
 see [Database](Database.md#device-processes-table).
 
+Endpoint log signals ride the same numeric path: per-window log-rate dims
+(`opengate_edge_metric_avg{dim="log.rate.…"}`, counts and ranks only) are
+ingested to VM scoped by the server-resolved org. Raw log lines are never
+centralized — they are brokered on demand, redacted, and streamed straight back
+to an administrator with nothing persisted; see
+[ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md).
+
 The monitoring chart passes the Edge Sentinel stream-aggregation config to
 single-node VictoriaMetrics through
 [`victoriametrics.yaml`](../deploy/helm/monitoring/templates/victoriametrics.yaml).

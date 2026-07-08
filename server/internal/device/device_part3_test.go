@@ -12,7 +12,7 @@ import (
 
 func TestPostgresGroups_CRUD(t *testing.T) {
 	t.Parallel()
-	_, groups, _, _, store := newRepos(t)
+	_, groups, _, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := seedOwner(t, ctx, store)
 
@@ -52,7 +52,7 @@ func TestPostgresGroups_CRUD(t *testing.T) {
 
 func TestPostgresHardware_UpsertAndGet(t *testing.T) {
 	t.Parallel()
-	devices, groups, hardware, _, store := newRepos(t)
+	devices, groups, hardware, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := seedOwner(t, ctx, store)
 

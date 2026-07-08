@@ -36,14 +36,13 @@ func TestAgentConn_HandleRegister_NormalizesOS(t *testing.T) {
 	require.NoError(t, err)
 
 	ac := &AgentConn{
-		DeviceID:   deviceID,
-		GroupID:    group.ID,
-		stream:     &frameBuf,
-		codec:      codec,
-		devices:    testutil.NewTestDevices(t, store),
-		hardware:   testutil.NewTestHardware(t, store),
-		deviceLogs: testutil.NewTestLogs(t, store),
-		logger:     testLogger(),
+		DeviceID: deviceID,
+		GroupID:  group.ID,
+		stream:   &frameBuf,
+		codec:    codec,
+		devices:  testutil.NewTestDevices(t, store),
+		hardware: testutil.NewTestHardware(t, store),
+		logger:   testLogger(),
 	}
 
 	err = ac.handleControl(ctx)

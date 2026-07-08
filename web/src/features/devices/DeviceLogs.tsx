@@ -33,7 +33,6 @@ export function DeviceLogs({ deviceId }: DeviceLogsProps) {
       search: search || undefined,
       offset: 0,
       limit,
-      refresh: true,
     }));
   }, [deviceId, fetchLogs, level, search]);
 

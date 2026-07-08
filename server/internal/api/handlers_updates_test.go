@@ -35,7 +35,6 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 		Devices:        testutil.NewTestDevices(t, store),
 		Groups:         testutil.NewTestGroups(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
-		DeviceLogs:     testutil.NewTestLogs(t, store),
 		WebPush:        testutil.NewTestWebPush(t, store),
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
@@ -56,29 +55,49 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 	return srv, adminToken, userToken
 }
 
-func TestListUpdateManifests_Empty(t *testing.T) {
+// TestUpdateEndpoints_EmptyList pins that the manifest and status list
+// endpoints return an empty JSON array before anything is published.
+func TestUpdateEndpoints_EmptyList(t *testing.T) {
 	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
-	w := doRequest(srv, http.MethodGet, "/api/v1/updates/manifests", adminToken, nil)
-	assert.Equal(t, http.StatusOK, w.Code)
+	for _, path := range []string{"/api/v1/updates/manifests", "/api/v1/updates/status/1.0.0"} {
+		w := doRequest(srv, http.MethodGet, path, adminToken, nil)
+		assert.Equal(t, http.StatusOK, w.Code)
+		var items []json.RawMessage
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&items))
+		assert.Empty(t, items, path)
+	}
+}
 
-	var manifests []AgentManifest
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&manifests))
-	assert.Empty(t, manifests)
+// samplePublish returns a valid publish request for version v.
+func samplePublish(v string) PublishUpdateRequest {
+	return PublishUpdateRequest{
+		Version: v,
+		Os:      "linux",
+		Arch:    "amd64",
+		Url:     "https://example.com/agent",
+		Sha256:  "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+	}
+}
+
+// samplePush returns a push request for version v.
+func samplePush(v string) PushUpdateRequest {
+	return PushUpdateRequest{Version: v, Os: "linux", Arch: "amd64"}
+}
+
+// publishManifest publishes version v and asserts the request succeeded.
+func publishManifest(t *testing.T, srv *Server, token, v string) {
+	t.Helper()
+	w := doRequest(srv, http.MethodPost, "/api/v1/updates/manifests", token, samplePublish(v))
+	require.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestPublishUpdate_Success(t *testing.T) {
 	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
-	body := PublishUpdateRequest{
-		Version: "1.0.0",
-		Os:      "linux",
-		Arch:    "amd64",
-		Url:     "https://github.com/example/releases/download/v1.0.0/mesh-agent-linux-amd64",
-		Sha256:  "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-	}
+	body := samplePublish("1.0.0")
 
 	w := doRequest(srv, http.MethodPost, "/api/v1/updates/manifests", adminToken, body)
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -91,37 +110,13 @@ func TestPublishUpdate_Success(t *testing.T) {
 	assert.NotEmpty(t, manifest.Signature)
 }
 
-func TestPublishUpdate_NonAdmin(t *testing.T) {
-	t.Parallel()
-	srv, _, userToken := newTestServerWithUpdater(t)
-
-	body := PublishUpdateRequest{
-		Version: "1.0.0",
-		Os:      "linux",
-		Arch:    "amd64",
-		Url:     "https://example.com/agent",
-		Sha256:  "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-	}
-
-	w := doRequest(srv, http.MethodPost, "/api/v1/updates/manifests", userToken, body)
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
 func TestListUpdateManifests_AfterPublish(t *testing.T) {
 	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
-	body := PublishUpdateRequest{
-		Version: "1.0.0",
-		Os:      "linux",
-		Arch:    "amd64",
-		Url:     "https://example.com/agent",
-		Sha256:  "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-	}
-	w := doRequest(srv, http.MethodPost, "/api/v1/updates/manifests", adminToken, body)
-	require.Equal(t, http.StatusOK, w.Code)
+	publishManifest(t, srv, adminToken, "1.0.0")
 
-	w = doRequest(srv, http.MethodGet, "/api/v1/updates/manifests", adminToken, nil)
+	w := doRequest(srv, http.MethodGet, "/api/v1/updates/manifests", adminToken, nil)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var manifests []AgentManifest
@@ -134,52 +129,20 @@ func TestPushUpdate_NoManifest(t *testing.T) {
 	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
-	body := PushUpdateRequest{
-		Version: "1.0.0",
-		Os:      "linux",
-		Arch:    "amd64",
-	}
+	body := samplePush("1.0.0")
 
 	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, body)
 	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestPushUpdate_NonAdmin(t *testing.T) {
-	t.Parallel()
-	srv, _, userToken := newTestServerWithUpdater(t)
-
-	body := PushUpdateRequest{
-		Version: "1.0.0",
-		Os:      "linux",
-		Arch:    "amd64",
-	}
-
-	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", userToken, body)
-	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 
 func TestPushUpdate_VersionMismatch(t *testing.T) {
 	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
-	// Publish v1.0.0
-	publish := PublishUpdateRequest{
-		Version: "1.0.0",
-		Os:      "linux",
-		Arch:    "amd64",
-		Url:     "https://example.com/agent",
-		Sha256:  "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-	}
-	w := doRequest(srv, http.MethodPost, "/api/v1/updates/manifests", adminToken, publish)
-	require.Equal(t, http.StatusOK, w.Code)
+	publishManifest(t, srv, adminToken, "1.0.0")
 
 	// Push v2.0.0 (not published)
-	push := PushUpdateRequest{
-		Version: "2.0.0",
-		Os:      "linux",
-		Arch:    "amd64",
-	}
-	w = doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, push)
+	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush("2.0.0"))
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
@@ -187,24 +150,10 @@ func TestPushUpdate_NoConnectedAgents(t *testing.T) {
 	t.Parallel()
 	srv, adminToken, _ := newTestServerWithUpdater(t)
 
-	// Publish
-	publish := PublishUpdateRequest{
-		Version: "1.0.0",
-		Os:      "linux",
-		Arch:    "amd64",
-		Url:     "https://example.com/agent",
-		Sha256:  "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
-	}
-	w := doRequest(srv, http.MethodPost, "/api/v1/updates/manifests", adminToken, publish)
-	require.Equal(t, http.StatusOK, w.Code)
+	publishManifest(t, srv, adminToken, "1.0.0")
 
 	// Push (no agents connected)
-	push := PushUpdateRequest{
-		Version: "1.0.0",
-		Os:      "linux",
-		Arch:    "amd64",
-	}
-	w = doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, push)
+	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush("1.0.0"))
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp PushUpdateResponse
@@ -226,32 +175,29 @@ func TestGetUpdateSigningKey_Admin(t *testing.T) {
 	assert.Len(t, resp.PublicKey, 64) // 32 bytes = 64 hex chars
 }
 
-func TestGetUpdateSigningKey_NonAdmin(t *testing.T) {
+// TestUpdateEndpoints_NonAdmin pins that every update endpoint rejects a
+// non-admin caller with 403.
+func TestUpdateEndpoints_NonAdmin(t *testing.T) {
 	t.Parallel()
 	srv, _, userToken := newTestServerWithUpdater(t)
 
-	w := doRequest(srv, http.MethodGet, "/api/v1/updates/signing-key", userToken, nil)
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
-func TestGetUpdateStatus_Empty(t *testing.T) {
-	t.Parallel()
-	srv, adminToken, _ := newTestServerWithUpdater(t)
-
-	w := doRequest(srv, http.MethodGet, "/api/v1/updates/status/1.0.0", adminToken, nil)
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var updates []DeviceUpdate
-	require.NoError(t, json.NewDecoder(w.Body).Decode(&updates))
-	assert.Empty(t, updates)
-}
-
-func TestGetUpdateStatus_NonAdmin(t *testing.T) {
-	t.Parallel()
-	srv, _, userToken := newTestServerWithUpdater(t)
-
-	w := doRequest(srv, http.MethodGet, "/api/v1/updates/status/1.0.0", userToken, nil)
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{"publish", http.MethodPost, "/api/v1/updates/manifests", samplePublish("1.0.0")},
+		{"push", http.MethodPost, "/api/v1/updates/push", samplePush("1.0.0")},
+		{"signing-key", http.MethodGet, "/api/v1/updates/signing-key", nil},
+		{"status", http.MethodGet, "/api/v1/updates/status/1.0.0", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := doRequest(srv, tt.method, tt.path, userToken, tt.body)
+			assert.Equal(t, http.StatusForbidden, w.Code)
+		})
+	}
 }
 
 // NormalizeOS and NormalizeArch tests are in the osutil package.

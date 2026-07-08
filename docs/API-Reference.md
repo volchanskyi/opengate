@@ -101,7 +101,7 @@ const { data, error } = await api.GET('/api/v1/groups');
 
 ### Device Logs
 
-`GET /api/v1/devices/{id}/logs` retrieves log entries from the agent on demand via the QUIC control path. The server caches results in the `device_logs` table with a 5-minute TTL.
+`GET /api/v1/devices/{id}/logs` brokers raw logs from the agent on demand via the QUIC control path. The request **blocks** until the agent returns a bounded response, which is redacted and streamed straight back; nothing is persisted centrally (see [ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md)). Reading raw logs is an elevated action restricted to administrators, and every pull writes a `device.logs.read` audit event.
 
 **Query Parameters**
 
@@ -113,17 +113,17 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `search` | string | _(none)_ | Keyword search in log messages |
 | `offset` | integer | `0` | Pagination offset |
 | `limit` | integer | `300` | Page size (max `1000`) |
-| `refresh` | boolean | `false` | Bypass the 5-min cache and force a fresh fetch from the agent |
 
 **Response Codes**
 
 | Code | Meaning |
 |------|---------|
-| `200` | Cached log data returned (within 5-min TTL) |
-| `202` | Log retrieval request sent to the agent — poll again shortly |
+| `200` | Bounded, redacted log entries returned |
 | `401` | Unauthorized |
-| `403` | Forbidden |
-| `404` | Device not found or device is offline with no cached data |
+| `403` | Forbidden — administrator access required |
+| `404` | Device not found or offline |
+| `409` | A log request is already in progress for this device |
+| `504` | Device did not return logs in time |
 
 **200 Response Body**
 

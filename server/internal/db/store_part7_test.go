@@ -36,6 +36,22 @@ func assertTelemetryDownReversal(t *testing.T, ctx context.Context, db *sql.DB) 
 	assert.False(t, deviceProcesses.Valid)
 }
 
+// assertDeviceLogsRetired confirms migration 004 dropped the central log cache.
+func assertDeviceLogsRetired(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	var deviceLogs sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.device_logs')`).Scan(&deviceLogs))
+	assert.False(t, deviceLogs.Valid)
+}
+
+// assertDeviceLogsRestored confirms the 004 down rollback recreated the table.
+func assertDeviceLogsRestored(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	var deviceLogs sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.device_logs')`).Scan(&deviceLogs))
+	assert.True(t, deviceLogs.Valid)
+}
+
 func restoredDatabaseURL(t *testing.T, dbURL, dbName string) string {
 	t.Helper()
 	parsed, err := url.Parse(dbURL)

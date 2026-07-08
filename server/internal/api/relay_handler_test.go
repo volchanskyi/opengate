@@ -52,7 +52,6 @@ func newRelayTestServerWith(t *testing.T, r *relay.Relay) (*httptest.Server, *Se
 		Devices:        testutil.NewTestDevices(t, store),
 		Groups:         testutil.NewTestGroups(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
-		DeviceLogs:     testutil.NewTestLogs(t, store),
 		WebPush:        testutil.NewTestWebPush(t, store),
 		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),

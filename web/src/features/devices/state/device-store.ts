@@ -31,7 +31,7 @@ interface DeviceState {
   updateDeviceGroup: (id: string, groupId: string) => Promise<boolean>;
   restartAgent: (id: string) => Promise<boolean>;
   fetchHardware: (id: string) => Promise<void>;
-  fetchLogs: (id: string, params?: { level?: string; from?: string; to?: string; search?: string; offset?: number; limit?: number; refresh?: boolean }) => Promise<void>;
+  fetchLogs: (id: string, params?: { level?: string; from?: string; to?: string; search?: string; offset?: number; limit?: number }) => Promise<void>;
   upgradeAgent: (deviceId: string, version: string, os: string, arch: string) => Promise<boolean>;
 }
 
@@ -172,8 +172,9 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     if (params?.search) query.search = params.search;
     if (params?.offset !== undefined) query.offset = params.offset;
     if (params?.limit !== undefined) query.limit = params.limit;
-    if (params?.refresh) query.refresh = 'true';
 
+    // The server brokers the pull straight from the agent and blocks until it
+    // responds, so a single request returns the logs (or a bounded failure).
     const { data, response } = await api.GET('/api/v1/devices/{id}/logs', {
       params: { path: { id }, query },
     });
@@ -183,33 +184,13 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       return;
     }
 
-    if (response.status === 202) {
-      // Agent is collecting logs — retry once after 3s without refresh
-      // so the retry reads from the newly populated cache.
-      const retryQuery = { ...query };
-      delete retryQuery.refresh;
-      setTimeout(() => {
-        fireAndForget((async () => {
-          try {
-            const retry = await api.GET('/api/v1/devices/{id}/logs', {
-              params: { path: { id }, query: retryQuery },
-            });
-            if (retry.response.status === 200 && retry.data) {
-              set({ logs: retry.data });
-            }
-          } catch (err) {
-            useToastStore.getState().addToast(
-              `Failed to refresh logs: ${err instanceof Error ? err.message : String(err)}`,
-              'error',
-            );
-          } finally {
-            set({ logsLoading: false });
-          }
-        })());
-      }, 3000);
-      return;
-    }
-
+    const messages: Record<number, string> = {
+      403: 'Viewing device logs requires administrator access.',
+      404: 'Logs unavailable — device offline or not found.',
+      409: 'A log request is already in progress for this device.',
+      504: 'The device did not return logs in time.',
+    };
+    useToastStore.getState().addToast(messages[response.status] ?? 'Failed to fetch logs.', 'error');
     set({ logsLoading: false });
   },
 

@@ -33,7 +33,6 @@ func newTestAgentConn(t *testing.T, deviceID uuid.UUID, store *db.PostgresStore)
 	if store != nil {
 		ac.devices = testutil.NewTestDevices(t, store)
 		ac.hardware = testutil.NewTestHardware(t, store)
-		ac.deviceLogs = testutil.NewTestLogs(t, store)
 	}
 	return ac, &buf
 }
@@ -84,7 +83,6 @@ func TestNewAgentConn(t *testing.T) {
 		Stream:        &buf,
 		Devices:       testutil.NewTestDevices(t, store),
 		Hardware:      testutil.NewTestHardware(t, store),
-		DeviceLogs:    testutil.NewTestLogs(t, store),
 		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
 		Logger:        logger,
 	})

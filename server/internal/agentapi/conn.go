@@ -40,7 +40,6 @@ type AgentConn struct {
 	codec          *protocol.Codec
 	devices        device.Repository
 	hardware       device.HardwareRepository
-	deviceLogs     device.LogsRepository
 	deviceUpdates  updater.DeviceUpdateRepository
 	telemetry      telemetry.NumericWriter
 	processes      telemetry.ProcessRepository
@@ -48,6 +47,13 @@ type AgentConn struct {
 	telemetryLast  map[protocol.ControlMessageType]int64
 	telemetrySlots chan struct{}
 	telemetryDrops atomic.Uint64
+
+	// logMu guards logWaiter, the single in-flight raw-log broker channel.
+	// Raw log retrieval is transient (request→response) and never persisted,
+	// so isolation is the connection scope; logWaiter is nil unless a pull is
+	// blocked awaiting the agent's DeviceLogsResponse.
+	logMu     sync.Mutex
+	logWaiter chan logsResult
 
 	// writeMu serializes writes to stream. protocol.Codec.WriteFrame issues
 	// a 5-byte envelope write followed by an N-byte payload write; without
@@ -67,7 +73,6 @@ type AgentConnConfig struct {
 	Stream        io.ReadWriter
 	Devices       device.Repository
 	Hardware      device.HardwareRepository
-	DeviceLogs    device.LogsRepository
 	DeviceUpdates updater.DeviceUpdateRepository
 	Telemetry     telemetry.NumericWriter
 	Processes     telemetry.ProcessRepository
@@ -84,7 +89,6 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		codec:         &protocol.Codec{},
 		devices:       cfg.Devices,
 		hardware:      cfg.Hardware,
-		deviceLogs:    cfg.DeviceLogs,
 		deviceUpdates: cfg.DeviceUpdates,
 		telemetry:     cfg.Telemetry,
 		processes:     cfg.Processes,
@@ -288,8 +292,7 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 	case protocol.MsgDeviceLogsResponse:
 		return a.handleDeviceLogsResponse(ctx, msg)
 	case protocol.MsgDeviceLogsError:
-		a.logger.Warn("device logs error from agent", "device_id", a.DeviceID, "error", msg.AckError)
-		return nil
+		return a.handleDeviceLogsError(msg)
 	case protocol.MsgAgentHealthSummary:
 		return a.handleAgentHealthSummary(ctx, msg, len(payload))
 	case protocol.MsgAgentMetricWindow:
@@ -380,25 +383,6 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 		"capabilities", msg.Capabilities,
 	)
 
-	return nil
-}
-
-func (a *AgentConn) handleDeviceLogsResponse(ctx context.Context, msg *protocol.ControlMessage) error {
-	entries := make([]device.LogEntry, len(msg.LogEntries))
-	for i, le := range msg.LogEntries {
-		entries[i] = device.LogEntry{
-			DeviceID:  a.DeviceID,
-			Timestamp: le.Timestamp,
-			Level:     le.Level,
-			Target:    le.Target,
-			Message:   le.Message,
-		}
-	}
-	if err := a.deviceLogs.Upsert(ctx, a.DeviceID, entries); err != nil {
-		return fmt.Errorf("upsert device logs: %w", err)
-	}
-
-	a.logger.Debug("device logs stored", "device_id", a.DeviceID, "count", len(entries))
 	return nil
 }
 

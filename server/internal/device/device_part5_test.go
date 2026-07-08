@@ -15,7 +15,7 @@ import (
 
 func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	t.Parallel()
-	devices, groups, hardware, logs, store := newRepos(t)
+	devices, groups, hardware, store := newRepos(t)
 	orgB := uuid.New()
 	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
 	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
@@ -29,8 +29,6 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 	require.NoError(t, hardware.Upsert(ctxA, &device.Hardware{DeviceID: deviceA.ID, CPUModel: "tenant-a"}))
 	require.NoError(t, hardware.Upsert(ctxB, &device.Hardware{DeviceID: deviceB.ID, CPUModel: "tenant-b"}))
-	require.NoError(t, logs.Upsert(ctxA, deviceA.ID, []device.LogEntry{{Timestamp: "2026-05-20T10:00:00Z", Level: "INFO", Message: "tenant-a"}}))
-	require.NoError(t, logs.Upsert(ctxB, deviceB.ID, []device.LogEntry{{Timestamp: "2026-05-20T10:00:00Z", Level: "INFO", Message: "tenant-b"}}))
 
 	_, err := devices.Get(ctxA, deviceB.ID)
 	assert.ErrorIs(t, err, device.ErrDeviceNotFound)
@@ -54,14 +52,6 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, groupsForBOwner)
 
-	entries, total, err := logs.Query(ctxA, deviceB.ID, device.LogFilter{})
-	require.NoError(t, err)
-	assert.Zero(t, total)
-	assert.Empty(t, entries)
-	recent, err := logs.HasRecent(ctxA, deviceB.ID, time.Hour)
-	require.NoError(t, err)
-	assert.False(t, recent)
-
 	resolvedOrg, err := devices.OrgForDevice(dbtx.WithDefaultTenant(context.Background(), true), deviceB.ID)
 	require.NoError(t, err)
 	assert.Equal(t, orgB, resolvedOrg)
@@ -73,8 +63,6 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	_, err = groups.Get(context.Background(), groupA.ID)
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 	_, err = hardware.Get(context.Background(), deviceA.ID)
-	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
-	_, _, err = logs.Query(context.Background(), deviceA.ID, device.LogFilter{})
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 }
 

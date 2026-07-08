@@ -1,9 +1,8 @@
 // Package device owns the device aggregate: managed devices and
-// their groupings, plus the hardware-inventory and cached-logs read models
-// that hang off the same aggregate root. The four outbound persistence ports
-// (Repository / GroupRepository / HardwareRepository / LogsRepository) live
-// here; their Postgres adapters live alongside in postgres.go and the
-// Instrumented decorators in instrumented.go.
+// their groupings, plus the hardware-inventory read model that hangs off the
+// same aggregate root. The outbound persistence ports (Repository /
+// GroupRepository / HardwareRepository) live here; their Postgres adapters live
+// alongside in postgres.go and the Instrumented decorators in instrumented.go.
 package device
 
 import (
@@ -84,18 +83,17 @@ type Hardware struct {
 	UpdatedAt         time.Time              `json:"updated_at"`
 }
 
-// LogEntry is a single cached log line fetched from a device.
+// LogEntry is a single raw log line brokered on-demand from a device. It is
+// transient — streamed from agent to caller and never persisted centrally.
 type LogEntry struct {
-	ID        int64     `json:"id"`
-	DeviceID  DeviceID  `json:"device_id"`
-	Timestamp string    `json:"timestamp"`
-	Level     string    `json:"level"`
-	Target    string    `json:"target"`
-	Message   string    `json:"message"`
-	FetchedAt time.Time `json:"fetched_at"`
+	DeviceID  DeviceID `json:"device_id"`
+	Timestamp string   `json:"timestamp"`
+	Level     string   `json:"level"`
+	Target    string   `json:"target"`
+	Message   string   `json:"message"`
 }
 
-// LogFilter narrows a LogsRepository.Query call.
+// LogFilter narrows an on-demand raw-log pull brokered to the agent.
 type LogFilter struct {
 	Level  string
 	From   string
@@ -132,11 +130,4 @@ type GroupRepository interface {
 type HardwareRepository interface {
 	Upsert(ctx context.Context, hw *Hardware) error
 	Get(ctx context.Context, deviceID DeviceID) (*Hardware, error)
-}
-
-// LogsRepository is the outbound persistence port for the per-device log cache.
-type LogsRepository interface {
-	Upsert(ctx context.Context, deviceID DeviceID, entries []LogEntry) error
-	Query(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]LogEntry, int, error)
-	HasRecent(ctx context.Context, deviceID DeviceID, maxAge time.Duration) (bool, error)
 }

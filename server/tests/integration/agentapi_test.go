@@ -91,7 +91,6 @@ func newAgentTestEnv(t *testing.T) *agentTestEnv {
 		Cert:          cm,
 		Devices:       testutil.NewTestDevices(t, store),
 		Hardware:      testutil.NewTestHardware(t, store),
-		DeviceLogs:    testutil.NewTestLogs(t, store),
 		DeviceUpdates: testutil.NewTestDeviceUpdates(t, store),
 		Relay:         r,
 		Notifier:      &notifications.NoopNotifier{},

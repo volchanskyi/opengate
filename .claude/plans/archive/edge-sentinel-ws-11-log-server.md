@@ -8,19 +8,19 @@ persisted centrally**.
 
 ## Context
 
-Handlers live in [`conn.go`](../../server/internal/agentapi/conn.go); the on-demand path already
+Handlers live in [`conn.go`](../../../server/internal/agentapi/conn.go); the on-demand path already
 flows through `SendRequestDeviceLogs` / `handleDeviceLogsResponse`
-([conn.go:144](../../server/internal/agentapi/conn.go#L144)). Audit events have a home in the
+([conn.go:144](../../../server/internal/agentapi/conn.go#L144)). Audit events have a home in the
 existing `audit_events` table. The intended end state: raw lines are **transient**
 (request→response), with **no RLS table for raw** — only the rate series live (in VM, `org_id`
 label).
 
 **Hard precondition — the "nothing raw persisted centrally" claim is false against today's code.**
 The reused `handleDeviceLogsResponse`
-([conn.go:318-334](../../server/internal/agentapi/conn.go#L318)) calls
+([conn.go:318-334](../../../server/internal/agentapi/conn.go#L318)) calls
 `deviceLogs.Upsert`, which DELETE-then-INSERTs raw `message` text into the central `device_logs`
-table ([postgres_logs.go:22-40](../../server/internal/device/postgres_logs.go#L22);
-[001_initial.up.sql:143-155](../../server/internal/db/migrations/001_initial.up.sql)). This is a
+table ([postgres_logs.go:22-40](../../../server/internal/device/postgres_logs.go#L22);
+[001_initial.up.sql:143-155](../../../server/internal/db/migrations/001_initial.up.sql)). This is a
 privacy/compliance gap, not wording. **Resolve as the first step of WS-11, before the broker is
 wired** — pick one and record it in the raw-log-privacy ADR:
 
@@ -33,9 +33,9 @@ wired** — pick one and record it in the raw-log-privacy ADR:
 
 ## File inventory
 
-- **Modify:** [`conn.go`](../../server/internal/agentapi/conn.go) — rate dims → the WS-4 VM client
+- **Modify:** [`conn.go`](../../../server/internal/agentapi/conn.go) — rate dims → the WS-4 VM client
   (scoped by connection device→org); the raw query **broker** (bounded fan-out to the agent).
-- **Modify:** [`api/openapi.yaml`](../../api/openapi.yaml) + [`api.go`](../../server/internal/api/api.go)
+- **Modify:** [`api/openapi.yaml`](../../../api/openapi.yaml) + [`api.go`](../../../server/internal/api/api.go)
   — a logs query endpoint behind an **elevated permission**; **write an audit event** on every raw
   pull (who/which device/window/filters). Regenerate Go + TS.
 - **Modify:** server redaction guard (defense-in-depth on the raw response, reusing WS-2/WS-13

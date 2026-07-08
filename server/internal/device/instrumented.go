@@ -8,13 +8,25 @@ import (
 )
 
 // Observer records the duration and success of a single repository call.
-// metrics.Metrics supplies a Prometheus-backed implementation; tests supply
-// an in-memory recorder.
 type Observer interface {
 	Observe(operation string, duration time.Duration, ok bool)
 }
 
-// --- Repository decorator ---------------------------------------------------
+// observe0 times a no-result repository call and reports it to the observer.
+func observe0(o Observer, op string, fn func() error) error {
+	start := time.Now()
+	err := fn()
+	o.Observe(op, time.Since(start), err == nil)
+	return err
+}
+
+// observe1 times a single-result repository call and reports it to the observer.
+func observe1[T any](o Observer, op string, fn func() (T, error)) (T, error) {
+	start := time.Now()
+	v, err := fn()
+	o.Observe(op, time.Since(start), err == nil)
+	return v, err
+}
 
 // InstrumentedDevices decorates a Repository with per-call observation.
 type InstrumentedDevices struct {
@@ -28,69 +40,40 @@ func NewInstrumentedDevices(inner Repository, observer Observer) *InstrumentedDe
 }
 
 func (i *InstrumentedDevices) Upsert(ctx context.Context, d *Device) error {
-	start := time.Now()
-	err := i.inner.Upsert(ctx, d)
-	i.observer.Observe("device.Device.Upsert", time.Since(start), err == nil)
-	return err
+	return observe0(i.observer, "device.Device.Upsert", func() error { return i.inner.Upsert(ctx, d) })
 }
 
 func (i *InstrumentedDevices) Get(ctx context.Context, id DeviceID) (*Device, error) {
-	start := time.Now()
-	d, err := i.inner.Get(ctx, id)
-	i.observer.Observe("device.Device.Get", time.Since(start), err == nil)
-	return d, err
+	return observe1(i.observer, "device.Device.Get", func() (*Device, error) { return i.inner.Get(ctx, id) })
 }
 
 func (i *InstrumentedDevices) List(ctx context.Context, groupID GroupID) ([]*Device, error) {
-	start := time.Now()
-	ds, err := i.inner.List(ctx, groupID)
-	i.observer.Observe("device.Device.List", time.Since(start), err == nil)
-	return ds, err
+	return observe1(i.observer, "device.Device.List", func() ([]*Device, error) { return i.inner.List(ctx, groupID) })
 }
 
 func (i *InstrumentedDevices) ListAll(ctx context.Context) ([]*Device, error) {
-	start := time.Now()
-	ds, err := i.inner.ListAll(ctx)
-	i.observer.Observe("device.Device.ListAll", time.Since(start), err == nil)
-	return ds, err
+	return observe1(i.observer, "device.Device.ListAll", func() ([]*Device, error) { return i.inner.ListAll(ctx) })
 }
 
 func (i *InstrumentedDevices) ListForOwner(ctx context.Context, ownerID uuid.UUID) ([]*Device, error) {
-	start := time.Now()
-	ds, err := i.inner.ListForOwner(ctx, ownerID)
-	i.observer.Observe("device.Device.ListForOwner", time.Since(start), err == nil)
-	return ds, err
+	return observe1(i.observer, "device.Device.ListForOwner", func() ([]*Device, error) { return i.inner.ListForOwner(ctx, ownerID) })
 }
 
 func (i *InstrumentedDevices) Delete(ctx context.Context, id DeviceID) error {
-	start := time.Now()
-	err := i.inner.Delete(ctx, id)
-	i.observer.Observe("device.Device.Delete", time.Since(start), err == nil)
-	return err
+	return observe0(i.observer, "device.Device.Delete", func() error { return i.inner.Delete(ctx, id) })
 }
 
 func (i *InstrumentedDevices) UpdateGroup(ctx context.Context, id DeviceID, groupID GroupID) error {
-	start := time.Now()
-	err := i.inner.UpdateGroup(ctx, id, groupID)
-	i.observer.Observe("device.Device.UpdateGroup", time.Since(start), err == nil)
-	return err
+	return observe0(i.observer, "device.Device.UpdateGroup", func() error { return i.inner.UpdateGroup(ctx, id, groupID) })
 }
 
 func (i *InstrumentedDevices) SetStatus(ctx context.Context, id DeviceID, status DeviceStatus) error {
-	start := time.Now()
-	err := i.inner.SetStatus(ctx, id, status)
-	i.observer.Observe("device.Device.SetStatus", time.Since(start), err == nil)
-	return err
+	return observe0(i.observer, "device.Device.SetStatus", func() error { return i.inner.SetStatus(ctx, id, status) })
 }
 
 func (i *InstrumentedDevices) ResetAllStatuses(ctx context.Context) error {
-	start := time.Now()
-	err := i.inner.ResetAllStatuses(ctx)
-	i.observer.Observe("device.Device.ResetAllStatuses", time.Since(start), err == nil)
-	return err
+	return observe0(i.observer, "device.Device.ResetAllStatuses", func() error { return i.inner.ResetAllStatuses(ctx) })
 }
-
-// --- GroupRepository decorator ----------------------------------------------
 
 // InstrumentedGroups decorates a GroupRepository with per-call observation.
 type InstrumentedGroups struct {
@@ -104,34 +87,20 @@ func NewInstrumentedGroups(inner GroupRepository, observer Observer) *Instrument
 }
 
 func (i *InstrumentedGroups) Create(ctx context.Context, g *Group) error {
-	start := time.Now()
-	err := i.inner.Create(ctx, g)
-	i.observer.Observe("device.Group.Create", time.Since(start), err == nil)
-	return err
+	return observe0(i.observer, "device.Group.Create", func() error { return i.inner.Create(ctx, g) })
 }
 
 func (i *InstrumentedGroups) Get(ctx context.Context, id GroupID) (*Group, error) {
-	start := time.Now()
-	g, err := i.inner.Get(ctx, id)
-	i.observer.Observe("device.Group.Get", time.Since(start), err == nil)
-	return g, err
+	return observe1(i.observer, "device.Group.Get", func() (*Group, error) { return i.inner.Get(ctx, id) })
 }
 
 func (i *InstrumentedGroups) List(ctx context.Context, ownerID uuid.UUID) ([]*Group, error) {
-	start := time.Now()
-	gs, err := i.inner.List(ctx, ownerID)
-	i.observer.Observe("device.Group.List", time.Since(start), err == nil)
-	return gs, err
+	return observe1(i.observer, "device.Group.List", func() ([]*Group, error) { return i.inner.List(ctx, ownerID) })
 }
 
 func (i *InstrumentedGroups) Delete(ctx context.Context, id GroupID) error {
-	start := time.Now()
-	err := i.inner.Delete(ctx, id)
-	i.observer.Observe("device.Group.Delete", time.Since(start), err == nil)
-	return err
+	return observe0(i.observer, "device.Group.Delete", func() error { return i.inner.Delete(ctx, id) })
 }
-
-// --- HardwareRepository decorator -------------------------------------------
 
 // InstrumentedHardware decorates a HardwareRepository with per-call observation.
 type InstrumentedHardware struct {
@@ -145,49 +114,9 @@ func NewInstrumentedHardware(inner HardwareRepository, observer Observer) *Instr
 }
 
 func (i *InstrumentedHardware) Upsert(ctx context.Context, hw *Hardware) error {
-	start := time.Now()
-	err := i.inner.Upsert(ctx, hw)
-	i.observer.Observe("device.Hardware.Upsert", time.Since(start), err == nil)
-	return err
+	return observe0(i.observer, "device.Hardware.Upsert", func() error { return i.inner.Upsert(ctx, hw) })
 }
 
 func (i *InstrumentedHardware) Get(ctx context.Context, deviceID DeviceID) (*Hardware, error) {
-	start := time.Now()
-	hw, err := i.inner.Get(ctx, deviceID)
-	i.observer.Observe("device.Hardware.Get", time.Since(start), err == nil)
-	return hw, err
-}
-
-// --- LogsRepository decorator -----------------------------------------------
-
-// InstrumentedLogs decorates a LogsRepository with per-call observation.
-type InstrumentedLogs struct {
-	inner    LogsRepository
-	observer Observer
-}
-
-// NewInstrumentedLogs wraps inner with metric observation.
-func NewInstrumentedLogs(inner LogsRepository, observer Observer) *InstrumentedLogs {
-	return &InstrumentedLogs{inner: inner, observer: observer}
-}
-
-func (i *InstrumentedLogs) Upsert(ctx context.Context, deviceID DeviceID, entries []LogEntry) error {
-	start := time.Now()
-	err := i.inner.Upsert(ctx, deviceID, entries)
-	i.observer.Observe("device.Logs.Upsert", time.Since(start), err == nil)
-	return err
-}
-
-func (i *InstrumentedLogs) Query(ctx context.Context, deviceID DeviceID, filter LogFilter) ([]LogEntry, int, error) {
-	start := time.Now()
-	entries, total, err := i.inner.Query(ctx, deviceID, filter)
-	i.observer.Observe("device.Logs.Query", time.Since(start), err == nil)
-	return entries, total, err
-}
-
-func (i *InstrumentedLogs) HasRecent(ctx context.Context, deviceID DeviceID, maxAge time.Duration) (bool, error) {
-	start := time.Now()
-	ok, err := i.inner.HasRecent(ctx, deviceID, maxAge)
-	i.observer.Observe("device.Logs.HasRecent", time.Since(start), err == nil)
-	return ok, err
+	return observe1(i.observer, "device.Hardware.Get", func() (*Hardware, error) { return i.inner.Get(ctx, deviceID) })
 }
