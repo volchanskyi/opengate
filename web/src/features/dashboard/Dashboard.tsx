@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { useDeviceStore } from '../devices';
+import { useDeviceStore, FleetHealth } from '../devices';
 import { useAuthStore } from '../../state/auth-store';
 import { useAdminStore } from '../admin';
 import { fireAndForget } from '../../lib/fire-and-forget';
@@ -76,6 +76,8 @@ export function Dashboard() {
           Add Device
         </Link>
       </div>
+
+      <FleetHealth devices={devices} />
 
       {user?.is_admin && auditEvents.length > 0 && (
         <section>

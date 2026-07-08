@@ -114,7 +114,7 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-9 | `archive/edge-sentinel-ws-9-log-readers.md` | endpoint log readers (journald/syslog, Windows Event Log, self-logs) + rate extractor (agent) |
 | WS-10 | `archive/edge-sentinel-ws-10-log-wire.md` | log-rate dims + extended on-demand query; capability-gated, golden-tested |
 | WS-11 | `archive/edge-sentinel-ws-11-log-server.md` | rate dims → VM; on-demand raw broker + audit + elevated-permission gate |
-| WS-12 | `edge-sentinel-ws-12-log-web.md` | logs explorer + log-rate sparkline + metrics↔logs correlation jump |
+| WS-12 | `archive/edge-sentinel-ws-12-log-web.md` | logs explorer + log-rate sparkline + metrics↔logs correlation jump |
 | WS-13 | `edge-sentinel-ws-13-log-privacy-ops.md` | raw-log redaction corpus + reader-sourcing ADR + Linux/Windows benchmark + soak |
 | WS-14a | `edge-sentinel-ws-14a-offline-tsdb-spike.md` | local-TSDB substrate bake-off (append-only / redb / fjall / tsink / no-persist) on a fixture corpus + gates |
 | WS-14b | `edge-sentinel-ws-14b-offline-tsdb-build.md` | build the chosen multi-tier persistent store (holds min/max/last + 1 s; inline anomaly scores) |

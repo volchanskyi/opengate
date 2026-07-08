@@ -293,7 +293,7 @@ jobs:
           kubectl -n "$NAMESPACE" exec "statefulset/${RELEASE}-postgres" -- \
             psql -U opengate -d opengate -c "
             TRUNCATE TABLE
-              security_group_members, device_logs, device_hardware, device_updates,
+              security_group_members, device_hardware, device_updates,
               enrollment_tokens, amt_devices, audit_events, web_push_subscriptions,
               agent_sessions, devices, groups_, security_groups, users
             RESTART IDENTITY CASCADE;

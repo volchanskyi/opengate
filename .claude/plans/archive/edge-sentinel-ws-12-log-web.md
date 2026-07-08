@@ -10,7 +10,7 @@ with:** WS-13.
 ## Context
 
 WS-6 builds the device-detail anomaly panel + uPlot timelines and the virtualized grid badge
-([DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx)). This WS adds the logs surface and
+([DeviceList.tsx](../../../web/src/features/devices/DeviceList.tsx)). This WS adds the logs surface and
 the cross-link: clicking an anomaly (metric or log-rate) opens the explorer pre-filtered to that
 device + timeframe.
 
@@ -20,7 +20,7 @@ device + timeframe.
   search over the WS-11 response; paginated; renders only returned data.
 - **Modify:** the WS-6 device-detail view — a **log-rate sparkline** (uPlot, reuses the WS-6
   adapter) + a "view logs for this window" action carrying device + `from/to`.
-- **Modify:** [`DeviceList.tsx`](../../web/src/features/devices/DeviceList.tsx) — optional log-health
+- **Modify:** [`DeviceList.tsx`](../../../web/src/features/devices/DeviceList.tsx) — optional log-health
   hint on the badge (no high-cardinality content).
 
 ## Steps (TDD-first)

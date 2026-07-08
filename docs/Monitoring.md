@@ -142,6 +142,36 @@ min/max/last centrally would multiply active series past the budget ratified in
 [`spike_test.go`](../server/tests/vmcardinality/spike_test.go); chart bands are
 computed from min/max over the raw 10 s samples instead.
 
+### Web telemetry surface
+
+The React client renders this telemetry through a thin adapter over uPlot
+(canvas-2D): React owns the chrome, the renderer owns the pixels via typed
+arrays, so a polling refresh never reconciles thousands of points. The adapter
+([`TimeSeriesChart`](../web/src/features/devices/charts/TimeSeriesChart.tsx)) is
+the only module importing uPlot and is code-split into a dedicated `charts`
+chunk with its own budget in [`.size-limit.json`](../web/.size-limit.json).
+
+The device-detail panel
+([`DeviceMetrics`](../web/src/features/devices/DeviceMetrics.tsx)) shows the
+current edge-health anomaly rate, per-family metric timelines (avg line plus a
+band whose `min_max_source` provenance is labelled honestly — `avg_of_10s` is
+min/max across the 10 s averages, not host extrema), and a Netdata-style
+correlation drill-down: dragging a window on a chart ranks the dimensions that
+broke pattern through the correlate endpoint. The virtualized device grid and the
+dashboard carry only scalar health badges
+([`HealthBadge`](../web/src/features/devices/HealthBadge.tsx),
+[`FleetHealth`](../web/src/features/devices/FleetHealth.tsx)) — no per-device
+series on the grid.
+
+Raw logs are read through the on-demand broker in the logs explorer
+([`DeviceLogs`](../web/src/features/devices/DeviceLogs.tsx)) with level, time-range,
+and full-text filters plus level facets over the returned page, rendering only the
+redacted lines the broker returns. A compact log-rate sparkline
+([`LogRateSparkline`](../web/src/features/devices/LogRateSparkline.tsx)) plots the
+numeric `log.rate.*` dims only — message text is never a chart label. A
+metrics↔logs correlation jump carries a device window from the metrics panel
+straight into the explorer.
+
 ### Long-term (cold) tier
 
 Single-node OSS VictoriaMetrics applies **one global retention window** set by

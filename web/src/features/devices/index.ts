@@ -2,3 +2,4 @@
 export { useDeviceStore } from './state/device-store';
 export { useAMTStore } from './state/amt-store';
 export { useUpdateStore } from './state/update-store';
+export { FleetHealth } from './FleetHealth';

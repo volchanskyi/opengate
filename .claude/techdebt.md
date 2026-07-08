@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-07-03; Edge-Sentinel WS-6 web UI in progress. -->
+<!-- Last reviewed: 2026-07-08; Edge-Sentinel WS-6 web UI + WS-12 log web landed. -->
 
 ## Severity: High
 

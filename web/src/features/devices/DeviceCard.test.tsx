@@ -2,7 +2,10 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import type { components } from '../../types/api';
 import { DeviceCard } from './DeviceCard';
+
+type Device = components['schemas']['Device'];
 
 const mockDevice = {
   id: 'd1',
@@ -17,7 +20,7 @@ const mockDevice = {
   updated_at: '',
 };
 
-function renderCard(overrides: Partial<typeof mockDevice> = {}) {
+function renderCard(overrides: Partial<Device> = {}) {
   const router = createMemoryRouter(
     [
       { path: '/', element: <DeviceCard device={{ ...mockDevice, ...overrides }} /> },
@@ -45,6 +48,22 @@ describe('DeviceCard', () => {
     renderCard();
     await user.click(screen.getByText('test-host'));
     expect(screen.getByText('Device Detail')).toBeInTheDocument();
+  });
+
+  it('shows an anomalous health badge when the anomaly rate is high', () => {
+    renderCard({ anomaly_rate: 0.8 });
+    expect(screen.getByText('Anomalous')).toBeInTheDocument();
+  });
+
+  it('shows a healthy badge when the anomaly rate is low', () => {
+    renderCard({ anomaly_rate: 0.01 });
+    expect(screen.getByText('Healthy')).toBeInTheDocument();
+  });
+
+  it('omits the health badge entirely when there is no recent sample', () => {
+    renderCard();
+    expect(screen.queryByText('Healthy')).toBeNull();
+    expect(screen.queryByText('No data')).toBeNull();
   });
 
   describe('timeAgo formatting', () => {

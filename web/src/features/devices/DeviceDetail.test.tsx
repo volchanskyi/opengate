@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-dom';
@@ -15,6 +15,18 @@ vi.mock('../../lib/api', () => ({
     POST: vi.fn().mockResolvedValue({ data: { token: 'tok', relay_url: 'ws://localhost' }, error: undefined }),
     DELETE: vi.fn().mockResolvedValue({ error: undefined }),
   },
+}));
+
+// The telemetry panel is exercised in DeviceMetrics.test.tsx; stub it here so
+// these tests stay isolated from uPlot/canvas and the metrics fetch. The stub
+// exposes onViewLogs so the correlation-jump glue can be driven.
+vi.mock('./DeviceMetrics', () => ({
+  DeviceMetrics: ({ deviceId, onViewLogs }: { deviceId: string; onViewLogs?: (f: number, t: number) => void }) => (
+    <div data-testid="device-metrics">
+      {deviceId}
+      <button type="button" onClick={() => onViewLogs?.(1000, 4600)}>mock-view-logs</button>
+    </div>
+  ),
 }));
 
 function renderDetail() {
@@ -91,6 +103,22 @@ describe('DeviceDetail', () => {
     expect(screen.getByText('test-host')).toBeInTheDocument();
     expect(screen.getByText('linux')).toBeInTheDocument();
     expect(screen.getByText('Online')).toBeInTheDocument();
+  });
+
+  it('mounts the telemetry metrics panel for the device', () => {
+    renderDetail();
+    expect(screen.getByTestId('device-metrics')).toHaveTextContent('d1');
+  });
+
+  it('correlation jump: viewing a window pre-fills and fetches those logs', () => {
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    renderDetail();
+    fireEvent.click(screen.getByText('mock-view-logs'));
+    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({
+      from: new Date(1000 * 1000).toISOString(),
+      to: new Date(4600 * 1000).toISOString(),
+    }));
   });
 
   it('shows loading skeleton when loading', () => {
