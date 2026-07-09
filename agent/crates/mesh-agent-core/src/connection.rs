@@ -4,7 +4,7 @@ use mesh_protocol::{
     codec::{self, FRAME_CONTROL},
     ControlMessage, Frame,
 };
-use rand::RngExt;
+use rand::Rng;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{debug, info, warn};
 
@@ -177,7 +177,7 @@ const MAX_BACKOFF_SHIFT: u32 = 16;
 /// across the whole window scatters retries most aggressively. The RNG is
 /// injected so tests can seed it for deterministic bounds checks while
 /// production passes the thread RNG.
-pub fn full_jitter<R: RngExt + ?Sized>(
+pub fn full_jitter<R: Rng + ?Sized>(
     base: Duration,
     cap: Duration,
     exp: u32,
@@ -233,7 +233,7 @@ impl ReconnectGovernor {
     /// exponential backoff that escalates with each consecutive flap. Returns
     /// `None` when the session was stable (`>= window`), resetting the flap
     /// counter so the caller reconnects immediately.
-    pub fn record_disconnect<R: RngExt + ?Sized>(
+    pub fn record_disconnect<R: Rng + ?Sized>(
         &mut self,
         session_duration: Duration,
         rng: &mut R,

@@ -255,28 +255,26 @@ func TestMPSCIRAHandshake(t *testing.T) {
 
 	simulateCIRA(t, conn, amtUUID)
 
-	// Give server a moment to register.
-	time.Sleep(50 * time.Millisecond)
-
-	assert.Equal(t, 1, srv.ConnectedDeviceCount())
-	assert.NotNil(t, srv.GetConn(amtUUID))
-
-	// Check DB upsert.
+	// Registration (conn map + online upsert) is async; poll instead of
+	// assuming a fixed delay so the test is deterministic under -race.
 	ctx := context.Background()
-	device, err := store.Get(ctx, amtUUID)
-	require.NoError(t, err)
-	assert.Equal(t, db.StatusOnline, device.Status)
+	require.Eventually(t, func() bool {
+		return srv.ConnectedDeviceCount() == 1 && srv.GetConn(amtUUID) != nil
+	}, 2*time.Second, 5*time.Millisecond, "server should register the CIRA connection")
+	require.Eventually(t, func() bool {
+		device, err := store.Get(ctx, amtUUID)
+		return err == nil && device.Status == db.StatusOnline
+	}, 2*time.Second, 5*time.Millisecond, "device should be upserted online")
 
-	// Disconnect and verify cleanup.
+	// Disconnect — count, conn map and the offline upsert all settle async.
 	conn.Close()
-	time.Sleep(100 * time.Millisecond)
-
-	assert.Equal(t, 0, srv.ConnectedDeviceCount())
-	assert.Nil(t, srv.GetConn(amtUUID))
-
-	device, err = store.Get(ctx, amtUUID)
-	require.NoError(t, err)
-	assert.Equal(t, db.StatusOffline, device.Status)
+	require.Eventually(t, func() bool {
+		return srv.ConnectedDeviceCount() == 0 && srv.GetConn(amtUUID) == nil
+	}, 2*time.Second, 5*time.Millisecond, "server should drop the closed connection")
+	require.Eventually(t, func() bool {
+		device, err := store.Get(ctx, amtUUID)
+		return err == nil && device.Status == db.StatusOffline
+	}, 2*time.Second, 5*time.Millisecond, "device should be marked offline")
 }
 
 func TestMPSMultipleConnections(t *testing.T) {
@@ -293,14 +291,15 @@ func TestMPSMultipleConnections(t *testing.T) {
 	conn2 := connectAMT(t, addr)
 	simulateCIRA(t, conn2, uuid2)
 
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, 2, srv.ConnectedDeviceCount())
+	require.Eventually(t, func() bool {
+		return srv.ConnectedDeviceCount() == 2
+	}, 2*time.Second, 5*time.Millisecond, "both connections should register")
 
 	conn1.Close()
-	time.Sleep(100 * time.Millisecond)
-	assert.Equal(t, 1, srv.ConnectedDeviceCount())
-	assert.Nil(t, srv.GetConn(uuid1))
-	assert.NotNil(t, srv.GetConn(uuid2))
+	require.Eventually(t, func() bool {
+		return srv.ConnectedDeviceCount() == 1 &&
+			srv.GetConn(uuid1) == nil && srv.GetConn(uuid2) != nil
+	}, 2*time.Second, 5*time.Millisecond, "only conn1 should be dropped")
 }
 
 func TestMPSBadHandshake(t *testing.T) {
@@ -312,17 +311,19 @@ func TestMPSBadHandshake(t *testing.T) {
 		conn := connectAMT(t, addr)
 		// Send a service request instead of protocol version.
 		require.NoError(t, writeStringMsg(conn, APFServiceRequest, ServiceAuth))
-		// Server should close the connection.
-		time.Sleep(100 * time.Millisecond)
-		assert.Equal(t, 0, srv.ConnectedDeviceCount())
+		// Server should close the connection (async).
+		require.Eventually(t, func() bool {
+			return srv.ConnectedDeviceCount() == 0
+		}, 2*time.Second, 5*time.Millisecond, "server should reject the bad handshake")
 	})
 
 	t.Run("garbage data", func(t *testing.T) {
 		conn := connectAMT(t, addr)
 		_, err := conn.Write([]byte{0xFF, 0xFF, 0xFF})
 		require.NoError(t, err)
-		time.Sleep(100 * time.Millisecond)
-		assert.Equal(t, 0, srv.ConnectedDeviceCount())
+		require.Eventually(t, func() bool {
+			return srv.ConnectedDeviceCount() == 0
+		}, 2*time.Second, 5*time.Millisecond, "server should reject garbage data")
 	})
 }
 
@@ -453,8 +454,9 @@ func TestKeepaliveOptionsNegotiation(t *testing.T) {
 	// This test additionally verifies the handshake completes with keepalive active.
 	srv, _, _ := connectedAMT(t)
 
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, 1, srv.ConnectedDeviceCount())
+	require.Eventually(t, func() bool {
+		return srv.ConnectedDeviceCount() == 1
+	}, 2*time.Second, 5*time.Millisecond, "handshake should complete with keepalive active")
 }
 
 // toIntelGUID encodes a standard UUID into Intel mixed-endian wire format
