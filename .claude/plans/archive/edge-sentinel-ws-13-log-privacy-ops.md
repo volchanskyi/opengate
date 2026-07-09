@@ -19,9 +19,9 @@ unproven and gates default-on.
   shapes (tokens, connection strings, bearer/JWT, cloud keys, kv pairs) — agent + server guards.
 - **Create:** edge reader benchmark (Linux journald/syslog + Windows Event Log) — CPU, RSS,
   allocations, enumeration cost; recorded artifact.
-- **Modify:** [`loadtest`](../../server/tests/loadtest/main.go) — add log-rate ingest +
+- **Modify:** [`loadtest`](../../../server/tests/loadtest/main.go) — add log-rate ingest +
   on-demand raw pulls to the multi-tenant soak.
-- **Modify:** [`deploy/grafana/provisioning/dashboards/`](../../deploy/grafana/provisioning/dashboards/)
+- **Modify:** [`deploy/grafana/provisioning/dashboards/`](../../../deploy/grafana/provisioning/dashboards/)
   — log-rate ingest, raw-pull rate + latency, audit-event count panels (VM datasource).
 - **Create:** ADRs (housekeeping below).
 
@@ -61,4 +61,4 @@ run the soak via `make e2e`/the Docker lifecycle; capture Grafana panels. `/prec
 - (a) endpoint-log model (edge-stored, server-proxied; why not Loki/central). (b) raw-log privacy
   (no central storage; audited on-demand; elevated permission; redaction defense-in-depth).
   (c) journald/Windows reader sourcing (no-GPL: `journalctl -o json` / Windows Event Log API).
-  Index rows in [.claude/decisions.md](../decisions.md); update [.claude/phases.md](../phases.md).
+  Index rows in [.claude/decisions.md](../../decisions.md); update [.claude/phases.md](../../phases.md).

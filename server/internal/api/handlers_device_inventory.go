@@ -70,6 +70,7 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 
 	ac := s.agents.GetAgent(request.Id)
 	if ac == nil {
+		s.observeLogPull("offline", 0)
 		return GetDeviceLogs404JSONResponse{Error: "logs not available — device offline"}, nil
 	}
 
@@ -77,7 +78,9 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 	fetchCtx, cancel := context.WithTimeout(ctx, logFetchTimeout)
 	defer cancel()
 
+	start := time.Now()
 	entries, total, err := ac.RequestLogsSync(fetchCtx, filter)
+	s.observeLogPull(logPullResult(err), time.Since(start))
 	if err != nil {
 		return logsBrokerErrorResponse(err)
 	}
@@ -87,6 +90,31 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 	// Audit every raw pull: who, which device, and the requested window/filters.
 	s.auditLog(ctx, ContextUserID(ctx), "device.logs.read", request.Id.String(), logAuditDetails(filter))
 	return GetDeviceLogs200JSONResponse(deviceLogsToAPI(entries, total, filter)), nil
+}
+
+// observeLogPull records a raw-log broker pull outcome and latency when metrics
+// are configured. A zero duration marks a pre-pull outcome (device offline).
+func (s *Server) observeLogPull(result string, duration time.Duration) {
+	if s.metrics != nil {
+		s.metrics.ObserveDeviceLogPull(result, duration)
+	}
+}
+
+// logPullResult classifies a broker outcome into a bounded metric label. The ok
+// label is the audited pull count — every ok pull writes one audit event.
+func logPullResult(err error) string {
+	switch {
+	case err == nil:
+		return "ok"
+	case agentapi.IsCapabilityError(err):
+		return "unsupported"
+	case errors.Is(err, agentapi.ErrLogsBusy):
+		return "busy"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	default:
+		return "error"
+	}
 }
 
 // logsBrokerErrorResponse maps broker failures to bounded HTTP responses without

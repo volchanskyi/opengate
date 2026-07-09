@@ -37,7 +37,11 @@ func main() {
 	agents := flag.Int("agents", 100, "number of concurrent agents")
 	addr := flag.String("addr", "127.0.0.1:9090", "QUIC server address")
 	dataDir := flag.String("data-dir", "", "cert manager data directory (temp if empty)")
+	logWindows := flag.Int("log-windows", 0, "log-rate metric windows each agent emits after register")
+	answerLogPulls := flag.Bool("answer-log-pulls", false, "answer one on-demand raw-log pull per agent")
 	flag.Parse()
+
+	opts := loadOptions{logWindows: *logWindows, answerLogPulls: *answerLogPulls}
 
 	dir := *dataDir
 	if dir == "" {
@@ -64,14 +68,21 @@ func main() {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			results[idx] = runAgent(cm, *addr)
+			results[idx] = runAgent(cm, *addr, opts)
 		}(i)
 	}
 
 	wg.Wait()
 	totalDur := time.Since(start)
 
-	// Collect statistics
+	if reportResults(results, totalDur, *agents) > 0 {
+		os.Exit(1)
+	}
+}
+
+// reportResults prints the timing summary and returns the number of failed
+// agents, so the caller can set the process exit code.
+func reportResults(results []agentResult, totalDur time.Duration, agents int) int {
 	var (
 		successes    int
 		failures     int
@@ -92,7 +103,7 @@ func main() {
 
 	fmt.Printf("\n=== Results ===\n")
 	fmt.Printf("Total time:  %s\n", totalDur.Round(time.Millisecond))
-	fmt.Printf("Agents:      %d/%d succeeded\n", successes, *agents)
+	fmt.Printf("Agents:      %d/%d succeeded\n", successes, agents)
 	fmt.Printf("Failures:    %d\n", failures)
 
 	if successes > 0 {
@@ -105,27 +116,31 @@ func main() {
 	}
 
 	if failures > 0 {
-		// Print up to 3 unique error samples.
-		seen := map[string]int{}
-		for _, r := range results {
-			if r.err != nil {
-				seen[r.err.Error()]++
-			}
+		printErrorSamples(results)
+	}
+	return failures
+}
+
+// printErrorSamples prints up to three unique error messages from failed agents.
+func printErrorSamples(results []agentResult) {
+	seen := map[string]int{}
+	for _, r := range results {
+		if r.err != nil {
+			seen[r.err.Error()]++
 		}
-		fmt.Printf("\nError samples:\n")
-		printed := 0
-		for msg, cnt := range seen {
-			fmt.Printf("  [%dx] %s\n", cnt, msg)
-			printed++
-			if printed >= 3 {
-				break
-			}
+	}
+	fmt.Printf("\nError samples:\n")
+	printed := 0
+	for msg, cnt := range seen {
+		fmt.Printf("  [%dx] %s\n", cnt, msg)
+		printed++
+		if printed >= 3 {
+			break
 		}
-		os.Exit(1)
 	}
 }
 
-func runAgent(cm *cert.Manager, addr string) agentResult {
+func runAgent(cm *cert.Manager, addr string, opts loadOptions) agentResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -136,70 +151,80 @@ func runAgent(cm *cert.Manager, addr string) agentResult {
 		return agentResult{err: fmt.Errorf("sign cert: %w", err)}
 	}
 
-	agentTLS := cm.AgentTLSConfig(tlsCert)
-
-	// Connect
+	// Connect.
 	t0 := time.Now()
-	conn, err := quic.DialAddr(ctx, addr, agentTLS, &quic.Config{
+	conn, err := quic.DialAddr(ctx, addr, cm.AgentTLSConfig(tlsCert), &quic.Config{
 		MaxIdleTimeout: 30 * time.Second,
 	})
 	if err != nil {
 		return agentResult{err: fmt.Errorf("dial: %w", err)}
 	}
-	connectDur := time.Since(t0)
+	res := agentResult{connectDur: time.Since(t0)}
 	defer conn.CloseWithError(0, "loadtest done")
 
-	// Open control stream (agent-initiated): the agent opens and writes
-	// first, per RFC 9000 stream-discovery.
+	// Open control stream (agent-initiated): the agent opens and writes first,
+	// per RFC 9000 stream-discovery.
 	stream, err := conn.OpenStreamSync(ctx)
 	if err != nil {
-		return agentResult{connectDur: connectDur, err: fmt.Errorf("open stream: %w", err)}
+		res.err = fmt.Errorf("open stream: %w", err)
+		return res
 	}
 
-	// Handshake
 	t1 := time.Now()
-	agentCertDER := tlsCert.Certificate[0]
-	agentCertHash := sha512.Sum384(agentCertDER)
+	if err := handshake(stream, tlsCert.Certificate[0]); err != nil {
+		res.err = err
+		return res
+	}
+	res.handshakeDur = time.Since(t1)
+
+	codec := &protocol.Codec{}
+	t2 := time.Now()
+	if err := register(codec, stream, deviceID); err != nil {
+		res.err = err
+		return res
+	}
+	res.registerDur = time.Since(t2)
+
+	if err := runSoakTraffic(codec, stream, opts); err != nil {
+		res.err = err
+	}
+	return res
+}
+
+// handshake performs the agent-first mTLS control handshake: it sends AgentHello
+// (nonce + cert hash) and reads the fixed-size ServerHello reply.
+func handshake(stream io.ReadWriter, certDER []byte) error {
+	certHash := sha512.Sum384(certDER)
 	var nonce [32]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return agentResult{connectDur: connectDur, err: fmt.Errorf("generate nonce: %w", err)}
+		return fmt.Errorf("generate nonce: %w", err)
 	}
-	agentHello := protocol.EncodeAgentHello(nonce, agentCertHash)
-	if _, err := stream.Write(agentHello); err != nil {
-		return agentResult{connectDur: connectDur, err: fmt.Errorf("write agent hello: %w", err)}
+	if _, err := stream.Write(protocol.EncodeAgentHello(nonce, certHash)); err != nil {
+		return fmt.Errorf("write agent hello: %w", err)
 	}
+	if _, err := io.ReadFull(stream, make([]byte, 81)); err != nil {
+		return fmt.Errorf("read server hello: %w", err)
+	}
+	return nil
+}
 
-	serverHello := make([]byte, 81)
-	if _, err := io.ReadFull(stream, serverHello); err != nil {
-		return agentResult{connectDur: connectDur, err: fmt.Errorf("read server hello: %w", err)}
-	}
-	handshakeDur := time.Since(t1)
-
-	// Register
-	t2 := time.Now()
-	codec := &protocol.Codec{}
-	regMsg := &protocol.ControlMessage{
+// register sends the AgentRegister control frame that completes enrollment.
+func register(codec *protocol.Codec, w io.Writer, deviceID uuid.UUID) error {
+	payload, err := codec.EncodeControl(&protocol.ControlMessage{
 		Type:         protocol.MsgAgentRegister,
 		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
 		Hostname:     "loadtest-" + deviceID.String()[:8],
 		OS:           "linux",
 		Arch:         "amd64",
 		Version:      "0.1.0",
-	}
-	payload, err := codec.EncodeControl(regMsg)
+	})
 	if err != nil {
-		return agentResult{connectDur: connectDur, handshakeDur: handshakeDur, err: fmt.Errorf("encode register: %w", err)}
+		return fmt.Errorf("encode register: %w", err)
 	}
-	if err := codec.WriteFrame(stream, protocol.FrameControl, payload); err != nil {
-		return agentResult{connectDur: connectDur, handshakeDur: handshakeDur, err: fmt.Errorf("write register: %w", err)}
+	if err := codec.WriteFrame(w, protocol.FrameControl, payload); err != nil {
+		return fmt.Errorf("write register: %w", err)
 	}
-	registerDur := time.Since(t2)
-
-	return agentResult{
-		connectDur:   connectDur,
-		handshakeDur: handshakeDur,
-		registerDur:  registerDur,
-	}
+	return nil
 }
 
 func percentile(durations []time.Duration, pct int) time.Duration {

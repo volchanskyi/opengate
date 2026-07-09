@@ -126,10 +126,27 @@ see [Database](Database.md#device-processes-table).
 
 Endpoint log signals ride the same numeric path: per-window log-rate dims
 (`opengate_edge_metric_avg{dim="log.rate.…"}`, counts and ranks only) are
-ingested to VM scoped by the server-resolved org. Raw log lines are never
-centralized — they are brokered on demand, redacted, and streamed straight back
-to an administrator with nothing persisted; see
-[ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md).
+ingested to VM scoped by the server-resolved org. This edge-stored,
+server-proxied model — cheap rate signal centralized, secret-dense raw lines
+kept at the edge and read on demand — is recorded in
+[ADR-048](adr/ADR-048-edge-sentinel-endpoint-log-model.md). The host log readers
+source their input through first-party CLIs (`journalctl -o json`, PowerShell
+`Get-WinEvent`) rather than a GPL journal library, per
+[ADR-050](adr/ADR-050-edge-sentinel-log-reader-sourcing.md).
+
+Raw log lines are never centralized — they are brokered on demand, redacted, and
+streamed straight back to an administrator with nothing persisted; see
+[ADR-046](adr/ADR-046-edge-sentinel-raw-log-broker.md). Reading raw logs is
+admin-elevated and writes a `device.logs.read` audit event on every pull. On top
+of those structural controls, redaction runs as defense-in-depth through two
+independent guards — the agent scrubs each line at the edge, and the server
+scrubs again before the browser — over a shared corpus of secret shapes
+(auth headers, credential assignments, JWTs, cloud keys, credentialed connection
+strings, PEM keys); see
+[ADR-049](adr/ADR-049-edge-sentinel-raw-log-privacy.md). The broker exposes
+`opengate_device_log_pulls_total` (by outcome; the `ok` series is the audited-read
+count) and `opengate_device_log_pull_duration_seconds`, charted by the
+Edge-Sentinel Logs dashboard.
 
 The monitoring chart passes the Edge Sentinel stream-aggregation config to
 single-node VictoriaMetrics through
@@ -196,9 +213,10 @@ chart intentionally does not duplicate dashboard JSON; its
 ConfigMaps from the canonical files.
 
 Current dashboard files include the app overview, DB performance, PostgreSQL,
-benchmark trend, mutation trend, PMAT trend, terraform-drift trend, and load-test trend
-dashboards. Numeric CI trend workflows write Prometheus samples to
-VictoriaMetrics:
+the Edge-Sentinel Logs dashboard (log-rate ingest, raw-log pull rate/latency, and
+audited reads), benchmark trend, mutation trend, PMAT trend, terraform-drift
+trend, and load-test trend dashboards. Numeric CI trend workflows write
+Prometheus samples to VictoriaMetrics:
 
 - [`benchmark.yml`](../.github/workflows/benchmark.yml) →
   [`scripts/benchmark-vm-push.sh`](../scripts/benchmark-vm-push.sh)

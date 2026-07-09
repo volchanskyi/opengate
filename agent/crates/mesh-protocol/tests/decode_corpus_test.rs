@@ -40,12 +40,15 @@ fn decode_never_panics_on_committed_corpus() {
 
         // A typed Err is fine; a panic (unchecked index, slice overflow, …) is
         // not — that is exactly the class of bug the fuzz target hunts for.
-        let _ = Frame::decode(&bytes);
+        // `is_err()` consumes the `#[must_use]` result while keeping the point
+        // of the replay explicit: reaching this line means decode returned
+        // instead of panicking.
+        let _decoded_without_panic = Frame::decode(&bytes).is_err();
         // Decoding any prefix of a seed must also stay panic-free (libFuzzer
         // routinely feeds truncated inputs as it minimizes).
         for cut in [0usize, 1, bytes.len() / 2] {
             if cut <= bytes.len() {
-                let _ = Frame::decode(&bytes[..cut]);
+                let _decoded_without_panic = Frame::decode(&bytes[..cut]).is_err();
             }
         }
     }

@@ -48,6 +48,12 @@ paths = [
   '''(^|/)[^/]+_test\.go$''',
   '''(^|/)[^/]+\.test\.(ts|tsx|js|jsx)$''',
   '''(^|/)[^/]+\.spec\.(ts|tsx|js|jsx)$''',
+  # Rust integration tests and benches (`crates/*/tests/*.rs`, `*/benches/*.rs`)
+  # carry the same class of fake credential-shaped fixtures — e.g. the
+  # Edge-Sentinel redaction corpus feeds synthetic JWTs / API keys / connection
+  # strings to the redactor under test. Same trade as the Go/TS test entries.
+  '''(^|/)benches/[^/]+\.rs$''',
+  '''(^|/)tests/[^/]+_test\.rs$''',
 
   # Vendored dependency lockfiles can contain checksum hashes that look like
   # high-entropy secrets to generic detectors.

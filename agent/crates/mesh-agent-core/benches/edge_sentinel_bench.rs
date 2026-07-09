@@ -1,6 +1,8 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use mesh_agent_core::ml::{
     ensemble::EdgeMlEnsemble,
+    log_rate::LogRateExtractor,
+    redact::redact_log_line,
     sampler::{MetricSampler, SysinfoSampler},
     window::AnomalyRateWindow,
 };
@@ -33,6 +35,49 @@ fn bench_sysinfo_sampler_capture(c: &mut Criterion) {
     let mut sampler = SysinfoSampler::new(10).unwrap();
     c.bench_function("edge_sentinel_sysinfo_sample", |b| {
         b.iter(|| black_box(sampler.sample().unwrap()))
+    });
+}
+
+/// Edge log-reader hot path: folding a window of normalized entries into the
+/// fixed log-rate feature vector. This is the per-window CPU cost the host log
+/// readers add on top of metric sampling, and it gates default-on. A realistic
+/// window mixes severities and a long tail of emitting units.
+fn bench_log_rate_window_fold(c: &mut Criterion) {
+    let levels = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
+    let window: Vec<(&str, String)> = (0..2_000)
+        .map(|i| (levels[i % levels.len()], format!("unit-{}.service", i % 64)))
+        .collect();
+
+    c.bench_function("edge_sentinel_log_rate_window_fold", |b| {
+        b.iter(|| {
+            let mut extractor = LogRateExtractor::new();
+            for (level, unit) in black_box(&window) {
+                extractor.observe_label(level, unit);
+            }
+            black_box(extractor.finish())
+        })
+    });
+}
+
+/// Edge redaction hot path: the per-line secret scrub applied to every raw log
+/// line before a response leaves the device. Benchmarked over a secret-dense
+/// mix so the recorded cost reflects the worst realistic case.
+fn bench_log_line_redaction(c: &mut Criterion) {
+    let lines = [
+        "level=info msg=\"request\" auth=\"Bearer abcDEF012345_tok\"",
+        "connecting with password=hunter2secret to db",
+        "api_key: sk-live-XYZ0123456789 accepted",
+        "session token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N",
+        "aws creds AKIAIOSFODNN7EXAMPLE loaded ok in region us-east-1",
+        "user alice logged in from 10.0.0.1 handled request in 4ms",
+    ];
+
+    c.bench_function("edge_sentinel_log_line_redaction", |b| {
+        b.iter(|| {
+            for line in black_box(&lines) {
+                black_box(redact_log_line(line));
+            }
+        })
     });
 }
 
@@ -76,14 +121,16 @@ fn current_rss_kib() -> usize {
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
-    targets = bench_detection_vote_and_window, bench_sysinfo_sampler_capture, bench_rss_probe
+    targets = bench_detection_vote_and_window, bench_sysinfo_sampler_capture,
+        bench_log_rate_window_fold, bench_log_line_redaction, bench_rss_probe
 }
 
 #[cfg(not(target_os = "linux"))]
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
-    targets = bench_detection_vote_and_window, bench_sysinfo_sampler_capture
+    targets = bench_detection_vote_and_window, bench_sysinfo_sampler_capture,
+        bench_log_rate_window_fold, bench_log_line_redaction
 }
 
 criterion_main!(benches);

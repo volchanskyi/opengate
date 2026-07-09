@@ -91,7 +91,11 @@ Before Medium-Free can be activated, the implementation must deliver:
    PVC, and L4 exposure counts.
 3. Load-test evidence from [`load-test.yml`](../.github/workflows/load-test.yml)
    and `make load-test-quic`, including p95/p99 latency, error rate, reconnect
-   behavior, and node CPU/memory saturation.
+   behavior, and node CPU/memory saturation. The QUIC harness
+   ([`loadtest`](../server/tests/loadtest/main.go)) can also drive Edge-Sentinel
+   log traffic — `-log-windows` emits per-agent log-rate windows (the ingest
+   path) and `-answer-log-pulls` answers on-demand raw pulls — so a soak can fold
+   log-rate ingest and broker pulls into the control-plane p99 budget.
 4. A rollback runbook that returns to the current singleton values without data
    loss.
 5. An ADR if the chosen option changes topology, storage durability, L4

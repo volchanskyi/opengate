@@ -27,10 +27,13 @@ var secretValueRE = regexp.MustCompile(`(?i)(password|passwd|pwd|secret|token|ap
 
 // standaloneSecretRE matches secret material that carries its own recognizable
 // shape regardless of surrounding key: HTTP auth headers, AWS access-key ids,
-// and PEM private-key headers. It runs before secretValueRE so a `token` in an
-// "Authorization: Bearer <token>" header is stripped whole rather than leaving
-// the credential behind.
-var standaloneSecretRE = regexp.MustCompile(`(?i)(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}|AKIA[0-9A-Z]{16}|-----BEGIN[A-Z ]*PRIVATE KEY-----`)
+// GCP API keys, JWTs, connection strings that embed `user:pass@host`
+// credentials, and PEM private-key headers. It runs before secretValueRE so a
+// `token` in an "Authorization: Bearer <token>" header is stripped whole rather
+// than leaving the credential behind. The connection-string alternative
+// requires an embedded `user:pass@`, so a plain credential-free URL is left
+// intact.
+var standaloneSecretRE = regexp.MustCompile(`(?i)(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|[a-z][a-z0-9+.-]*://[^\s:@/]+:[^\s:@/]+@\S+|-----BEGIN[A-Z ]*PRIVATE KEY-----`)
 
 // clampLogLimit normalizes a caller-supplied limit into (0, maxLogLines].
 func clampLogLimit(limit int) int {
