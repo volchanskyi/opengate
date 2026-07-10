@@ -33,7 +33,7 @@ baseline.
 
 **Edge-substrate rubric (why these five — and what's excluded on category, not quality).** A viable
 agent-local store must be (1) **embeddable in-process** (no daemon), (2) **permissive-licensed**
-(passes [agent/deny.toml](../../agent/deny.toml)), (3) **pure-Rust / no-CGO** so it cross-compiles to
+(passes [agent/deny.toml](../../../agent/deny.toml)), (3) **pure-Rust / no-CGO** so it cross-compiles to
 Windows-msvc + Linux ARM64, (4) **minimal-footprint** (<1 MB-RSS class), (5) **crash-safe**. This
 rules out: **server-class TSDBs** — TDengine (AGPL + `taosd` daemon, Linux/macOS-only), InfluxDB,
 Timescale, Prometheus-TSDB — fail (1); **multi-model app DBs** — SurrealDB (BSL-1.1 until 2030;
