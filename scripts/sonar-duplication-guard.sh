@@ -28,7 +28,11 @@
 #   SONAR_API              default https://sonarcloud.io
 #   DUP_CEILING            per-file ceiling, default 3 (= the gate threshold).
 #   DUP_BASE               git ref changed files are compared against, default HEAD.
+#   DUP_SETTLE_RETRIES     settle polls before evaluating anyway, default 12.
+#   DUP_SETTLE_SLEEP       seconds between settle polls, default 5.
 #   DUP_CHANGED_OVERRIDE   test seam: newline-separated file list (skips git).
+#   DUP_ANCHORS_OVERRIDE   test seam: newline-separated anchor list (skips git;
+#                          set-but-empty means "no anchors").
 #   DUP_DENSITY_OVERRIDE   test seam: "path=density" lines (skips the API).
 #   CURL_BIN               curl binary (stubbed in tests).
 #
@@ -43,6 +47,8 @@ SONAR_BRANCH="${SONAR_BRANCH:-dev}"
 SONAR_API="${SONAR_API:-https://sonarcloud.io}"
 DUP_CEILING="${DUP_CEILING:-3}"
 DUP_BASE="${DUP_BASE:-HEAD}"
+DUP_SETTLE_RETRIES="${DUP_SETTLE_RETRIES:-12}"
+DUP_SETTLE_SLEEP="${DUP_SETTLE_SLEEP:-5}"
 CURL_BIN="${CURL_BIN:-curl}"
 
 # sdup_above_ceiling <value> <ceiling> — exit 0 (true) when value > ceiling.
@@ -85,6 +91,34 @@ sdup_changed_files() {
   done
 }
 
+# sdup_existed_at_base <path> — exit 0 when the file was tracked at DUP_BASE, so
+# it is guaranteed a measure once the freshly-uploaded analysis is indexed. Such
+# files anchor the settle wait below (a brand-new file legitimately has none).
+sdup_existed_at_base() {
+  if [ -n "${DUP_ANCHORS_OVERRIDE+x}" ]; then # set, possibly empty
+    [ -n "$DUP_ANCHORS_OVERRIDE" ] && printf '%s\n' "$DUP_ANCHORS_OVERRIDE" | grep -qxF "$1"
+    return
+  fi
+  git cat-file -e "$DUP_BASE:$1" 2>/dev/null
+}
+
+# sdup_settled <files> — exit 0 when the uploaded analysis is queryable: either
+# no anchor files exist to wait on, or at least one anchor already reports a
+# measure. Returns non-zero while anchors exist but none report yet (still
+# indexing), so `make sonar`'s just-uploaded result is not read as an empty pass.
+sdup_settled() {
+  local f found_anchor=1 # 1 = no anchor seen yet (shell-false)
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    sdup_existed_at_base "$f" || continue
+    found_anchor=0
+    [ -n "$(sdup_density "$f")" ] && return 0
+  done <<<"$1"
+  # No anchors → nothing to wait on (settled). Anchors but none reporting → still
+  # indexing (not settled).
+  [ "$found_anchor" -eq 1 ]
+}
+
 # sdup_density <path> — print the file's absolute duplicated_lines_density
 # (empty when SonarCloud has no measure for it, e.g. a brand-new file the last
 # analysis did not include).
@@ -106,12 +140,25 @@ sdup_main() {
     return 2
   fi
 
-  local files offenders=() checked=0 f d
+  local files offenders=() checked=0 f d i=0
   files="$(sdup_changed_files)"
   if [ -z "$files" ]; then
     echo "✓ sonar-duplication-guard: no changed source files — nothing to guard" >&2
     return 0
   fi
+
+  # `make sonar` waits on the compute engine, but the measures REST endpoint can
+  # lag a few seconds behind indexing. Reading it too early returns empty for
+  # every file and the guard would pass blindly, so wait for the analysis to
+  # become queryable before evaluating.
+  until sdup_settled "$files"; do
+    i=$((i + 1))
+    if [ "$i" -gt "$DUP_SETTLE_RETRIES" ]; then
+      echo "⚠ sonar-duplication-guard: analysis measures not queryable after ${DUP_SETTLE_RETRIES} polls; evaluating with what is available" >&2
+      break
+    fi
+    sleep "$DUP_SETTLE_SLEEP"
+  done
 
   while IFS= read -r f; do
     [ -n "$f" ] || continue

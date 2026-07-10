@@ -57,6 +57,12 @@ trap cleanup EXIT
 # shellcheck source=../sonar-duplication-guard.sh disable=SC1091
 source "$GUARD"
 
+# Neutralise the analysis-settle wait for the pure eval tests: no anchors + zero
+# retries means sdup_main proceeds straight to evaluation with no sleeps.
+export DUP_ANCHORS_OVERRIDE=""
+export DUP_SETTLE_RETRIES=0
+export DUP_SETTLE_SLEEP=0
+
 echo "sdup_above_ceiling (float-safe numeric compare):"
 assert_ok "7.4 > 3 is above (the gate value)" sdup_above_ceiling 7.4 3
 assert_ok "33.3 > 3 is above" sdup_above_ceiling 33.3 3
@@ -92,6 +98,27 @@ else
   fail "override empty for unknown file"
 fi
 unset DUP_DENSITY_OVERRIDE
+
+echo
+echo "sdup_existed_at_base / sdup_settled (analysis-settle wait):"
+# Anchor override lists the pre-existing files; empty means none.
+DUP_ANCHORS_OVERRIDE=$'agent/crates/edge-tsdb/src/redb_store.rs' \
+  assert_ok "listed path is an anchor" sdup_existed_at_base agent/crates/edge-tsdb/src/redb_store.rs
+DUP_ANCHORS_OVERRIDE=$'agent/crates/edge-tsdb/src/redb_store.rs' \
+  assert_fail "unlisted path is not an anchor" sdup_existed_at_base agent/crates/edge-tsdb/src/redb_backend.rs
+DUP_ANCHORS_OVERRIDE="" \
+  assert_fail "empty override → nothing is an anchor" sdup_existed_at_base agent/crates/edge-tsdb/src/redb_store.rs
+# No anchors → settled immediately (nothing to wait on).
+DUP_ANCHORS_OVERRIDE="" \
+  assert_ok "no anchors → settled" sdup_settled agent/crates/edge-tsdb/src/redb_backend.rs
+# An anchor that already reports a measure → settled.
+DUP_ANCHORS_OVERRIDE="agent/crates/edge-tsdb/src/redb_store.rs" \
+  DUP_DENSITY_OVERRIDE="agent/crates/edge-tsdb/src/redb_store.rs=22.9" \
+  assert_ok "anchor with a measure → settled" sdup_settled agent/crates/edge-tsdb/src/redb_store.rs
+# An anchor that reports nothing yet → not settled (still indexing).
+DUP_ANCHORS_OVERRIDE="agent/crates/edge-tsdb/src/redb_store.rs" \
+  DUP_DENSITY_OVERRIDE="other=1.0" \
+  assert_fail "anchor without a measure → not settled" sdup_settled agent/crates/edge-tsdb/src/redb_store.rs
 
 echo
 echo "sdup_main via overrides (no network, no git):"

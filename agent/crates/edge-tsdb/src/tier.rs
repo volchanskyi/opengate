@@ -204,49 +204,19 @@ pub fn decode_tier_block(bytes: &[u8]) -> Result<Vec<StoredTierPoint>> {
 }
 
 /// Reduce a raw series into `interval`-second buckets. Input need not be sorted
-/// or monotonic; buckets are assigned by `floor(ts / interval)`.
+/// or monotonic; buckets are assigned by `floor(ts / interval)`. This is
+/// [`stored_rollup`] with `sum`/`last_ts` collapsed into the presentation `avg`.
 #[must_use]
 pub fn rollup(samples: &[Sample], interval: i64) -> Vec<TierPoint> {
-    assert!(interval > 0, "interval must be positive");
-    // Accumulate per bucket, preserving first-seen bucket order deterministically
-    // by sorting keys at the end.
-    use std::collections::BTreeMap;
-    struct Acc {
-        min: f64,
-        max: f64,
-        sum: f64,
-        last: f64,
-        last_ts: i64,
-        count: u32,
-    }
-    let mut acc: BTreeMap<i64, Acc> = BTreeMap::new();
-    for s in samples {
-        let bucket = s.ts.div_euclid(interval) * interval;
-        let e = acc.entry(bucket).or_insert(Acc {
-            min: s.value,
-            max: s.value,
-            sum: 0.0,
-            last: s.value,
-            last_ts: i64::MIN,
-            count: 0,
-        });
-        e.min = e.min.min(s.value);
-        e.max = e.max.max(s.value);
-        e.sum += s.value;
-        e.count += 1;
-        if s.ts >= e.last_ts {
-            e.last_ts = s.ts;
-            e.last = s.value;
-        }
-    }
-    acc.into_iter()
-        .map(|(bucket, a)| TierPoint {
-            bucket,
-            min: a.min,
-            max: a.max,
-            avg: a.sum / f64::from(a.count),
-            last: a.last,
-            count: a.count,
+    stored_rollup(samples, interval)
+        .into_iter()
+        .map(|p| TierPoint {
+            bucket: p.bucket,
+            min: p.min,
+            max: p.max,
+            avg: p.sum / f64::from(p.count),
+            last: p.last,
+            count: p.count,
         })
         .collect()
 }
