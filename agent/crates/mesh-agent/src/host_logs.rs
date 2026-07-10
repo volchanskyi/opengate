@@ -8,6 +8,7 @@
 
 use crate::logs::{LogCollector, LogFilter};
 use mesh_agent_core::ml::log_rate::{LogRateExtractor, LOG_RATE_DIMS};
+use mesh_agent_core::ml::redact::redact_log_line;
 use mesh_protocol::{ControlMessage, LogEntry, MetricDim};
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -228,6 +229,17 @@ pub fn build_log_rate_window(
     })
 }
 
+/// Redacts secret material from each entry's message in place before a raw-log
+/// response leaves the device. Raw log lines are secret-dense, so this edge-side
+/// pass is the first of two independent redaction layers (the server applies the
+/// second). Only the message body carries free text; the level, timestamp, and
+/// unit target are bounded normalized fields and are left untouched.
+pub fn redact_entries(entries: &mut [LogEntry]) {
+    for entry in entries.iter_mut() {
+        entry.message = redact_log_line(&entry.message);
+    }
+}
+
 /// Reads the most recent host log records for `source`, normalized and bounded
 /// by [`MAX_HOST_LINES`]. Returns an empty vector whenever the source is
 /// unavailable — a non-matching platform, a missing tool, or a read failure — so
@@ -391,6 +403,37 @@ mod tests {
         assert!(parse_windows_events("}{").is_empty());
         // Object without Message yields no entry.
         assert!(parse_windows_events(r#"{"Level":2,"ProviderName":"X"}"#).is_empty());
+    }
+
+    /// `redact_entries` strips secret material from each message while leaving
+    /// the bounded normalized fields (level, timestamp, target) intact.
+    #[test]
+    fn redact_entries_scrubs_message_secrets() {
+        let mut entries = vec![
+            LogEntry {
+                timestamp: "2026-04-01T12:00:00Z".into(),
+                level: "ERROR".into(),
+                target: "nginx.service".into(),
+                message: "auth failed for password=hunter2secret retrying".into(),
+            },
+            LogEntry {
+                timestamp: "2026-04-01T12:00:01Z".into(),
+                level: "INFO".into(),
+                target: "app".into(),
+                message: "handled request in 4ms".into(),
+            },
+        ];
+        redact_entries(&mut entries);
+        assert!(
+            !entries[0].message.contains("hunter2secret"),
+            "secret must be stripped: {}",
+            entries[0].message
+        );
+        // Bounded normalized fields are untouched.
+        assert_eq!(entries[0].level, "ERROR");
+        assert_eq!(entries[0].target, "nginx.service");
+        // A benign message is returned unchanged.
+        assert_eq!(entries[1].message, "handled request in 4ms");
     }
 
     /// `collect_host_logs` with the `AgentSelf` source reads the agent's own

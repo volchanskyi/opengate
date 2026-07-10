@@ -43,6 +43,10 @@ type Metrics struct {
 	DBQueryDuration *prometheus.HistogramVec
 	DBQueriesTotal  *prometheus.CounterVec
 	DBSizeBytes     prometheus.Gauge
+
+	// Edge Sentinel raw-log broker
+	DeviceLogPullsTotal   *prometheus.CounterVec
+	DeviceLogPullDuration *prometheus.HistogramVec
 }
 
 // NewMetrics creates and registers all metrics on the given registry.
@@ -103,6 +107,19 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:      "db_size_bytes",
 			Help:      "Database size in bytes (pg_database_size).",
 		}),
+
+		DeviceLogPullsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "opengate",
+			Name:      "device_log_pulls_total",
+			Help:      "Total on-demand raw-log broker pulls by outcome. The ok series is the audited pull count.",
+		}, []string{"result"}),
+
+		DeviceLogPullDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "opengate",
+			Name:      "device_log_pull_duration_seconds",
+			Help:      "On-demand raw-log broker pull duration in seconds by outcome.",
+			Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15},
+		}, []string{"result"}),
 	}
 
 	reg.MustRegister(
@@ -115,9 +132,20 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.DBQueryDuration,
 		m.DBQueriesTotal,
 		m.DBSizeBytes,
+		m.DeviceLogPullsTotal,
+		m.DeviceLogPullDuration,
 	)
 
 	return m
+}
+
+// ObserveDeviceLogPull records one on-demand raw-log broker pull against the
+// pull-count and pull-duration metrics, keyed by outcome (ok, busy, timeout,
+// offline, unsupported, error). The ok series is the audited pull count — every
+// ok pull writes exactly one device.logs.read audit event.
+func (m *Metrics) ObserveDeviceLogPull(result string, duration time.Duration) {
+	m.DeviceLogPullsTotal.WithLabelValues(result).Inc()
+	m.DeviceLogPullDuration.WithLabelValues(result).Observe(duration.Seconds())
 }
 
 // Observe records a single DB-shaped operation against the standard db_query_*

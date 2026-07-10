@@ -9,18 +9,32 @@ import (
 )
 
 func TestRedactSecrets(t *testing.T) {
+	// The connection-string case is assembled from parts rather than written as
+	// a literal DSN so the fixture is not itself a hardcoded-credential hotspot.
+	dsnCred := "s3cr3tpw"
+	dsn := "dsn postgres://appuser:" + dsnCred + "@db.internal:5432/app opened"
+
 	tests := []struct {
 		name       string
 		in         string
 		wantHidden string // substring that must NOT survive; "" means unchanged
 		wantKept   string // substring that must survive
 	}{
+		// This corpus mirrors the agent-side guard's `raw_log_secret_corpus` in
+		// agent/crates/mesh-agent-core/tests/ml_test.rs — the two redactors are
+		// independent defense-in-depth layers, so both must strip every shape.
 		{"bearer token", "Authorization: Bearer abcDEF012345_tok", "abcDEF012345_tok", "[REDACTED]"},
+		{"basic auth", "proxy authorization: Basic dXNlcjpwYXNzd29yZA==", "dXNlcjpwYXNzd29yZA==", "[REDACTED]"},
 		{"password assignment", "db password=hunter2secret ok", "hunter2secret", "password="},
 		{"api key colon", "api_key: sk-livexyz12345 done", "sk-livexyz12345", "api_key:"},
+		{"client secret", "client_secret=ghp_00112233445566778899 rotated", "ghp_00112233445566778899", "client_secret="},
+		{"jwt", "session token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N ok", "eyJzdWIiOiIxMjM0In0", "[REDACTED]"},
 		{"aws access key", "found AKIAIOSFODNN7EXAMPLE in env", "AKIAIOSFODNN7EXAMPLE", "[REDACTED]"},
+		{"gcp api key", "google key AIzaSyA1234567890abcdefghijklmnopqrstuvw in env", "AIzaSyA1234567890abcdefghijklmnopqrstuvw", "[REDACTED]"},
+		{"connection string", dsn, dsnCred, "[REDACTED]"},
 		{"pem header", "-----BEGIN RSA PRIVATE KEY----- MIIB", "PRIVATE KEY", "[REDACTED]"},
 		{"benign line untouched", "user alice logged in from 10.0.0.1", "", "user alice logged in from 10.0.0.1"},
+		{"benign url untouched", "GET https://example.com/health 200", "", "https://example.com/health"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

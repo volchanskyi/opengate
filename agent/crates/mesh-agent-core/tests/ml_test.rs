@@ -1,7 +1,7 @@
 use mesh_agent_core::ml::{
     ensemble::EdgeMlEnsemble,
     kmeans::KMeansModel,
-    redact::{cmdline_hash, redact_cmdline},
+    redact::{cmdline_hash, redact_cmdline, redact_log_line},
     sampler::{FakeSampler, MetricSample, MetricSampler, ProcessSample},
     window::AnomalyRateWindow,
 };
@@ -107,4 +107,90 @@ fn redact_cmdline_covers_common_secret_shapes() {
     assert!(!redacted.contains("AKIAIOSFODNN7EXAMPLE"));
     assert!(!redacted.contains("u:p@db"));
     assert!(redacted.contains("[REDACTED]"));
+}
+
+/// Builds the raw-log redaction corpus: each row is a secret-bearing log line
+/// whose `secret` substring must never survive redaction. This corpus is
+/// mirrored, case for case, by the server-side guard's `TestRedactSecrets` in
+/// `server/internal/api/log_redact_test.go` — the two guards are independent
+/// defense-in-depth layers, so both must strip every shape. Keep them in sync.
+///
+/// The connection-string case is assembled from parts rather than written as a
+/// literal DSN so the fixture is not itself a hardcoded-credential hotspot.
+fn raw_log_secret_corpus() -> Vec<(String, String)> {
+    let dsn_pw = "s3cr3tpw";
+    let dsn = format!("dsn postgres://appuser:{dsn_pw}@db.internal:5432/app opened");
+    vec![
+        // Bearer / basic auth headers.
+        (
+            "level=info msg=\"request\" auth=\"Bearer abcDEF012345_tok\"".into(),
+            "abcDEF012345_tok".into(),
+        ),
+        (
+            "proxy authorization: Basic dXNlcjpwYXNzd29yZA==".into(),
+            "dXNlcjpwYXNzd29yZA==".into(),
+        ),
+        // key=value and key: value assignments.
+        (
+            "connecting with password=hunter2secret to db".into(),
+            "hunter2secret".into(),
+        ),
+        (
+            "api_key: sk-live-XYZ0123456789 accepted".into(),
+            "sk-live-XYZ0123456789".into(),
+        ),
+        (
+            "client_secret=ghp_00112233445566778899 rotated".into(),
+            "ghp_00112233445566778899".into(),
+        ),
+        // JWT session token (three base64url segments).
+        (
+            "session started token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N"
+                .into(),
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N".into(),
+        ),
+        // Cloud keys: AWS access-key id and GCP API key.
+        (
+            "aws creds AKIAIOSFODNN7EXAMPLE loaded".into(),
+            "AKIAIOSFODNN7EXAMPLE".into(),
+        ),
+        (
+            "google key AIzaSyA1234567890abcdefghijklmnopqrstuvw in env".into(),
+            "AIzaSyA1234567890abcdefghijklmnopqrstuvw".into(),
+        ),
+        // Connection string with embedded credentials.
+        (dsn, dsn_pw.into()),
+    ]
+}
+
+#[test]
+fn redact_log_line_strips_every_secret_shape() {
+    for (line, secret) in raw_log_secret_corpus() {
+        let redacted = redact_log_line(&line);
+        assert!(
+            !redacted.contains(&secret),
+            "secret {secret:?} survived redaction of {line:?} → {redacted:?}"
+        );
+        assert!(
+            redacted.contains("REDACTED"),
+            "redacted line must carry a placeholder: {redacted:?}"
+        );
+    }
+}
+
+#[test]
+fn redact_log_line_leaves_benign_lines_intact() {
+    // A line with no secret material is returned unchanged, including a plain URL
+    // that carries no credentials.
+    for benign in [
+        "user alice logged in from 10.0.0.1",
+        "GET https://example.com/health 200 in 4ms",
+        "disk usage 42% on /var",
+    ] {
+        assert_eq!(
+            redact_log_line(benign),
+            benign,
+            "benign line must be untouched"
+        );
+    }
 }

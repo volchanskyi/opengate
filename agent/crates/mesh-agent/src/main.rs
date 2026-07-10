@@ -737,7 +737,10 @@ async fn main() -> Result<()> {
                                 limit: log_limit,
                             };
                             match collector.collect(&filter) {
-                                Ok(result) => {
+                                Ok(mut result) => {
+                                    // Edge-side redaction is the first of two
+                                    // independent guards on secret-dense raw lines.
+                                    host_logs::redact_entries(&mut result.entries);
                                     let msg = mesh_protocol::ControlMessage::DeviceLogsResponse {
                                         log_entries: result.entries,
                                         total_count: result.total_count,
