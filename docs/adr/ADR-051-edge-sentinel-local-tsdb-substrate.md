@@ -130,8 +130,34 @@ Reproduce with `cargo bench -p edge-tsdb`; gated by `tests/compact_test.rs`.
   number, not a preference.
 - **WS-14b default becomes redb + the compact block format** (Path 1), not the
   f64 Gorilla blocks: same substrate, ~2× denser blocks, inline anomaly bit for
-  free. Adding pure-Rust ZSTD over the block is the next measured lever toward
-  the ~0.6–1 B class.
+  free.
+
+### Second-stage compression measured — a dead end; fixed-point is the real lever
+
+Measured a second compression stage over each compact block (per-block, as redb
+stores them), on 24 h × 40 series:
+
+- **A general compressor over the compact codec buys only ~3%** — deflate 1.146,
+  brotli 1.146, **zstd(C) 1.147**, all vs 1.183 raw; `lz4_flex` is *worse* (frame
+  overhead). Gorilla-style bit-packing already removed the redundancy an LZ stage
+  feeds on. **C-zstd does not beat pure-Rust deflate/brotli here**, so the
+  no-CGO/`deny.toml` constraint costs nothing and a zstd C dependency is
+  unjustified. (There is also no mature pure-Rust *zstd encoder*; `ruzstd` is
+  decode-only.)
+- **The lever that reaches the ~1 B class is a codec change, not a compressor:
+  fixed-point gauge quantization** — store `round(value×100)` as an integer and
+  delta-of-delta it (lossless to centi precision, the precision Netdata-class
+  telemetry needs). That alone is **1.10 B/sample** (7% under float32-XOR and
+  *more* controlled loss), and fixed-point **+ pure-Rust DEFLATE** (flate2 /
+  miniz_oxide, already in the agent lock — zero new deps, no CGO) reaches
+  **0.99 B/sample**, matching fixed-point + zstd(0.989) within noise.
+- **WS-14b guidance:** make the value codec fixed-point-per-metric (scale chosen
+  by metric family), keep DEFLATE as an *optional cold-tier* stage (it adds
+  decompress CPU on every read, so weigh it against the <1 % budget — likely T1/T2
+  only, not hot T0), and do **not** add zstd. Numbers are on synthetic
+  random-walk data; real fleet telemetry is typically more stable and should
+  compress at least as well. Reproduce via the throwaway compressor bake-off
+  (not committed — it links C zstd/brotli only to establish the ceiling).
 - The fault-injection harness and gate tests are the regression guard for WS-14b:
   crash-recovery, corruption-quarantine, disk-full-cap, and clock-jump behaviour
   are asserted, always-run, on every commit.
