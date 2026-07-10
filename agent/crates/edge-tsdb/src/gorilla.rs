@@ -139,8 +139,9 @@ pub fn decode_block(payload: &[u8]) -> Result<Vec<Sample>> {
 }
 
 /// Write a delta-of-delta with a variable-width prefix code. The final 64-bit
-/// escape keeps arbitrary NTP-step timestamp jumps lossless.
-fn encode_dod(w: &mut BitWriter, dod: i64) {
+/// escape keeps arbitrary NTP-step timestamp jumps lossless. Shared with the
+/// compact codec, which reuses it for lossless integral-value streams.
+pub(crate) fn encode_dod(w: &mut BitWriter, dod: i64) {
     if dod == 0 {
         w.put_bit(0);
     } else if fits(dod, 7) {
@@ -161,7 +162,7 @@ fn encode_dod(w: &mut BitWriter, dod: i64) {
     }
 }
 
-fn decode_dod(r: &mut BitReader) -> Result<i64> {
+pub(crate) fn decode_dod(r: &mut BitReader) -> Result<i64> {
     let err = || TsdbError::CorruptBlock("dod");
     if r.get_bit().ok_or_else(err)? == 0 {
         return Ok(0);

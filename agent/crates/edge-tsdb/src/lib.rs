@@ -17,12 +17,14 @@
 pub mod append_only;
 pub mod baseline;
 pub mod bitio;
+pub mod compact;
 pub mod corpus;
 pub mod crc;
 pub mod error;
 pub mod fault;
 pub mod frame;
 pub mod gorilla;
+pub mod redb_compact;
 pub mod redb_store;
 pub mod sample;
 pub mod substrate;

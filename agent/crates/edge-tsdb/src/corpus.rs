@@ -124,6 +124,13 @@ impl Corpus {
         self.events.len()
     }
 
+    /// The per-series expected sample streams (index = `SeriesId`). Used by the
+    /// codec bake-off to encode identical input through each codec.
+    #[must_use]
+    pub fn series(&self) -> &[Vec<Sample>] {
+        &self.expected
+    }
+
     /// Replay every event into `store` (caller commits).
     pub fn replay_into<S: Substrate>(&self, store: &mut S) -> Result<()> {
         for (series, sample) in &self.events {
