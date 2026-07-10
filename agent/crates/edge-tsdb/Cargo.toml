@@ -5,15 +5,26 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
-# WS-14a local-TSDB substrate bake-off (spike). Nothing in the shipped agent
-# depends on this crate: it is the evidence harness (fixture corpus, shared
-# Gorilla tiering+compression layer, fault injection, measurement) plus the
-# leading substrate skeleton. redb is the only external dependency and is pulled
-# in only by this crate, never by the mesh-agent binary.
+# WS-14b graduated the WS-14a spike into the production agent-local multi-tier
+# store (`store::LocalTsdb`). redb is the sole external runtime dependency;
+# flate2 (pure-Rust miniz_oxide, already in the agent lock) backs the optional
+# cold-tier DEFLATE. The bake-off comparison substrates (append-only files, the
+# no-persist control, the small/big-block redb references) are retained behind
+# the default-on `bakeoff` feature as the measured off-ramp reference + the
+# `cargo bench` corpus; the shipped `mesh-agent` depends on this crate with
+# `default-features = false` so none of that ships in the binary.
+
+[features]
+default = ["bakeoff", "cold-deflate"]
+# The WS-14a bake-off substrates + fault harness + measurement corpus helpers.
+bakeoff = []
+# Optional cold-tier DEFLATE of sealed T1/T2 blocks (pure-Rust flate2).
+cold-deflate = ["dep:flate2"]
 
 [dependencies]
 thiserror.workspace = true
 redb = "4"
+flate2 = { version = "1", optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

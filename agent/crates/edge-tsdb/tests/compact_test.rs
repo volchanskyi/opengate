@@ -1,3 +1,4 @@
+#![cfg(feature = "bakeoff")]
 //! WS-14a Path-1 measurement: does a Netdata/tsink-grade compact block codec
 //! (float32 + implicit fixed-step timestamps + adaptive per-block codec + inline
 //! anomaly bit), packed into big blocks inside redb, close redb's write-amp gap

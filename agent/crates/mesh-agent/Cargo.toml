@@ -13,6 +13,7 @@ path = "src/main.rs"
 mesh-agent-core = { path = "../mesh-agent-core" }
 mesh-protocol = { path = "../mesh-protocol" }
 platform-linux = { path = "../platform-linux" }
+edge-tsdb = { path = "../edge-tsdb", default-features = false, features = ["cold-deflate"] }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

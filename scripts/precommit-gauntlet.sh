@@ -345,6 +345,12 @@ else
   # sub-line coverage nondeterminism. This fails locally unless new_coverage clears
   # a buffer above 80, keeping the result off the boundary (CI run 26929821908).
   run_check "sonar new-coverage margin" -- bash scripts/sonar-coverage-guard.sh
+  # new-duplication guard: `make sonar` enforces new_duplicated_lines_density ≤ 3,
+  # but SonarCloud derives "new" lines from git blame, so uncommitted changes in a
+  # pre-commit scan are under-counted and a copy-pasted file can pass locally then
+  # fail CI (redb_compact.rs, CI run 29071122300). This checks each changed file's
+  # blame-independent absolute duplication after the upload.
+  run_check "sonar new-duplication guard" -- bash scripts/sonar-duplication-guard.sh
 fi
 
 # Summary.

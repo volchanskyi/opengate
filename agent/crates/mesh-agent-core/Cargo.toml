@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 mesh-protocol = { path = "../mesh-protocol" }
+edge-tsdb = { path = "../edge-tsdb", default-features = false, features = ["cold-deflate"] }
 tokio.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
@@ -33,6 +34,7 @@ image.workspace = true
 sysinfo.workspace = true
 
 [dev-dependencies]
+edge-tsdb = { path = "../edge-tsdb", default-features = false, features = ["cold-deflate"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util", "macros"] }
 mockito.workspace = true

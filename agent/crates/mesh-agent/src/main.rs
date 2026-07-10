@@ -52,6 +52,16 @@ struct Args {
     #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_SENTINEL")]
     edge_sentinel: bool,
 
+    /// Persist Edge-Sentinel samples to the multi-tier local store (redb TSDB)
+    /// under the data dir. Requires `--edge-sentinel`. Default off until the
+    /// footprint benchmark passes.
+    #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_STORE")]
+    edge_store: bool,
+
+    /// Hard footprint cap for the Edge-Sentinel local store, in MiB.
+    #[arg(long, default_value_t = 512, env = "OPENGATE_EDGE_STORE_CAP_MB")]
+    edge_store_cap_mb: u64,
+
     /// Enable the bounded Edge-Sentinel host log-rate readers (journald /
     /// Windows Event Log / self logs). Default off; yields to control traffic.
     #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_LOG_READERS")]
@@ -432,7 +442,21 @@ async fn main() -> Result<()> {
 
     let _edge_sentinel_sampler = if args.edge_sentinel {
         info!("edge-sentinel sampler enabled");
-        Some(edge_sentinel::spawn_sampler())
+        let store = if args.edge_store {
+            let path = args.data_dir.join("edge-tsdb");
+            info!(
+                path = %path.display(),
+                cap_mb = args.edge_store_cap_mb,
+                "edge-sentinel local store enabled"
+            );
+            Some(edge_sentinel::StoreConfig {
+                path,
+                cap_bytes: args.edge_store_cap_mb.saturating_mul(1024 * 1024),
+            })
+        } else {
+            None
+        };
+        Some(edge_sentinel::spawn_sampler(store))
     } else {
         None
     };
@@ -1145,6 +1169,34 @@ mod tests {
         ])
         .unwrap();
         assert!(enabled.edge_sentinel);
+    }
+
+    #[test]
+    fn test_cli_args_edge_store_default_off_and_opt_in() {
+        let default_args = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+        ])
+        .unwrap();
+        assert!(!default_args.edge_store);
+        assert_eq!(default_args.edge_store_cap_mb, 512);
+
+        let enabled = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+            "--edge-store",
+            "--edge-store-cap-mb",
+            "256",
+        ])
+        .unwrap();
+        assert!(enabled.edge_store);
+        assert_eq!(enabled.edge_store_cap_mb, 256);
     }
 
     #[test]

@@ -11,16 +11,7 @@ use std::path::Path;
 use crate::error::Result;
 use crate::sample::{Sample, SeriesId};
 
-/// Durability requested at commit time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Durability {
-    /// Flush and fsync — survives power loss. The bounded-loss boundary.
-    Full,
-    /// Buffer only; a later `Full` commit or clean close makes it durable. Fast
-    /// path with a bounded loss window on crash.
-    None,
-}
+pub use crate::config::Durability;
 
 /// A local time-series substrate: append points, commit for durability, and
 /// range-query them back.

@@ -8,12 +8,11 @@
 //! `None` to its buffered commit.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-
-use crate::error::{Result, TsdbError};
+use crate::error::Result;
 use crate::gorilla::encode_block;
+use crate::redb_backend::RedbBackend;
 use crate::sample::{Sample, SeriesId};
 use crate::substrate::{Durability, Substrate};
 
@@ -21,20 +20,10 @@ use crate::substrate::{Durability, Substrate};
 /// comparison isolates storage overhead.
 const CHUNK_SAMPLES: usize = 120;
 
-/// `(series, first_ts) -> gorilla block`. Tuple keys sort lexicographically, so
-/// a single series' chunks form a contiguous, ordered range.
-const CHUNKS: TableDefinition<(u32, i64), &[u8]> = TableDefinition::new("chunks");
-
-fn re<E: std::fmt::Display>(e: E) -> TsdbError {
-    TsdbError::Redb(e.to_string())
-}
-
-/// Substrate B.
+/// Substrate B. The Gorilla codec over the shared [`RedbBackend`].
 pub struct RedbStore {
-    db: Database,
-    file: PathBuf,
+    backend: RedbBackend,
     open_chunks: BTreeMap<SeriesId, Vec<Sample>>,
-    pending: Vec<(SeriesId, i64, Vec<u8>)>,
 }
 
 impl RedbStore {
@@ -42,41 +31,19 @@ impl RedbStore {
         if let Some(samples) = self.open_chunks.remove(&series) {
             if let Some(first) = samples.first() {
                 let first_ts = first.ts;
-                self.pending
+                self.backend
+                    .pending
                     .push((series, first_ts, encode_block(&samples)));
             }
         }
-    }
-
-    fn for_each_block<F: FnMut(&[u8])>(&self, series: SeriesId, mut f: F) -> Result<()> {
-        let rt = self.db.begin_read().map_err(re)?;
-        let table = match rt.open_table(CHUNKS) {
-            Ok(t) => t,
-            // Table absent until the first commit: nothing persisted yet.
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(()),
-            Err(e) => return Err(re(e)),
-        };
-        for item in table
-            .range((series, i64::MIN)..=(series, i64::MAX))
-            .map_err(re)?
-        {
-            let (_k, v) = item.map_err(re)?;
-            f(v.value());
-        }
-        Ok(())
     }
 }
 
 impl Substrate for RedbStore {
     fn open(path: &Path) -> Result<Self> {
-        std::fs::create_dir_all(path)?;
-        let file = path.join("store.redb");
-        let db = Database::create(&file).map_err(re)?;
         Ok(Self {
-            db,
-            file,
+            backend: RedbBackend::open(path, "store.redb", "chunks")?,
             open_chunks: BTreeMap::new(),
-            pending: Vec::new(),
         })
     }
 
@@ -94,35 +61,17 @@ impl Substrate for RedbStore {
         for s in series {
             self.seal(s);
         }
-        if self.pending.is_empty() {
-            return Ok(());
-        }
-        let mut wt = self.db.begin_write().map_err(re)?;
-        wt.set_durability(match durability {
-            Durability::Full => redb::Durability::Immediate,
-            Durability::None => redb::Durability::None,
-        })
-        .map_err(re)?;
-        {
-            let mut table = wt.open_table(CHUNKS).map_err(re)?;
-            for (series, first_ts, block) in self.pending.drain(..) {
-                table
-                    .insert((series, first_ts), block.as_slice())
-                    .map_err(re)?;
-            }
-        }
-        wt.commit().map_err(re)?;
-        Ok(())
+        self.backend.write_pending(durability)
     }
 
     fn range(&self, series: SeriesId, start: i64, end: i64) -> Result<Vec<Sample>> {
         let mut out = Vec::new();
-        self.for_each_block(series, |block| {
+        self.backend.for_each_block(series, |block| {
             if let Ok(samples) = crate::gorilla::decode_block(block) {
                 out.extend(samples.into_iter().filter(|s| s.ts >= start && s.ts < end));
             }
         })?;
-        for (s, _ts, block) in self.pending.iter().filter(|(s, _, _)| *s == series) {
+        for (s, _ts, block) in self.backend.pending.iter().filter(|(s, _, _)| *s == series) {
             debug_assert_eq!(*s, series);
             out.extend(
                 crate::gorilla::decode_block(block)?
@@ -138,29 +87,13 @@ impl Substrate for RedbStore {
     }
 
     fn size_on_disk(&self) -> Result<u64> {
-        Ok(std::fs::metadata(&self.file).map(|m| m.len()).unwrap_or(0))
+        self.backend.size_on_disk()
     }
 
     fn total_samples(&self) -> Result<usize> {
-        let mut total = 0usize;
-        let rt = self.db.begin_read().map_err(re)?;
-        match rt.open_table(CHUNKS) {
-            Ok(table) => {
-                for item in table.iter().map_err(re)? {
-                    let (_k, v) = item.map_err(re)?;
-                    total += crate::gorilla::block_count(v.value()) as usize;
-                }
-            }
-            Err(redb::TableError::TableDoesNotExist(_)) => {}
-            Err(e) => return Err(re(e)),
-        }
-        total += self
-            .pending
-            .iter()
-            .map(|(_, _, b)| crate::gorilla::block_count(b) as usize)
-            .sum::<usize>();
-        total += self.open_chunks.values().map(Vec::len).sum::<usize>();
-        Ok(total)
+        let open = self.open_chunks.values().map(Vec::len).sum::<usize>();
+        self.backend
+            .total_samples(|b| crate::gorilla::block_count(b) as usize, open)
     }
 }
 

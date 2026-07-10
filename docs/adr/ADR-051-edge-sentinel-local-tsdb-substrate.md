@@ -125,9 +125,12 @@ Reproduce with `cargo bench -p edge-tsdb`; gated by `tests/compact_test.rs`.
   that big blocks do not remove (COW free pages + page fragmentation), so redb
   will not reach the ~1.3 B an append-structured store would, nor Netdata's
   ~0.6 B (which also adds ZSTD). **Sharpened off-ramp:** substrate A earns a
-  switch only if, after the compact codec + tiering, redb's ~2.4 B/sample still
-  blows the smallest fleet tier's disk budget in the WS-15b soak — a measured
-  number, not a preference.
+  switch only if, after the compact codec + tiering, redb still blows the
+  smallest fleet tier's disk budget in the WS-15b soak — a measured number, not
+  a preference. WS-14b then built the store and measured the multi-tier logical
+  footprint at **~1.87 B/sample** (~1.70 with cold-tier DEFLATE), below the
+  ~2.4 target, so the off-ramp is **not** triggered
+  ([ADR-052](ADR-052-edge-sentinel-local-tsdb-build.md)).
 - **WS-14b default becomes redb + the compact block format** (Path 1), not the
   f64 Gorilla blocks: same substrate, ~2× denser blocks, inline anomaly bit for
   free.

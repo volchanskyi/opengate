@@ -15,12 +15,11 @@
 //! unchanged — the substrate ideas that are redb's, not ours to rebuild.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use std::path::Path;
 
 use crate::compact::{decode_compact, encode_compact};
-use crate::error::{Result, TsdbError};
+use crate::error::Result;
+use crate::redb_backend::RedbBackend;
 use crate::sample::{Sample, SeriesId};
 use crate::substrate::{Durability, Substrate};
 
@@ -30,18 +29,10 @@ const BIG_CHUNK_SAMPLES: usize = 3_000;
 /// Fixed sampler cadence assumed by the implicit-timestamp codec.
 const STEP_SECS: i64 = 1;
 
-const CHUNKS: TableDefinition<(u32, i64), &[u8]> = TableDefinition::new("compact_chunks");
-
-fn re<E: std::fmt::Display>(e: E) -> TsdbError {
-    TsdbError::Redb(e.to_string())
-}
-
-/// Substrate B+.
+/// Substrate B+. The compact codec over the shared [`RedbBackend`].
 pub struct RedbCompactStore {
-    db: Database,
-    file: PathBuf,
+    backend: RedbBackend,
     open_chunks: BTreeMap<SeriesId, Vec<Sample>>,
-    pending: Vec<(SeriesId, i64, Vec<u8>)>,
 }
 
 impl RedbCompactStore {
@@ -51,7 +42,7 @@ impl RedbCompactStore {
                 let first_ts = first.ts;
                 let anomaly = vec![false; samples.len()];
                 let block = encode_compact(&samples, &anomaly, STEP_SECS);
-                self.pending.push((series, first_ts, block));
+                self.backend.pending.push((series, first_ts, block));
             }
         }
     }
@@ -59,14 +50,9 @@ impl RedbCompactStore {
 
 impl Substrate for RedbCompactStore {
     fn open(path: &Path) -> Result<Self> {
-        std::fs::create_dir_all(path)?;
-        let file = path.join("compact.redb");
-        let db = Database::create(&file).map_err(re)?;
         Ok(Self {
-            db,
-            file,
+            backend: RedbBackend::open(path, "compact.redb", "compact_chunks")?,
             open_chunks: BTreeMap::new(),
-            pending: Vec::new(),
         })
     }
 
@@ -84,45 +70,23 @@ impl Substrate for RedbCompactStore {
         for s in series {
             self.seal(s);
         }
-        if self.pending.is_empty() {
-            return Ok(());
-        }
-        let mut wt = self.db.begin_write().map_err(re)?;
-        wt.set_durability(match durability {
-            Durability::Full => redb::Durability::Immediate,
-            Durability::None => redb::Durability::None,
-        })
-        .map_err(re)?;
-        {
-            let mut table = wt.open_table(CHUNKS).map_err(re)?;
-            for (series, first_ts, block) in self.pending.drain(..) {
-                table
-                    .insert((series, first_ts), block.as_slice())
-                    .map_err(re)?;
-            }
-        }
-        wt.commit().map_err(re)?;
-        Ok(())
+        self.backend.write_pending(durability)
     }
 
     fn range(&self, series: SeriesId, start: i64, end: i64) -> Result<Vec<Sample>> {
         let mut out = Vec::new();
-        let rt = self.db.begin_read().map_err(re)?;
-        match rt.open_table(CHUNKS) {
-            Ok(table) => {
-                for item in table
-                    .range((series, i64::MIN)..=(series, i64::MAX))
-                    .map_err(re)?
-                {
-                    let (_k, v) = item.map_err(re)?;
-                    let (samples, _bits) = decode_compact(v.value())?;
+        let mut err = None;
+        self.backend
+            .for_each_block(series, |block| match decode_compact(block) {
+                Ok((samples, _bits)) => {
                     out.extend(samples.into_iter().filter(|s| s.ts >= start && s.ts < end));
                 }
-            }
-            Err(redb::TableError::TableDoesNotExist(_)) => {}
-            Err(e) => return Err(re(e)),
+                Err(e) => err = Some(e),
+            })?;
+        if let Some(e) = err {
+            return Err(e);
         }
-        for (_s, _ts, block) in self.pending.iter().filter(|(s, _, _)| *s == series) {
+        for (_s, _ts, block) in self.backend.pending.iter().filter(|(s, _, _)| *s == series) {
             let (samples, _bits) = decode_compact(block)?;
             out.extend(samples.into_iter().filter(|s| s.ts >= start && s.ts < end));
         }
@@ -134,29 +98,13 @@ impl Substrate for RedbCompactStore {
     }
 
     fn size_on_disk(&self) -> Result<u64> {
-        Ok(std::fs::metadata(&self.file).map(|m| m.len()).unwrap_or(0))
+        self.backend.size_on_disk()
     }
 
     fn total_samples(&self) -> Result<usize> {
-        let mut total = 0usize;
-        let rt = self.db.begin_read().map_err(re)?;
-        match rt.open_table(CHUNKS) {
-            Ok(table) => {
-                for item in table.iter().map_err(re)? {
-                    let (_k, v) = item.map_err(re)?;
-                    total += crate::compact::block_count(v.value()) as usize;
-                }
-            }
-            Err(redb::TableError::TableDoesNotExist(_)) => {}
-            Err(e) => return Err(re(e)),
-        }
-        total += self
-            .pending
-            .iter()
-            .map(|(_, _, b)| crate::compact::block_count(b) as usize)
-            .sum::<usize>();
-        total += self.open_chunks.values().map(Vec::len).sum::<usize>();
-        Ok(total)
+        let open = self.open_chunks.values().map(Vec::len).sum::<usize>();
+        self.backend
+            .total_samples(|b| crate::compact::block_count(b) as usize, open)
     }
 }
 

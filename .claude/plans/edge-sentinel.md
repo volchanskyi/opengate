@@ -117,7 +117,7 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-12 | `archive/edge-sentinel-ws-12-log-web.md` | logs explorer + log-rate sparkline + metrics↔logs correlation jump |
 | WS-13 | `archive/edge-sentinel-ws-13-log-privacy-ops.md` | raw-log redaction corpus + reader-sourcing ADR + Linux/Windows benchmark + soak |
 | WS-14a | `archive/edge-sentinel-ws-14a-offline-tsdb-spike.md` (done — [ADR-051](../../docs/adr/ADR-051-edge-sentinel-local-tsdb-substrate.md): **redb** chosen) | local-TSDB substrate bake-off (append-only / redb / fjall / tsink / no-persist) on a fixture corpus + gates |
-| WS-14b | `edge-sentinel-ws-14b-offline-tsdb-build.md` | graduate the `edge-tsdb` crate to the production **redb** store (compact fixed-point codec, big-block packing, inline anomaly bit; holds min/max/last + 1 s) |
+| WS-14b | `archive/edge-sentinel-ws-14b-offline-tsdb-build.md` (done — [ADR-052](../../docs/adr/ADR-052-edge-sentinel-local-tsdb-build.md): `store::LocalTsdb`, ~1.87 logical B/sample) | graduate the `edge-tsdb` crate to the production **redb** store (compact fixed-point codec, big-block packing, inline anomaly bit; holds min/max/last + 1 s) |
 | WS-15 | `edge-sentinel-ws-15-offline-backfill.md` | reconnect backfill to VM (throttled) + on-demand server-mediated local-history pull |
 | WS-15b | `edge-sentinel-ws-15b-ops-measurement.md` | Grafana + sustained soak + default-on gate (deferred until WS-15) |
 | WS-16 | `edge-sentinel-ws-16-discovery-agent.md` | auto-discovery collectors (ports/services/DBs/containers/packages) + `DiscoveryReport` wire |

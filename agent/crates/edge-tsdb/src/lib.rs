@@ -1,35 +1,66 @@
-//! # edge-tsdb — WS-14a local-TSDB substrate bake-off (spike)
+//! # edge-tsdb — the agent-local multi-tier persistent time-series store.
 //!
-//! A local persistent time-series store is a storage-engine project, not a
-//! feature slice. This crate is the evidence harness that decides which
-//! substrate WS-14b builds on:
+//! Because central VictoriaMetrics keeps `avg` only (the cardinality decision),
+//! this store is the **sole** home for each device's min/max/last + 1 s raw
+//! history — load-bearing, and fetched on demand by WS-15. It was chosen and
+//! de-risked by the WS-14a bake-off (ADR-051) and built in WS-14b.
 //!
-//! - a deterministic [`corpus`] of realistic host telemetry, replayable in CI;
-//! - a shared [`gorilla`] compression layer + [`tier`] rollups + [`frame`]
-//!   framing (the bespoke tiering+compression layer reused by substrates A/B);
-//! - three [`substrate`]s behind one trait — [`append_only`] (A, bespoke files),
-//!   [`redb_store`] (B, redb), and [`baseline`] (C, no-persist control);
-//! - a [`fault`] injection harness (torn write, bit-rot, disk-full, clock jump).
+//! ## Production surface (always compiled)
 //!
-//! Nothing in the shipped agent depends on this crate; it exists to produce the
-//! measured acceptance-gate evidence recorded in ADR-051.
+//! - [`store::LocalTsdb`] — the multi-tier store (T0 1 s raw + anomaly bits,
+//!   T1 1 min, T2 1 hr) on `redb`, one atomic transaction per commit, with a
+//!   durable backfill cursor, coarsest-first disk-cap eviction, format
+//!   migration, MVCC snapshot reads, and a deprovision purge.
+//! - [`compact`] — the block codec: fixed-point-per-metric (lossless to 1/scale)
+//!   or adaptive float32, implicit fixed-step timestamps, and an inline anomaly
+//!   bit.
+//! - [`tier`] — the min/max/avg/last rollups, keyed by sample timestamp.
+//! - [`deflate`] — optional cold-tier DEFLATE for sealed T1/T2 blocks.
+//!
+//! ## Bake-off reference (behind the `bakeoff` feature)
+//!
+//! The WS-14a comparison substrates — bespoke [`append_only`] files (A) and the
+//! no-persist [`baseline`] (C), plus the small-block [`redb_store`] and
+//! big-block [`redb_compact`] references — are retained behind the `bakeoff`
+//! feature as the measured off-ramp reference and the `cargo bench` corpus. They
+//! are not compiled into the shipped agent.
 
-pub mod append_only;
-pub mod baseline;
 pub mod bitio;
 pub mod compact;
-pub mod corpus;
-pub mod crc;
+pub mod config;
+#[cfg(feature = "cold-deflate")]
+pub mod deflate;
 pub mod error;
-pub mod fault;
-pub mod frame;
 pub mod gorilla;
-pub mod redb_compact;
-pub mod redb_store;
 pub mod sample;
-pub mod substrate;
+pub mod store;
 pub mod tier;
 
+pub mod corpus;
+
+#[cfg(feature = "bakeoff")]
+pub mod append_only;
+#[cfg(feature = "bakeoff")]
+pub mod baseline;
+#[cfg(feature = "bakeoff")]
+pub mod crc;
+#[cfg(feature = "bakeoff")]
+pub mod fault;
+#[cfg(feature = "bakeoff")]
+pub mod frame;
+#[cfg(feature = "bakeoff")]
+pub mod redb_backend;
+#[cfg(feature = "bakeoff")]
+pub mod redb_compact;
+#[cfg(feature = "bakeoff")]
+pub mod redb_store;
+#[cfg(feature = "bakeoff")]
+pub mod substrate;
+
+pub use config::{Durability, TsdbConfig};
 pub use error::{Result, TsdbError};
 pub use sample::{Sample, SeriesId};
-pub use substrate::{Durability, Substrate};
+pub use store::{LocalTsdb, Tier};
+
+#[cfg(feature = "bakeoff")]
+pub use substrate::Substrate;

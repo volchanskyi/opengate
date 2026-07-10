@@ -1,8 +1,8 @@
 # WS-14b — Build the multi-tier persistent local TSDB (redb + compact codec)
 
-**Objective:** Promote the WS-14a spike crate [`agent/crates/edge-tsdb`](../../agent/crates/edge-tsdb)
+**Objective:** Promote the WS-14a spike crate [`agent/crates/edge-tsdb`](../../../agent/crates/edge-tsdb)
 into the production agent-local multi-tier persistent TSDB on **`redb`** (chosen by WS-14a,
-[ADR-051](../../docs/adr/ADR-051-edge-sentinel-local-tsdb-substrate.md)). T0 1 s / T1 1 min / T2 1 hr,
+[ADR-051](../../../docs/adr/ADR-051-edge-sentinel-local-tsdb-substrate.md)). T0 1 s / T1 1 min / T2 1 hr,
 on-the-fly downsampling, inline anomaly scores, durable across restart/offline — the full-resolution
 sovereign copy that holds **min/max/last + 1 s raw** (per the avg-only-central cardinality decision).
 
@@ -24,14 +24,14 @@ the sampler, and adds the retention/migration/cursor production surface.
 
 ## Decisions (locked; measured in 14a)
 
-- **Substrate = `redb`** ([ADR-051](../../docs/adr/ADR-051-edge-sentinel-local-tsdb-substrate.md)):
+- **Substrate = `redb`** ([ADR-051](../../../docs/adr/ADR-051-edge-sentinel-local-tsdb-substrate.md)):
   inherited COW crash-safety (2-phase commit / quick-repair / `check_integrity`), MVCC snapshot reads
   (the WS-15 read-while-sampling path is free), no background threads, zero transitive deps, passes
-  the strict [`deny.toml`](../../agent/deny.toml). `fjall`/`tsink` were rejected on the measured
+  the strict [`deny.toml`](../../../agent/deny.toml). `fjall`/`tsink` were rejected on the measured
   dependency sub-gate (3rd `hashbrown` major → `multiple-versions=deny` + compaction threads). The
   bespoke tiering+compression layer sits **on top of** redb (redb owns the crash code, not us).
 - **Block format = the compact codec**
-  ([`compact.rs`](../../agent/crates/edge-tsdb/src/compact.rs)), **not** f64 Gorilla — ~2× denser:
+  ([`compact.rs`](../../../agent/crates/edge-tsdb/src/compact.rs)), **not** f64 Gorilla — ~2× denser:
   - **Fixed-point-per-metric values are the default** (the measured density lever): store
     `round(value × scale)` as an integer, delta-of-delta encoded — **lossless to 1/scale precision**,
     **1.10 B/sample** (7% under float32-XOR *and* more controlled loss). `scale` is chosen **per metric
@@ -51,7 +51,7 @@ the sampler, and adds the retention/migration/cursor production surface.
   on the **<1 % CPU budget** and applies to cold tiers, never hot T0.
 - **Tiers T0/T1/T2 = separate redb tables**, written in **one atomic transaction** (redb commits all
   tables together), so a T0 chunk + its T1/T2 rollups + anomaly scores land or roll back as a unit.
-  Rollups ([`tier.rs`](../../agent/crates/edge-tsdb/src/tier.rs)) are keyed by **sample timestamp**,
+  Rollups ([`tier.rs`](../../../agent/crates/edge-tsdb/src/tier.rs)) are keyed by **sample timestamp**,
   not arrival — an NTP step can never misbucket (already tested).
 - **Durability:** redb `Durability::Immediate` for durable commits (bounded-loss boundary);
   `Durability::None` fast path for hot writes, flushed by a periodic durable commit (bounded loss
@@ -78,12 +78,12 @@ the sampler, and adds the retention/migration/cursor production surface.
 | range-query latency (redb) | ~135 µs | bench |
 
 The existing always-run gates (torn-tail recovery, bit-flip quarantine, disk-full cap, clock-jump,
-density, tolerance) in [`edge-tsdb/tests`](../../agent/crates/edge-tsdb/tests) are the regression floor;
+density, tolerance) in [`edge-tsdb/tests`](../../../agent/crates/edge-tsdb/tests) are the regression floor;
 WS-14b extends them, it does not replace them.
 
 ## File inventory
 
-- **Graduate:** promote [`agent/crates/edge-tsdb`](../../agent/crates/edge-tsdb) to the production
+- **Graduate:** promote [`agent/crates/edge-tsdb`](../../../agent/crates/edge-tsdb) to the production
   local-store crate. Keep `compact.rs`, `tier.rs`, `redb_compact.rs` (→ the production store),
   `frame.rs`/`crc.rs`/`bitio.rs`/`gorilla.rs` (codec deps), `corpus.rs` + `fault.rs` (as test
   fixtures/harness). Move the bake-off-only substrates — `append_only.rs` (A) and `baseline.rs` (C) —
@@ -93,7 +93,7 @@ WS-14b extends them, it does not replace them.
   and **optional cold-tier DEFLATE** on T1/T2 (feature-gated, CPU-budget-checked).
 - **Modify:** `mesh-agent-core/src/ml/` sampler + ensemble — write raw **and** anomaly bits to the
   store; detection reads T0 + recent context (redb MVCC snapshot read while the sampler writes).
-- **Modify:** [`main.rs`](../../agent/crates/mesh-agent/src/main.rs) — depend on the store crate;
+- **Modify:** [`main.rs`](../../../agent/crates/mesh-agent/src/main.rs) — depend on the store crate;
   open/recover on start (default-off flag) under `OPENGATE_DATA_DIR`; enforce the disk cap. (The shipped
   `mesh-agent` binary gains the redb dependency here for the first time — it was isolated to the spike
   crate until now.)

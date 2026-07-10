@@ -27,6 +27,17 @@ pub enum TsdbError {
     #[error("corrupt block: {0}")]
     CorruptBlock(&'static str),
 
+    /// The store on disk was written by a newer agent whose format this build
+    /// does not understand. Returned rather than risking a mis-read; the caller
+    /// recreates the store fresh (losing the local backlog, never crashing).
+    #[error("unsupported store format {found} (this build understands up to {supported})")]
+    UnsupportedFormat {
+        /// The format version found on disk.
+        found: u64,
+        /// The newest format this build can read.
+        supported: u64,
+    },
+
     /// A redb operation failed.
     #[error("redb: {0}")]
     Redb(String),

@@ -26,14 +26,36 @@ use crate::gorilla::{decode_dod, encode_dod};
 use crate::sample::Sample;
 
 const CODEC_XOR32: u8 = 0;
+const CODEC_FIXED_DOD: u8 = 1;
 const CODEC_INT_DOD: u8 = 2;
 const INT_SAFE: f64 = 9_007_199_254_740_992.0; // 2^53
 
-/// Encode a block: values as float32 (or lossless int-DoD when integral),
-/// timestamps implicit against `step` with sparse exceptions, and one anomaly
-/// bit per sample. `anomaly` must be the same length as `samples`.
+/// Encode a block with the adaptive float32 / lossless-integer value path (no
+/// fixed-point quantization). Timestamps are implicit against `step` with sparse
+/// exceptions, and one anomaly bit per sample. `anomaly` must be the same length
+/// as `samples`.
 #[must_use]
 pub fn encode_compact(samples: &[Sample], anomaly: &[bool], step: i64) -> Vec<u8> {
+    encode_compact_scaled(samples, anomaly, step, None)
+}
+
+/// Encode a block, optionally quantizing values to fixed-point at `scale`.
+///
+/// When `scale` is `Some(s)`, a fixed-point candidate is measured: each value is
+/// stored as `round(value × s)` delta-of-delta encoded — **lossless to 1/s
+/// precision** and typically ~7 % denser than float32-XOR for centi-precision
+/// gauges. The adaptive selector keeps the **smallest** of {fixed-point,
+/// float32-XOR, lossless int-DoD (integral only)} per block and tags it, so a
+/// series that packs better as float32 is never made worse by a fixed-point
+/// policy. `scale` must be positive; the chosen scale is stored in the block so
+/// decode needs no external policy.
+#[must_use]
+pub fn encode_compact_scaled(
+    samples: &[Sample],
+    anomaly: &[bool],
+    step: i64,
+    scale: Option<i64>,
+) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&(samples.len() as u32).to_le_bytes());
     if samples.is_empty() {
@@ -43,21 +65,7 @@ pub fn encode_compact(samples: &[Sample], anomaly: &[bool], step: i64) -> Vec<u8
     out.extend_from_slice(&first_ts.to_le_bytes());
     out.extend_from_slice(&step.to_le_bytes());
 
-    // --- value codec selection (adaptive) ---
-    let integral = samples
-        .iter()
-        .all(|s| s.value.fract() == 0.0 && s.value.abs() < INT_SAFE);
-    let xor = encode_xor32(samples);
-    let (codec, value_bytes) = if integral {
-        let intdod = encode_int_dod(samples);
-        if intdod.len() <= xor.len() {
-            (CODEC_INT_DOD, intdod)
-        } else {
-            (CODEC_XOR32, xor)
-        }
-    } else {
-        (CODEC_XOR32, xor)
-    };
+    let (codec, value_bytes) = select_value_codec(samples, scale);
     out.push(codec);
 
     // --- timestamp exceptions (points off the fixed cadence) ---
@@ -131,6 +139,7 @@ pub fn decode_compact(bytes: &[u8]) -> Result<(Vec<Sample>, Vec<bool>)> {
     pos += vlen;
     let values = match codec {
         CODEC_XOR32 => decode_xor32(vbytes, count)?,
+        CODEC_FIXED_DOD => decode_fixed_dod(vbytes, count)?,
         CODEC_INT_DOD => decode_int_dod(vbytes, count)?,
         _ => return Err(TsdbError::CorruptBlock("unknown value codec")),
     };
@@ -149,6 +158,86 @@ pub fn decode_compact(bytes: &[u8]) -> Result<(Vec<Sample>, Vec<bool>)> {
         }
     }
     Ok((out, anomaly))
+}
+
+/// Pick the densest value codec for a block. Preserves the original behaviour
+/// when `scale` is `None` (float32-XOR, or lossless int-DoD for an integral
+/// series when it is no larger), and adds fixed-point at `scale` as a candidate
+/// that wins only when strictly smaller.
+fn select_value_codec(samples: &[Sample], scale: Option<i64>) -> (u8, Vec<u8>) {
+    let integral = samples
+        .iter()
+        .all(|s| s.value.fract() == 0.0 && s.value.abs() < INT_SAFE);
+    let xor = encode_xor32(samples);
+    let (mut codec, mut best) = if integral {
+        let intdod = encode_int_dod(samples);
+        if intdod.len() <= xor.len() {
+            (CODEC_INT_DOD, intdod)
+        } else {
+            (CODEC_XOR32, xor)
+        }
+    } else {
+        (CODEC_XOR32, xor)
+    };
+    if let Some(scale) = scale.filter(|s| *s > 0) {
+        let fixed = encode_fixed_dod(samples, scale);
+        if fixed.len() < best.len() {
+            codec = CODEC_FIXED_DOD;
+            best = fixed;
+        }
+    }
+    (codec, best)
+}
+
+// --- Fixed-point delta-of-delta (per-metric quantized gauges) ---------------
+
+/// Encode values as `round(value × scale)` integers, delta-of-delta coded. The
+/// scale is stored inline so decode is self-describing. Lossless to 1/scale.
+fn encode_fixed_dod(samples: &[Sample], scale: i64) -> Vec<u8> {
+    let mut out = Vec::with_capacity(8 + samples.len());
+    out.extend_from_slice(&scale.to_le_bytes());
+    let mut w = BitWriter::new();
+    let sf = scale as f64;
+    let first = (samples[0].value * sf).round() as i64;
+    w.put_bits(first as u64, 64);
+    let mut prev_val = first;
+    let mut prev_delta = 0i64;
+    for s in &samples[1..] {
+        let val = (s.value * sf).round() as i64;
+        let delta = val.wrapping_sub(prev_val);
+        let dod = delta.wrapping_sub(prev_delta);
+        encode_dod(&mut w, dod);
+        prev_val = val;
+        prev_delta = delta;
+    }
+    out.extend_from_slice(&w.finish());
+    out
+}
+
+fn decode_fixed_dod(bytes: &[u8], count: usize) -> Result<Vec<f64>> {
+    let err = || TsdbError::CorruptBlock("fixed-dod");
+    if bytes.len() < 8 {
+        return Err(err());
+    }
+    let scale = i64::from_le_bytes(bytes[0..8].try_into().unwrap());
+    if scale == 0 {
+        return Err(err());
+    }
+    let sf = scale as f64;
+    let mut r = BitReader::new(&bytes[8..]);
+    let first = r.get_bits(64).ok_or_else(err)? as i64;
+    let mut prev_val = first;
+    let mut prev_delta = 0i64;
+    let mut out = Vec::with_capacity(count);
+    out.push(first as f64 / sf);
+    for _ in 1..count {
+        let dod = decode_dod(&mut r)?;
+        let delta = prev_delta.wrapping_add(dod);
+        prev_val = prev_val.wrapping_add(delta);
+        prev_delta = delta;
+        out.push(prev_val as f64 / sf);
+    }
+    Ok(out)
 }
 
 // --- XOR32 Gorilla over float32 values -------------------------------------
@@ -348,8 +437,55 @@ fn get_ivarint(buf: &[u8], pos: &mut usize) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_compact, encode_compact};
+    use super::{decode_compact, encode_compact, encode_compact_scaled};
     use crate::sample::Sample;
+
+    #[test]
+    fn fixed_point_is_lossless_to_scale() {
+        // Centi-precision gauge: fixed-point at ×100 recovers each value exactly
+        // to 0.01, which float32 cannot guarantee bit-for-bit.
+        let g: Vec<Sample> = (0..400)
+            .map(|i| Sample::new(1_000 + i, 37.50 + (i % 13) as f64 * 0.01))
+            .collect();
+        let bytes = encode_compact_scaled(&g, &vec![false; g.len()], 1, Some(100));
+        let (d, _) = decode_compact(&bytes).unwrap();
+        for (x, o) in d.iter().zip(&g) {
+            let recovered = (x.value * 100.0).round() as i64;
+            let expected = (o.value * 100.0).round() as i64;
+            assert_eq!(recovered, expected, "fixed-point lost centi precision");
+        }
+    }
+
+    #[test]
+    fn fixed_point_is_selected_and_denser_for_centi_gauges() {
+        // A slowly-moving centi gauge should pack smaller as fixed-point int-DoD
+        // than as float32-XOR — the measured density lever.
+        let g: Vec<Sample> = (0..1_000)
+            .map(|i| Sample::new(1_000 + i, 40.0 + ((i / 5) % 20) as f64 * 0.01))
+            .collect();
+        let anom = vec![false; g.len()];
+        let float32 = encode_compact_scaled(&g, &anom, 1, None);
+        let fixed = encode_compact_scaled(&g, &anom, 1, Some(100));
+        assert!(
+            fixed.len() < float32.len(),
+            "fixed-point ({}) not denser than float32 ({})",
+            fixed.len(),
+            float32.len()
+        );
+    }
+
+    #[test]
+    fn scale_never_regresses_below_adaptive() {
+        // A series that packs better as float32 must not be made larger by
+        // offering a fixed-point scale — the selector keeps the smallest.
+        let noisy: Vec<Sample> = (0..500)
+            .map(|i| Sample::new(1_000 + i, (i as f64 * 1.2345).sin() * 50.0))
+            .collect();
+        let anom = vec![false; noisy.len()];
+        let adaptive = encode_compact_scaled(&noisy, &anom, 1, None);
+        let with_scale = encode_compact_scaled(&noisy, &anom, 1, Some(1000));
+        assert!(with_scale.len() <= adaptive.len());
+    }
 
     #[test]
     fn empty_block_round_trips() {
