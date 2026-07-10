@@ -9,11 +9,13 @@
 
 use crate::bitio::{BitReader, BitWriter};
 use crate::error::{Result, TsdbError};
+#[cfg(feature = "bakeoff")]
 use crate::sample::Sample;
 
 /// Encode a block of samples into a self-delimiting compressed payload.
 ///
 /// The first 32 bits are the sample count so the decoder is framing-independent.
+#[cfg(feature = "bakeoff")]
 #[must_use]
 pub fn encode_block(samples: &[Sample]) -> Vec<u8> {
     let mut w = BitWriter::new();
@@ -72,6 +74,7 @@ pub fn encode_block(samples: &[Sample]) -> Vec<u8> {
 
 /// Number of samples a block encodes, read from its 32-bit count header without
 /// decoding the body. Used by recovery/stats to count fast.
+#[cfg(feature = "bakeoff")]
 #[must_use]
 pub fn block_count(payload: &[u8]) -> u32 {
     let mut r = BitReader::new(payload);
@@ -79,6 +82,7 @@ pub fn block_count(payload: &[u8]) -> u32 {
 }
 
 /// Decode a block previously produced by [`encode_block`].
+#[cfg(feature = "bakeoff")]
 pub fn decode_block(payload: &[u8]) -> Result<Vec<Sample>> {
     let mut r = BitReader::new(payload);
     let count = r
@@ -139,8 +143,9 @@ pub fn decode_block(payload: &[u8]) -> Result<Vec<Sample>> {
 }
 
 /// Write a delta-of-delta with a variable-width prefix code. The final 64-bit
-/// escape keeps arbitrary NTP-step timestamp jumps lossless.
-fn encode_dod(w: &mut BitWriter, dod: i64) {
+/// escape keeps arbitrary NTP-step timestamp jumps lossless. Shared with the
+/// compact codec, which reuses it for lossless integral-value streams.
+pub(crate) fn encode_dod(w: &mut BitWriter, dod: i64) {
     if dod == 0 {
         w.put_bit(0);
     } else if fits(dod, 7) {
@@ -161,22 +166,19 @@ fn encode_dod(w: &mut BitWriter, dod: i64) {
     }
 }
 
-fn decode_dod(r: &mut BitReader) -> Result<i64> {
+pub(crate) fn decode_dod(r: &mut BitReader) -> Result<i64> {
     let err = || TsdbError::CorruptBlock("dod");
+    // A leading 0 is dod == 0. Otherwise walk the width ladder that mirrors
+    // encode_dod's 0b10/0b110/0b1110/0b11110 prefixes: at each level a 0 bit
+    // selects that field width, a 1 bit descends. Falling through is the 64-bit
+    // escape that keeps arbitrary NTP-step jumps lossless.
     if r.get_bit().ok_or_else(err)? == 0 {
         return Ok(0);
     }
-    if r.get_bit().ok_or_else(err)? == 0 {
-        return Ok(sign_extend(r.get_bits(7).ok_or_else(err)?, 7));
-    }
-    if r.get_bit().ok_or_else(err)? == 0 {
-        return Ok(sign_extend(r.get_bits(9).ok_or_else(err)?, 9));
-    }
-    if r.get_bit().ok_or_else(err)? == 0 {
-        return Ok(sign_extend(r.get_bits(12).ok_or_else(err)?, 12));
-    }
-    if r.get_bit().ok_or_else(err)? == 0 {
-        return Ok(sign_extend(r.get_bits(32).ok_or_else(err)?, 32));
+    for &width in &[7u32, 9, 12, 32] {
+        if r.get_bit().ok_or_else(err)? == 0 {
+            return Ok(sign_extend(r.get_bits(width).ok_or_else(err)?, width));
+        }
     }
     Ok(r.get_bits(64).ok_or_else(err)? as i64)
 }
@@ -194,7 +196,7 @@ fn sign_extend(raw: u64, n: u32) -> i64 {
     ((raw << shift) as i64) >> shift
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bakeoff"))]
 mod tests {
     use super::{block_count, decode_block, encode_block};
     use crate::sample::Sample;

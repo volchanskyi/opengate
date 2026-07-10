@@ -8,4 +8,5 @@ pub mod kmeans;
 pub mod log_rate;
 pub mod redact;
 pub mod sampler;
+pub mod store_sink;
 pub mod window;

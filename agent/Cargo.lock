@@ -1102,6 +1102,7 @@ name = "edge-tsdb"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "flate2",
  "proptest",
  "redb",
  "tempfile",
@@ -2091,6 +2092,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "edge-tsdb",
  "gethostname",
  "getrandom 0.4.3",
  "hex",
@@ -2125,6 +2127,7 @@ dependencies = [
  "bytes",
  "criterion",
  "ed25519-dalek",
+ "edge-tsdb",
  "futures-util",
  "hex",
  "image",

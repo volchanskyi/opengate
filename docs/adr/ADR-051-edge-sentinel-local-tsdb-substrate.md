@@ -78,11 +78,12 @@ top.** This is the *simplest option that clears every gate*:
   it from the LSM candidates (fjall/tsink) whose compaction threads spike CPU.
 - **Passes the security surface cleanly.** Zero-dependency, pure-Rust, MIT/Apache;
   it does not perturb `deny.toml`, unlike fjall/tsink.
-- **Density is acceptable and improves at scale.** 7.3 B/sample lossless is a ~2×
-  win over raw; the ~1 B Netdata target is a fixed-point-quantization optimisation
-  for WS-14b, not a substrate property (the same optimisation applies on any
-  substrate). redb over-allocates its file when nearly empty (~1 MB floor), which
-  is immaterial once a device holds days of 1 s-raw.
+- **Density is acceptable and improves at scale.** The 7.3 B/sample in the table
+  is floor-inflated at spike scale — redb over-allocates a ~1 MB minimum file, so
+  small stores read artificially high. At steady state it is ~4.9 B/sample
+  lossless, and the compact block format (see the Path-1 follow-up below) halves
+  it again to ~2.4 while keeping redb's crash-safety. The ~1 B Netdata target is a
+  block-encoding optimisation, not a substrate property.
 
 Substrate A remains in the crate as the density/write-amp reference and the
 fallback if redb's footprint later proves limiting; C stays as the control that
@@ -98,6 +99,68 @@ substrate-independent and carries into WS-14b unchanged.
 - The `f64`-lossless density baseline (2.6 B best case) sets the WS-14b target:
   fixed-point gauge quantization is the lever to approach ~1 B, evaluated there
   against precision loss.
+
+### Path-1 measurement follow-up (compact codec)
+
+A second spike measured a Netdata/tsink-grade **compact block codec**
+([`compact.rs`](../../agent/crates/edge-tsdb/src/compact.rs): float32 values +
+implicit fixed-step timestamps + adaptive per-block codec — XOR32 Gorilla for
+gauges, lossless integer delta-of-delta for counters — + an inline anomaly bit,
+RLE-packed) and a **big-block redb store**
+([`redb_compact.rs`](../../agent/crates/edge-tsdb/src/redb_compact.rs)).
+Reproduce with `cargo bench -p edge-tsdb`; gated by `tests/compact_test.rs`.
+
+- **The compact encoding roughly halves density and is substrate-independent:**
+  **1.26 B/sample** vs 2.47 for f64 Gorilla (**~2×**), float32 error **5.7e-8
+  relative** (negligible for telemetry), counters bit-exact (adaptive selector
+  picks int-DoD), the inline anomaly bit +0.02 B/sample. This is the WS-14b
+  density lever, and it applies to *either* substrate.
+- **redb's true steady-state cost is lower than the floor-inflated snapshot:**
+  once data outgrows redb's ~1 MB fixed floor (≥ ~6 h of 40-series data),
+  small-block f64 redb is **~4.9 B/sample** and **big-block compact redb is
+  ~2.4 B/sample** — the two levers together halve it, landing it level with the
+  original append-only-f64 (2.6) while keeping redb's crash-safety/MVCC. This
+  **erases append-only's headline footprint advantage** at equal encoding.
+- **redb keeps a residual ~1.9× page overhead** over the raw compact encoding
+  that big blocks do not remove (COW free pages + page fragmentation), so redb
+  will not reach the ~1.3 B an append-structured store would, nor Netdata's
+  ~0.6 B (which also adds ZSTD). **Sharpened off-ramp:** substrate A earns a
+  switch only if, after the compact codec + tiering, redb still blows the
+  smallest fleet tier's disk budget in the WS-15b soak — a measured number, not
+  a preference. WS-14b then built the store and measured the multi-tier logical
+  footprint at **~1.87 B/sample** (~1.70 with cold-tier DEFLATE), below the
+  ~2.4 target, so the off-ramp is **not** triggered
+  ([ADR-052](ADR-052-edge-sentinel-local-tsdb-build.md)).
+- **WS-14b default becomes redb + the compact block format** (Path 1), not the
+  f64 Gorilla blocks: same substrate, ~2× denser blocks, inline anomaly bit for
+  free.
+
+### Second-stage compression measured — a dead end; fixed-point is the real lever
+
+Measured a second compression stage over each compact block (per-block, as redb
+stores them), on 24 h × 40 series:
+
+- **A general compressor over the compact codec buys only ~3%** — deflate 1.146,
+  brotli 1.146, **zstd(C) 1.147**, all vs 1.183 raw; `lz4_flex` is *worse* (frame
+  overhead). Gorilla-style bit-packing already removed the redundancy an LZ stage
+  feeds on. **C-zstd does not beat pure-Rust deflate/brotli here**, so the
+  no-CGO/`deny.toml` constraint costs nothing and a zstd C dependency is
+  unjustified. (There is also no mature pure-Rust *zstd encoder*; `ruzstd` is
+  decode-only.)
+- **The lever that reaches the ~1 B class is a codec change, not a compressor:
+  fixed-point gauge quantization** — store `round(value×100)` as an integer and
+  delta-of-delta it (lossless to centi precision, the precision Netdata-class
+  telemetry needs). That alone is **1.10 B/sample** (7% under float32-XOR and
+  *more* controlled loss), and fixed-point **+ pure-Rust DEFLATE** (flate2 /
+  miniz_oxide, already in the agent lock — zero new deps, no CGO) reaches
+  **0.99 B/sample**, matching fixed-point + zstd(0.989) within noise.
+- **WS-14b guidance:** make the value codec fixed-point-per-metric (scale chosen
+  by metric family), keep DEFLATE as an *optional cold-tier* stage (it adds
+  decompress CPU on every read, so weigh it against the <1 % budget — likely T1/T2
+  only, not hot T0), and do **not** add zstd. Numbers are on synthetic
+  random-walk data; real fleet telemetry is typically more stable and should
+  compress at least as well. Reproduce via the throwaway compressor bake-off
+  (not committed — it links C zstd/brotli only to establish the ceiling).
 - The fault-injection harness and gate tests are the regression guard for WS-14b:
   crash-recovery, corruption-quarantine, disk-full-cap, and clock-jump behaviour
   are asserted, always-run, on every commit.

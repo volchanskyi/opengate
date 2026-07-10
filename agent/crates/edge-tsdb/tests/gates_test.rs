@@ -1,4 +1,5 @@
-//! Acceptance-gate integration tests for the WS-14a local-TSDB spike.
+#![cfg(feature = "bakeoff")]
+//! Acceptance-gate integration tests for the WS-14a local-TSDB bake-off.
 //!
 //! These tests double as the spike's measured evidence: each one drives a
 //! substrate through the fixture corpus or the fault-injection harness and

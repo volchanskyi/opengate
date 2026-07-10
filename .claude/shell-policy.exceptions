@@ -17,6 +17,7 @@ aggregate	scripts/pmat-precommit.sh	-	Collects changed-file quality results befo
 aggregate	scripts/pmat-summarize.sh	-	Aggregates parser and regression outcomes into one summary.
 aggregate	scripts/precommit-gauntlet.sh	a	Runs every check after failures and temporarily restores allexport after loading env.
 aggregate	scripts/sonar-coverage-guard.sh	-	Inspects API and override statuses without premature exit.
+aggregate	scripts/sonar-duplication-guard.sh	-	Inspects per-file API and override statuses without premature exit.
 aggregate	scripts/tests/benchmark-summarize.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/benchmark-vm-push.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/pentest-review.test.sh	-	Plain-Bash harness accumulates all assertion failures.
@@ -24,4 +25,5 @@ aggregate	scripts/tests/pmat-precommit.test.sh	-	Plain-Bash harness accumulates 
 aggregate	scripts/tests/pmat-summarize.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/postgres-prereq.test.sh	-	Plain-Bash harness asserts expected non-zero probe results.
 aggregate	scripts/tests/sonar-coverage-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
+aggregate	scripts/tests/sonar-duplication-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/post-push-clean-caches.test.sh	-	Plain-Bash harness accumulates all assertion failures.

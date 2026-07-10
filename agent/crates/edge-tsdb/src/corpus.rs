@@ -6,9 +6,9 @@
 //! spike, and monotonically-rising counters. Samples are emitted interleaved by
 //! second (all series at t, then t+1), the order a real 1 Hz sampler produces.
 
-use crate::error::Result;
 use crate::sample::{Sample, SeriesId};
-use crate::substrate::Substrate;
+#[cfg(feature = "bakeoff")]
+use crate::{error::Result, substrate::Substrate};
 
 /// Corpus generation parameters.
 #[derive(Debug, Clone, Copy)]
@@ -36,6 +36,9 @@ impl Default for CorpusConfig {
 
 /// A generated, replayable corpus with its expected per-series read-back.
 pub struct Corpus {
+    // Read by the bake-off `assert_readback` range bounds; the production tests
+    // drive the store from `series()` directly.
+    #[cfg_attr(not(feature = "bakeoff"), allow(dead_code))]
     config: CorpusConfig,
     events: Vec<(SeriesId, Sample)>,
     expected: Vec<Vec<Sample>>,
@@ -124,7 +127,15 @@ impl Corpus {
         self.events.len()
     }
 
+    /// The per-series expected sample streams (index = `SeriesId`). Used by the
+    /// codec bake-off to encode identical input through each codec.
+    #[must_use]
+    pub fn series(&self) -> &[Vec<Sample>] {
+        &self.expected
+    }
+
     /// Replay every event into `store` (caller commits).
+    #[cfg(feature = "bakeoff")]
     pub fn replay_into<S: Substrate>(&self, store: &mut S) -> Result<()> {
         for (series, sample) in &self.events {
             store.append(*series, *sample)?;
@@ -133,6 +144,7 @@ impl Corpus {
     }
 
     /// Replay the first `n` events; returns the number actually appended.
+    #[cfg(feature = "bakeoff")]
     pub fn replay_prefix_into<S: Substrate>(&self, store: &mut S, n: usize) -> Result<usize> {
         let end = n.min(self.events.len());
         for (series, sample) in &self.events[..end] {
@@ -142,6 +154,7 @@ impl Corpus {
     }
 
     /// Replay events from index `n` to the end.
+    #[cfg(feature = "bakeoff")]
     pub fn replay_suffix_into<S: Substrate>(&self, store: &mut S, n: usize) -> Result<()> {
         let start = n.min(self.events.len());
         for (series, sample) in &self.events[start..] {
@@ -151,6 +164,7 @@ impl Corpus {
     }
 
     /// Assert every series reads back exactly what was written, in order.
+    #[cfg(feature = "bakeoff")]
     pub fn assert_readback<S: Substrate>(&self, store: &S) {
         let lo = self.config.start_ts;
         let hi = self.config.start_ts + self.config.duration_secs;
@@ -194,7 +208,7 @@ fn round_centi(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bakeoff"))]
 mod tests {
     use super::{Corpus, CorpusConfig};
     use crate::append_only::AppendOnlyStore;

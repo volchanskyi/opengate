@@ -12,21 +12,32 @@ _None currently._
 ### Edge-Sentinel ARM sampler artifact and default-on flip pending
 
 WS-2 ships the default-off sampler plus always-run allocation/RSS guards and a
-Criterion bench harness. WS-4 now provides server ingest, tenant-authoritative
-persistence, bounded telemetry dispatch, and VM stream aggregation, but the
-Phase 0 hardware artifact still needs to be recorded on a small ARM target:
+Criterion bench harness. WS-4 provides server ingest, tenant-authoritative
+persistence, bounded telemetry dispatch, and VM stream aggregation, and WS-14b
+graduated the agent-local multi-tier store (`edge-tsdb::store::LocalTsdb`, default
+off behind `--edge-store`). The Phase 0 / WS-14b hardware artifacts still need to
+be recorded on real ARM64 and Windows targets:
 
 1. Wire an ARM CI runner or equivalent repeatable ARM bench environment.
 2. Run `mesh-agent-core`'s Edge Sentinel bench harness and record detection
    latency, `sysinfo` sampling cost, RSS, and allocation evidence.
 3. Use the measured per-entity `sysinfo` cost to finalize live telemetry caps
    before enabling emission beyond the additive WS-3 wire contract.
+4. Record the WS-14b local-store footprint/recovery bench (`cargo bench -p
+   edge-tsdb`) on ARM64 **and** a real Windows integration pass (Windows
+   file-locking, `F_FULLFSYNC`) — the always-run gate tests run
+   cross-platform-agnostically, but the release gate needs measured
+   footprint/recovery on both targets. Measured x86_64 Linux baseline is
+   ~1.87 logical B/sample (1.70 with cold-tier DEFLATE), ~1.1 ms crash-recovery
+   open ([ADR-052](../docs/adr/ADR-052-edge-sentinel-local-tsdb-build.md)).
 
-The sampler and live emission remain default-off until ARM evidence confirms the
-target footprint and the WS-15b soak/default-on gate passes.
+The sampler, the local store, and live emission remain default-off until the
+ARM64 + Windows evidence confirms the target footprint and the WS-15b
+soak/default-on gate passes.
 
-**Pay-down trigger:** attach the ARM artifact to the Edge-Sentinel Phase 0 record,
-finalize per-entity caps, and flip the sampler default only if the gate passes.
+**Pay-down trigger:** attach the ARM64 + Windows artifacts to the Edge-Sentinel
+record, finalize per-entity caps, and flip the `--edge-sentinel` / `--edge-store`
+defaults only if the gate passes.
 
 ### Multi-org membership API and web org switcher deferred
 
