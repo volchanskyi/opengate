@@ -116,7 +116,7 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-11 | `archive/edge-sentinel-ws-11-log-server.md` | rate dims → VM; on-demand raw broker + audit + elevated-permission gate |
 | WS-12 | `archive/edge-sentinel-ws-12-log-web.md` | logs explorer + log-rate sparkline + metrics↔logs correlation jump |
 | WS-13 | `archive/edge-sentinel-ws-13-log-privacy-ops.md` | raw-log redaction corpus + reader-sourcing ADR + Linux/Windows benchmark + soak |
-| WS-14a | `edge-sentinel-ws-14a-offline-tsdb-spike.md` | local-TSDB substrate bake-off (append-only / redb / fjall / tsink / no-persist) on a fixture corpus + gates |
+| WS-14a | `archive/edge-sentinel-ws-14a-offline-tsdb-spike.md` (done — [ADR-051](../../docs/adr/ADR-051-edge-sentinel-local-tsdb-substrate.md): **redb** chosen) | local-TSDB substrate bake-off (append-only / redb / fjall / tsink / no-persist) on a fixture corpus + gates |
 | WS-14b | `edge-sentinel-ws-14b-offline-tsdb-build.md` | build the chosen multi-tier persistent store (holds min/max/last + 1 s; inline anomaly scores) |
 | WS-15 | `edge-sentinel-ws-15-offline-backfill.md` | reconnect backfill to VM (throttled) + on-demand server-mediated local-history pull |
 | WS-15b | `edge-sentinel-ws-15b-ops-measurement.md` | Grafana + sustained soak + default-on gate (deferred until WS-15) |

@@ -1,0 +1,28 @@
+[package]
+name = "edge-tsdb"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# WS-14a local-TSDB substrate bake-off (spike). Nothing in the shipped agent
+# depends on this crate: it is the evidence harness (fixture corpus, shared
+# Gorilla tiering+compression layer, fault injection, measurement) plus the
+# leading substrate skeleton. redb is the only external dependency and is pulled
+# in only by this crate, never by the mesh-agent binary.
+
+[dependencies]
+thiserror.workspace = true
+redb = "4"
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
+criterion = { workspace = true }
+
+[[bench]]
+name = "tsdb_bench"
+harness = false
+
+[lints]
+workspace = true
