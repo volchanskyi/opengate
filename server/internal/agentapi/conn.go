@@ -56,6 +56,13 @@ type AgentConn struct {
 	logMu     sync.Mutex
 	logWaiter chan logsResult
 
+	// historyMu guards historyWaiter, the single in-flight deep-history broker
+	// channel. On-demand deep-history pulls are single-flight per connection
+	// (responses carry no correlation id); historyWaiter is nil unless a pull is
+	// blocked awaiting the agent's LocalHistoryResponse.
+	historyMu     sync.Mutex
+	historyWaiter chan historyResult
+
 	// writeMu serializes writes to stream. protocol.Codec.WriteFrame issues
 	// a 5-byte envelope write followed by an N-byte payload write; without
 	// this mutex two concurrent outbound sendControl calls could
@@ -189,6 +196,21 @@ func (a *AgentConn) SendRequestHealthWindow(ctx context.Context, sinceTS int64, 
 	})
 }
 
+// SendRequestLocalHistory asks the agent for a bounded, full-resolution slice of
+// one dimension's local history. Gated by the Backfill capability.
+func (a *AgentConn) SendRequestLocalHistory(ctx context.Context, dim string, fromTS, toTS int64, maxPoints uint32) error {
+	if err := a.requireCapability(protocol.CapBackfill); err != nil {
+		return err
+	}
+	return a.sendControl(&protocol.ControlMessage{
+		Type:      protocol.MsgRequestLocalHistory,
+		Dim:       dim,
+		FromTS:    fromTS,
+		ToTS:      toTS,
+		MaxPoints: maxPoints,
+	})
+}
+
 // SendRequestDeviceLogs asks the agent to collect and send filtered log entries.
 func (a *AgentConn) SendRequestDeviceLogs(ctx context.Context, filter device.LogFilter) error {
 	if err := a.requireCapability(protocol.CapDeviceLogs); err != nil {
@@ -308,6 +330,8 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return a.handleRequestBackfillSlot(msg)
 	case protocol.MsgMetricBackfillBatch:
 		return a.handleMetricBackfillBatch(ctx, msg, len(payload))
+	case protocol.MsgLocalHistoryResponse:
+		return a.handleLocalHistoryResponse(msg)
 	default:
 		a.logger.Debug("ignoring unknown control message", "device_id", a.DeviceID, "type", msg.Type)
 		return nil

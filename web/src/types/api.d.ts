@@ -309,6 +309,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * On-demand full-resolution local history for one dimension
+         * @description Brokers a bounded, full-resolution history pull for a single numeric dimension from the connected agent's local store — the deep history that central VictoriaMetrics (avg-only) does not keep. Single-host and server-mediated: no browser-to-agent access and no fan-out. The window is bounded and the point count is capped by max_points.
+         */
+        get: operations["getDeviceHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -792,6 +812,26 @@ export interface components {
             downsampled: boolean;
             /** @description Bucket width in seconds (the query step) chosen to keep points within max_points. */
             bucket_s: number;
+        };
+        HistoryPoint: {
+            /**
+             * Format: int64
+             * @description Sample timestamp in unix seconds.
+             */
+            ts: number;
+            /**
+             * Format: double
+             * @description The full-resolution sample value at ts.
+             */
+            value: number;
+        };
+        DeviceHistoryResponse: {
+            /** @description The dimension this history slice is for. */
+            dim: string;
+            /** @description Full-resolution points in ascending timestamp order. */
+            points: components["schemas"]["HistoryPoint"][];
+            /** @description True when the window held more than max_points samples and the response was capped. */
+            truncated: boolean;
         };
         DeviceHardware: {
             /** Format: uuid */
@@ -2016,6 +2056,98 @@ export interface operations {
             };
             /** @description Telemetry unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getDeviceHistory: {
+        parameters: {
+            query: {
+                /** @description The numeric dimension whose full-resolution history to pull. */
+                dim: string;
+                from: string;
+                to: string;
+                /** @description Upper bound on returned points; the response is truncated past it. */
+                max_points?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Full-resolution history slice */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceHistoryResponse"];
+                };
+            };
+            /** @description Invalid window or parameters */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found or offline */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A history request is already in progress for this device */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description History unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Agent did not return history in time */
+            504: {
                 headers: {
                     [name: string]: unknown;
                 };
