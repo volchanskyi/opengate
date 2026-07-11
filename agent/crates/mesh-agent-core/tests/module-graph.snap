@@ -6,6 +6,7 @@ crate mesh_agent_core
 ├── mod file_ops: pub
 ├── mod identity: pub
 ├── mod ml: pub
+│   ├── mod backfill: pub
 │   ├── mod ensemble: pub
 │   ├── mod kmeans: pub
 │   ├── mod log_rate: pub
