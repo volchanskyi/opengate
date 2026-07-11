@@ -271,6 +271,35 @@ components:
           type: integer
           description: Bucket width in seconds (the query step) chosen to keep points within max_points.
 
+    HistoryPoint:
+      type: object
+      required: [ts, value]
+      properties:
+        ts:
+          type: integer
+          format: int64
+          description: Sample timestamp in unix seconds.
+        value:
+          type: number
+          format: double
+          description: The full-resolution sample value at ts.
+
+    DeviceHistoryResponse:
+      type: object
+      required: [dim, points, truncated]
+      properties:
+        dim:
+          type: string
+          description: The dimension this history slice is for.
+        points:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryPoint"
+          description: Full-resolution points in ascending timestamp order.
+        truncated:
+          type: boolean
+          description: True when the window held more than max_points samples and the response was capped.
+
     DeviceHardware:
       type: object
       required: [device_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces, updated_at]
@@ -1569,6 +1598,101 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "503":
           description: Telemetry unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/history:
+    get:
+      operationId: getDeviceHistory
+      summary: On-demand full-resolution local history for one dimension
+      description: >-
+        Brokers a bounded, full-resolution history pull for a single numeric
+        dimension from the connected agent's local store — the deep history that
+        central VictoriaMetrics (avg-only) does not keep. Single-host and
+        server-mediated: no browser-to-agent access and no fan-out. The window is
+        bounded and the point count is capped by max_points.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: dim
+          in: query
+          required: true
+          description: The numeric dimension whose full-resolution history to pull.
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: max_points
+          in: query
+          description: Upper bound on returned points; the response is truncated past it.
+          schema:
+            type: integer
+            default: 1000
+            minimum: 10
+            maximum: 20000
+      responses:
+        "200":
+          description: Full-resolution history slice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceHistoryResponse"
+        "400":
+          description: Invalid window or parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found or offline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: A history request is already in progress for this device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: History unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "504":
+          description: Agent did not return history in time
           content:
             application/json:
               schema:
