@@ -44,6 +44,40 @@ pub struct HealthSummary {
     pub model_ver: String,
 }
 
+/// Which central VictoriaMetrics tier a reconnect-backfill batch targets. The
+/// agent maps each local WS-14b tier to the matching central tier; full-res 1 s
+/// raw is never pushed (it is reachable only via an on-demand deep-history pull).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum BackfillTier {
+    /// 10 s windows rolled from local T0 (1 s) → VM raw tier.
+    #[default]
+    Raw10s,
+    /// 1 min points from local T1 → VM 1 min rollup.
+    Rollup1m,
+    /// 1 hr points from local T2 → VM 1 hr rollup.
+    Rollup1h,
+}
+
+/// One pre-rolled historical sample replayed during reconnect backfill. Central
+/// VM keeps `avg` only, so a sample carries just its dimension, original
+/// timestamp (seconds), and averaged value for that bucket.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BackfillSample {
+    pub name: String,
+    pub ts: i64,
+    pub value: f64,
+}
+
+/// One point in an on-demand deep-history pull of a single dimension. Unlike a
+/// backfill batch (which spans many dims), a history response is scoped to one
+/// dimension, so a point needs only its timestamp (seconds) and value.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistoryPoint {
+    pub ts: i64,
+    pub value: f64,
+}
+
 /// All control messages exchanged between agent and server.
 /// Uses internally tagged representation so msgpack output matches Go's flat struct:
 /// {"type": "AgentRegister", "capabilities": [...], "hostname": "...", "os": "..."}
@@ -282,6 +316,85 @@ pub enum ControlMessage {
     HealthWindowResponse {
         #[serde(default)]
         summaries: Vec<HealthSummary>,
+    },
+
+    /// Agent → Server: request an admission slot to drain persisted history.
+    /// Carries backlog hints (pending sample count, oldest pending timestamp)
+    /// so the server scheduler can prioritize and age fairly. Because local
+    /// data is durable, this request can be deferred without data loss.
+    RequestBackfillSlot {
+        #[serde(default)]
+        pending_samples: u64,
+        #[serde(default)]
+        oldest_ts: i64,
+    },
+
+    /// Server → Agent: admission granted. `rate` bounds the drain to N
+    /// samples/sec; the grant expires at `deadline` (unix seconds) and must be
+    /// re-requested afterwards. Gated by the Backfill capability.
+    GrantBackfill {
+        #[serde(default)]
+        rate: u32,
+        #[serde(default)]
+        deadline: i64,
+    },
+
+    /// Server → Agent: admission deferred; retry after `retry_after` seconds
+    /// (the agent adds jitter). Durable local data means deferral never loses
+    /// samples. Gated by the Backfill capability.
+    DeferBackfill {
+        #[serde(default)]
+        retry_after: u32,
+    },
+
+    /// Agent → Server: a batch of pre-rolled historical samples for one tier,
+    /// written to the matching VM tier at their original timestamps (never
+    /// through live stream-aggregation). `cursor` is the newest bucket
+    /// timestamp in this batch; the agent advances its durable per-tier
+    /// watermark only after the matching `MetricBackfillAck`.
+    MetricBackfillBatch {
+        #[serde(default)]
+        tier: BackfillTier,
+        #[serde(default)]
+        samples: Vec<BackfillSample>,
+        #[serde(default)]
+        cursor: i64,
+    },
+
+    /// Server → Agent: durability ack for a persisted backfill batch. The agent
+    /// advances its durable per-tier watermark to `cursor` on receipt. Gated by
+    /// the Backfill capability.
+    MetricBackfillAck {
+        #[serde(default)]
+        tier: BackfillTier,
+        #[serde(default)]
+        cursor: i64,
+    },
+
+    /// Server → Agent: on-demand pull of deep/full-res history for one dimension
+    /// over a bounded window. Brokered from an authenticated, admin-gated API
+    /// call; single-host, never a fan-out. Gated by the Backfill capability.
+    RequestLocalHistory {
+        #[serde(default)]
+        dim: String,
+        #[serde(default)]
+        from_ts: i64,
+        #[serde(default)]
+        to_ts: i64,
+        #[serde(default)]
+        max_points: u32,
+    },
+
+    /// Agent → Server: bounded response to `RequestLocalHistory` for one
+    /// dimension. `truncated` is set when the window held more than `max_points`
+    /// samples and the response was capped.
+    LocalHistoryResponse {
+        #[serde(default)]
+        dim: String,
+        #[serde(default)]
+        points: Vec<HistoryPoint>,
+        #[serde(default)]
+        truncated: bool,
     },
 
     /// Unknown future control message. Agents ignore this and keep the

@@ -157,6 +157,60 @@ fn reverse_golden_unknown_future_server_to_agent() {
 }
 
 #[test]
+fn reverse_golden_grant_backfill() {
+    let frame = decode_frame("go_control_grant_backfill.bin");
+    match frame {
+        Frame::Control(ControlMessage::GrantBackfill { rate, deadline }) => {
+            assert_eq!(rate, 500);
+            assert_eq!(deadline, 1_700_003_600);
+        }
+        other => panic!("expected GrantBackfill, got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_golden_defer_backfill() {
+    let frame = decode_frame("go_control_defer_backfill.bin");
+    match frame {
+        Frame::Control(ControlMessage::DeferBackfill { retry_after }) => {
+            assert_eq!(retry_after, 30);
+        }
+        other => panic!("expected DeferBackfill, got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_golden_metric_backfill_ack() {
+    let frame = decode_frame("go_control_metric_backfill_ack.bin");
+    match frame {
+        Frame::Control(ControlMessage::MetricBackfillAck { tier, cursor }) => {
+            assert_eq!(tier, BackfillTier::Rollup1m);
+            assert_eq!(cursor, 1_700_000_060);
+        }
+        other => panic!("expected MetricBackfillAck, got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_golden_request_local_history() {
+    let frame = decode_frame("go_control_request_local_history.bin");
+    match frame {
+        Frame::Control(ControlMessage::RequestLocalHistory {
+            dim,
+            from_ts,
+            to_ts,
+            max_points,
+        }) => {
+            assert_eq!(dim, "cpu.total");
+            assert_eq!(from_ts, 1_699_990_000);
+            assert_eq!(to_ts, 1_700_000_000);
+            assert_eq!(max_points, 1000);
+        }
+        other => panic!("expected RequestLocalHistory, got {:?}", other),
+    }
+}
+
+#[test]
 fn reverse_golden_desktop_frame() {
     let frame = decode_frame("go_desktop_frame.bin");
     match frame {

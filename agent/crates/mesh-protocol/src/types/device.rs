@@ -48,6 +48,10 @@ pub enum AgentCapability {
     HardwareInventory,
     DeviceLogs,
     HealthWindow,
+    /// Reconnect backfill + on-demand deep-history pull (WS-15). Gates the
+    /// server → agent GrantBackfill/DeferBackfill/MetricBackfillAck/
+    /// RequestLocalHistory control messages.
+    Backfill,
 }
 
 /// Current status of a device.

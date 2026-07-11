@@ -155,6 +155,33 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Type: ControlMessageType("FutureHealthWindow"),
 	})
 
+	// WS-15 server → agent backfill control: the scheduler grant/defer, the
+	// per-batch durability ack, and the on-demand deep-history request.
+	writeReverseControlFrame(t, dir, codec, "control_grant_backfill", &ControlMessage{
+		Type:     MsgGrantBackfill,
+		Rate:     500,
+		Deadline: 1_700_003_600,
+	})
+
+	writeReverseControlFrame(t, dir, codec, "control_defer_backfill", &ControlMessage{
+		Type:       MsgDeferBackfill,
+		RetryAfter: 30,
+	})
+
+	writeReverseControlFrame(t, dir, codec, "control_metric_backfill_ack", &ControlMessage{
+		Type:   MsgMetricBackfillAck,
+		Tier:   BackfillTierRollup1m,
+		Cursor: 1_700_000_060,
+	})
+
+	writeReverseControlFrame(t, dir, codec, "control_request_local_history", &ControlMessage{
+		Type:      MsgRequestLocalHistory,
+		Dim:       "cpu.total",
+		FromTS:    1_699_990_000,
+		ToTS:      1_700_000_000,
+		MaxPoints: 1000,
+	})
+
 	// desktop_frame — different frame type, exercises the byte-data payload.
 	{
 		f := &DesktopFrame{
