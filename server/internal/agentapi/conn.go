@@ -306,6 +306,8 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return a.handleHealthWindowResponse(ctx, msg, len(payload))
 	case protocol.MsgRequestBackfillSlot:
 		return a.handleRequestBackfillSlot(msg)
+	case protocol.MsgMetricBackfillBatch:
+		return a.handleMetricBackfillBatch(ctx, msg, len(payload))
 	default:
 		a.logger.Debug("ignoring unknown control message", "device_id", a.DeviceID, "type", msg.Type)
 		return nil
