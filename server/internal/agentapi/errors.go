@@ -16,4 +16,7 @@ var (
 	// connection. The broker serves one on-demand request at a time because
 	// responses carry no correlation id.
 	ErrLogsBusy = errors.New("device logs request already in flight")
+	// ErrHistoryBusy indicates a deep-history pull is already in flight for the
+	// connection. Like the log broker, one on-demand request runs at a time.
+	ErrHistoryBusy = errors.New("device history request already in flight")
 )
