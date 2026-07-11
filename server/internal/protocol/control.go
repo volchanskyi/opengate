@@ -47,6 +47,30 @@ const (
 	MsgDeviceLogsError       ControlMessageType = "DeviceLogsError"
 	MsgRequestHealthWindow   ControlMessageType = "RequestHealthWindow"
 	MsgHealthWindowResponse  ControlMessageType = "HealthWindowResponse"
+
+	// Edge-Sentinel WS-15 offline reconnect-backfill.
+	MsgRequestBackfillSlot  ControlMessageType = "RequestBackfillSlot"
+	MsgGrantBackfill        ControlMessageType = "GrantBackfill"
+	MsgDeferBackfill        ControlMessageType = "DeferBackfill"
+	MsgMetricBackfillBatch  ControlMessageType = "MetricBackfillBatch"
+	MsgMetricBackfillAck    ControlMessageType = "MetricBackfillAck"
+	MsgRequestLocalHistory  ControlMessageType = "RequestLocalHistory"
+	MsgLocalHistoryResponse ControlMessageType = "LocalHistoryResponse"
+)
+
+// BackfillTier identifies which central VictoriaMetrics tier a reconnect
+// backfill batch targets. It mirrors the Rust BackfillTier enum, which
+// serializes as its variant name. Full-res 1 s raw is never a backfill tier —
+// it is reachable only via an on-demand deep-history pull.
+type BackfillTier string
+
+const (
+	// BackfillTierRaw10s carries 10 s windows rolled from local T0 → VM raw tier.
+	BackfillTierRaw10s BackfillTier = "Raw10s"
+	// BackfillTierRollup1m carries 1 min points from local T1 → VM 1 min rollup.
+	BackfillTierRollup1m BackfillTier = "Rollup1m"
+	// BackfillTierRollup1h carries 1 hr points from local T2 → VM 1 hr rollup.
+	BackfillTierRollup1h BackfillTier = "Rollup1h"
 )
 
 // ControlMessage is the envelope for all control-plane messages.
@@ -79,6 +103,23 @@ type ControlMessage struct {
 	SinceTS         int64                `msgpack:"since_ts,omitempty"`
 	Limit           uint32               `msgpack:"limit,omitempty"`
 	Summaries       []HealthSummary      `msgpack:"summaries,omitempty"`
+
+	// Edge-Sentinel WS-15 reconnect-backfill scheduler + tiered replay.
+	PendingSamples  uint64           `msgpack:"pending_samples,omitempty"`
+	OldestTS        int64            `msgpack:"oldest_ts,omitempty"`
+	Rate            uint32           `msgpack:"rate,omitempty"`
+	Deadline        int64            `msgpack:"deadline,omitempty"`
+	RetryAfter      uint32           `msgpack:"retry_after,omitempty"`
+	Tier            BackfillTier     `msgpack:"tier,omitempty"`
+	BackfillSamples []BackfillSample `msgpack:"samples,omitempty"`
+	Cursor          int64            `msgpack:"cursor,omitempty"`
+	// On-demand deep-history pull (single dimension, bounded window).
+	Dim           string         `msgpack:"dim,omitempty"`
+	FromTS        int64          `msgpack:"from_ts,omitempty"`
+	ToTS          int64          `msgpack:"to_ts,omitempty"`
+	MaxPoints     uint32         `msgpack:"max_points,omitempty"`
+	HistoryPoints []HistoryPoint `msgpack:"points,omitempty"`
+	Truncated     *bool          `msgpack:"truncated,omitempty"`
 
 	// SessionAccept / SessionReject / SessionRequest
 	Token    SessionToken `msgpack:"token,omitempty"`
@@ -198,4 +239,20 @@ type HealthSummary struct {
 	RecentBitmask   []byte              `msgpack:"recent_bitmask"`
 	SamplerVersion  string              `msgpack:"sampler_ver"`
 	ModelVersion    string              `msgpack:"model_ver"`
+}
+
+// BackfillSample is one pre-rolled historical sample replayed during reconnect
+// backfill. Central VM keeps avg only, so it carries the dimension, the original
+// sample timestamp (seconds), and the averaged value for that bucket.
+type BackfillSample struct {
+	Name  string  `msgpack:"name"`
+	TS    int64   `msgpack:"ts"`
+	Value float64 `msgpack:"value"`
+}
+
+// HistoryPoint is one point in an on-demand deep-history pull of a single
+// dimension: original timestamp (seconds) and value.
+type HistoryPoint struct {
+	TS    int64   `msgpack:"ts"`
+	Value float64 `msgpack:"value"`
 }

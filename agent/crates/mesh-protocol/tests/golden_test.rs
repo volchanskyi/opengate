@@ -420,6 +420,106 @@ fn golden_control_frame_device_logs_error() {
     golden_check("control_device_logs_error.bin", &encoded);
 }
 
+// --- WS-15: offline reconnect-backfill wire contract ---
+
+#[test]
+fn golden_control_frame_request_backfill_slot() {
+    let msg = ControlMessage::RequestBackfillSlot {
+        pending_samples: 123456,
+        oldest_ts: 1700000000,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_request_backfill_slot.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_grant_backfill() {
+    let msg = ControlMessage::GrantBackfill {
+        rate: 500,
+        deadline: 1700003600,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_grant_backfill.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_defer_backfill() {
+    let msg = ControlMessage::DeferBackfill { retry_after: 30 };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_defer_backfill.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_metric_backfill_batch() {
+    let msg = ControlMessage::MetricBackfillBatch {
+        tier: BackfillTier::Rollup1m,
+        samples: vec![
+            BackfillSample {
+                name: "cpu.total".to_string(),
+                ts: 1700000000,
+                value: 42.5,
+            },
+            BackfillSample {
+                name: "mem.rss".to_string(),
+                ts: 1700000060,
+                value: 2048.0,
+            },
+        ],
+        cursor: 1700000060,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_metric_backfill_batch.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_metric_backfill_ack() {
+    let msg = ControlMessage::MetricBackfillAck {
+        tier: BackfillTier::Rollup1m,
+        cursor: 1700000060,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_metric_backfill_ack.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_request_local_history() {
+    let msg = ControlMessage::RequestLocalHistory {
+        dim: "cpu.total".to_string(),
+        from_ts: 1699990000,
+        to_ts: 1700000000,
+        max_points: 1000,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_request_local_history.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_local_history_response() {
+    let msg = ControlMessage::LocalHistoryResponse {
+        dim: "cpu.total".to_string(),
+        points: vec![
+            HistoryPoint {
+                ts: 1699990000,
+                value: 10.0,
+            },
+            HistoryPoint {
+                ts: 1699990001,
+                value: 11.0,
+            },
+        ],
+        truncated: true,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_local_history_response.bin", &encoded);
+}
+
 #[test]
 fn golden_handshake_server_hello() {
     let msg = HandshakeMessage::ServerHello {
