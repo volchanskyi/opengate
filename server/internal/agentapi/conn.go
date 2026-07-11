@@ -43,6 +43,7 @@ type AgentConn struct {
 	deviceUpdates  updater.DeviceUpdateRepository
 	telemetry      telemetry.NumericWriter
 	processes      telemetry.ProcessRepository
+	scheduler      *BackfillScheduler
 	logger         *slog.Logger
 	telemetryLast  map[protocol.ControlMessageType]int64
 	telemetrySlots chan struct{}
@@ -76,6 +77,7 @@ type AgentConnConfig struct {
 	DeviceUpdates updater.DeviceUpdateRepository
 	Telemetry     telemetry.NumericWriter
 	Processes     telemetry.ProcessRepository
+	Scheduler     *BackfillScheduler
 	Logger        *slog.Logger
 }
 
@@ -92,6 +94,7 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		deviceUpdates: cfg.DeviceUpdates,
 		telemetry:     cfg.Telemetry,
 		processes:     cfg.Processes,
+		scheduler:     cfg.Scheduler,
 		logger:        cfg.Logger,
 	}
 }
@@ -301,6 +304,8 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return a.handleProcessReport(ctx, msg, len(payload))
 	case protocol.MsgHealthWindowResponse:
 		return a.handleHealthWindowResponse(ctx, msg, len(payload))
+	case protocol.MsgRequestBackfillSlot:
+		return a.handleRequestBackfillSlot(msg)
 	default:
 		a.logger.Debug("ignoring unknown control message", "device_id", a.DeviceID, "type", msg.Type)
 		return nil

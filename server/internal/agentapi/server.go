@@ -33,6 +33,7 @@ type AgentServer struct {
 	processes     telemetry.ProcessRepository
 	relay         *relay.Relay
 	notifier      notifications.Notifier
+	scheduler     *BackfillScheduler
 	quicHost      string   // extra DNS SAN for the server certificate
 	conns         sync.Map // map[protocol.DeviceID]*AgentConn
 	count         atomic.Int64
@@ -69,6 +70,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		processes:     cfg.Processes,
 		relay:         cfg.Relay,
 		notifier:      cfg.Notifier,
+		scheduler:     NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
 		quicHost:      cfg.QuicHost,
 		logger:        cfg.Logger,
 		addrCh:        make(chan string, 1),
@@ -216,6 +218,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		deviceUpdates: s.deviceUpdates,
 		telemetry:     s.telemetry,
 		processes:     s.processes,
+		scheduler:     s.scheduler,
 		logger:        logger,
 	}
 
@@ -240,6 +243,10 @@ func (s *AgentServer) registerConn(ctx context.Context, ac *AgentConn, hostname 
 // unregisterConn marks the device offline (if still owned by this connection)
 // and closes the stream and connection.
 func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *AgentConn, hostname string, logger *slog.Logger) {
+	// Free any backfill admission slot this connection held so a reconnect (or
+	// another agent) can drain. Idempotent for agents that never backfilled, and
+	// a no-op when the server carries no scheduler.
+	s.scheduler.Release(ac.DeviceID)
 	if s.conns.CompareAndDelete(ac.DeviceID, ac) {
 		s.count.Add(-1)
 		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
