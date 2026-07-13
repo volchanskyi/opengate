@@ -121,7 +121,7 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-15 | `archive/edge-sentinel-ws-15-offline-backfill.md` (done) | reconnect backfill to VM (throttled) + on-demand server-mediated local-history pull |
 | WS-15b | `archive/edge-sentinel-ws-15b-ops-measurement.md` | Grafana + sustained soak + default-on gate (harness/metrics/dashboard landed; default-on flip pending a real soak) |
 | WS-16 | `archive/edge-sentinel-ws-16-discovery-agent.md` (done) | auto-discovery collectors (ports/services/DBs/containers/packages) + `DiscoveryReport` wire |
-| WS-17 | `edge-sentinel-ws-17-inventory-server.md` | inventory RLS store + API |
+| WS-17 | `archive/edge-sentinel-ws-17-inventory-server.md` (done) | inventory RLS store + API |
 | WS-18 | `edge-sentinel-ws-18-inventory-web.md` | inventory web view (generative dashboards deferred) |
 | WS-19 | `edge-sentinel-ws-19-threshold-alerts.md` | declarative edge threshold alert rules (alongside ML anomaly) |
 | WS-20 | `edge-sentinel-ws-20-data-lifecycle-deletion.md` | cascading erasure on device/tenant delete (VM + Postgres + cold + agent purge) |

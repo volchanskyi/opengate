@@ -329,6 +329,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices/{id}/inventory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discovered software and service inventory for a device
+         * @description Returns the device's current auto-discovered footprint — listening ports, host services, database engines, containers, and installed packages — from the tenant-scoped inventory store. Descriptive attack-surface data only; never a credential or connection string. Visible to any device viewer in the organization.
+         */
+        get: operations["getDeviceInventory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/groups": {
         parameters: {
             query?: never;
@@ -853,6 +873,28 @@ export interface components {
             mac: string;
             ipv4: string[];
             ipv6: string[];
+        };
+        DeviceInventory: {
+            /** Format: uuid */
+            device_id: string;
+            items: components["schemas"]["InventoryItem"][];
+        };
+        InventoryItem: {
+            /** @enum {string} */
+            kind: "port" | "service" | "db_engine" | "container" | "package";
+            /** @description Primary label — owning process (port), unit (service), engine (db_engine), or the name (container / package). */
+            name: string;
+            version: string;
+            /** @description Listening or engine port; 0 when not applicable to the kind. */
+            port: number;
+            proto: string;
+            state: string;
+            runtime: string;
+            image: string;
+            /** Format: date-time */
+            first_seen: string;
+            /** Format: date-time */
+            last_seen: string;
         };
         DeviceLogsResponse: {
             entries: components["schemas"]["DeviceLogEntry"][];
@@ -2148,6 +2190,64 @@ export interface operations {
             };
             /** @description Agent did not return history in time */
             504: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getDeviceInventory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Discovered inventory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceInventory"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Inventory unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

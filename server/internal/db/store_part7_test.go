@@ -36,6 +36,15 @@ func assertTelemetryDownReversal(t *testing.T, ctx context.Context, db *sql.DB) 
 	assert.False(t, deviceProcesses.Valid)
 }
 
+// assertInventoryDownReversal confirms migration 005's down rollback dropped the
+// device_inventory table.
+func assertInventoryDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	var deviceInventory sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.device_inventory')`).Scan(&deviceInventory))
+	assert.False(t, deviceInventory.Valid)
+}
+
 // assertDeviceLogsRetired confirms migration 004 dropped the central log cache.
 func assertDeviceLogsRetired(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()

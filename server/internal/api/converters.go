@@ -1,9 +1,11 @@
 package api
 
 import (
+	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/inventory"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
@@ -154,6 +156,30 @@ func manifestToAPI(m *updater.Manifest) AgentManifest {
 
 func manifestsToAPI(ms []*updater.Manifest) []AgentManifest {
 	return mapSlice(ms, manifestToAPI)
+}
+
+// deviceInventoryToAPI maps the tenant-scoped discovered components of a device
+// into the flat inventory item list the API exposes.
+func deviceInventoryToAPI(deviceID uuid.UUID, components []inventory.Component) DeviceInventory {
+	return DeviceInventory{
+		DeviceId: deviceID,
+		Items:    mapSlice(components, inventoryComponentToAPI),
+	}
+}
+
+func inventoryComponentToAPI(c inventory.Component) InventoryItem {
+	return InventoryItem{
+		Kind:      InventoryItemKind(c.Kind),
+		Name:      c.Name,
+		Version:   c.Version,
+		Port:      int(c.Port),
+		Proto:     c.Proto,
+		State:     c.State,
+		Runtime:   c.Runtime,
+		Image:     c.Image,
+		FirstSeen: c.FirstSeen,
+		LastSeen:  c.LastSeen,
+	}
 }
 
 func deviceHardwareToAPI(hw *device.Hardware) DeviceHardware {

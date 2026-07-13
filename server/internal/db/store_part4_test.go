@@ -53,8 +53,12 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	runMigrationSteps(t, dbURL, 1)
 	assertDeviceLogsRetired(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 004 retired device_logs")
+
+	runMigrationSteps(t, dbURL, 1)
+	assertInventoryRLS(t, ctx, rehearsalDB, "public")
 	assertMigrationNoChange(t, dbURL)
-	t.Log("rehearsal: 004 retired device_logs; head is idempotent")
+	t.Log("rehearsal: 005 discovery inventory table and RLS verified; head is idempotent")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
@@ -62,7 +66,12 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 	assertRehearsalRLS(t, ctx, restoredDB, "public")
 	assertTelemetryProcessRLS(t, ctx, restoredDB, "public")
 	assertDeviceLogsRetired(t, ctx, restoredDB)
+	assertInventoryRLS(t, ctx, restoredDB, "public")
 	t.Log("rehearsal: pg_dump -> pg_restore completed and restored DB re-verified")
+
+	runMigrationSteps(t, dbURL, -1)
+	assertInventoryDownReversal(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 005 down rollback removed device_inventory cleanly")
 
 	runMigrationSteps(t, dbURL, -1)
 	assertDeviceLogsRestored(t, ctx, rehearsalDB)

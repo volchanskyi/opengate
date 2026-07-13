@@ -17,9 +17,9 @@ a **Postgres RLS** table (like the WS-4/WS-11 process/log descriptive tables), n
   table(s) (org_id, device, kind, name, version, port, ts), `org_id`-leading indexes.
 - **Create:** `server/internal/inventory/` repo — upsert latest inventory per device (tenant-scoped
   via the WS-0 tx helper).
-- **Modify:** [`conn.go`](../../server/internal/agentapi/conn.go) — handle `DiscoveryReport` → upsert,
+- **Modify:** [`conn.go`](../../../server/internal/agentapi/conn.go) — handle `DiscoveryReport` → upsert,
   scoped by the connection's device→org (never trust agent-supplied org).
-- **Modify:** [`api/openapi.yaml`](../../api/openapi.yaml) + [`api.go`](../../server/internal/api/api.go) —
+- **Modify:** [`api/openapi.yaml`](../../../api/openapi.yaml) + [`api.go`](../../../server/internal/api/api.go) —
   `GET /devices/{id}/inventory` (+ optional fleet search); regen Go + TS.
 
 ## Steps (TDD-first)

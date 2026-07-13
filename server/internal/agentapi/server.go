@@ -16,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/inventory"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -32,6 +33,7 @@ type AgentServer struct {
 	deviceUpdates updater.DeviceUpdateRepository
 	telemetry     telemetry.NumericWriter
 	processes     telemetry.ProcessRepository
+	inventory     inventory.Repository
 	relay         *relay.Relay
 	notifier      notifications.Notifier
 	scheduler     *BackfillScheduler
@@ -55,6 +57,7 @@ type AgentServerConfig struct {
 	DeviceUpdates updater.DeviceUpdateRepository
 	Telemetry     telemetry.NumericWriter
 	Processes     telemetry.ProcessRepository
+	Inventory     inventory.Repository
 	Relay         *relay.Relay
 	Notifier      notifications.Notifier
 	Metrics       *appmetrics.Metrics
@@ -71,6 +74,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		deviceUpdates: cfg.DeviceUpdates,
 		telemetry:     cfg.Telemetry,
 		processes:     cfg.Processes,
+		inventory:     cfg.Inventory,
 		relay:         cfg.Relay,
 		notifier:      cfg.Notifier,
 		scheduler:     NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
@@ -222,6 +226,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		deviceUpdates: s.deviceUpdates,
 		telemetry:     s.telemetry,
 		processes:     s.processes,
+		inventory:     s.inventory,
 		scheduler:     s.scheduler,
 		metrics:       s.metrics,
 		logger:        logger,

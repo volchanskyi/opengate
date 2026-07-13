@@ -47,6 +47,33 @@ func (s *Server) requestHardwareFromAgent(ctx context.Context, id device.DeviceI
 	return GetDeviceHardware202Response{}, nil
 }
 
+// GetDeviceInventory implements StrictServerInterface. It returns the device's
+// current auto-discovered footprint (ports, services, DB engines, containers,
+// packages) from the tenant-scoped inventory store. Read access is any device
+// viewer in the organization — group ownership, not the elevated admin gate.
+func (s *Server) GetDeviceInventory(ctx context.Context, request GetDeviceInventoryRequestObject) (GetDeviceInventoryResponseObject, error) {
+	if s.inventory == nil {
+		return GetDeviceInventory503JSONResponse{Error: "inventory not available"}, nil
+	}
+
+	d, err := s.devices.Get(ctx, request.Id)
+	if err != nil {
+		if errors.Is(err, device.ErrDeviceNotFound) {
+			return GetDeviceInventory404JSONResponse{Error: msgDeviceNotFound}, nil
+		}
+		return nil, err
+	}
+	if !s.isGroupOwner(ctx, d.GroupID) {
+		return GetDeviceInventory403JSONResponse{Error: msgForbidden}, nil
+	}
+
+	components, err := s.inventory.ListForDevice(ctx, request.Id, 0)
+	if err != nil {
+		return nil, err
+	}
+	return GetDeviceInventory200JSONResponse(deviceInventoryToAPI(request.Id, components)), nil
+}
+
 // logFetchTimeout bounds how long a raw-log pull may block waiting on the
 // agent. Raw lines are secret-dense, so exposure is time-bounded as well as
 // length-bounded.

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/inventory"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -44,6 +45,7 @@ type AgentConn struct {
 	deviceUpdates  updater.DeviceUpdateRepository
 	telemetry      telemetry.NumericWriter
 	processes      telemetry.ProcessRepository
+	inventory      inventory.Repository
 	scheduler      *BackfillScheduler
 	metrics        *appmetrics.Metrics
 	logger         *slog.Logger
@@ -86,6 +88,7 @@ type AgentConnConfig struct {
 	DeviceUpdates updater.DeviceUpdateRepository
 	Telemetry     telemetry.NumericWriter
 	Processes     telemetry.ProcessRepository
+	Inventory     inventory.Repository
 	Scheduler     *BackfillScheduler
 	Metrics       *appmetrics.Metrics
 	Logger        *slog.Logger
@@ -104,6 +107,7 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		deviceUpdates: cfg.DeviceUpdates,
 		telemetry:     cfg.Telemetry,
 		processes:     cfg.Processes,
+		inventory:     cfg.Inventory,
 		scheduler:     cfg.Scheduler,
 		metrics:       cfg.Metrics,
 		logger:        cfg.Logger,
@@ -328,6 +332,8 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return a.handleAgentMetricWindow(ctx, msg, len(payload))
 	case protocol.MsgProcessReport:
 		return a.handleProcessReport(ctx, msg, len(payload))
+	case protocol.MsgDiscoveryReport:
+		return a.handleDiscoveryReport(ctx, msg, len(payload))
 	case protocol.MsgHealthWindowResponse:
 		return a.handleHealthWindowResponse(ctx, msg, len(payload))
 	case protocol.MsgRequestBackfillSlot:
