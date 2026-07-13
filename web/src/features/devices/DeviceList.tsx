@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useDeviceStore } from './state/device-store';
 import { useUpdateStore } from './state/update-store';
+import { useInventoryStore } from './state/inventory-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { GroupSidebar } from './GroupSidebar';
 import { DeviceCard } from './DeviceCard';
@@ -126,6 +127,26 @@ export function DeviceList() {
     estimateSize: () => DEVICE_ROW_HEIGHT,
     overscan: 4,
   });
+
+  // Lazily load the discovered-footprint hint for the devices actually mounted.
+  // Virtualization bounds this to the visible window; the store is cache-first so
+  // re-mounts during scroll are cheap no-ops. Keyed on the id set (UUIDs, so a
+  // comma join is unambiguous) to fire only when the visible devices change.
+  const fetchInventory = useInventoryStore((s) => s.fetchInventory);
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const visibleIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const vr of virtualRows) {
+      const start = vr.index * columns;
+      for (const d of filteredDevices.slice(start, start + columns)) ids.push(d.id);
+    }
+    return ids.join(',');
+  }, [virtualRows, columns, filteredDevices]);
+  useEffect(() => {
+    for (const id of visibleIds ? visibleIds.split(',') : []) {
+      fireAndForget(fetchInventory(id));
+    }
+  }, [visibleIds, fetchInventory]);
 
   return (
     <div className="flex h-[calc(100vh-57px)]">

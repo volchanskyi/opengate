@@ -8,6 +8,7 @@ import { useToastStore } from '../../lib/feedback/toast-store';
 import { StatusBadge } from './StatusBadge';
 import { DeviceLogs } from './DeviceLogs';
 import { DeviceMetrics } from './DeviceMetrics';
+import { DeviceInventory } from './DeviceInventory';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
@@ -428,6 +429,11 @@ export function DeviceDetail() {
       {/* Agent Logs Card (separate tile, right side) */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
         <DeviceLogs deviceId={device.id} focusWindow={logWindow} />
+      </div>
+
+      {/* Discovered footprint (ports / services / DB engines / containers / packages), full width */}
+      <div className="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <DeviceInventory deviceId={device.id} />
       </div>
 
       {/* Telemetry (metrics timelines + anomaly correlation), full width */}
