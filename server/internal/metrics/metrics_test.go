@@ -40,6 +40,56 @@ func TestObserveDeviceLogPull(t *testing.T) {
 	require.Equal(t, 2, testutil.CollectAndCount(m.DeviceLogPullDuration))
 }
 
+// TestObserveEdgeTelemetryIngest counts accepted Edge-Sentinel telemetry
+// messages by control type, so the soak dashboard can chart ingest rate.
+func TestObserveEdgeTelemetryIngest(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+
+	m.ObserveEdgeTelemetryIngest("AgentMetricWindow")
+	m.ObserveEdgeTelemetryIngest("AgentMetricWindow")
+	m.ObserveEdgeTelemetryIngest("AgentHealthSummary")
+
+	require.InDelta(t, 2, testutil.ToFloat64(m.EdgeTelemetryIngestedTotal.WithLabelValues("AgentMetricWindow")), 0)
+	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeTelemetryIngestedTotal.WithLabelValues("AgentHealthSummary")), 0)
+	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryIngestedTotal.WithLabelValues("ProcessReport")), 0)
+}
+
+// TestObserveEdgeTelemetryDrop counts dropped telemetry by reason so the soak
+// dashboard can chart drop count and break it down by cause.
+func TestObserveEdgeTelemetryDrop(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+
+	m.ObserveEdgeTelemetryDrop("interval_floor")
+	m.ObserveEdgeTelemetryDrop("interval_floor")
+	m.ObserveEdgeTelemetryDrop("persist_slots_full")
+
+	require.InDelta(t, 2, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("interval_floor")), 0)
+	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("persist_slots_full")), 0)
+	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("payload_too_large")), 0)
+}
+
+// TestObserveBackfillDecision records the reconnect-backfill scheduler's
+// grant/defer decisions, the granted per-slot rate, and the live active-slot
+// count, so the soak dashboard can chart scheduler state during a storm.
+func TestObserveBackfillDecision(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+
+	m.ObserveBackfillDecision(true, 2500, 3)
+	m.ObserveBackfillDecision(false, 0, 3)
+	m.ObserveBackfillDecision(true, 1800, 4)
+
+	require.InDelta(t, 2, testutil.ToFloat64(m.EdgeBackfillDecisionsTotal.WithLabelValues("grant")), 0)
+	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeBackfillDecisionsTotal.WithLabelValues("defer")), 0)
+	// Active slots reflect the most recent observation.
+	require.InDelta(t, 4, testutil.ToFloat64(m.EdgeBackfillActiveSlots), 0)
+	// The granted-rate gauge reflects the most recent grant's rate; a defer
+	// leaves it unchanged.
+	require.InDelta(t, 1800, testutil.ToFloat64(m.EdgeBackfillGrantRate), 0)
+}
+
 // TestStartGaugeUpdater_StopsOnCancel verifies the updater returns when its
 // context is cancelled rather than leaking the ticker goroutine.
 func TestStartGaugeUpdater_StopsOnCancel(t *testing.T) {

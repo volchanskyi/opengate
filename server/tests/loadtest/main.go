@@ -37,11 +37,26 @@ func main() {
 	agents := flag.Int("agents", 100, "number of concurrent agents")
 	addr := flag.String("addr", "127.0.0.1:9090", "QUIC server address")
 	dataDir := flag.String("data-dir", "", "cert manager data directory (temp if empty)")
+	orgs := flag.Int("orgs", 1, "number of tenant cohorts to spread agents across")
+	defaultTelemetry := flag.Bool("default-telemetry", false, "emit the default telemetry shape (health summary + host metric window + process report) per agent")
+	telemetryCycles := flag.Int("telemetry-cycles", 1, "default-telemetry emission cycles per agent")
 	logWindows := flag.Int("log-windows", 0, "log-rate metric windows each agent emits after register")
 	answerLogPulls := flag.Bool("answer-log-pulls", false, "answer one on-demand raw-log pull per agent")
+	backfillBatches := flag.Int("backfill-batches", 0, "reconnect-storm backfill batches each agent drains after register")
+	backfillSamples := flag.Int("backfill-samples", 100, "pre-rolled samples per backfill batch")
 	flag.Parse()
 
-	opts := loadOptions{logWindows: *logWindows, answerLogPulls: *answerLogPulls}
+	opts := loadOptions{
+		defaultTelemetry:        *defaultTelemetry,
+		telemetryCycles:         *telemetryCycles,
+		logWindows:              *logWindows,
+		answerLogPulls:          *answerLogPulls,
+		backfillBatches:         *backfillBatches,
+		backfillSamplesPerBatch: *backfillSamples,
+	}
+
+	tenants := max(*orgs, 1)
+	agentPlan := planAgents(*agents, tenants)
 
 	dir := *dataDir
 	if dir == "" {
@@ -58,7 +73,7 @@ func main() {
 		log.Fatalf("cert manager: %v", err)
 	}
 
-	fmt.Printf("Starting QUIC load test: %d agents → %s\n", *agents, *addr)
+	fmt.Printf("Starting QUIC load test: %d agents across %d tenant(s) → %s\n", *agents, tenants, *addr)
 	start := time.Now()
 
 	results := make([]agentResult, *agents)
@@ -68,7 +83,7 @@ func main() {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			results[idx] = runAgent(cm, *addr, opts)
+			results[idx] = runAgent(cm, *addr, agentPlan[idx], opts)
 		}(i)
 	}
 
@@ -140,7 +155,23 @@ func printErrorSamples(results []agentResult) {
 	}
 }
 
-func runAgent(cm *cert.Manager, addr string, opts loadOptions) agentResult {
+// planAgents lays out n agents across tenants cohorts deterministically, so a
+// soak run is reproducible: org index cycles round-robin and each hostname
+// carries its tenant + agent index.
+func planAgents(n, tenants int) []tenantAgent {
+	plan := make([]tenantAgent, n)
+	for i := 0; i < n; i++ {
+		org := i % tenants
+		plan[i] = tenantAgent{
+			orgIndex:   org,
+			agentIndex: i,
+			hostname:   fmt.Sprintf("soak-t%d-a%d", org, i),
+		}
+	}
+	return plan
+}
+
+func runAgent(cm *cert.Manager, addr string, plan tenantAgent, opts loadOptions) agentResult {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -179,7 +210,7 @@ func runAgent(cm *cert.Manager, addr string, opts loadOptions) agentResult {
 
 	codec := &protocol.Codec{}
 	t2 := time.Now()
-	if err := register(codec, stream, deviceID); err != nil {
+	if err := register(codec, stream, plan.hostname, agentCapabilities(opts)); err != nil {
 		res.err = err
 		return res
 	}
@@ -208,12 +239,23 @@ func handshake(stream io.ReadWriter, certDER []byte) error {
 	return nil
 }
 
+// agentCapabilities advertises the capabilities the soak exercises: Terminal
+// always, plus Backfill when the reconnect-storm scenario is enabled (the
+// server gates backfill admission on the advertised capability).
+func agentCapabilities(opts loadOptions) []protocol.AgentCapability {
+	caps := []protocol.AgentCapability{protocol.CapTerminal}
+	if opts.backfillBatches > 0 {
+		caps = append(caps, protocol.CapBackfill)
+	}
+	return caps
+}
+
 // register sends the AgentRegister control frame that completes enrollment.
-func register(codec *protocol.Codec, w io.Writer, deviceID uuid.UUID) error {
+func register(codec *protocol.Codec, w io.Writer, hostname string, caps []protocol.AgentCapability) error {
 	payload, err := codec.EncodeControl(&protocol.ControlMessage{
 		Type:         protocol.MsgAgentRegister,
-		Capabilities: []protocol.AgentCapability{protocol.CapTerminal},
-		Hostname:     "loadtest-" + deviceID.String()[:8],
+		Capabilities: caps,
+		Hostname:     hostname,
 		OS:           "linux",
 		Arch:         "amd64",
 		Version:      "0.1.0",

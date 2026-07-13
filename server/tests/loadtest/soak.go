@@ -11,13 +11,30 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// loadOptions carries the Edge-Sentinel soak toggles: emitting log-rate windows
-// (the log-rate ingest path under multi-tenant load) and answering on-demand
-// raw-log pulls (the agent side of the broker round-trip).
+// loadOptions carries the Edge-Sentinel soak toggles: emitting the default
+// telemetry shape (health summary + host metric window + process report — the
+// WS-4 ingest path), emitting log-rate windows, answering on-demand raw-log
+// pulls (the broker round-trip), and driving a reconnect-storm backfill drain
+// (the WS-15 scheduler + tiered import path).
 type loadOptions struct {
-	logWindows     int
-	answerLogPulls bool
+	defaultTelemetry        bool
+	telemetryCycles         int
+	logWindows              int
+	answerLogPulls          bool
+	backfillBatches         int
+	backfillSamplesPerBatch int
 }
+
+// defaultMetricDimNames are the host metric dimensions the sampler emits by
+// default (mirrors the agent's store_sink series set). Central VM keeps avg
+// only; min/max/last + 1 s raw stay agent-local.
+var defaultMetricDimNames = []string{
+	"cpu.total", "mem.used_percent", "disk.used_percent", "net.rx_bytes", "net.tx_bytes",
+}
+
+// defaultFamilies are the per-family anomaly-rate buckets a health summary
+// reports beside the node-level rate.
+var defaultFamilies = []string{"cpu", "memory", "disk", "network"}
 
 // maxSoakLogLines bounds a soak DeviceLogsResponse so the agent side never
 // answers a raw pull with an unbounded payload.
@@ -87,10 +104,30 @@ func safeUint32(v int) uint32 {
 	return uint32(v)
 }
 
+// readControlFrame reads and decodes the next control frame, skipping any
+// non-control frame type.
+func readControlFrame(codec *protocol.Codec, r io.Reader) (*protocol.ControlMessage, error) {
+	frameType, payload, err := codec.ReadFrame(r)
+	if err != nil {
+		return nil, err
+	}
+	if frameType != protocol.FrameControl {
+		return nil, fmt.Errorf("unexpected frame type %d", frameType)
+	}
+	return codec.DecodeControl(payload)
+}
+
 // runSoakTraffic drives the Edge-Sentinel soak load for one agent: it emits the
-// configured number of log-rate windows (log-rate ingest) and optionally answers
-// one on-demand raw-log pull (the agent side of the broker round-trip).
+// default telemetry shape and log-rate windows (ingest), runs a reconnect-storm
+// backfill drain, and optionally answers one on-demand raw-log pull (the agent
+// side of the broker round-trip).
 func runSoakTraffic(codec *protocol.Codec, stream soakStream, opts loadOptions) error {
+	if err := emitDefaultTelemetry(codec, stream, opts); err != nil {
+		return err
+	}
+	if _, err := drainBackfill(codec, stream, opts); err != nil {
+		return err
+	}
 	if err := emitLogWindows(codec, stream, opts.logWindows); err != nil {
 		return err
 	}

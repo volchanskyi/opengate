@@ -5,6 +5,7 @@
 
 pub mod config;
 pub mod connection;
+pub mod discovery;
 pub mod error;
 pub mod file_ops;
 pub mod identity;

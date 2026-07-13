@@ -78,6 +78,70 @@ pub struct HistoryPoint {
     pub value: f64,
 }
 
+/// One listening network port discovered on the host (WS-16). Read-only: the
+/// transport, the port number, and the owning process basename only — never a
+/// bound address that could leak internal topology beyond the port itself.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiscoveredPort {
+    /// Transport, lowercase: `"tcp"` or `"udp"`.
+    pub proto: String,
+    /// Listening port number.
+    pub port: u16,
+    /// Basename of the owning process, or `""` when it cannot be resolved
+    /// non-intrusively.
+    pub process: String,
+}
+
+/// One host service discovered on the endpoint (WS-16) — a systemd unit on Linux
+/// or a Windows service. Carries the unit name and its run state only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiscoveredService {
+    /// Unit / service name (e.g. `"nginx.service"`, `"Spooler"`).
+    pub name: String,
+    /// Normalized run state (e.g. `"running"`, `"exited"`, `"failed"`,
+    /// `"stopped"`).
+    pub state: String,
+}
+
+/// One database engine inferred from a listening port plus its owning process
+/// (WS-16). Engine family, best-effort version, and port only — never a
+/// connection string or credential.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiscoveredDbEngine {
+    /// Engine family, lowercase (e.g. `"postgres"`, `"mysql"`, `"mongodb"`,
+    /// `"redis"`).
+    pub engine: String,
+    /// Best-effort version string, or `""` when it is not determinable without
+    /// an intrusive query.
+    pub version: String,
+    /// Port the engine listens on.
+    pub port: u16,
+}
+
+/// One container discovered via a read-only local runtime (WS-16). Runtime,
+/// image reference, container name, and state only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiscoveredContainer {
+    /// Runtime, lowercase: `"docker"`, `"podman"`, or `"containerd"`.
+    pub runtime: String,
+    /// Image reference (repository[:tag]).
+    pub image: String,
+    /// Container name.
+    pub name: String,
+    /// Normalized state (e.g. `"running"`, `"exited"`, `"created"`).
+    pub state: String,
+}
+
+/// One installed OS package discovered on the host (WS-16) — dpkg/rpm on Linux
+/// or the Windows package registry. Name and version only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DiscoveredPackage {
+    /// Package name.
+    pub name: String,
+    /// Installed version string.
+    pub version: String,
+}
+
 /// All control messages exchanged between agent and server.
 /// Uses internally tagged representation so msgpack output matches Go's flat struct:
 /// {"type": "AgentRegister", "capabilities": [...], "hostname": "...", "os": "..."}
@@ -393,6 +457,32 @@ pub enum ControlMessage {
         dim: String,
         #[serde(default)]
         points: Vec<HistoryPoint>,
+        #[serde(default)]
+        truncated: bool,
+    },
+
+    /// Agent → Server: a tenant-scoped auto-discovery profile of the host
+    /// (WS-16) — listening ports, host services, database engines, containers,
+    /// and installed packages. Non-intrusive, read-only, per-category bounded;
+    /// `truncated` is set when any category was capped. Carries no secrets
+    /// (engine/port/version only, never connection strings or credentials). The
+    /// server assigns the authoritative org, so the agent leaves `org_id` empty.
+    /// Gated by the Discovery capability.
+    DiscoveryReport {
+        #[serde(default)]
+        ts: i64,
+        #[serde(default)]
+        org_id: String,
+        #[serde(default)]
+        ports: Vec<DiscoveredPort>,
+        #[serde(default)]
+        services: Vec<DiscoveredService>,
+        #[serde(default)]
+        db_engines: Vec<DiscoveredDbEngine>,
+        #[serde(default)]
+        containers: Vec<DiscoveredContainer>,
+        #[serde(default)]
+        packages: Vec<DiscoveredPackage>,
         #[serde(default)]
         truncated: bool,
     },

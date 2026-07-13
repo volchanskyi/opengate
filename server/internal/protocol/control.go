@@ -56,6 +56,9 @@ const (
 	MsgMetricBackfillAck    ControlMessageType = "MetricBackfillAck"
 	MsgRequestLocalHistory  ControlMessageType = "RequestLocalHistory"
 	MsgLocalHistoryResponse ControlMessageType = "LocalHistoryResponse"
+
+	// Edge-Sentinel WS-16 auto-discovery inventory report.
+	MsgDiscoveryReport ControlMessageType = "DiscoveryReport"
 )
 
 // BackfillTier identifies which central VictoriaMetrics tier a reconnect
@@ -198,6 +201,15 @@ type ControlMessage struct {
 	LogEntries []LogEntry `msgpack:"log_entries,omitempty"`
 	TotalCount uint32     `msgpack:"total_count,omitempty"`
 	HasMore    *bool      `msgpack:"has_more,omitempty"`
+
+	// DiscoveryReport (WS-16). TS/OrgID/Truncated are shared with the fields
+	// above. Each category is per-device bounded on the agent; Truncated is set
+	// when any category was capped.
+	Ports      []DiscoveredPort      `msgpack:"ports,omitempty"`
+	Services   []DiscoveredService   `msgpack:"services,omitempty"`
+	DBEngines  []DiscoveredDbEngine  `msgpack:"db_engines,omitempty"`
+	Containers []DiscoveredContainer `msgpack:"containers,omitempty"`
+	Packages   []DiscoveredPackage   `msgpack:"packages,omitempty"`
 }
 
 // LogEntry represents a single parsed log entry from the agent.
@@ -255,4 +267,45 @@ type BackfillSample struct {
 type HistoryPoint struct {
 	TS    int64   `msgpack:"ts"`
 	Value float64 `msgpack:"value"`
+}
+
+// DiscoveredPort is one listening network port discovered on the host (WS-16):
+// transport, port number, and owning process basename only — never a bound
+// address.
+type DiscoveredPort struct {
+	Proto   string `msgpack:"proto"`
+	Port    uint16 `msgpack:"port"`
+	Process string `msgpack:"process"`
+}
+
+// DiscoveredService is one host service (systemd unit / Windows service): its
+// name and normalized run state.
+type DiscoveredService struct {
+	Name  string `msgpack:"name"`
+	State string `msgpack:"state"`
+}
+
+// DiscoveredDbEngine is one database engine inferred from a listening port plus
+// its owning process: engine family, best-effort version, and port — never a
+// connection string or credential.
+type DiscoveredDbEngine struct {
+	Engine  string `msgpack:"engine"`
+	Version string `msgpack:"version"`
+	Port    uint16 `msgpack:"port"`
+}
+
+// DiscoveredContainer is one container discovered via a read-only local runtime:
+// runtime, image reference, container name, and state.
+type DiscoveredContainer struct {
+	Runtime string `msgpack:"runtime"`
+	Image   string `msgpack:"image"`
+	Name    string `msgpack:"name"`
+	State   string `msgpack:"state"`
+}
+
+// DiscoveredPackage is one installed OS package (dpkg/rpm / Windows registry):
+// name and installed version.
+type DiscoveredPackage struct {
+	Name    string `msgpack:"name"`
+	Version string `msgpack:"version"`
 }

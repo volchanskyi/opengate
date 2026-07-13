@@ -41,6 +41,7 @@ const (
 	CapDeviceLogs        AgentCapability = "DeviceLogs"
 	CapHealthWindow      AgentCapability = "HealthWindow"
 	CapBackfill          AgentCapability = "Backfill"
+	CapDiscovery         AgentCapability = "Discovery"
 )
 
 // DeviceStatus represents the current connection state of a device.

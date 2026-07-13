@@ -52,6 +52,10 @@ pub enum AgentCapability {
     /// server → agent GrantBackfill/DeferBackfill/MetricBackfillAck/
     /// RequestLocalHistory control messages.
     Backfill,
+    /// Non-intrusive auto-discovery profiling (WS-16). Advertised when the
+    /// periodic discovery task is enabled; the agent ships tenant-scoped
+    /// `DiscoveryReport`s (ports/services/DB engines/containers/packages).
+    Discovery,
 }
 
 /// Current status of a device.

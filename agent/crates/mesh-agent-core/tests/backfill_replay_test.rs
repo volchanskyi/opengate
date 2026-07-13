@@ -12,7 +12,9 @@ use std::collections::BTreeMap;
 use edge_tsdb::tier::TierPoint;
 use edge_tsdb::{Sample, SeriesId, Tier, TsdbError};
 use mesh_agent_core::ml::backfill::{
-    answer_local_history, BackfillConfig, BackfillCursors, BackfillDrain, TierReader,
+    answer_local_history, load_cursors, pace_delay, pending_hint, record_ack, tier_cursor_key,
+    BackfillConfig, BackfillCursors, BackfillDrain, CursorStore, TierReader, TIER_CURSOR_RAW10S,
+    TIER_CURSOR_ROLLUP1H, TIER_CURSOR_ROLLUP1M,
 };
 use mesh_protocol::BackfillTier;
 
@@ -283,6 +285,116 @@ fn batches_respect_the_sample_cap() {
             "cursor is the newest bucket in the batch"
         );
     }
+}
+
+/// In-memory `CursorStore` fake: the durable per-tier watermark table.
+#[derive(Default)]
+struct FakeCursors(BTreeMap<SeriesId, i64>);
+
+impl CursorStore for FakeCursors {
+    fn load_cursor(&self, key: SeriesId) -> Result<Option<i64>, TsdbError> {
+        Ok(self.0.get(&key).copied())
+    }
+
+    fn save_cursor(&mut self, key: SeriesId, ts: i64) -> Result<(), TsdbError> {
+        self.0.insert(key, ts);
+        Ok(())
+    }
+}
+
+#[test]
+fn tier_cursor_keys_are_distinct_and_reserved() {
+    // Each shippable tier maps to its own reserved key; the three keys are
+    // distinct and sit above every real metric series id (0..) so a tier
+    // watermark never collides with a WS-14b per-series cursor.
+    let keys = [
+        tier_cursor_key(BackfillTier::Raw10s).unwrap(),
+        tier_cursor_key(BackfillTier::Rollup1m).unwrap(),
+        tier_cursor_key(BackfillTier::Rollup1h).unwrap(),
+    ];
+    assert_eq!(
+        keys,
+        [
+            TIER_CURSOR_RAW10S,
+            TIER_CURSOR_ROLLUP1M,
+            TIER_CURSOR_ROLLUP1H
+        ]
+    );
+    let mut sorted = keys.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), 3, "the three tier keys are distinct");
+    for k in keys {
+        assert!(k > 1_000, "tier keys sit far above real series ids");
+    }
+}
+
+#[test]
+fn ack_persists_the_matching_tier_watermark_only() {
+    let mut c = FakeCursors::default();
+    // A fresh store reports no watermark for any tier.
+    assert_eq!(load_cursors(&c).unwrap().raw10s, None);
+
+    record_ack(&mut c, BackfillTier::Rollup1m, NOW - 300).unwrap();
+    let cursors = load_cursors(&c).unwrap();
+    assert_eq!(cursors.rollup1m, Some(NOW - 300), "acked tier advanced");
+    assert_eq!(cursors.raw10s, None, "other tiers untouched");
+    assert_eq!(cursors.rollup1h, None);
+
+    // A later ack for the same tier moves the watermark forward.
+    record_ack(&mut c, BackfillTier::Rollup1m, NOW - 60).unwrap();
+    assert_eq!(load_cursors(&c).unwrap().rollup1m, Some(NOW - 60));
+}
+
+#[test]
+fn cursors_round_trip_through_a_real_store() {
+    use edge_tsdb::{LocalTsdb, TsdbConfig};
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
+    record_ack(&mut store, BackfillTier::Raw10s, 12_340).unwrap();
+    record_ack(&mut store, BackfillTier::Rollup1h, 9_000).unwrap();
+
+    let cursors = load_cursors(&store).unwrap();
+    assert_eq!(cursors.raw10s, Some(12_340));
+    assert_eq!(cursors.rollup1h, Some(9_000));
+    assert_eq!(cursors.rollup1m, None);
+
+    // The reserved tier keys must not shadow a real series' WS-14b cursor.
+    assert_eq!(
+        store.cursor(CPU).unwrap(),
+        None,
+        "series 0 cursor untouched"
+    );
+}
+
+#[test]
+fn pending_hint_counts_backlog_and_reports_oldest() {
+    let mut r = FakeReader::default();
+    r.push_tier(CPU, Tier::T1, NOW - 900, 40.0);
+    r.push_tier(CPU, Tier::T1, NOW - 300, 41.0);
+    r.push_tier(CPU, Tier::T2, NOW - 5400, 30.0);
+
+    let (pending, oldest) =
+        pending_hint(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default()).unwrap();
+    assert_eq!(pending, 3, "three pending buckets across the tiers");
+    assert_eq!(oldest, NOW - 5400, "oldest pending bucket is the T2 point");
+
+    // Nothing pending → a zeroed hint (never a bogus timestamp).
+    let empty = FakeReader::default();
+    let (n, ts) = pending_hint(&empty, NOW, cfg(1000), &[CPU], BackfillCursors::default()).unwrap();
+    assert_eq!((n, ts), (0, 0));
+}
+
+#[test]
+fn pace_delay_bounds_the_drain_to_the_granted_rate() {
+    use std::time::Duration;
+    // 100 samples at 50/s → at least 2 s before the next batch.
+    assert_eq!(pace_delay(100, 50), Duration::from_secs(2));
+    // Rate 0 means "as fast as acks allow" — no pacing.
+    assert_eq!(pace_delay(100, 0), Duration::ZERO);
+    // An empty batch never waits.
+    assert_eq!(pace_delay(0, 50), Duration::ZERO);
 }
 
 #[test]

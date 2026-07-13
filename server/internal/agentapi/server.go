@@ -16,6 +16,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -34,6 +35,7 @@ type AgentServer struct {
 	relay         *relay.Relay
 	notifier      notifications.Notifier
 	scheduler     *BackfillScheduler
+	metrics       *appmetrics.Metrics
 	quicHost      string   // extra DNS SAN for the server certificate
 	conns         sync.Map // map[protocol.DeviceID]*AgentConn
 	count         atomic.Int64
@@ -55,6 +57,7 @@ type AgentServerConfig struct {
 	Processes     telemetry.ProcessRepository
 	Relay         *relay.Relay
 	Notifier      notifications.Notifier
+	Metrics       *appmetrics.Metrics
 	QuicHost      string
 	Logger        *slog.Logger
 }
@@ -71,6 +74,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		relay:         cfg.Relay,
 		notifier:      cfg.Notifier,
 		scheduler:     NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
+		metrics:       cfg.Metrics,
 		quicHost:      cfg.QuicHost,
 		logger:        cfg.Logger,
 		addrCh:        make(chan string, 1),
@@ -219,6 +223,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		telemetry:     s.telemetry,
 		processes:     s.processes,
 		scheduler:     s.scheduler,
+		metrics:       s.metrics,
 		logger:        logger,
 	}
 

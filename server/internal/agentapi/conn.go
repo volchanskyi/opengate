@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
@@ -44,6 +45,7 @@ type AgentConn struct {
 	telemetry      telemetry.NumericWriter
 	processes      telemetry.ProcessRepository
 	scheduler      *BackfillScheduler
+	metrics        *appmetrics.Metrics
 	logger         *slog.Logger
 	telemetryLast  map[protocol.ControlMessageType]int64
 	telemetrySlots chan struct{}
@@ -85,6 +87,7 @@ type AgentConnConfig struct {
 	Telemetry     telemetry.NumericWriter
 	Processes     telemetry.ProcessRepository
 	Scheduler     *BackfillScheduler
+	Metrics       *appmetrics.Metrics
 	Logger        *slog.Logger
 }
 
@@ -102,6 +105,7 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		telemetry:     cfg.Telemetry,
 		processes:     cfg.Processes,
 		scheduler:     cfg.Scheduler,
+		metrics:       cfg.Metrics,
 		logger:        cfg.Logger,
 	}
 }

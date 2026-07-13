@@ -51,24 +51,24 @@ WS-4 (VM tiers + scoped reader), WS-1 (capability). **Wave:** after WS-14b.
 
 ## File inventory
 
-- **Reuse (do not rebuild):** [`server/internal/testvm`](../../server/internal/testvm/testvm.go)
+- **Reuse (do not rebuild):** [`server/internal/testvm`](../../../server/internal/testvm/testvm.go)
   (`testvm.BaseURL(t)`) for the VM bucket-correctness test (Step 6);
-  [`server/tests/vmbackfill`](../../server/tests/vmbackfill/spike_test.go) already proves the import
+  [`server/tests/vmbackfill`](../../../server/tests/vmbackfill/spike_test.go) already proves the import
   API preserves original timestamps (import-not-stream-agg) — reuse its import + `/api/v1/export`
   assertion pattern.
-- **Modify:** [`control.rs`](../../agent/crates/mesh-protocol/src/control.rs) / Go protocol —
+- **Modify:** [`control.rs`](../../../agent/crates/mesh-protocol/src/control.rs) / Go protocol —
   additive, capability-gated: `MetricBackfillBatch { tier, historical samples, cursor }`,
   `RequestLocalHistory`/`LocalHistoryResponse` (bounded), `RequestBackfillSlot`/`GrantBackfill`/
   `DeferBackfill`; goldens.
-- **Modify:** [`main.rs`](../../agent/crates/mesh-agent/src/main.rs) — request a slot; replay
+- **Modify:** [`main.rs`](../../../agent/crates/mesh-agent/src/main.rs) — request a slot; replay
   **recent-first then older**, **tier-mapped**, throttled to the granted rate, resumable from the
   WS-14b cursor (advance only on per-batch ack); answer `RequestLocalHistory` from local tiers;
   **timestamp sanity bounds** (reject/skew-correct wild clocks).
-- **Modify:** server [`conn.go`](../../server/internal/agentapi/conn.go) — the **scheduler**
+- **Modify:** server [`conn.go`](../../../server/internal/agentapi/conn.go) — the **scheduler**
   (admission/budget/fair-share); accept backfill batches → WS-4 VM client at the **matching tier**,
   **clamped to retention**, deduped (VM by timestamp); broker `RequestLocalHistory` (bounded);
   scope everything to the connection's device→org.
-- **Modify:** [`api/openapi.yaml`](../../api/openapi.yaml) + [`api.go`](../../server/internal/api/api.go)
+- **Modify:** [`api/openapi.yaml`](../../../api/openapi.yaml) + [`api.go`](../../../server/internal/api/api.go)
   — deep-history endpoint brokering `RequestLocalHistory`; regen Go + TS.
 
 ## Steps (TDD-first)

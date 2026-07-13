@@ -4,6 +4,7 @@
 //! handles session requests, and applies binary updates.
 //! Exit code 42 signals the service manager to restart after an update.
 
+mod backfill_loop;
 mod edge_sentinel;
 mod host_logs;
 mod logs;
@@ -66,6 +67,12 @@ struct Args {
     /// Windows Event Log / self logs). Default off; yields to control traffic.
     #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_LOG_READERS")]
     edge_log_readers: bool,
+
+    /// Enable the non-intrusive Edge-Sentinel auto-discovery task (listening
+    /// ports, services, DB engines, containers, packages). Default off; long
+    /// interval, change-triggered, yields to control traffic.
+    #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_DISCOVERY")]
+    edge_discovery: bool,
 }
 
 /// Exit code that tells systemd (RestartForceExitStatus=42) to restart the agent
@@ -286,6 +293,11 @@ const LOG_DIR: &str = "/var/log/mesh-agent";
 /// Windows beyond this are dropped so telemetry never backpressures control.
 const LOG_RATE_TELEMETRY_CAP: usize = 32;
 
+/// Bounded backlog of discovery reports awaiting the control loop. Reports are
+/// change-triggered and infrequent, so a small buffer suffices; reports beyond
+/// it are dropped rather than backpressuring control.
+const DISCOVERY_TELEMETRY_CAP: usize = 4;
+
 /// Set up tracing with both stdout and rolling file appender.
 /// Returns the guard that must be held for the lifetime of the program.
 fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
@@ -440,26 +452,38 @@ async fn main() -> Result<()> {
     lifecycle.notify_ready();
     info!("agent ready, connecting to server");
 
-    let _edge_sentinel_sampler = if args.edge_sentinel {
-        info!("edge-sentinel sampler enabled");
-        let store = if args.edge_store {
-            let path = args.data_dir.join("edge-tsdb");
-            info!(
-                path = %path.display(),
-                cap_mb = args.edge_store_cap_mb,
-                "edge-sentinel local store enabled"
-            );
-            Some(edge_sentinel::StoreConfig {
-                path,
-                cap_bytes: args.edge_store_cap_mb.saturating_mul(1024 * 1024),
-            })
-        } else {
-            None
+    // The sampler-owned local store is shared with the WS-15 reconnect-backfill
+    // coordinator on the control loop. It exists only when both the sampler and
+    // the store are enabled (default off, behind `--edge-store`); backfill is
+    // gated on the same enablement as the store it drains.
+    let shared_sink: Option<edge_sentinel::SharedSink> = if args.edge_sentinel && args.edge_store {
+        let path = args.data_dir.join("edge-tsdb");
+        info!(
+            path = %path.display(),
+            cap_mb = args.edge_store_cap_mb,
+            "edge-sentinel local store enabled"
+        );
+        let cfg = edge_sentinel::StoreConfig {
+            path,
+            cap_bytes: args.edge_store_cap_mb.saturating_mul(1024 * 1024),
         };
-        Some(edge_sentinel::spawn_sampler(store))
+        edge_sentinel::open_sink(&cfg).map(|s| std::sync::Arc::new(std::sync::Mutex::new(s)))
     } else {
         None
     };
+
+    let _edge_sentinel_sampler = if args.edge_sentinel {
+        info!("edge-sentinel sampler enabled");
+        Some(edge_sentinel::spawn_sampler(shared_sink.clone()))
+    } else {
+        None
+    };
+
+    // WS-15 reconnect-backfill coordinator: present only when a shared store is,
+    // and it also gates advertising the `Backfill` capability to the server.
+    let mut backfill = shared_sink
+        .clone()
+        .map(backfill_loop::BackfillCoordinator::new);
 
     // Log-rate windows produced by the reader task reach the control loop over a
     // bounded channel; the receiver is drained when connected (see below).
@@ -469,6 +493,18 @@ async fn main() -> Result<()> {
         let (tx, rx) = std::sync::mpsc::sync_channel(LOG_RATE_TELEMETRY_CAP);
         log_rate_rx = Some(rx);
         Some(edge_sentinel::spawn_log_readers(PathBuf::from(LOG_DIR), tx))
+    } else {
+        None
+    };
+
+    // Auto-discovery reports produced by the discovery task reach the control
+    // loop over a bounded channel, drained alongside log-rate windows below.
+    let mut discovery_rx: Option<std::sync::mpsc::Receiver<mesh_protocol::ControlMessage>> = None;
+    let _edge_discovery = if args.edge_discovery {
+        info!("edge-sentinel auto-discovery enabled");
+        let (tx, rx) = std::sync::mpsc::sync_channel(DISCOVERY_TELEMETRY_CAP);
+        discovery_rx = Some(rx);
+        Some(edge_sentinel::spawn_discovery(tx))
     } else {
         None
     };
@@ -574,15 +610,24 @@ async fn main() -> Result<()> {
         let stream = mesh_agent_core::AsyncControlStream::new(tokio::io::join(recv, send));
         let mut conn = mesh_agent_core::AgentConnection::new(stream);
 
-        // Register with server
+        // Register with server. The Backfill capability is advertised only when
+        // a local store is present to drain (it gates the server → agent
+        // Grant/Defer/Ack/RequestLocalHistory control messages).
+        let mut capabilities = vec![
+            mesh_protocol::AgentCapability::Terminal,
+            mesh_protocol::AgentCapability::FileManager,
+            mesh_protocol::AgentCapability::HardwareInventory,
+            mesh_protocol::AgentCapability::DeviceLogs,
+        ];
+        if backfill.is_some() {
+            capabilities.push(mesh_protocol::AgentCapability::Backfill);
+        }
+        if args.edge_discovery {
+            capabilities.push(mesh_protocol::AgentCapability::Discovery);
+        }
         if let Err(e) = conn
             .send_control(mesh_protocol::ControlMessage::AgentRegister {
-                capabilities: vec![
-                    mesh_protocol::AgentCapability::Terminal,
-                    mesh_protocol::AgentCapability::FileManager,
-                    mesh_protocol::AgentCapability::HardwareInventory,
-                    mesh_protocol::AgentCapability::DeviceLogs,
-                ],
+                capabilities,
                 hostname: gethostname::gethostname().to_string_lossy().to_string(),
                 os: os_pretty_name(),
                 arch: std::env::consts::ARCH.to_string(),
@@ -617,6 +662,22 @@ async fn main() -> Result<()> {
             info!("post-update verification passed, sentinel cleared");
         }
 
+        // WS-15: start a reconnect-backfill cycle for this session. `bf_send_at`
+        // paces the drain to the granted rate; `bf_retry_at` schedules a
+        // deferred re-request. Both stay `None` until a grant/defer arrives. A
+        // send failure here surfaces again on the next control send and drives a
+        // reconnect, so it is only logged.
+        let mut bf_send_at: Option<tokio::time::Instant> = None;
+        let mut bf_retry_at: Option<tokio::time::Instant> = None;
+        if let Some(bf) = backfill.as_mut() {
+            if let Some(msg) = bf.start_session().await {
+                match conn.send_control(msg).await {
+                    Ok(()) => debug!("backfill: requested admission slot"),
+                    Err(e) => warn!(error = %e, "backfill slot request failed"),
+                }
+            }
+        }
+
         // Control loop — dispatch messages until disconnect
         let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(60));
         heartbeat.tick().await; // consume immediate first tick
@@ -643,15 +704,22 @@ async fn main() -> Result<()> {
                         break;
                     }
                     tracing::debug!("heartbeat sent");
+                    if backfill.as_ref().is_some_and(backfill_loop::BackfillCoordinator::is_draining) {
+                        tracing::debug!("backfill: reconnect drain in progress");
+                    }
 
-                    // Forward any queued log-rate windows. Drain into a Vec first
-                    // so the receiver is never held across the send await; the
-                    // bounded channel already dropped anything beyond capacity, so
-                    // a log burst never backpressures the control stream.
-                    let windows: Vec<mesh_protocol::ControlMessage> = match log_rate_rx.as_ref() {
+                    // Forward any queued log-rate windows and discovery reports.
+                    // Drain into a Vec first so no receiver is held across the
+                    // send await; the bounded channels already dropped anything
+                    // beyond capacity, so neither can backpressure the control
+                    // stream.
+                    let mut windows: Vec<mesh_protocol::ControlMessage> = match log_rate_rx.as_ref() {
                         Some(rx) => std::iter::from_fn(|| rx.try_recv().ok()).collect(),
                         None => Vec::new(),
                     };
+                    if let Some(rx) = discovery_rx.as_ref() {
+                        windows.extend(std::iter::from_fn(|| rx.try_recv().ok()));
+                    }
                     let mut telemetry_lost = false;
                     for window in windows {
                         if let Err(e) = conn.send_control(window).await {
@@ -662,6 +730,32 @@ async fn main() -> Result<()> {
                     }
                     if telemetry_lost {
                         break;
+                    }
+                }
+                _ = sleep_until_opt(bf_send_at) => {
+                    // Paced backfill send: one batch (or a re-slot request when the
+                    // grant expired mid-drain). The next send is re-armed on the
+                    // matching ack; a send failure drives a reconnect.
+                    bf_send_at = None;
+                    if let Some(bf) = backfill.as_mut() {
+                        if let Some(msg) = bf.next_batch().await {
+                            if let Err(e) = conn.send_control(msg).await {
+                                warn!(error = %e, "backfill send failed, will reconnect");
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ = sleep_until_opt(bf_retry_at) => {
+                    // A deferred admission slot's jittered retry has elapsed.
+                    bf_retry_at = None;
+                    if let Some(bf) = backfill.as_mut() {
+                        if let Some(msg) = bf.start_session().await {
+                            if let Err(e) = conn.send_control(msg).await {
+                                warn!(error = %e, "backfill retry request failed, will reconnect");
+                                break;
+                            }
+                        }
                     }
                 }
                 msg = conn.receive_control() => {
@@ -784,6 +878,36 @@ async fn main() -> Result<()> {
                                 }
                             }
                         }
+                        Ok(mesh_protocol::ControlMessage::GrantBackfill { rate, deadline }) => {
+                            if let Some(bf) = backfill.as_mut() {
+                                info!(rate, deadline, "backfill: admission slot granted");
+                                bf.on_grant(rate, deadline);
+                                bf_send_at = Some(tokio::time::Instant::now());
+                            }
+                        }
+                        Ok(mesh_protocol::ControlMessage::DeferBackfill { retry_after }) => {
+                            if let Some(bf) = backfill.as_mut() {
+                                let delay = bf.on_defer(retry_after);
+                                debug!(retry_after, delay_s = delay.as_secs(), "backfill: deferred");
+                                bf_retry_at = Some(tokio::time::Instant::now() + delay);
+                            }
+                        }
+                        Ok(mesh_protocol::ControlMessage::MetricBackfillAck { tier, cursor }) => {
+                            if let Some(bf) = backfill.as_mut() {
+                                let delay = bf.on_ack(tier, cursor).await;
+                                bf_send_at = Some(tokio::time::Instant::now() + delay);
+                            }
+                        }
+                        Ok(mesh_protocol::ControlMessage::RequestLocalHistory {
+                            dim, from_ts, to_ts, max_points,
+                        }) => {
+                            if let Some(bf) = backfill.as_ref() {
+                                let resp = bf.answer_history(dim, from_ts, to_ts, max_points).await;
+                                if let Err(e) = conn.send_control(resp).await {
+                                    warn!(error = %e, "failed to send local-history response");
+                                }
+                            }
+                        }
                         Ok(_other) => { /* ignore unknown messages */ }
                         Err(e) if e.to_string().contains("ping received") => {
                             // Ping was handled (pong sent), continue listening
@@ -820,6 +944,16 @@ async fn main() -> Result<()> {
     lifecycle.notify_stopping();
     info!("mesh-agent stopped");
     Ok(())
+}
+
+/// Sleep until `at`, or never (pend forever) when `at` is `None`. Lets a
+/// `tokio::select!` arm hold an optional backfill pacing/retry deadline without a
+/// dedicated always-armed timer.
+async fn sleep_until_opt(at: Option<tokio::time::Instant>) {
+    match at {
+        Some(t) => tokio::time::sleep_until(t).await,
+        None => std::future::pending::<()>().await,
+    }
 }
 
 /// Collects hardware inventory from the local system.
@@ -1221,6 +1355,30 @@ mod tests {
         ])
         .unwrap();
         assert!(enabled.edge_log_readers);
+    }
+
+    #[test]
+    fn test_cli_args_edge_discovery_default_off_and_opt_in() {
+        let default_args = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+        ])
+        .unwrap();
+        assert!(!default_args.edge_discovery);
+
+        let enabled = Args::try_parse_from([
+            "mesh-agent",
+            "--server-addr",
+            "127.0.0.1:9090",
+            "--server-ca",
+            "/tmp/ca.pem",
+            "--edge-discovery",
+        ])
+        .unwrap();
+        assert!(enabled.edge_discovery);
     }
 
     #[test]

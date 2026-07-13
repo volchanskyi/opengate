@@ -150,7 +150,7 @@ func (a *AgentConn) acceptTelemetry(msgType protocol.ControlMessageType, ts int6
 		return false
 	}
 	if ts <= 0 {
-		return true
+		return a.acceptedTelemetry(msgType)
 	}
 	if a.telemetryLast == nil {
 		a.telemetryLast = make(map[protocol.ControlMessageType]int64)
@@ -160,6 +160,15 @@ func (a *AgentConn) acceptTelemetry(msgType protocol.ControlMessageType, ts int6
 		return false
 	}
 	a.telemetryLast[msgType] = ts
+	return a.acceptedTelemetry(msgType)
+}
+
+// acceptedTelemetry records one accepted telemetry message against the ingest
+// counter and returns true, so callers can `return a.acceptedTelemetry(...)`.
+func (a *AgentConn) acceptedTelemetry(msgType protocol.ControlMessageType) bool {
+	if a.metrics != nil {
+		a.metrics.ObserveEdgeTelemetryIngest(string(msgType))
+	}
 	return true
 }
 
@@ -189,6 +198,9 @@ func (a *AgentConn) persistTelemetry(ctx context.Context, fn func(context.Contex
 
 func (a *AgentConn) dropTelemetry(reason string, args ...any) {
 	a.telemetryDrops.Add(1)
+	if a.metrics != nil {
+		a.metrics.ObserveEdgeTelemetryDrop(reason)
+	}
 	if a.logger != nil {
 		a.logger.Debug("dropping edge sentinel telemetry", append([]any{"device_id", a.DeviceID, "reason", reason}, args...)...)
 	}

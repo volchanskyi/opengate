@@ -2,6 +2,12 @@
 crate mesh_agent_core
 ├── mod config: pub
 ├── mod connection: pub
+├── mod discovery: pub
+│   ├── mod containers: pub
+│   ├── mod db_engines: pub
+│   ├── mod packages: pub
+│   ├── mod ports: pub
+│   └── mod services: pub
 ├── mod error: pub
 ├── mod file_ops: pub
 ├── mod identity: pub

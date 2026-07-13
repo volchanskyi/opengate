@@ -9,7 +9,7 @@ storage + UI are WS-17/WS-18.
 ## Context
 
 Inventory today is shallow + on-demand: `collect_hardware_info()` (CPU/disks/networks via `sysinfo`)
-at [main.rs:739](../../agent/crates/mesh-agent/src/main.rs#L739). Netdata's auto-discovery profiles
+at [main.rs:739](../../../agent/crates/mesh-agent/src/main.rs#L739). Netdata's auto-discovery profiles
 the host on install and re-profiles as new components appear. This WS adds **non-intrusive, read-only
 discovery loops** (no slow WMI, no network scanning).
 
@@ -19,10 +19,10 @@ discovery loops** (no slow WMI, no network scanning).
   `GetExtendedTcpTable` via the MIT/Apache `windows` crate), **services** (systemd list-units /
   Windows service manager), **DB engines** (process+port heuristics), **containers** (read-only
   docker/podman/containerd socket if present), **packages** (dpkg/rpm / Windows registry).
-- **Modify:** [`control.rs`](../../agent/crates/mesh-protocol/src/control.rs) / Go protocol — additive
+- **Modify:** [`control.rs`](../../../agent/crates/mesh-protocol/src/control.rs) / Go protocol — additive
   `DiscoveryReport { ts, org_id, ports[], services[], db_engines[], containers[], packages[] }`;
   goldens.
-- **Modify:** [`main.rs`](../../agent/crates/mesh-agent/src/main.rs) — periodic discovery task
+- **Modify:** [`main.rs`](../../../agent/crates/mesh-agent/src/main.rs) — periodic discovery task
   (default-off; long interval; bounded; yields; re-profiles on change).
 
 ## Steps (TDD-first)

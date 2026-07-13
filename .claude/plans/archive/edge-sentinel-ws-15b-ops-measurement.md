@@ -23,23 +23,23 @@ original "shared-Postgres contention" risk is largely removed — but the soak s
 empirically: control-plane p99 must not regress under telemetry load, VM disk/series growth must
 track the model, and stream-agg rollups must hold long-term storage flat. VictoriaMetrics +
 Grafana are already deployed
-([`deploy/helm/monitoring/values.yaml`](../../deploy/helm/monitoring/values.yaml); the Grafana
+([`deploy/helm/monitoring/values.yaml`](../../../deploy/helm/monitoring/values.yaml); the Grafana
 VM datasource is already wired). The load harness exists
-([`server/tests/loadtest/main.go`](../../server/tests/loadtest/main.go)).
+([`server/tests/loadtest/main.go`](../../../server/tests/loadtest/main.go)).
 
 ## File inventory
 
-- **Modify:** [`server/tests/loadtest/main.go`](../../server/tests/loadtest/main.go) — drive
+- **Modify:** [`server/tests/loadtest/main.go`](../../../server/tests/loadtest/main.go) — drive
   **500 multi-tenant agents** emitting the default telemetry shape (summaries + windows +
   minimal process) over a sustained run; plus a **fleet-wide reconnect-storm scenario** (a large
   cohort returns at once with offline backlogs) to prove the WS-15 scheduler drains gradually
   without starving live + control or breaching the p99 budget.
 - **Create:** Grafana dashboard JSON under
-  [`deploy/grafana/provisioning/dashboards/`](../../deploy/grafana/provisioning/dashboards/)
+  [`deploy/grafana/provisioning/dashboards/`](../../../deploy/grafana/provisioning/dashboards/)
   (VM datasource): anomaly-rate, ingest rate, **VM active-series cardinality + disk growth**,
   control-plane query p99, correlation latency, telemetry drop count + queue depth, **backfill
   scheduler state (active/queued slots, granted ingest rate, per-tenant fair-share, deferrals)**.
-- **Modify:** [`server/internal/metrics/`](../../server/internal/metrics/) — counters for
+- **Modify:** [`server/internal/metrics/`](../../../server/internal/metrics/) — counters for
   telemetry ingest + drops + correlation if missing.
 
 ## Steps (TDD-first)

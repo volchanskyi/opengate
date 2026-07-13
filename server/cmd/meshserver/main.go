@@ -186,6 +186,7 @@ func main() {
 		Processes:     processesRepo,
 		Relay:         agentRelay,
 		Notifier:      notifier,
+		Metrics:       appMetrics,
 		QuicHost:      quicHost,
 		Logger:        logger,
 	})

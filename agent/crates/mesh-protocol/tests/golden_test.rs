@@ -520,6 +520,51 @@ fn golden_control_frame_local_history_response() {
     golden_check("control_local_history_response.bin", &encoded);
 }
 
+// --- WS-16: auto-discovery report wire contract ---
+
+#[test]
+fn golden_control_frame_discovery_report() {
+    let msg = ControlMessage::DiscoveryReport {
+        ts: 1700000000,
+        org_id: String::new(),
+        ports: vec![
+            DiscoveredPort {
+                proto: "tcp".to_string(),
+                port: 5432,
+                process: "postgres".to_string(),
+            },
+            DiscoveredPort {
+                proto: "udp".to_string(),
+                port: 53,
+                process: "systemd-resolve".to_string(),
+            },
+        ],
+        services: vec![DiscoveredService {
+            name: "nginx.service".to_string(),
+            state: "running".to_string(),
+        }],
+        db_engines: vec![DiscoveredDbEngine {
+            engine: "postgres".to_string(),
+            version: "16.2".to_string(),
+            port: 5432,
+        }],
+        containers: vec![DiscoveredContainer {
+            runtime: "docker".to_string(),
+            image: "redis:7".to_string(),
+            name: "cache".to_string(),
+            state: "running".to_string(),
+        }],
+        packages: vec![DiscoveredPackage {
+            name: "openssl".to_string(),
+            version: "3.0.13".to_string(),
+        }],
+        truncated: true,
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_discovery_report.bin", &encoded);
+}
+
 #[test]
 fn golden_handshake_server_hello() {
     let msg = HandshakeMessage::ServerHello {
