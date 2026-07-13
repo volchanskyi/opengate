@@ -59,7 +59,7 @@ func TestReconcilerPurgesOrphanSeriesButKeepsLiveDevices(t *testing.T) {
 // orgScopedInventory filters a real inventory down to a single org, isolating a
 // sweep from other tests sharing the same VictoriaMetrics instance.
 type orgScopedInventory struct {
-	inner SeriesInventory
+	inner SubjectLister
 	org   uuid.UUID
 }
 

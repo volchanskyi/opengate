@@ -66,7 +66,7 @@ func (s *JobStore) MarkComplete(ctx context.Context, job *PurgeJob) error {
 
 // GetJob loads one job by id.
 func (s *JobStore) GetJob(ctx context.Context, id uuid.UUID) (*PurgeJob, error) {
-	row := s.db.QueryRowContext(ctx, purgeJobColumns+` WHERE id = $1`, id)
+	row := s.db.QueryRowContext(ctx, getPurgeJobSQL, id)
 	job, err := scanJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrJobNotFound
@@ -76,7 +76,7 @@ func (s *JobStore) GetJob(ctx context.Context, id uuid.UUID) (*PurgeJob, error) 
 
 // ListIncomplete returns every job a restarting server must resume, oldest first.
 func (s *JobStore) ListIncomplete(ctx context.Context) ([]*PurgeJob, error) {
-	rows, err := s.db.QueryContext(ctx, purgeJobColumns+` WHERE completed_at IS NULL ORDER BY created_at`)
+	rows, err := s.db.QueryContext(ctx, listIncompletePurgeJobsSQL)
 	if err != nil {
 		return nil, fmt.Errorf("list incomplete purge jobs: %w", err)
 	}
@@ -87,7 +87,7 @@ func (s *JobStore) ListIncomplete(ctx context.Context) ([]*PurgeJob, error) {
 // LatestForOrg returns the most recent purge job for an org, or nil when the org
 // has never been purged. The status API uses it to report progress.
 func (s *JobStore) LatestForOrg(ctx context.Context, orgID uuid.UUID) (*PurgeJob, error) {
-	row := s.db.QueryRowContext(ctx, purgeJobColumns+` WHERE org_id = $1 ORDER BY created_at DESC LIMIT 1`, orgID)
+	row := s.db.QueryRowContext(ctx, latestPurgeJobForOrgSQL, orgID)
 	job, err := scanJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -98,9 +98,14 @@ func (s *JobStore) LatestForOrg(ctx context.Context, orgID uuid.UUID) (*PurgeJob
 // ErrJobNotFound is returned when a purge job id does not exist.
 var ErrJobNotFound = errors.New("purge job not found")
 
-const purgeJobColumns = `SELECT id, org_id, device_id, scope, state, vm_deleted, object_deleted,
+const (
+	purgeJobColumns = `SELECT id, org_id, device_id, scope, state, vm_deleted, object_deleted,
 	pg_deleted, verified, requested_by, last_error, created_at, updated_at, completed_at
 	FROM purge_jobs`
+	getPurgeJobSQL             = purgeJobColumns + ` WHERE id = $1`
+	listIncompletePurgeJobsSQL = purgeJobColumns + ` WHERE completed_at IS NULL ORDER BY created_at`
+	latestPurgeJobForOrgSQL    = purgeJobColumns + ` WHERE org_id = $1 ORDER BY created_at DESC LIMIT 1`
+)
 
 type rowScanner interface {
 	Scan(dest ...any) error

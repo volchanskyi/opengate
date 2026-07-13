@@ -9,9 +9,9 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
-// SeriesInventory lists the (org, device) subjects that own VictoriaMetrics
+// SubjectLister lists the (org, device) subjects that own VictoriaMetrics
 // series, so the reconciler can diff them against Postgres.
-type SeriesInventory interface {
+type SubjectLister interface {
 	ListSubjects(ctx context.Context) ([]telemetry.SeriesSubject, error)
 }
 
@@ -22,14 +22,14 @@ type SeriesInventory interface {
 // created at handshake before any telemetry ingest, so a device with series but
 // no row is genuinely orphaned, not mid-enrollment.
 type Reconciler struct {
-	inventory SeriesInventory
+	inventory SubjectLister
 	series    SeriesPurger
 	pg        PGPurger
 	logger    *slog.Logger
 }
 
 // NewReconciler builds a reconciliation sweep. A nil logger uses slog.Default.
-func NewReconciler(inventory SeriesInventory, series SeriesPurger, pg PGPurger, logger *slog.Logger) *Reconciler {
+func NewReconciler(inventory SubjectLister, series SeriesPurger, pg PGPurger, logger *slog.Logger) *Reconciler {
 	if logger == nil {
 		logger = slog.Default()
 	}

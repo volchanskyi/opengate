@@ -132,7 +132,7 @@ func main() {
 	var correlationEngine api.CorrelationRanker
 	var metricsReader api.MetricsReader
 	var seriesPurger lifecycle.SeriesPurger
-	var seriesInventory lifecycle.SeriesInventory
+	var seriesInventory lifecycle.SubjectLister
 	if vmURL != "" {
 		vmClient := telemetry.NewVMClient(vmURL, nil)
 		if key := os.Getenv("OPENGATE_VM_DELETE_AUTH_KEY"); key != "" {
@@ -352,7 +352,7 @@ type purgeDeps struct {
 	tombstones      *lifecycle.TombstoneStore
 	jobs            *lifecycle.JobStore
 	seriesPurger    lifecycle.SeriesPurger
-	seriesInventory lifecycle.SeriesInventory
+	seriesInventory lifecycle.SubjectLister
 	logger          *slog.Logger
 }
 

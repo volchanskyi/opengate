@@ -399,7 +399,7 @@ func (s *Server) oapiAuthMiddleware() MiddlewareFunc {
 // auditLog writes an audit event in a fire-and-forget goroutine.
 func (s *Server) auditLog(ctx context.Context, userID db.UserID, action, target, details string) {
 	tenant, ok := dbtx.TenantFromContext(ctx)
-	auditCtx := context.Background()
+	auditCtx := context.WithoutCancel(ctx)
 	if ok {
 		auditCtx = dbtx.WithTenant(auditCtx, tenant.OrgID, tenant.IsAdmin)
 	} else {
