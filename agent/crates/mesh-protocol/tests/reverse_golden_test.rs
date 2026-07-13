@@ -211,6 +211,29 @@ fn reverse_golden_request_local_history() {
 }
 
 #[test]
+fn reverse_golden_push_alert_rules() {
+    let frame = decode_frame("go_control_push_alert_rules.bin");
+    match frame {
+        Frame::Control(ControlMessage::PushAlertRules { rules }) => {
+            assert_eq!(rules.len(), 2);
+            assert_eq!(rules[0].id, "disk-full");
+            assert_eq!(rules[0].metric, "disk.used");
+            assert_eq!(rules[0].comparator, AlertComparator::Gt);
+            assert_eq!(rules[0].threshold, 90.0);
+            assert_eq!(rules[0].clear, 80.0);
+            assert_eq!(rules[0].sustain_secs, 30);
+            assert_eq!(rules[1].id, "mem-low");
+            assert_eq!(rules[1].metric, "mem.used");
+            assert_eq!(rules[1].comparator, AlertComparator::Lt);
+            assert_eq!(rules[1].threshold, 10.0);
+            assert_eq!(rules[1].clear, 20.0);
+            assert_eq!(rules[1].sustain_secs, 0);
+        }
+        other => panic!("expected PushAlertRules, got {:?}", other),
+    }
+}
+
+#[test]
 fn reverse_golden_desktop_frame() {
     let frame = decode_frame("go_desktop_frame.bin");
     match frame {

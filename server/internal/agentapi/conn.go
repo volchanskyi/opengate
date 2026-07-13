@@ -47,6 +47,7 @@ type AgentConn struct {
 	processes      telemetry.ProcessRepository
 	inventory      inventory.Repository
 	scheduler      *BackfillScheduler
+	alertRules     AlertRuleProvider
 	metrics        *appmetrics.Metrics
 	logger         *slog.Logger
 	telemetryLast  map[protocol.ControlMessageType]int64
@@ -90,6 +91,7 @@ type AgentConnConfig struct {
 	Processes     telemetry.ProcessRepository
 	Inventory     inventory.Repository
 	Scheduler     *BackfillScheduler
+	AlertRules    AlertRuleProvider
 	Metrics       *appmetrics.Metrics
 	Logger        *slog.Logger
 }
@@ -109,6 +111,7 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		processes:     cfg.Processes,
 		inventory:     cfg.Inventory,
 		scheduler:     cfg.Scheduler,
+		alertRules:    cfg.AlertRules,
 		metrics:       cfg.Metrics,
 		logger:        cfg.Logger,
 	}
@@ -202,6 +205,29 @@ func (a *AgentConn) SendRequestHealthWindow(ctx context.Context, sinceTS int64, 
 		SinceTS: sinceTS,
 		Limit:   limit,
 	})
+}
+
+// SendPushAlertRules pushes a threshold-alert ruleset to the agent (WS-19).
+// Gated by the ThresholdAlerts capability.
+func (a *AgentConn) SendPushAlertRules(ctx context.Context, rules []protocol.ThresholdRule) error {
+	if err := a.requireCapability(protocol.CapThresholdAlerts); err != nil {
+		return err
+	}
+	return a.sendControl(&protocol.ControlMessage{
+		Type:       protocol.MsgPushAlertRules,
+		AlertRules: rules,
+	})
+}
+
+// pushAlertRules delivers the connecting agent's tenant-scoped threshold-alert
+// ruleset, selected by its authoritative org so one org's rules never reach
+// another. A nil provider is a no-op; a missing capability surfaces as a
+// capability error the caller can ignore.
+func (a *AgentConn) pushAlertRules(ctx context.Context) error {
+	if a.alertRules == nil {
+		return nil
+	}
+	return a.SendPushAlertRules(ctx, a.alertRules.RulesFor(a.OrgID))
 }
 
 // SendRequestLocalHistory asks the agent for a bounded, full-resolution slice of
@@ -423,6 +449,13 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 		"os", msg.OS,
 		"capabilities", msg.Capabilities,
 	)
+
+	// Deliver the agent's tenant-scoped threshold-alert ruleset (WS-19). A
+	// capability error just means the agent did not opt in; only a real send
+	// failure is worth logging, and neither fails registration.
+	if err := a.pushAlertRules(ctx); err != nil && !IsCapabilityError(err) {
+		a.logger.Warn("push alert rules failed", "device_id", a.DeviceID, "error", err)
+	}
 
 	return nil
 }

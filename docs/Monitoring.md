@@ -186,6 +186,25 @@ single-host deep-history pull (`GET /devices/{id}/history`) that the server
 brokers to the agent as a bounded `RequestLocalHistory`; the agent answers it
 from its local T0 raw tier.
 
+### Threshold alerts
+
+Alongside the unsupervised anomaly detector, an agent evaluates a set of
+declarative **threshold rules** locally every sample — a metric gauge, a
+comparator, a fire threshold, a hysteresis clear boundary, and a sustain duration
+([`alerts`](../agent/crates/mesh-agent-core/src/alerts/)). A breach must hold
+continuously for its sustain duration before it fires (suppressing brief spikes),
+then stays firing until the metric recovers past the clear boundary (suppressing
+flapping around the threshold). The server delivers each connecting agent's
+authoritative-org ruleset over a capability-gated `PushAlertRules` control
+message ([`alert_rules.go`](../server/internal/agentapi/alert_rules.go)), so one
+org's rules never reach another; an org without a custom set receives a minimal
+built-in default. A firing breach rides additively in an `AgentHealthSummary`,
+which the server ingests as `opengate_edge_alert_breach` scoped to the resolved
+org and charts on the Edge-Sentinel Soak dashboard. Delivery is
+**investigation-aid only** — no auto-notify — until the false-positive soak, and
+the whole path is default-off behind `--edge-sentinel`; see
+[ADR-053](adr/ADR-053-edge-sentinel-threshold-alerts.md).
+
 ### Sustained soak and default-on gate
 
 Edge-Sentinel telemetry ships **default-off**. Flipping it default-on is gated on
@@ -274,8 +293,9 @@ ConfigMaps from the canonical files.
 Current dashboard files include the app overview, DB performance, PostgreSQL,
 the Edge-Sentinel Logs dashboard (log-rate ingest, raw-log pull rate/latency, and
 audited reads), the Edge-Sentinel Soak dashboard (telemetry ingest/drop rates, VM
-cardinality + disk growth, control-plane and correlation query p99, and
-reconnect-backfill scheduler state), benchmark trend, mutation trend, PMAT trend,
+cardinality + disk growth, control-plane and correlation query p99,
+reconnect-backfill scheduler state, and threshold-alert breach counts),
+benchmark trend, mutation trend, PMAT trend,
 terraform-drift trend, and load-test trend dashboards. Numeric CI trend workflows
 write Prometheus samples to VictoriaMetrics:
 

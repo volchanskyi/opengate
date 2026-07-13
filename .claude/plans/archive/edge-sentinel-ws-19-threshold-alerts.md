@@ -17,12 +17,12 @@ investigation-aid only** (no auto-notify) per the master-plan posture until the 
 
 - **Create:** `mesh-agent-core/src/alerts/` — a declarative rule evaluator (metric, comparator,
   threshold, sustain duration, hysteresis) over the sampler dims; emits a breach signal.
-- **Modify:** [`control.rs`](../../agent/crates/mesh-protocol/src/control.rs) / Go protocol — carry
+- **Modify:** [`control.rs`](../../../agent/crates/mesh-protocol/src/control.rs) / Go protocol — carry
   breach state in `AgentHealthSummary` (reuse; additive field) rather than a new message where
   possible; capability-gated; goldens.
 - **Modify:** rule config delivery — rules are tenant-scoped config pushed to the agent (server→agent,
   capability-gated) or shipped in agent config; default ruleset minimal.
-- **Modify:** [`deploy/grafana/provisioning/dashboards/`](../../deploy/grafana/provisioning/dashboards/) —
+- **Modify:** [`deploy/grafana/provisioning/dashboards/`](../../../deploy/grafana/provisioning/dashboards/) —
   surface breach counts (WS-15b dashboard).
 
 ## Steps (TDD-first)

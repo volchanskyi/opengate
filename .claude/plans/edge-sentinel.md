@@ -123,7 +123,7 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-16 | `archive/edge-sentinel-ws-16-discovery-agent.md` (done) | auto-discovery collectors (ports/services/DBs/containers/packages) + `DiscoveryReport` wire |
 | WS-17 | `archive/edge-sentinel-ws-17-inventory-server.md` (done) | inventory RLS store + API |
 | WS-18 | `archive/edge-sentinel-ws-18-inventory-web.md` (done) | inventory web view (generative dashboards deferred) |
-| WS-19 | `edge-sentinel-ws-19-threshold-alerts.md` | declarative edge threshold alert rules (alongside ML anomaly) |
+| WS-19 | `archive/edge-sentinel-ws-19-threshold-alerts.md` (done) | declarative edge threshold alert rules (alongside ML anomaly) |
 | WS-20 | `edge-sentinel-ws-20-data-lifecycle-deletion.md` | cascading erasure on device/tenant delete (VM + Postgres + cold + agent purge) |
 
 ### Execution sequencing (phased, small testable blocks)

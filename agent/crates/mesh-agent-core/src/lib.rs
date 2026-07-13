@@ -3,6 +3,7 @@
 //! This crate provides agent identity management, QUIC connection handling,
 //! control message exchange with the server, and relay session management.
 
+pub mod alerts;
 pub mod config;
 pub mod connection;
 pub mod discovery;

@@ -23,22 +23,32 @@ func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.
 		return nil
 	}
 	ts := telemetryTimestamp(msg.TS)
-	samples := []telemetry.Sample{{
-		Name:  "opengate_edge_node_anomaly_rate",
-		Value: msg.NodeAnomalyRate,
-		TS:    ts,
-		Labels: map[string]string{
-			"sampler_ver": msg.SamplerVersion,
-			"model_ver":   msg.ModelVersion,
-		},
-	}}
-	for _, family := range msg.PerFamilyRates {
+	var samples []telemetry.Sample
+	// A WS-19 breach-only summary carries no sampler computation; writing a zero
+	// anomaly-rate sample for it would be misleading, so the anomaly series is
+	// recorded only when the summary actually holds a sampler result.
+	if msg.SamplerVersion != "" || len(msg.PerFamilyRates) > 0 {
 		samples = append(samples, telemetry.Sample{
-			Name:   "opengate_edge_family_anomaly_rate",
-			Value:  family.Rate,
-			TS:     ts,
-			Labels: map[string]string{"family": family.Family},
+			Name:  "opengate_edge_node_anomaly_rate",
+			Value: msg.NodeAnomalyRate,
+			TS:    ts,
+			Labels: map[string]string{
+				"sampler_ver": msg.SamplerVersion,
+				"model_ver":   msg.ModelVersion,
+			},
 		})
+		for _, family := range msg.PerFamilyRates {
+			samples = append(samples, telemetry.Sample{
+				Name:   "opengate_edge_family_anomaly_rate",
+				Value:  family.Rate,
+				TS:     ts,
+				Labels: map[string]string{"family": family.Family},
+			})
+		}
+	}
+	samples = append(samples, alertBreachSamples(msg.Breaches, ts)...)
+	if len(samples) == 0 {
+		return nil
 	}
 	a.persistTelemetry(ctx, func(jobCtx context.Context, tenant dbtx.Tenant) error {
 		return a.telemetry.WriteSamples(jobCtx, tenant.OrgID, a.DeviceID, samples)

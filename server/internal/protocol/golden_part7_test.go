@@ -72,6 +72,10 @@ func TestGoldenControlAgentHealthSummary(t *testing.T) {
 	assert.Equal(t, []byte{0xAA, 0x55, 0xF0}, msg.RecentBitmask)
 	assert.Equal(t, "sysinfo-k2", msg.SamplerVersion)
 	assert.Equal(t, "k2-baseline-v1", msg.ModelVersion)
+	require.Len(t, msg.Breaches, 1)
+	assert.Equal(t, "disk-full", msg.Breaches[0].RuleID)
+	assert.Equal(t, "disk.used", msg.Breaches[0].Metric)
+	assert.InEpsilon(t, 95.5, msg.Breaches[0].Value, 0.0001)
 }
 
 func TestGoldenControlAgentMetricWindow(t *testing.T) {

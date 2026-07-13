@@ -182,6 +182,16 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		MaxPoints: 1000,
 	})
 
+	// WS-19 server → agent threshold-alert ruleset push: two rules exercising
+	// both a Gt/sustained and an Lt/instant rule with hysteresis.
+	writeReverseControlFrame(t, dir, codec, "control_push_alert_rules", &ControlMessage{
+		Type: MsgPushAlertRules,
+		AlertRules: []ThresholdRule{
+			{ID: "disk-full", Metric: "disk.used", Comparator: AlertComparatorGt, Threshold: 90, Clear: 80, SustainSecs: 30},
+			{ID: "mem-low", Metric: "mem.used", Comparator: AlertComparatorLt, Threshold: 10, Clear: 20, SustainSecs: 0},
+		},
+	})
+
 	// desktop_frame — different frame type, exercises the byte-data payload.
 	{
 		f := &DesktopFrame{

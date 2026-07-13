@@ -59,6 +59,25 @@ const (
 
 	// Edge-Sentinel WS-16 auto-discovery inventory report.
 	MsgDiscoveryReport ControlMessageType = "DiscoveryReport"
+
+	// Edge-Sentinel WS-19 server → agent threshold-alert ruleset push.
+	MsgPushAlertRules ControlMessageType = "PushAlertRules"
+)
+
+// AlertComparator is the comparison direction of a WS-19 threshold-alert rule.
+// It mirrors the Rust AlertComparator enum, which serializes as its variant
+// name.
+type AlertComparator string
+
+const (
+	// AlertComparatorGt breaches while the metric is strictly greater than the threshold.
+	AlertComparatorGt AlertComparator = "Gt"
+	// AlertComparatorLt breaches while the metric is strictly less than the threshold.
+	AlertComparatorLt AlertComparator = "Lt"
+	// AlertComparatorGte breaches while the metric is >= the threshold.
+	AlertComparatorGte AlertComparator = "Gte"
+	// AlertComparatorLte breaches while the metric is <= the threshold.
+	AlertComparatorLte AlertComparator = "Lte"
 )
 
 // BackfillTier identifies which central VictoriaMetrics tier a reconnect
@@ -106,6 +125,11 @@ type ControlMessage struct {
 	SinceTS         int64                `msgpack:"since_ts,omitempty"`
 	Limit           uint32               `msgpack:"limit,omitempty"`
 	Summaries       []HealthSummary      `msgpack:"summaries,omitempty"`
+
+	// Edge-Sentinel WS-19 threshold alerts. Breaches ride an AgentHealthSummary
+	// (agent → server); AlertRules ride a PushAlertRules (server → agent).
+	Breaches   []AlertBreach   `msgpack:"breaches,omitempty"`
+	AlertRules []ThresholdRule `msgpack:"rules,omitempty"`
 
 	// Edge-Sentinel WS-15 reconnect-backfill scheduler + tiered replay.
 	PendingSamples  uint64           `msgpack:"pending_samples,omitempty"`
@@ -230,6 +254,26 @@ type FamilyAnomalyRate struct {
 type MetricDim struct {
 	Name string  `msgpack:"name"`
 	Avg  float64 `msgpack:"avg"`
+}
+
+// ThresholdRule is one declarative edge threshold-alert rule (WS-19), evaluated
+// locally by the agent. It mirrors the Rust ThresholdRule struct. Rules are
+// tenant-scoped config pushed to the agent via PushAlertRules.
+type ThresholdRule struct {
+	ID          string          `msgpack:"id"`
+	Metric      string          `msgpack:"metric"`
+	Comparator  AlertComparator `msgpack:"comparator"`
+	Threshold   float64         `msgpack:"threshold"`
+	Clear       float64         `msgpack:"clear"`
+	SustainSecs uint32          `msgpack:"sustain_secs"`
+}
+
+// AlertBreach is one currently-firing threshold-alert breach (WS-19), carried
+// additively in an AgentHealthSummary. Investigation-aid only — no auto-notify.
+type AlertBreach struct {
+	RuleID string  `msgpack:"rule_id"`
+	Metric string  `msgpack:"metric"`
+	Value  float64 `msgpack:"value"`
 }
 
 // ProcessReportEntry is a sanitized process sample row from Edge Sentinel.
