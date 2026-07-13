@@ -345,6 +345,50 @@ components:
           items:
             type: string
 
+    DeviceInventory:
+      type: object
+      required: [device_id, items]
+      properties:
+        device_id:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryItem"
+
+    InventoryItem:
+      type: object
+      required: [kind, name, version, port, proto, state, runtime, image, first_seen, last_seen]
+      properties:
+        kind:
+          type: string
+          enum: [port, service, db_engine, container, package]
+        name:
+          type: string
+          description: >-
+            Primary label — owning process (port), unit (service), engine
+            (db_engine), or the name (container / package).
+        version:
+          type: string
+        port:
+          type: integer
+          description: Listening or engine port; 0 when not applicable to the kind.
+        proto:
+          type: string
+        state:
+          type: string
+        runtime:
+          type: string
+        image:
+          type: string
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+
     DeviceLogsResponse:
       type: object
       required: [entries, total, has_more]
@@ -1693,6 +1737,57 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "504":
           description: Agent did not return history in time
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/inventory:
+    get:
+      operationId: getDeviceInventory
+      summary: Discovered software and service inventory for a device
+      description: >-
+        Returns the device's current auto-discovered footprint — listening
+        ports, host services, database engines, containers, and installed
+        packages — from the tenant-scoped inventory store. Descriptive
+        attack-surface data only; never a credential or connection string.
+        Visible to any device viewer in the organization.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Discovered inventory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceInventory"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Inventory unavailable
           content:
             application/json:
               schema:
