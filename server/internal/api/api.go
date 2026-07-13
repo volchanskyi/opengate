@@ -92,6 +92,8 @@ type ServerConfig struct {
 	Cert                  CertProvider
 	Correlate             CorrelationRanker
 	TelemetryReader       MetricsReader
+	Purger                DevicePurger
+	PurgeJobs             PurgeJobReader
 	Relay                 *relay.Relay
 	Signaling             *signaling.Tracker
 	Notifier              notifications.Notifier
@@ -131,6 +133,8 @@ type Server struct {
 	cert            CertProvider
 	correlate       CorrelationRanker
 	telemetryReader MetricsReader
+	purger          DevicePurger
+	purgeJobs       PurgeJobReader
 	relay           *relay.Relay
 	signaling       *signaling.Tracker
 	notifier        notifications.Notifier
@@ -232,6 +236,8 @@ func NewServer(cfg ServerConfig) *Server {
 		cert:            cfg.Cert,
 		correlate:       cfg.Correlate,
 		telemetryReader: cfg.TelemetryReader,
+		purger:          cfg.Purger,
+		purgeJobs:       cfg.PurgeJobs,
 		relay:           cfg.Relay,
 		signaling:       cfg.Signaling,
 		notifier:        cfg.Notifier,
@@ -393,7 +399,7 @@ func (s *Server) oapiAuthMiddleware() MiddlewareFunc {
 // auditLog writes an audit event in a fire-and-forget goroutine.
 func (s *Server) auditLog(ctx context.Context, userID db.UserID, action, target, details string) {
 	tenant, ok := dbtx.TenantFromContext(ctx)
-	auditCtx := context.Background()
+	auditCtx := context.WithoutCancel(ctx)
 	if ok {
 		auditCtx = dbtx.WithTenant(auditCtx, tenant.OrgID, tenant.IsAdmin)
 	} else {

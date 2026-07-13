@@ -31,11 +31,17 @@ var (
 	labelNameRE  = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 )
 
+// matchParam is VictoriaMetrics' series-selector query argument.
+const matchParam = "match[]"
+
 // VMClient writes and reads Edge Sentinel samples through VictoriaMetrics'
 // Prometheus import/export APIs.
 type VMClient struct {
 	baseURL string
 	client  *http.Client
+	// deleteAuthKey guards VictoriaMetrics' delete-series admin API
+	// (-deleteAuthKey). Empty when the endpoint is unguarded (e.g. tests).
+	deleteAuthKey string
 }
 
 // ExportedSeries is one newline-delimited object returned by VM's export API.
@@ -113,7 +119,7 @@ func (v *VMClient) Export(ctx context.Context, orgID uuid.UUID, selector string,
 		return nil, err
 	}
 	q := url.Values{}
-	q.Set("match[]", scoped)
+	q.Set(matchParam, scoped)
 	q.Set("start", strconv.FormatInt(start.Unix(), 10))
 	q.Set("end", strconv.FormatInt(end.Unix(), 10))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.baseURL+"/api/v1/export?"+q.Encode(), nil)

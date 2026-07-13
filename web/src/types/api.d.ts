@@ -696,6 +696,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/orgs/{orgId}/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Purge all telemetry for an organization (admin only)
+         * @description Irreversibly erase every device's centralized telemetry for a whole tenant/fleet and deprovision its agents. Runs as an async, resumable job; poll the returned job for completion.
+         */
+        post: operations["purgeOrg"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purge-jobs/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get purge job status */
+        get: operations["getPurgeJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -756,6 +793,33 @@ export interface components {
             updated_at: string;
             /** @description Latest edge-node anomaly rate in [0,1] from telemetry, for the fleet health badge. Omitted when the device has no recent sample. */
             anomaly_rate?: number;
+        };
+        /** @description Progress of a right-to-be-forgotten telemetry purge. "Logical" states mean ingest is blocked and the subject is no longer queryable; physical VictoriaMetrics compaction and offline-edge erasure complete later. */
+        PurgeJob: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            org_id: string;
+            /**
+             * Format: uuid
+             * @description Absent for an organization-wide (tenant/fleet) purge.
+             */
+            device_id?: string;
+            /** @enum {string} */
+            scope: "device" | "org";
+            /** @enum {string} */
+            state: "requested" | "central-logical-complete" | "central-physical-compaction-pending" | "object-delete-pending" | "edge-erase-pending" | "complete";
+            vm_deleted: boolean;
+            object_deleted: boolean;
+            pg_deleted: boolean;
+            verified: boolean;
+            last_error?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            completed_at?: string;
         };
         RestartDeviceRequest: {
             reason?: string;
@@ -3451,6 +3515,95 @@ export interface operations {
             };
             /** @description Cannot remove last administrator */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    purgeOrg: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orgId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Purge accepted; job started */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurgeJob"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getPurgeJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Purge job */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurgeJob"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Purge job not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

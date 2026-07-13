@@ -38,6 +38,12 @@ type AgentConn struct {
 	// Capabilities reported by the agent during registration.
 	Capabilities []protocol.AgentCapability
 
+	// isTombstoned reports whether this device has been purged, so every
+	// write-path message is rejected even in the race between a purge tombstoning
+	// the device and the connection closing. Nil for connections wired without a
+	// deny-list (older tests); nil is treated as not tombstoned.
+	isTombstoned func() bool
+
 	stream         io.ReadWriter
 	codec          *protocol.Codec
 	devices        device.Repository
@@ -315,6 +321,13 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return fmt.Errorf("decode control: %w", err)
 	}
 
+	// Resurrection guard: a purged device is rejected on every write path, closing
+	// the race between the purge tombstoning it and this connection being torn
+	// down. Read-side responses fall through so an in-flight teardown stays clean.
+	if a.rejectTombstonedWrite(msg) {
+		return nil
+	}
+
 	switch msg.Type {
 	case protocol.MsgAgentRegister:
 		return a.handleRegister(ctx, msg)
@@ -371,6 +384,36 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 	default:
 		a.logger.Debug("ignoring unknown control message", "device_id", a.DeviceID, "type", msg.Type)
 		return nil
+	}
+}
+
+// rejectTombstonedWrite drops a write-path message from a purged device and
+// reports that it was rejected, so the caller stops without persisting anything.
+func (a *AgentConn) rejectTombstonedWrite(msg *protocol.ControlMessage) bool {
+	if !isWritePathMessage(msg.Type) || a.isTombstoned == nil || !a.isTombstoned() {
+		return false
+	}
+	a.dropTelemetry("tombstoned", "type", msg.Type)
+	return true
+}
+
+// isWritePathMessage reports whether a control message would create or persist
+// tenant data — registration, heartbeat, telemetry, discovery, or backfill — and
+// so must be denied for a tombstoned device.
+func isWritePathMessage(t protocol.ControlMessageType) bool {
+	switch t {
+	case protocol.MsgAgentRegister,
+		protocol.MsgAgentHeartbeat,
+		protocol.MsgAgentHealthSummary,
+		protocol.MsgAgentMetricWindow,
+		protocol.MsgProcessReport,
+		protocol.MsgDiscoveryReport,
+		protocol.MsgHealthWindowResponse,
+		protocol.MsgRequestBackfillSlot,
+		protocol.MsgMetricBackfillBatch:
+		return true
+	default:
+		return false
 	}
 }
 

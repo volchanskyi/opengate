@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
+	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -119,13 +121,27 @@ func main() {
 	if vmURL == "" {
 		vmURL = os.Getenv("OPENGATE_VICTORIAMETRICS_URL")
 	}
+	// Data-lifecycle stores back right-to-be-forgotten purges. They live on
+	// non-tenant tables, so they exist regardless of whether numeric telemetry
+	// (VictoriaMetrics) is enabled; the agent server warms its in-memory deny-list
+	// from the tombstone store so a purged device stays rejected across restarts.
+	tombstoneStore := lifecycle.NewTombstoneStore(store.DB())
+	jobStore := lifecycle.NewJobStore(store.DB())
+
 	var telemetryWriter telemetry.NumericWriter
 	var correlationEngine api.CorrelationRanker
 	var metricsReader api.MetricsReader
+	var seriesPurger lifecycle.SeriesPurger
+	var seriesInventory lifecycle.SubjectLister
 	if vmURL != "" {
 		vmClient := telemetry.NewVMClient(vmURL, nil)
+		if key := os.Getenv("OPENGATE_VM_DELETE_AUTH_KEY"); key != "" {
+			vmClient = vmClient.WithDeleteAuthKey(key)
+		}
 		telemetryWriter = vmClient
 		metricsReader = vmClient
+		seriesPurger = vmClient
+		seriesInventory = vmClient
 		engine, err := correlate.NewEngine(correlate.Config{Fetcher: correlate.NewVMFetcher(vmClient)})
 		if err != nil {
 			logger.Error("init correlation engine", "error", err)
@@ -191,7 +207,22 @@ func main() {
 		Notifier:      notifier,
 		Metrics:       appMetrics,
 		QuicHost:      quicHost,
+		Tombstones:    tombstoneStore,
 		Logger:        logger,
+	})
+
+	// Wire the right-to-be-forgotten purge orchestrator. It needs VictoriaMetrics
+	// to delete numeric series, so it is enabled only alongside numeric telemetry;
+	// without it, device deletion falls back to the plain Postgres delete. A
+	// periodic reconciliation sweep garbage-collects any orphaned series.
+	purger, purgeJobs, reconciler := buildPurgeOrchestrator(purgeDeps{
+		agentSrv:        agentSrv,
+		db:              store.DB(),
+		tombstones:      tombstoneStore,
+		jobs:            jobStore,
+		seriesPurger:    seriesPurger,
+		seriesInventory: seriesInventory,
+		logger:          logger,
 	})
 
 	// Initialize update signing keys and manifest store
@@ -233,6 +264,8 @@ func main() {
 		Cert:                  certMgr,
 		Correlate:             correlationEngine,
 		TelemetryReader:       metricsReader,
+		Purger:                purger,
+		PurgeJobs:             purgeJobs,
 		Relay:                 agentRelay,
 		Signaling:             sigTracker,
 		Notifier:              notifier,
@@ -267,6 +300,10 @@ func main() {
 		SignalingFailures:   sigTracker.FailureCount,
 	}, 15*time.Second)
 	go appmetrics.StartDBSizeUpdater(ctx, appMetrics, store, logger, 60*time.Second)
+
+	// Periodically garbage-collect any orphaned telemetry series (defense in depth
+	// against a purge that partially failed). A no-op when purging is disabled.
+	go startReconcileLoop(ctx, reconciler, logger)
 
 	// Periodically sync agent manifests from GitHub releases (default: every hour).
 	if githubRepo != "" {
@@ -305,6 +342,76 @@ func main() {
 	}
 
 	logger.Info("server stopped")
+}
+
+// purgeDeps groups the dependencies buildPurgeOrchestrator wires, keeping the
+// call site in main readable.
+type purgeDeps struct {
+	agentSrv        *agentapi.AgentServer
+	db              *sql.DB
+	tombstones      *lifecycle.TombstoneStore
+	jobs            *lifecycle.JobStore
+	seriesPurger    lifecycle.SeriesPurger
+	seriesInventory lifecycle.SubjectLister
+	logger          *slog.Logger
+}
+
+// buildPurgeOrchestrator wires the right-to-be-forgotten purge orchestrator plus
+// its reconciliation sweep. It needs VictoriaMetrics to delete numeric series, so
+// it returns nils when numeric telemetry is disabled and device deletion falls
+// back to the plain Postgres delete. On success it warms the agent deny-list and
+// resumes any purge a prior crash interrupted before the server starts serving.
+func buildPurgeOrchestrator(d purgeDeps) (api.DevicePurger, api.PurgeJobReader, *lifecycle.Reconciler) {
+	if d.seriesPurger == nil {
+		return nil, nil, nil
+	}
+	orchestrator := lifecycle.NewOrchestrator(lifecycle.OrchestratorConfig{
+		Tombstones: d.tombstones,
+		Jobs:       d.jobs,
+		Series:     d.seriesPurger,
+		PG:         lifecycle.NewPostgresPurger(d.db),
+		Edge:       d.agentSrv,
+		Logger:     d.logger,
+	})
+	reconciler := lifecycle.NewReconciler(d.seriesInventory, d.seriesPurger, lifecycle.NewPostgresPurger(d.db), d.logger)
+
+	startupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if err := d.agentSrv.WarmTombstones(startupCtx); err != nil {
+		d.logger.Error("warm tombstone deny-list", "error", err)
+	}
+	if err := orchestrator.Resume(startupCtx); err != nil {
+		d.logger.Error("resume interrupted purges", "error", err)
+	}
+	return orchestrator, d.jobs, reconciler
+}
+
+// reconcileInterval is how often the orphan-series sweep runs.
+const reconcileInterval = time.Hour
+
+// startReconcileLoop runs the reconciliation sweep on a ticker until ctx is
+// cancelled. A nil reconciler (purging disabled) returns immediately.
+func startReconcileLoop(ctx context.Context, reconciler *lifecycle.Reconciler, logger *slog.Logger) {
+	if reconciler == nil {
+		return
+	}
+	ticker := time.NewTicker(reconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			purged, err := reconciler.Sweep(ctx)
+			if err != nil {
+				logger.Error("reconcile sweep failed", "error", err)
+				continue
+			}
+			if purged > 0 {
+				logger.Warn("reconcile sweep purged orphan telemetry", "count", purged)
+			}
+		}
+	}
 }
 
 // serveBackground starts srv.ListenAndServe in a goroutine, logging startup and

@@ -76,7 +76,7 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/devices` | GET | JWT | List devices (optional `group_id` filter) |
 | `/api/v1/devices/{id}` | GET | JWT | Get a device (includes `capabilities` array) |
 | `/api/v1/devices/{id}` | PATCH | JWT | Update device (reassign `group_id`) |
-| `/api/v1/devices/{id}` | DELETE | JWT | Delete a device |
+| `/api/v1/devices/{id}` | DELETE | JWT | Delete a device and purge all its telemetry ([Data Lifecycle](Data-Lifecycle.md)) |
 | `/api/v1/devices/{id}/restart` | POST | JWT | Restart agent on device (optional `reason` field) |
 | `/api/v1/devices/{id}/hardware` | GET | JWT | Get hardware inventory for device (200 cached / 202 requested from agent) |
 | `/api/v1/devices/{id}/logs` | GET | JWT | Get device log entries (on-demand via agent) |
@@ -98,6 +98,8 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/updates/status/{version}` | GET | JWT | Get update status for a version |
 | `/api/v1/updates/signing-key` | GET | JWT | Get Ed25519 update signing public key |
 | `/api/v1/server/install.sh` | GET | No | Get agent install script |
+| `/api/v1/orgs/{orgId}/purge` | POST | JWT (admin) | Purge a whole tenant's telemetry (async, tenant-scoped; [Data Lifecycle](Data-Lifecycle.md)) |
+| `/api/v1/purge-jobs/{jobId}` | GET | JWT | Get purge job status |
 | `/ws/relay/{token}` | GET | Token | WebSocket relay (bidirectional agent↔browser pipe) |
 
 ### Device Logs

@@ -289,6 +289,21 @@ data only — never a connection string or credential. It is exposed to any devi
 viewer in the organization through
 [`GET /devices/{id}/inventory`](API-Reference.md).
 
+### Data Lifecycle Tables
+
+Two system-level tables back right-to-be-forgotten erasure (see
+[Data Lifecycle](Data-Lifecycle.md)). Neither is tenant-scoped (RLS) and neither
+carries a foreign key to `organizations`: both must outlive an organization's own
+data so the deny-list keeps rejecting a purged subject and the completion record
+survives as the erasure proof.
+
+- `deleted_ids` — the persisted tombstone / deny-list. One row per purged device
+  or org (`scope`), recorded before any store is touched and retained
+  indefinitely; it carries ids and purge scope only, never telemetry.
+- `purge_jobs` — per-subject purge progress (`state` plus `vm_deleted`,
+  `object_deleted`, `pg_deleted`, `verified` flags), so a purge is idempotent and
+  [resumes](../server/internal/lifecycle/orchestrator.go) after a crash.
+
 ## Migrations
 
 Migrations live in [`server/internal/db/migrations/`](../server/internal/db/migrations/)
@@ -319,6 +334,11 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   footprint.
 - [`005_inventory.down.sql`](../server/internal/db/migrations/005_inventory.down.sql)
   removes the inventory table for rollback.
+- [`006_data_lifecycle.up.sql`](../server/internal/db/migrations/006_data_lifecycle.up.sql)
+  creates the non-RLS `deleted_ids` deny-list and `purge_jobs` progress tables for
+  right-to-be-forgotten erasure (see [Data Lifecycle](Data-Lifecycle.md)).
+- [`006_data_lifecycle.down.sql`](../server/internal/db/migrations/006_data_lifecycle.down.sql)
+  drops both tables for rollback.
 
 The automated rollback/dump rehearsal lives in
 [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) and

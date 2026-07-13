@@ -13,6 +13,7 @@ const navSections = [
     label: 'Security',
     items: [
       { to: '/settings/security/permissions', label: 'Permissions' },
+      { to: '/settings/data-lifecycle', label: 'Data Lifecycle' },
     ],
   },
 ];

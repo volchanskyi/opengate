@@ -18,6 +18,7 @@ const UserManagement = lazy(() => import('./features/admin/UserManagement').then
 const AuditLog = lazy(() => import('./features/admin/AuditLog').then((m) => ({ default: m.AuditLog })));
 const AgentUpdates = lazy(() => import('./features/admin/AgentUpdates').then((m) => ({ default: m.AgentUpdates })));
 const Permissions = lazy(() => import('./features/admin/Permissions').then((m) => ({ default: m.Permissions })));
+const DataLifecycle = lazy(() => import('./features/admin/DataLifecycle').then((m) => ({ default: m.DataLifecycle })));
 
 function withSuspense(Component: React.LazyExoticComponent<React.ComponentType>) {
   return (
@@ -55,6 +56,7 @@ export const router = createBrowserRouter([
                   { path: 'audit', element: withSuspense(AuditLog) },
                   { path: 'updates', element: withSuspense(AgentUpdates) },
                   { path: 'security/permissions', element: withSuspense(Permissions) },
+                  { path: 'data-lifecycle', element: withSuspense(DataLifecycle) },
                 ],
               },
             ],

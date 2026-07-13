@@ -72,16 +72,16 @@ deprovision-on-reconnect). **Wave:** with WS-15b (lifecycle hardening).
   **reconciliation GC** sweep.
 - **Modify:** ingest paths (WS-4 VM client, WS-11 log-rate, WS-15 backfill + scheduler slot-grant) —
   **tombstone check rejects tombstoned ids**.
-- **Modify:** [`api/openapi.yaml`](../../api/openapi.yaml) + [`api.go`](../../server/internal/api/api.go)
+- **Modify:** [`api/openapi.yaml`](../../../api/openapi.yaml) + [`api.go`](../../../server/internal/api/api.go)
   — `DELETE /devices/{id}` and a tenant-delete path trigger the orchestrator (admin/tenant-scoped);
   return job status for the async tenant case. Regen Go + TS.
 - **Modify:** the WS-4 VM client — **scoped delete-series** (server-side admin key), verify completion.
 - **Modify:** migrations — FK `ON DELETE CASCADE` (org→devices→`device_processes`/`device_inventory`);
   the deleted-ids/tombstone table.
 - **Modify:** WS-7 object client (if cold tier exists) — delete the tenant/device prefix.
-- **Modify:** [`conn.go`](../../server/internal/agentapi/conn.go) — on connect, a tombstoned/unknown
+- **Modify:** [`conn.go`](../../../server/internal/agentapi/conn.go) — on connect, a tombstoned/unknown
   device gets the deprovision/purge-local instruction (capability-gated), re-sent until acked.
-- **Modify:** web delete flows ([`DeviceList.tsx`](../../web/src/features/devices/DeviceList.tsx) +
+- **Modify:** web delete flows ([`DeviceList.tsx`](../../../web/src/features/devices/DeviceList.tsx) +
   tenant admin) — confirm dialog (irreversible) + progress for the async tenant purge.
 
 ## Steps (TDD-first)
