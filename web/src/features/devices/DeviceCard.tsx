@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import type { components } from '../../types/api';
 import { StatusBadge } from './StatusBadge';
 import { HealthBadge } from './HealthBadge';
+import { useInventoryStore } from './state/inventory-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 type Device = components['schemas']['Device'];
@@ -19,6 +20,11 @@ function timeAgo(dateStr: string): string {
 
 export function DeviceCard({ device }: Readonly<{ device: Device }>) {
   const navigate = useNavigate();
+  const inventory = useInventoryStore((s) => s.byDevice.get(device.id));
+
+  const serviceCount = inventory?.filter((i) => i.kind === 'service').length ?? 0;
+  const containerCount = inventory?.filter((i) => i.kind === 'container').length ?? 0;
+  const showHint = inventory !== undefined && (serviceCount > 0 || containerCount > 0);
 
   return (
     <button
@@ -33,6 +39,11 @@ export function DeviceCard({ device }: Readonly<{ device: Device }>) {
       <div className="text-sm text-gray-400 space-y-1">
         <p>OS: {device.os_display || device.os}</p>
         <p>Last seen: {timeAgo(device.last_seen)}</p>
+        {showHint && (
+          <p className="text-xs text-gray-500">
+            Discovered: {serviceCount} service{serviceCount !== 1 ? 's' : ''} · {containerCount} container{containerCount !== 1 ? 's' : ''}
+          </p>
+        )}
         {device.anomaly_rate != null && (
           <HealthBadge anomalyRate={device.anomaly_rate} />
         )}

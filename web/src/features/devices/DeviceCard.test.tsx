@@ -4,8 +4,17 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import type { components } from '../../types/api';
 import { DeviceCard } from './DeviceCard';
+import { useInventoryStore } from './state/inventory-store';
 
 type Device = components['schemas']['Device'];
+type InventoryItem = components['schemas']['InventoryItem'];
+
+function invItem(kind: InventoryItem['kind'], name: string): InventoryItem {
+  return {
+    kind, name, version: '', port: 0, proto: '', state: '', runtime: '', image: '',
+    first_seen: '', last_seen: '',
+  };
+}
 
 const mockDevice = {
   id: 'd1',
@@ -32,6 +41,10 @@ function renderCard(overrides: Partial<Device> = {}) {
 }
 
 describe('DeviceCard', () => {
+  beforeEach(() => {
+    useInventoryStore.setState({ byDevice: new Map(), loading: new Map(), errors: new Map() });
+  });
+
   it('renders hostname and OS', () => {
     renderCard();
     expect(screen.getByText('test-host')).toBeInTheDocument();
@@ -64,6 +77,25 @@ describe('DeviceCard', () => {
     renderCard();
     expect(screen.queryByText('Healthy')).toBeNull();
     expect(screen.queryByText('No data')).toBeNull();
+  });
+
+  it('shows a discovered-footprint hint counting services and containers', () => {
+    useInventoryStore.setState({
+      byDevice: new Map([['d1', [invItem('service', 'a'), invItem('service', 'b'), invItem('container', 'c'), invItem('port', 'p')]]]),
+    });
+    renderCard();
+    expect(screen.getByText('Discovered: 2 services · 1 container')).toBeInTheDocument();
+  });
+
+  it('omits the hint when inventory has no services or containers', () => {
+    useInventoryStore.setState({ byDevice: new Map([['d1', [invItem('port', 'p'), invItem('package', 'openssl')]]]) });
+    renderCard();
+    expect(screen.queryByText(/^Discovered:/)).toBeNull();
+  });
+
+  it('omits the hint until inventory has been fetched', () => {
+    renderCard();
+    expect(screen.queryByText(/^Discovered:/)).toBeNull();
   });
 
   describe('timeAgo formatting', () => {

@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { useDeviceStore } from './state/device-store';
 import { useUpdateStore } from './state/update-store';
+import { useInventoryStore } from './state/inventory-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { DeviceList } from './DeviceList';
 
@@ -39,6 +40,7 @@ describe('DeviceList', () => {
       fetchGroups: vi.fn(),
       fetchDevices: vi.fn(),
     });
+    useInventoryStore.setState({ byDevice: new Map(), loading: new Map(), errors: new Map(), fetchInventory: vi.fn() });
   });
 
   it('shows welcome message when no devices exist', () => {
@@ -64,6 +66,22 @@ describe('DeviceList', () => {
     renderDeviceList();
     expect(screen.getByText('host-1')).toBeInTheDocument();
     expect(screen.getByText('host-2')).toBeInTheDocument();
+  });
+
+  it('lazily fetches inventory for the rendered devices', async () => {
+    const fetchInventory = vi.fn();
+    useInventoryStore.setState({ fetchInventory });
+    useDeviceStore.setState({
+      devices: [
+        { id: 'd1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd2', group_id: 'g1', hostname: 'host-2', os: 'windows', agent_version: '', capabilities: [], status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+      ],
+    });
+    renderDeviceList();
+    await waitFor(() => {
+      expect(fetchInventory).toHaveBeenCalledWith('d1');
+      expect(fetchInventory).toHaveBeenCalledWith('d2');
+    });
   });
 
   it('shows loading skeleton', () => {

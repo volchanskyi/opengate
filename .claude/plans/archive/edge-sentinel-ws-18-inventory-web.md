@@ -17,7 +17,7 @@ ambitious **generative dashboards** (panels that auto-appear per discovered comp
 
 - **Create:** a device-detail **inventory view** — grouped, sortable tables for ports / services /
   DB engines / containers / packages; empty/error states.
-- **Modify:** [`DeviceList.tsx`](../../web/src/features/devices/DeviceList.tsx) — a lightweight
+- **Modify:** [`DeviceList.tsx`](../../../web/src/features/devices/DeviceList.tsx) — a lightweight
   "discovered: N services / M containers" hint on the grid (no high-cardinality content).
 - **Reuse:** the generated TS API types from WS-17 (`npm run generate:api`).
 

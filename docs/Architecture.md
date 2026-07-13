@@ -255,8 +255,8 @@ The React web client (`web/`) provides management and session features:
 | Feature | Path | Description |
 |---------|------|-------------|
 | **Dashboard** | `/` | Landing page — overview of devices and groups |
-| **Device List** | `/devices` | Device listing with search/filter, group sidebar |
-| **Device Detail** | `/devices/:id` | Device info, AMT power actions, group reassignment, hardware inventory, on-demand device logs, agent restart |
+| **Device List** | `/devices` | Device listing with search/filter, group sidebar, per-card discovered-footprint hint (service/container counts) |
+| **Device Detail** | `/devices/:id` | Device info, AMT power actions, group reassignment, hardware inventory, discovered footprint (sortable ports/services/DB engines/containers/packages), on-demand device logs, agent restart |
 | **Session View** | `/sessions/:token` | Tab container with toolbar and connection status |
 | **Remote Desktop** | Desktop tab | Canvas-based screen viewer with mouse/keyboard input forwarding |
 | **Terminal** | Terminal tab | xterm.js terminal connected to relay |
