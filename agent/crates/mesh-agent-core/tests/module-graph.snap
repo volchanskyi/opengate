@@ -1,5 +1,7 @@
 
 crate mesh_agent_core
+├── mod alerts: pub
+│   └── mod evaluator: pub(self)
 ├── mod config: pub
 ├── mod connection: pub
 ├── mod discovery: pub

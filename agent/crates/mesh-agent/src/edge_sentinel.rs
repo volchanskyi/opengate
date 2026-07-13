@@ -7,7 +7,7 @@ use tracing::{debug, info, warn};
 
 use crate::host_logs::{build_log_rate_window, collect_host_logs, LogSource};
 use mesh_agent_core::ml::store_sink::LocalStoreSink;
-use mesh_protocol::ControlMessage;
+use mesh_protocol::{ControlMessage, ThresholdRule};
 
 /// The sampler-owned local store, shared with the WS-15 backfill coordinator on
 /// the control loop. The sampler holds the lock only for the sub-millisecond
@@ -96,6 +96,40 @@ pub(crate) fn spawn_discovery(sink: SyncSender<ControlMessage>) -> tokio::task::
     })
 }
 
+/// Build the WS-19 breach-carrying `AgentHealthSummary` for emission. Only the
+/// breach signal is populated; the anomaly-rate fields stay at their defaults and
+/// the server leaves the org empty to assign (the summary is investigation-aid
+/// only). The server treats a summary with no sampler computation as breach-only
+/// and does not record an anomaly-rate sample for it.
+fn breach_summary(now: i64, breaches: Vec<mesh_protocol::AlertBreach>) -> ControlMessage {
+    ControlMessage::AgentHealthSummary {
+        ts: now,
+        org_id: String::new(),
+        node_anomaly_rate: 0.0,
+        per_family_rates: Vec::new(),
+        recent_bitmask: Vec::new(),
+        sampler_ver: String::new(),
+        model_ver: String::new(),
+        breaches,
+    }
+}
+
+/// Decide whether to emit a WS-19 health summary this tick. Emission is throttled
+/// to at least [`HEALTH_EMIT_INTERVAL_SECS`] apart and fires while a breach is
+/// active — plus once more, when the set has just cleared, to report the clear —
+/// staying silent on a steady, breach-free host.
+fn should_emit_health(
+    last_emit: Option<i64>,
+    now: i64,
+    breaching: bool,
+    last_breaching: bool,
+) -> bool {
+    let due = last_emit.map_or(breaching, |last| {
+        now.saturating_sub(last) >= HEALTH_EMIT_INTERVAL_SECS
+    });
+    due && (breaching || last_breaching)
+}
+
 /// Current Unix time in whole seconds, clamped to 0 before the epoch.
 fn unix_now() -> i64 {
     SystemTime::now()
@@ -113,6 +147,27 @@ pub(crate) struct StoreConfig {
     pub cap_bytes: u64,
 }
 
+/// Minimum seconds between emitted WS-19 health summaries. Above the server's
+/// 10 s telemetry interval floor, so a throttled emission is never dropped for
+/// arriving too fast; the first breach after quiet still emits promptly.
+const HEALTH_EMIT_INTERVAL_SECS: i64 = 15;
+
+/// Shared slot the control loop drops a freshly-pushed threshold ruleset into
+/// and the sampler drains on its next tick (WS-19).
+pub(crate) type AlertRulesMailbox = Arc<Mutex<Option<Vec<ThresholdRule>>>>;
+
+/// Wiring for the sampler's WS-19 threshold-alert path: the mailbox the control
+/// loop drops a freshly-pushed ruleset into, and the bounded channel the sampler
+/// emits breach-carrying health summaries on.
+pub(crate) struct AlertWiring {
+    /// Latest pushed ruleset; the sampler installs it on its next tick and
+    /// clears the slot. Shared with the control loop's `PushAlertRules` handler.
+    pub rules: AlertRulesMailbox,
+    /// Breach-carrying `AgentHealthSummary` sink, drained by the control loop on
+    /// heartbeat alongside log-rate and discovery telemetry.
+    pub health_tx: SyncSender<ControlMessage>,
+}
+
 /// Samples the required warm-up window before the ensemble can be trained.
 const WARMUP_SAMPLES: usize = 30;
 /// Ensemble geometry (staggered k=2 models over the CPU/mem/disk feature vector).
@@ -127,8 +182,16 @@ const STORE_COMMIT_EVERY: usize = 60;
 /// `LocalTsdb` (the sovereign min/max/last + 1 s raw copy). The store is shared
 /// with the WS-15 backfill coordinator; the sampler holds the lock only for the
 /// per-second append/commit. A `None` sink degrades to log-only sampling.
-pub(crate) fn spawn_sampler(sink: Option<SharedSink>) -> tokio::task::JoinHandle<()> {
+///
+/// When `alerts` is set, the same 1 s tick also evaluates the tenant-pushed
+/// WS-19 threshold ruleset over the sample and emits a breach-carrying
+/// `AgentHealthSummary` (throttled, breach-driven, silent when nothing breaches).
+pub(crate) fn spawn_sampler(
+    sink: Option<SharedSink>,
+    alerts: Option<AlertWiring>,
+) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
+        use mesh_agent_core::alerts::AlertEvaluator;
         use mesh_agent_core::ml::ensemble::EdgeMlEnsemble;
         use mesh_agent_core::ml::sampler::{MetricSampler, SysinfoSampler};
 
@@ -142,6 +205,13 @@ pub(crate) fn spawn_sampler(sink: Option<SharedSink>) -> tokio::task::JoinHandle
 
         let mut warmup: Vec<[f32; 3]> = Vec::with_capacity(WARMUP_SAMPLES);
         let mut ensemble: Option<EdgeMlEnsemble<3>> = None;
+
+        // WS-19 threshold-alert evaluator, fed the tenant ruleset the control
+        // loop pushes into the mailbox. Empty until rules arrive; breach
+        // emission is throttled and breach-driven.
+        let mut alert_eval = AlertEvaluator::new(Vec::new());
+        let mut last_health_emit: Option<i64> = None;
+        let mut last_breaching = false;
 
         loop {
             std::thread::sleep(Duration::from_secs(1));
@@ -186,6 +256,38 @@ pub(crate) fn spawn_sampler(sink: Option<SharedSink>) -> tokio::task::JoinHandle
                 anomaly,
                 "edge-sentinel sample"
             );
+
+            // WS-19: install any freshly-pushed ruleset, evaluate the sample, and
+            // emit a breach-carrying health summary. Emission is throttled to
+            // >= HEALTH_EMIT_INTERVAL_SECS and only fires while a breach is
+            // active (plus one final summary reporting the clear), so a steady
+            // host is silent and a burst never backpressures control.
+            if let Some(alerts) = alerts.as_ref() {
+                let now = unix_now();
+                if let Ok(mut slot) = alerts.rules.lock() {
+                    if let Some(rules) = slot.take() {
+                        debug!(
+                            count = rules.len(),
+                            "edge-sentinel: alert ruleset installed"
+                        );
+                        alert_eval.set_rules(rules);
+                    }
+                }
+                let breaches = alert_eval.evaluate(&sample, now);
+                let breaching = !breaches.is_empty();
+                if should_emit_health(last_health_emit, now, breaching, last_breaching) {
+                    if alerts
+                        .health_tx
+                        .try_send(breach_summary(now, breaches))
+                        .is_err()
+                    {
+                        debug!("edge-sentinel health summary dropped: telemetry channel full");
+                    }
+                    last_health_emit = Some(now);
+                    last_breaching = breaching;
+                }
+            }
+
             if let Some(sink) = sink.as_ref() {
                 match sink.lock() {
                     Ok(mut sink) => {
@@ -221,5 +323,85 @@ pub(crate) fn open_sink(cfg: &StoreConfig) -> Option<LocalStoreSink> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{breach_summary, should_emit_health, HEALTH_EMIT_INTERVAL_SECS};
+    use mesh_protocol::{AlertBreach, ControlMessage};
+
+    #[test]
+    fn breach_summary_carries_only_breaches() {
+        let breaches = vec![AlertBreach {
+            rule_id: "disk-critical".to_string(),
+            metric: "disk.used".to_string(),
+            value: 96.0,
+        }];
+        match breach_summary(1_700_000_000, breaches) {
+            ControlMessage::AgentHealthSummary {
+                ts,
+                org_id,
+                node_anomaly_rate,
+                sampler_ver,
+                breaches,
+                ..
+            } => {
+                assert_eq!(ts, 1_700_000_000);
+                assert!(org_id.is_empty(), "server assigns the authoritative org");
+                assert_eq!(node_anomaly_rate, 0.0);
+                assert!(
+                    sampler_ver.is_empty(),
+                    "breach-only: no sampler computation"
+                );
+                assert_eq!(breaches.len(), 1);
+                assert_eq!(breaches[0].rule_id, "disk-critical");
+            }
+            other => panic!("expected AgentHealthSummary, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn first_breach_emits_immediately() {
+        assert!(should_emit_health(None, 100, true, false));
+    }
+
+    #[test]
+    fn no_breach_and_no_prior_emit_stays_silent() {
+        assert!(!should_emit_health(None, 100, false, false));
+    }
+
+    #[test]
+    fn active_breach_is_throttled_between_emits() {
+        let last = Some(100);
+        // Within the throttle window: suppressed even though still breaching.
+        assert!(!should_emit_health(
+            last,
+            100 + HEALTH_EMIT_INTERVAL_SECS - 1,
+            true,
+            true
+        ));
+        // At the window boundary: re-emits the still-active breach.
+        assert!(should_emit_health(
+            last,
+            100 + HEALTH_EMIT_INTERVAL_SECS,
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn clear_is_reported_once_then_silent() {
+        let last = Some(100);
+        let due = 100 + HEALTH_EMIT_INTERVAL_SECS;
+        // Just cleared (breaching=false, last_breaching=true): emits the clear.
+        assert!(should_emit_health(last, due, false, true));
+        // Already reported clear (last_breaching=false): silent thereafter.
+        assert!(!should_emit_health(
+            Some(due),
+            due + HEALTH_EMIT_INTERVAL_SECS,
+            false,
+            false
+        ));
     }
 }

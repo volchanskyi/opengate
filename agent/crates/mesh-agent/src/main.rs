@@ -298,6 +298,11 @@ const LOG_RATE_TELEMETRY_CAP: usize = 32;
 /// it are dropped rather than backpressuring control.
 const DISCOVERY_TELEMETRY_CAP: usize = 4;
 
+/// Bounded backlog of WS-19 threshold-alert health summaries awaiting the control
+/// loop. Emission is throttled and breach-driven, so a small buffer suffices;
+/// summaries beyond it are dropped rather than backpressuring control.
+const HEALTH_TELEMETRY_CAP: usize = 8;
+
 /// Set up tracing with both stdout and rolling file appender.
 /// Returns the guard that must be held for the lifetime of the program.
 fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
@@ -472,9 +477,28 @@ async fn main() -> Result<()> {
         None
     };
 
+    // WS-19 threshold alerts: the sampler owns the evaluator; the control loop
+    // pushes each tenant ruleset into `alert_rules_mailbox` and drains
+    // breach-carrying summaries from `health_rx`. Both exist only when the
+    // sampler is enabled (default off, behind `--edge-sentinel`).
+    let mut health_rx: Option<std::sync::mpsc::Receiver<mesh_protocol::ControlMessage>> = None;
+    let alert_rules_mailbox: Option<edge_sentinel::AlertRulesMailbox> = if args.edge_sentinel {
+        Some(std::sync::Arc::new(std::sync::Mutex::new(None)))
+    } else {
+        None
+    };
+
     let _edge_sentinel_sampler = if args.edge_sentinel {
         info!("edge-sentinel sampler enabled");
-        Some(edge_sentinel::spawn_sampler(shared_sink.clone()))
+        let (health_tx, rx) = std::sync::mpsc::sync_channel(HEALTH_TELEMETRY_CAP);
+        health_rx = Some(rx);
+        let alerts = alert_rules_mailbox
+            .as_ref()
+            .map(|rules| edge_sentinel::AlertWiring {
+                rules: rules.clone(),
+                health_tx,
+            });
+        Some(edge_sentinel::spawn_sampler(shared_sink.clone(), alerts))
     } else {
         None
     };
@@ -625,6 +649,11 @@ async fn main() -> Result<()> {
         if args.edge_discovery {
             capabilities.push(mesh_protocol::AgentCapability::Discovery);
         }
+        // Advertising ThresholdAlerts lets the server push this agent's
+        // tenant-scoped WS-19 ruleset; the sampler evaluates it locally.
+        if args.edge_sentinel {
+            capabilities.push(mesh_protocol::AgentCapability::ThresholdAlerts);
+        }
         if let Err(e) = conn
             .send_control(mesh_protocol::ControlMessage::AgentRegister {
                 capabilities,
@@ -718,6 +747,9 @@ async fn main() -> Result<()> {
                         None => Vec::new(),
                     };
                     if let Some(rx) = discovery_rx.as_ref() {
+                        windows.extend(std::iter::from_fn(|| rx.try_recv().ok()));
+                    }
+                    if let Some(rx) = health_rx.as_ref() {
                         windows.extend(std::iter::from_fn(|| rx.try_recv().ok()));
                     }
                     let mut telemetry_lost = false;
@@ -905,6 +937,16 @@ async fn main() -> Result<()> {
                                 let resp = bf.answer_history(dim, from_ts, to_ts, max_points).await;
                                 if let Err(e) = conn.send_control(resp).await {
                                     warn!(error = %e, "failed to send local-history response");
+                                }
+                            }
+                        }
+                        Ok(mesh_protocol::ControlMessage::PushAlertRules { rules }) => {
+                            // WS-19: hand the tenant ruleset to the sampler's
+                            // evaluator via the shared mailbox (next tick installs it).
+                            debug!(count = rules.len(), "edge-sentinel: threshold-alert ruleset received");
+                            if let Some(mailbox) = alert_rules_mailbox.as_ref() {
+                                if let Ok(mut slot) = mailbox.lock() {
+                                    *slot = Some(rules);
                                 }
                             }
                         }

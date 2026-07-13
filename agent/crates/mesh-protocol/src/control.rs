@@ -18,6 +18,56 @@ pub struct MetricDim {
     pub avg: f64,
 }
 
+/// Comparison direction for a WS-19 declarative threshold-alert rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AlertComparator {
+    /// Breaches while the metric is strictly greater than the threshold.
+    Gt,
+    /// Breaches while the metric is strictly less than the threshold.
+    Lt,
+    /// Breaches while the metric is greater than or equal to the threshold.
+    Gte,
+    /// Breaches while the metric is less than or equal to the threshold.
+    Lte,
+}
+
+/// One declarative edge threshold-alert rule (WS-19), evaluated locally against a
+/// sampler dimension every window. A breach must sustain `sustain_secs`
+/// continuously before it fires, and `clear` adds hysteresis so a value dithering
+/// around `threshold` does not flap. Rules are tenant-scoped config pushed to the
+/// agent; a resulting breach is investigation-aid only until the FPR soak.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ThresholdRule {
+    /// Stable rule id, used to attribute a breach and to preserve evaluation
+    /// state across an identical rule re-push.
+    pub id: String,
+    /// Watched sampler dimension: `"cpu.total"`, `"mem.used"`, or `"disk.used"`
+    /// (percent gauges). An unrecognized metric never fires.
+    pub metric: String,
+    /// Comparison direction.
+    pub comparator: AlertComparator,
+    /// Fire boundary.
+    pub threshold: f64,
+    /// Hysteresis clear boundary on the safe side of `threshold`; equal to
+    /// `threshold` disables hysteresis.
+    pub clear: f64,
+    /// Seconds the breach must hold continuously before it fires.
+    pub sustain_secs: u32,
+}
+
+/// One currently-firing threshold-alert breach (WS-19), carried additively in an
+/// `AgentHealthSummary`. Investigation-aid only — no auto-notify.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlertBreach {
+    /// Id of the [`ThresholdRule`] that fired.
+    pub rule_id: String,
+    /// Watched dimension, echoed for legibility without a rule-table join.
+    pub metric: String,
+    /// Metric value at the evaluation that reported the breach.
+    pub value: f64,
+}
+
 /// Sanitized process sample row for Edge Sentinel reporting.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessReportEntry {
@@ -175,6 +225,10 @@ pub enum ControlMessage {
         sampler_ver: String,
         #[serde(default)]
         model_ver: String,
+        /// Threshold-alert breaches firing when this summary was built (WS-19).
+        /// Additive: an older decoder ignores it; a newer one defaults it empty.
+        #[serde(default)]
+        breaches: Vec<AlertBreach>,
     },
     AgentMetricWindow {
         #[serde(default)]
@@ -485,6 +539,16 @@ pub enum ControlMessage {
         packages: Vec<DiscoveredPackage>,
         #[serde(default)]
         truncated: bool,
+    },
+
+    /// Server → Agent: replace the agent's active threshold-alert ruleset (WS-19)
+    /// with this tenant-scoped set. The server sends only the connecting agent's
+    /// authoritative-org rules; the agent evaluates them locally each window and
+    /// carries any breach in `AgentHealthSummary`. Gated by the ThresholdAlerts
+    /// capability.
+    PushAlertRules {
+        #[serde(default)]
+        rules: Vec<ThresholdRule>,
     },
 
     /// Unknown future control message. Agents ignore this and keep the

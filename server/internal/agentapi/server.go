@@ -37,6 +37,7 @@ type AgentServer struct {
 	relay         *relay.Relay
 	notifier      notifications.Notifier
 	scheduler     *BackfillScheduler
+	alertRules    AlertRuleProvider
 	metrics       *appmetrics.Metrics
 	quicHost      string   // extra DNS SAN for the server certificate
 	conns         sync.Map // map[protocol.DeviceID]*AgentConn
@@ -63,6 +64,10 @@ type AgentServerConfig struct {
 	Metrics       *appmetrics.Metrics
 	QuicHost      string
 	Logger        *slog.Logger
+	// AlertRules provides each connecting agent's tenant-scoped WS-19
+	// threshold-alert ruleset. Optional: nil falls back to DefaultAlertRules
+	// for every org.
+	AlertRules AlertRuleProvider
 }
 
 // NewAgentServer creates a new AgentServer.
@@ -78,6 +83,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		relay:         cfg.Relay,
 		notifier:      cfg.Notifier,
 		scheduler:     NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
+		alertRules:    resolveAlertRuleProvider(cfg.AlertRules),
 		metrics:       cfg.Metrics,
 		quicHost:      cfg.QuicHost,
 		logger:        cfg.Logger,
@@ -228,6 +234,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		processes:     s.processes,
 		inventory:     s.inventory,
 		scheduler:     s.scheduler,
+		alertRules:    s.alertRules,
 		metrics:       s.metrics,
 		logger:        logger,
 	}

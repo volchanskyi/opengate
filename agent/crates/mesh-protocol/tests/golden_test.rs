@@ -89,6 +89,11 @@ fn golden_control_frame_agent_health_summary() {
         recent_bitmask: vec![0xAA, 0x55, 0xF0],
         sampler_ver: "sysinfo-k2".to_string(),
         model_ver: "k2-baseline-v1".to_string(),
+        breaches: vec![AlertBreach {
+            rule_id: "disk-full".to_string(),
+            metric: "disk.used".to_string(),
+            value: 95.5,
+        }],
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();

@@ -56,6 +56,10 @@ pub enum AgentCapability {
     /// periodic discovery task is enabled; the agent ships tenant-scoped
     /// `DiscoveryReport`s (ports/services/DB engines/containers/packages).
     Discovery,
+    /// Declarative edge threshold alerts (WS-19). Advertised when the sampler is
+    /// enabled; gates the server → agent `PushAlertRules` control message that
+    /// delivers the connecting agent's tenant-scoped ruleset.
+    ThresholdAlerts,
 }
 
 /// Current status of a device.
