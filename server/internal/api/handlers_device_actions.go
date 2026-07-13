@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
@@ -97,10 +98,37 @@ func (s *Server) DeleteDevice(ctx context.Context, request DeleteDeviceRequestOb
 		return DeleteDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
-	if err := s.devices.Delete(ctx, request.Id); err != nil {
+	if err := s.purgeDeletedDevice(ctx, request.Id); err != nil {
 		return nil, err
 	}
-	s.agents.DeregisterAgent(ctx, request.Id)
 	s.auditLog(ctx, ContextUserID(ctx), "device.delete", request.Id.String(), "")
 	return DeleteDevice204Response{}, nil
+}
+
+// purgeDeletedDevice erases a deleted device's centralized telemetry across
+// every store via the lifecycle orchestrator: it tombstones the device
+// (blocking further ingest), deprovisions the agent, deletes its VictoriaMetrics
+// series and Postgres rows, and verifies emptiness. Without a wired purger it
+// falls back to the plain Postgres delete plus agent deregistration.
+func (s *Server) purgeDeletedDevice(ctx context.Context, deviceID uuid.UUID) error {
+	if s.purger == nil {
+		if err := s.devices.Delete(ctx, deviceID); err != nil {
+			return err
+		}
+		s.agents.DeregisterAgent(ctx, deviceID)
+		return nil
+	}
+	claims := ContextClaims(ctx)
+	if claims == nil {
+		return errors.New("missing tenant claims")
+	}
+	userID := ContextUserID(ctx)
+	job, err := s.purger.PurgeDevice(ctx, claims.OrgID, deviceID, &userID)
+	if err != nil {
+		return err
+	}
+	// A device purge is fast (VM delete issued, Postgres rows removed, bounded
+	// emptiness verify); run it in-request so the device is gone on return. A
+	// still-pending VM compaction leaves the job resumable for the sweep.
+	return s.purger.Run(ctx, job)
 }

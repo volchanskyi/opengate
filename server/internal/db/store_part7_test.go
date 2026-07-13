@@ -45,6 +45,28 @@ func assertInventoryDownReversal(t *testing.T, ctx context.Context, db *sql.DB) 
 	assert.False(t, deviceInventory.Valid)
 }
 
+// assertDataLifecycleTables confirms migration 006 created the non-RLS
+// deleted_ids deny-list and purge_jobs progress tables.
+func assertDataLifecycleTables(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	for _, table := range []string{"public.deleted_ids", "public.purge_jobs"} {
+		var reg sql.NullString
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass($1)`, table).Scan(&reg))
+		assert.Truef(t, reg.Valid, "%s should exist after migration 006", table)
+	}
+}
+
+// assertDataLifecycleDownReversal confirms the 006 down rollback dropped both
+// lifecycle tables.
+func assertDataLifecycleDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	for _, table := range []string{"public.deleted_ids", "public.purge_jobs"} {
+		var reg sql.NullString
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass($1)`, table).Scan(&reg))
+		assert.Falsef(t, reg.Valid, "%s should be gone after 006 down rollback", table)
+	}
+}
+
 // assertDeviceLogsRetired confirms migration 004 dropped the central log cache.
 func assertDeviceLogsRetired(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()

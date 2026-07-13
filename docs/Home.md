@@ -15,6 +15,7 @@ Developer documentation for the OpenGate remote device management platform.
 | [Wire Protocol](./Wire-Protocol.md) | MessagePack framing, handshake sequence, golden file testing |
 | [Platform Abstraction](./Platform-Abstraction.md) | OS-specific traits for capture, input, and service lifecycle |
 | [Database](./Database.md) | PostgreSQL schema, driver, migrations, backups |
+| [Data Lifecycle](./Data-Lifecycle.md) | Right-to-be-forgotten erasure — tombstone deny-list, purge state machine, reconciliation sweep |
 | [Testing](./Testing.md) | Test layers, running tests, benchmarks |
 | [Shell Quality](./Shell-Quality.md) | Pinned linting, formatting, execution classes, behavioral tests |
 | [CI Pipeline](./CI-Pipeline.md) | Workflows, job graph, branch protection, auto-merge |

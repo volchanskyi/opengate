@@ -138,6 +138,56 @@ components:
             Latest edge-node anomaly rate in [0,1] from telemetry, for the fleet
             health badge. Omitted when the device has no recent sample.
 
+    PurgeJob:
+      type: object
+      description: >-
+        Progress of a right-to-be-forgotten telemetry purge. "Logical" states
+        mean ingest is blocked and the subject is no longer queryable; physical
+        VictoriaMetrics compaction and offline-edge erasure complete later.
+      required: [id, org_id, scope, state, vm_deleted, object_deleted, pg_deleted, verified, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        org_id:
+          type: string
+          format: uuid
+        device_id:
+          type: string
+          format: uuid
+          description: Absent for an organization-wide (tenant/fleet) purge.
+        scope:
+          type: string
+          enum: [device, org]
+        state:
+          type: string
+          enum:
+            - requested
+            - central-logical-complete
+            - central-physical-compaction-pending
+            - object-delete-pending
+            - edge-erase-pending
+            - complete
+        vm_deleted:
+          type: boolean
+        object_deleted:
+          type: boolean
+        pg_deleted:
+          type: boolean
+        verified:
+          type: boolean
+        last_error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
     RestartDeviceRequest:
       type: object
       properties:
@@ -2694,6 +2744,82 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "409":
           description: Cannot remove last administrator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/orgs/{orgId}/purge:
+    post:
+      operationId: purgeOrg
+      summary: Purge all telemetry for an organization (admin only)
+      description: >-
+        Irreversibly erase every device's centralized telemetry for a whole
+        tenant/fleet and deprovision its agents. Runs as an async, resumable job;
+        poll the returned job for completion.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "202":
+          description: Purge accepted; job started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurgeJob"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/purge-jobs/{jobId}:
+    get:
+      operationId: getPurgeJob
+      summary: Get purge job status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Purge job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurgeJob"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Purge job not found
           content:
             application/json:
               schema:

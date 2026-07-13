@@ -298,6 +298,11 @@ export function DeviceDetail() {
                 Up to date
               </span>
             )}
+            {confirmDelete && (
+              <span role="alert" className="px-2 py-1.5 text-xs text-red-300">
+                Irreversible: permanently erases all of this device&apos;s telemetry and deprovisions its agent.
+              </span>
+            )}
             <button
               type="button"
               onClick={() => { fireAndForget(handleDelete()); }}

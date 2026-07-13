@@ -27,25 +27,26 @@ import (
 
 // AgentServer accepts QUIC connections from agents and manages their lifecycle.
 type AgentServer struct {
-	cert          *cert.Manager
-	devices       device.Repository
-	hardware      device.HardwareRepository
-	deviceUpdates updater.DeviceUpdateRepository
-	telemetry     telemetry.NumericWriter
-	processes     telemetry.ProcessRepository
-	inventory     inventory.Repository
-	relay         *relay.Relay
-	notifier      notifications.Notifier
-	scheduler     *BackfillScheduler
-	alertRules    AlertRuleProvider
-	metrics       *appmetrics.Metrics
-	quicHost      string   // extra DNS SAN for the server certificate
-	conns         sync.Map // map[protocol.DeviceID]*AgentConn
-	count         atomic.Int64
-	tombstones    sync.Map // map[protocol.DeviceID]struct{} — deleted devices
-	logger        *slog.Logger
-	addrCh        chan string // signals the actual listen address
-	addrOnce      sync.Once
+	cert           *cert.Manager
+	devices        device.Repository
+	hardware       device.HardwareRepository
+	deviceUpdates  updater.DeviceUpdateRepository
+	telemetry      telemetry.NumericWriter
+	processes      telemetry.ProcessRepository
+	inventory      inventory.Repository
+	relay          *relay.Relay
+	notifier       notifications.Notifier
+	scheduler      *BackfillScheduler
+	alertRules     AlertRuleProvider
+	metrics        *appmetrics.Metrics
+	quicHost       string   // extra DNS SAN for the server certificate
+	conns          sync.Map // map[protocol.DeviceID]*AgentConn
+	count          atomic.Int64
+	tombstones     sync.Map // map[protocol.DeviceID]struct{} — deleted devices (in-memory deny-list)
+	tombstoneStore tombstoneLoader
+	logger         *slog.Logger
+	addrCh         chan string // signals the actual listen address
+	addrOnce       sync.Once
 }
 
 // AgentServerConfig groups the AgentServer constructor's dependencies. A
@@ -68,26 +69,31 @@ type AgentServerConfig struct {
 	// threshold-alert ruleset. Optional: nil falls back to DefaultAlertRules
 	// for every org.
 	AlertRules AlertRuleProvider
+	// Tombstones is the persisted deny-list used to warm the in-memory cache at
+	// startup so a purged device stays rejected across restarts. Optional: nil
+	// disables warming (live purges still update the in-memory cache).
+	Tombstones tombstoneLoader
 }
 
 // NewAgentServer creates a new AgentServer.
 func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 	return &AgentServer{
-		cert:          cfg.Cert,
-		devices:       cfg.Devices,
-		hardware:      cfg.Hardware,
-		deviceUpdates: cfg.DeviceUpdates,
-		telemetry:     cfg.Telemetry,
-		processes:     cfg.Processes,
-		inventory:     cfg.Inventory,
-		relay:         cfg.Relay,
-		notifier:      cfg.Notifier,
-		scheduler:     NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
-		alertRules:    resolveAlertRuleProvider(cfg.AlertRules),
-		metrics:       cfg.Metrics,
-		quicHost:      cfg.QuicHost,
-		logger:        cfg.Logger,
-		addrCh:        make(chan string, 1),
+		cert:           cfg.Cert,
+		devices:        cfg.Devices,
+		hardware:       cfg.Hardware,
+		deviceUpdates:  cfg.DeviceUpdates,
+		telemetry:      cfg.Telemetry,
+		processes:      cfg.Processes,
+		inventory:      cfg.Inventory,
+		relay:          cfg.Relay,
+		notifier:       cfg.Notifier,
+		scheduler:      NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
+		alertRules:     resolveAlertRuleProvider(cfg.AlertRules),
+		metrics:        cfg.Metrics,
+		quicHost:       cfg.QuicHost,
+		tombstoneStore: cfg.Tombstones,
+		logger:         cfg.Logger,
+		addrCh:         make(chan string, 1),
 	}
 }
 
@@ -113,26 +119,6 @@ func (s *AgentServer) ListConnectedAgents() []*AgentConn {
 		return true
 	})
 	return agents
-}
-
-// DeregisterAgent marks a device as deleted and notifies the connected agent
-// (if online) to clean up and exit. Future reconnection attempts will be rejected.
-func (s *AgentServer) DeregisterAgent(ctx context.Context, deviceID protocol.DeviceID) {
-	s.tombstones.Store(deviceID, struct{}{})
-
-	ac := s.GetAgent(deviceID)
-	if ac == nil {
-		return
-	}
-
-	if err := ac.SendAgentDeregistered(ctx, "device deleted by administrator"); err != nil {
-		s.logger.Error("send deregistered to agent", "error", err, "device_id", deviceID)
-	}
-
-	// Close connection so the control loop exits.
-	if err := ac.Close(); err != nil {
-		s.logger.Warn("close agent connection on deregister", "error", err, "device_id", deviceID)
-	}
 }
 
 // Addr blocks until the server is listening and returns the actual address.
@@ -221,10 +207,12 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	ctx = s.scopeForDevice(ctx, result.DeviceID, logger)
 	groupID, hostname := s.lookupDeviceMeta(ctx, result.DeviceID)
 
+	deviceID := result.DeviceID
 	ac := &AgentConn{
-		DeviceID:      result.DeviceID,
+		DeviceID:      deviceID,
 		OrgID:         agentOrgID(ctx),
 		GroupID:       groupID,
+		isTombstoned:  func() bool { _, ok := s.tombstones.Load(deviceID); return ok },
 		stream:        stream,
 		codec:         &protocol.Codec{},
 		devices:       s.devices,
