@@ -256,6 +256,39 @@ VictoriaMetrics; basenames, PIDs, and command-line hashes stay in the RLS table.
 The numeric side's retention and long-term (cold) tier are covered in
 [Monitoring](Monitoring.md#long-term-cold-tier).
 
+### Device Inventory Table
+
+The `device_inventory` table stores each device's current auto-discovered
+footprint — one row per discovered component from a
+[`DiscoveryReport`](Wire-Protocol.md): a listening port, host service, database
+engine, container, or installed package.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | BIGINT PK | Identity column |
+| `org_id` | UUID FK | Tenant scope, protected by forced RLS |
+| `device_id` | UUID FK | References `devices(id)`, CASCADE delete |
+| `kind` | TEXT | One of `port`, `service`, `db_engine`, `container`, `package` |
+| `name` | TEXT | Primary label — owning process, unit, engine, or component name |
+| `version` | TEXT | Engine or package version when known |
+| `port` | INTEGER | Listening or engine port; 0 when not applicable |
+| `proto` | TEXT | Transport for a port (`tcp`/`udp`) |
+| `state` | TEXT | Run state for a service or container |
+| `runtime` / `image` | TEXT | Container runtime and image reference |
+| `first_seen` / `last_seen` | TIMESTAMPTZ | When the component first and most recently appeared |
+| `created_at` | TIMESTAMPTZ | Ingest timestamp |
+
+The Postgres adapter lives in
+[`server/internal/inventory`](../server/internal/inventory/) and always runs
+through `dbtx.Scoped`. Each discovery report replaces the device's footprint:
+present components are upserted (advancing `last_seen`) while vanished ones are
+pruned, so the stored rows always reflect the latest scan and stay bounded by the
+agent's per-category caps. The report is scoped to the connection's authoritative
+organization, never an agent-supplied org, and carries descriptive attack-surface
+data only — never a connection string or credential. It is exposed to any device
+viewer in the organization through
+[`GET /devices/{id}/inventory`](API-Reference.md).
+
 ## Migrations
 
 Migrations live in [`server/internal/db/migrations/`](../server/internal/db/migrations/)
@@ -277,6 +310,15 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   snapshots.
 - [`003_telemetry.down.sql`](../server/internal/db/migrations/003_telemetry.down.sql)
   removes the process table for rollback.
+- [`004_retire_device_logs.up.sql`](../server/internal/db/migrations/004_retire_device_logs.up.sql)
+  drops the central `device_logs` cache; raw logs are brokered on demand.
+- [`004_retire_device_logs.down.sql`](../server/internal/db/migrations/004_retire_device_logs.down.sql)
+  recreates the table for rollback rehearsal.
+- [`005_inventory.up.sql`](../server/internal/db/migrations/005_inventory.up.sql)
+  creates the forced-RLS `device_inventory` table for the auto-discovered device
+  footprint.
+- [`005_inventory.down.sql`](../server/internal/db/migrations/005_inventory.down.sql)
+  removes the inventory table for rollback.
 
 The automated rollback/dump rehearsal lives in
 [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) and

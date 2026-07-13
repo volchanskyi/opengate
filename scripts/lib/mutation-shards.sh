@@ -53,7 +53,7 @@ mutation_go_shard_pkgs() {
     # api is the irreducible hotspot (largest CI cost) — isolated.
     go-api) echo "api" ;;
     # Remaining Postgres-backed packages, spread so they do not cluster.
-    go-db) echo "agentapi auth db dbtx device session audit usecase" ;;
+    go-db) echo "agentapi auth db dbtx device inventory session audit usecase" ;;
     # Pure + crypto (no Postgres), split into two shards balanced by non-test
     # source size (~2.8k LOC each) after telemetry/correlate growth pushed the
     # single pure shard past the 75min cap (cancelled 2026-07-02). amt dominates

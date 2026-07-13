@@ -21,6 +21,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/inventory"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -112,6 +113,7 @@ func main() {
 	sessionsRepo := session.NewInstrumented(session.NewPostgresSessions(store.DB()), appMetrics)
 	usersRepo := auth.NewInstrumentedUsers(auth.NewPostgresUsers(store.DB()), appMetrics)
 	processesRepo := telemetry.NewPostgresProcessRepository(store.DB())
+	inventoryRepo := inventory.NewPostgresInventoryRepository(store.DB())
 
 	vmURL := *victoriaMetricsURL
 	if vmURL == "" {
@@ -184,6 +186,7 @@ func main() {
 		DeviceUpdates: deviceUpdatesRepo,
 		Telemetry:     telemetryWriter,
 		Processes:     processesRepo,
+		Inventory:     inventoryRepo,
 		Relay:         agentRelay,
 		Notifier:      notifier,
 		Metrics:       appMetrics,
@@ -217,6 +220,7 @@ func main() {
 		Devices:               devicesRepo,
 		Groups:                groupsRepo,
 		Hardware:              hardwareRepo,
+		Inventory:             inventoryRepo,
 		WebPush:               webPushRepo,
 		NotificationsHandlers: notifHandlers,
 		AMTDevices:            amtRepo,

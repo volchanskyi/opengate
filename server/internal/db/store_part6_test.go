@@ -81,6 +81,31 @@ func assertTelemetryProcessRLS(t *testing.T, ctx context.Context, db *sql.DB, sc
 	assert.Equal(t, 2, visibleToAdmin)
 }
 
+func assertInventoryRLS(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+	t.Helper()
+	const roleName = "opengate_rls_rehearsal"
+	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
+
+	rehearsalExecNoTx(t, ctx, db,
+		`INSERT INTO device_inventory (org_id, device_id, kind, name, port, first_seen, last_seen)
+		 VALUES
+		   ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000103', 'port', 'tenant-a', 5432, '2026-07-02T00:00:00Z', '2026-07-02T00:00:00Z'),
+		   ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000204', 'port', 'tenant-b', 6379, '2026-07-02T00:00:00Z', '2026-07-02T00:00:00Z')
+		 ON CONFLICT DO NOTHING`)
+
+	txA := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), false)
+	defer txA.Rollback() //nolint:errcheck // harmless after assertions
+	var visibleToA int
+	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_inventory`).Scan(&visibleToA))
+	assert.Equal(t, 1, visibleToA)
+
+	adminTx := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), true)
+	defer adminTx.Rollback() //nolint:errcheck // harmless after assertions
+	var visibleToAdmin int
+	require.NoError(t, adminTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM device_inventory`).Scan(&visibleToAdmin))
+	assert.Equal(t, 2, visibleToAdmin)
+}
+
 func rehearsalExecNoTx(t *testing.T, ctx context.Context, db *sql.DB, query string, args ...any) {
 	t.Helper()
 	_, err := db.ExecContext(ctx, query, args...)

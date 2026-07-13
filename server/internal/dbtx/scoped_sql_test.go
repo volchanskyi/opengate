@@ -22,6 +22,7 @@ var tenantTables = []string{
 	"device_hardware",
 	"device_logs",
 	"device_processes",
+	"device_inventory",
 }
 
 func TestTenantTableSQLUsesScopedHelper(t *testing.T) {

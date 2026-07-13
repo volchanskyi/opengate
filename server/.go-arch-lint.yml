@@ -91,6 +91,12 @@ components:
   telemetry:
     in: internal/telemetry
 
+  # Constrained: the inventory module owns the Edge Sentinel discovery footprint
+  # — the Postgres RLS device_inventory table. Like telemetry it imports only
+  # dbtx for tenant-scoped transactions.
+  inventory:
+    in: internal/inventory
+
   # Constrained: the usecase module owns cross-aggregate orchestration that
   # would violate leaf-module boundaries if pushed into a single domain
   # module. It composes per-aggregate Repository ports from the leaf modules.
@@ -171,6 +177,13 @@ deps:
     deepScan: false
   telemetry:
     # Owns its VM client and Postgres process adapter; dbtx is the only
+    # project-internal dependency for tenant-scoped RLS transactions.
+    mayDependOn:
+      - dbtx
+    anyVendorDeps: true
+    deepScan: false
+  inventory:
+    # Owns the Postgres RLS device_inventory adapter; dbtx is the only
     # project-internal dependency for tenant-scoped RLS transactions.
     mayDependOn:
       - dbtx

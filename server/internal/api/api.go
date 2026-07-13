@@ -25,6 +25,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/inventory"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/relay"
@@ -77,6 +78,7 @@ type ServerConfig struct {
 	Devices               device.Repository
 	Groups                device.GroupRepository
 	Hardware              device.HardwareRepository
+	Inventory             inventory.Repository
 	WebPush               notifications.WebPushRepository
 	NotificationsHandlers *notifications.Handlers
 	AMTDevices            amt.Repository
@@ -115,6 +117,7 @@ type Server struct {
 	devices         device.Repository
 	groups          device.GroupRepository
 	hardware        device.HardwareRepository
+	inventory       inventory.Repository
 	webPush         notifications.WebPushRepository
 	notifHandlers   *notifications.Handlers
 	amtDevices      amt.Repository
@@ -215,6 +218,7 @@ func NewServer(cfg ServerConfig) *Server {
 		devices:         cfg.Devices,
 		groups:          cfg.Groups,
 		hardware:        cfg.Hardware,
+		inventory:       cfg.Inventory,
 		webPush:         cfg.WebPush,
 		notifHandlers:   resolveNotificationsHandlers(cfg),
 		amtDevices:      cfg.AMTDevices,
