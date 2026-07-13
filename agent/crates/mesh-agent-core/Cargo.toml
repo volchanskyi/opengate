@@ -32,6 +32,7 @@ hex.workspace = true
 reqwest.workspace = true
 image.workspace = true
 sysinfo.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 edge-tsdb = { path = "../edge-tsdb", default-features = false, features = ["cold-deflate"] }

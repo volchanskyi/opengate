@@ -26,10 +26,11 @@
 //! dedups by timestamp).
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use edge_tsdb::store::TsdbSnapshot;
 use edge_tsdb::tier::TierPoint;
-use edge_tsdb::{Sample, SeriesId, Tier, TsdbError};
+use edge_tsdb::{Durability, LocalTsdb, Sample, SeriesId, Tier, TsdbError};
 use mesh_protocol::{BackfillSample, BackfillTier, HistoryPoint};
 
 use super::store_sink::series_dim_name;
@@ -382,6 +383,107 @@ fn roll_to_10s(samples: &[(Sample, bool)]) -> Vec<(i64, f64)> {
     acc.into_iter()
         .map(|(w, (sum, n))| (w, sum / f64::from(n)))
         .collect()
+}
+
+/// Reserved cursor-table keys for the three durable per-tier backfill
+/// watermarks. Real metric series are small ids (0..); these sit at the very top
+/// of the [`SeriesId`] space so a tier watermark never collides with a series'
+/// WS-14b per-series cursor in the same table.
+pub const TIER_CURSOR_RAW10S: SeriesId = SeriesId::MAX;
+/// Reserved key for the 1 min-tier watermark.
+pub const TIER_CURSOR_ROLLUP1M: SeriesId = SeriesId::MAX - 1;
+/// Reserved key for the 1 hr-tier watermark.
+pub const TIER_CURSOR_ROLLUP1H: SeriesId = SeriesId::MAX - 2;
+
+/// The reserved durable-cursor key for a shippable tier, or `None` for a tier
+/// the drain never persists (there is no default/unknown watermark).
+#[must_use]
+pub fn tier_cursor_key(tier: BackfillTier) -> Option<SeriesId> {
+    match tier {
+        BackfillTier::Raw10s => Some(TIER_CURSOR_RAW10S),
+        BackfillTier::Rollup1m => Some(TIER_CURSOR_ROLLUP1M),
+        BackfillTier::Rollup1h => Some(TIER_CURSOR_ROLLUP1H),
+        _ => None,
+    }
+}
+
+/// Durable persistence of the three per-tier backfill watermarks. Implemented
+/// over the store's cursor table by [`LocalTsdb`] in production and by an
+/// in-memory fake in tests.
+pub trait CursorStore {
+    /// The persisted watermark for a reserved tier key, or `None` if never set.
+    fn load_cursor(&self, key: SeriesId) -> Result<Option<i64>, TsdbError>;
+    /// Persist a watermark advance for a reserved tier key.
+    fn save_cursor(&mut self, key: SeriesId, ts: i64) -> Result<(), TsdbError>;
+}
+
+impl CursorStore for LocalTsdb {
+    fn load_cursor(&self, key: SeriesId) -> Result<Option<i64>, TsdbError> {
+        self.cursor(key)
+    }
+
+    fn save_cursor(&mut self, key: SeriesId, ts: i64) -> Result<(), TsdbError> {
+        // Buffered (non-fsync) durability: a cursor lost to a crash only re-sends
+        // already-persisted-central, timestamp-deduped history — never data loss
+        // — so the watermark advance stays off the fsync path.
+        self.set_cursor(key, ts, Durability::None)
+    }
+}
+
+/// Load the three durable per-tier resume watermarks from `store`.
+pub fn load_cursors<C: CursorStore>(store: &C) -> Result<BackfillCursors, TsdbError> {
+    Ok(BackfillCursors {
+        raw10s: store.load_cursor(TIER_CURSOR_RAW10S)?,
+        rollup1m: store.load_cursor(TIER_CURSOR_ROLLUP1M)?,
+        rollup1h: store.load_cursor(TIER_CURSOR_ROLLUP1H)?,
+    })
+}
+
+/// Advance the durable watermark for a tier whose batch the server acked. A tier
+/// with no reserved key (a future variant) is a silent no-op.
+pub fn record_ack<C: CursorStore>(
+    store: &mut C,
+    tier: BackfillTier,
+    cursor: i64,
+) -> Result<(), TsdbError> {
+    if let Some(key) = tier_cursor_key(tier) {
+        store.save_cursor(key, cursor)?;
+    }
+    Ok(())
+}
+
+/// A cheap backlog hint for `RequestBackfillSlot`: the total pending bucket count
+/// across all tiers from the durable cursors, and the oldest pending bucket
+/// timestamp (`0` when nothing is pending, never a bogus instant). Drains a
+/// throwaway plan over `reader`; the drain is deterministic and side-effect-free.
+pub fn pending_hint<R: TierReader>(
+    reader: &R,
+    now: i64,
+    cfg: BackfillConfig,
+    series: &[SeriesId],
+    cursors: BackfillCursors,
+) -> Result<(u64, i64), TsdbError> {
+    let mut drain = BackfillDrain::new(reader, now, cfg, series, cursors);
+    let mut pending: u64 = 0;
+    let mut oldest = i64::MAX;
+    while let Some(batch) = drain.next_batch()? {
+        for s in &batch.samples {
+            pending += 1;
+            oldest = oldest.min(s.ts);
+        }
+    }
+    Ok((pending, if pending == 0 { 0 } else { oldest }))
+}
+
+/// The minimum delay before sending the next batch so a drain of `sample_count`
+/// samples stays within `rate` samples/sec. A `rate` of `0` means "as fast as
+/// per-batch acks allow" (no pacing); an empty batch never waits.
+#[must_use]
+pub fn pace_delay(sample_count: usize, rate: u32) -> Duration {
+    if rate == 0 || sample_count == 0 {
+        return Duration::ZERO;
+    }
+    Duration::from_secs_f64(sample_count as f64 / f64::from(rate))
 }
 
 /// Answer an on-demand deep-history pull: full-resolution 1 s T0 raw for `series`

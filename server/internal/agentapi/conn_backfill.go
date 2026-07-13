@@ -116,6 +116,9 @@ func (a *AgentConn) handleRequestBackfillSlot(msg *protocol.ControlMessage) erro
 		PendingSamples: msg.PendingSamples,
 		OldestTS:       msg.OldestTS,
 	})
+	if a.metrics != nil {
+		a.metrics.ObserveBackfillDecision(decision.Grant, decision.Rate, a.scheduler.ActiveCount())
+	}
 	if decision.Grant {
 		return a.sendControl(&protocol.ControlMessage{
 			Type:     protocol.MsgGrantBackfill,

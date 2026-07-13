@@ -92,10 +92,17 @@ Before Medium-Free can be activated, the implementation must deliver:
 3. Load-test evidence from [`load-test.yml`](../.github/workflows/load-test.yml)
    and `make load-test-quic`, including p95/p99 latency, error rate, reconnect
    behavior, and node CPU/memory saturation. The QUIC harness
-   ([`loadtest`](../server/tests/loadtest/main.go)) can also drive Edge-Sentinel
-   log traffic — `-log-windows` emits per-agent log-rate windows (the ingest
-   path) and `-answer-log-pulls` answers on-demand raw pulls — so a soak can fold
-   log-rate ingest and broker pulls into the control-plane p99 budget.
+   ([`loadtest`](../server/tests/loadtest/main.go)) also drives the full default
+   Edge-Sentinel telemetry path so a sustained soak folds it into the same budget:
+   `-default-telemetry` emits the default per-agent shape (health summary + host
+   metric window + process report), `-orgs` spreads agents across tenant cohorts,
+   `-backfill-batches` runs a fleet-wide reconnect storm through the admission
+   scheduler, and `-log-windows` / `-answer-log-pulls` cover log-rate ingest and
+   broker pulls. The soak is the **default-on gate**: Edge-Sentinel telemetry stays
+   default-off until a real run shows control-plane p99 regressing ≤ 20%, VM
+   cardinality and disk growth tracking the model, and the reconnect storm draining
+   without starving live traffic — observed on the **Edge-Sentinel Soak** dashboard
+   (see [Monitoring](Monitoring.md#sustained-soak-and-default-on-gate)).
 4. A rollback runbook that returns to the current singleton values without data
    loss.
 5. An ADR if the chosen option changes topology, storage durability, L4
@@ -140,6 +147,17 @@ Established remote-control sessions should continue to prefer WebRTC
 peer-to-peer transport. The server scaling problem is therefore dominated by
 idle control connections, reconnection storms, and routing agent/browser pairs
 that land on different replicas.
+
+A reconnection storm does not become a telemetry-ingest storm. Edge-Sentinel
+reconnect backfill (see [Monitoring](Monitoring.md#reconnect-backfill-and-deep-history-pull))
+is admission-controlled: because each agent's history is durable locally,
+backfill has no urgency, so the server scheduler
+([`backfill_scheduler.go`](../server/internal/agentapi/backfill_scheduler.go))
+grants a load-adaptive rate or defers agents that then hold their data and retry
+with jittered backoff — a fleet-wide reconnect drains gradually rather than
+stampeding VM. When KEDA scales the server past one replica
+([ADR-034](./adr/ADR-034-scale-out-keda-shared-keys.md)), the admission budget
+must gate on a shared VM-ingest-rate signal rather than per-replica counters.
 
 ## 4. Retained and Removed Capabilities
 

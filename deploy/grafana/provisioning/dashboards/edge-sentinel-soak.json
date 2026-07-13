@@ -1,0 +1,360 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Edge-Sentinel telemetry ingest rate by control type, from the server opengate_edge_telemetry_ingested_total counter (requires the server /metrics scrape). This is the accepted-message throughput the sustained soak drives at the default level.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "messages / sec",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "reqps",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Telemetry ingest rate (by type)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum by (type) (rate(opengate_edge_telemetry_ingested_total[5m]))",
+          "legendFormat": "{{type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Node and per-family anomaly rate remote-written by agents (opengate_edge_node_anomaly_rate, opengate_edge_family_anomaly_rate). Under soak this stays low; it is the product signal the whole path exists to carry.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "anomaly rate",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "percentunit",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Anomaly rate (node + family)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "avg(opengate_edge_node_anomaly_rate)",
+          "legendFormat": "node (avg)",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "avg by (family) (opengate_edge_family_anomaly_rate)",
+          "legendFormat": "{{family}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "VictoriaMetrics active time series in the current hour (vm_cache_entries{type=\"storage/hour_metric_ids\"}), the cardinality the central-avg-only decision keeps under the 50k budget. Requires the VM self-scrape. Watch for unbounded growth under multi-tenant soak.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "active series",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "50k budget" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "dash": [10, 10], "fill": "dash" } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "id": 3,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "VM active-series cardinality",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum(vm_cache_entries{type=\"storage/hour_metric_ids\"})",
+          "legendFormat": "active series",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "vector(50000)",
+          "legendFormat": "50k budget",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "VictoriaMetrics on-disk data size (sum(vm_data_size_bytes)) and its 1h growth rate. Requires the VM self-scrape. Stream-agg avg-only rollups should hold long-term storage roughly flat under a sustained soak.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "disk",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "bytes",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "id": 4,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "VM disk usage + growth",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum(vm_data_size_bytes)",
+          "legendFormat": "disk size",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum(increase(vm_data_size_bytes[1h]))",
+          "legendFormat": "growth / 1h",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Control-plane HTTP query latency p99 across all routes (opengate_http_request_duration_seconds). The soak gate requires this p99 to regress <= 20% under default telemetry load versus the no-telemetry baseline. Requires the server /metrics scrape.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "seconds",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "s",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 18 },
+      "id": 5,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Control-plane query p99",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(opengate_http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "p99 all routes",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "On-demand metric-correlation latency p99, from the HTTP histogram for the correlate route (opengate_http_request_duration_seconds{route=\"/api/v1/devices/{id}/correlate\"}). Correlation is bounded and on-demand; this is the user-facing drill-down cost under load.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "seconds",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "s",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 18 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Correlation latency p99",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(opengate_http_request_duration_seconds_bucket{route=\"/api/v1/devices/{id}/correlate\"}[5m])))",
+          "legendFormat": "p99 correlate",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Server-side telemetry drops by reason (opengate_edge_telemetry_drops_total). The persist_slots_full series is the queue-depth saturation signal — the bounded per-connection persist slots are full, so telemetry is shed rather than backpressuring heartbeat/session/control. A rising drop rate under soak means a server bound is binding. Requires the server /metrics scrape.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "drops / sec",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "reqps",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 27 },
+      "id": 7,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Telemetry drops by reason (incl. queue saturation)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum by (reason) (rate(opengate_edge_telemetry_drops_total[5m]))",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Reconnect-backfill scheduler state during a fleet-wide storm: live active drain slots (opengate_edge_backfill_active_slots) and the grant/defer decision rate (opengate_edge_backfill_decisions_total). Defers are the fair-share/back-pressure lever draining a storm gradually; active slots must stay under the global concurrency cap. Requires the server /metrics scrape.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "slots / decisions per sec",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 27 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Backfill scheduler state (active slots + decisions)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "opengate_edge_backfill_active_slots",
+          "legendFormat": "active slots",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum by (decision) (rate(opengate_edge_backfill_decisions_total[5m]))",
+          "legendFormat": "{{decision}} / sec",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Per-slot ingest rate (samples/sec) of the most recent backfill grant (opengate_edge_backfill_grant_rate_samples_per_second). This is the load-adaptive budget slice each admitted drain gets; it shrinks as the node comes under live pressure. Requires the server /metrics scrape.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "short",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 36 },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "title": "Backfill grant rate (samples/sec)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "opengate_edge_backfill_grant_rate_samples_per_second",
+          "legendFormat": "grant rate",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["edge-sentinel", "soak", "victoriametrics"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Edge-Sentinel Soak",
+  "uid": "opengate-edge-sentinel-soak",
+  "version": 1
+}

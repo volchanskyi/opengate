@@ -1,39 +1,13 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-07-11; Edge-Sentinel WS-15 reconnect-backfill server surface landed. -->
+<!-- Last reviewed: 2026-07-11; Edge-Sentinel WS-15 reconnect-backfill agent drive-loop landed. -->
 
 ## Severity: High
 
 _None currently._
 
 ## Severity: Medium
-
-### Edge-Sentinel WS-15 agent drive-loop wiring and docs pending
-
-The WS-15 reconnect-backfill **server surface is complete and tested**: the
-additive wire contract, the agent-core replay engine
-([`mesh-agent-core::ml::backfill`](../agent/crates/mesh-agent-core/src/ml/backfill.rs)),
-the server admission scheduler
-([`agentapi.BackfillScheduler`](../server/internal/agentapi/backfill_scheduler.go)),
-the tiered VM ingest (`handleMetricBackfillBatch` in
-[`conn_backfill.go`](../server/internal/agentapi/conn_backfill.go)), and the
-on-demand deep-history broker + endpoint (`GetDeviceHistory`,
-`GET /devices/{id}/history`). The **agent binary does not yet drive it**:
-[`mesh-agent`](../agent/crates/mesh-agent/src/main.rs) does not advertise the
-`Backfill` capability, request admission slots on reconnect, drain
-`BackfillDrain` batches at the granted rate, or answer `RequestLocalHistory`.
-That wiring shares the sampler-owned `LocalTsdb` with the control loop and is
-coupled to the same default-off edge-sentinel enablement as the sampler and
-store (the ARM/soak gate below).
-
-**Pay-down trigger:** when the edge-sentinel sampler/store defaults are flipped
-on, wire the `mesh-agent` control loop to advertise `Backfill`, request a slot on
-reconnect, drain recent-first at the granted rate while advancing the WS-14b
-cursor only on ack, and answer deep-history pulls from the local tiers; then
-document the reconnect-backfill flow in
-[`docs/Monitoring.md`](../docs/Monitoring.md) and
-[`docs/Multiscale-Readiness.md`](../docs/Multiscale-Readiness.md).
 
 ### Edge-Sentinel ARM sampler artifact and default-on flip pending
 

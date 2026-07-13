@@ -47,6 +47,14 @@ type Metrics struct {
 	// Edge Sentinel raw-log broker
 	DeviceLogPullsTotal   *prometheus.CounterVec
 	DeviceLogPullDuration *prometheus.HistogramVec
+
+	// Edge Sentinel telemetry ingest path (WS-4) + reconnect-backfill scheduler
+	// (WS-15). These drive the WS-15b sustained-soak / default-on dashboard.
+	EdgeTelemetryIngestedTotal *prometheus.CounterVec
+	EdgeTelemetryDropsTotal    *prometheus.CounterVec
+	EdgeBackfillDecisionsTotal *prometheus.CounterVec
+	EdgeBackfillActiveSlots    prometheus.Gauge
+	EdgeBackfillGrantRate      prometheus.Gauge
 }
 
 // NewMetrics creates and registers all metrics on the given registry.
@@ -120,6 +128,36 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help:      "On-demand raw-log broker pull duration in seconds by outcome.",
 			Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15},
 		}, []string{"result"}),
+
+		EdgeTelemetryIngestedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "opengate",
+			Name:      "edge_telemetry_ingested_total",
+			Help:      "Total Edge-Sentinel telemetry control messages accepted for ingest, by control type.",
+		}, []string{"type"}),
+
+		EdgeTelemetryDropsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "opengate",
+			Name:      "edge_telemetry_drops_total",
+			Help:      "Total Edge-Sentinel telemetry messages dropped by server-side bounds, by reason.",
+		}, []string{"reason"}),
+
+		EdgeBackfillDecisionsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "opengate",
+			Name:      "edge_backfill_decisions_total",
+			Help:      "Total reconnect-backfill admission decisions, by decision (grant, defer).",
+		}, []string{"decision"}),
+
+		EdgeBackfillActiveSlots: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "opengate",
+			Name:      "edge_backfill_active_slots",
+			Help:      "Number of reconnect-backfill drain slots currently granted across all agents.",
+		}),
+
+		EdgeBackfillGrantRate: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "opengate",
+			Name:      "edge_backfill_grant_rate_samples_per_second",
+			Help:      "Per-slot ingest rate (samples/sec) of the most recent backfill grant.",
+		}),
 	}
 
 	reg.MustRegister(
@@ -134,9 +172,43 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.DBSizeBytes,
 		m.DeviceLogPullsTotal,
 		m.DeviceLogPullDuration,
+		m.EdgeTelemetryIngestedTotal,
+		m.EdgeTelemetryDropsTotal,
+		m.EdgeBackfillDecisionsTotal,
+		m.EdgeBackfillActiveSlots,
+		m.EdgeBackfillGrantRate,
 	)
 
 	return m
+}
+
+// ObserveEdgeTelemetryIngest counts one accepted Edge-Sentinel telemetry
+// message for the given control type (e.g. AgentMetricWindow). It is the
+// numerator of the soak dashboard's ingest-rate panels.
+func (m *Metrics) ObserveEdgeTelemetryIngest(msgType string) {
+	m.EdgeTelemetryIngestedTotal.WithLabelValues(msgType).Inc()
+}
+
+// ObserveEdgeTelemetryDrop counts one dropped telemetry message by reason
+// (payload_too_large, interval_floor, tenant_missing, persist_failed,
+// persist_slots_full). Backfill never backpressures live paths, so a rising
+// drop rate under soak is the signal that a server-side bound is binding.
+func (m *Metrics) ObserveEdgeTelemetryDrop(reason string) {
+	m.EdgeTelemetryDropsTotal.WithLabelValues(reason).Inc()
+}
+
+// ObserveBackfillDecision records one reconnect-backfill admission decision.
+// A grant records its per-slot rate; a defer leaves the grant-rate gauge
+// unchanged. active is the scheduler's current live-slot count after the
+// decision, letting the dashboard chart storm drain-down.
+func (m *Metrics) ObserveBackfillDecision(granted bool, rate uint32, active int) {
+	if granted {
+		m.EdgeBackfillDecisionsTotal.WithLabelValues("grant").Inc()
+		m.EdgeBackfillGrantRate.Set(float64(rate))
+	} else {
+		m.EdgeBackfillDecisionsTotal.WithLabelValues("defer").Inc()
+	}
+	m.EdgeBackfillActiveSlots.Set(float64(active))
 }
 
 // ObserveDeviceLogPull records one on-demand raw-log broker pull against the

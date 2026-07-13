@@ -116,6 +116,7 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `DeviceLogsError` | Agent → Server | `error` |
 | `RequestHealthWindow` | Server → Agent | `since_ts`, `limit` |
 | `HealthWindowResponse` | Agent → Server | `summaries` |
+| `DiscoveryReport` | Agent → Server | `ts`, `org_id`, `ports`, `services`, `db_engines`, `containers`, `packages`, `truncated` |
 
 The Edge Sentinel telemetry variants are ingested by the server when received,
 but the agent sampler remains default-off until the footprint and soak gates
@@ -138,6 +139,20 @@ so log bursts never backpressure the control stream. On the on-demand query,
 `RequestDeviceLogs.source` selects a host log source and `unit` narrows to one
 emitting unit; an empty `source` reads the agent's own files.
 
+`DiscoveryReport` carries a non-intrusive, read-only host profile: listening
+ports (transport, port, owning process basename), host services (systemd unit /
+Windows service name + run state), database engines inferred from listening
+ports (engine family + port, no probe), containers from a local runtime
+(runtime, image, name, state), and installed packages (name, version). Each
+category is per-device bounded on the agent, and `truncated` is set when any hit
+its cap; the payload never carries a bound address, connection string, or
+credential. The agent produces reports only when the discovery task is enabled
+(default-off), profiles on a long interval, and forwards a report over a bounded
+channel **only when the profile changed** since the last one shipped — so a
+steady host is silent and a burst never backpressures the control stream. The
+server assigns the authoritative organization, so the agent leaves `org_id`
+empty.
+
 ### Capabilities
 
 `AgentRegister.capabilities` is the negotiation surface for additive
@@ -150,6 +165,10 @@ capability. Current additive gates:
 | `HardwareInventory` | `RequestHardwareReport` |
 | `DeviceLogs` | `RequestDeviceLogs` |
 | `HealthWindow` | `RequestHealthWindow` |
+| `Backfill` | `GrantBackfill`, `DeferBackfill`, `MetricBackfillAck`, `RequestLocalHistory` |
+
+`Discovery` gates no server-to-agent message; the agent advertises it to signal
+that it emits `DiscoveryReport` inventory (so the server knows to ingest it).
 
 Tolerant unknown-message decoding is a backstop for mixed fleets; capability
 gating is the primary safety mechanism.

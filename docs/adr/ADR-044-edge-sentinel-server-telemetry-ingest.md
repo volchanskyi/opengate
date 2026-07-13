@@ -62,4 +62,12 @@ Use a split telemetry store:
   correctly timestamped rollups directly, as proven by the Wave 0 backfill
   spike.
 - Agent emission remains default-off until the ARM footprint artifact and soak
-  gates pass.
+  gates pass. The default-on decision is gated on a sustained multi-tenant soak
+  (health summaries + windows + minimal process + a fleet-wide reconnect storm)
+  measured on the Edge-Sentinel Soak dashboard: it flips on only once
+  control-plane query p99 regresses ≤ 20% under default telemetry, VM active-series
+  cardinality and disk growth track the model, and the reconnect storm drains
+  without starving live traffic. The ingest path is instrumented for that gate —
+  `opengate_edge_telemetry_ingested_total`, `opengate_edge_telemetry_drops_total`,
+  and the `opengate_edge_backfill_*` scheduler series (see
+  [Monitoring](../Monitoring.md#sustained-soak-and-default-on-gate)).

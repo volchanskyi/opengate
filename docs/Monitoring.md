@@ -159,6 +159,65 @@ min/max/last centrally would multiply active series past the budget ratified in
 [`spike_test.go`](../server/tests/vmcardinality/spike_test.go); chart bands are
 computed from min/max over the raw 10 s samples instead.
 
+### Reconnect backfill and deep-history pull
+
+An agent stores its own metric history in the durable local tiers
+([`edge-tsdb`](../agent/crates/edge-tsdb), enabled with `--edge-store`), so an
+offline window loses nothing centrally. On reconnect the agent advertises the
+`Backfill` capability and requests a server-coordinated admission slot; the
+scheduler ([`backfill_scheduler.go`](../server/internal/agentapi/backfill_scheduler.go))
+grants a rate or defers under live load. Once granted, the agent drives the pure
+replay engine ([`backfill.rs`](../agent/crates/mesh-agent-core/src/ml/backfill.rs))
+from the control loop ([`backfill_loop.rs`](../agent/crates/mesh-agent/src/backfill_loop.rs)):
+it drains the recent window first as 10 s points, then the older 1 min and 1 hr
+rollups oldest-first, throttled to the granted rate and one acked batch at a
+time. Full-resolution 1 s raw is never pushed; a durable per-tier watermark
+advances only on each `MetricBackfillAck`, so an interrupted drain resumes
+without re-sending.
+
+The server writes each batch to the matching VM tier at the sample's original
+timestamp through the import API, never the live stream-aggregation pipeline —
+stream aggregation buckets by arrival time, so historical rollups would land in
+the wrong buckets ([`conn_backfill.go`](../server/internal/agentapi/conn_backfill.go),
+[`spike_test.go`](../server/tests/vmbackfill/spike_test.go)). Samples are clamped
+to VM retention and bounded against wild clocks on both sides. History older than
+retention, or full-resolution 1 s detail, is reachable through an admin-gated,
+single-host deep-history pull (`GET /devices/{id}/history`) that the server
+brokers to the agent as a bounded `RequestLocalHistory`; the agent answers it
+from its local T0 raw tier.
+
+### Sustained soak and default-on gate
+
+Edge-Sentinel telemetry ships **default-off**. Flipping it default-on is gated on
+a sustained multi-tenant soak that proves the whole default path holds its
+budgets: control-plane query p99 regresses no more than 20% under telemetry load,
+VM active-series cardinality and disk growth track the model, and the
+reconnect-storm scheduler drains gradually without starving live traffic or
+breaching the p99 budget. Until that soak passes on real numbers, telemetry stays
+off and the gap is recorded here.
+
+The soak driver is the QUIC agent load harness
+([`server/tests/loadtest`](../server/tests/loadtest)). Beyond raw connect/register
+timing it can drive the **default telemetry shape** per agent (`-default-telemetry`:
+a health summary, a host metric window, and a minimal process report), spread
+agents across tenant cohorts (`-orgs`), and run a **fleet-wide reconnect storm**
+(`-backfill-batches`) in which a cohort returns at once with offline backlogs and
+drains through the admission scheduler one acked batch at a time. Run it through
+the Docker/e2e stack lifecycle, never bare tooling.
+
+The server instruments the ingest path so the soak is observable: accepted
+telemetry (`opengate_edge_telemetry_ingested_total` by control type), server-side
+drops (`opengate_edge_telemetry_drops_total` by reason — `persist_slots_full` is
+the queue-saturation signal, since bounded per-connection persist slots shed
+telemetry rather than backpressuring heartbeat/session/control), and the
+reconnect-backfill scheduler state (`opengate_edge_backfill_active_slots`,
+`opengate_edge_backfill_decisions_total` by grant/defer, and
+`opengate_edge_backfill_grant_rate_samples_per_second`). The **Edge-Sentinel Soak**
+Grafana dashboard charts these alongside anomaly rate, VM cardinality + disk
+growth, and control-plane and correlation query p99 over the VM datasource. The
+`opengate_*` series require the server `/metrics` scrape; the `vm_*` series require
+the VictoriaMetrics self-scrape.
+
 ### Web telemetry surface
 
 The React client renders this telemetry through a thin adapter over uPlot
@@ -214,9 +273,11 @@ ConfigMaps from the canonical files.
 
 Current dashboard files include the app overview, DB performance, PostgreSQL,
 the Edge-Sentinel Logs dashboard (log-rate ingest, raw-log pull rate/latency, and
-audited reads), benchmark trend, mutation trend, PMAT trend, terraform-drift
-trend, and load-test trend dashboards. Numeric CI trend workflows write
-Prometheus samples to VictoriaMetrics:
+audited reads), the Edge-Sentinel Soak dashboard (telemetry ingest/drop rates, VM
+cardinality + disk growth, control-plane and correlation query p99, and
+reconnect-backfill scheduler state), benchmark trend, mutation trend, PMAT trend,
+terraform-drift trend, and load-test trend dashboards. Numeric CI trend workflows
+write Prometheus samples to VictoriaMetrics:
 
 - [`benchmark.yml`](../.github/workflows/benchmark.yml) →
   [`scripts/benchmark-vm-push.sh`](../scripts/benchmark-vm-push.sh)
