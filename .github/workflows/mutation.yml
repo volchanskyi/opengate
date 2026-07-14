@@ -1,7 +1,7 @@
 name: Mutation Testing
 
 # Mutation testing as observability, not as a CI gate.
-# Plan: .claude/plans/pr9-mutation-testing-as-observability.md
+# Recovery plan: .claude/plans/mutation-workflow-recovery.md
 #
 # Runs nightly. Does NOT block merges or deploys.
 # On regression (drop >2pp from previous successful run OR absolute score <85%):
@@ -44,7 +44,8 @@ jobs:
     name: Mutation (${{ matrix.shard || matrix.language }})
     strategy:
       fail-fast: false
-      # The Go leg is sharded by package so it scales horizontally instead of
+      # The Go leg is sharded by directory/file mutation units so it scales
+      # horizontally instead of
       # crossing a hand-tuned cap as the server grows: the monolithic run grew
       # past the prior 100min ceiling (cancelled 2026-06-18/19) while the mutant
       # count stayed flat. Each shard runs the whole module (module-wide coverage)
@@ -54,23 +55,25 @@ jobs:
       # packages that re-pay schema setup per mutant.
       matrix:
         include:
-          # rust is sharded with `cargo mutants --shard k/n`: the Edge Sentinel ML
-          # crates (detection/sampler/rss/redact) had pushed the unsharded run
-          # from ~52min past the shared 75min cap, so each shard now mutates half
-          # the workspace and fits under the default. rust_shard is the k/n
-          # selector; add a shard (and bump every n) if a half nears the cap.
-          - { language: rust, shard: rust-1, rust_shard: "0/2" }
-          - { language: rust, shard: rust-2, rust_shard: "1/2" }
+          # rust is sharded with `cargo mutants --shard k/n`. Edge Sentinel's
+          # local store and discovery growth pushed rust-2 through the 75min
+          # cap, so four shards restore headroom without dropping mutation scope.
+          - { language: rust, shard: rust-1, rust_shard: "0/4" }
+          - { language: rust, shard: rust-2, rust_shard: "1/4" }
+          - { language: rust, shard: rust-3, rust_shard: "2/4" }
+          - { language: rust, shard: rust-4, rust_shard: "3/4" }
           - { language: web }
-          - { language: go, shard: go-api }
-          - { language: go, shard: go-db }
+          - { language: go, shard: go-api-core }
+          - { language: go, shard: go-api-auth-admin }
+          - { language: go, shard: go-api-devices }
+          - { language: go, shard: go-api-lifecycle }
+          - { language: go, shard: go-agentapi }
+          - { language: go, shard: go-data }
           - { language: go, shard: go-pure-1 }
           - { language: go, shard: go-pure-2 }
     runs-on: ubuntu-latest
-    # `api` is the irreducible Go hotspot (~45min CI, one unsplittable package)
-    # on its own shard; 75min leaves headroom for it and for runner variance
-    # (web ~25min, each rust/pure shard ~35-45min). Every leg fits under a flat
-    # 75min now that both the Go and rust legs are sharded.
+    # 75min is a flat safety cap, not a target. File-level API units, isolated
+    # agentapi, and four Rust legs are sized for at least 10min of headroom.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
@@ -245,46 +248,48 @@ jobs:
           pattern: mutation-*
           merge-multiple: false
 
+      - name: Validate mutation artifact status
+        id: status
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ./scripts/mutation-status-build.sh artifacts mutation-status.json
+          jq . mutation-status.json
+          echo "complete=$(jq -r '.complete' mutation-status.json)" >> "$GITHUB_OUTPUT"
+
       - name: Place artifacts at canonical input paths
+        if: steps.status.outputs.complete == 'true'
         run: |
           set -euo pipefail
           # The artifact directory layout is artifacts/mutation-<lang|shard>/...
-          # Move each into the path the summarize script expects. The Go leg is
-          # sharded (mutation-go-1, mutation-go-2, ...); merge the shard reports
-          # into the single canonical report parse_go consumes.
-          # rust is sharded via `cargo mutants --shard`; merge the shard outcome
-          # files into the single outcomes.json parse_rust consumes. Same
-          # missing-shard → absent → incomplete contract as the Go merge below.
-          rust_expected=(
-            artifacts/mutation-rust-1/agent/mutants.out/outcomes.json
-            artifacts/mutation-rust-2/agent/mutants.out/outcomes.json
-          )
-          mkdir -p agent/mutants.out
-          if ! ./scripts/mutation-merge-rust.sh agent/mutants.out/outcomes.json "${rust_expected[@]}"; then
-            echo "::warning::A rust mutation shard outcome file is missing (a shard was cancelled or failed); leaving the canonical rust outcomes absent so this is reported as an incomplete run, not a partial score."
-            rm -f agent/mutants.out/outcomes.json
-          fi
-          # Merge EVERY expected shard report (not a glob of whatever is
-          # present): if a shard was cancelled/failed its report is absent, the
-          # merge fails, and we leave the canonical Go report ABSENT so the
-          # summarize step classifies the run as incomplete (exit 2) rather than
-          # silently publishing a partial score from the surviving shards.
+          # Status validation has already proved the complete expected set. Merge
+          # exactly that set into the canonical language inputs.
           . scripts/lib/mutation-shards.sh
+          rust_expected=()
+          for shard in $(mutation_rust_shards); do
+            rust_expected+=("artifacts/mutation-$shard/agent/mutants.out/outcomes.json")
+          done
+          mkdir -p agent/mutants.out
+          ./scripts/mutation-merge-rust.sh agent/mutants.out/outcomes.json "${rust_expected[@]}"
           expected=()
           for shard in $(mutation_go_shards); do
             expected+=("artifacts/mutation-$shard/server/mutation-report-$shard.json")
           done
           mkdir -p server
-          if ! ./scripts/mutation-merge-go.sh server/mutation-report.json "${expected[@]}"; then
-            echo "::warning::A Go mutation shard report is missing (a shard was cancelled or failed); leaving the canonical Go report absent so this is reported as an incomplete run, not a partial score."
-            rm -f server/mutation-report.json
-          fi
-          if [ -d "artifacts/mutation-web/web/reports" ]; then
-            mkdir -p web/reports
-            mv artifacts/mutation-web/web/reports/mutation web/reports/mutation
-          fi
-          echo "--- placed artifacts ---"
-          ls -la agent/mutants.out/ server/ web/reports/mutation/ 2>&1 || true
+          ./scripts/mutation-merge-go.sh server/mutation-report.json "${expected[@]}"
+          mkdir -p web/reports
+          mv artifacts/mutation-web/web/reports/mutation web/reports/mutation
+
+      - name: Upload mutation run status
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-run-status
+          path: mutation-status.json
+          retention-days: 90
+          if-no-files-found: error
 
       - name: OCI + kubeconfig setup
         id: infra
@@ -298,8 +303,15 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      - name: Restore baseline from VM
+      - name: Push mutation completion status to VM
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          if ! ./scripts/mutation-status-vm-push.sh mutation-status.json; then
+            echo "::warning::Failed to push mutation completion status; artifact classification remains authoritative."
+          fi
+
+      - name: Restore baseline from VM
+        if: steps.status.outputs.complete == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           VM_EXCLUDE_COMMIT: ${{ github.sha }}
         run: |
@@ -310,8 +322,15 @@ jobs:
             rm -f mutation-baseline.jsonl
           fi
 
+      - name: Fail incomplete mutation run
+        if: steps.status.outputs.complete != 'true'
+        run: |
+          echo "::error::Mutation artifact set is incomplete or invalid; see mutation-run-status. No canonical score row was produced."
+          exit 2
+
       - name: Summarize + regression check (canonical row to stdout)
         id: summarize
+        if: steps.status.outputs.complete == 'true'
         env:
           GITHUB_SHA: ${{ github.sha }}
         # Run the summarize script (APPEND unset → no on-disk history file
@@ -364,6 +383,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Upload canonical row as artifact
+        if: steps.status.outputs.complete == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: mutation-canonical-row
@@ -371,7 +391,7 @@ jobs:
           retention-days: 90
 
       - name: Push to VictoriaMetrics
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        if: steps.status.outputs.complete == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: ./scripts/mutation-vm-push.sh canonical-row.json
 
       - name: Write GITHUB_STEP_SUMMARY

@@ -302,7 +302,8 @@ write Prometheus samples to VictoriaMetrics:
 - [`benchmark.yml`](../.github/workflows/benchmark.yml) →
   [`scripts/benchmark-vm-push.sh`](../scripts/benchmark-vm-push.sh)
 - [`mutation.yml`](../.github/workflows/mutation.yml) →
-  [`scripts/mutation-vm-push.sh`](../scripts/mutation-vm-push.sh)
+  [`scripts/mutation-vm-push.sh`](../scripts/mutation-vm-push.sh) +
+  [`scripts/mutation-status-vm-push.sh`](../scripts/mutation-status-vm-push.sh)
 - [`pmat-trend.yml`](../.github/workflows/pmat-trend.yml) →
   [`scripts/pmat-vm-push.sh`](../scripts/pmat-vm-push.sh)
 - [`terraform-drift.yml`](../.github/workflows/terraform-drift.yml) →
@@ -359,8 +360,8 @@ Validation sources:
   verifies benchmark parsing, baseline generation, deterministic allocation
   regression detection, and `ns/op` advisory-only behavior.
 - [`scripts/tests/ci-trend-vm-push.test.sh`](../scripts/tests/ci-trend-vm-push.test.sh)
-  verifies mutation, PMAT, and terraform-drift canonical rows map to Prometheus
-  text before reaching the shared VM transport.
+  verifies mutation scores, mutation completion status, PMAT, and terraform-drift
+  rows map to Prometheus text before reaching the shared VM transport.
 - [`scripts/tests/loadtest-summarize.test.sh`](../scripts/tests/loadtest-summarize.test.sh)
   verifies k6 summary-export and QUIC harness output parsing for load-test
   trend rows, including partial failed-run capture.

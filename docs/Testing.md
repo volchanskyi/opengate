@@ -126,6 +126,12 @@ Rust runs need `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden` so golden file
 tests resolve fixtures inside cargo-mutants' temp tree. The `mutate-rust`
 make target sets this automatically.
 
+CI shard ids and Go source ownership live in
+[`mutation-shards.sh`](../scripts/lib/mutation-shards.sh). The behavioral guard in
+[`mutation-workflow.test.sh`](../scripts/tests/mutation-workflow.test.sh) requires
+every non-test Go source to belong to one mutation unit or an explicit carve-out,
+so shard reports can be merged without duplicate source counts.
+
 ### Mutation testing trend
 
 Mutation tests do **not** gate merges or deploys. They run **nightly** via the
@@ -133,17 +139,25 @@ Mutation tests do **not** gate merges or deploys. They run **nightly** via the
 emit a row per run to:
 
 - **VictoriaMetrics** — mapped by
-  [`scripts/mutation-vm-push.sh`](../scripts/mutation-vm-push.sh) and sent through
-  the shared [`vm-push.sh`](../scripts/lib/vm-push.sh) transport. Visualised by
-  the provisioned
+  [`scripts/mutation-vm-push.sh`](../scripts/mutation-vm-push.sh) for complete
+  score rows and
+  [`scripts/mutation-status-vm-push.sh`](../scripts/mutation-status-vm-push.sh)
+  for run/shard completeness, both sent through the shared
+  [`vm-push.sh`](../scripts/lib/vm-push.sh) transport. Visualised by the provisioned
   [`mutation-trend.json`](../deploy/grafana/provisioning/dashboards/mutation-trend.json)
   dashboard. Canonical trend store per
   [ADR-038](./adr/ADR-038-victoriametrics-ci-trend-store.md).
-- **Workflow artifact** — each run uploads `mutation-canonical-row` (the
-  per-run JSON object) with 90-day retention for one-off audits.
+- **Workflow artifacts** — every run uploads `mutation-run-status`; only a complete
+  artifact set uploads `mutation-canonical-row`. Validation and the no-partial-row
+  contract are implemented by
+  [`mutation-status-build.sh`](../scripts/mutation-status-build.sh) and the strict
+  language merge scripts beside it.
 
 Numeric mutation-score history lives in VictoriaMetrics + Grafana, the right
 home for time-series telemetry.
+
+An incomplete run fails as incomplete after publishing its completion status. It
+does not emit a canonical language score from whichever shards happened to finish.
 
 **Regression alert rules** — fired when any language regresses on either
 condition:
