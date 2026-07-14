@@ -96,6 +96,18 @@ fn fake_sampler_returns_deterministic_process_ranks_without_full_cmdline() {
 }
 
 #[test]
+fn cmdline_hash_is_a_stable_sha256_digest() {
+    assert_eq!(
+        cmdline_hash("mesh-agent --version"),
+        "bae19e4c4979db1cebc3b35b8a6d4a490ea82668b368d95da392a9c4ef2874f0"
+    );
+    assert_ne!(
+        cmdline_hash("mesh-agent --version"),
+        cmdline_hash("mesh-agent --version --verbose")
+    );
+}
+
+#[test]
 fn redact_cmdline_covers_common_secret_shapes() {
     let input = "app --password=hunter2 --token abc --api-key xyz Bearer secret AKIAIOSFODNN7EXAMPLE postgres://u:p@db/app";
     let redacted = redact_cmdline(input);
@@ -107,6 +119,21 @@ fn redact_cmdline_covers_common_secret_shapes() {
     assert!(!redacted.contains("AKIAIOSFODNN7EXAMPLE"));
     assert!(!redacted.contains("u:p@db"));
     assert!(redacted.contains("[REDACTED]"));
+}
+
+#[test]
+fn redact_cmdline_only_replaces_credential_bearing_urls() {
+    let benign = "curl https://example.com/health user@example.com";
+    assert_eq!(redact_cmdline(benign), benign);
+    assert_eq!(
+        redact_cmdline("postgres://user:password@db.internal/opengate"),
+        "[REDACTED_URL]"
+    );
+}
+
+#[test]
+fn redact_cmdline_preserves_the_replacement_for_inline_assignments() {
+    assert_eq!(redact_cmdline("app --password=hunter2"), "app [REDACTED]");
 }
 
 /// Builds the raw-log redaction corpus: each row is a secret-bearing log line

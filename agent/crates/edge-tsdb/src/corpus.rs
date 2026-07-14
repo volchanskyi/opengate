@@ -212,6 +212,7 @@ fn round_centi(v: f64) -> f64 {
 mod tests {
     use super::{round_centi, Corpus, CorpusConfig};
     use crate::append_only::AppendOnlyStore;
+    use crate::sample::Sample;
     use crate::substrate::{Durability, Substrate};
 
     fn fingerprint_events(events: &[(u32, crate::sample::Sample)]) -> u64 {
@@ -300,6 +301,27 @@ mod tests {
         let mut store = AppendOnlyStore::open(dir.path()).unwrap();
         corpus.replay_into(&mut store).unwrap();
         store.commit(Durability::Full).unwrap();
+        corpus.assert_readback(&store);
+    }
+
+    #[test]
+    fn readback_uses_the_exact_half_open_corpus_window() {
+        let config = CorpusConfig {
+            seed: 7,
+            series: 1,
+            duration_secs: 2,
+            start_ts: 100,
+        };
+        let corpus = Corpus::generate(config);
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = AppendOnlyStore::open(dir.path()).unwrap();
+
+        corpus.replay_into(&mut store).unwrap();
+        store
+            .append(0, Sample::new(config.start_ts + config.duration_secs, 99.0))
+            .unwrap();
+        store.commit(Durability::Full).unwrap();
+
         corpus.assert_readback(&store);
     }
 

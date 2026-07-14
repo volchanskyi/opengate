@@ -437,8 +437,27 @@ fn get_ivarint(buf: &[u8], pos: &mut usize) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_compact, encode_compact, encode_compact_scaled};
+    use super::{
+        block_count, decode_compact, encode_compact, encode_compact_scaled, select_value_codec,
+        CODEC_INT_DOD,
+    };
     use crate::sample::Sample;
+
+    #[test]
+    fn block_count_requires_a_complete_header() {
+        assert_eq!(block_count(&[1, 0, 0]), 0);
+        assert_eq!(block_count(&[1, 0, 0, 0]), 1);
+    }
+
+    #[test]
+    fn integral_counter_selects_the_lossless_integer_codec() {
+        let counter: Vec<Sample> = (0..240)
+            .map(|i| Sample::new(100 + i, (i * 7 + 3) as f64))
+            .collect();
+        let (codec, _) = select_value_codec(&counter, None);
+
+        assert_eq!(codec, CODEC_INT_DOD);
+    }
 
     #[test]
     fn fixed_point_is_lossless_to_scale() {
