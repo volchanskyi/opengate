@@ -13,7 +13,7 @@
 # counted once per shard.
 
 mutation_rust_shards() {
-  echo "rust-1 rust-2 rust-3 rust-4"
+  echo "rust-1 rust-2 rust-3 rust-4 rust-5 rust-6 rust-7 rust-8"
 }
 
 mutation_web_shards() {
@@ -21,7 +21,7 @@ mutation_web_shards() {
 }
 
 mutation_go_shards() {
-  echo "go-api-core go-api-auth-admin go-api-devices go-api-lifecycle go-agentapi go-data go-pure-1 go-pure-2"
+  echo "go-api-core go-api-auth-admin go-api-devices go-api-lifecycle go-agentapi-core go-agentapi-control go-agentapi-telemetry go-data go-pure-1 go-pure-2"
 }
 
 mutation_all_shards() {
@@ -48,8 +48,14 @@ mutation_go_shard_units() {
     go-api-lifecycle)
       echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
       ;;
-    go-agentapi)
-      echo "dir:internal/agentapi"
+    go-agentapi-core)
+      echo "file:internal/agentapi/conn.go file:internal/agentapi/server.go file:internal/agentapi/errors.go"
+      ;;
+    go-agentapi-control)
+      echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/conn_backfill.go file:internal/agentapi/conn_discovery.go file:internal/agentapi/handshaker.go file:internal/agentapi/deregister.go"
+      ;;
+    go-agentapi-telemetry)
+      echo "file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go"
       ;;
     go-data)
       echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/session dir:internal/audit dir:internal/usecase"

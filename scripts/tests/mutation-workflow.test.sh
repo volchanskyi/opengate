@@ -61,20 +61,22 @@ else
   fail "mutation job must set timeout-minutes: 75"
 fi
 
-# Rust must use four exact cargo-mutants shards. Two legs no longer fit after the
-# Edge Sentinel local-store/discovery growth.
+# Run 29300355420 proved four consecutive cargo-mutants slices are badly
+# imbalanced: rust-1/2 finished in 21/29 minutes while rust-3/4 timed out. Eight
+# round-robin shards distribute expensive modules and restore real headroom.
 rust_shard_legs="$(grep -cE '^[[:space:]]*-[[:space:]]*\{[[:space:]]*language:[[:space:]]*rust,[[:space:]]*shard:[[:space:]]*rust-[0-9]+' "$WORKFLOW")"
 rust_shard_selectors="$(sed -nE 's/.*language:[[:space:]]*rust.*rust_shard:[[:space:]]*"([0-9]+\/[0-9]+)".*/\1/p' "$WORKFLOW" | sort | tr '\n' ' ')"
-if [ "$rust_shard_legs" = "4" ] && [ "$rust_shard_selectors" = "0/4 1/4 2/4 3/4 " ]; then
-  pass "rust mutation leg uses exactly four 0/4..3/4 shards"
+if [ "$rust_shard_legs" = "8" ] \
+  && [ "$rust_shard_selectors" = "0/8 1/8 2/8 3/8 4/8 5/8 6/8 7/8 " ]; then
+  pass "rust mutation leg uses exactly eight 0/8..7/8 shards"
 else
-  fail "rust matrix must contain exactly 0/4..3/4 (legs=$rust_shard_legs selectors='$rust_shard_selectors')"
+  fail "rust matrix must contain exactly 0/8..7/8 (legs=$rust_shard_legs selectors='$rust_shard_selectors')"
 fi
 
-if grep -qE 'cargo mutants .*--shard[[:space:]]+.*matrix\.rust_shard' "$WORKFLOW"; then
-  pass "rust step selects its shard via cargo mutants --shard (matrix.rust_shard)"
+if grep -qE 'cargo mutants .*--shard[[:space:]]+.*matrix\.rust_shard.*--sharding[[:space:]]+round-robin' "$WORKFLOW"; then
+  pass "rust step selects matrix shard with round-robin balancing"
 else
-  fail "rust step must run cargo mutants with --shard from matrix.rust_shard"
+  fail "rust step must run the matrix shard with --sharding round-robin"
 fi
 
 if grep -q 'SUMMARY_STATUS=' "$WORKFLOW" \
@@ -113,7 +115,7 @@ if [ -f "$SHARDS_LIB" ]; then
   workflow_rust="$(grep -oE 'shard:[[:space:]]*rust-[0-9]+' "$WORKFLOW" \
     | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
   if [ "$expected_rust" = "$workflow_rust" ] \
-    && [ "$(mutation_all_shards)" = "rust-1 rust-2 rust-3 rust-4 $(mutation_go_shards) web" ]; then
+    && [ "$(mutation_all_shards)" = "rust-1 rust-2 rust-3 rust-4 rust-5 rust-6 rust-7 rust-8 $(mutation_go_shards) web" ]; then
     pass "shard library exposes the exact Rust/Go/Web expected set"
   else
     fail "expected shard set drifted (rust map='$expected_rust' wf='$workflow_rust' all='$(mutation_all_shards)')"
@@ -250,6 +252,37 @@ if [ -f "$SHARDS_LIB" ]; then
     pass "every API source, including history and purge, is assigned once"
   else
     fail "API file-unit partition mismatch:$api_bad"
+  fi
+
+  agentapi_bad=""
+  agentapi_owners=""
+  while IFS= read -r source; do
+    rel="${source#"$REPO_ROOT/server/"}"
+    owners=0
+    owner=""
+    for unit in "${all_units[@]}"; do
+      if mutation_go_unit_matches "$unit" "$rel"; then
+        owners=$((owners + 1))
+        owner="${unit_owner[$unit]}"
+      fi
+    done
+    case "$owner" in
+      go-agentapi-core | go-agentapi-control | go-agentapi-telemetry) : ;;
+      *) agentapi_bad="$agentapi_bad [$rel:owner=$owner]" ;;
+    esac
+    [ "$owners" -eq 1 ] || agentapi_bad="$agentapi_bad [$rel:owners=$owners]"
+    agentapi_owners="$agentapi_owners $owner"
+  done < <(find "$REPO_ROOT/server/internal/agentapi" -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' | sort)
+  for required in go-agentapi-core go-agentapi-control go-agentapi-telemetry; do
+    case " $agentapi_owners " in
+      *" $required "*) : ;;
+      *) agentapi_bad="$agentapi_bad [$required:empty]" ;;
+    esac
+  done
+  if [ -z "$agentapi_bad" ]; then
+    pass "agentapi sources are split across three non-empty file-unit shards"
+  else
+    fail "agentapi file-unit partition mismatch:$agentapi_bad"
   fi
 
   # Global excludes must stay in sync with server/.gremlins.yaml exclude-files.
@@ -406,9 +439,9 @@ if [ -x "$STATUS_BUILD" ]; then
   fi
 
   make_complete_artifacts "$artifacts"
-  rm -f "$artifacts/mutation-go-agentapi/server/mutation-report-go-agentapi.json"
+  rm -f "$artifacts/mutation-go-agentapi-control/server/mutation-report-go-agentapi-control.json"
   if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
-    && jq -e '.complete == false and .shards["go-agentapi"] == {complete:false,reason:"missing"}' "$status" >/dev/null; then
+    && jq -e '.complete == false and .shards["go-agentapi-control"] == {complete:false,reason:"missing"}' "$status" >/dev/null; then
     pass "status builder reports a missing Go shard without failing to emit JSON"
   else
     fail "status builder must report a missing Go shard"

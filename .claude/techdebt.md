@@ -147,7 +147,9 @@ range), then bump both together.
 ### Mutation workflow — recovered sharding; nightly confirmation pending
 
 Rust and Go are sharded horizontally to restore headroom under the existing job
-cap. [`scripts/lib/mutation-shards.sh`](../scripts/lib/mutation-shards.sh) is the
+cap. Rust uses round-robin distribution so expensive source clusters do not
+collect in one consecutive slice, and the agent API is divided into file units.
+[`scripts/lib/mutation-shards.sh`](../scripts/lib/mutation-shards.sh) is the
 single source of truth for expected shards and Go file/directory mutation units;
 [`scripts/tests/mutation-workflow.test.sh`](../scripts/tests/mutation-workflow.test.sh)
 proves every non-test Go source is assigned once or explicitly excluded. Go keeps
