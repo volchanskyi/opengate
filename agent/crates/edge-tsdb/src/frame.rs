@@ -170,8 +170,11 @@ pub fn total_samples(chunks: &[Chunk]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{scan, total_samples, write_commit_record, write_data_record};
-    use crate::gorilla::encode_block;
+    use super::{
+        collect_series, middle_data_payload_range, scan, total_samples, write_commit_record,
+        write_data_record, Chunk,
+    };
+    use crate::gorilla::{decode_block, encode_block};
     use crate::sample::Sample;
 
     fn block(n: i64) -> Vec<u8> {
@@ -217,5 +220,86 @@ mod tests {
         let r = scan(&buf);
         assert_eq!(r.quarantined, 1);
         assert_eq!(r.chunks.len(), 1); // second chunk still recovered
+    }
+
+    #[test]
+    fn malformed_records_are_classified_without_losing_valid_data() {
+        let mut buf = Vec::new();
+        write_data_record(&mut buf, 3, &block(2));
+        write_commit_record(&mut buf);
+        let committed_len = buf.len();
+
+        // A valid CRC with a too-short data payload is an invalid full record.
+        super::write_record(&mut buf, super::KIND_DATA, &[1, 2, 3]);
+        // An unknown record kind is also quarantined, then scanning continues.
+        super::write_record(&mut buf, 99, &[4, 5, 6, 7]);
+        write_data_record(&mut buf, 4, &block(1));
+        buf.extend_from_slice(&[super::KIND_DATA, 0, 0]);
+
+        let result = scan(&buf);
+        assert_eq!(result.chunks.len(), 2);
+        assert_eq!(result.durable_chunks, 1);
+        assert!(result.has_commit);
+        assert_eq!(result.quarantined, 2);
+        assert_eq!(result.repair_offset, Some((buf.len() - 3) as u64));
+        assert!(committed_len < result.repair_offset.unwrap() as usize);
+    }
+
+    #[test]
+    fn middle_payload_range_selects_only_the_middle_nonempty_block() {
+        let mut buf = Vec::new();
+        write_commit_record(&mut buf);
+        write_data_record(&mut buf, 1, &[]);
+        let first_start = buf.len() + super::HEADER_LEN + 4;
+        write_data_record(&mut buf, 2, &[10, 11]);
+        let second_start = buf.len() + super::HEADER_LEN + 4;
+        write_data_record(&mut buf, 3, &[20, 21, 22]);
+        let third_start = buf.len() + super::HEADER_LEN + 4;
+        write_data_record(&mut buf, 4, &[30]);
+
+        assert_eq!(
+            middle_data_payload_range(&buf),
+            Some(second_start..second_start + 3)
+        );
+        assert!(first_start < second_start);
+        assert!(second_start < third_start);
+        assert_eq!(middle_data_payload_range(&[]), None);
+        assert_eq!(
+            middle_data_payload_range(&buf[..super::HEADER_LEN - 1]),
+            None
+        );
+    }
+
+    #[test]
+    fn collect_series_filters_series_and_half_open_time_range() {
+        let chunks = vec![
+            Chunk {
+                series: 7,
+                block: encode_block(&[
+                    Sample::new(12, 12.0),
+                    Sample::new(10, 10.0),
+                    Sample::new(11, 11.0),
+                ]),
+            },
+            Chunk {
+                series: 8,
+                block: encode_block(&[Sample::new(11, 80.0)]),
+            },
+            Chunk {
+                series: 7,
+                block: encode_block(&[Sample::new(13, 13.0)]),
+            },
+        ];
+
+        let got = collect_series(&chunks, 7, 10, 13).unwrap();
+        assert_eq!(
+            got,
+            vec![
+                Sample::new(10, 10.0),
+                Sample::new(11, 11.0),
+                Sample::new(12, 12.0),
+            ]
+        );
+        assert_eq!(decode_block(&chunks[1].block).unwrap().len(), 1);
     }
 }

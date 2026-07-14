@@ -182,3 +182,23 @@ func TestScheduler_ReleaseDecrementsSharedOrgCount(t *testing.T) {
 	require.True(t, s.RequestSlot(uuid.New(), org, SlotRequest{}).Grant)
 	assert.Equal(t, 2, s.ActiveCount())
 }
+
+func TestDefaultBackfillSchedulerConfigPinsDurations(t *testing.T) {
+	cfg := DefaultBackfillSchedulerConfig()
+	assert.Equal(t, 60*time.Second, cfg.GrantTTL)
+	assert.Equal(t, 30*time.Second, cfg.DeferBackoff)
+}
+
+func TestScheduler_ReleaseLastGrantRemovesOrgCounter(t *testing.T) {
+	clock, _ := fixedClock()
+	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
+	org := uuid.New()
+	agent := uuid.New()
+	require.True(t, s.RequestSlot(agent, org, SlotRequest{}).Grant)
+	require.Equal(t, 1, s.orgCount[org])
+
+	s.Release(agent)
+
+	_, exists := s.orgCount[org]
+	assert.False(t, exists)
+}

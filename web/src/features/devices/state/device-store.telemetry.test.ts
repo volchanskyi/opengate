@@ -63,6 +63,40 @@ describe('device store — telemetry', () => {
     expect(opts.params.query.band).toBe('none');
   });
 
+  it('fetchMetrics includes dimensions only when the list is non-empty', async () => {
+    mockGet.mockResolvedValue({ data: sampleMetrics, response: { ok: true } });
+
+    await useDeviceStore.getState().fetchMetrics('d1', { from: 'a', to: 'b', dims: [] });
+    const omittedQuery = mockGet.mock.calls[0]![1].params.query;
+    expect(omittedQuery).toEqual({ from: 'a', to: 'b' });
+    expect(Object.hasOwn(omittedQuery, 'dims')).toBe(false);
+    expect(Object.hasOwn(omittedQuery, 'max_points')).toBe(false);
+    expect(Object.hasOwn(omittedQuery, 'band')).toBe(false);
+
+    await useDeviceStore.getState().fetchMetrics('d1', {
+      from: 'c', to: 'd', dims: ['cpu.util', 'memory.used'], maxPoints: 0, band: 'none',
+    });
+    expect(mockGet.mock.calls[1]![1].params.query).toEqual({
+      from: 'c',
+      to: 'd',
+      dims: ['cpu.util', 'memory.used'],
+      max_points: 0,
+      band: 'none',
+    });
+  });
+
+  it('fetchMetrics raises its dedicated loading flag before the request settles', async () => {
+    let resolve!: (value: unknown) => void;
+    mockGet.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+
+    const pending = useDeviceStore.getState().fetchMetrics('d1', { from: 'a', to: 'b' });
+    expect(useDeviceStore.getState().metricsLoading).toBe(true);
+
+    resolve({ data: sampleMetrics, response: { ok: true } });
+    await pending;
+    expect(useDeviceStore.getState().metricsLoading).toBe(false);
+  });
+
   it('fetchMetrics never toggles the global isLoading spinner', async () => {
     mockGet.mockResolvedValue({ data: sampleMetrics, response: { ok: true } });
     let peak = false;
@@ -99,6 +133,41 @@ describe('device store — telemetry', () => {
     });
     const [, opts] = mockPost.mock.calls[0]!;
     expect(opts.body).toMatchObject({ baseline_start: 'b0', baseline_end: 'b1', top_n: 5 });
+  });
+
+  it('correlate omits absent options and preserves a zero top_n', async () => {
+    mockPost.mockResolvedValue({ data: sampleCorrelation, response: { ok: true } });
+
+    await useDeviceStore.getState().correlate('d1', { focusStart: 'f0', focusEnd: 'f1' });
+    const omittedBody = mockPost.mock.calls[0]![1].body;
+    expect(omittedBody).toEqual({ focus_start: 'f0', focus_end: 'f1' });
+    expect(Object.hasOwn(omittedBody, 'baseline_start')).toBe(false);
+    expect(Object.hasOwn(omittedBody, 'baseline_end')).toBe(false);
+    expect(Object.hasOwn(omittedBody, 'top_n')).toBe(false);
+
+    await useDeviceStore.getState().correlate('d1', { focusStart: 'g0', focusEnd: 'g1', topN: 0 });
+    expect(mockPost.mock.calls[1]![1].body).toEqual({ focus_start: 'g0', focus_end: 'g1', top_n: 0 });
+  });
+
+  it('correlate raises its dedicated loading flag before the request settles', async () => {
+    let resolve!: (value: unknown) => void;
+    mockPost.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+
+    const pending = useDeviceStore.getState().correlate('d1', { focusStart: 'f0', focusEnd: 'f1' });
+    expect(useDeviceStore.getState().correlationLoading).toBe(true);
+
+    resolve({ data: sampleCorrelation, response: { ok: true } });
+    await pending;
+    expect(useDeviceStore.getState().correlationLoading).toBe(false);
+  });
+
+  it('correlate never toggles the global loading spinner', async () => {
+    mockPost.mockResolvedValue({ data: sampleCorrelation, response: { ok: true } });
+    let peak = false;
+    const unsubscribe = useDeviceStore.subscribe((state) => { if (state.isLoading) peak = true; });
+    await useDeviceStore.getState().correlate('d1', { focusStart: 'f0', focusEnd: 'f1' });
+    unsubscribe();
+    expect(peak).toBe(false);
   });
 
   it('correlate leaves correlation null and clears loading on failure', async () => {

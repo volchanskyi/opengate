@@ -116,6 +116,33 @@ func TestAgentConn_HandleProcessReportStoresRowsAndRankOnlyMetrics(t *testing.T)
 	}
 }
 
+func TestAgentConn_HandleProcessReportSupportsEitherBackend(t *testing.T) {
+	msg := &protocol.ControlMessage{
+		Type: protocol.MsgProcessReport,
+		TS:   1_700_000_000,
+		TopN: []protocol.ProcessReportEntry{{Rank: 1, Basename: "agent", PID: 7, CPU: 2, Mem: 3}},
+	}
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+
+	t.Run("process repository only", func(t *testing.T) {
+		processes := &recordingProcessRepo{calls: make(chan processWriteCall, 1)}
+		ac, _ := newTestAgentConn(t, uuid.New(), nil)
+		ac.processes = processes
+
+		require.NoError(t, ac.handleProcessReport(ctx, msg, 256))
+		require.Len(t, receiveProcessCall(t, processes.calls).samples, 1)
+	})
+
+	t.Run("numeric telemetry only", func(t *testing.T) {
+		writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
+		ac, _ := newTestAgentConn(t, uuid.New(), nil)
+		ac.telemetry = writer
+
+		require.NoError(t, ac.handleProcessReport(ctx, msg, 256))
+		require.Len(t, receiveTelemetryCall(t, writer.calls).samples, 2)
+	})
+}
+
 func TestAgentConn_TelemetryIntervalFloorDropsFastSamples(t *testing.T) {
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 2)}
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
@@ -229,6 +256,7 @@ func TestSanitizeProcessBasename(t *testing.T) {
 		{"embedded tab redacted", "post\tgres", "[redacted]"},
 		{"unix path stripped", "/usr/bin/postgres", "postgres"},
 		{"windows path stripped", `C:\Windows\app.exe`, "app.exe"},
+		{"root path stripped", "/agent", "agent"},
 		{"trailing separator kept", "/svc/", "/svc/"},
 		{"plain name kept", "postgres", "postgres"},
 	}
@@ -237,6 +265,24 @@ func TestSanitizeProcessBasename(t *testing.T) {
 			assert.Equal(t, tt.want, sanitizeProcessBasename(tt.in))
 		})
 	}
+}
+
+func TestAcceptTelemetryPinsPayloadAndTimestampBoundaries(t *testing.T) {
+	ac, _ := newTestAgentConn(t, uuid.New(), nil)
+	ac.logger = nil
+
+	assert.Equal(t, 64*1024, maxTelemetryPayloadBytes)
+	assert.Equal(t, 2*time.Second, telemetryPersistTimeout)
+	assert.True(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 0, maxTelemetryPayloadBytes))
+	assert.Nil(t, ac.telemetryLast, "a missing timestamp must not start interval tracking")
+
+	assert.True(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 100, maxTelemetryPayloadBytes))
+	assert.False(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 109, maxTelemetryPayloadBytes))
+	assert.True(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 110, maxTelemetryPayloadBytes))
+	assert.Equal(t, int64(110), ac.telemetryLast[protocol.MsgAgentMetricWindow])
+	assert.False(t, ac.acceptTelemetry(protocol.MsgAgentMetricWindow, 120, maxTelemetryPayloadBytes+1))
+	assert.Equal(t, uint64(2), ac.DroppedTelemetryCount())
+	assert.NotPanics(t, func() { ac.dropTelemetry("nil_logger") })
 }
 
 func TestTelemetryTimestamp(t *testing.T) {

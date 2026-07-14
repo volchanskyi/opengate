@@ -2,6 +2,10 @@ package metrics
 
 import (
 	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -111,4 +115,63 @@ func TestStartGaugeUpdater_StopsOnCancel(t *testing.T) {
 			return false
 		}
 	}, time.Second, 5*time.Millisecond, "updater should return after context cancellation")
+}
+
+func TestStartGaugeUpdaterTracksSignalingDeltas(t *testing.T) {
+	m := NewMetrics(prometheus.NewRegistry())
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	var successes atomic.Int64
+	var failures atomic.Int64
+	successes.Store(5)
+	failures.Store(3)
+	src := zeroGaugeSource()
+	src.SignalingSuccesses = successes.Load
+	src.SignalingFailures = failures.Load
+
+	done := make(chan struct{})
+	go func() {
+		StartGaugeUpdater(ctx, m, src, time.Millisecond)
+		close(done)
+	}()
+
+	require.Eventually(t, func() bool {
+		return testutil.ToFloat64(m.SignalingUpgradesTotal.WithLabelValues("success")) == 5 &&
+			testutil.ToFloat64(m.SignalingUpgradesTotal.WithLabelValues("failure")) == 3
+	}, time.Second, 5*time.Millisecond)
+
+	successes.Store(8)
+	failures.Store(7)
+	require.Eventually(t, func() bool {
+		return testutil.ToFloat64(m.SignalingUpgradesTotal.WithLabelValues("success")) == 8 &&
+			testutil.ToFloat64(m.SignalingUpgradesTotal.WithLabelValues("failure")) == 7
+	}, time.Second, 5*time.Millisecond)
+
+	cancel()
+	require.Eventually(t, func() bool {
+		select {
+		case <-done:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 5*time.Millisecond)
+}
+
+type dbSizerFunc func(context.Context) (int64, error)
+
+func (f dbSizerFunc) Size(ctx context.Context) (int64, error) { return f(ctx) }
+
+func TestStartDBSizeUpdaterPreservesGaugeOnError(t *testing.T) {
+	m := NewMetrics(prometheus.NewRegistry())
+	m.DBSizeBytes.Set(42)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	StartDBSizeUpdater(ctx, m, dbSizerFunc(func(context.Context) (int64, error) {
+		return 99, errors.New("size unavailable")
+	}), slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour)
+
+	require.InDelta(t, 42, testutil.ToFloat64(m.DBSizeBytes), 0)
 }

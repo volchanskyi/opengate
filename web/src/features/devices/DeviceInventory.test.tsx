@@ -64,7 +64,9 @@ describe('DeviceInventory', () => {
     expect(screen.getByText('Packages (1)')).toBeInTheDocument();
     expect(screen.getByText('sshd')).toBeInTheDocument();
     expect(screen.getByText('nginx:latest')).toBeInTheDocument();
-    expect(screen.getByText(/^Discovered:/)).toHaveTextContent('2 listening ports');
+    expect(screen.getByText(/^Discovered:/)).toHaveTextContent(
+      'Discovered: 2 listening ports · 1 services · 1 database engines · 1 containers · 1 packages',
+    );
   });
 
   it('sorts a table when a column header is clicked', async () => {
@@ -87,5 +89,49 @@ describe('DeviceInventory', () => {
     render(<DeviceInventory deviceId="d1" />);
     await user.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(fetchInventory).toHaveBeenCalledWith('d1', true);
+  });
+
+  it('renders empty values as dashes and formats last-seen timestamps', () => {
+    const sparse = item({ kind: 'service', name: 'agent.service', last_seen: '' });
+    const dated = item({ kind: 'service', name: 'cron.service', state: 'running', version: '1.2', last_seen: '2026-07-12T03:04:05Z' });
+    useInventoryStore.setState({ byDevice: new Map([['d1', [sparse, dated]]]) });
+    render(<DeviceInventory deviceId="d1" />);
+    const table = screen.getByText('Services (2)').parentElement!.querySelector('table')!;
+    const rows = within(table).getAllByRole('row');
+    expect(rows[1]).toHaveTextContent('agent.service');
+    expect(rows[1]).toHaveTextContent('—');
+    expect(rows[2]).toHaveTextContent(new Date('2026-07-12T03:04:05Z').toLocaleString());
+  });
+
+  it('sorts text and date columns and resets direction for a new column', async () => {
+    const user = userEvent.setup();
+    const ports = [
+      item({ kind: 'port', name: 'zulu', port: 80, proto: 'udp', last_seen: '2026-07-12T00:00:00Z' }),
+      item({ kind: 'port', name: 'alpha', port: 81, proto: 'tcp', last_seen: '2026-07-10T00:00:00Z' }),
+    ];
+    useInventoryStore.setState({ byDevice: new Map([['d1', ports]]) });
+    render(<DeviceInventory deviceId="d1" />);
+    const table = screen.getByText('Listening Ports (2)').parentElement!.querySelector('table')!;
+    const firstRow = () => within(table).getAllByRole('row')[1]!;
+
+    await user.click(within(table).getByRole('button', { name: 'Proto' }));
+    expect(within(table).getByRole('button', { name: 'Proto ▲' })).toBeInTheDocument();
+    expect(firstRow()).toHaveTextContent('tcp');
+    await user.click(within(table).getByRole('button', { name: 'Proto ▲' }));
+    expect(within(table).getByRole('button', { name: 'Proto ▼' })).toBeInTheDocument();
+    expect(firstRow()).toHaveTextContent('udp');
+
+    await user.click(within(table).getByRole('button', { name: 'Last seen' }));
+    expect(within(table).getByRole('button', { name: 'Last seen ▲' })).toBeInTheDocument();
+    expect(firstRow()).toHaveTextContent('alpha');
+  });
+
+  it('disables refresh and changes its label while loading cached data', () => {
+    useInventoryStore.setState({
+      byDevice: new Map([['d1', items]]),
+      loading: new Map([['d1', true]]),
+    });
+    render(<DeviceInventory deviceId="d1" />);
+    expect(screen.getByRole('button', { name: 'Refreshing...' })).toBeDisabled();
   });
 });
