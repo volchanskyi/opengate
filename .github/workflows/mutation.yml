@@ -59,25 +59,27 @@ jobs:
           # 29300355420 proved those slices were badly runtime-imbalanced, so
           # eight round-robin shards distribute expensive modules while keeping
           # every mutant in scope.
-          - { language: rust, shard: rust-1, rust_shard: "0/8" }
-          - { language: rust, shard: rust-2, rust_shard: "1/8" }
-          - { language: rust, shard: rust-3, rust_shard: "2/8" }
-          - { language: rust, shard: rust-4, rust_shard: "3/8" }
-          - { language: rust, shard: rust-5, rust_shard: "4/8" }
-          - { language: rust, shard: rust-6, rust_shard: "5/8" }
-          - { language: rust, shard: rust-7, rust_shard: "6/8" }
-          - { language: rust, shard: rust-8, rust_shard: "7/8" }
+          - { language: rust, shard: rust-round-robin-1-of-8, rust_shard: "0/8" }
+          - { language: rust, shard: rust-round-robin-2-of-8, rust_shard: "1/8" }
+          - { language: rust, shard: rust-round-robin-3-of-8, rust_shard: "2/8" }
+          - { language: rust, shard: rust-round-robin-4-of-8, rust_shard: "3/8" }
+          - { language: rust, shard: rust-round-robin-5-of-8, rust_shard: "4/8" }
+          - { language: rust, shard: rust-round-robin-6-of-8, rust_shard: "5/8" }
+          - { language: rust, shard: rust-round-robin-7-of-8, rust_shard: "6/8" }
+          - { language: rust, shard: rust-round-robin-8-of-8, rust_shard: "7/8" }
           - { language: web }
-          - { language: go, shard: go-api-core }
-          - { language: go, shard: go-api-auth-admin }
-          - { language: go, shard: go-api-devices }
-          - { language: go, shard: go-api-lifecycle }
-          - { language: go, shard: go-agentapi-core }
-          - { language: go, shard: go-agentapi-control }
-          - { language: go, shard: go-agentapi-telemetry }
-          - { language: go, shard: go-data }
-          - { language: go, shard: go-pure-1 }
-          - { language: go, shard: go-pure-2 }
+          - { language: go, shard: go-api-runtime }
+          - { language: go, shard: go-api-identity-admin }
+          - { language: go, shard: go-api-device-operations }
+          - { language: go, shard: go-api-provisioning-lifecycle }
+          # Run 29305387129 showed conn_backfill.go and handshaker.go each
+          # produce long timeout waves; separate them so neither pays both.
+          - { language: go, shard: go-agentapi-connection-handshake }
+          - { language: go, shard: go-agentapi-backfill }
+          - { language: go, shard: go-agentapi-edge-telemetry }
+          - { language: go, shard: go-domain-persistence }
+          - { language: go, shard: go-amt-updates-certificates }
+          - { language: go, shard: go-protocol-relay-observability }
     runs-on: ubuntu-latest
     # 75min is a flat safety cap, not a target. File-level API units, isolated
     # agentapi file groups, and round-robin Rust legs are sized for at least
