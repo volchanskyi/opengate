@@ -62,15 +62,15 @@ else
 fi
 
 # Run 29300355420 proved four consecutive cargo-mutants slices are badly
-# imbalanced: rust-1/2 finished in 21/29 minutes while rust-3/4 timed out. Eight
-# round-robin shards distribute expensive modules and restore real headroom.
-rust_shard_legs="$(grep -cE '^[[:space:]]*-[[:space:]]*\{[[:space:]]*language:[[:space:]]*rust,[[:space:]]*shard:[[:space:]]*rust-[0-9]+' "$WORKFLOW")"
+# imbalanced. Eight round-robin shards distribute expensive modules and restore
+# real headroom; their ids describe the strategy and selector in Actions.
+rust_shard_legs="$(grep -cE '^[[:space:]]*-[[:space:]]*\{[[:space:]]*language:[[:space:]]*rust,[[:space:]]*shard:[[:space:]]*rust-round-robin-[0-9]+-of-8' "$WORKFLOW" || true)"
 rust_shard_selectors="$(sed -nE 's/.*language:[[:space:]]*rust.*rust_shard:[[:space:]]*"([0-9]+\/[0-9]+)".*/\1/p' "$WORKFLOW" | sort | tr '\n' ' ')"
 if [ "$rust_shard_legs" = "8" ] \
   && [ "$rust_shard_selectors" = "0/8 1/8 2/8 3/8 4/8 5/8 6/8 7/8 " ]; then
-  pass "rust mutation leg uses exactly eight 0/8..7/8 shards"
+  pass "rust mutation leg uses eight meaningfully named 0/8..7/8 shards"
 else
-  fail "rust matrix must contain exactly 0/8..7/8 (legs=$rust_shard_legs selectors='$rust_shard_selectors')"
+  fail "rust matrix must contain meaningfully named 0/8..7/8 shards (legs=$rust_shard_legs selectors='$rust_shard_selectors')"
 fi
 
 if grep -qE 'cargo mutants .*--shard[[:space:]]+.*matrix\.rust_shard.*--sharding[[:space:]]+round-robin' "$WORKFLOW"; then
@@ -112,13 +112,20 @@ if [ -f "$SHARDS_LIB" ]; then
   fi
 
   expected_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
-  workflow_rust="$(grep -oE 'shard:[[:space:]]*rust-[0-9]+' "$WORKFLOW" \
+  workflow_rust="$({ grep -oE 'shard:[[:space:]]*rust-round-robin-[0-9]+-of-8' "$WORKFLOW" || true; } \
     | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
   if [ "$expected_rust" = "$workflow_rust" ] \
-    && [ "$(mutation_all_shards)" = "rust-1 rust-2 rust-3 rust-4 rust-5 rust-6 rust-7 rust-8 $(mutation_go_shards) web" ]; then
+    && [ "$(mutation_all_shards)" = "rust-round-robin-1-of-8 rust-round-robin-2-of-8 rust-round-robin-3-of-8 rust-round-robin-4-of-8 rust-round-robin-5-of-8 rust-round-robin-6-of-8 rust-round-robin-7-of-8 rust-round-robin-8-of-8 $(mutation_go_shards) web" ]; then
     pass "shard library exposes the exact Rust/Go/Web expected set"
   else
     fail "expected shard set drifted (rust map='$expected_rust' wf='$workflow_rust' all='$(mutation_all_shards)')"
+  fi
+
+  meaningful_go="go-api-runtime go-api-identity-admin go-api-device-operations go-api-provisioning-lifecycle go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
+  if [ "$(mutation_go_shards)" = "$meaningful_go" ]; then
+    pass "Go shard ids describe their owned behavior"
+  else
+    fail "Go shard ids must describe behavior (got='$(mutation_go_shards)')"
   fi
 
   read -r -a go_shards <<<"$(mutation_go_shards)"
@@ -221,12 +228,12 @@ if [ -f "$SHARDS_LIB" ]; then
         owner="${unit_owner[$unit]}"
       fi
     done
-    [ "$owners" -eq 1 ] && [ "$owner" = "go-pure-2" ] \
+    [ "$owners" -eq 1 ] && [ "$owner" = "go-protocol-relay-observability" ] \
       || loadtest_bad="$loadtest_bad [$f:owners=$owners:$owner]"
   done
   if [ -z "$loadtest_bad" ] \
     && printf 'tests/loadtest/main.go\n' | grep -qE "$(mutation_go_global_excludes)"; then
-    pass "loadtest helpers mutate once in go-pure-2 while main.go stays excluded"
+    pass "loadtest helpers mutate once in go-protocol-relay-observability while main.go stays excluded"
   else
     fail "loadtest mutation ownership is wrong:$loadtest_bad"
   fi
@@ -267,13 +274,13 @@ if [ -f "$SHARDS_LIB" ]; then
       fi
     done
     case "$owner" in
-      go-agentapi-core | go-agentapi-control | go-agentapi-telemetry) : ;;
+      go-agentapi-connection-handshake | go-agentapi-backfill | go-agentapi-edge-telemetry) : ;;
       *) agentapi_bad="$agentapi_bad [$rel:owner=$owner]" ;;
     esac
     [ "$owners" -eq 1 ] || agentapi_bad="$agentapi_bad [$rel:owners=$owners]"
     agentapi_owners="$agentapi_owners $owner"
   done < <(find "$REPO_ROOT/server/internal/agentapi" -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' | sort)
-  for required in go-agentapi-core go-agentapi-control go-agentapi-telemetry; do
+  for required in go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry; do
     case " $agentapi_owners " in
       *" $required "*) : ;;
       *) agentapi_bad="$agentapi_bad [$required:empty]" ;;
@@ -283,6 +290,18 @@ if [ -f "$SHARDS_LIB" ]; then
     pass "agentapi sources are split across three non-empty file-unit shards"
   else
     fail "agentapi file-unit partition mismatch:$agentapi_bad"
+  fi
+
+  backfill_unit="file:internal/agentapi/conn_backfill.go"
+  handshake_unit="file:internal/agentapi/handshaker.go"
+  backfill_owner="${unit_owner[$backfill_unit]:-}"
+  handshake_owner="${unit_owner[$handshake_unit]:-}"
+  if [ "$backfill_owner" = "go-agentapi-backfill" ] \
+    && [ "$handshake_owner" = "go-agentapi-connection-handshake" ] \
+    && [ "$backfill_owner" != "$handshake_owner" ]; then
+    pass "timeout-heavy agent API backfill and handshake files run in separate shards"
+  else
+    fail "conn_backfill.go and handshaker.go must be isolated (backfill=$backfill_owner handshake=$handshake_owner)"
   fi
 
   # Global excludes must stay in sync with server/.gremlins.yaml exclude-files.
@@ -439,9 +458,9 @@ if [ -x "$STATUS_BUILD" ]; then
   fi
 
   make_complete_artifacts "$artifacts"
-  rm -f "$artifacts/mutation-go-agentapi-control/server/mutation-report-go-agentapi-control.json"
+  rm -f "$artifacts/mutation-go-agentapi-backfill/server/mutation-report-go-agentapi-backfill.json"
   if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
-    && jq -e '.complete == false and .shards["go-agentapi-control"] == {complete:false,reason:"missing"}' "$status" >/dev/null; then
+    && jq -e '.complete == false and .shards["go-agentapi-backfill"] == {complete:false,reason:"missing"}' "$status" >/dev/null; then
     pass "status builder reports a missing Go shard without failing to emit JSON"
   else
     fail "status builder must report a missing Go shard"
@@ -449,9 +468,9 @@ if [ -x "$STATUS_BUILD" ]; then
 
   make_complete_artifacts "$artifacts"
   printf '%s' '{"end_time":null,"caught":10,"missed":1,"timeout":0,"unviable":0}' \
-    >"$artifacts/mutation-rust-3/agent/mutants.out/outcomes.json"
+    >"$artifacts/mutation-rust-round-robin-3-of-8/agent/mutants.out/outcomes.json"
   if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
-    && jq -e '.complete == false and .shards["rust-3"] == {complete:false,reason:"invalid"}' "$status" >/dev/null; then
+    && jq -e '.complete == false and .shards["rust-round-robin-3-of-8"] == {complete:false,reason:"invalid"}' "$status" >/dev/null; then
     pass "status builder rejects end_time:null as an invalid Rust shard"
   else
     fail "status builder must reject end_time:null"

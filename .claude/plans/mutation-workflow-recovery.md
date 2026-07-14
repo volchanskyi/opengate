@@ -90,9 +90,29 @@ not complete:
   invalid, and skipped baseline restore, summarization, canonical artifact, and
   score push. The no-partial-score contract therefore worked in a real timeout.
 
-The measured follow-up is eight Rust shards with explicit `round-robin`
-distribution and three balanced file-unit agent API shards. The implementation
-steps below incorporate that corrected map.
+That measured follow-up used eight Rust shards with explicit `round-robin`
+distribution and three file-unit agent API shards. The next dispatch validated
+the Rust distribution and exposed the final Go grouping error below.
+
+### 6. The round-robin follow-up isolated the final Go tail
+
+Workflow run
+[`29305387129`](https://github.com/volchanskyi/opengate/actions/runs/29305387129)
+validated the eight-way Rust distribution: every Rust shard finished in 46–55
+minutes, and every Go shard except `go-agentapi-control` completed. The remaining
+failure was a grouping error inside that shard rather than insufficient total
+capacity:
+
+- the module-wide coverage pass took 94 seconds, so the configured timeout
+  coefficient gives an infinite-loop mutant roughly 23 minutes;
+- `conn_backfill.go` consumed two such timeout waves before `handshaker.go`
+  started its own timeout waves;
+- putting both timeout-heavy files in one shard therefore guarantees the
+  75-minute cap even though either file group fits independently.
+
+The corrected map separates backfill from connection/handshake, moves discovery
+to the edge-telemetry shard, and gives every current shard a descriptive id. The
+Rust ids state their round-robin selector; the Go ids state the behavior they own.
 
 ## Success criteria
 
@@ -168,7 +188,7 @@ Extend `scripts/tests/mutation-workflow.test.sh` before changing workflow or she
 implementation:
 
 1. Require exactly eight Rust matrix legs using `0/8` through `7/8`, with
-   `--sharding round-robin`.
+   `--sharding round-robin`, and descriptive `rust-round-robin-N-of-8` ids.
 2. Require workflow Go shard IDs to match `mutation_go_shards` exactly.
 3. Inventory every `server/**/*.go` non-test source:
    - each file is covered by exactly one `dir:` or `file:` mutation unit, or
@@ -198,14 +218,14 @@ All tests remain deterministic and always run; add no skip/focus markers.
 Change the Rust workflow matrix to:
 
 ```yaml
-- { language: rust, shard: rust-1, rust_shard: "0/8" }
-- { language: rust, shard: rust-2, rust_shard: "1/8" }
-- { language: rust, shard: rust-3, rust_shard: "2/8" }
-- { language: rust, shard: rust-4, rust_shard: "3/8" }
-- { language: rust, shard: rust-5, rust_shard: "4/8" }
-- { language: rust, shard: rust-6, rust_shard: "5/8" }
-- { language: rust, shard: rust-7, rust_shard: "6/8" }
-- { language: rust, shard: rust-8, rust_shard: "7/8" }
+- { language: rust, shard: rust-round-robin-1-of-8, rust_shard: "0/8" }
+- { language: rust, shard: rust-round-robin-2-of-8, rust_shard: "1/8" }
+- { language: rust, shard: rust-round-robin-3-of-8, rust_shard: "2/8" }
+- { language: rust, shard: rust-round-robin-4-of-8, rust_shard: "3/8" }
+- { language: rust, shard: rust-round-robin-5-of-8, rust_shard: "4/8" }
+- { language: rust, shard: rust-round-robin-6-of-8, rust_shard: "5/8" }
+- { language: rust, shard: rust-round-robin-7-of-8, rust_shard: "6/8" }
+- { language: rust, shard: rust-round-robin-8-of-8, rust_shard: "7/8" }
 ```
 
 Run cargo-mutants with `--sharding round-robin`. Publish must expect all eight
@@ -214,20 +234,20 @@ split and balanced distribution are the recovery mechanisms.
 
 #### Go
 
-Use these eight shards:
+Use these ten behavior-named shards:
 
 | Shard | Mutation units |
 |---|---|
-| `go-api-core` | `api.go`, `converters.go`, `middleware.go`, `wsconn.go`, `handlers_client_errors.go`, `handlers_health.go`, `log_redact.go`, `metrics_assemble.go`, `ratelimit.go` |
-| `go-api-auth-admin` | `handlers_auth.go`, `handlers_users.go`, `handlers_groups.go`, `handlers_security_groups.go`, `handlers_security_group_members.go`, `handlers_audit.go`, `handlers_push.go` |
-| `go-api-devices` | `handlers_devices.go`, `handlers_device_actions.go`, `handlers_device_correlate.go`, `handlers_device_history.go`, `handlers_device_inventory.go`, `handlers_device_metrics.go`, `handlers_amt.go`, `handlers_relay.go`, `handlers_sessions.go` |
-| `go-api-lifecycle` | `handlers_enrollment.go`, `handlers_install.go`, `handlers_updates.go`, `handlers_purge.go` |
-| `go-agentapi-core` | `conn.go`, `server.go`, `errors.go` |
-| `go-agentapi-control` | `backfill_scheduler.go`, `conn_backfill.go`, `conn_discovery.go`, `handshaker.go`, `deregister.go` |
-| `go-agentapi-telemetry` | `conn_telemetry.go`, `conn_logs.go`, `conn_history.go`, `alert_breach.go`, `alert_rules.go` |
-| `go-data` | `internal/auth/`, `internal/db/`, `internal/dbtx/`, `internal/device/`, `internal/inventory/`, `internal/lifecycle/`, `internal/session/`, `internal/audit/`, `internal/usecase/` |
-| `go-pure-1` | `internal/amt/`, `internal/updater/`, `internal/notifications/`, `internal/cert/` |
-| `go-pure-2` | `internal/protocol/`, `internal/correlate/`, `internal/telemetry/`, `internal/relay/`, `internal/metrics/`, `internal/signaling/`, `internal/testpg/`, `internal/testvm/`, `internal/osutil/`, `internal/clientapi/`, plus `tests/loadtest/` |
+| `go-api-runtime` | `api.go`, `converters.go`, `middleware.go`, `wsconn.go`, `handlers_client_errors.go`, `handlers_health.go`, `log_redact.go`, `metrics_assemble.go`, `ratelimit.go` |
+| `go-api-identity-admin` | `handlers_auth.go`, `handlers_users.go`, `handlers_groups.go`, `handlers_security_groups.go`, `handlers_security_group_members.go`, `handlers_audit.go`, `handlers_push.go` |
+| `go-api-device-operations` | `handlers_devices.go`, `handlers_device_actions.go`, `handlers_device_correlate.go`, `handlers_device_history.go`, `handlers_device_inventory.go`, `handlers_device_metrics.go`, `handlers_amt.go`, `handlers_relay.go`, `handlers_sessions.go` |
+| `go-api-provisioning-lifecycle` | `handlers_enrollment.go`, `handlers_install.go`, `handlers_updates.go`, `handlers_purge.go` |
+| `go-agentapi-connection-handshake` | `conn.go`, `server.go`, `errors.go`, `handshaker.go`, `deregister.go` |
+| `go-agentapi-backfill` | `backfill_scheduler.go`, `conn_backfill.go` |
+| `go-agentapi-edge-telemetry` | `conn_discovery.go`, `conn_telemetry.go`, `conn_logs.go`, `conn_history.go`, `alert_breach.go`, `alert_rules.go` |
+| `go-domain-persistence` | `internal/auth/`, `internal/db/`, `internal/dbtx/`, `internal/device/`, `internal/inventory/`, `internal/lifecycle/`, `internal/session/`, `internal/audit/`, `internal/usecase/` |
+| `go-amt-updates-certificates` | `internal/amt/`, `internal/updater/`, `internal/notifications/`, `internal/cert/` |
+| `go-protocol-relay-observability` | `internal/protocol/`, `internal/correlate/`, `internal/telemetry/`, `internal/relay/`, `internal/metrics/`, `internal/signaling/`, `internal/testpg/`, `internal/testvm/`, `internal/osutil/`, `internal/clientapi/`, plus `tests/loadtest/` |
 
 Represent units as repository-relative paths:
 
@@ -268,9 +288,9 @@ Create a status file shaped like:
   "run_id": "<github.run_id>",
   "complete": false,
   "shards": {
-    "rust-1": { "complete": true, "reason": "ok" },
-    "rust-2": { "complete": false, "reason": "invalid" },
-    "go-api-core": { "complete": false, "reason": "missing" },
+    "rust-round-robin-1-of-8": { "complete": true, "reason": "ok" },
+    "rust-round-robin-2-of-8": { "complete": false, "reason": "invalid" },
+    "go-api-runtime": { "complete": false, "reason": "missing" },
     "web": { "complete": true, "reason": "ok" }
   }
 }
@@ -358,7 +378,8 @@ fresh complete baseline:
   fresh report.
 - Run #73 points first to remaining API metric assembly, update handlers, log
   redaction, rate limiting, auth, and relay/session branches.
-- The current `go-pure-2` report still has actionable metrics/correlate/telemetry and
+- The current `go-protocol-relay-observability` scope still has actionable
+  metrics/correlate/telemetry and
   test-harness gaps; removing duplicated loadtest mutation will make the real package
   score legible.
 - `agentapi`, `inventory`, `lifecycle`, and purge handling have grown since the last
@@ -426,13 +447,14 @@ After all language scores clear the floor:
 
 ## Reviewer checklist
 
-- [ ] Rust matrix and publish expectations contain exactly `0/8..7/8` and use
-      round-robin distribution.
+- [ ] Rust matrix and publish expectations contain exactly `0/8..7/8`, use
+      round-robin distribution, and expose descriptive selector-based ids.
 - [ ] Workflow Go shard IDs match `mutation_go_shards`.
 - [ ] Every non-test Go source under `server/` is assigned once or explicitly excluded.
 - [ ] `tests/loadtest/soak*.go` is mutated once, not once per shard.
 - [ ] API units include both device history and purge handlers.
-- [ ] `agentapi` is isolated into three non-empty file-unit shards.
+- [ ] `agentapi` is isolated into three non-empty file-unit shards, with
+      `conn_backfill.go` and `handshaker.go` owned by different shards.
 - [ ] Rust and Go merge scripts reject malformed/non-numeric inputs and write atomically.
 - [ ] Rust merge rejects `end_time: null`.
 - [ ] Incomplete runs upload and push status but never publish a canonical score row.

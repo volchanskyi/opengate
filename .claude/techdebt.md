@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-07-11; Edge-Sentinel WS-15 reconnect-backfill agent drive-loop landed. -->
+<!-- Last reviewed: 2026-07-13; mutation shard timeout follow-up incorporated. -->
 
 ## Severity: High
 
@@ -149,6 +149,8 @@ range), then bump both together.
 Rust and Go are sharded horizontally to restore headroom under the existing job
 cap. Rust uses round-robin distribution so expensive source clusters do not
 collect in one consecutive slice, and the agent API is divided into file units.
+The timeout-heavy backfill and handshake files run independently, and shard ids
+describe either the Rust selector or the Go behavior they own.
 [`scripts/lib/mutation-shards.sh`](../scripts/lib/mutation-shards.sh) is the
 single source of truth for expected shards and Go file/directory mutation units;
 [`scripts/tests/mutation-workflow.test.sh`](../scripts/tests/mutation-workflow.test.sh)
@@ -162,4 +164,4 @@ publishes run/shard completion status for diagnosis.
 consecutive scheduled runs with every shard complete, at least ten minutes of
 per-shard headroom, and Rust/Go/Web score plus completion series present in
 VictoriaMetrics. Only then close the recovery plan; a per-shard Go config remains
-an option if a pure shard later needs a lower timeout coefficient.
+an option if a named scope later needs a lower timeout coefficient.
