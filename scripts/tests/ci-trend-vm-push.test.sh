@@ -94,6 +94,35 @@ else
   pass "mutation null no-coverage is skipped"
 fi
 
+cat >"$TMP_ROOT/mutation-status.json" <<'JSON'
+{
+  "commit": "deadbeef",
+  "run_id": "123",
+  "complete": false,
+  "shards": {
+    "rust-1": { "complete": true, "reason": "ok" },
+    "go-api-core": { "complete": false, "reason": "missing" }
+  }
+}
+JSON
+
+if run_push "mutation-status-vm-push.sh" "$TMP_ROOT/mutation-status.json" "$TMP_ROOT/mutation-status.args" "$TMP_ROOT/mutation-status.prom"; then
+  pass "mutation status VM push exits 0"
+else
+  fail "mutation status VM push should exit 0"
+fi
+if grep -qF 'mutation_run_complete{commit="deadbeef",env="ci"} 0' "$TMP_ROOT/mutation-status.prom"; then
+  pass "mutation run completion metric maps incomplete=false to 0"
+else
+  fail "mutation run completion metric missing"
+fi
+if grep -qF 'mutation_shard_complete{commit="deadbeef",env="ci",shard="rust-1"} 1' "$TMP_ROOT/mutation-status.prom" \
+  && grep -qF 'mutation_shard_complete{commit="deadbeef",env="ci",shard="go-api-core"} 0' "$TMP_ROOT/mutation-status.prom"; then
+  pass "mutation shard completion metrics map complete/incomplete values"
+else
+  fail "mutation shard completion metrics missing"
+fi
+
 cat >"$TMP_ROOT/pmat-row.json" <<'JSON'
 {
   "timestamp": "2026-06-19T00:00:00Z",
@@ -160,7 +189,7 @@ else
   fail "terraform drift resource metric missing"
 fi
 
-for wrapper in mutation-vm-push.sh pmat-vm-push.sh terraform-drift-vm-push.sh; do
+for wrapper in mutation-vm-push.sh mutation-status-vm-push.sh pmat-vm-push.sh terraform-drift-vm-push.sh; do
   rc=0
   "$REPO_ROOT/scripts/$wrapper" "$TMP_ROOT/missing.json" >/dev/null 2>&1 || rc=$?
   if [ "$rc" -eq 2 ]; then

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Tests for the mutation workflow: timeout/exit-code classification, the Go
-# shard partition, the shard-report merge, and summarizer error propagation.
+# source partition, shard-report validation/merge, run-status generation, and
+# summarizer error propagation.
 #
 # Bug history: GitHub Actions run 27743482464 cancelled the Go gremlins leg at
 # the job cap before server/mutation-report.json could be uploaded; the publish
@@ -9,10 +10,10 @@
 # semantics are pinned here: 0 = clean, 1 = score regression, 2 =
 # incomplete/malformed input.
 #
-# Scaling: the Go leg is sharded by package (td-gremlins-timeout-stability.md) so
-# it no longer crosses the cap as the server grows. The shard split lives in one
-# place (scripts/lib/mutation-shards.sh); these tests assert the workflow matrix
-# matches it and that the shards partition every non-excluded internal package.
+# Scaling: the Go leg uses directory/file mutation units so every non-test Go
+# source under server/ is mutated exactly once (or globally excluded). The shard
+# split lives in one place (scripts/lib/mutation-shards.sh); these tests assert
+# the workflow matrix matches it and prevent cross-shard duplicate counting.
 #
 # Run: ./scripts/tests/mutation-workflow.test.sh
 
@@ -24,6 +25,8 @@ WORKFLOW="$REPO_ROOT/.github/workflows/mutation.yml"
 SHARDS_LIB="$REPO_ROOT/scripts/lib/mutation-shards.sh"
 MERGE="$REPO_ROOT/scripts/mutation-merge-go.sh"
 MERGE_RUST="$REPO_ROOT/scripts/mutation-merge-rust.sh"
+STATUS_BUILD="$REPO_ROOT/scripts/mutation-status-build.sh"
+STATUS_PUSH="$REPO_ROOT/scripts/mutation-status-vm-push.sh"
 SUMMARIZE="$REPO_ROOT/scripts/mutation-summarize.sh"
 
 PASS=0
@@ -58,14 +61,14 @@ else
   fail "mutation job must set timeout-minutes: 75"
 fi
 
-# rust is sharded with `cargo mutants --shard k/n` (>=2 legs), so each leg
-# mutates a fraction of the workspace and fits under the 75min default — the
-# Edge Sentinel ML crates had grown the unsharded run past it.
+# Rust must use four exact cargo-mutants shards. Two legs no longer fit after the
+# Edge Sentinel local-store/discovery growth.
 rust_shard_legs="$(grep -cE '^[[:space:]]*-[[:space:]]*\{[[:space:]]*language:[[:space:]]*rust,[[:space:]]*shard:[[:space:]]*rust-[0-9]+' "$WORKFLOW")"
-if [ "$rust_shard_legs" -ge 2 ]; then
-  pass "rust mutation leg is sharded into $rust_shard_legs parallel legs"
+rust_shard_selectors="$(sed -nE 's/.*language:[[:space:]]*rust.*rust_shard:[[:space:]]*"([0-9]+\/[0-9]+)".*/\1/p' "$WORKFLOW" | sort | tr '\n' ' ')"
+if [ "$rust_shard_legs" = "4" ] && [ "$rust_shard_selectors" = "0/4 1/4 2/4 3/4 " ]; then
+  pass "rust mutation leg uses exactly four 0/4..3/4 shards"
 else
-  fail "rust mutation leg must be sharded (>=2 'language: rust, shard: rust-N' matrix entries)"
+  fail "rust matrix must contain exactly 0/4..3/4 (legs=$rust_shard_legs selectors='$rust_shard_selectors')"
 fi
 
 if grep -qE 'cargo mutants .*--shard[[:space:]]+.*matrix\.rust_shard' "$WORKFLOW"; then
@@ -96,86 +99,163 @@ if [ -f "$SHARDS_LIB" ]; then
   . "$SHARDS_LIB"
   pass "scripts/lib/mutation-shards.sh exists and sources cleanly"
 
-  # Every non-excluded server/internal/<pkg> is in exactly one shard, and no
-  # shard names a package that does not exist or is excluded.
-  declare -A in_shard=()
-  dup=""
-  for shard in $(mutation_go_shards); do
-    for pkg in $(mutation_go_shard_pkgs "$shard"); do
-      if [ -n "${in_shard[$pkg]:-}" ]; then
-        dup="$dup $pkg"
-      fi
-      in_shard[$pkg]="$shard"
-    done
-  done
-
-  declare -A excluded=()
-  for pkg in $(mutation_go_excluded_pkgs); do excluded[$pkg]=1; done
-
-  missing=""
-  extra=""
-  for d in "$REPO_ROOT"/server/internal/*/; do
-    pkg="$(basename "$d")"
-    if [ -n "${excluded[$pkg]:-}" ]; then
-      if [ -n "${in_shard[$pkg]:-}" ]; then
-        extra="$extra $pkg(excluded-but-assigned)"
-      fi
-      continue
-    fi
-    [ -n "${in_shard[$pkg]:-}" ] || missing="$missing $pkg"
-  done
-  # Reverse: shard names a package with no directory.
-  for pkg in "${!in_shard[@]}"; do
-    [ -d "$REPO_ROOT/server/internal/$pkg" ] || extra="$extra $pkg(no-such-package)"
-  done
-
-  if [ -z "$missing" ] && [ -z "$extra" ] && [ -z "$dup" ]; then
-    pass "shards partition every non-excluded internal/* package exactly once"
-  else
-    fail "shard partition mismatch:${missing:+ missing[$missing]}${extra:+ extra[$extra]}${dup:+ duplicate[$dup]}"
-  fi
-
-  # Workflow matrix go shard ids must match the shard map (no drift).
+  # Workflow matrix Go shard ids must match the shard map (no drift).
   want_ids="$(mutation_go_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
   have_ids="$(grep -oE 'shard:[[:space:]]*go-[a-z0-9-]+' "$WORKFLOW" \
     | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
   if [ "$want_ids" = "$have_ids" ]; then
-    pass "workflow matrix go shard ids match the shard map"
+    pass "workflow matrix Go shard ids match the shard map"
   else
     fail "workflow shard ids drifted from map: map='$want_ids' wf='$have_ids'"
   fi
 
-  # Each shard's exclude regex must exclude every OTHER shard's package, must NOT
-  # exclude its own packages, and must exclude the global carve-outs (testutil).
-  regex_bad=""
-  for shard in $(mutation_go_shards); do
-    excl="$(mutation_go_shard_exclude_regex "$shard")"
-    printf 'internal/testutil/x.go\n' | grep -qE "$excl" \
-      || regex_bad="$regex_bad [$shard:testutil-not-excluded]"
-    for pkg in $(mutation_go_shard_pkgs "$shard"); do
-      if printf 'internal/%s/x.go\n' "$pkg" | grep -qE "$excl"; then
-        regex_bad="$regex_bad [$shard:own-pkg-$pkg-excluded]"
+  expected_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
+  workflow_rust="$(grep -oE 'shard:[[:space:]]*rust-[0-9]+' "$WORKFLOW" \
+    | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
+  if [ "$expected_rust" = "$workflow_rust" ] \
+    && [ "$(mutation_all_shards)" = "rust-1 rust-2 rust-3 rust-4 $(mutation_go_shards) web" ]; then
+    pass "shard library exposes the exact Rust/Go/Web expected set"
+  else
+    fail "expected shard set drifted (rust map='$expected_rust' wf='$workflow_rust' all='$(mutation_all_shards)')"
+  fi
+
+  read -r -a go_shards <<<"$(mutation_go_shards)"
+  declare -a all_units=()
+  declare -A unit_owner=()
+  declare -A shard_regex=()
+
+  # Reverse-check unit declarations before using them for source coverage.
+  unit_bad=""
+  for shard in "${go_shards[@]}"; do
+    shard_regex[$shard]="$(mutation_go_shard_exclude_regex "$shard")"
+    read -r -a shard_units <<<"$(mutation_go_shard_units "$shard")"
+    for unit in "${shard_units[@]}"; do
+      if [ -n "${unit_owner[$unit]:-}" ]; then
+        unit_bad="$unit_bad [$shard:$unit:also-${unit_owner[$unit]}]"
       fi
-    done
-    for other in $(mutation_go_shards); do
-      [ "$other" = "$shard" ] && continue
-      for pkg in $(mutation_go_shard_pkgs "$other"); do
-        printf 'internal/%s/x.go\n' "$pkg" | grep -qE "$excl" \
-          || regex_bad="$regex_bad [$shard:other-pkg-$pkg-not-excluded]"
-      done
+      unit_owner[$unit]="$shard"
+      all_units+=("$unit")
+      case "$unit" in
+        dir:*)
+          [ -d "$REPO_ROOT/server/${unit#dir:}" ] \
+            || unit_bad="$unit_bad [$shard:$unit:no-such-dir]"
+          ;;
+        file:*)
+          [ -f "$REPO_ROOT/server/${unit#file:}" ] \
+            || unit_bad="$unit_bad [$shard:$unit:no-such-file]"
+          ;;
+        *) unit_bad="$unit_bad [$shard:$unit:bad-kind]" ;;
+      esac
     done
   done
-  if [ -z "$regex_bad" ]; then
-    pass "shard exclude regex scopes mutation to its packages (globals re-excluded)"
+  if [ -z "$unit_bad" ]; then
+    pass "all Go mutation units use valid dir:/file: paths"
   else
-    fail "shard exclude regex wrong:$regex_bad"
+    fail "invalid Go mutation unit declarations:$unit_bad"
+  fi
+
+  # Every non-test Go source under server/ is either globally excluded or
+  # belongs to exactly one mutation unit. This catches sources outside
+  # internal/* (notably tests/loadtest) and duplicate directory/file overlap.
+  partition_bad=""
+  regex_bad=""
+  while IFS= read -r source; do
+    rel="${source#"$REPO_ROOT/server/"}"
+    global=0
+    if printf '%s\n' "$rel" | grep -qE "$(mutation_go_global_excludes)"; then
+      global=1
+    fi
+
+    matches=0
+    owner=""
+    for unit in "${all_units[@]}"; do
+      if mutation_go_unit_matches "$unit" "$rel"; then
+        matches=$((matches + 1))
+        owner="${unit_owner[$unit]}"
+      fi
+    done
+
+    if [ "$global" -eq 0 ] && [ "$matches" -ne 1 ]; then
+      partition_bad="$partition_bad [$rel:matches=$matches]"
+      continue
+    fi
+
+    # The generated/entry-point/test-helper carve-outs must be excluded by all
+    # shard regexes. A real source must be included only by its owner.
+    for shard in "${go_shards[@]}"; do
+      excl="${shard_regex[$shard]}"
+      if [ "$global" -eq 1 ]; then
+        printf '%s\n' "$rel" | grep -qE "$excl" \
+          || regex_bad="$regex_bad [$shard:$rel:global-not-excluded]"
+      elif [ "$shard" = "$owner" ]; then
+        if printf '%s\n' "$rel" | grep -qE "$excl"; then
+          regex_bad="$regex_bad [$shard:$rel:own-source-excluded]"
+        fi
+      else
+        printf '%s\n' "$rel" | grep -qE "$excl" \
+          || regex_bad="$regex_bad [$shard:$rel:other-source-not-excluded]"
+      fi
+    done
+  done < <(find "$REPO_ROOT/server" -type f -name '*.go' ! -name '*_test.go' | sort)
+
+  if [ -z "$partition_bad" ]; then
+    pass "all non-test server Go sources are assigned once or globally excluded"
+  else
+    fail "whole-server Go source partition mismatch:$partition_bad"
+  fi
+  if [ -z "$regex_bad" ]; then
+    pass "each Go shard regex includes only its own mutation units"
+  else
+    fail "Go shard exclude regex mismatch:$regex_bad"
+  fi
+
+  loadtest_bad=""
+  for f in soak.go soak_backfill.go soak_telemetry.go; do
+    owners=0
+    owner=""
+    for unit in "${all_units[@]}"; do
+      if mutation_go_unit_matches "$unit" "tests/loadtest/$f"; then
+        owners=$((owners + 1))
+        owner="${unit_owner[$unit]}"
+      fi
+    done
+    [ "$owners" -eq 1 ] && [ "$owner" = "go-pure-2" ] \
+      || loadtest_bad="$loadtest_bad [$f:owners=$owners:$owner]"
+  done
+  if [ -z "$loadtest_bad" ] \
+    && printf 'tests/loadtest/main.go\n' | grep -qE "$(mutation_go_global_excludes)"; then
+    pass "loadtest helpers mutate once in go-pure-2 while main.go stays excluded"
+  else
+    fail "loadtest mutation ownership is wrong:$loadtest_bad"
+  fi
+
+  api_bad=""
+  while IFS= read -r source; do
+    rel="${source#"$REPO_ROOT/server/"}"
+    [ "$rel" = "internal/api/openapi_gen.go" ] && continue
+    owners=0
+    for unit in "${all_units[@]}"; do
+      mutation_go_unit_matches "$unit" "$rel" && owners=$((owners + 1))
+    done
+    [ "$owners" -eq 1 ] || api_bad="$api_bad [$rel:owners=$owners]"
+  done < <(find "$REPO_ROOT/server/internal/api" -maxdepth 1 -type f -name '*.go' ! -name '*_test.go' | sort)
+  for required in handlers_device_history.go handlers_purge.go; do
+    found=0
+    for unit in "${all_units[@]}"; do
+      mutation_go_unit_matches "$unit" "internal/api/$required" && found=$((found + 1))
+    done
+    [ "$found" -eq 1 ] || api_bad="$api_bad [$required:owners=$found]"
+  done
+  if [ -z "$api_bad" ]; then
+    pass "every API source, including history and purge, is assigned once"
+  else
+    fail "API file-unit partition mismatch:$api_bad"
   fi
 
   # Global excludes must stay in sync with server/.gremlins.yaml exclude-files.
   globals="$(mutation_go_global_excludes)"
   sync_bad=""
   while IFS= read -r pat; do
-    # YAML stores doubled backslashes; collapse to a single-backslash regex.
     pat="${pat//\\\\/\\}"
     case "$globals" in
       *"$pat"*) : ;;
@@ -217,6 +297,21 @@ if [ -x "$MERGE" ]; then
   else
     pass "mutation-merge-go.sh fails (no output) on a missing shard report"
   fi
+  for fixture in malformed missing-field non-numeric; do
+    case "$fixture" in
+      malformed) printf '%s' '{bad json' >"$tmp/bad.json" ;;
+      missing-field) printf '%s' '{"mutants_killed":1,"mutants_lived":0,"mutants_not_covered":0}' >"$tmp/bad.json" ;;
+      non-numeric) printf '%s' '{"mutants_killed":"1","mutants_lived":0,"mutants_not_covered":0,"mutants_not_viable":0}' >"$tmp/bad.json" ;;
+    esac
+    printf '%s' 'stale' >"$tmp/out.json"
+    if "$MERGE" "$tmp/out.json" "$tmp/r1.json" "$tmp/bad.json" >/dev/null 2>&1; then
+      fail "mutation-merge-go.sh must reject $fixture input"
+    elif [ -e "$tmp/out.json" ]; then
+      fail "mutation-merge-go.sh must remove output after $fixture input"
+    else
+      pass "mutation-merge-go.sh rejects $fixture input atomically"
+    fi
+  done
   rm -rf "$tmp"
 else
   fail "scripts/mutation-merge-go.sh must exist and be executable"
@@ -226,8 +321,8 @@ fi
 
 if [ -x "$MERGE_RUST" ]; then
   tmp="$(mktemp -d)"
-  printf '%s' '{"caught":10,"missed":2,"timeout":1,"unviable":3}' >"$tmp/r1.json"
-  printf '%s' '{"caught":5,"missed":1,"timeout":0,"unviable":4}' >"$tmp/r2.json"
+  printf '%s' '{"end_time":"2026-07-13T01:00:00Z","caught":10,"missed":2,"timeout":1,"unviable":3}' >"$tmp/r1.json"
+  printf '%s' '{"end_time":"2026-07-13T01:01:00Z","caught":5,"missed":1,"timeout":0,"unviable":4}' >"$tmp/r2.json"
   if "$MERGE_RUST" "$tmp/out.json" "$tmp/r1.json" "$tmp/r2.json" >/dev/null 2>&1 \
     && [ "$(jq -r '.caught' "$tmp/out.json")" = "15" ] \
     && [ "$(jq -r '.missed' "$tmp/out.json")" = "3" ] \
@@ -248,6 +343,22 @@ if [ -x "$MERGE_RUST" ]; then
   else
     pass "mutation-merge-rust.sh fails (no output) on a missing shard outcome file"
   fi
+  for fixture in malformed null-end missing-field non-numeric; do
+    case "$fixture" in
+      malformed) printf '%s' '{bad json' >"$tmp/bad.json" ;;
+      null-end) printf '%s' '{"end_time":null,"caught":1,"missed":0,"timeout":0,"unviable":0}' >"$tmp/bad.json" ;;
+      missing-field) printf '%s' '{"end_time":"2026-07-13T01:00:00Z","caught":1,"missed":0,"timeout":0}' >"$tmp/bad.json" ;;
+      non-numeric) printf '%s' '{"end_time":"2026-07-13T01:00:00Z","caught":"1","missed":0,"timeout":0,"unviable":0}' >"$tmp/bad.json" ;;
+    esac
+    printf '%s' 'stale' >"$tmp/out.json"
+    if "$MERGE_RUST" "$tmp/out.json" "$tmp/r1.json" "$tmp/bad.json" >/dev/null 2>&1; then
+      fail "mutation-merge-rust.sh must reject $fixture input"
+    elif [ -e "$tmp/out.json" ]; then
+      fail "mutation-merge-rust.sh must remove output after $fixture input"
+    else
+      pass "mutation-merge-rust.sh rejects $fixture input atomically"
+    fi
+  done
   rm -rf "$tmp"
 else
   fail "scripts/mutation-merge-rust.sh must exist and be executable"
@@ -258,6 +369,78 @@ if grep -q 'mutation-merge-rust\.sh' "$WORKFLOW"; then
   pass "publish merges the rust shards via mutation-merge-rust.sh"
 else
   fail "publish must merge rust shards via mutation-merge-rust.sh"
+fi
+
+# --- Complete/incomplete run status ------------------------------------------
+
+make_complete_artifacts() {
+  local root="$1" shard path
+  rm -rf "$root"
+  for shard in $(mutation_rust_shards); do
+    path="$root/mutation-$shard/agent/mutants.out"
+    mkdir -p "$path"
+    printf '%s' '{"end_time":"2026-07-13T01:00:00Z","caught":10,"missed":1,"timeout":0,"unviable":0}' >"$path/outcomes.json"
+  done
+  for shard in $(mutation_go_shards); do
+    path="$root/mutation-$shard/server"
+    mkdir -p "$path"
+    printf '%s' '{"mutants_killed":10,"mutants_lived":1,"mutants_not_covered":0,"mutants_not_viable":0}' >"$path/mutation-report-$shard.json"
+  done
+  path="$root/mutation-web/web/reports/mutation"
+  mkdir -p "$path"
+  printf '%s' '{"files":{"a.ts":{"mutants":[{"status":"Killed"}]}}}' >"$path/mutation.json"
+}
+
+if [ -x "$STATUS_BUILD" ]; then
+  tmp="$(mktemp -d)"
+  artifacts="$tmp/artifacts"
+  status="$tmp/status.json"
+
+  make_complete_artifacts "$artifacts"
+  if GITHUB_SHA=deadbeef GITHUB_RUN_ID=123 "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e '.commit == "deadbeef" and .run_id == "123" and .complete == true
+      and ([.shards[].complete] | all)' "$status" >/dev/null; then
+    pass "status builder marks a fully valid artifact set complete"
+  else
+    fail "status builder must mark a fully valid artifact set complete"
+  fi
+
+  make_complete_artifacts "$artifacts"
+  rm -f "$artifacts/mutation-go-agentapi/server/mutation-report-go-agentapi.json"
+  if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e '.complete == false and .shards["go-agentapi"] == {complete:false,reason:"missing"}' "$status" >/dev/null; then
+    pass "status builder reports a missing Go shard without failing to emit JSON"
+  else
+    fail "status builder must report a missing Go shard"
+  fi
+
+  make_complete_artifacts "$artifacts"
+  printf '%s' '{"end_time":null,"caught":10,"missed":1,"timeout":0,"unviable":0}' \
+    >"$artifacts/mutation-rust-3/agent/mutants.out/outcomes.json"
+  if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e '.complete == false and .shards["rust-3"] == {complete:false,reason:"invalid"}' "$status" >/dev/null; then
+    pass "status builder rejects end_time:null as an invalid Rust shard"
+  else
+    fail "status builder must reject end_time:null"
+  fi
+
+  make_complete_artifacts "$artifacts"
+  printf '%s' '{"files":[]}' >"$artifacts/mutation-web/web/reports/mutation/mutation.json"
+  if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
+    && jq -e '.complete == false and .shards.web == {complete:false,reason:"invalid"}' "$status" >/dev/null; then
+    pass "status builder validates the Web reporter shape"
+  else
+    fail "status builder must reject an invalid Web reporter shape"
+  fi
+  rm -rf "$tmp"
+else
+  fail "scripts/mutation-status-build.sh must exist and be executable"
+fi
+
+if [ -x "$STATUS_PUSH" ]; then
+  pass "scripts/mutation-status-vm-push.sh exists and is executable"
+else
+  fail "scripts/mutation-status-vm-push.sh must exist and be executable"
 fi
 
 # --- Summarizer error propagation (single clear error, no jq noise) -----------
@@ -376,6 +559,48 @@ if grep -qE 'VM_EXCLUDE_COMMIT:[[:space:]]*\$\{\{[[:space:]]*github\.sha' "$WORK
   pass "baseline restore excludes the current commit (VM_EXCLUDE_COMMIT=github.sha)"
 else
   fail "restore step must set VM_EXCLUDE_COMMIT to github.sha"
+fi
+
+status_build_line="$(line_of 'mutation-status-build\.sh')"
+status_upload_line="$(line_of 'name:[[:space:]]*Upload mutation run status')"
+status_push_line="$(line_of 'mutation-status-vm-push\.sh')"
+incomplete_line="$(line_of 'name:[[:space:]]*Fail incomplete mutation run')"
+
+if [ -n "$status_build_line" ] && [ -n "$status_upload_line" ] \
+  && [ "$status_build_line" -lt "$status_upload_line" ] \
+  && grep -A5 -E 'name:[[:space:]]*Upload mutation run status' "$WORKFLOW" | grep -qE 'if:[[:space:]]*always\(\)' \
+  && grep -A8 -E 'name:[[:space:]]*Upload mutation run status' "$WORKFLOW" | grep -qE 'name:[[:space:]]*mutation-run-status'; then
+  pass "workflow builds then always uploads mutation-run-status"
+else
+  fail "workflow must build status before an if:always mutation-run-status upload"
+fi
+
+if [ -n "$oci_line" ] && [ -n "$status_push_line" ] \
+  && [ "$oci_line" -lt "$status_push_line" ] && [ "$status_push_line" -lt "$summ_line" ]; then
+  pass "workflow pushes completion metrics after OCI setup and before Summarize"
+else
+  fail "status VM push order is wrong (oci=$oci_line push=$status_push_line summarize=$summ_line)"
+fi
+
+if [ -n "$incomplete_line" ] && [ -n "$summ_line" ] && [ "$incomplete_line" -lt "$summ_line" ] \
+  && grep -A5 -E 'name:[[:space:]]*Fail incomplete mutation run' "$WORKFLOW" \
+  | grep -q "steps.status.outputs.complete != 'true'"; then
+  pass "workflow fails an incomplete run before canonical summarization"
+else
+  fail "workflow needs an explicit status-gated incomplete-run failure"
+fi
+
+canonical_guards=0
+for step_name in 'Upload canonical row as artifact' 'Push to VictoriaMetrics'; do
+  if grep -A4 -E "name:[[:space:]]*$step_name" "$WORKFLOW" \
+    | grep -q "steps.status.outputs.complete == 'true'"; then
+    canonical_guards=$((canonical_guards + 1))
+  fi
+done
+if [ "$canonical_guards" -eq 2 ]; then
+  pass "canonical artifact and VM score push are both complete-status gated"
+else
+  fail "canonical upload/push need explicit complete-status guards (found=$canonical_guards)"
 fi
 
 echo

@@ -1,66 +1,65 @@
 #!/usr/bin/env bash
-# Single source of truth for the Go mutation-test shard split.
+# Single source of truth for mutation-test shard ids and Go mutation scope.
 #
-# The Go leg of .github/workflows/mutation.yml runs gremlins sharded so it scales
-# horizontally instead of crossing a hand-tuned job cap as the server grows
-# (td-gremlins-timeout-stability.md). gremlins accepts only one path arg, so a
-# shard runs the WHOLE module (`gremlins unleash .`) — preserving module-wide
-# coverage, hence no cross-shard coverage loss — and restricts *mutation* to its
-# packages with `--exclude-files` (the other shards' packages + the global
-# carve-outs). Because coverage (and therefore gremlins' per-mutant timeout
-# budget) is computed over the whole module in every shard, the split is free to
-# balance purely by runtime.
+# Every Go shard runs `gremlins unleash .` from server/ so the coverage dry-run
+# remains module-wide. The per-shard exclude regexp narrows only the source files
+# mutated by that shard. Units are repository-relative to server/:
+#   dir:<path>   every non-test Go source below a directory
+#   file:<path>  one source file (used to split internal/api)
 #
-# Balancing is by *CI* cost, which is dominated by Postgres-backed packages:
-# each DB mutant re-pays per-schema migration setup (~20-40s on the 4-vCPU
-# runner), so DB-package time >> pure-package time regardless of mutant count.
-# `api` alone is the single largest cost (~45min CI) and is one package that
-# cannot be split, so it gets its own shard; the other DB packages are spread so
-# no shard clusters them; the pure/crypto packages are split across two shards
-# (amt anchors one, the wire/relay/observability packages the other) after the
-# Edge Sentinel telemetry/correlate growth pushed the single pure shard past the
-# 75min cap. Add a shard if a package pushes one over cap.
-#
-# Consumed by the Makefile (make mutate-go), the workflow Go step + publish merge,
-# and scripts/tests/mutation-workflow.test.sh (partition + drift guards). Source
-# this file, then call the functions below.
+# scripts/tests/mutation-workflow.test.sh proves every non-test server Go source
+# is covered by exactly one unit or by the global carve-outs. This prevents
+# sources outside internal/ (notably tests/loadtest) from being mutated and
+# counted once per shard.
 
-# Packages under server/internal that are NOT mutated (mirror the whole-package
-# carve-outs in server/.gremlins.yaml; testutil is shared test scaffolding).
-mutation_go_excluded_pkgs() {
-  echo "testutil"
+mutation_rust_shards() {
+  echo "rust-1 rust-2 rust-3 rust-4"
 }
 
-# Files/paths always excluded from mutation, as a gremlins --exclude-files
-# regexp. Mirrors server/.gremlins.yaml exclude-files: a CLI -E overrides the
-# config exclude-files, so a sharded run must re-state these. Kept in sync by
-# scripts/tests/mutation-workflow.test.sh.
+mutation_web_shards() {
+  echo "web"
+}
+
+mutation_go_shards() {
+  echo "go-api-core go-api-auth-admin go-api-devices go-api-lifecycle go-agentapi go-data go-pure-1 go-pure-2"
+}
+
+mutation_all_shards() {
+  echo "$(mutation_rust_shards) $(mutation_go_shards) $(mutation_web_shards)"
+}
+
+# A CLI -E overrides server/.gremlins.yaml exclude-files, so every sharded run
+# must restate the generated code, entry points, and shared test scaffolding.
 mutation_go_global_excludes() {
   echo 'openapi_gen\.go|cmd/meshserver/main\.go|tests/loadtest/main\.go|internal/testutil/'
 }
 
-# Shard ids, in run order. Named for what they hold (the workflow job appears as
-# "Mutation (<shard>)").
-mutation_go_shards() {
-  echo "go-api go-db go-pure-1 go-pure-2"
-}
-
-# Space-separated internal package names for a shard id (no path prefix).
-# Adding a server package requires adding it here; the partition guard test
-# fails until it is assigned to exactly one shard.
-mutation_go_shard_pkgs() {
+mutation_go_shard_units() {
   case "$1" in
-    # api is the irreducible hotspot (largest CI cost) — isolated.
-    go-api) echo "api" ;;
-    # Remaining Postgres-backed packages, spread so they do not cluster.
-    go-db) echo "agentapi auth db dbtx device inventory lifecycle session audit usecase" ;;
-    # Pure + crypto (no Postgres), split into two shards balanced by non-test
-    # source size (~2.8k LOC each) after telemetry/correlate growth pushed the
-    # single pure shard past the 75min cap (cancelled 2026-07-02). amt dominates
-    # (crypto, high mutant count) so it anchors go-pure-1; go-pure-2 carries the
-    # wire/relay/observability packages.
-    go-pure-1) echo "amt updater notifications cert" ;;
-    go-pure-2) echo "protocol correlate telemetry relay metrics signaling testpg testvm osutil clientapi" ;;
+    go-api-core)
+      echo "file:internal/api/api.go file:internal/api/converters.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/log_redact.go file:internal/api/metrics_assemble.go file:internal/api/ratelimit.go"
+      ;;
+    go-api-auth-admin)
+      echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_groups.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go file:internal/api/handlers_push.go"
+      ;;
+    go-api-devices)
+      echo "file:internal/api/handlers_devices.go file:internal/api/handlers_device_actions.go file:internal/api/handlers_device_correlate.go file:internal/api/handlers_device_history.go file:internal/api/handlers_device_inventory.go file:internal/api/handlers_device_metrics.go file:internal/api/handlers_amt.go file:internal/api/handlers_relay.go file:internal/api/handlers_sessions.go"
+      ;;
+    go-api-lifecycle)
+      echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
+      ;;
+    go-agentapi)
+      echo "dir:internal/agentapi"
+      ;;
+    go-data)
+      echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/session dir:internal/audit dir:internal/usecase"
+      ;;
+    go-pure-1)
+      echo "dir:internal/amt dir:internal/updater dir:internal/notifications dir:internal/cert"
+      ;;
+    go-pure-2)
+      echo "dir:internal/protocol dir:internal/correlate dir:internal/telemetry dir:internal/relay dir:internal/metrics dir:internal/signaling dir:internal/testpg dir:internal/testvm dir:internal/osutil dir:internal/clientapi dir:tests/loadtest"
+      ;;
     *)
       echo "unknown mutation shard: $1" >&2
       return 1
@@ -68,17 +67,59 @@ mutation_go_shard_pkgs() {
   esac
 }
 
-# gremlins --exclude-files regexp for a shard: the global carve-outs plus every
-# package NOT in this shard, so `gremlins unleash . -E <regex>` mutates only this
-# shard's packages while computing coverage across the whole module.
+mutation_go_unit_matches() {
+  local unit="${1:?mutation unit required}"
+  local source="${2:?source path required}"
+
+  case "$unit" in
+    dir:*)
+      local dir="${unit#dir:}"
+      [[ "$source" == "$dir/"* ]]
+      ;;
+    file:*) [[ "$source" == "${unit#file:}" ]] ;;
+    *) return 1 ;;
+  esac
+}
+
+mutation_go_unit_regex() {
+  local unit="${1:?mutation unit required}"
+  local path
+
+  case "$unit" in
+    dir:*) path="${unit#dir:}/" ;;
+    file:*) path="${unit#file:}" ;;
+    *)
+      echo "unknown mutation unit: $unit" >&2
+      return 1
+      ;;
+  esac
+
+  case "$path" in
+    *[!a-zA-Z0-9_./-]*)
+      echo "unsupported character in mutation unit: $unit" >&2
+      return 1
+      ;;
+  esac
+  path="${path//./\\.}"
+  if [[ "$unit" == file:* ]]; then
+    path="$path\$"
+  fi
+  printf '%s' "$path"
+}
+
 mutation_go_shard_exclude_regex() {
-  local shard="$1" other pkg others=""
-  mutation_go_shard_pkgs "$shard" >/dev/null || return 1
+  local shard="${1:?mutation shard required}"
+  local other unit part
+  local regex
+
+  mutation_go_shard_units "$shard" >/dev/null || return 1
+  regex="$(mutation_go_global_excludes)"
   for other in $(mutation_go_shards); do
-    [ "$other" = "$shard" ] && continue
-    for pkg in $(mutation_go_shard_pkgs "$other"); do
-      others="${others:+$others|}$pkg"
+    [[ "$other" == "$shard" ]] && continue
+    for unit in $(mutation_go_shard_units "$other"); do
+      part="$(mutation_go_unit_regex "$unit")" || return 1
+      regex="$regex|$part"
     done
   done
-  printf '%s|internal/(%s)/\n' "$(mutation_go_global_excludes)" "$others"
+  printf '%s\n' "$regex"
 }

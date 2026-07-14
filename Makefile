@@ -315,8 +315,8 @@ mutate-go:
 	  echo "         Start a test Postgres (see .github/workflows/ci.yml) and set:"; \
 	  echo "         export POSTGRES_TEST_URL=\"postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable\""; \
 	fi
-	@# Run the same package shards as CI (scripts/lib/mutation-shards.sh): each
-	@# shard mutates the whole module restricted to its packages via -E, then
+	@# Run the same mutation-unit shards as CI (scripts/lib/mutation-shards.sh):
+	@# each shard mutates the whole module restricted to its files/dirs via -E, then
 	@# merge into one report — mirrors .github/workflows/mutation.yml.
 	. scripts/lib/mutation-shards.sh; \
 	reports=""; \

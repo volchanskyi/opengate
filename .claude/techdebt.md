@@ -144,22 +144,20 @@ TypeScript 6.x.
 TypeScript 6.x (`npm view openapi-typescript versions` / its peerDependencies
 range), then bump both together.
 
-### Go mutation run — sharded; nightly confirmation pending
+### Mutation workflow — recovered sharding; nightly confirmation pending
 
-The Go mutation leg is sharded horizontally to fix prior cap-cancellation +
-timeout-budget fragility — [`scripts/lib/mutation-shards.sh`](../scripts/lib/mutation-shards.sh)
-is the single source of truth (partition asserted by
-[`scripts/tests/mutation-workflow.test.sh`](../scripts/tests/mutation-workflow.test.sh),
-mirrored by `make mutate-go`). Each shard mutates only its packages
-(`--exclude-files`), `GOFLAGS=-count=1` forces a real coverage dry-run so the
-per-mutant budget can't collapse onto the restored test cache, and per-shard
-reports merge via [`scripts/mutation-merge-go.sh`](../scripts/mutation-merge-go.sh)
-(a missing shard fails the merge rather than reporting a partial score).
-The mutation drop gate now restores the previous per-language baseline from
-VictoriaMetrics before summarizing, so a >2pp gradual score slide is visible
-before it falls through the absolute floor.
+Rust and Go are sharded horizontally to restore headroom under the existing job
+cap. [`scripts/lib/mutation-shards.sh`](../scripts/lib/mutation-shards.sh) is the
+single source of truth for expected shards and Go file/directory mutation units;
+[`scripts/tests/mutation-workflow.test.sh`](../scripts/tests/mutation-workflow.test.sh)
+proves every non-test Go source is assigned once or explicitly excluded. Go keeps
+module-wide coverage with `GOFLAGS=-count=1`, while strict Rust/Go merges and
+[`scripts/mutation-status-build.sh`](../scripts/mutation-status-build.sh) prevent
+an incomplete artifact set from becoming a canonical score row. Every run still
+publishes run/shard completion status for diagnosis.
 
-**Pay-down trigger:** confirm across 3 consecutive nightly runs that no shard is
-cancelled and that `mutation_score{language="go"}` reaches VictoriaMetrics; then
-`timeout-coefficient: 15` in [`server/.gremlins.yaml`](../server/.gremlins.yaml)
-could drop for a pure shard via a per-shard `--config` override.
+**Pay-down trigger:** after score repair clears the existing floor, confirm three
+consecutive scheduled runs with every shard complete, at least ten minutes of
+per-shard headroom, and Rust/Go/Web score plus completion series present in
+VictoriaMetrics. Only then close the recovery plan; a per-shard Go config remains
+an option if a pure shard later needs a lower timeout coefficient.
