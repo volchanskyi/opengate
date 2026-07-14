@@ -194,3 +194,55 @@ fn redact_log_line_leaves_benign_lines_intact() {
         );
     }
 }
+
+#[test]
+fn redact_log_line_recognizes_exact_jwt_shape() {
+    for token in ["eyJabc.def.ghi", "\"eyJabc.def.ghi,", "eyJ-_.-_.-_"] {
+        assert_eq!(
+            redact_log_line(token),
+            "[REDACTED]",
+            "valid JWT-shaped token was not redacted: {token:?}"
+        );
+    }
+
+    for token in [
+        "abc.def.ghi",
+        "eyJabc.def",
+        "eyJabc.def.ghi.jkl",
+        "eyJabc..ghi",
+        ".eyJabc.def.ghi",
+        "eyJabc.def.",
+    ] {
+        assert_eq!(
+            redact_log_line(token),
+            token,
+            "invalid JWT-shaped token was over-redacted: {token:?}"
+        );
+    }
+}
+
+#[test]
+fn redact_log_line_recognizes_gcp_key_boundaries_and_alphabet() {
+    let min_key = format!("AIza{}", "a".repeat(31));
+    let max_key = format!("AIza{}", "Z".repeat(41));
+    let url_safe_key = format!("AIza{}_-", "9".repeat(29));
+    for token in [&min_key, &max_key, &url_safe_key] {
+        assert_eq!(
+            redact_log_line(token),
+            "[REDACTED]",
+            "valid GCP API key was not redacted: {token:?}"
+        );
+    }
+
+    let too_short = format!("AIza{}", "a".repeat(30));
+    let too_long = format!("AIza{}", "a".repeat(42));
+    let wrong_prefix = format!("AIzb{}", "a".repeat(31));
+    let invalid_char = format!("AIza{}!", "a".repeat(30));
+    for token in [&too_short, &too_long, &wrong_prefix, &invalid_char] {
+        assert_eq!(
+            redact_log_line(token),
+            token.as_str(),
+            "invalid GCP API key was over-redacted: {token:?}"
+        );
+    }
+}
