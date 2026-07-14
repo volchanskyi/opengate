@@ -210,9 +210,37 @@ fn round_centi(v: f64) -> f64 {
 
 #[cfg(all(test, feature = "bakeoff"))]
 mod tests {
-    use super::{Corpus, CorpusConfig};
+    use super::{round_centi, Corpus, CorpusConfig};
     use crate::append_only::AppendOnlyStore;
     use crate::substrate::{Durability, Substrate};
+
+    fn fingerprint_events(events: &[(u32, crate::sample::Sample)]) -> u64 {
+        events
+            .iter()
+            .fold(0xcbf2_9ce4_8422_2325, |hash, (series, sample)| {
+                series
+                    .to_le_bytes()
+                    .into_iter()
+                    .chain(sample.ts.to_le_bytes())
+                    .chain(sample.value.to_bits().to_le_bytes())
+                    .fold(hash, |hash, byte| {
+                        (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
+                    })
+            })
+    }
+
+    fn fingerprint_samples(samples: &[crate::sample::Sample]) -> u64 {
+        samples.iter().fold(0xcbf2_9ce4_8422_2325, |hash, sample| {
+            sample
+                .ts
+                .to_le_bytes()
+                .into_iter()
+                .chain(sample.value.to_bits().to_le_bytes())
+                .fold(hash, |hash, byte| {
+                    (hash ^ u64::from(byte)).wrapping_mul(0x100_0000_01b3)
+                })
+        })
+    }
 
     #[test]
     fn generation_is_deterministic_for_a_seed() {
@@ -226,6 +254,38 @@ mod tests {
         let b = Corpus::generate(cfg);
         assert_eq!(a.events, b.events);
         assert_eq!(a.sample_count(), 400);
+    }
+
+    #[test]
+    fn generated_fixture_matches_the_pinned_stream() {
+        let corpus = Corpus::generate(CorpusConfig {
+            seed: 0x0123_4567_89ab_cdef,
+            series: 8,
+            duration_secs: 512,
+            start_ts: 1_234_567,
+        });
+
+        assert_eq!(corpus.events.len(), 4_096);
+        assert_eq!(corpus.expected.len(), 8);
+        assert!(corpus.expected.iter().all(|series| series.len() == 512));
+        assert_eq!(
+            fingerprint_events(&corpus.events),
+            7_928_434_019_202_859_884
+        );
+    }
+
+    #[test]
+    fn rounding_is_stable_at_cent_boundaries() {
+        let cases = [
+            (0.004, 0.0),
+            (0.005, 0.01),
+            (12.344, 12.34),
+            (12.345, 12.35),
+            (99.999, 100.0),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(round_centi(input), expected, "input {input}");
+        }
     }
 
     #[test]
@@ -244,8 +304,40 @@ mod tests {
     }
 
     #[test]
+    fn prefix_replay_reports_the_bounded_event_count() {
+        let corpus = Corpus::generate(CorpusConfig {
+            seed: 9,
+            series: 2,
+            duration_secs: 5,
+            ..CorpusConfig::default()
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = AppendOnlyStore::open(dir.path()).unwrap();
+
+        assert_eq!(corpus.replay_prefix_into(&mut store, 3).unwrap(), 3);
+        assert_eq!(corpus.replay_prefix_into(&mut store, 100).unwrap(), 10);
+    }
+
+    #[test]
+    fn readback_assertion_rejects_missing_samples() {
+        let corpus = Corpus::generate(CorpusConfig {
+            seed: 11,
+            series: 1,
+            duration_secs: 2,
+            ..CorpusConfig::default()
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let store = AppendOnlyStore::open(dir.path()).unwrap();
+
+        let result = std::panic::catch_unwind(|| corpus.assert_readback(&store));
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn jumpy_series_is_non_monotonic() {
         let j = Corpus::jumpy_series();
+        assert_eq!(j.len(), 300);
+        assert_eq!(fingerprint_samples(&j), 10_004_485_525_278_665_930);
         assert!(
             j.windows(2).any(|w| w[1].ts < w[0].ts),
             "expected a backward step"

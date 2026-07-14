@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { useToastStore } from '../../../lib/feedback/toast-store';
 import { useDeviceStore } from './device-store';
 
 const mockPost = vi.fn();
 const mockGet = vi.fn();
 const mockDelete = vi.fn();
 const mockPatch = vi.fn();
+const addToast = vi.fn();
 
 vi.mock('../../../lib/api', () => ({
   api: {
@@ -20,6 +22,7 @@ const mockHardware = { device_id: 'd1', cpu_model: 'Intel', cpu_cores: 4, ram_to
 describe('device store', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useToastStore.setState({ addToast });
     useDeviceStore.setState({
       devices: [],
       groups: [],
@@ -322,6 +325,32 @@ describe('device store', () => {
     expect(useDeviceStore.getState().logsLoading).toBe(false);
   });
 
+  it('fetchLogs raises its dedicated loading flag before the broker responds', async () => {
+    let resolve!: (value: unknown) => void;
+    mockGet.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
+
+    const pending = useDeviceStore.getState().fetchLogs('d1');
+    expect(useDeviceStore.getState().logsLoading).toBe(true);
+
+    resolve({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
+    await pending;
+    expect(useDeviceStore.getState().logsLoading).toBe(false);
+  });
+
+  it.each([
+    [403, 'Viewing device logs requires administrator access.'],
+    [404, 'Logs unavailable — device offline or not found.'],
+    [409, 'A log request is already in progress for this device.'],
+    [504, 'The device did not return logs in time.'],
+    [500, 'Failed to fetch logs.'],
+  ])('fetchLogs reports the exact broker error for status %s', async (status, message) => {
+    mockGet.mockResolvedValueOnce({ data: undefined, response: { status } });
+
+    await useDeviceStore.getState().fetchLogs('d1');
+
+    expect(addToast).toHaveBeenCalledExactlyOnceWith(message, 'error');
+  });
+
   it.each([403, 404, 409, 504, 500])(
     'fetchLogs clears loading and leaves logs null on %s',
     async (status) => {
@@ -395,6 +424,10 @@ describe('device store', () => {
     await vi.runAllTimersAsync();
 
     expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(addToast).toHaveBeenCalledExactlyOnceWith(
+      'Failed to refresh hardware: network failure',
+      'error',
+    );
     vi.useRealTimers();
   });
 
@@ -409,6 +442,10 @@ describe('device store', () => {
     await vi.runAllTimersAsync();
 
     expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(addToast).toHaveBeenCalledExactlyOnceWith(
+      'Failed to refresh hardware: string rejection',
+      'error',
+    );
     vi.useRealTimers();
   });
 

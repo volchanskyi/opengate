@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { useDeviceStore } from './state/device-store';
 import { DeviceLogs } from './DeviceLogs';
 
@@ -29,6 +29,8 @@ describe('DeviceLogs', () => {
       fetchLogs: vi.fn(),
     });
   });
+
+  afterEach(() => { vi.useRealTimers(); });
 
   it('renders fetch button', () => {
     render(<DeviceLogs deviceId="d1" />);
@@ -115,6 +117,9 @@ describe('DeviceLogs', () => {
       offset: 300,
       limit: 300,
     }));
+
+    await user.click(screen.getByText('Load More'));
+    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ offset: 600 }));
   });
 
   it('passes level and search filters to fetchLogs', async () => {
@@ -203,6 +208,76 @@ describe('DeviceLogs', () => {
     expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({ level: 'ERROR', offset: 0 }));
   });
 
+  it('orders facets by exact count and renders their inactive colors', () => {
+    useDeviceStore.setState({
+      logs: {
+        entries: [
+          ...sampleLogs.entries,
+          { ...sampleLogs.entries[1]!, timestamp: 'w2' },
+          { ...sampleLogs.entries[1]!, timestamp: 'w3' },
+          { ...sampleLogs.entries[0]!, timestamp: 'i2' },
+        ],
+        total: 6,
+        has_more: false,
+      },
+    });
+    const { container } = render(<DeviceLogs deviceId="d1" />);
+
+    const facetRow = screen.getByRole('button', { name: 'WARN 3' }).parentElement!;
+    expect(within(facetRow).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'WARN 3', 'INFO 2', 'ERROR 1',
+    ]);
+    expect(screen.getByRole('button', { name: 'WARN 3' })).toHaveClass(
+      'bg-gray-700', 'hover:bg-gray-600', 'text-yellow-400',
+    );
+    expect(container.querySelectorAll('div.flex.items-center.gap-1.mb-2.flex-wrap')).toHaveLength(2);
+  });
+
+  it('toggles an active facet back to the all-level filter', async () => {
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs, logs: sampleLogs });
+    render(<DeviceLogs deviceId="d1" />);
+    const errorFacet = screen.getByRole('button', { name: 'ERROR 1' });
+
+    await userEvent.click(errorFacet);
+    expect(errorFacet).toHaveClass('bg-blue-600', 'text-white', 'text-red-400');
+    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ level: 'ERROR' }));
+
+    await userEvent.click(errorFacet);
+    expect(errorFacet).toHaveClass('bg-gray-700', 'hover:bg-gray-600', 'text-red-400');
+    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ level: undefined }));
+  });
+
+  it('omits the facet row when the page has no levels', () => {
+    useDeviceStore.setState({ logs: { entries: [], total: 0, has_more: false } });
+    const { container } = render(<DeviceLogs deviceId="d1" />);
+    expect(container.querySelectorAll('div.flex.items-center.gap-1.mb-2.flex-wrap')).toHaveLength(1);
+  });
+
+  it.each([
+    ['15m', '2026-07-14T18:45:00.000Z'],
+    ['1h', '2026-07-14T18:00:00.000Z'],
+    ['6h', '2026-07-14T13:00:00.000Z'],
+    ['24h', '2026-07-13T19:00:00.000Z'],
+  ])('maps the %s range to its exact UTC window', (label, from) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-14T19:00:00.000Z'));
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    render(<DeviceLogs deviceId="d1" />);
+
+    fireEvent.click(screen.getByRole('button', { name: label }));
+
+    expect(fetchLogs).toHaveBeenCalledExactlyOnceWith('d1', {
+      level: undefined,
+      search: undefined,
+      from,
+      to: '2026-07-14T19:00:00.000Z',
+      offset: 0,
+      limit: 300,
+    });
+  });
+
   it('correlation jump: a focusWindow pre-filters and fetches that window', () => {
     const fetchLogs = vi.fn();
     useDeviceStore.setState({ fetchLogs });
@@ -211,6 +286,54 @@ describe('DeviceLogs', () => {
       from: '2026-07-08T00:00:00Z',
       to: '2026-07-08T01:00:00Z',
       offset: 0,
+    }));
+  });
+
+  it('renders the exact focused-window label and refreshes the focus callback', async () => {
+    const fetchLogs = vi.fn();
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView');
+    useDeviceStore.setState({ fetchLogs });
+    const first = { from: '2026-07-08T00:00:00Z', to: '2026-07-08T01:00:00Z' };
+    const second = { from: '2026-07-09T02:00:00Z', to: '2026-07-09T03:30:00Z' };
+    const { rerender } = render(<DeviceLogs deviceId="d1" focusWindow={first} />);
+    await userEvent.selectOptions(screen.getByDisplayValue('All Levels'), 'ERROR');
+
+    rerender(<DeviceLogs deviceId="d2" focusWindow={second} />);
+
+    const label = `${new Date(second.from).toLocaleString()} – ${new Date(second.to).toLocaleString()}`;
+    expect(screen.getByRole('button', { name: `${label} ✕` })).toHaveAttribute('title', label);
+    expect(fetchLogs).toHaveBeenLastCalledWith('d2', {
+      level: 'ERROR',
+      search: undefined,
+      from: second.from,
+      to: second.to,
+      offset: 0,
+      limit: 300,
+    });
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'start' });
+  });
+
+  it('uses the current level for range selection, facet selection, and clearing', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-14T19:00:00.000Z'));
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs, logs: sampleLogs });
+    render(<DeviceLogs deviceId="d1" />);
+
+    fireEvent.change(screen.getByDisplayValue('All Levels'), { target: { value: 'ERROR' } });
+    fireEvent.click(screen.getByRole('button', { name: '1h' }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ level: 'ERROR' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'WARN 1' }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({
+      level: 'WARN',
+      from: '2026-07-14T18:00:00.000Z',
+      to: '2026-07-14T19:00:00.000Z',
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: /✕/ }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({
+      level: 'WARN', from: undefined, to: undefined,
     }));
   });
 

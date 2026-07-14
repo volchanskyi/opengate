@@ -36,8 +36,13 @@ describe('groupByFamily', () => {
   });
 
   it('files a name with no dot under "other"', () => {
-    const groups = groupByFamily([series({ name: 'uptime', avg: [1] })]);
-    expect(groups.get('other')).toHaveLength(1);
+    const groups = groupByFamily([
+      series({ name: 'uptime', avg: [1] }),
+      series({ name: '.hidden', avg: [2] }),
+      series({ name: 'cpu.', avg: [3] }),
+    ]);
+    expect(groups.get('other')?.map((s) => s.name)).toEqual(['uptime', '.hidden']);
+    expect(groups.get('cpu')?.map((s) => s.name)).toEqual(['cpu.']);
   });
 });
 
@@ -74,6 +79,14 @@ describe('buildFamilyChart', () => {
     // one band filling between the max (idx 3) and min (idx 2) series
     expect(chart.bands).toHaveLength(1);
     expect(chart.bands[0]!.series).toEqual([3, 2]);
+    expect(chart.bands[0]!.fill).toBe(`${FAMILY_PALETTE[0]}22`);
+    expect(chart.series[1]).toMatchObject({
+      label: 'cpu.util', stroke: FAMILY_PALETTE[0], width: 1.5, scale: 'y', spanGaps: false,
+    });
+    expect(chart.series[2]).toMatchObject({
+      label: 'cpu.util band', stroke: FAMILY_PALETTE[0], width: 0, scale: 'y', points: { show: false },
+    });
+    expect(chart.series[3]).toEqual(chart.series[2]);
   });
 
   it('assigns a stable palette colour per metric across the family', () => {
@@ -85,13 +98,45 @@ describe('buildFamilyChart', () => {
     expect(chart.series[2]!.stroke).toBe(FAMILY_PALETTE[1]);
   });
 
+  it('wraps the palette after its final colour', () => {
+    const metrics = Array.from({ length: FAMILY_PALETTE.length + 1 }, (_, i) =>
+      series({ name: `net.metric${String(i)}`, avg: [i] }));
+    const chart = buildFamilyChart([1000], metrics);
+    expect(chart.series[1]!.stroke).toBe(FAMILY_PALETTE[0]);
+    expect(chart.series[FAMILY_PALETTE.length + 1]!.stroke).toBe(FAMILY_PALETTE[0]);
+  });
+
+  it('does not draw a half band when either bound is absent', () => {
+    const chart = buildFamilyChart([1000], [
+      series({ name: 'cpu.util', avg: [10], min: [5], min_max_source: 'local' }),
+      series({ name: 'cpu.load', avg: [20], max: [25], min_max_source: 'avg_of_10s' }),
+    ]);
+    expect(chart.data).toHaveLength(3);
+    expect(chart.bands).toEqual([]);
+    expect(chart.series).toHaveLength(3);
+  });
+
   it('derives a finite y-scale range ignoring NaN gaps', () => {
-    const chart = buildFamilyChart([1000, 1010], [series({ name: 'cpu.util', avg: [10, null] })]);
-    expect(chart.scaleRange).not.toBeNull();
-    const [lo, hi] = chart.scaleRange!;
-    expect(Number.isFinite(lo)).toBe(true);
-    expect(Number.isFinite(hi)).toBe(true);
-    expect(lo).toBeLessThanOrEqual(10);
-    expect(hi).toBeGreaterThanOrEqual(10);
+    const chart = buildFamilyChart([1000, 1010, 1020, 1030], [
+      series({ name: 'cpu.util', avg: [10, null, Number.NaN, Number.POSITIVE_INFINITY] }),
+    ]);
+    expect(chart.scaleRange).toEqual([9, 11]);
+  });
+
+  it('pads a varying finite range by exactly five percent', () => {
+    const chart = buildFamilyChart([1000, 1010], [series({ name: 'cpu.util', avg: [10, 30] })]);
+    expect(chart.scaleRange).toEqual([9, 31]);
+  });
+
+  it('uses magnitude padding for a flat nonzero range', () => {
+    const chart = buildFamilyChart([1000], [series({ name: 'cpu.util', avg: [100] })]);
+    expect(chart.scaleRange).toEqual([95, 105]);
+  });
+
+  it('returns no scale when every sample is a gap or non-finite', () => {
+    const chart = buildFamilyChart([1000, 1010], [
+      series({ name: 'cpu.util', avg: [null, Number.NEGATIVE_INFINITY] }),
+    ]);
+    expect(chart.scaleRange).toBeNull();
   });
 });

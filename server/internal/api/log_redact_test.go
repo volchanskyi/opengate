@@ -73,7 +73,11 @@ func TestClampLogLimit(t *testing.T) {
 }
 
 func TestLogAuditDetails(t *testing.T) {
-	got := logAuditDetails(device.LogFilter{Level: "ERROR", Search: "secret", Offset: 20, Limit: 50})
+	got := logAuditDetails(device.LogFilter{
+		Level: "ERROR", From: "2026-07-14T00:00:00Z", To: "2026-07-14T01:00:00Z",
+		Search: "secret", Offset: 20, Limit: 50,
+	})
+	assert.Equal(t, "level=ERROR from=2026-07-14T00:00:00Z to=2026-07-14T01:00:00Z search_len=6 offset=20 limit=50", got)
 	assert.Contains(t, got, "level=ERROR")
 	assert.Contains(t, got, "offset=20")
 	assert.Contains(t, got, "limit=50")

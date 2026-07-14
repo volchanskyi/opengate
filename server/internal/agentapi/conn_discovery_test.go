@@ -191,3 +191,18 @@ func TestAgentConn_HandleDiscoveryReportIntervalFloorDrops(t *testing.T) {
 	require.Len(t, call.components, 1)
 	assert.Equal(t, "c", call.components[0].Name)
 }
+
+func TestAgentConn_AcceptDiscoveryPinsPayloadAndIntervalBoundaries(t *testing.T) {
+	ac := &AgentConn{}
+
+	assert.Equal(t, 1<<20, maxDiscoveryPayloadBytes)
+	assert.True(t, ac.acceptDiscovery(0, maxDiscoveryPayloadBytes))
+	assert.Nil(t, ac.telemetryLast, "a missing timestamp must not start interval tracking")
+
+	assert.True(t, ac.acceptDiscovery(100, maxDiscoveryPayloadBytes))
+	assert.False(t, ac.acceptDiscovery(129, maxDiscoveryPayloadBytes))
+	assert.True(t, ac.acceptDiscovery(130, maxDiscoveryPayloadBytes))
+	assert.Equal(t, int64(130), ac.telemetryLast[protocol.MsgDiscoveryReport])
+	assert.False(t, ac.acceptDiscovery(160, maxDiscoveryPayloadBytes+1))
+	assert.Equal(t, uint64(2), ac.DroppedTelemetryCount())
+}

@@ -153,6 +153,7 @@ func TestChooseStep(t *testing.T) {
 		{"one hour into 1000 points floors at 10s", time.Hour, 1000, 10},
 		{"seven days into 1000 points widens the bucket", 7 * 24 * time.Hour, 1000, 605},
 		{"tiny window still floors at raw cadence", time.Minute, 1000, 10},
+		{"exact division does not add an extra bucket second", 1000 * time.Second, 100, 10},
 		{"zero window falls back to raw cadence", 0, 1000, 10},
 	}
 	for _, tt := range tests {
