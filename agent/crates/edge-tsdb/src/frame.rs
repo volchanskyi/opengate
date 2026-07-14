@@ -271,6 +271,38 @@ mod tests {
     }
 
     #[test]
+    fn middle_payload_range_respects_record_and_payload_boundaries() {
+        let mut complete = Vec::new();
+        let complete_start = super::HEADER_LEN + 4;
+        write_data_record(&mut complete, 7, &[1]);
+        assert_eq!(
+            middle_data_payload_range(&complete),
+            Some(complete_start..complete_start + 1)
+        );
+
+        let mut truncated = complete.clone();
+        truncated.pop();
+        assert_eq!(middle_data_payload_range(&truncated), None);
+
+        let mut prefix_only = Vec::new();
+        write_data_record(&mut prefix_only, 7, &[]);
+        assert_eq!(middle_data_payload_range(&prefix_only), None);
+
+        let mut unknown = Vec::new();
+        super::write_record(&mut unknown, 99, &[1, 2, 3, 4, 5]);
+        assert_eq!(middle_data_payload_range(&unknown), None);
+
+        let mut two_records = Vec::new();
+        write_data_record(&mut two_records, 1, &[10]);
+        let second_start = two_records.len() + super::HEADER_LEN + 4;
+        write_data_record(&mut two_records, 2, &[20]);
+        assert_eq!(
+            middle_data_payload_range(&two_records),
+            Some(second_start..second_start + 1)
+        );
+    }
+
+    #[test]
     fn collect_series_filters_series_and_half_open_time_range() {
         let chunks = vec![
             Chunk {
