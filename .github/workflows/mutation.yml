@@ -55,25 +55,33 @@ jobs:
       # packages that re-pay schema setup per mutant.
       matrix:
         include:
-          # rust is sharded with `cargo mutants --shard k/n`. Edge Sentinel's
-          # local store and discovery growth pushed rust-2 through the 75min
-          # cap, so four shards restore headroom without dropping mutation scope.
-          - { language: rust, shard: rust-1, rust_shard: "0/4" }
-          - { language: rust, shard: rust-2, rust_shard: "1/4" }
-          - { language: rust, shard: rust-3, rust_shard: "2/4" }
-          - { language: rust, shard: rust-4, rust_shard: "3/4" }
+          # cargo-mutants defaults to consecutive slice sharding. Run
+          # 29300355420 proved those slices were badly runtime-imbalanced, so
+          # eight round-robin shards distribute expensive modules while keeping
+          # every mutant in scope.
+          - { language: rust, shard: rust-1, rust_shard: "0/8" }
+          - { language: rust, shard: rust-2, rust_shard: "1/8" }
+          - { language: rust, shard: rust-3, rust_shard: "2/8" }
+          - { language: rust, shard: rust-4, rust_shard: "3/8" }
+          - { language: rust, shard: rust-5, rust_shard: "4/8" }
+          - { language: rust, shard: rust-6, rust_shard: "5/8" }
+          - { language: rust, shard: rust-7, rust_shard: "6/8" }
+          - { language: rust, shard: rust-8, rust_shard: "7/8" }
           - { language: web }
           - { language: go, shard: go-api-core }
           - { language: go, shard: go-api-auth-admin }
           - { language: go, shard: go-api-devices }
           - { language: go, shard: go-api-lifecycle }
-          - { language: go, shard: go-agentapi }
+          - { language: go, shard: go-agentapi-core }
+          - { language: go, shard: go-agentapi-control }
+          - { language: go, shard: go-agentapi-telemetry }
           - { language: go, shard: go-data }
           - { language: go, shard: go-pure-1 }
           - { language: go, shard: go-pure-2 }
     runs-on: ubuntu-latest
     # 75min is a flat safety cap, not a target. File-level API units, isolated
-    # agentapi, and four Rust legs are sized for at least 10min of headroom.
+    # agentapi file groups, and round-robin Rust legs are sized for at least
+    # 10min of headroom.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
@@ -125,7 +133,7 @@ jobs:
         # that should clutter the Annotations panel on every nightly run.
         run: |
           cd agent
-          cargo mutants --workspace --shard ${{ matrix.rust_shard }} --no-shuffle --jobs 4 --annotations none || EXIT=$?
+          cargo mutants --workspace --shard ${{ matrix.rust_shard }} --sharding round-robin --no-shuffle --jobs 4 --annotations none || EXIT=$?
           # cargo-mutants exits non-zero when any mutant survives. For an
           # observability workflow that is expected; capture and continue.
           echo "cargo-mutants exit: ${EXIT:-0}"

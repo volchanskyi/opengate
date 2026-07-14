@@ -72,6 +72,28 @@ Current `dev` also contains the later WS-20 lifecycle implementation, including
 `internal/lifecycle`, `handlers_purge.go`, and `DataLifecycle.tsx`; no complete
 mutation run has measured that code yet.
 
+### 5. The first recovered dispatch exposed two remaining tail shards
+
+Workflow run
+[`29300355420`](https://github.com/volchanskyi/opengate/actions/runs/29300355420)
+validated the completeness contract and most of the new partition, but it was
+not complete:
+
+- All four API shards finished in 22–32 minutes, `go-data` in 7 minutes, and
+  `go-pure-1`/`go-pure-2` in 34/41 minutes.
+- `rust-1` and `rust-2` finished in 21/29 minutes, while the consecutive
+  `rust-3` and `rust-4` slices timed out. Cargo-mutants' default `slice`
+  sharding concentrated the expensive discovery/connection modules.
+- The isolated `go-agentapi` shard completed in 74m48s with 183 file-level
+  mutations, leaving no usable headroom.
+- The publish job uploaded and pushed `complete=false`, classified Rust 3/4 as
+  invalid, and skipped baseline restore, summarization, canonical artifact, and
+  score push. The no-partial-score contract therefore worked in a real timeout.
+
+The measured follow-up is eight Rust shards with explicit `round-robin`
+distribution and three balanced file-unit agent API shards. The implementation
+steps below incorporate that corrected map.
+
 ## Success criteria
 
 - Every expected Rust, Go, and Web shard completes within the existing 75-minute
@@ -95,8 +117,8 @@ mutation run has measured that code yet.
 ### Workflow and shell infrastructure
 
 - Modify [`.github/workflows/mutation.yml`](../../.github/workflows/mutation.yml)
-  - Expand Rust from two to four shards.
-  - Replace the current four Go shards with the unit-based shard map below.
+  - Expand Rust to eight round-robin shards.
+  - Use the ten-shard Go unit map below.
   - Derive publish expectations from the shard library where shell can do so.
   - Build and upload an always-present mutation status artifact.
   - Push incomplete-run/shard status metrics before summarization.
@@ -145,7 +167,8 @@ VictoriaMetrics decisions rather than changing them.
 Extend `scripts/tests/mutation-workflow.test.sh` before changing workflow or shell
 implementation:
 
-1. Require exactly four Rust matrix legs using `0/4`, `1/4`, `2/4`, and `3/4`.
+1. Require exactly eight Rust matrix legs using `0/8` through `7/8`, with
+   `--sharding round-robin`.
 2. Require workflow Go shard IDs to match `mutation_go_shards` exactly.
 3. Inventory every `server/**/*.go` non-test source:
    - each file is covered by exactly one `dir:` or `file:` mutation unit, or
@@ -175,14 +198,19 @@ All tests remain deterministic and always run; add no skip/focus markers.
 Change the Rust workflow matrix to:
 
 ```yaml
-- { language: rust, shard: rust-1, rust_shard: "0/4" }
-- { language: rust, shard: rust-2, rust_shard: "1/4" }
-- { language: rust, shard: rust-3, rust_shard: "2/4" }
-- { language: rust, shard: rust-4, rust_shard: "3/4" }
+- { language: rust, shard: rust-1, rust_shard: "0/8" }
+- { language: rust, shard: rust-2, rust_shard: "1/8" }
+- { language: rust, shard: rust-3, rust_shard: "2/8" }
+- { language: rust, shard: rust-4, rust_shard: "3/8" }
+- { language: rust, shard: rust-5, rust_shard: "4/8" }
+- { language: rust, shard: rust-6, rust_shard: "5/8" }
+- { language: rust, shard: rust-7, rust_shard: "6/8" }
+- { language: rust, shard: rust-8, rust_shard: "7/8" }
 ```
 
-Publish must expect all four outcome files. Do not raise the 75-minute cap or remove
-`edge-tsdb`; horizontal split is the recovery mechanism.
+Run cargo-mutants with `--sharding round-robin`. Publish must expect all eight
+outcome files. Do not raise the 75-minute cap or remove `edge-tsdb`; horizontal
+split and balanced distribution are the recovery mechanisms.
 
 #### Go
 
@@ -194,14 +222,16 @@ Use these eight shards:
 | `go-api-auth-admin` | `handlers_auth.go`, `handlers_users.go`, `handlers_groups.go`, `handlers_security_groups.go`, `handlers_security_group_members.go`, `handlers_audit.go`, `handlers_push.go` |
 | `go-api-devices` | `handlers_devices.go`, `handlers_device_actions.go`, `handlers_device_correlate.go`, `handlers_device_history.go`, `handlers_device_inventory.go`, `handlers_device_metrics.go`, `handlers_amt.go`, `handlers_relay.go`, `handlers_sessions.go` |
 | `go-api-lifecycle` | `handlers_enrollment.go`, `handlers_install.go`, `handlers_updates.go`, `handlers_purge.go` |
-| `go-agentapi` | `internal/agentapi/` |
+| `go-agentapi-core` | `conn.go`, `server.go`, `errors.go` |
+| `go-agentapi-control` | `backfill_scheduler.go`, `conn_backfill.go`, `conn_discovery.go`, `handshaker.go`, `deregister.go` |
+| `go-agentapi-telemetry` | `conn_telemetry.go`, `conn_logs.go`, `conn_history.go`, `alert_breach.go`, `alert_rules.go` |
 | `go-data` | `internal/auth/`, `internal/db/`, `internal/dbtx/`, `internal/device/`, `internal/inventory/`, `internal/lifecycle/`, `internal/session/`, `internal/audit/`, `internal/usecase/` |
 | `go-pure-1` | `internal/amt/`, `internal/updater/`, `internal/notifications/`, `internal/cert/` |
 | `go-pure-2` | `internal/protocol/`, `internal/correlate/`, `internal/telemetry/`, `internal/relay/`, `internal/metrics/`, `internal/signaling/`, `internal/testpg/`, `internal/testvm/`, `internal/osutil/`, `internal/clientapi/`, plus `tests/loadtest/` |
 
 Represent units as repository-relative paths:
 
-- `dir:internal/agentapi`
+- `file:internal/agentapi/conn.go`
 - `dir:tests/loadtest`
 - `file:internal/api/handlers_auth.go`
 
@@ -396,12 +426,13 @@ After all language scores clear the floor:
 
 ## Reviewer checklist
 
-- [ ] Rust matrix and publish expectations contain exactly `0/4..3/4`.
+- [ ] Rust matrix and publish expectations contain exactly `0/8..7/8` and use
+      round-robin distribution.
 - [ ] Workflow Go shard IDs match `mutation_go_shards`.
 - [ ] Every non-test Go source under `server/` is assigned once or explicitly excluded.
 - [ ] `tests/loadtest/soak*.go` is mutated once, not once per shard.
 - [ ] API units include both device history and purge handlers.
-- [ ] `agentapi` is isolated from the other database-backed Go packages.
+- [ ] `agentapi` is isolated into three non-empty file-unit shards.
 - [ ] Rust and Go merge scripts reject malformed/non-numeric inputs and write atomically.
 - [ ] Rust merge rejects `end_time: null`.
 - [ ] Incomplete runs upload and push status but never publish a canonical score row.

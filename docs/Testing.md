@@ -130,7 +130,9 @@ CI shard ids and Go source ownership live in
 [`mutation-shards.sh`](../scripts/lib/mutation-shards.sh). The behavioral guard in
 [`mutation-workflow.test.sh`](../scripts/tests/mutation-workflow.test.sh) requires
 every non-test Go source to belong to one mutation unit or an explicit carve-out,
-so shard reports can be merged without duplicate source counts.
+so shard reports can be merged without duplicate source counts. Rust uses the
+workflow's round-robin cargo-mutants shards to distribute expensive modules
+instead of grouping them into consecutive runtime-heavy slices.
 
 ### Mutation testing trend
 
