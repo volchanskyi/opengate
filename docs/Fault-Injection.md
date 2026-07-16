@@ -70,6 +70,16 @@ nginx configuration snippet; `504` is produced by a backend delay (Chaos Mesh)
 that exceeds the ingress proxy-read timeout. A reviewed-snippet 502 path is
 deferred until the ingress security contract is tightened.
 
+The templates and save/apply/restore tooling live in
+[`deploy/fault/ingress/`](../deploy/fault/ingress/) — driven by
+[`ingress-apply.sh`](../scripts/fault/ingress-apply.sh) and
+[`ingress-restore.sh`](../scripts/fault/ingress-restore.sh), which refuse any
+namespace but `opengate-staging` and restore the Ingress byte-identical (safe to
+re-run from a cleanup `trap`). The chart can never ship a fault annotation:
+[`policy/k8s/fault_injection.rego`](../policy/k8s/fault_injection.rego) denies any
+rendered manifest carrying a `fault.opengate.dev/…` key, checked against the
+production render in `make lint-k8s`.
+
 ## Harness action set
 
 | Action | Behavior asserted |

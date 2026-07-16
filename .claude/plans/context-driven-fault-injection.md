@@ -321,8 +321,8 @@ linked — they move on archive):
 - FI0 — `fi0-agentcontrol-seam.md`
 - FI1 — `fi1-fault-injection-spec.md`
 - FI2 — `fi2-application-injector.md`
-- FI3 — `fi3-helm-fault-config.md`
-- FI4 — `fi4-ingress-fault-profiles.md`
+- FI3 — `fi3-helm-fault-config.md` *(obsolete — superseded by the no-ship pivot, ADR-055; archived unimplemented. Its production-deny goal is met by `fault_noship_test.go` + FI4 + FI5.)*
+- FI4 — `fi4-ingress-fault-profiles.md` *(landed — archived; see phases.md Completed. 502=upstream-scale-to-zero, 504=timeout annotation + Chaos Mesh delay, staging-only, production-deny via namespace guard + `policy/k8s/fault_injection.rego`.)*
 - FI5 — `fi5-k8s-scenario-runner.md`
 - FI6 — `fi6-fault-ci-integration-docs.md`
 

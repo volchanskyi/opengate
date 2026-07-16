@@ -1,8 +1,8 @@
 # Micro-Plan FI4 — Ingress fault profiles (Option A, edge)
 
 **Master:** `context-driven-fault-injection.md` §11 (FI4), §3 (Edge), §7 (Edge 502/504), §14 open-item 2.
-**Branch:** `dev`. **Owner:** engineer (k8s/ingress + scripts). **Sequence:** after FI3. **Depends on:** FI3 (staging fault config exists) and a green staging deploy.
-**Status:** Ready after FI3.
+**Branch:** `dev`. **Owner:** engineer (k8s/ingress + scripts). **Sequence:** after the FI1 spec. **Depends on:** the settled FI1 edge contract ([`docs/Fault-Injection.md`](../../../docs/Fault-Injection.md)) + a green staging deploy. FI3 was obsoleted by the no-ship pivot (ADR-055) — there is no server-side staging fault config, and the 504 backend delay comes from Chaos Mesh (FI5), not the server.
+**Status:** Implemented (Go/shell TDD, gauntlet green); archived on the completing commit.
 
 ## Goal
 
@@ -16,9 +16,11 @@ annotations.
 - HTTP edge is ingress-nginx + cert-manager (ADR-030). Production + staging share
   one worker → fault annotations must target the **staging** Ingress only (master
   §4).
-- Master §14 open-item 2: prefer producing 504 via a **backend/upstream delay**
-  (FI2 `delay` exceeding the ingress timeout) over a critical-risk raw snippet;
-  502 via a reviewed, minimal annotation. Resolve which, and document it.
+- Master §14 open-item 2 is **settled** in [`docs/Fault-Injection.md`](../../../docs/Fault-Injection.md):
+  504 via a **backend/upstream delay** (Chaos Mesh, FI5) exceeding the ingress
+  proxy-read timeout — never a critical-risk raw snippet; 502 via **upstream
+  unavailability** (server Deployment scaled to zero), since the controller runs
+  with snippet annotations disabled. No reviewed-snippet path is used.
 
 ## File inventory
 

@@ -1,0 +1,9 @@
+{
+  "metadata": {
+    "annotations": {
+      "fault.opengate.dev/scenario": "edge-504-timeout",
+      "nginx.ingress.kubernetes.io/proxy-read-timeout": "5",
+      "nginx.ingress.kubernetes.io/proxy-send-timeout": "5"
+    }
+  }
+}
