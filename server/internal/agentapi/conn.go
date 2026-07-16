@@ -29,6 +29,13 @@ type AgentConn struct {
 	GroupID uuid.UUID
 	// OrgID is the authoritative organization resolved by the server.
 	OrgID uuid.UUID
+
+	// metaMu guards the four registration-reported fields below. handleRegister
+	// writes them on the read-loop goroutine while Meta()/requireCapability read
+	// them on HTTP goroutines; the guard closes that data race. Route every
+	// production read through Meta()/requireCapability and every write through
+	// setMeta so the lock is always held.
+	metaMu sync.RWMutex
 	// OS reported by the agent during registration.
 	OS string
 	// Arch reported by the agent during registration.
@@ -80,6 +87,42 @@ type AgentConn struct {
 	// interleave their (header, payload) pairs on the same QUIC stream and
 	// corrupt the frame seen by the agent.
 	writeMu sync.Mutex
+}
+
+// AgentMeta is a point-in-time snapshot of an agent's registration metadata. It
+// carries exactly the fields the update-eligibility filter reads, so the API
+// layer can consume agent metadata through a value type without depending on the
+// concrete *AgentConn.
+type AgentMeta struct {
+	DeviceID     protocol.DeviceID
+	OS           string
+	Arch         string
+	AgentVersion string
+}
+
+// Meta returns a consistent snapshot of the agent's registration metadata under
+// the metadata guard, so a concurrent handleRegister on the read-loop goroutine
+// cannot tear the read.
+func (a *AgentConn) Meta() AgentMeta {
+	a.metaMu.RLock()
+	defer a.metaMu.RUnlock()
+	return AgentMeta{
+		DeviceID:     a.DeviceID,
+		OS:           a.OS,
+		Arch:         a.Arch,
+		AgentVersion: a.AgentVersion,
+	}
+}
+
+// setMeta records the registration-reported OS, arch, version, and capabilities
+// under the metadata guard. It is the single write path for those fields.
+func (a *AgentConn) setMeta(osName, arch, version string, caps []protocol.AgentCapability) {
+	a.metaMu.Lock()
+	defer a.metaMu.Unlock()
+	a.OS = osName
+	a.Arch = arch
+	a.AgentVersion = version
+	a.Capabilities = caps
 }
 
 // AgentConnConfig bundles the dependencies an AgentConn needs. Promoted
@@ -136,7 +179,12 @@ func (a *AgentConn) sendControl(msg *protocol.ControlMessage) error {
 }
 
 func (a *AgentConn) requireCapability(cap protocol.AgentCapability) error {
-	for _, advertised := range a.Capabilities {
+	// setMeta replaces the slice wholesale rather than mutating it in place, so
+	// copying the header under the read lock and iterating outside is race-safe.
+	a.metaMu.RLock()
+	caps := a.Capabilities
+	a.metaMu.RUnlock()
+	for _, advertised := range caps {
 		if advertised == cap {
 			return nil
 		}
@@ -457,10 +505,9 @@ func (a *AgentConn) handleHardwareReport(ctx context.Context, msg *protocol.Cont
 }
 
 func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMessage) error {
-	a.Capabilities = msg.Capabilities
-	a.OS = osutil.NormalizeOS(msg.OS)
-	a.Arch = osutil.NormalizeArch(msg.Arch)
-	a.AgentVersion = msg.Version
+	osName := osutil.NormalizeOS(msg.OS)
+	arch := osutil.NormalizeArch(msg.Arch)
+	a.setMeta(osName, arch, msg.Version, msg.Capabilities)
 
 	caps := make([]string, len(msg.Capabilities))
 	for i, c := range msg.Capabilities {
@@ -471,7 +518,7 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 		ID:           a.DeviceID,
 		GroupID:      a.GroupID,
 		Hostname:     msg.Hostname,
-		OS:           a.OS,
+		OS:           osName,
 		OsDisplay:    msg.OS,
 		AgentVersion: msg.Version,
 		Capabilities: caps,

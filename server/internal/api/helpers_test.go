@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/amt/transport/wsman"
 	"github.com/volchanskyi/opengate/server/internal/auth"
@@ -24,25 +23,31 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// stubAgentGetter is a test double for AgentGetter.
+// stubAgentGetter is a test double for AgentGetter. It stores AgentControl values
+// (the consumer port), so a test can hold either a real *agentapi.AgentConn or a
+// hand-written fake.
 type stubAgentGetter struct {
-	agents map[protocol.DeviceID]*agentapi.AgentConn
+	agents map[protocol.DeviceID]AgentControl
 }
 
-func (s *stubAgentGetter) GetAgent(deviceID protocol.DeviceID) *agentapi.AgentConn {
+func (s *stubAgentGetter) GetAgent(deviceID protocol.DeviceID) AgentControl {
 	if s == nil || s.agents == nil {
 		return nil
 	}
-	return s.agents[deviceID]
+	ac, ok := s.agents[deviceID]
+	if !ok {
+		return nil
+	}
+	return ac
 }
 
 func (s *stubAgentGetter) DeregisterAgent(_ context.Context, _ protocol.DeviceID) {}
 
-func (s *stubAgentGetter) ListConnectedAgents() []*agentapi.AgentConn {
+func (s *stubAgentGetter) ListConnectedAgents() []AgentControl {
 	if s == nil || s.agents == nil {
 		return nil
 	}
-	agents := make([]*agentapi.AgentConn, 0, len(s.agents))
+	agents := make([]AgentControl, 0, len(s.agents))
 	for _, a := range s.agents {
 		agents = append(agents, a)
 	}
