@@ -17,6 +17,7 @@ Developer documentation for the OpenGate remote device management platform.
 | [Database](./Database.md) | PostgreSQL schema, driver, migrations, backups |
 | [Data Lifecycle](./Data-Lifecycle.md) | Right-to-be-forgotten erasure — tombstone deny-list, purge state machine, reconciliation sweep |
 | [Testing](./Testing.md) | Test layers, running tests, benchmarks |
+| [Fault Injection](./Fault-Injection.md) | Fault-tolerance harness — Go adapter-substitution suite, on-demand Chaos Mesh drills, ingress edge faults, scenario SLOs |
 | [Shell Quality](./Shell-Quality.md) | Pinned linting, formatting, execution classes, behavioral tests |
 | [CI Pipeline](./CI-Pipeline.md) | Workflows, job graph, branch protection, auto-merge |
 | [Continuous Deployment](./Continuous-Deployment.md) | CD pipeline, staging/production deploys, smoke tests, rollback |

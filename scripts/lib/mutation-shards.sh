@@ -31,7 +31,7 @@ mutation_all_shards() {
 # A CLI -E overrides server/.gremlins.yaml exclude-files, so every sharded run
 # must restate the generated code, entry points, and shared test scaffolding.
 mutation_go_global_excludes() {
-  echo 'openapi_gen\.go|cmd/meshserver/main\.go|tests/loadtest/main\.go|internal/testutil/'
+  echo 'openapi_gen\.go|cmd/meshserver/main\.go|tests/loadtest/main\.go|internal/testutil/|internal/faulttest/'
 }
 
 mutation_go_shard_units() {
