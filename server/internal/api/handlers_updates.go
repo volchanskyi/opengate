@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -94,9 +93,10 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 	eligible := s.eligibleAgents(request.Body.Os, request.Body.Arch, m.Version, targetSet)
 	pushed := 0
 	for _, agent := range eligible {
+		deviceID := agent.Meta().DeviceID
 		if err := agent.SendAgentUpdate(ctx, m.Version, m.URL, m.SHA256, m.Signature); err != nil {
 			s.logger.Warn("push update to agent failed",
-				"device_id", agent.DeviceID,
+				"device_id", deviceID,
 				"error", err)
 			continue
 		}
@@ -104,13 +104,13 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 
 		// Record pending update status for tracking.
 		du := &updater.DeviceUpdate{
-			DeviceID: agent.DeviceID,
+			DeviceID: deviceID,
 			Version:  m.Version,
 			Status:   updater.StatusPending,
 		}
 		if err := s.deviceUpdates.Create(ctx, du); err != nil {
 			s.logger.Warn("record device update failed",
-				"device_id", agent.DeviceID,
+				"device_id", deviceID,
 				"error", err)
 		}
 	}
@@ -123,18 +123,21 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 }
 
 // eligibleAgents returns connected agents that match os/arch, are not already
-// on the target version, and (optionally) belong to the target device ID set.
-func (s *Server) eligibleAgents(osName, arch, version string, targetSet map[string]struct{}) []*agentapi.AgentConn {
-	var eligible []*agentapi.AgentConn
+// on the target version, and (optionally) belong to the target device ID set. It
+// reads registration metadata through the AgentControl.Meta() port, so the guard
+// on those fields holds and the filter never touches the concrete conn.
+func (s *Server) eligibleAgents(osName, arch, version string, targetSet map[string]struct{}) []AgentControl {
+	var eligible []AgentControl
 	for _, agent := range s.agents.ListConnectedAgents() {
-		if osutil.NormalizeOS(agent.OS) != osName || osutil.NormalizeArch(agent.Arch) != arch {
+		meta := agent.Meta()
+		if osutil.NormalizeOS(meta.OS) != osName || osutil.NormalizeArch(meta.Arch) != arch {
 			continue
 		}
-		if agent.AgentVersion == version {
+		if meta.AgentVersion == version {
 			continue
 		}
 		if targetSet != nil {
-			if _, ok := targetSet[agent.DeviceID.String()]; !ok {
+			if _, ok := targetSet[meta.DeviceID.String()]; !ok {
 				continue
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
@@ -95,7 +96,9 @@ func TestGetDeviceHardware(t *testing.T) {
 		env := setupDeviceTest(t, true)
 		ac := env.srv.agents.GetAgent(env.device.ID)
 		require.NotNil(t, ac)
-		ac.Capabilities = nil
+		// The stored value is the concrete conn; reach its field to simulate an
+		// agent that never advertised the capability.
+		ac.(*agentapi.AgentConn).Capabilities = nil
 
 		w := doRequest(env.srv, http.MethodGet, "/api/v1/devices/"+env.device.ID.String()+"/hardware", env.ownerToken, nil)
 		assert.Equal(t, http.StatusNotFound, w.Code)

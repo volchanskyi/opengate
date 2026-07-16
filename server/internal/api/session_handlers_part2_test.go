@@ -134,7 +134,7 @@ func newCreateSessionEnv(t *testing.T) createSessionEnv {
 	d := testutil.SeedDevice(t, ctx, store, group.ID)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	ac := agentapi.NewAgentConn(agentapi.AgentConnConfig{DeviceID: d.ID, GroupID: group.ID, Stream: &agentStream, Devices: testutil.NewTestDevices(t, store), Hardware: testutil.NewTestHardware(t, store), DeviceUpdates: testutil.NewTestDeviceUpdates(t, store), Logger: logger})
-	lookup := &stubAgentGetter{agents: map[protocol.DeviceID]*agentapi.AgentConn{d.ID: ac}}
+	lookup := &stubAgentGetter{agents: map[protocol.DeviceID]AgentControl{d.ID: ac}}
 	srv, cfg := newTestServerWithStoreAndAgents(t, store, lookup, relay.NewRelay(slog.Default()))
 	jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
 	require.NoError(t, err)

@@ -259,7 +259,7 @@ func main() {
 		Sessions:              sessionsRepo,
 		Users:                 usersRepo,
 		JWT:                   jwtCfg,
-		Agents:                agentSrv,
+		Agents:                agentControlGetter{srv: agentSrv},
 		AMT:                   amtSvc,
 		Cert:                  certMgr,
 		Correlate:             correlationEngine,
@@ -342,6 +342,37 @@ func main() {
 	}
 
 	logger.Info("server stopped")
+}
+
+// agentControlGetter adapts *agentapi.AgentServer to api.AgentGetter. The server's
+// getters return the concrete *agentapi.AgentConn while the api port speaks the
+// api.AgentControl interface; Go has no covariant return types and agentapi cannot
+// import api (that would cycle), so the composition root bridges the two here. A
+// missing agent's typed-nil *AgentConn is converted to an interface nil so the
+// handlers' `ac == nil` checks still fire.
+type agentControlGetter struct {
+	srv *agentapi.AgentServer
+}
+
+func (g agentControlGetter) GetAgent(deviceID db.DeviceID) api.AgentControl {
+	ac := g.srv.GetAgent(deviceID)
+	if ac == nil {
+		return nil // typed-nil *AgentConn → interface nil
+	}
+	return ac
+}
+
+func (g agentControlGetter) ListConnectedAgents() []api.AgentControl {
+	conns := g.srv.ListConnectedAgents()
+	out := make([]api.AgentControl, 0, len(conns))
+	for _, ac := range conns {
+		out = append(out, ac)
+	}
+	return out
+}
+
+func (g agentControlGetter) DeregisterAgent(ctx context.Context, deviceID db.DeviceID) {
+	g.srv.DeregisterAgent(ctx, deviceID)
 }
 
 // purgeDeps groups the dependencies buildPurgeOrchestrator wires, keeping the

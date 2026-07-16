@@ -28,6 +28,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/inventory"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
@@ -38,10 +39,33 @@ import (
 
 //go:generate oapi-codegen -config ../../oapi-codegen.yaml ../../api/openapi.yaml
 
+// AgentControl is the api package's port over a connected agent. It is exactly
+// the surface the HTTP handlers use: the four control-writes, the two
+// synchronous request/response reads, and a metadata snapshot. Depending on this
+// consumer-defined interface instead of the concrete *agentapi.AgentConn lets a
+// test harness substitute a fault-decorating implementation for the
+// agent.control-write scenario without compiling fault code into the server.
+type AgentControl interface {
+	// Control-writes (server → agent). The capability-gated sends return a typed
+	// capability error the handlers detect via agentapi.IsCapabilityError.
+	SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions) error
+	SendAgentUpdate(ctx context.Context, version, url, sha256, signature string) error
+	SendRestartAgent(ctx context.Context, reason string) error
+	SendRequestHardwareReport(ctx context.Context) error
+
+	// Synchronous request/response reads (server → agent → server): each sends a
+	// request and blocks for the agent's bounded response.
+	RequestLogsSync(ctx context.Context, filter device.LogFilter) ([]device.LogEntry, int, error)
+	RequestLocalHistorySync(ctx context.Context, dim string, fromTS, toTS int64, maxPoints uint32) ([]protocol.HistoryPoint, bool, error)
+
+	// Meta returns a consistent snapshot of the agent's registration metadata.
+	Meta() agentapi.AgentMeta
+}
+
 // AgentGetter finds connected agents by device ID or lists all.
 type AgentGetter interface {
-	GetAgent(deviceID db.DeviceID) *agentapi.AgentConn
-	ListConnectedAgents() []*agentapi.AgentConn
+	GetAgent(deviceID db.DeviceID) AgentControl
+	ListConnectedAgents() []AgentControl
 	DeregisterAgent(ctx context.Context, deviceID db.DeviceID)
 }
 

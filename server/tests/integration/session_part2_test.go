@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/api"
@@ -17,6 +18,33 @@ import (
 	"testing"
 	"time"
 )
+
+// serverAgentGetter bridges the concrete *agentapi.AgentServer to api.AgentGetter
+// for this integration composition root — the same conversion main.go's
+// production adapter performs, including turning a missing agent's typed-nil
+// *AgentConn into an interface nil so handler `ac == nil` checks still fire.
+type serverAgentGetter struct{ srv *agentapi.AgentServer }
+
+func (g serverAgentGetter) GetAgent(deviceID uuid.UUID) api.AgentControl {
+	ac := g.srv.GetAgent(deviceID)
+	if ac == nil {
+		return nil
+	}
+	return ac
+}
+
+func (g serverAgentGetter) ListConnectedAgents() []api.AgentControl {
+	conns := g.srv.ListConnectedAgents()
+	out := make([]api.AgentControl, 0, len(conns))
+	for _, ac := range conns {
+		out = append(out, ac)
+	}
+	return out
+}
+
+func (g serverAgentGetter) DeregisterAgent(ctx context.Context, deviceID uuid.UUID) {
+	g.srv.DeregisterAgent(ctx, deviceID)
+}
 
 func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	t.Helper()
@@ -72,7 +100,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
 		JWT:            jwtCfg,
-		Agents:         agentSrv,
+		Agents:         serverAgentGetter{srv: agentSrv},
 		Relay:          r,
 		Signaling:      sigTracker,
 		Notifier:       &notifications.NoopNotifier{},
