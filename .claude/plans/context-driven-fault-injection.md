@@ -323,7 +323,7 @@ linked — they move on archive):
 - FI2 — `fi2-application-injector.md`
 - FI3 — `fi3-helm-fault-config.md` *(obsolete — superseded by the no-ship pivot, ADR-055; archived unimplemented. Its production-deny goal is met by `fault_noship_test.go` + FI4 + FI5.)*
 - FI4 — `fi4-ingress-fault-profiles.md` *(landed — archived; see phases.md Completed. 502=upstream-scale-to-zero, 504=timeout annotation + Chaos Mesh delay, staging-only, production-deny via namespace guard + `policy/k8s/fault_injection.rego`.)*
-- FI5 — `fi5-k8s-scenario-runner.md`
+- FI5 — `fi5-k8s-scenario-runner.md` *(landed — archived; see phases.md Completed. C1 pod-delete + C2 bad-rollout as direct `kubectl`/`helm` runner scripts, staging-only, evidence-capturing.)*
 - FI6 — `fi6-fault-ci-integration-docs.md`
 
 The summaries below are the master-level description of each workstream:
