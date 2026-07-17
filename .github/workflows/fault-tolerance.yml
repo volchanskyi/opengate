@@ -1,0 +1,139 @@
+name: Fault Tolerance Drills
+
+# Deployed fault-tolerance drills against the opengate-staging namespace.
+# The shipped server binary carries no fault code: every fault here is injected
+# out-of-band by the staging-only runner scripts in scripts/fault/. The
+# in-process app-fault suite gates separately as an ordinary Go test in CI
+# (make test) — this workflow owns only the deployed drills.
+#
+# Reachable two ways:
+#   * workflow_call — invoked by cd.yml after staging E2E, gated by the
+#     STAGING_FAULT_TESTS repo variable, so activation is config-only.
+#   * workflow_dispatch — a manual drill against staging.
+#
+# The scenario is always one of an enumerated allow-list; a runtime guard
+# re-validates it so the workflow_call string path (a repo variable) can never
+# smuggle a free-form scenario into staging. Deeper on-demand network drills are
+# run manually from their own tooling, never wired into this gating path.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Staging fault scenario to run"
+        required: true
+        type: choice
+        default: pod-delete
+        options:
+          - pod-delete
+          - bad-rollout
+          - ingress-504
+          - ingress-502
+  workflow_call:
+    inputs:
+      scenario:
+        description: "Staging fault scenario to run (one of the enumerated allow-list)"
+        required: true
+        type: string
+    secrets:
+      OCI_TENANCY_OCID:
+        required: true
+      OCI_USER_OCID:
+        required: true
+      OCI_FINGERPRINT:
+        required: true
+      OCI_PRIVATE_KEY:
+        required: true
+      OCI_REGION:
+        required: true
+      OKE_CLUSTER_ID:
+        required: true
+
+# Only one staging fault run at a time — overlapping drills would fight over the
+# shared single worker and corrupt each other's evidence/cleanup.
+concurrency:
+  group: fault-tolerance-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  drill:
+    name: Staging fault drill
+    runs-on: ubuntu-latest
+    environment: staging
+    # Longer than the longest bounded scenario: bad-rollout is a failing helm
+    # upgrade (90s) + rollback + rollout verify (2x180s SLO) plus image pulls.
+    timeout-minutes: 20
+    env:
+      NAMESPACE: opengate-staging
+      RELEASE: opengate-staging
+      SCENARIO: ${{ inputs.scenario }}
+      EVIDENCE_DIR: ${{ github.workspace }}/fault-evidence
+    steps:
+      - uses: actions/checkout@v7
+
+      # Defence-in-depth over the choice-typed dispatch input: workflow_call
+      # receives scenario as a free string (a repo variable), so re-validate it
+      # here against the enumerated allow-list before touching the cluster.
+      - name: Guard enumerated scenario
+        run: |
+          case "$SCENARIO" in
+            pod-delete | bad-rollout | ingress-504 | ingress-502) ;;
+            *)
+              echo "::error::unknown or non-gating fault scenario '$SCENARIO'"
+              echo "allowed: pod-delete, bad-rollout, ingress-504, ingress-502"
+              exit 1
+              ;;
+          esac
+          echo "Running staging fault scenario: $SCENARIO"
+
+      - name: OCI + kubeconfig setup
+        uses: ./.github/actions/oci-kube-setup
+        with:
+          oci-tenancy: ${{ secrets.OCI_TENANCY_OCID }}
+          oci-user: ${{ secrets.OCI_USER_OCID }}
+          oci-fingerprint: ${{ secrets.OCI_FINGERPRINT }}
+          oci-private-key: ${{ secrets.OCI_PRIVATE_KEY }}
+          oci-region: ${{ secrets.OCI_REGION }}
+          cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
+
+      - name: Run fault scenario
+        run: |
+          mkdir -p "$EVIDENCE_DIR"
+          case "$SCENARIO" in
+            pod-delete) scripts/fault/pod-delete.sh ;;
+            bad-rollout) scripts/fault/bad-rollout.sh ;;
+            ingress-504) scripts/fault/ingress-apply.sh edge-504 ;;
+            ingress-502) scripts/fault/ingress-apply.sh edge-502 ;;
+          esac
+
+      # Every failure path removes fault resources and verifies no residue.
+      # pod-delete and bad-rollout self-clean via their own traps; the ingress
+      # scenarios are reverted here (restore is idempotent — a no-op with no
+      # saved state), then the staging Ingress is asserted free of any fault
+      # annotation so a partial apply can never leave staging degraded.
+      - name: Restore fault + verify no residue
+        if: always()
+        run: |
+          case "$SCENARIO" in
+            ingress-504) scripts/fault/ingress-restore.sh edge-504 ;;
+            ingress-502) scripts/fault/ingress-restore.sh edge-502 ;;
+          esac
+          residue="$(kubectl get ingress "$RELEASE" -n "$NAMESPACE" \
+            -o jsonpath='{.metadata.annotations}' 2>/dev/null || true)"
+          if printf '%s' "$residue" | grep -q 'fault.opengate.dev'; then
+            echo "::error::fault annotation residue left on ingress/$RELEASE"
+            exit 1
+          fi
+          echo "No fault residue on the staging Ingress."
+
+      - name: Upload drill evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fault-evidence-${{ inputs.scenario }}
+          path: ${{ env.EVIDENCE_DIR }}
+          if-no-files-found: warn
+          retention-days: 30
