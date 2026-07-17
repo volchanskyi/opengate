@@ -54,11 +54,26 @@ non-gating.
 |---|---|
 | server↔Postgres / server↔relay latency and abort | `NetworkChaos` |
 | QUIC/UDP agent path; packet loss / corrupt / reorder / partition (D1) | `NetworkChaos` |
-| single-pod deletion | `PodChaos` (k8s-API only, no daemon) |
 | CPU / memory pressure | `StressChaos` |
 
-Bad-rollout + Helm rollback is driven by the scenario runner's scripts, not a
-Chaos Mesh CR.
+### Kubernetes scenario runner (C1/C2, deployed)
+
+Single-pod deletion and bad-rollout are driven by idempotent, staging-only runner
+scripts — a direct `kubectl`/`helm` fault needs no Chaos Mesh controller:
+
+- **Pod deletion (C1)** — [`scripts/fault/pod-delete.sh`](../scripts/fault/pod-delete.sh)
+  deletes the staging server pod by the exact selector
+  `app.kubernetes.io/instance=<release>,app.kubernetes.io/component=server` and
+  asserts the Deployment returns a Ready replacement within the pod-recreation SLO.
+- **Bad rollout (C2)** — [`scripts/fault/bad-rollout.sh`](../scripts/fault/bad-rollout.sh)
+  deploys a deliberately-failing revision (a nonexistent `image.tag`), asserts the
+  rollout fails readiness, then `helm rollback`s and asserts the prior image is
+  healthy within the rollback SLO. A `trap` safety net rolls back even on
+  interruption, so staging never lingers on the bad revision.
+
+Both refuse any namespace but `opengate-staging` and capture evidence
+(`kubectl get events`, rollout status, pod state) to `EVIDENCE_DIR` for the drill
+artifacts.
 
 ### Ingress surface (edge)
 
@@ -69,6 +84,16 @@ scaled to zero / pointed at a dead service), not by a reviewed critical-risk
 nginx configuration snippet; `504` is produced by a backend delay (Chaos Mesh)
 that exceeds the ingress proxy-read timeout. A reviewed-snippet 502 path is
 deferred until the ingress security contract is tightened.
+
+The templates and save/apply/restore tooling live in
+[`deploy/fault/ingress/`](../deploy/fault/ingress/) — driven by
+[`ingress-apply.sh`](../scripts/fault/ingress-apply.sh) and
+[`ingress-restore.sh`](../scripts/fault/ingress-restore.sh), which refuse any
+namespace but `opengate-staging` and restore the Ingress byte-identical (safe to
+re-run from a cleanup `trap`). The chart can never ship a fault annotation:
+[`policy/k8s/fault_injection.rego`](../policy/k8s/fault_injection.rego) denies any
+rendered manifest carrying a `fault.opengate.dev/…` key, checked against the
+production render in `make lint-k8s`.
 
 ## Harness action set
 
@@ -110,7 +135,8 @@ digest are implemented by the scenario runner.
 ## Scenario catalog and expected outcomes
 
 Executor legend: **H** = Go harness (in-process) · **CM** = Chaos Mesh
-(on-demand, staging) · **IG** = ingress annotations.
+(on-demand, staging) · **IG** = ingress annotations · **RUN** = scenario runner
+script ([`scripts/fault/`](../scripts/fault/)).
 
 | Scenario | Executor | Expected outcome | Recovery budget |
 |---|---|---|---|
@@ -124,8 +150,8 @@ Executor legend: **H** = Go harness (in-process) · **CM** = Chaos Mesh
 | Deployed DB/relay latency | CM `NetworkChaos` | Real-pod dependency delay bounded; the pool/driver recovers after the fault clears. | ≤ 60 s after clear |
 | Edge 502 | IG | Public client gets the configured status; cleanup restores `2xx`. | on restore |
 | Edge 504 | IG + CM | Backend delay exceeds the ingress timeout; public client times out; cleanup restores `2xx`. | on restore |
-| Pod deletion | CM `PodChaos` | Replacement pod ready within the **120 s** SLO; clients reconnect. | **≤ 120 s** |
-| Bad rollout | runner script | Rollout fails readiness; Helm rollback restores the prior image healthy. | ≤ 180 s rollback |
+| Pod deletion | RUN | Replacement pod ready within the **120 s** SLO; clients reconnect. | **≤ 120 s** |
+| Bad rollout | RUN | Rollout fails readiness; Helm rollback restores the prior image healthy. | ≤ 180 s rollback |
 | Packet loss / partition + QUIC (D1) | CM `NetworkChaos` | Reconnect/backoff within budget; no data loss; recovers after the fault clears. | ≤ 60 s after clear |
 
 ### Recovery SLO budgets

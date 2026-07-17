@@ -1,8 +1,8 @@
 # Micro-Plan FI5 — Kubernetes scenario runner (Option C, reduced)
 
 **Master:** `context-driven-fault-injection.md` §11 (FI5), §3 (Kubernetes C1/C2), §7, §8, §14 (SLOs).
-**Branch:** `dev`. **Owner:** engineer (k8s + scripts). **Sequence:** after FI4. **Depends on:** FI3 (staging deploy) and FI1 (measured reconnect/rollback SLOs).
-**Status:** Ready after FI4.
+**Branch:** `dev`. **Owner:** engineer (k8s + scripts). **Sequence:** after FI4. **Depends on:** a green staging deploy + the FI1 recovery-SLO budgets ([`docs/Fault-Injection.md`](../../../docs/Fault-Injection.md)). (FI3 is obsolete — no server-side fault config; C1 is a direct `kubectl delete` runner, not Chaos Mesh PodChaos, so no controller is needed; SLOs use FI1's initial-generous budgets, not yet-unmeasured p95.)
+**Status:** Implemented (shell TDD, gauntlet green); archived on the completing commit.
 
 ## Goal
 

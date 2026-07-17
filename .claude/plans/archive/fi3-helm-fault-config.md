@@ -1,5 +1,16 @@
 # Micro-Plan FI3 — Helm configuration & production-deny
 
+> **Status: Obsolete — superseded by the no-ship pivot ([ADR-055](../../../docs/adr/ADR-055-fault-injection-mechanism.md)). Never implemented; retained for history.**
+> This micro-plan targeted the abandoned compiled-in-injector model — a server-side
+> `faultInjection` env block plus a `FAULT_INJECTION_TOKEN`. Under ADR-055 the shipped
+> binary carries **zero** fault code, so there is no server fault env to wire or to deny,
+> and FI2 ([`faulttest`](../../../server/internal/faulttest/)) consumes nothing from env.
+> FI3's production-deny goal is met **by construction**:
+> [`fault_noship_test.go`](../../../server/tests/integration/fault_noship_test.go) proves
+> the production build graph excludes `faulttest`. Deployed-fault production-deny lives in
+> FI4 (ingress annotations, staging-only) and FI5 (Chaos Mesh namespace scope +
+> production-pod-exclusion guard). Everything below is the pre-pivot text.
+
 **Master:** `context-driven-fault-injection.md` §11 (FI3), §5 (Helm enablement), §13.
 **Branch:** `dev`. **Owner:** engineer (Helm + Go). **Sequence:** after FI2. **Depends on:** FI2 (the server reads the enable flag/profiles from env).
 **Status:** Ready after FI2.
@@ -12,8 +23,8 @@ policy/template test, not just convention.
 
 ## Context (verified)
 
-- Chart: [`deploy/helm/opengate`](../../deploy/helm/opengate) (ADR-030); staging
-  values [`values-staging.yaml`](../../deploy/helm/opengate/values-staging.yaml);
+- Chart: [`deploy/helm/opengate`](../../../deploy/helm/opengate) (ADR-030); staging
+  values [`values-staging.yaml`](../../../deploy/helm/opengate/values-staging.yaml);
   rendered-manifest validation runs through `make lint-k8s`.
 - Production and staging share **one** worker; the production server binds the
   QUIC/MPS host ports — fault config must target the **staging** namespace only

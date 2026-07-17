@@ -763,6 +763,11 @@ jobs:
 
       # Terraform linting
       - uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a # v6
+        with:
+          # Authenticate the tflint release download so it uses the 5000/hr token
+          # budget instead of the 60/hr anonymous limit (anonymous fetches
+          # intermittently get an HTML rate-limit page instead of the binary).
+          github_token: ${{ secrets.GITHUB_TOKEN }}
       - name: Tflint init (with retry)
         run: |
           set -e
