@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.59.0] - 2026-07-17
+
+### Added
+- **fault:** FI5 k8s scenario runner (C1 pod-delete, C2 bad-rollout); fix CI Config Lint
+- **fault:** FI4 ingress edge fault profiles; retire obsolete FI3
+
 ## [v0.58.0] - 2026-07-16
 
 ### Added
