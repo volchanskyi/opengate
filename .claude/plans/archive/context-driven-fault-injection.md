@@ -3,7 +3,7 @@
 **Type:** Master plan, **FI-lite scope**. To be broken into micro-plans
 (FI0–FI6) per the master→micro-plan flow.
 **Status:** **Ready to break into micro-plans.** The hard prerequisite —
-[`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md) — is
+[`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md) — is
 **complete** (phases.md, "Dormant Multi-Replica Teardown"): one server replica,
 local relay pairing, the slim in-process `SessionRegistry`, no
 Redis/Sentinel/peer-proxy/KEDA/PDB/multi-node L4. This plan is written against
@@ -17,7 +17,7 @@ standalone review document has been removed now that its feedback is captured):
 
 1. **Stale gate** — fixed: header de-staled to the completed teardown.
 2. **`agent.control-write` is not a wrap-ready port** — confirmed
-   ([api.go](../../server/internal/api/api.go) returns concrete
+   ([api.go](../../../server/internal/api/api.go) returns concrete
    `*agentapi.AgentConn`; handlers call concrete `Send*`). An **`AgentControl`
    interface seam is now in scope** as workstream **FI0**, sequenced before FI2.
 3. **Smoke gate too disruptive** — resolved: promotion gates **only**
@@ -40,7 +40,7 @@ standalone review document has been removed now that its feedback is captured):
 Settled with the user before drafting (do not re-litigate without the user):
 
 1. **Teardown first.** This plan is **sequenced after**
-   [`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md). The
+   [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md). The
    multi-replica machinery (Redis/Sentinel registry, cross-server proxy, KEDA,
    PDB, multi-node L4) is being **deleted** as free-tier YAGNI. Therefore every
    scenario that only existed to chaos-test that machinery is **out of scope
@@ -68,7 +68,7 @@ Settled with the user before drafting (do not re-litigate without the user):
    by a named profile + scenario ID in controlled headers, but the
    fault-selecting listener is bound to a **cluster-internal path only** —
    reachable via the CI `kubectl port-forward` already used for staging smoke
-   tests ([cd.yml](../../.github/workflows/cd.yml)), never routed from the
+   tests ([cd.yml](../../../.github/workflows/cd.yml)), never routed from the
    public staging Ingress. Keeps per-request isolation (a faulted request spares
    a concurrent unselected one) without exposing a public chaos control plane.
    The bearer token stays as defence-in-depth. Rejected: Model B (public
@@ -147,19 +147,19 @@ production down.
 ## 4. Architectural constraints (verified)
 
 - chi middleware stack confirmed at
-  [`api.go:233-270`](../../server/internal/api/api.go#L233-L270): `Recoverer` at
+  [`api.go:233-270`](../../../server/internal/api/api.go#L233-L270): `Recoverer` at
   the top; `RequestTimeout(30s)` + `RateLimiter` apply **only** inside the API
   group. WebSocket routes sit **outside** `RequestTimeout`
-  ([`middleware.go:17-24`](../../server/internal/api/middleware.go#L17-L24),
+  ([`middleware.go:17-24`](../../../server/internal/api/middleware.go#L17-L24),
   which documents that `http.TimeoutHandler` is not a `Hijacker`). The injector
   slots in **after** `RequestTimeout` in the API group, with a **separate**
   selector at the WebSocket route.
 - Module dependencies are ports in `ServerConfig`; fault behavior **wraps ports**
   at the composition root — domain packages stay unaware of fault injection.
 - Staging deploys through the OKE job in
-  [`cd.yml`](../../.github/workflows/cd.yml); staging server + Postgres are
+  [`cd.yml`](../../../.github/workflows/cd.yml); staging server + Postgres are
   ephemeral in
-  [`values-staging.yaml`](../../deploy/helm/opengate/values-staging.yaml).
+  [`values-staging.yaml`](../../../deploy/helm/opengate/values-staging.yaml).
 - Production and staging share **one** worker; the production server binds the
   QUIC and MPS host ports — so infra faults must target only the **staging**
   namespace and never the shared node.
@@ -223,7 +223,7 @@ composition root:
 - `notifications.dispatch`
 - `amt.operator`
 - `agent.control-write` — **blocked on FI0**: today the API holds a concrete
-  `*agentapi.AgentConn` ([api.go](../../server/internal/api/api.go),
+  `*agentapi.AgentConn` ([api.go](../../../server/internal/api/api.go),
   handlers call concrete `Send*`), so this point is only wrappable once FI0
   lands the `AgentControl` interface seam.
 - `websocket.before-upgrade`
@@ -363,7 +363,7 @@ The summaries below are the master-level description of each workstream:
 
 ## 12. Sequencing & risk
 
-- **Prerequisite met:** [`dormant-scale-out-teardown.md`](archive/dormant-scale-out-teardown.md)
+- **Prerequisite met:** [`dormant-scale-out-teardown.md`](dormant-scale-out-teardown.md)
   is complete, so the deleted fault points (`relay.peer-dial`, Redis) are
   already out of this plan.
 - Order: FI0 (`AgentControl` seam) → FI1 (spec/ADR + mechanism choice) → FI2

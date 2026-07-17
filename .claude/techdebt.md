@@ -94,6 +94,29 @@ resuming (`DidResume`).
 
 ## Severity: Low
 
+### Deployed fault drills wired but not yet activated live; on-demand network drills deferred
+
+FI6 wired the deployed fault drills into staging CD
+([`fault-tolerance.yml`](../.github/workflows/fault-tolerance.yml) invoked from
+[`cd.yml`](../.github/workflows/cd.yml)), but activation is config-only and off:
+the `STAGING_FAULT_TESTS` repository variable is unset, so the drill stage is
+skipped and has not yet run against the live cluster. Two follow-ups remain:
+
+1. **Activate + prove live.** Verify the live node scrape (`up`, node-exporter,
+   `/metrics`, ingress logs) in VictoriaMetrics, then set `STAGING_FAULT_TESTS=true`
+   (optionally `STAGING_FAULT_PROFILE`) and confirm a green first drill run with
+   evidence uploaded. Only then does the gate actually protect promotion.
+2. **On-demand network drills stay deferred.** Packet loss/corrupt/partition on
+   the QUIC path (a privileged CRI-O daemon for one pod) is disproportionate
+   today and is never wired into the gating path; the runner surface covers
+   pod-delete, bad-rollout, and ingress edge only. Build the network drill
+   tooling only when a storm/lossy-network scenario needs it (see
+   [Fault-Injection](../docs/Fault-Injection.md)).
+
+**Pay-down trigger:** node scrape verified live + `STAGING_FAULT_TESTS` enabled
+with a green drill run recorded; the network-drill item closes only if/when a
+lossy-network scenario is actually needed.
+
 ### Edge-Sentinel audited command-line redaction not wired into sampler output
 
 `redact_cmdline` is implemented and tested in the agent ML redaction module, but

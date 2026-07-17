@@ -189,15 +189,82 @@ substituted decorator.
 
 ## CI/CD gating
 
-Two disjoint CI surfaces both gate promotion:
+Two disjoint CI surfaces gate promotion:
 
 - The **Go fault suite** runs in normal CI / `make test` as an ordinary
-  deterministic job.
-- The **infra/network drills** (Chaos Mesh) and **ingress edge tests** run as a
-  required stage after staging E2E, installing Chaos Mesh on-demand and asserting
-  against the SLO budgets above.
+  deterministic job — the in-process app-fault gate, needing no staging cluster.
+- The **deployed drills** run after staging E2E through the reusable
+  [`fault-tolerance.yml`](../.github/workflows/fault-tolerance.yml) workflow,
+  invoked from the staging deploy job in
+  [`cd.yml`](../.github/workflows/cd.yml). Each drill runs one
+  [`scripts/fault/`](../scripts/fault/) runner against `opengate-staging`,
+  uploads its evidence directory as a run artifact, reverts every fault under
+  `always()`, and verifies the staging Ingress is left free of any
+  `fault.opengate.dev/…` annotation.
 
-The full suite gates at once — there is no phased gate activation and no
-clean-run-history wait. Because the deployed drills gate promotion, their
-determinism is mandatory: a flaky drill blocks deploys. See
+Activation is **config-only**, by repository variable:
+
+- `STAGING_FAULT_TESTS` — when `true`, the deploy pipeline runs the drill stage
+  after E2E and **gates production promotion** on it (a failed drill blocks the
+  deploy). Unset or `false` skips the stage and production proceeds.
+- `STAGING_FAULT_PROFILE` — selects the enumerated scenario (`pod-delete`,
+  `bad-rollout`, `ingress-504`, `ingress-502`); defaults to `pod-delete`.
+
+The scenario is always one of that enumerated allow-list: the workflow's
+`workflow_dispatch` input is a `choice`, and a runtime guard re-validates the
+`workflow_call` string so a repository variable can never inject a free-form or
+out-of-band scenario. On-demand network drills (packet loss/corrupt/partition on
+the QUIC path) are run manually from their own tooling and are never wired into
+this gating path.
+
+Because the deployed drills gate promotion when activated, their determinism is
+mandatory: a flaky drill blocks deploys. Before an infra scenario is trusted for
+CPU/mem/disk evidence, verify the live node scrape (`up`, node-exporter,
+`/metrics`, ingress logs) in VictoriaMetrics first. See
 [CI Pipeline](./CI-Pipeline.md) and [Continuous Deployment](./Continuous-Deployment.md).
+
+## Operating the drills
+
+### Ownership
+
+- **In-process app faults** — the Go fault suite
+  ([`fault_suite_test.go`](../server/tests/integration/fault_suite_test.go),
+  [`fault_noship_test.go`](../server/tests/integration/fault_noship_test.go))
+  over the [`faulttest`](../server/internal/faulttest/ports.go) decorators. Owned
+  by the server; changes ride normal TDD and `make test`.
+- **Deployed drills** — the [`scripts/fault/`](../scripts/fault/) runners and the
+  [`fault-tolerance.yml`](../.github/workflows/fault-tolerance.yml) workflow. Each
+  runner refuses any namespace but `opengate-staging`.
+- **Ingress templates** — [`deploy/fault/ingress/`](../deploy/fault/ingress/).
+
+### Cleanup
+
+Every drill is self-cleaning, and cleanup is idempotent (safe to re-run):
+
+- `pod-delete` — no residue; Kubernetes recreates the deleted pod.
+- `bad-rollout` — a shell `trap` always `helm rollback`s to the captured good
+  revision, even on interruption, so staging never lingers on the bad revision.
+- `ingress-504` / `ingress-502` —
+  [`ingress-restore.sh`](../scripts/fault/ingress-restore.sh) returns the Ingress
+  byte-identical / the Deployment to its saved replica count; with no saved state
+  it is a no-op. The workflow runs it under `always()` and then asserts no
+  `fault.opengate.dev/…` annotation remains.
+
+### Emergency removal
+
+To clear a lingering staging fault by hand, from a checkout with cluster access:
+
+```bash
+# Revert both ingress faults (a no-op if not applied):
+NAMESPACE=opengate-staging scripts/fault/ingress-restore.sh edge-504
+NAMESPACE=opengate-staging scripts/fault/ingress-restore.sh edge-502
+
+# Roll a stuck bad rollout back to the last deployed revision:
+helm rollback opengate-staging "$(helm history opengate-staging -n opengate-staging \
+  -o json | jq -r '[.[] | select(.status == "deployed")] | last | .revision')" \
+  -n opengate-staging --wait
+```
+
+To disable the gate entirely, set the `STAGING_FAULT_TESTS` repository variable
+to `false` (or unset it): the deploy pipeline then skips the drill stage and
+production promotion proceeds without it.

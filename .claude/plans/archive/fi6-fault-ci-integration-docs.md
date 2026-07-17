@@ -14,7 +14,7 @@ master plan).
 ## Context (verified)
 
 - Staging deploys through the OKE job in
-  [`cd.yml`](../../.github/workflows/cd.yml) using `kubectl port-forward` for
+  [`cd.yml`](../../../.github/workflows/cd.yml) using `kubectl port-forward` for
   staging smoke tests — Model C reaches the injector over **that** forward, never
   the public Ingress (master Decision 5, §8).
 - Observability prerequisite: the live node scrape currently fails in

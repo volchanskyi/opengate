@@ -326,9 +326,34 @@ jobs:
         if: always()
         run: kill "$(cat /tmp/pf.pid)" 2>/dev/null || true
 
+  # Deployed fault-tolerance drills, run against staging after E2E. Activation
+  # is config-only: skipped unless the STAGING_FAULT_TESTS repo variable is
+  # 'true'. When active it gates production promotion (a failed drill blocks the
+  # deploy below); STAGING_FAULT_PROFILE picks the enumerated scenario. The
+  # in-process app-fault suite gates separately in CI (make test).
+  staging-fault-drills:
+    name: Staging fault drills
+    needs: [resolve-tag, deploy-staging-k8s]
+    if: >-
+      needs.resolve-tag.outputs.should_skip_staging != 'true' &&
+      vars.STAGING_FAULT_TESTS == 'true'
+    uses: ./.github/workflows/fault-tolerance.yml
+    with:
+      scenario: ${{ vars.STAGING_FAULT_PROFILE || 'pod-delete' }}
+    secrets: inherit
+
   deploy-production-k8s:
     name: Deploy production
-    needs: [resolve-tag, deploy-staging-k8s]
+    needs: [resolve-tag, deploy-staging-k8s, staging-fault-drills]
+    # Promote only when staging deployed and the fault drills passed (or were
+    # not activated). always() lets this evaluate even though the optional
+    # fault-drill job is skipped when STAGING_FAULT_TESTS is off.
+    if: >-
+      always() &&
+      needs.resolve-tag.outputs.should_skip_staging != 'true' &&
+      needs.deploy-staging-k8s.result == 'success' &&
+      (needs.staging-fault-drills.result == 'success' ||
+       needs.staging-fault-drills.result == 'skipped')
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -457,7 +482,7 @@ jobs:
 
   notify-failure:
     name: Create failure issue
-    needs: [resolve-tag, deploy-staging-k8s, deploy-production-k8s]
+    needs: [resolve-tag, deploy-staging-k8s, staging-fault-drills, deploy-production-k8s]
     if: failure()
     runs-on: ubuntu-latest
     steps:
