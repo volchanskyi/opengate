@@ -34,6 +34,10 @@ type fakeAgentControl struct {
 	restartReason string
 	restartErr    error
 
+	maintenanceCalls   int
+	maintenanceEnabled bool
+	maintenanceErr     error
+
 	logs      []device.LogEntry
 	logsTotal int
 	logsErr   error
@@ -57,6 +61,12 @@ func (f *fakeAgentControl) SendRestartAgent(_ context.Context, reason string) er
 
 func (f *fakeAgentControl) SendRequestHardwareReport(_ context.Context) error {
 	return f.hwErr
+}
+
+func (f *fakeAgentControl) SendSetMaintenanceMode(_ context.Context, enabled bool) error {
+	f.maintenanceCalls++
+	f.maintenanceEnabled = enabled
+	return f.maintenanceErr
 }
 
 func (f *fakeAgentControl) RequestLogsSync(_ context.Context, _ device.LogFilter) ([]device.LogEntry, int, error) {

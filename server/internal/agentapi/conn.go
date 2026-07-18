@@ -67,6 +67,12 @@ type AgentConn struct {
 	telemetrySlots chan struct{}
 	telemetryDrops atomic.Uint64
 
+	// maintenanceApplied records the last maintenance state the agent reported
+	// applying (via MaintenanceApplied). The server's desired state lives in
+	// Postgres; this is the confirmation signal that the agent reconciled, read
+	// for observability. Written on the read-loop goroutine, read anywhere.
+	maintenanceApplied atomic.Bool
+
 	// logMu guards logWaiter, the single in-flight raw-log broker channel.
 	// Raw log retrieval is transient (request→response) and never persisted,
 	// so isolation is the connection scope; logWaiter is nil unless a pull is
@@ -429,6 +435,8 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return a.handleMetricBackfillBatch(ctx, msg, len(payload))
 	case protocol.MsgLocalHistoryResponse:
 		return a.handleLocalHistoryResponse(msg)
+	case protocol.MsgMaintenanceApplied:
+		return a.handleMaintenanceApplied(msg)
 	default:
 		a.logger.Debug("ignoring unknown control message", "device_id", a.DeviceID, "type", msg.Type)
 		return nil
@@ -546,6 +554,12 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 	if err := a.pushAlertRules(ctx); err != nil && !IsCapabilityError(err) {
 		a.logger.Warn("push alert rules failed", "device_id", a.DeviceID, "error", err)
 	}
+
+	// Reconcile a suppressed device: agents default to Active on every fresh
+	// registration, so only a device currently in maintenance needs a push to
+	// re-suppress a reconnecting agent. Exiting maintenance is delivered by the
+	// toggle handler's unconditional push, not here.
+	a.pushMaintenanceState(ctx)
 
 	return nil
 }

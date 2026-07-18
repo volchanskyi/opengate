@@ -19,6 +19,12 @@ func (m *memDevices) SetStatus(_ context.Context, _ device.DeviceID, _ device.De
 
 func (m *memDevices) ResetAllStatuses(_ context.Context) error { return m.maybeFail() }
 
+func (m *memDevices) SetMaintenance(_ context.Context, _ device.DeviceID, _ bool, _ uuid.UUID, _ string) error {
+	return m.maybeFail()
+}
+
+func (m *memDevices) CountInMaintenance(_ context.Context) (int, error) { return 0, m.maybeFail() }
+
 type memGroups struct{ failEvery bool }
 
 func (m *memGroups) maybeFail() error {

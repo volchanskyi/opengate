@@ -75,6 +75,14 @@ func (i *InstrumentedDevices) ResetAllStatuses(ctx context.Context) error {
 	return observe0(i.observer, "device.Device.ResetAllStatuses", func() error { return i.inner.ResetAllStatuses(ctx) })
 }
 
+func (i *InstrumentedDevices) SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error {
+	return observe0(i.observer, "device.Device.SetMaintenance", func() error { return i.inner.SetMaintenance(ctx, id, on, by, reason) })
+}
+
+func (i *InstrumentedDevices) CountInMaintenance(ctx context.Context) (int, error) {
+	return observe1(i.observer, "device.Device.CountInMaintenance", func() (int, error) { return i.inner.CountInMaintenance(ctx) })
+}
+
 // InstrumentedGroups decorates a GroupRepository with per-call observation.
 type InstrumentedGroups struct {
 	inner    GroupRepository
