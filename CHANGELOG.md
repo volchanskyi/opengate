@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.61.0] - 2026-07-18
+
+### Added
+- **agent:** Edge-Sentinel collectors always-on; remove opt-in flags (WS-A)
+
 ## [v0.60.0] - 2026-07-17
 
 ### Added
