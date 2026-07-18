@@ -68,8 +68,7 @@ anomaly detector.
   central polling cycle, complementing the ML anomaly signal.
 - Delivery is **investigation-aid only** — breaches are signals charted on the
   Edge-Sentinel Soak dashboard, not notifications. Auto-notify waits for the
-  false-positive-rate soak, consistent with the master-plan posture. The whole
-  path is default-off behind `--edge-sentinel`.
+  false-positive-rate soak, consistent with the master-plan posture.
 - Because rules live in server configuration keyed by org, per-tenant rule
   management (a UI, a Postgres-backed ruleset, per-user overrides) is an additive
   follow-up: the wire contract, the capability gate, and the tenant-scoped push

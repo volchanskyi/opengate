@@ -123,14 +123,13 @@ and what converges at fleet scale.
 ## Consequences
 
 - The sampler task persists each raw sample with its ensemble anomaly bit into
-  the store when `--edge-store` is set (default off, requires `--edge-sentinel`),
-  capped by `--edge-store-cap-mb`. The store is a cache: an open failure
-  recreates it and, failing that, degrades to log-only — it never aborts the
-  agent.
-- **Release gate:** the footprint/recovery numbers here are x86_64 Linux; a real
-  ARM64 + Windows integration pass (Windows file-locking, `F_FULLFSYNC`) remains
-  the gate before default-on, tracked in
-  [`techdebt.md`](../../.claude/techdebt.md). The always-run gate tests
+  the store on every agent, capped at a fixed footprint limit. The store is a
+  cache: an open failure recreates it and, failing that, degrades to log-only —
+  it never aborts the agent.
+- The footprint/recovery numbers here are x86_64 Linux; ARM64 + Windows
+  footprint/recovery (Windows file-locking, `F_FULLFSYNC`) remain unmeasured, an
+  open follow-up tracked in [`techdebt.md`](../../.claude/techdebt.md). The
+  always-run gate tests
   (persistence, precision, atomic rollups, eviction, cursor, anomaly/MVCC,
   migration, cold-tier, crash-recovery) run cross-platform-agnostically on every
   commit.
