@@ -137,6 +137,49 @@ components:
           description: >-
             Latest edge-node anomaly rate in [0,1] from telemetry, for the fleet
             health badge. Omitted when the device has no recent sample.
+        maintenance_on:
+          type: boolean
+          description: >-
+            Whether the device is in maintenance mode: a server-authoritative
+            suppression state an administrator toggles while doing disruptive
+            host work. Telemetry and alerting are suppressed; remote management
+            stays available. Defaults to false (Active).
+        maintenance_since:
+          type: string
+          format: date-time
+          description: >-
+            When the device entered maintenance. Present only while
+            maintenance_on is true.
+        maintenance_by:
+          type: string
+          format: uuid
+          description: >-
+            Id of the user who set the current maintenance state. Present only
+            while maintenance_on is true.
+        maintenance_reason:
+          type: string
+          description: >-
+            Operator-supplied reason for the current maintenance window. Present
+            only while maintenance_on is true.
+
+    SetMaintenanceRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+          description: Desired maintenance state — true to suppress, false to resume.
+        reason:
+          type: string
+          description: Optional operator note recorded while entering maintenance.
+
+    MaintenanceSummary:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+          description: Number of devices in the tenant currently in maintenance.
 
     PurgeJob:
       type: object
@@ -1410,6 +1453,77 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "409":
           description: Agent not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/maintenance-summary:
+    get:
+      operationId: getDeviceMaintenanceSummary
+      summary: Count devices currently in maintenance
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Fleet maintenance summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaintenanceSummary"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/maintenance:
+    post:
+      operationId: setDeviceMaintenance
+      summary: Enter or exit maintenance mode for a device
+      description: >-
+        Sets the server-authoritative maintenance state for a device. The state
+        is persisted and pushed to the agent over the control channel; because
+        maintenance is a desired state rather than a live command, this succeeds
+        even when the agent is offline and reconciles on its next connect. Every
+        change is audited. Restricted to the device's group owner.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetMaintenanceRequest"
+      responses:
+        "200":
+          description: Updated device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device not found
           content:
             application/json:
               schema:
