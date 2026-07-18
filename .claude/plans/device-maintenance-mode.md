@@ -1,6 +1,6 @@
 # Device Maintenance Mode + Remove Opt-in Flags — Master Plan
 
-Status: **IN PROGRESS — D1–D9 locked. Implementing directly (user-directed), one workstream at a time. WS-A landed 2026-07-17; WS-B–F pending.**
+Status: **IN PROGRESS — D1–D9 locked. Implementing directly (user-directed), one workstream at a time. WS-A + WS-B landed 2026-07-17; WS-C–F pending.**
 Owner: Ivan Volchanskyi
 
 ## Two coupled changes
@@ -111,7 +111,13 @@ exceptional suppression.
   heading + `ADR-044`/`Multiscale-Readiness.md` soak references, and archiving
   `edge-sentinel.md`.
 - **WS-B — Wire protocol:** `SetMaintenanceMode { enabled }` (server→agent)
-  + agent applied-state report; Rust + Go + golden files.
+  + `MaintenanceApplied { enabled }` agent applied-state report; Rust + Go +
+  golden files. **Landed 2026-07-17.** Both variants added to
+  `ControlMessage` (Rust `control.rs`, Go `control.go` with an `Enabled *bool`
+  so a `false` still serializes); reverse golden `go_control_set_maintenance_mode`
+  (Go→Rust) and forward golden `control_maintenance_applied` (Rust→Go), both
+  verified by `make golden`. No dispatch/handler wiring yet — the server push and
+  agent reconcile land in WS-C/WS-D.
 - **WS-C — Server:** migration (`maintenance_on` + `maintenance_since`/`_by`,
   default Active), REST toggle endpoint (authz + audit), control push on connect +
   change, applied-state tracking, fleet count of devices-in-maintenance. No TTL.

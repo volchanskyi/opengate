@@ -114,6 +114,8 @@ fn test_control_message_roundtrip_msgpack() {
             candidate: "candidate:1 1 UDP ...".to_string(),
             mid: "0".to_string(),
         },
+        ControlMessage::SetMaintenanceMode { enabled: true },
+        ControlMessage::MaintenanceApplied { enabled: false },
     ];
 
     for msg in messages {

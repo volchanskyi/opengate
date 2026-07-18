@@ -62,6 +62,10 @@ const (
 
 	// Edge-Sentinel WS-19 server → agent threshold-alert ruleset push.
 	MsgPushAlertRules ControlMessageType = "PushAlertRules"
+
+	// Maintenance mode: server → agent toggle and the agent's applied-state report.
+	MsgSetMaintenanceMode ControlMessageType = "SetMaintenanceMode"
+	MsgMaintenanceApplied ControlMessageType = "MaintenanceApplied"
 )
 
 // AlertComparator is the comparison direction of a WS-19 threshold-alert rule.
@@ -234,6 +238,12 @@ type ControlMessage struct {
 	DBEngines  []DiscoveredDbEngine  `msgpack:"db_engines,omitempty"`
 	Containers []DiscoveredContainer `msgpack:"containers,omitempty"`
 	Packages   []DiscoveredPackage   `msgpack:"packages,omitempty"`
+
+	// SetMaintenanceMode (server → agent) / MaintenanceApplied (agent → server).
+	// A pointer so a false value still serializes — omitempty would otherwise
+	// drop it and break the byte-for-byte contract with Rust's always-present
+	// field.
+	Enabled *bool `msgpack:"enabled,omitempty"`
 }
 
 // LogEntry represents a single parsed log entry from the agent.

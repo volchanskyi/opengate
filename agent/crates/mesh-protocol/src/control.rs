@@ -551,6 +551,26 @@ pub enum ControlMessage {
         rules: Vec<ThresholdRule>,
     },
 
+    /// Server → Agent: set the device's maintenance state. In maintenance the
+    /// agent stops telemetry/discovery/log collection and suppresses alert-breach
+    /// evaluation while keeping the control channel and remote-management paths
+    /// live; leaving maintenance resumes collection. Server-authoritative and
+    /// pushed on connect and on every change; `enabled` defaults to `false`
+    /// (Active) so an absent field decodes as not-in-maintenance.
+    SetMaintenanceMode {
+        #[serde(default)]
+        enabled: bool,
+    },
+
+    /// Agent → Server: applied-state report for maintenance mode. The agent
+    /// echoes the state it actually reconciled to after a `SetMaintenanceMode`
+    /// so the server can track applied vs. desired and surface a device that has
+    /// not yet converged.
+    MaintenanceApplied {
+        #[serde(default)]
+        enabled: bool,
+    },
+
     /// Unknown future control message. Agents ignore this and keep the
     /// control stream alive; malformed frames still fail before this point.
     #[serde(other)]
