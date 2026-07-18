@@ -37,6 +37,18 @@ func deviceToAPI(d *device.Device) Device {
 	if d.OsDisplay != "" {
 		dev.OsDisplay = &d.OsDisplay
 	}
+	// The maintenance fields travel together: present only while a device is in
+	// maintenance, omitted (falsy) for the common Active case, matching the
+	// os_display / anomaly_rate omit-zero convention.
+	if d.MaintenanceOn {
+		on := true
+		dev.MaintenanceOn = &on
+		dev.MaintenanceSince = d.MaintenanceSince
+		dev.MaintenanceBy = d.MaintenanceBy
+		if d.MaintenanceReason != "" {
+			dev.MaintenanceReason = &d.MaintenanceReason
+		}
+	}
 	return dev
 }
 

@@ -52,6 +52,15 @@ type Device struct {
 	LastSeen     time.Time    `json:"last_seen"`
 	CreatedAt    time.Time    `json:"created_at"`
 	UpdatedAt    time.Time    `json:"updated_at"`
+
+	// Maintenance mode: the server-authoritative desired suppression state an
+	// administrator toggles. MaintenanceOn defaults to false (Active). When set,
+	// MaintenanceSince/MaintenanceBy/MaintenanceReason record when it was entered,
+	// which user set it, and why; all three are cleared on exit.
+	MaintenanceOn     bool       `json:"maintenance_on"`
+	MaintenanceSince  *time.Time `json:"maintenance_since,omitempty"`
+	MaintenanceBy     *uuid.UUID `json:"maintenance_by,omitempty"`
+	MaintenanceReason string     `json:"maintenance_reason,omitempty"`
 }
 
 // Group is a named collection of devices that share an owner for access control.
@@ -115,6 +124,14 @@ type Repository interface {
 	UpdateGroup(ctx context.Context, id DeviceID, groupID GroupID) error
 	SetStatus(ctx context.Context, id DeviceID, status DeviceStatus) error
 	ResetAllStatuses(ctx context.Context) error
+	// SetMaintenance toggles a device's maintenance state. Enabling stamps the
+	// entry time (preserved across an in-place reason edit), the acting user, and
+	// the reason; disabling clears all three. Returns ErrDeviceNotFound when no
+	// device in the current tenant scope matches id.
+	SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error
+	// CountInMaintenance returns how many devices in the current tenant scope are
+	// currently in maintenance.
+	CountInMaintenance(ctx context.Context) (int, error)
 }
 
 // GroupRepository is the outbound persistence port for device groups.

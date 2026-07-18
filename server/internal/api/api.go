@@ -52,6 +52,7 @@ type AgentControl interface {
 	SendAgentUpdate(ctx context.Context, version, url, sha256, signature string) error
 	SendRestartAgent(ctx context.Context, reason string) error
 	SendRequestHardwareReport(ctx context.Context) error
+	SendSetMaintenanceMode(ctx context.Context, enabled bool) error
 
 	// Synchronous request/response reads (server → agent → server): each sends a
 	// request and blocks for the agent's bounded response.

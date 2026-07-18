@@ -67,6 +67,32 @@ func assertDataLifecycleDownReversal(t *testing.T, ctx context.Context, db *sql.
 	}
 }
 
+// maintenanceColumnCount returns how many of migration 007's maintenance-mode
+// columns are present on the devices table.
+func maintenanceColumnCount(t *testing.T, ctx context.Context, db *sql.DB) int {
+	t.Helper()
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'devices'
+		  AND column_name IN ('maintenance_on', 'maintenance_since', 'maintenance_by', 'maintenance_reason')`).Scan(&count))
+	return count
+}
+
+// assertMaintenanceColumns confirms migration 007 added the four maintenance
+// columns to devices.
+func assertMaintenanceColumns(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	assert.Equal(t, 4, maintenanceColumnCount(t, ctx, db), "all four maintenance columns should exist after migration 007")
+}
+
+// assertMaintenanceColumnsDownReversal confirms the 007 down rollback dropped
+// the maintenance columns.
+func assertMaintenanceColumnsDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	assert.Zero(t, maintenanceColumnCount(t, ctx, db), "maintenance columns should be gone after 007 down rollback")
+}
+
 // assertDeviceLogsRetired confirms migration 004 dropped the central log cache.
 func assertDeviceLogsRetired(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()

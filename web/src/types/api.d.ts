@@ -232,6 +232,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/devices/maintenance-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Count devices currently in maintenance */
+        get: operations["getDeviceMaintenanceSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/devices/{id}/maintenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enter or exit maintenance mode for a device
+         * @description Sets the server-authoritative maintenance state for a device. The state is persisted and pushed to the agent over the control channel; because maintenance is a desired state rather than a live command, this succeeds even when the agent is offline and reconciles on its next connect. Every change is audited. Restricted to the device's group owner.
+         */
+        post: operations["setDeviceMaintenance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/devices/{id}/hardware": {
         parameters: {
             query?: never;
@@ -793,6 +830,30 @@ export interface components {
             updated_at: string;
             /** @description Latest edge-node anomaly rate in [0,1] from telemetry, for the fleet health badge. Omitted when the device has no recent sample. */
             anomaly_rate?: number;
+            /** @description Whether the device is in maintenance mode: a server-authoritative suppression state an administrator toggles while doing disruptive host work. Telemetry and alerting are suppressed; remote management stays available. Defaults to false (Active). */
+            maintenance_on?: boolean;
+            /**
+             * Format: date-time
+             * @description When the device entered maintenance. Present only while maintenance_on is true.
+             */
+            maintenance_since?: string;
+            /**
+             * Format: uuid
+             * @description Id of the user who set the current maintenance state. Present only while maintenance_on is true.
+             */
+            maintenance_by?: string;
+            /** @description Operator-supplied reason for the current maintenance window. Present only while maintenance_on is true. */
+            maintenance_reason?: string;
+        };
+        SetMaintenanceRequest: {
+            /** @description Desired maintenance state — true to suppress, false to resume. */
+            enabled: boolean;
+            /** @description Optional operator note recorded while entering maintenance. */
+            reason?: string;
+        };
+        MaintenanceSummary: {
+            /** @description Number of devices in the tenant currently in maintenance. */
+            count: number;
         };
         /** @description Progress of a right-to-be-forgotten telemetry purge. "Logical" states mean ingest is blocked and the subject is no longer queryable; physical VictoriaMetrics compaction and offline-edge erasure complete later. */
         PurgeJob: {
@@ -1885,6 +1946,88 @@ export interface operations {
             };
             /** @description Agent not connected */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getDeviceMaintenanceSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fleet maintenance summary */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceSummary"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    setDeviceMaintenance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetMaintenanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated device */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

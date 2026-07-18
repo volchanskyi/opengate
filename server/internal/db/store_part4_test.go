@@ -61,8 +61,12 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	runMigrationSteps(t, dbURL, 1)
 	assertDataLifecycleTables(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 006 data-lifecycle tables verified")
+
+	runMigrationSteps(t, dbURL, 1)
+	assertMaintenanceColumns(t, ctx, rehearsalDB)
 	assertMigrationNoChange(t, dbURL)
-	t.Log("rehearsal: 006 data-lifecycle tables verified; head is idempotent")
+	t.Log("rehearsal: 007 maintenance columns verified; head is idempotent")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
@@ -72,7 +76,12 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 	assertDeviceLogsRetired(t, ctx, restoredDB)
 	assertInventoryRLS(t, ctx, restoredDB, "public")
 	assertDataLifecycleTables(t, ctx, restoredDB)
+	assertMaintenanceColumns(t, ctx, restoredDB)
 	t.Log("rehearsal: pg_dump -> pg_restore completed and restored DB re-verified")
+
+	runMigrationSteps(t, dbURL, -1)
+	assertMaintenanceColumnsDownReversal(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 007 down rollback removed maintenance columns cleanly")
 
 	runMigrationSteps(t, dbURL, -1)
 	assertDataLifecycleDownReversal(t, ctx, rehearsalDB)

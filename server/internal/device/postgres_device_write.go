@@ -86,6 +86,38 @@ func (p *PostgresDevices) SetStatus(ctx context.Context, id DeviceID, status Dev
 	})
 }
 
+func (p *PostgresDevices) SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error {
+	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		// maintenance_since is stamped only on the Active→Maintenance transition
+		// (NOT maintenance_on AND on), so editing the reason in place while already
+		// in maintenance never resets the entry clock. Exiting clears all three.
+		res, err := tx.ExecContext(ctx,
+			`UPDATE devices SET
+			   maintenance_on = $1,
+			   maintenance_since = CASE
+			     WHEN $1 AND NOT maintenance_on THEN NOW()
+			     WHEN $1 THEN maintenance_since
+			     ELSE NULL END,
+			   maintenance_by = CASE WHEN $1 THEN $2::uuid ELSE NULL END,
+			   maintenance_reason = CASE WHEN $1 THEN $3 ELSE '' END,
+			   updated_at = NOW()
+			 WHERE org_id = current_setting('app.current_org')::uuid AND id = $4`,
+			on, by, reason, id)
+		return checkAffected(res, err, ErrDeviceNotFound)
+	})
+}
+
+func (p *PostgresDevices) CountInMaintenance(ctx context.Context) (int, error) {
+	var count int
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM devices
+			 WHERE (org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean)
+			   AND maintenance_on`).Scan(&count)
+	})
+	return count, err
+}
+
 func (p *PostgresDevices) ResetAllStatuses(ctx context.Context) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,

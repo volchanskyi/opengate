@@ -1,6 +1,6 @@
 # Device Maintenance Mode + Remove Opt-in Flags — Master Plan
 
-Status: **IN PROGRESS — D1–D9 locked. Implementing directly (user-directed), one workstream at a time. WS-A + WS-B landed 2026-07-17; WS-C–F pending.**
+Status: **IN PROGRESS — D1–D9 locked. Implementing directly (user-directed), one workstream at a time. WS-A + WS-B landed 2026-07-17; WS-C landed 2026-07-18; WS-D–F pending.**
 Owner: Ivan Volchanskyi
 
 ## Two coupled changes
@@ -121,6 +121,31 @@ exceptional suppression.
 - **WS-C — Server:** migration (`maintenance_on` + `maintenance_since`/`_by`,
   default Active), REST toggle endpoint (authz + audit), control push on connect +
   change, applied-state tracking, fleet count of devices-in-maintenance. No TTL.
+  **Landed 2026-07-18.** Resolved sub-decisions/deviations: added a
+  `maintenance_reason` column beyond the illustrative list (serves WS-E's
+  "toggle with reason" and avoids a second migration); `maintenance_since` is
+  stamped only on the Active→Maintenance transition so editing the reason in
+  place never resets the entry clock, and the device `Upsert` (re-registration)
+  never clobbers operator-set state. The REST toggle
+  (`POST /devices/{id}/maintenance`, group-owner authz, audited
+  enter/exit) returns **200 even when the agent is offline** — maintenance is a
+  desired state, not a live command, so there is no `RestartDevice`-style 409;
+  the fleet count is `GET /devices/maintenance-summary` (tenant-scoped, partial
+  index). Control push: `SendSetMaintenanceMode` is **ungated** (universal
+  control, no capability). The **toggle** pushes unconditionally (enter→true,
+  exit→false, so a connected agent is told to resume); the **register reconcile**
+  pushes only for a device *currently in maintenance* — Active devices need no
+  message because the agent defaults to Active on every fresh registration (keeps
+  the common connect path silent and the integration control-stream ordering
+  unchanged). The agent's `MaintenanceApplied` is tracked in-memory for
+  observability while Postgres stays authoritative. **WS-D contract:** the agent
+  MUST reset its applied maintenance state to Active on each registration and
+  suppress only when the server pushes `true`. Golden round-trip already landed
+  in WS-B; TS types regenerated; the 002-migration rehearsal extended to walk 007
+  up/restore/down. The four Device-DTO maintenance fields are **optional /
+  omit-zero** (present together only while in maintenance, absent for Active),
+  matching the sibling `os_display`/`anomaly_rate` convention — so WS-E reads
+  `!!device.maintenance_on` and existing web fixtures stay valid.
 - **WS-D — Agent runtime:** on maintenance, **stop** the sampler/discovery/log
   collectors and suppress alert-breach evaluation while **keeping the control
   channel + remote-management** paths live; resume + re-baseline on exit.
