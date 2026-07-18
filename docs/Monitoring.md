@@ -162,7 +162,7 @@ computed from min/max over the raw 10 s samples instead.
 ### Reconnect backfill and deep-history pull
 
 An agent stores its own metric history in the durable local tiers
-([`edge-tsdb`](../agent/crates/edge-tsdb), enabled with `--edge-store`), so an
+([`edge-tsdb`](../agent/crates/edge-tsdb)), so an
 offline window loses nothing centrally. On reconnect the agent advertises the
 `Backfill` capability and requests a server-coordinated admission slot; the
 scheduler ([`backfill_scheduler.go`](../server/internal/agentapi/backfill_scheduler.go))
@@ -201,8 +201,7 @@ org's rules never reach another; an org without a custom set receives a minimal
 built-in default. A firing breach rides additively in an `AgentHealthSummary`,
 which the server ingests as `opengate_edge_alert_breach` scoped to the resolved
 org and charts on the Edge-Sentinel Soak dashboard. Delivery is
-**investigation-aid only** — no auto-notify — until the false-positive soak, and
-the whole path is default-off behind `--edge-sentinel`; see
+**investigation-aid only** — no auto-notify — until the false-positive soak; see
 [ADR-053](adr/ADR-053-edge-sentinel-threshold-alerts.md).
 
 ### Sustained soak and default-on gate

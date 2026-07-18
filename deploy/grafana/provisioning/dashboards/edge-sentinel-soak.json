@@ -349,7 +349,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "WS-19 declarative threshold-alert breaches currently firing across the fleet (opengate_edge_alert_breach). Each firing rule emits a sample per throttled window while it breaches, so the count is the number of active breach series. Investigation-aid only — no auto-notify. Requires agent emission (default-off --edge-sentinel).",
+      "description": "WS-19 declarative threshold-alert breaches currently firing across the fleet (opengate_edge_alert_breach). Each firing rule emits a sample per throttled window while it breaches, so the count is the number of active breach series. Investigation-aid only — no auto-notify.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },

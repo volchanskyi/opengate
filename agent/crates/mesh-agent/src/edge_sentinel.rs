@@ -27,7 +27,7 @@ const LOG_SOURCES: [LogSource; 3] = [
     LogSource::WindowsEventLog,
 ];
 
-/// Spawn the bounded, default-off host log-rate reader task. Each window it
+/// Spawn the bounded host log-rate reader task. Each window it
 /// reads a capped slice of every host source, folds it into the log-rate
 /// feature vector (level counts + top-unit ranks + volume — never message text),
 /// and forwards it to the control loop as a metric window over `sink`. A window
@@ -63,7 +63,7 @@ pub(crate) fn spawn_log_readers(
 /// last one shipped.
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(1800);
 
-/// Spawn the bounded, default-off auto-discovery task (WS-16). Each sweep
+/// Spawn the bounded auto-discovery task (WS-16). Each sweep
 /// profiles the host — listening ports, services, DB engines, containers,
 /// installed packages — into a bounded, secret-free `DiscoveryReport` and, when
 /// the profile changed since the last shipped report, forwards it to the control

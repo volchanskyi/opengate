@@ -48,31 +48,6 @@ struct Args {
     /// Enrollment token for first-boot CSR enrollment.
     #[arg(long, env = "OPENGATE_ENROLL_TOKEN")]
     enroll_token: Option<String>,
-
-    /// Enable the local Edge-Sentinel sampler. Default off until ARM budgets pass.
-    #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_SENTINEL")]
-    edge_sentinel: bool,
-
-    /// Persist Edge-Sentinel samples to the multi-tier local store (redb TSDB)
-    /// under the data dir. Requires `--edge-sentinel`. Default off until the
-    /// footprint benchmark passes.
-    #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_STORE")]
-    edge_store: bool,
-
-    /// Hard footprint cap for the Edge-Sentinel local store, in MiB.
-    #[arg(long, default_value_t = 512, env = "OPENGATE_EDGE_STORE_CAP_MB")]
-    edge_store_cap_mb: u64,
-
-    /// Enable the bounded Edge-Sentinel host log-rate readers (journald /
-    /// Windows Event Log / self logs). Default off; yields to control traffic.
-    #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_LOG_READERS")]
-    edge_log_readers: bool,
-
-    /// Enable the non-intrusive Edge-Sentinel auto-discovery task (listening
-    /// ports, services, DB engines, containers, packages). Default off; long
-    /// interval, change-triggered, yields to control traffic.
-    #[arg(long, default_value_t = false, env = "OPENGATE_EDGE_DISCOVERY")]
-    edge_discovery: bool,
 }
 
 /// Exit code that tells systemd (RestartForceExitStatus=42) to restart the agent
@@ -303,6 +278,11 @@ const DISCOVERY_TELEMETRY_CAP: usize = 4;
 /// summaries beyond it are dropped rather than backpressuring control.
 const HEALTH_TELEMETRY_CAP: usize = 8;
 
+/// Hard footprint cap for the Edge-Sentinel local store, in MiB. The store
+/// enforces it with coarsest-first eviction and host-free backoff, so it is a
+/// coarse fleet-wide safety limit rather than a per-host tuning knob.
+const EDGE_STORE_CAP_MB: u64 = 512;
+
 /// Set up tracing with both stdout and rolling file appender.
 /// Returns the guard that must be held for the lifetime of the program.
 fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
@@ -341,9 +321,12 @@ fn setup_logging() -> tracing_appender::non_blocking::WorkerGuard {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _log_guard = setup_logging();
-
+    // Parse args before initialising logging so `--help` / `--version` / a bad
+    // argument exit via clap without creating the log directory or spawning the
+    // appender thread.
     let args = Args::parse();
+
+    let _log_guard = setup_logging();
 
     info!(
         version = env!("AGENT_VERSION"),
@@ -457,81 +440,57 @@ async fn main() -> Result<()> {
     lifecycle.notify_ready();
     info!("agent ready, connecting to server");
 
-    // The sampler-owned local store is shared with the WS-15 reconnect-backfill
-    // coordinator on the control loop. It exists only when both the sampler and
-    // the store are enabled (default off, behind `--edge-store`); backfill is
-    // gated on the same enablement as the store it drains.
-    let shared_sink: Option<edge_sentinel::SharedSink> = if args.edge_sentinel && args.edge_store {
+    // Edge-Sentinel collectors run unconditionally — every agent samples host
+    // metrics, persists them to the local store, reads host log rates, and
+    // auto-discovers its footprint from the start. The sampler-owned local store
+    // is the sovereign copy of min/max/last + 1 s raw that central avg-only
+    // VictoriaMetrics does not keep; it is shared with the WS-15 reconnect-backfill
+    // coordinator on the control loop, and it opens on every start (recreating a
+    // corrupt cache), degrading to log-only sampling only if even that fails.
+    let shared_sink: Option<edge_sentinel::SharedSink> = {
         let path = args.data_dir.join("edge-tsdb");
-        info!(
-            path = %path.display(),
-            cap_mb = args.edge_store_cap_mb,
-            "edge-sentinel local store enabled"
-        );
+        info!(path = %path.display(), cap_mb = EDGE_STORE_CAP_MB, "edge-sentinel local store");
         let cfg = edge_sentinel::StoreConfig {
             path,
-            cap_bytes: args.edge_store_cap_mb.saturating_mul(1024 * 1024),
+            cap_bytes: EDGE_STORE_CAP_MB.saturating_mul(1024 * 1024),
         };
         edge_sentinel::open_sink(&cfg).map(|s| std::sync::Arc::new(std::sync::Mutex::new(s)))
-    } else {
-        None
     };
 
     // WS-19 threshold alerts: the sampler owns the evaluator; the control loop
     // pushes each tenant ruleset into `alert_rules_mailbox` and drains
-    // breach-carrying summaries from `health_rx`. Both exist only when the
-    // sampler is enabled (default off, behind `--edge-sentinel`).
-    let mut health_rx: Option<std::sync::mpsc::Receiver<mesh_protocol::ControlMessage>> = None;
-    let alert_rules_mailbox: Option<edge_sentinel::AlertRulesMailbox> = if args.edge_sentinel {
-        Some(std::sync::Arc::new(std::sync::Mutex::new(None)))
-    } else {
-        None
+    // breach-carrying summaries from `health_rx`.
+    let alert_rules_mailbox: edge_sentinel::AlertRulesMailbox =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let (health_tx, health_rx) =
+        std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(HEALTH_TELEMETRY_CAP);
+    let _edge_sentinel_sampler = {
+        info!("edge-sentinel sampler starting");
+        let alerts = edge_sentinel::AlertWiring {
+            rules: alert_rules_mailbox.clone(),
+            health_tx,
+        };
+        edge_sentinel::spawn_sampler(shared_sink.clone(), Some(alerts))
     };
 
-    let _edge_sentinel_sampler = if args.edge_sentinel {
-        info!("edge-sentinel sampler enabled");
-        let (health_tx, rx) = std::sync::mpsc::sync_channel(HEALTH_TELEMETRY_CAP);
-        health_rx = Some(rx);
-        let alerts = alert_rules_mailbox
-            .as_ref()
-            .map(|rules| edge_sentinel::AlertWiring {
-                rules: rules.clone(),
-                health_tx,
-            });
-        Some(edge_sentinel::spawn_sampler(shared_sink.clone(), alerts))
-    } else {
-        None
-    };
-
-    // WS-15 reconnect-backfill coordinator: present only when a shared store is,
-    // and it also gates advertising the `Backfill` capability to the server.
+    // WS-15 reconnect-backfill coordinator: present only when the local store
+    // opened, and its presence gates advertising the `Backfill` capability to
+    // the server (there is nothing to drain without a store).
     let mut backfill = shared_sink
         .clone()
         .map(backfill_loop::BackfillCoordinator::new);
 
     // Log-rate windows produced by the reader task reach the control loop over a
     // bounded channel; the receiver is drained when connected (see below).
-    let mut log_rate_rx: Option<std::sync::mpsc::Receiver<mesh_protocol::ControlMessage>> = None;
-    let _edge_log_readers = if args.edge_log_readers {
-        info!("edge-sentinel host log readers enabled");
-        let (tx, rx) = std::sync::mpsc::sync_channel(LOG_RATE_TELEMETRY_CAP);
-        log_rate_rx = Some(rx);
-        Some(edge_sentinel::spawn_log_readers(PathBuf::from(LOG_DIR), tx))
-    } else {
-        None
-    };
+    let (log_rate_tx, log_rate_rx) =
+        std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(LOG_RATE_TELEMETRY_CAP);
+    let _edge_log_readers = edge_sentinel::spawn_log_readers(PathBuf::from(LOG_DIR), log_rate_tx);
 
     // Auto-discovery reports produced by the discovery task reach the control
     // loop over a bounded channel, drained alongside log-rate windows below.
-    let mut discovery_rx: Option<std::sync::mpsc::Receiver<mesh_protocol::ControlMessage>> = None;
-    let _edge_discovery = if args.edge_discovery {
-        info!("edge-sentinel auto-discovery enabled");
-        let (tx, rx) = std::sync::mpsc::sync_channel(DISCOVERY_TELEMETRY_CAP);
-        discovery_rx = Some(rx);
-        Some(edge_sentinel::spawn_discovery(tx))
-    } else {
-        None
-    };
+    let (discovery_tx, discovery_rx) =
+        std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(DISCOVERY_TELEMETRY_CAP);
+    let _edge_discovery = edge_sentinel::spawn_discovery(discovery_tx);
 
     // Shutdown signal handler
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -634,26 +593,10 @@ async fn main() -> Result<()> {
         let stream = mesh_agent_core::AsyncControlStream::new(tokio::io::join(recv, send));
         let mut conn = mesh_agent_core::AgentConnection::new(stream);
 
-        // Register with server. The Backfill capability is advertised only when
-        // a local store is present to drain (it gates the server → agent
-        // Grant/Defer/Ack/RequestLocalHistory control messages).
-        let mut capabilities = vec![
-            mesh_protocol::AgentCapability::Terminal,
-            mesh_protocol::AgentCapability::FileManager,
-            mesh_protocol::AgentCapability::HardwareInventory,
-            mesh_protocol::AgentCapability::DeviceLogs,
-        ];
-        if backfill.is_some() {
-            capabilities.push(mesh_protocol::AgentCapability::Backfill);
-        }
-        if args.edge_discovery {
-            capabilities.push(mesh_protocol::AgentCapability::Discovery);
-        }
-        // Advertising ThresholdAlerts lets the server push this agent's
-        // tenant-scoped WS-19 ruleset; the sampler evaluates it locally.
-        if args.edge_sentinel {
-            capabilities.push(mesh_protocol::AgentCapability::ThresholdAlerts);
-        }
+        // Register with server. Discovery and threshold alerts are always-on, so
+        // they are advertised on every registration; Backfill is advertised only
+        // when the local store opened (see `agent_capabilities`).
+        let capabilities = agent_capabilities(backfill.is_some());
         if let Err(e) = conn
             .send_control(mesh_protocol::ControlMessage::AgentRegister {
                 capabilities,
@@ -742,16 +685,10 @@ async fn main() -> Result<()> {
                     // send await; the bounded channels already dropped anything
                     // beyond capacity, so neither can backpressure the control
                     // stream.
-                    let mut windows: Vec<mesh_protocol::ControlMessage> = match log_rate_rx.as_ref() {
-                        Some(rx) => std::iter::from_fn(|| rx.try_recv().ok()).collect(),
-                        None => Vec::new(),
-                    };
-                    if let Some(rx) = discovery_rx.as_ref() {
-                        windows.extend(std::iter::from_fn(|| rx.try_recv().ok()));
-                    }
-                    if let Some(rx) = health_rx.as_ref() {
-                        windows.extend(std::iter::from_fn(|| rx.try_recv().ok()));
-                    }
+                    let mut windows: Vec<mesh_protocol::ControlMessage> =
+                        std::iter::from_fn(|| log_rate_rx.try_recv().ok()).collect();
+                    windows.extend(std::iter::from_fn(|| discovery_rx.try_recv().ok()));
+                    windows.extend(std::iter::from_fn(|| health_rx.try_recv().ok()));
                     let mut telemetry_lost = false;
                     for window in windows {
                         if let Err(e) = conn.send_control(window).await {
@@ -944,10 +881,8 @@ async fn main() -> Result<()> {
                             // WS-19: hand the tenant ruleset to the sampler's
                             // evaluator via the shared mailbox (next tick installs it).
                             debug!(count = rules.len(), "edge-sentinel: threshold-alert ruleset received");
-                            if let Some(mailbox) = alert_rules_mailbox.as_ref() {
-                                if let Ok(mut slot) = mailbox.lock() {
-                                    *slot = Some(rules);
-                                }
+                            if let Ok(mut slot) = alert_rules_mailbox.lock() {
+                                *slot = Some(rules);
                             }
                         }
                         Ok(_other) => { /* ignore unknown messages */ }
@@ -1265,6 +1200,27 @@ fn os_pretty_name() -> String {
     std::env::consts::OS.to_string()
 }
 
+/// Capabilities the agent advertises on registration. Terminal, file management,
+/// hardware inventory, device logs, discovery, and threshold alerts are always-on
+/// capabilities of every agent. `Backfill` is advertised only when the local
+/// store opened (`has_local_store`), since the reconnect-backfill coordinator has
+/// nothing to drain without it.
+fn agent_capabilities(has_local_store: bool) -> Vec<mesh_protocol::AgentCapability> {
+    use mesh_protocol::AgentCapability;
+    let mut caps = vec![
+        AgentCapability::Terminal,
+        AgentCapability::FileManager,
+        AgentCapability::HardwareInventory,
+        AgentCapability::DeviceLogs,
+        AgentCapability::Discovery,
+        AgentCapability::ThresholdAlerts,
+    ];
+    if has_local_store {
+        caps.push(AgentCapability::Backfill);
+    }
+    caps
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1289,7 +1245,6 @@ mod tests {
         assert_eq!(args.server_ca, PathBuf::from("/tmp/ca.pem"));
         assert_eq!(args.data_dir, PathBuf::from("/var/lib/mesh-agent"));
         assert!(args.update_public_key.is_none());
-        assert!(!args.edge_sentinel);
     }
 
     #[test]
@@ -1324,103 +1279,24 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_args_edge_sentinel_default_off_and_opt_in() {
-        let default_args = Args::try_parse_from([
-            "mesh-agent",
-            "--server-addr",
-            "127.0.0.1:9090",
-            "--server-ca",
-            "/tmp/ca.pem",
-        ])
-        .unwrap();
-        assert!(!default_args.edge_sentinel);
-
-        let enabled = Args::try_parse_from([
-            "mesh-agent",
-            "--server-addr",
-            "127.0.0.1:9090",
-            "--server-ca",
-            "/tmp/ca.pem",
-            "--edge-sentinel",
-        ])
-        .unwrap();
-        assert!(enabled.edge_sentinel);
+    fn agent_capabilities_always_advertise_edge_sentinel() {
+        // Discovery and threshold alerts are always-on — no opt-in gate — and
+        // the baseline capabilities are always present.
+        let caps = agent_capabilities(false);
+        assert!(caps.contains(&mesh_protocol::AgentCapability::Discovery));
+        assert!(caps.contains(&mesh_protocol::AgentCapability::ThresholdAlerts));
+        assert!(caps.contains(&mesh_protocol::AgentCapability::Terminal));
+        assert!(caps.contains(&mesh_protocol::AgentCapability::FileManager));
+        assert!(caps.contains(&mesh_protocol::AgentCapability::HardwareInventory));
+        assert!(caps.contains(&mesh_protocol::AgentCapability::DeviceLogs));
+        // Backfill is withheld when the local store did not open.
+        assert!(!caps.contains(&mesh_protocol::AgentCapability::Backfill));
     }
 
     #[test]
-    fn test_cli_args_edge_store_default_off_and_opt_in() {
-        let default_args = Args::try_parse_from([
-            "mesh-agent",
-            "--server-addr",
-            "127.0.0.1:9090",
-            "--server-ca",
-            "/tmp/ca.pem",
-        ])
-        .unwrap();
-        assert!(!default_args.edge_store);
-        assert_eq!(default_args.edge_store_cap_mb, 512);
-
-        let enabled = Args::try_parse_from([
-            "mesh-agent",
-            "--server-addr",
-            "127.0.0.1:9090",
-            "--server-ca",
-            "/tmp/ca.pem",
-            "--edge-store",
-            "--edge-store-cap-mb",
-            "256",
-        ])
-        .unwrap();
-        assert!(enabled.edge_store);
-        assert_eq!(enabled.edge_store_cap_mb, 256);
-    }
-
-    #[test]
-    fn test_cli_args_edge_log_readers_default_off_and_opt_in() {
-        let default_args = Args::try_parse_from([
-            "mesh-agent",
-            "--server-addr",
-            "127.0.0.1:9090",
-            "--server-ca",
-            "/tmp/ca.pem",
-        ])
-        .unwrap();
-        assert!(!default_args.edge_log_readers);
-
-        let enabled = Args::try_parse_from([
-            "mesh-agent",
-            "--server-addr",
-            "127.0.0.1:9090",
-            "--server-ca",
-            "/tmp/ca.pem",
-            "--edge-log-readers",
-        ])
-        .unwrap();
-        assert!(enabled.edge_log_readers);
-    }
-
-    #[test]
-    fn test_cli_args_edge_discovery_default_off_and_opt_in() {
-        let default_args = Args::try_parse_from([
-            "mesh-agent",
-            "--server-addr",
-            "127.0.0.1:9090",
-            "--server-ca",
-            "/tmp/ca.pem",
-        ])
-        .unwrap();
-        assert!(!default_args.edge_discovery);
-
-        let enabled = Args::try_parse_from([
-            "mesh-agent",
-            "--server-addr",
-            "127.0.0.1:9090",
-            "--server-ca",
-            "/tmp/ca.pem",
-            "--edge-discovery",
-        ])
-        .unwrap();
-        assert!(enabled.edge_discovery);
+    fn agent_capabilities_advertise_backfill_only_with_local_store() {
+        let caps = agent_capabilities(true);
+        assert!(caps.contains(&mesh_protocol::AgentCapability::Backfill));
     }
 
     #[test]

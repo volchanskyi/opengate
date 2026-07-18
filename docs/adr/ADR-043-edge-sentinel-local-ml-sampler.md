@@ -29,9 +29,8 @@ Add a default-off agent sampler and ML kernel:
 - Secret redaction covers common assignment and flag-value forms, bearer tokens,
   AWS access keys, and credential-bearing URLs for future elevated/on-demand
   paths.
-- `mesh-agent` starts the sampler only with `--edge-sentinel` or
-  `OPENGATE_EDGE_SENTINEL=true`; failures are logged and do not block normal
-  control/session traffic.
+- `mesh-agent` starts the sampler on every agent; failures are logged and do not
+  block normal control/session traffic.
 - Always-run tests assert the hot detection loop is allocation-free after model
   load and that ensemble/window RSS delta stays under the local bound.
 - A Criterion bench harness records detection latency, `sysinfo` sampling cost,
@@ -40,8 +39,6 @@ Add a default-off agent sampler and ML kernel:
 ## Consequences
 
 - The foundation can be tested without protocol or VictoriaMetrics ingestion.
-- Later telemetry work can reuse the sampler and anomaly window without changing
-  the agent's default behavior.
-- The ARM benchmark artifact remains a release gate before the sampler becomes
-  default-on or its wire contract is frozen; the harness now exists so the
-  remaining work is runner wiring and artifact capture.
+- Later telemetry work can reuse the sampler and anomaly window.
+- ARM64 runner artifact capture (footprint evidence on real ARM hardware) is an
+  open follow-up tracked in [`techdebt.md`](../../.claude/techdebt.md).
