@@ -192,6 +192,17 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		},
 	})
 
+	// Maintenance mode server → agent toggle. Enabled is a *bool so the false
+	// case still emits the key (omitempty drops a bare false, breaking the
+	// byte-for-byte contract with Rust's always-present field).
+	{
+		enabled := true
+		writeReverseControlFrame(t, dir, codec, "control_set_maintenance_mode", &ControlMessage{
+			Type:    MsgSetMaintenanceMode,
+			Enabled: &enabled,
+		})
+	}
+
 	// desktop_frame — different frame type, exercises the byte-data payload.
 	{
 		f := &DesktopFrame{

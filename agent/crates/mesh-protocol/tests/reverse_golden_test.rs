@@ -234,6 +234,17 @@ fn reverse_golden_push_alert_rules() {
 }
 
 #[test]
+fn reverse_golden_set_maintenance_mode() {
+    let frame = decode_frame("go_control_set_maintenance_mode.bin");
+    match frame {
+        Frame::Control(ControlMessage::SetMaintenanceMode { enabled }) => {
+            assert!(enabled);
+        }
+        other => panic!("expected SetMaintenanceMode, got {:?}", other),
+    }
+}
+
+#[test]
 fn reverse_golden_desktop_frame() {
     let frame = decode_frame("go_desktop_frame.bin");
     match frame {

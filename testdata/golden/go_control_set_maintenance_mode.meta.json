@@ -1,0 +1,6 @@
+{
+  "variant": "control_set_maintenance_mode",
+  "protocol_version": 0,
+  "format": "msgpack",
+  "created": "2026-05-14"
+}

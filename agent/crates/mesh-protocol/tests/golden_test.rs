@@ -570,6 +570,19 @@ fn golden_control_frame_discovery_report() {
     golden_check("control_discovery_report.bin", &encoded);
 }
 
+// --- Maintenance mode wire contract ---
+
+#[test]
+fn golden_control_frame_maintenance_applied() {
+    // Agent → server applied-state report: the agent echoes the maintenance
+    // state it actually reconciled to, so the server can track applied vs.
+    // desired. Rust-encoded here; the Go verifier asserts struct fidelity.
+    let msg = ControlMessage::MaintenanceApplied { enabled: true };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_maintenance_applied.bin", &encoded);
+}
+
 #[test]
 fn golden_handshake_server_hello() {
     let msg = HandshakeMessage::ServerHello {
