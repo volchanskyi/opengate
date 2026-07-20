@@ -457,6 +457,12 @@ async fn main() -> Result<()> {
         edge_sentinel::open_sink(&cfg).map(|s| std::sync::Arc::new(std::sync::Mutex::new(s)))
     };
 
+    // Maintenance-mode gate: server-authoritative desired state, cleared to
+    // Active on every registration and flipped by `SetMaintenanceMode`. Each
+    // collector holds a clone and suppresses its work while in maintenance; the
+    // control channel and remote-management paths stay live.
+    let maintenance = mesh_agent_core::maintenance::MaintenanceGate::new();
+
     // WS-19 threshold alerts: the sampler owns the evaluator; the control loop
     // pushes each tenant ruleset into `alert_rules_mailbox` and drains
     // breach-carrying summaries from `health_rx`.
@@ -470,7 +476,7 @@ async fn main() -> Result<()> {
             rules: alert_rules_mailbox.clone(),
             health_tx,
         };
-        edge_sentinel::spawn_sampler(shared_sink.clone(), Some(alerts))
+        edge_sentinel::spawn_sampler(shared_sink.clone(), Some(alerts), maintenance.clone())
     };
 
     // WS-15 reconnect-backfill coordinator: present only when the local store
@@ -484,13 +490,14 @@ async fn main() -> Result<()> {
     // bounded channel; the receiver is drained when connected (see below).
     let (log_rate_tx, log_rate_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(LOG_RATE_TELEMETRY_CAP);
-    let _edge_log_readers = edge_sentinel::spawn_log_readers(PathBuf::from(LOG_DIR), log_rate_tx);
+    let _edge_log_readers =
+        edge_sentinel::spawn_log_readers(PathBuf::from(LOG_DIR), log_rate_tx, maintenance.clone());
 
     // Auto-discovery reports produced by the discovery task reach the control
     // loop over a bounded channel, drained alongside log-rate windows below.
     let (discovery_tx, discovery_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(DISCOVERY_TELEMETRY_CAP);
-    let _edge_discovery = edge_sentinel::spawn_discovery(discovery_tx);
+    let _edge_discovery = edge_sentinel::spawn_discovery(discovery_tx, maintenance.clone());
 
     // Shutdown signal handler
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -618,6 +625,11 @@ async fn main() -> Result<()> {
 
         // Registration succeeded: the fast path (if used) is validated.
         force_full_next = false;
+        // Reset maintenance to Active on every registration. The server pushes
+        // `SetMaintenanceMode(true)` right after register only for a device that
+        // is currently in maintenance; an Active device gets no message and must
+        // therefore default to Active here.
+        maintenance.set(false);
         // Stamp when this session became registered so the flap-guard at the
         // bottom of the loop can tell a stable session from an instant drop.
         let connected_at = std::time::Instant::now();
@@ -875,6 +887,19 @@ async fn main() -> Result<()> {
                                 if let Err(e) = conn.send_control(resp).await {
                                     warn!(error = %e, "failed to send local-history response");
                                 }
+                            }
+                        }
+                        Ok(mesh_protocol::ControlMessage::SetMaintenanceMode { enabled }) => {
+                            // Server-authoritative desired state. Flip the gate the
+                            // collectors consult, then echo the applied state so the
+                            // server can track applied vs. desired convergence.
+                            maintenance.set(enabled);
+                            info!(enabled, "maintenance mode set by server");
+                            if let Err(e) = conn.send_control(
+                                mesh_protocol::ControlMessage::MaintenanceApplied { enabled },
+                            ).await {
+                                warn!(error = %e, "failed to send MaintenanceApplied, will reconnect");
+                                break;
                             }
                         }
                         Ok(mesh_protocol::ControlMessage::PushAlertRules { rules }) => {
