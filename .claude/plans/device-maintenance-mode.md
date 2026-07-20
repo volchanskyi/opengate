@@ -1,6 +1,6 @@
 # Device Maintenance Mode + Remove Opt-in Flags — Master Plan
 
-Status: **IN PROGRESS — D1–D9 locked. Implementing directly (user-directed), one workstream at a time. WS-A + WS-B landed 2026-07-17; WS-C landed 2026-07-18; WS-D landed 2026-07-19; WS-E–F pending.**
+Status: **IN PROGRESS — D1–D9 locked. Implementing directly (user-directed), one workstream at a time. WS-A + WS-B landed 2026-07-17; WS-C landed 2026-07-18; WS-D + WS-E landed 2026-07-19; WS-F pending.**
 Owner: Ivan Volchanskyi
 
 ## Two coupled changes
@@ -165,7 +165,28 @@ exceptional suppression.
 - **WS-E — Web UI:** maintenance toggle (with reason), Maintenance badge on
   device detail + device list, fleet-level in-maintenance count, escalating
   "in maintenance for N days" warning, maintenance-aware empty states (replaces
-  the misleading "No data").
+  the misleading "No data"). **Landed 2026-07-19.** Pure-logic
+  `features/devices/maintenance.ts` centralises the escalation model: whole-day
+  count clamped at 0, severity bands **normal < 3 d ≤ warn < 7 d ≤ stale**
+  (sky → amber → red), plus since/day-label formatters. `MaintenanceBadge` (an
+  escalating pill whose colour tracks severity) renders on the list `DeviceCard`
+  header and the `DeviceDetail` header; `MaintenancePanel` on device detail does
+  enter-with-optional-reason / exit, states since-when + operator reason, and
+  raises a day-counting `role="alert"` once past the warn threshold — the visible
+  stand-in for the deliberate absence of auto-expiry (D7). Store: `setMaintenance`
+  (desired-state POST that succeeds offline, omits an empty reason, updates
+  `selectedDevice` **and** the matching list row) + `fetchMaintenanceSummary` /
+  `maintenanceCount`. Resolved sub-decisions/deviations: the fleet count is wired
+  to the authoritative `GET /devices/maintenance-summary` endpoint (not a
+  client-side `devices.filter` derive) as a Dashboard **In Maintenance** tile,
+  refreshed on the existing 15 s poll — so the WS-C endpoint is exercised rather
+  than left dead. Maintenance-aware empty states: the `DeviceMetrics` edge-health
+  panel shows "In maintenance since …" instead of a stale/`No data` health band,
+  and both the metrics and Discovered-Footprint empty states say discovery/
+  telemetry is paused. The nested-ternary metrics placeholder was extracted to a
+  `MetricsPlaceholder` sub-component to keep the changed lines Sonar-clean. No new
+  cross-feature exports were needed — the components are `devices`-internal and
+  Dashboard reads the already-exported `useDeviceStore`.
 - **WS-F — Docs + Edge-Sentinel close-out:** ADR for the maintenance-mode
   operational state + flag removal; decisions.md row; `/docs`. **Closes out the
   Edge-Sentinel program:** removing the flags *is* the default-on flip, so the

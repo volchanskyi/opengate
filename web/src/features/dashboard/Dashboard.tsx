@@ -34,8 +34,10 @@ function StatCard({ label, value, to, colorClasses = '' }: StatCardProps) {
 export function Dashboard() {
   const devices = useDeviceStore((s) => s.devices);
   const groups = useDeviceStore((s) => s.groups);
+  const maintenanceCount = useDeviceStore((s) => s.maintenanceCount);
   const fetchDevices = useDeviceStore((s) => s.fetchDevices);
   const fetchGroups = useDeviceStore((s) => s.fetchGroups);
+  const fetchMaintenanceSummary = useDeviceStore((s) => s.fetchMaintenanceSummary);
   const user = useAuthStore((s) => s.user);
   const auditEvents = useAdminStore((s) => s.auditEvents);
   const fetchAuditEvents = useAdminStore((s) => s.fetchAuditEvents);
@@ -43,16 +45,20 @@ export function Dashboard() {
   useEffect(() => {
     fireAndForget(fetchDevices());
     fireAndForget(fetchGroups());
+    fireAndForget(fetchMaintenanceSummary());
     if (user?.is_admin) {
       fireAndForget(fetchAuditEvents({ limit: 10 }));
     }
-  }, [fetchDevices, fetchGroups, fetchAuditEvents, user?.is_admin]);
+  }, [fetchDevices, fetchGroups, fetchMaintenanceSummary, fetchAuditEvents, user?.is_admin]);
 
-  // Poll device status so online/offline counts stay current.
+  // Poll device status and the maintenance count so the tiles stay current.
   useEffect(() => {
-    const interval = setInterval(() => { fireAndForget(fetchDevices()); }, 15_000);
+    const interval = setInterval(() => {
+      fireAndForget(fetchDevices());
+      fireAndForget(fetchMaintenanceSummary());
+    }, 15_000);
     return () => clearInterval(interval);
-  }, [fetchDevices]);
+  }, [fetchDevices, fetchMaintenanceSummary]);
 
   const onlineCount = devices.filter((d) => d.status === 'online').length;
 
@@ -60,7 +66,7 @@ export function Dashboard() {
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <h2 className="text-xl font-bold">Dashboard</h2>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <StatCard label="Total Devices" value={devices.length} to="/devices"
           colorClasses="border-l-4 border-l-blue-500 bg-blue-900/10" />
         <StatCard label="Online" value={onlineCount}
@@ -69,6 +75,8 @@ export function Dashboard() {
           colorClasses="border-l-4 border-l-indigo-500 bg-indigo-900/10" />
         <StatCard label="Offline" value={devices.length - onlineCount}
           colorClasses="border-l-4 border-l-amber-500 bg-amber-900/10" />
+        <StatCard label="In Maintenance" value={maintenanceCount} to="/devices"
+          colorClasses="border-l-4 border-l-sky-500 bg-sky-900/10" />
       </div>
 
       <div className="flex gap-3">

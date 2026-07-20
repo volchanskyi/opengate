@@ -54,6 +54,13 @@ describe('DeviceInventory', () => {
     expect(screen.getByText(/No footprint discovered/i)).toBeInTheDocument();
   });
 
+  it('replaces the empty state with a maintenance notice when in maintenance', () => {
+    useInventoryStore.setState({ byDevice: new Map([['d1', []]]) });
+    render(<DeviceInventory deviceId="d1" maintenanceSince="2026-07-19T00:00:00Z" />);
+    expect(screen.getByText(/in maintenance since/i)).toBeInTheDocument();
+    expect(screen.queryByText(/No footprint discovered/i)).toBeNull();
+  });
+
   it('renders grouped tables and a summary for a discovered footprint', () => {
     useInventoryStore.setState({ byDevice: new Map([['d1', items]]) });
     render(<DeviceInventory deviceId="d1" />);

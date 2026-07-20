@@ -79,6 +79,16 @@ describe('DeviceCard', () => {
     expect(screen.queryByText('No data')).toBeNull();
   });
 
+  it('shows a maintenance badge when the device is in maintenance', () => {
+    renderCard({ maintenance_on: true, maintenance_since: new Date().toISOString() });
+    expect(screen.getByText('Maintenance')).toBeInTheDocument();
+  });
+
+  it('omits the maintenance badge for an active device', () => {
+    renderCard();
+    expect(screen.queryByText('Maintenance')).toBeNull();
+  });
+
   it('shows a discovered-footprint hint counting services and containers', () => {
     useInventoryStore.setState({
       byDevice: new Map([['d1', [invItem('service', 'a'), invItem('service', 'b'), invItem('container', 'c'), invItem('port', 'p')]]]),

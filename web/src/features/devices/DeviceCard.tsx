@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import type { components } from '../../types/api';
 import { StatusBadge } from './StatusBadge';
 import { HealthBadge } from './HealthBadge';
+import { MaintenanceBadge } from './MaintenanceBadge';
 import { useInventoryStore } from './state/inventory-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
@@ -32,9 +33,12 @@ export function DeviceCard({ device }: Readonly<{ device: Device }>) {
       onClick={() => { fireAndForget(navigate(`/devices/${device.id}`)); }}
       className="w-full text-left bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-gray-500 transition-colors"
     >
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 gap-2">
         <h3 className="font-medium truncate">{device.hostname}</h3>
-        <StatusBadge status={device.status} />
+        <div className="flex items-center gap-2 shrink-0">
+          {device.maintenance_on && <MaintenanceBadge since={device.maintenance_since} />}
+          <StatusBadge status={device.status} />
+        </div>
       </div>
       <div className="text-sm text-gray-400 space-y-1">
         <p>OS: {device.os_display || device.os}</p>

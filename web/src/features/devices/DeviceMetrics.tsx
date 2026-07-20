@@ -5,6 +5,7 @@ import { TimeSeriesChart } from './charts/TimeSeriesChart';
 import { buildFamilyChart, groupByFamily } from './charts/aligned-data';
 import { HealthBadge } from './HealthBadge';
 import { healthBand, HEALTH_META } from './health';
+import { formatMaintenanceSince } from './maintenance';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 type MinMaxSource = components['schemas']['MetricSeries']['min_max_source'];
@@ -32,7 +33,19 @@ function bandCaption(hasBand: boolean, source: MinMaxSource): string {
   return 'avg only';
 }
 
-function AnomalyPanel({ anomalyRate }: { readonly anomalyRate: number | null | undefined }) {
+function AnomalyPanel({ anomalyRate, maintenanceSince }: { readonly anomalyRate: number | null | undefined; readonly maintenanceSince?: string | null }) {
+  if (maintenanceSince) {
+    const sinceLabel = formatMaintenanceSince(maintenanceSince);
+    return (
+      <div className="flex items-center gap-3">
+        <div>
+          <p className="text-xs text-gray-400">Edge health</p>
+          <p className="text-lg font-bold text-sky-400">In maintenance</p>
+        </div>
+        {sinceLabel && <span className="text-xs text-gray-400">since {sinceLabel}</span>}
+      </div>
+    );
+  }
   const meta = HEALTH_META[healthBand(anomalyRate)];
   return (
     <div className="flex items-center gap-3">
@@ -45,6 +58,27 @@ function AnomalyPanel({ anomalyRate }: { readonly anomalyRate: number | null | u
       <span className={`text-xs ${meta.textClass}`}>{meta.label}</span>
     </div>
   );
+}
+
+/** Non-chart states for the metrics area: paused-by-maintenance, empty, or loading. */
+function MetricsPlaceholder({ hasMetrics, loading, maintenanceSince }: {
+  readonly hasMetrics: boolean;
+  readonly loading: boolean;
+  readonly maintenanceSince?: string | null;
+}) {
+  if (hasMetrics) {
+    if (maintenanceSince) {
+      const sinceLabel = formatMaintenanceSince(maintenanceSince);
+      return (
+        <p className="text-xs text-gray-500">
+          In maintenance{sinceLabel ? ` since ${sinceLabel}` : ''} — telemetry is paused and resumes when the device exits maintenance.
+        </p>
+      );
+    }
+    return <p className="text-xs text-gray-500">No telemetry recorded for this window.</p>;
+  }
+  if (loading) return <p className="text-xs text-gray-400">Loading metrics…</p>;
+  return null;
 }
 
 function CorrelationTable({ result, loading }: { readonly result: CorrelateResponse | null; readonly loading: boolean }) {
@@ -80,6 +114,9 @@ function CorrelationTable({ result, loading }: { readonly result: CorrelateRespo
 interface DeviceMetricsProps {
   readonly deviceId: string;
   readonly anomalyRate?: number | null;
+  /** When set, the device is in maintenance: telemetry is paused, so the panel
+   *  shows the since-when state rather than a stale health band or "no data". */
+  readonly maintenanceSince?: string | null;
   /** Correlation jump: open the logs explorer for a window (unix seconds). */
   readonly onViewLogs?: (fromSec: number, toSec: number) => void;
 }
@@ -90,7 +127,7 @@ interface DeviceMetricsProps {
  * drill-down — drag a window on any chart to rank the dimensions that broke
  * pattern. All heavy rendering is delegated to the imperative chart adapter.
  */
-export function DeviceMetrics({ deviceId, anomalyRate, onViewLogs }: DeviceMetricsProps) {
+export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewLogs }: DeviceMetricsProps) {
   const metrics = useDeviceStore((s) => s.metrics);
   const metricsLoading = useDeviceStore((s) => s.metricsLoading);
   const fetchMetrics = useDeviceStore((s) => s.fetchMetrics);
@@ -162,7 +199,7 @@ export function DeviceMetrics({ deviceId, anomalyRate, onViewLogs }: DeviceMetri
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <AnomalyPanel anomalyRate={anomalyRate} />
+        <AnomalyPanel anomalyRate={anomalyRate} maintenanceSince={maintenanceSince} />
         <div className="flex items-center gap-2">
           {onViewLogs && (
             <button
@@ -210,11 +247,9 @@ export function DeviceMetrics({ deviceId, anomalyRate, onViewLogs }: DeviceMetri
           ))}
           <CorrelationTable result={correlation} loading={correlationLoading} />
         </>
-      ) : metrics ? (
-        <p className="text-xs text-gray-500">No telemetry recorded for this window.</p>
-      ) : metricsLoading ? (
-        <p className="text-xs text-gray-400">Loading metrics…</p>
-      ) : null}
+      ) : (
+        <MetricsPlaceholder hasMetrics={!!metrics} loading={metricsLoading} maintenanceSince={maintenanceSince} />
+      )}
     </div>
   );
 }
