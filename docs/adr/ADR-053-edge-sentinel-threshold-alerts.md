@@ -21,8 +21,8 @@ detection catches *unusual* behavior but not *operator-defined* conditions —
 engine with declarative threshold alarms for exactly this reason.
 
 The design constraints are the same as the rest of Edge-Sentinel: agents are
-NAT'd and outbound-only, telemetry ships **default-off** until the soak gate, the
-central store keeps `avg` only, and delivery must not become an auto-notify
+NAT'd and outbound-only, the central store keeps `avg` only, and delivery must
+not become an auto-notify
 system before a false-positive-rate soak. A new alert must therefore be
 evaluated **at the edge** (a breach is flagged in ~1 s with no central polling
 cycle), delivered without a new QUIC stream, and remain investigation-aid only.

@@ -63,5 +63,5 @@ leakage; the structural controls above are what make raw-log access safe.
 - Over-redaction is preferred to leakage: an ambiguous auth-scheme marker
   redacts the following token, so a benign value may occasionally be masked.
 - The edge redaction pass runs on every raw line in a pull; its per-line cost is
-  benchmarked alongside the log-rate fold in the Edge-Sentinel Criterion bench
-  so the overhead is tracked before default-on.
+  benchmarked alongside the log-rate fold in the Edge-Sentinel Criterion bench so
+  the overhead stays tracked.

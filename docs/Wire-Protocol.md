@@ -117,13 +117,16 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `RequestHealthWindow` | Server → Agent | `since_ts`, `limit` |
 | `HealthWindowResponse` | Agent → Server | `summaries` |
 | `DiscoveryReport` | Agent → Server | `ts`, `org_id`, `ports`, `services`, `db_engines`, `containers`, `packages`, `truncated` |
+| `SetMaintenanceMode` | Server → Agent | `enabled` |
+| `MaintenanceApplied` | Agent → Server | `enabled` |
 
-The Edge Sentinel telemetry variants are ingested by the server when received,
-but the agent sampler remains default-off until the footprint and soak gates
-pass. Server ingest ignores payload `org_id` for authorization, resolves the
-device's authoritative organization after handshake, applies a telemetry payload
-cap and interval floor, and drops/counts telemetry when the bounded persistence
-path is saturated. The source-of-truth payload definitions are the Rust
+The Edge Sentinel telemetry variants are ingested by the server when received.
+The agent sampler runs on every device
+([ADR-056](./adr/ADR-056-device-maintenance-mode.md)); it pauses only while the
+device is in maintenance mode. Server ingest ignores payload `org_id` for
+authorization, resolves the device's authoritative organization after handshake,
+applies a telemetry payload cap and interval floor, and drops/counts telemetry
+when the bounded persistence path is saturated. The source-of-truth payload definitions are the Rust
 [`ControlMessage`](../agent/crates/mesh-protocol/src/control.rs) enum and Go
 [`ControlMessage`](../server/internal/protocol/control.go) flat struct; the
 store decision is [ADR-044](./adr/ADR-044-edge-sentinel-server-telemetry-ingest.md).
@@ -133,9 +136,9 @@ Endpoint log-rate signals reuse `AgentMetricWindow`: each `dims` entry is named
 and `<field>` is a severity level (`error`/`warn`/`info`/`debug`/`trace`), a
 top-emitting-unit rank (`unit_rank1`–`unit_rank3`), or `volume`. The dims carry
 only counts and ranks — never a unit name or message text — so central series stay
-bounded. The agent produces these windows only when host log readers are enabled
-(default-off) and forwards them over a bounded channel that drops under pressure,
-so log bursts never backpressure the control stream. On the on-demand query,
+bounded. The agent's host log readers produce these windows and forward them over
+a bounded channel that drops under pressure, so log bursts never backpressure the
+control stream. On the on-demand query,
 `RequestDeviceLogs.source` selects a host log source and `unit` narrows to one
 emitting unit; an empty `source` reads the agent's own files.
 
@@ -146,12 +149,22 @@ ports (engine family + port, no probe), containers from a local runtime
 (runtime, image, name, state), and installed packages (name, version). Each
 category is per-device bounded on the agent, and `truncated` is set when any hit
 its cap; the payload never carries a bound address, connection string, or
-credential. The agent produces reports only when the discovery task is enabled
-(default-off), profiles on a long interval, and forwards a report over a bounded
-channel **only when the profile changed** since the last one shipped — so a
+credential. The agent's discovery task profiles on a long interval and forwards a
+report over a bounded channel **only when the profile changed** since the last one
+shipped — so a
 steady host is silent and a burst never backpressures the control stream. The
 server assigns the authoritative organization, so the agent leaves `org_id`
 empty.
+
+`SetMaintenanceMode` carries the server's desired maintenance state for the
+device (`enabled`), pushed on the Active↔Maintenance transition and, for a device
+already in maintenance, on reconnect. The agent applies it — suppressing the
+sampler, discovery, log readers, and alert evaluation while `enabled` is true —
+and echoes `MaintenanceApplied { enabled }` as its applied-state report. Both
+carry an explicit boolean, so a `false` (resume) is distinct from an absent field.
+`SetMaintenanceMode` is universal control and is not capability-gated; the agent
+resets to Active on every registration and suppresses only when the server pushes
+`true`. See [ADR-056](./adr/ADR-056-device-maintenance-mode.md).
 
 ### Capabilities
 

@@ -339,6 +339,13 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   right-to-be-forgotten erasure (see [Data Lifecycle](Data-Lifecycle.md)).
 - [`006_data_lifecycle.down.sql`](../server/internal/db/migrations/006_data_lifecycle.down.sql)
   drops both tables for rollback.
+- [`007_maintenance_mode.up.sql`](../server/internal/db/migrations/007_maintenance_mode.up.sql)
+  adds `maintenance_on`/`maintenance_since`/`maintenance_by`/`maintenance_reason`
+  to `devices` (the server-authoritative maintenance desired state, default
+  Active) plus a partial index on `(org_id) WHERE maintenance_on` for the fleet
+  count (see [ADR-056](adr/ADR-056-device-maintenance-mode.md)).
+- [`007_maintenance_mode.down.sql`](../server/internal/db/migrations/007_maintenance_mode.down.sql)
+  drops the columns and index for rollback.
 
 The automated rollback/dump rehearsal lives in
 [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) and

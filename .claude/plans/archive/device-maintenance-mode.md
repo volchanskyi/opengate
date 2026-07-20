@@ -196,7 +196,7 @@ exceptional suppression.
     no measurement-driven finalization.
   - Delete the default-on gate language wherever it lives (Phase 0 last item,
     Phase 8, WS-15b notes, flag doc comments).
-  - Move the Edge-Sentinel row in [`phases.md`](../phases.md) from **In Progress
+  - Move the Edge-Sentinel row in [`phases.md`](../../phases.md) from **In Progress
     → Completed** and **archive `edge-sentinel.md`** (`git mv` to
     `plans/archive/`, bump its internal relative links one `../` deeper, repoint
     the phases Completed row to the `archive/` path) — in this rollout's

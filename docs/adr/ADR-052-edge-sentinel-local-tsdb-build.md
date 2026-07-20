@@ -11,9 +11,9 @@ date: 2026-07-10
 
 Accepted. Realises the forward guidance of
 [ADR-051](ADR-051-edge-sentinel-local-tsdb-substrate.md) (the WS-14a substrate
-bake-off) and gates WS-15 (backfill) and WS-20 (edge erasure). Live emission
-stays **default-off** until the ARM64 + Windows footprint gate and the WS-15b
-soak pass.
+bake-off) and gates WS-15 (backfill) and WS-20 (edge erasure). The store runs on
+every device ([ADR-056](ADR-056-device-maintenance-mode.md)), pausing its writes
+only while the device is in maintenance mode.
 
 ## Context
 

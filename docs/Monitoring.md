@@ -204,17 +204,16 @@ org and charts on the Edge-Sentinel Soak dashboard. Delivery is
 **investigation-aid only** — no auto-notify — until the false-positive soak; see
 [ADR-053](adr/ADR-053-edge-sentinel-threshold-alerts.md).
 
-### Sustained soak and default-on gate
+### Telemetry load and observability
 
-Edge-Sentinel telemetry ships **default-off**. Flipping it default-on is gated on
-a sustained multi-tenant soak that proves the whole default path holds its
-budgets: control-plane query p99 regresses no more than 20% under telemetry load,
-VM active-series cardinality and disk growth track the model, and the
-reconnect-storm scheduler drains gradually without starving live traffic or
-breaching the p99 budget. Until that soak passes on real numbers, telemetry stays
-off and the gap is recorded here.
+Edge-Sentinel telemetry runs on every enrolled device. The control-plane holds
+its budgets under that load: control-plane query p99 stays within ~20% of the
+telemetry-free baseline, VM active-series cardinality and disk growth track the
+avg-only model, and the reconnect-storm scheduler drains gradually without
+starving live traffic. Those budgets are exercised by the load harness and
+watched on the dashboard below.
 
-The soak driver is the QUIC agent load harness
+The load driver is the QUIC agent load harness
 ([`server/tests/loadtest`](../server/tests/loadtest)). Beyond raw connect/register
 timing it can drive the **default telemetry shape** per agent (`-default-telemetry`:
 a health summary, a host metric window, and a minimal process report), spread
@@ -223,7 +222,7 @@ agents across tenant cohorts (`-orgs`), and run a **fleet-wide reconnect storm**
 drains through the admission scheduler one acked batch at a time. Run it through
 the Docker/e2e stack lifecycle, never bare tooling.
 
-The server instruments the ingest path so the soak is observable: accepted
+The server instruments the ingest path so it stays observable: accepted
 telemetry (`opengate_edge_telemetry_ingested_total` by control type), server-side
 drops (`opengate_edge_telemetry_drops_total` by reason — `persist_slots_full` is
 the queue-saturation signal, since bounded per-connection persist slots shed
@@ -235,6 +234,23 @@ Grafana dashboard charts these alongside anomaly rate, VM cardinality + disk
 growth, and control-plane and correlation query p99 over the VM datasource. The
 `opengate_*` series require the server `/metrics` scrape; the `vm_*` series require
 the VictoriaMetrics self-scrape.
+
+### Maintenance mode
+
+An administrator can put a device into **maintenance mode** to quiet it during
+disruptive host work — package upgrades, service restarts, reboots — that would
+otherwise spike metrics, churn the discovered footprint, and trip anomaly and
+threshold-alert breaches. Maintenance is a per-device desired state held on the
+server (default Active) and pushed to the agent over the control channel; while it
+is set the agent stops sampling, discovery, and log collection and suppresses
+alert evaluation, so the intended disruption never counts. Remote management stays
+live and the control channel stays connected, so the device is distinguishable
+from one that has crashed and the server can push an exit. On leaving maintenance
+the agent re-baselines anomaly detection, retraining the post-change footprint as
+the new normal. Maintenance is manual-only with no auto-expiry; a Maintenance
+badge, a fleet-level count, and an escalating day-counter keep a forgotten device
+visible instead of silently blind. See
+[ADR-056](adr/ADR-056-device-maintenance-mode.md).
 
 ### Web telemetry surface
 

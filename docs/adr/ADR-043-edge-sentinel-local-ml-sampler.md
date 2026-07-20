@@ -19,7 +19,7 @@ pure Rust, bounded in memory and CPU, and safe around command-line secrets.
 
 ## Decision
 
-Add a default-off agent sampler and ML kernel:
+Add an always-on agent sampler and ML kernel:
 
 - `mesh-agent-core::ml` owns a deterministic k=2 k-means model,
   all-model-consensus ensemble, rolling anomaly-bit window, sampler trait,

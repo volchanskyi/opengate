@@ -41,7 +41,8 @@ structured output — no GPL-licensed library is linked into the agent.
 Every collector is **bounded** (a hard line cap per read) and **no-ops off its
 platform** — a missing binary, a non-matching OS, or a non-zero exit yields an
 empty result — so a single call site is safe on every fleet machine without
-platform branches. The readers are default-off.
+platform branches. The readers run on every device and pause only while it is in
+maintenance mode.
 
 ## Consequences
 
@@ -52,5 +53,5 @@ platform branches. The readers are default-off.
   the readers without needing a live journal or Event Log.
 - Output-format drift (a `journalctl`/`Get-WinEvent` schema change) is a parser
   concern caught by the fixture tests, not a linkage/ABI concern.
-- Reader overhead on real Linux and Windows hosts is measured before default-on;
-  the parse/fold hot path is tracked in the Edge-Sentinel Criterion bench.
+- Reader overhead on real Linux and Windows hosts stays tracked: the parse/fold
+  hot path is benchmarked in the Edge-Sentinel Criterion bench.

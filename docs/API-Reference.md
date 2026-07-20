@@ -197,6 +197,28 @@ just administrators.
 | `404` | Device not found (also the cross-tenant deny — a device in another org is not visible) |
 | `503` | Inventory not configured |
 
+### Maintenance Mode
+
+`POST /api/v1/devices/{id}/maintenance` toggles a device's maintenance state —
+the server-authoritative desired state that quiets the agent's telemetry and
+alerting during disruptive host work (see
+[ADR-056](adr/ADR-056-device-maintenance-mode.md) and
+[Monitoring](Monitoring.md#maintenance-mode)). The body carries the desired
+`enabled` flag and an optional operator `reason`. It is a desired state, not a
+live command, so it succeeds even when the agent is offline (no agent-connected
+check), and every enter/exit is written to the audit log. Entry stamps
+`maintenance_since`/`_by`/`_reason` on the `devices` row and pushes
+`SetMaintenanceMode` to a connected agent; exit clears them and pushes the resume.
+
+`GET /api/v1/devices/maintenance-summary` returns the tenant's fleet count of
+devices currently in maintenance, served from a partial index over the caller's
+organization.
+
+Both are group-owner authorized. The four maintenance fields
+(`maintenance_on`/`_since`/`_by`/`_reason`) are present on the device DTO only
+while a device is in maintenance. The canonical request/response shapes are in
+[`api/openapi.yaml`](../api/openapi.yaml).
+
 ## Rate Limiting
 
 All API endpoints are subject to per-IP rate limiting:
