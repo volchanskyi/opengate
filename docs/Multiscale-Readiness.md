@@ -92,17 +92,16 @@ Before Medium-Free can be activated, the implementation must deliver:
 3. Load-test evidence from [`load-test.yml`](../.github/workflows/load-test.yml)
    and `make load-test-quic`, including p95/p99 latency, error rate, reconnect
    behavior, and node CPU/memory saturation. The QUIC harness
-   ([`loadtest`](../server/tests/loadtest/main.go)) also drives the full default
-   Edge-Sentinel telemetry path so a sustained soak folds it into the same budget:
+   ([`loadtest`](../server/tests/loadtest/main.go)) also drives the full
+   always-on Edge-Sentinel telemetry path so the same run folds it into the budget:
    `-default-telemetry` emits the default per-agent shape (health summary + host
    metric window + process report), `-orgs` spreads agents across tenant cohorts,
    `-backfill-batches` runs a fleet-wide reconnect storm through the admission
    scheduler, and `-log-windows` / `-answer-log-pulls` cover log-rate ingest and
-   broker pulls. The soak is the **default-on gate**: Edge-Sentinel telemetry stays
-   default-off until a real run shows control-plane p99 regressing ≤ 20%, VM
-   cardinality and disk growth tracking the model, and the reconnect storm draining
-   without starving live traffic — observed on the **Edge-Sentinel Soak** dashboard
-   (see [Monitoring](Monitoring.md#sustained-soak-and-default-on-gate)).
+   broker pulls. A run must show control-plane p99 within ~20% of the
+   telemetry-free baseline, VM cardinality and disk growth tracking the model, and
+   the reconnect storm draining without starving live traffic — observed on the
+   **Edge-Sentinel Soak** dashboard (see [Monitoring](Monitoring.md)).
 4. A rollback runbook that returns to the current singleton values without data
    loss.
 5. An ADR if the chosen option changes topology, storage durability, L4

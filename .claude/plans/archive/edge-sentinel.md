@@ -22,14 +22,14 @@ A third-party architect reviewed the prior plan; this session verified every cla
 code **and live OCI/cluster data**. The confirmed findings:
 
 1. **Protocol compat was overstated, in *both* directions.** Agent→server: unknown control type
-   → `ErrUnexpectedMessage` ([conn.go:245](../../server/internal/agentapi/conn.go#L245)) → the
-   control loop drops the connection ([server.go:260](../../server/internal/agentapi/server.go#L260)),
-   pinned by [conn_part8_test.go:44](../../server/internal/agentapi/conn_part8_test.go#L44). Server→agent:
+   → `ErrUnexpectedMessage` ([conn.go:245](../../../server/internal/agentapi/conn.go#L245)) → the
+   control loop drops the connection ([server.go:260](../../../server/internal/agentapi/server.go#L260)),
+   pinned by [conn_part8_test.go:44](../../../server/internal/agentapi/conn_part8_test.go#L44). Server→agent:
    the Rust enum is `#[serde(tag="type")]`+`#[non_exhaustive]` — `#[non_exhaustive]` does **not**
    make serde tolerate unknown tags, so a new server→agent variant breaks old agents at decode.
    WS-1 now fixes **both** directions + adds capability negotiation.
 2. **Tenancy is a product migration, not a label.** Confirmed **zero** `org_id`/tenant/RLS
-   anywhere ([001_initial.up.sql](../../server/internal/db/migrations/001_initial.up.sql)).
+   anywhere ([001_initial.up.sql](../../../server/internal/db/migrations/001_initial.up.sql)).
    Today's authz is `users.is_admin` + `security_groups` RBAC. WS-0 is a standalone migration.
 3. **The Timescale hot-store design was fatal as written, and is replaced.** Upstream TimescaleDB
    issues #6827 + #5787 (both open) prove **RLS cannot coexist with compression or continuous
@@ -45,7 +45,7 @@ code **and live OCI/cluster data**. The confirmed findings:
 | Topic | Decision |
 |---|---|
 | Edge intelligence | Clean-room **k=2 k-means ensemble** (Netdata shape: ~18 staggered models/metric, consensus, **99th-pct** threshold), ARM-measured **in Wave 0** before default-on |
-| License | **Clean-room only** — no vendored/ported Netdata code (GPL-3 vs workspace Apache-2, [agent/Cargo.toml](../../agent/Cargo.toml)) |
+| License | **Clean-room only** — no vendored/ported Netdata code (GPL-3 vs workspace Apache-2, [agent/Cargo.toml](../../../agent/Cargo.toml)) |
 | **Tenancy** | **Full product-wide multi-tenancy + Postgres RLS now** (WS-0 foundation, standalone migration with rehearsal/rollback) |
 | **Hot store (numeric)** | **VictoriaMetrics (OSS)** — server `remote_write`, `org_id` label, app-layer scoped reads; **off the control-plane Postgres** |
 | **Downsampling** | VM OSS **stream aggregation** (1-min/1-hr rollups) + short raw retention — *not* VM Enterprise downsampling |
@@ -116,8 +116,8 @@ checklist, verification). Each: **TDD first**, then `make golden`/tests, `/preco
 | WS-11 | `archive/edge-sentinel-ws-11-log-server.md` | rate dims → VM; on-demand raw broker + audit + elevated-permission gate |
 | WS-12 | `archive/edge-sentinel-ws-12-log-web.md` | logs explorer + log-rate sparkline + metrics↔logs correlation jump |
 | WS-13 | `archive/edge-sentinel-ws-13-log-privacy-ops.md` | raw-log redaction corpus + reader-sourcing ADR + Linux/Windows benchmark + soak |
-| WS-14a | `archive/edge-sentinel-ws-14a-offline-tsdb-spike.md` (done — [ADR-051](../../docs/adr/ADR-051-edge-sentinel-local-tsdb-substrate.md): **redb** chosen) | local-TSDB substrate bake-off (append-only / redb / fjall / tsink / no-persist) on a fixture corpus + gates |
-| WS-14b | `archive/edge-sentinel-ws-14b-offline-tsdb-build.md` (done — [ADR-052](../../docs/adr/ADR-052-edge-sentinel-local-tsdb-build.md): `store::LocalTsdb`, ~1.87 logical B/sample) | graduate the `edge-tsdb` crate to the production **redb** store (compact fixed-point codec, big-block packing, inline anomaly bit; holds min/max/last + 1 s) |
+| WS-14a | `archive/edge-sentinel-ws-14a-offline-tsdb-spike.md` (done — [ADR-051](../../../docs/adr/ADR-051-edge-sentinel-local-tsdb-substrate.md): **redb** chosen) | local-TSDB substrate bake-off (append-only / redb / fjall / tsink / no-persist) on a fixture corpus + gates |
+| WS-14b | `archive/edge-sentinel-ws-14b-offline-tsdb-build.md` (done — [ADR-052](../../../docs/adr/ADR-052-edge-sentinel-local-tsdb-build.md): `store::LocalTsdb`, ~1.87 logical B/sample) | graduate the `edge-tsdb` crate to the production **redb** store (compact fixed-point codec, big-block packing, inline anomaly bit; holds min/max/last + 1 s) |
 | WS-15 | `archive/edge-sentinel-ws-15-offline-backfill.md` (done) | reconnect backfill to VM (throttled) + on-demand server-mediated local-history pull |
 | WS-15b | `archive/edge-sentinel-ws-15b-ops-measurement.md` | Grafana + sustained soak + default-on gate (harness/metrics/dashboard landed; default-on flip pending a real soak) |
 | WS-16 | `archive/edge-sentinel-ws-16-discovery-agent.md` (done) | auto-discovery collectors (ports/services/DBs/containers/packages) + `DiscoveryReport` wire |
@@ -166,34 +166,34 @@ change is tolerated by older builds in both directions — the single biggest fr
 - New `organizations` table; add `org_id UUID NOT NULL` to every tenant table; **backfill** to a
   seeded default org; RLS `ENABLE`/`FORCE` + policies `USING (org_id = current_setting('app.current_org')::uuid)`;
   `is_admin` cross-org via a **policy** on a second GUC, **never** a `BYPASSRLS` app role.
-- Add `OrgID` to JWT `Claims` ([auth.go:21](../../server/internal/auth/auth.go#L21)); tenant-
-  context middleware after auth ([api.go:277](../../server/internal/api/api.go#L277)); per-tx
+- Add `OrgID` to JWT `Claims` ([auth.go:21](../../../server/internal/auth/auth.go#L21)); tenant-
+  context middleware after auth ([api.go:277](../../../server/internal/api/api.go#L277)); per-tx
   `SET LOCAL app.current_org` through the repository layer.
 - Migration **rehearsal + rollback** (Wave 0). CI grep gate forbids unscoped tenant queries.
 - *Tests:* cross-tenant-deny suite (every repo); GUC set/cleared in-tx; admin bypass. *ADR:* RLS model.
 
 ### WS-1 — Protocol forward-compatibility (bidirectional) + capability negotiation
-- Agent→server `default:` → **log-and-continue** ([conn.go:245](../../server/internal/agentapi/conn.go#L245));
+- Agent→server `default:` → **log-and-continue** ([conn.go:245](../../../server/internal/agentapi/conn.go#L245));
   flip `TestAgentConn_HandleUnknownMessage`. Rust: unknown server→agent tag **decodes-and-ignores**.
 - **Capability handshake** at register (reuse `AgentCapability`): server gates new server→agent
   variants on advertised support. Bidirectional golden fixtures (old×new both ways).
 
 ### WS-2 — Edge ML + sampler (agent, clean-room, pure Rust)
 - New `mesh-agent-core/src/ml/`: k=2 ensemble (consensus, 99th-pct), bit-packed anomaly window;
-  `MetricSampler` trait reusing **`sysinfo`** ([main.rs:739](../../agent/crates/mesh-agent/src/main.rs#L739)).
+  `MetricSampler` trait reusing **`sysinfo`** ([main.rs:739](../../../agent/crates/mesh-agent/src/main.rs#L739)).
 - Process top-N **by rank**, **basename + optional cmdline hash** only (no full cmdline by
   default). **ARM bench is a Wave 0 item**; default-off.
 - *Tests:* `cargo test -p mesh-agent-core` (consensus, percentile, ring rollover, redaction of the
   on-demand path).
 
 ### WS-3 — Wire contract (additive, tenant-tagged, golden-gated)
-- Additive `ControlMessage` variants ([control.rs](../../agent/crates/mesh-protocol/src/control.rs),
+- Additive `ControlMessage` variants ([control.rs](../../../agent/crates/mesh-protocol/src/control.rs),
   `#[non_exhaustive]`), reusing `FRAME_CONTROL` (**no new QUIC stream**):
   `AgentHealthSummary`, `AgentMetricWindow` ({min,max,avg,last}@10 s), `ProcessReport`
   (basename + optional hash; **no full cmdline**), `RequestHealthWindow`/`HealthWindowResponse`
   (server→agent, **capability-gated**). **64 KiB telemetry payload cap**; control traffic
   prioritized, telemetry dropped (counter) under pressure.
-- **Rust→Go goldens** ([golden_test.go](../../server/internal/protocol/golden_test.go)).
+- **Rust→Go goldens** ([golden_test.go](../../../server/internal/protocol/golden_test.go)).
 
 ### WS-4 — Server ingest → VictoriaMetrics + Postgres process table
 - Server **`remote_write` client** → VM (numeric, `org_id` label) + VM `-streamAggr.config`
@@ -205,14 +205,14 @@ change is tolerated by older builds in both directions — the single biggest fr
 - *Tests:* throwaway VM + `testpg`; RLS deny on the process table; rollups produced.
 
 ### WS-5 — Correlation engine (on-demand, server-side over VM)
-- `internal/correlate` + REST endpoint ([api/openapi.yaml](../../api/openapi.yaml)): fetch window
+- `internal/correlate` + REST endpoint ([api/openapi.yaml](../../../api/openapi.yaml)): fetch window
   series via the scoped VM client, rank top-N in Go (KS-test + anomaly-rate volume); bounded
   concurrency + timeout + fetch-size cap. Runs on the **server**, not the DB.
 - *Tests:* injected anomaly ranks #1; label-scope deny; timeout/concurrency bounds.
 
 ### WS-6 — Web UI (uPlot chart engine)
 - Thin uPlot adapter (canvas-2D). Health **badge** on the virtualized grid
-  ([DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx)); device-detail anomaly panel +
+  ([DeviceList.tsx](../../../web/src/features/devices/DeviceList.tsx)); device-detail anomaly panel +
   timelines + correlation drill-down. Range endpoint guarantees `points ≤ maxPoints` (VM rollup
   pick + decimation). Lazy chart chunk + **explicit `charts` chunk size budget**. Full spec in
   `archive/edge-sentinel-ws-6-web-ui.md`. **Min/max bands:** central VM is `avg`-only, so chart bands carry
@@ -231,7 +231,7 @@ change is tolerated by older builds in both directions — the single biggest fr
 ### WS-15b — Ops + soak + default-on gate (deferred until WS-15)
 - Grafana dashboard (existing **VM datasource**): anomaly-rate, ingest, VM cardinality + disk
   growth, control-plane p99, correlation latency, drop count. Extend
-  [loadtest](../../server/tests/loadtest/main.go) to **500 multi-tenant agents**; sustained soak.
+  [loadtest](../../../server/tests/loadtest/main.go) to **500 multi-tenant agents**; sustained soak.
   **Default-on only if every quality metric passes** (metrics **and** logs). Alerts deferred.
   Deferred until the offline track (WS-15) lands — the soak covers offline/reconnect-storm and
   default-on needs real measured numbers, so this whole workstream runs after WS-15.
@@ -326,7 +326,7 @@ autonomous active response; revisit only behind a dedicated privilege/platform A
 - **Cardinality — modelled and VM-verified in the Wave 0 spike; real per-host dim counts still owed
   by the WS-2 ARM bench.** The per-agent series count is **host-dependent**: per-core CPU, per-disk,
   per-interface, per-filesystem all multiply the base dims, and in the VM model each aggregate is its
-  **own series**. The ingest spike ([`server/tests/vmcardinality`](../../server/tests/vmcardinality/spike_test.go))
+  **own series**. The ingest spike ([`server/tests/vmcardinality`](../../../server/tests/vmcardinality/spike_test.go))
   ingested a representative avg-only schema into a real VM and **measured active-series exactly
   matching the model**: a **typical host ≈ 40 series/agent → 20k at 500 agents**, a fully
   per-entity-capped **large host ≈ 99/agent → 49.5k** (both under the **50k** budget); centralising
@@ -341,13 +341,13 @@ autonomous active response; revisit only behind a dedicated privilege/platform A
 
 ## Critical files
 
-- Agent: new `mesh-agent-core/src/ml/`, [main.rs](../../agent/crates/mesh-agent/src/main.rs), [session/mod.rs](../../agent/crates/mesh-agent-core/src/session/mod.rs) (bounded-channel precedent)
-- Protocol: [control.rs](../../agent/crates/mesh-protocol/src/control.rs), [golden_test.rs](../../agent/crates/mesh-protocol/tests/golden_test.rs); Go [types.go](../../server/internal/protocol/types.go), [golden_test.go](../../server/internal/protocol/golden_test.go)
-- Server: [conn.go](../../server/internal/agentapi/conn.go) (dispatch fix + handlers), [auth/auth.go](../../server/internal/auth/auth.go) (OrgID claim), [api/api.go](../../server/internal/api/api.go) (tenant middleware), [device/](../../server/internal/device/) repos (per-tx GUC), [db/migrations/](../../server/internal/db/migrations/) (org/RLS + process tbl), new `internal/telemetry/` (VM client + scoped reader), new `internal/correlate/`
-- API/UI: [api/openapi.yaml](../../api/openapi.yaml), [web/package.json](../../web/package.json), [DeviceList.tsx](../../web/src/features/devices/DeviceList.tsx), new device-detail metrics view
-- Ops: [deploy/grafana/provisioning/dashboards/](../../deploy/grafana/provisioning/dashboards/), [deploy/helm/monitoring/](../../deploy/helm/monitoring/) (VM stream-agg + retention + storage bump), [loadtest](../../server/tests/loadtest/main.go)
+- Agent: new `mesh-agent-core/src/ml/`, [main.rs](../../../agent/crates/mesh-agent/src/main.rs), [session/mod.rs](../../../agent/crates/mesh-agent-core/src/session/mod.rs) (bounded-channel precedent)
+- Protocol: [control.rs](../../../agent/crates/mesh-protocol/src/control.rs), [golden_test.rs](../../../agent/crates/mesh-protocol/tests/golden_test.rs); Go [types.go](../../../server/internal/protocol/types.go), [golden_test.go](../../../server/internal/protocol/golden_test.go)
+- Server: [conn.go](../../../server/internal/agentapi/conn.go) (dispatch fix + handlers), [auth/auth.go](../../../server/internal/auth/auth.go) (OrgID claim), [api/api.go](../../../server/internal/api/api.go) (tenant middleware), [device/](../../../server/internal/device/) repos (per-tx GUC), [db/migrations/](../../../server/internal/db/migrations/) (org/RLS + process tbl), new `internal/telemetry/` (VM client + scoped reader), new `internal/correlate/`
+- API/UI: [api/openapi.yaml](../../../api/openapi.yaml), [web/package.json](../../../web/package.json), [DeviceList.tsx](../../../web/src/features/devices/DeviceList.tsx), new device-detail metrics view
+- Ops: [deploy/grafana/provisioning/dashboards/](../../../deploy/grafana/provisioning/dashboards/), [deploy/helm/monitoring/](../../../deploy/helm/monitoring/) (VM stream-agg + retention + storage bump), [loadtest](../../../server/tests/loadtest/main.go)
 
-## Shared conventions (apply to every WS — see [CLAUDE.md](../../CLAUDE.md))
+## Shared conventions (apply to every WS — see [CLAUDE.md](../../../CLAUDE.md))
 
 - **TDD, no bypass.** Failing test before source; positive + negative. No
   `t.Skip`/`.skip`/`#[ignore]` — tests always run deterministically.
@@ -355,14 +355,14 @@ autonomous active response; revisit only behind a dedicated privilege/platform A
   `/refactor` → push to `dev` only. Author = Ivan Volchanskyi, no co-authors.
 - **Protocol:** any `ControlMessage` change is golden-gated (`make golden`).
 - **No GPL** vendored/ported (Netdata GPL-3; workspace Apache-2). Clean-room only.
-- **New deps** (`uplot`, future storage/query substrates) each need an **ADR** in [docs/adr/](../../docs/adr/) +
-  index row in [decisions.md](../decisions.md). The VM stream-agg/server-ingest decision is
-  recorded in [ADR-044](../../docs/adr/ADR-044-edge-sentinel-server-telemetry-ingest.md). **Not** introduced this rollout: Timescale image,
+- **New deps** (`uplot`, future storage/query substrates) each need an **ADR** in [docs/adr/](../../../docs/adr/) +
+  index row in [decisions.md](../../decisions.md). The VM stream-agg/server-ingest decision is
+  recorded in [ADR-044](../../../docs/adr/ADR-044-edge-sentinel-server-telemetry-ingest.md). **Not** introduced this rollout: Timescale image,
   DuckDB/CGO, `arrow`/`parquet` (only if optional archival is built).
 - **Default-off** behind a flag until Wave 0 + WS-3/WS-4 land + soak passes; failure = silent degradation.
 - **Tenancy:** after WS-0 every new tenant table carries `org_id` + RLS; every new repo method runs
   in a tenant-scoped tx; numeric VM reads go through the scoped client; add a cross-tenant-deny test.
-- **Docs:** end each WS with a [/docs](../../docs/) update (link, don't paraphrase).
+- **Docs:** end each WS with a [/docs](../../../docs/) update (link, don't paraphrase).
 
 ## Reviewer checklist template (Claude reviews each implementation)
 
@@ -390,7 +390,7 @@ autonomous active response; revisit only behind a dedicated privilege/platform A
 ## Housekeeping
 
 - ADRs: (a) edge-first + clean-room ML, (b) multi-tenant RLS, (c) **telemetry storage =
-  VictoriaMetrics OSS + stream-aggregation** ([ADR-044](../../docs/adr/ADR-044-edge-sentinel-server-telemetry-ingest.md)),
+  VictoriaMetrics OSS + stream-aggregation** ([ADR-044](../../../docs/adr/ADR-044-edge-sentinel-server-telemetry-ingest.md)),
   (d) process-telemetry PII (basename+hash default;
   on-demand full cmdline), (e) protocol capability negotiation, (f) charting/bundle budget,
   (g) endpoint-log model (edge-stored, server-proxied; why not Loki), (h) raw-log privacy
@@ -401,5 +401,5 @@ autonomous active response; revisit only behind a dedicated privilege/platform A
   divergence from direct/distributed query), (k) auto-discovery/inventory model,
   (l) edge threshold-alert rules, (m) data-lifecycle/erasure (cascading device/tenant purge across
   VM + Postgres + cold + agent; audit retained) — index rows in
-  [.claude/decisions.md](../decisions.md). Update [.claude/phases.md](../phases.md).
+  [.claude/decisions.md](../../decisions.md). Update [.claude/phases.md](../../phases.md).
 - New deps via ADR review (`uplot`, VM stream-agg config). `/docs` update each workstream.

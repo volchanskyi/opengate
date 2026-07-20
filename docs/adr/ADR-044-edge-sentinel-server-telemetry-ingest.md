@@ -61,13 +61,13 @@ Use a split telemetry store:
 - Historical backfill must avoid the live stream-aggregation path and write
   correctly timestamped rollups directly, as proven by the Wave 0 backfill
   spike.
-- Agent emission remains default-off until the ARM footprint artifact and soak
-  gates pass. The default-on decision is gated on a sustained multi-tenant soak
-  (health summaries + windows + minimal process + a fleet-wide reconnect storm)
-  measured on the Edge-Sentinel Soak dashboard: it flips on only once
-  control-plane query p99 regresses ≤ 20% under default telemetry, VM active-series
-  cardinality and disk growth track the model, and the reconnect storm drains
-  without starving live traffic. The ingest path is instrumented for that gate —
-  `opengate_edge_telemetry_ingested_total`, `opengate_edge_telemetry_drops_total`,
-  and the `opengate_edge_backfill_*` scheduler series (see
-  [Monitoring](../Monitoring.md#sustained-soak-and-default-on-gate)).
+- Agent emission runs always-on
+  ([ADR-056](ADR-056-device-maintenance-mode.md)); numeric telemetry is not gated
+  on a runtime flag, and the control-plane holds its budgets under the resulting
+  load (control-plane query p99 within ~20% of the telemetry-free baseline, VM
+  active-series cardinality and disk growth tracking the model, the reconnect
+  storm draining without starving live traffic). The ingest path is instrumented
+  so that load stays observable — `opengate_edge_telemetry_ingested_total`,
+  `opengate_edge_telemetry_drops_total`, and the `opengate_edge_backfill_*`
+  scheduler series on the Edge-Sentinel Soak dashboard (see
+  [Monitoring](../Monitoring.md)).
