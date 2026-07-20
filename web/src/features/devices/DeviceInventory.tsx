@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useInventoryStore } from './state/inventory-store';
 import type { components } from '../../types/api';
+import { formatMaintenanceSince } from './maintenance';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 type InventoryItem = components['schemas']['InventoryItem'];
@@ -128,7 +129,12 @@ function InventoryTable({ meta, items }: { readonly meta: KindMeta; readonly ite
   );
 }
 
-export function DeviceInventory({ deviceId }: { readonly deviceId: string }) {
+export function DeviceInventory({ deviceId, maintenanceSince }: {
+  readonly deviceId: string;
+  /** When set, discovery is paused for maintenance; the empty state says so
+   *  rather than the misleading "no footprint discovered yet". */
+  readonly maintenanceSince?: string | null;
+}) {
   const items = useInventoryStore((s) => s.byDevice.get(deviceId));
   const loading = useInventoryStore((s) => s.loading.get(deviceId));
   const error = useInventoryStore((s) => s.errors.get(deviceId));
@@ -175,12 +181,19 @@ export function DeviceInventory({ deviceId }: { readonly deviceId: string }) {
   }
 
   if (items.length === 0) {
+    const sinceLabel = maintenanceSince ? formatMaintenanceSince(maintenanceSince) : '';
     return (
       <div>
         {header}
-        <p className="text-xs text-gray-500">
-          No footprint discovered yet — the agent reports ports, services, and containers after its first scan.
-        </p>
+        {maintenanceSince ? (
+          <p className="text-xs text-gray-400">
+            In maintenance{sinceLabel ? ` since ${sinceLabel}` : ''} — discovery is paused and resumes when the device exits maintenance.
+          </p>
+        ) : (
+          <p className="text-xs text-gray-500">
+            No footprint discovered yet — the agent reports ports, services, and containers after its first scan.
+          </p>
+        )}
       </div>
     );
   }

@@ -1228,4 +1228,65 @@ describe('DeviceDetail', () => {
     expect(screen.getByText(/eth0/)).toBeInTheDocument();
     expect(screen.getByText(/00:11:22:33:44:55/)).toBeInTheDocument();
   });
+
+  it('offers Enter Maintenance for an active device and hides Exit', () => {
+    renderDetail();
+    expect(screen.getByRole('button', { name: /enter maintenance/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /exit maintenance/i })).toBeNull();
+  });
+
+  it('shows a maintenance badge in the header when the device is in maintenance', () => {
+    useDeviceStore.setState({
+      selectedDevice: { ...mockDevice, maintenance_on: true, maintenance_since: '2026-07-19T00:00:00Z' },
+    });
+    renderDetail();
+    // The badge carries a title beginning "In maintenance"; the panel copy has no title.
+    expect(document.querySelector('[title^="In maintenance"]')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /exit maintenance/i })).toBeInTheDocument();
+  });
+
+  it('entering maintenance forwards the reason to setMaintenance and toasts success', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const setMaint = vi.fn().mockResolvedValue(true);
+    useDeviceStore.setState({ setMaintenance: setMaint });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.type(screen.getByPlaceholderText(/reason/i), 'patching');
+    await user.click(screen.getByRole('button', { name: /enter maintenance/i }));
+
+    expect(setMaint).toHaveBeenCalledWith('d1', true, 'patching');
+    expect(useToastStore.getState().toasts.some((t) => t.type === 'success')).toBe(true);
+  });
+
+  it('exiting maintenance calls setMaintenance(false) and toasts success', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const setMaint = vi.fn().mockResolvedValue(true);
+    useDeviceStore.setState({
+      selectedDevice: { ...mockDevice, maintenance_on: true, maintenance_since: '2026-07-19T00:00:00Z' },
+      setMaintenance: setMaint,
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByRole('button', { name: /exit maintenance/i }));
+
+    expect(setMaint).toHaveBeenCalledWith('d1', false, undefined);
+    expect(useToastStore.getState().toasts.some((t) => t.type === 'success')).toBe(true);
+  });
+
+  it('surfaces a failure toast when the maintenance toggle fails', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const setMaint = vi.fn().mockResolvedValue(false);
+    useDeviceStore.setState({ setMaintenance: setMaint });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+    await user.click(screen.getByRole('button', { name: /enter maintenance/i }));
+
+    expect(useToastStore.getState().toasts.some((t) => t.type === 'error')).toBe(true);
+  });
 });

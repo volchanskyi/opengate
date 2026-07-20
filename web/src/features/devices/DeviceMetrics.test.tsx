@@ -113,6 +113,21 @@ describe('DeviceMetrics', () => {
     expect(screen.getByText(/no telemetry/i)).toBeInTheDocument();
   });
 
+  it('renders the maintenance state in the edge-health panel instead of a health band', () => {
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={undefined} maintenanceSince="2026-07-19T00:00:00Z" />);
+    expect(screen.getByText('In maintenance')).toBeInTheDocument();
+    // The "No data" health band must not stand in for the suppressed telemetry.
+    expect(screen.queryByText('No data')).toBeNull();
+  });
+
+  it('shows a maintenance-aware empty state when telemetry is paused', () => {
+    resetStore({ metrics: { t: [], series: [], downsampled: false, bucket_s: 60 } });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={null} maintenanceSince="2026-07-19T00:00:00Z" />);
+    expect(screen.getByText(/in maintenance since/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no telemetry/i)).toBeNull();
+  });
+
   it('re-fetches with a wider window when a preset is selected', async () => {
     const fetchMetrics = vi.fn().mockResolvedValue(undefined);
     resetStore({ fetchMetrics, metrics: sampleMetrics });

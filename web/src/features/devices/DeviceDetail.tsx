@@ -6,6 +6,8 @@ import { useAMTStore } from './state/amt-store';
 import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { StatusBadge } from './StatusBadge';
+import { MaintenanceBadge } from './MaintenanceBadge';
+import { MaintenancePanel } from './MaintenancePanel';
 import { DeviceLogs } from './DeviceLogs';
 import { DeviceMetrics } from './DeviceMetrics';
 import { DeviceInventory } from './DeviceInventory';
@@ -119,6 +121,7 @@ export function DeviceDetail() {
   const fetchGroups = useDeviceStore((s) => s.fetchGroups);
   const updateDeviceGroup = useDeviceStore((s) => s.updateDeviceGroup);
   const restartAgent = useDeviceStore((s) => s.restartAgent);
+  const setMaintenance = useDeviceStore((s) => s.setMaintenance);
   const hardware = useDeviceStore((s) => s.hardware);
   const fetchHardware = useDeviceStore((s) => s.fetchHardware);
   const refreshDevice = useDeviceStore((s) => s.refreshDevice);
@@ -222,6 +225,16 @@ export function DeviceDetail() {
     fireAndForget(navigate('/devices'));
   };
 
+  const handleToggleMaintenance = async (enabled: boolean, reason?: string): Promise<boolean> => {
+    const ok = await setMaintenance(device.id, enabled, reason);
+    if (ok) {
+      addToast(enabled ? 'Device entered maintenance' : 'Device resumed — monitoring restored', 'success');
+    } else {
+      addToast(enabled ? 'Failed to enter maintenance' : 'Failed to resume device', 'error');
+    }
+    return ok;
+  };
+
   const handleMoveGroup = async () => {
     if (!selectedGroupId || selectedGroupId === device.group_id) return;
     const ok = await updateDeviceGroup(device.id, selectedGroupId);
@@ -263,9 +276,10 @@ export function DeviceDetail() {
       {/* Device Detail Card */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 space-y-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-xl font-bold">{device.hostname}</h2>
             <StatusBadge status={device.status} />
+            {device.maintenance_on && <MaintenanceBadge since={device.maintenance_since} />}
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
             <button
@@ -337,6 +351,8 @@ export function DeviceDetail() {
             </div>
           )}
         </dl>
+
+        <MaintenancePanel device={device} onToggle={handleToggleMaintenance} />
 
         {groups.length > 1 && (
           <div>
@@ -438,7 +454,10 @@ export function DeviceDetail() {
 
       {/* Discovered footprint (ports / services / DB engines / containers / packages), full width */}
       <div className="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-lg p-6">
-        <DeviceInventory deviceId={device.id} />
+        <DeviceInventory
+          deviceId={device.id}
+          maintenanceSince={device.maintenance_on ? device.maintenance_since : undefined}
+        />
       </div>
 
       {/* Telemetry (metrics timelines + anomaly correlation), full width */}
@@ -447,6 +466,7 @@ export function DeviceDetail() {
         <DeviceMetrics
           deviceId={device.id}
           anomalyRate={device.anomaly_rate}
+          maintenanceSince={device.maintenance_on ? device.maintenance_since : undefined}
           onViewLogs={(fromSec, toSec) => {
             setLogWindow({
               from: new Date(fromSec * 1000).toISOString(),

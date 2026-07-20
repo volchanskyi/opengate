@@ -38,8 +38,10 @@ describe('Dashboard', () => {
       groups: [{ id: 'g1', name: 'Group A', owner_id: 'u1', created_at: '', updated_at: '' }],
       isLoading: false,
       error: null,
+      maintenanceCount: 0,
       fetchDevices: vi.fn(),
       fetchGroups: vi.fn(),
+      fetchMaintenanceSummary: vi.fn(),
     });
     useAuthStore.setState({ user: { id: 'u1', email: 'a@b.c', is_admin: false, display_name: '', created_at: '', updated_at: '' } });
     useAdminStore.setState({
@@ -75,6 +77,28 @@ describe('Dashboard', () => {
     renderDashboard();
     expect(screen.getByLabelText('Fleet health distribution')).toBeInTheDocument();
     expect(screen.getByText('Anomalous').closest('div')).toHaveTextContent('1');
+  });
+
+  it('renders the fleet in-maintenance count from the summary endpoint', () => {
+    useDeviceStore.setState({ maintenanceCount: 3 });
+    renderDashboard();
+    const card = screen.getByText('In Maintenance').closest('a')!;
+    expect(card).toHaveTextContent('3');
+  });
+
+  it('fetches the maintenance summary on mount and on each 15s poll', () => {
+    const fetchSummary = vi.fn();
+    useDeviceStore.setState({ fetchMaintenanceSummary: fetchSummary });
+    renderDashboard();
+    expect(fetchSummary).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(15_000);
+    expect(fetchSummary).toHaveBeenCalledTimes(2);
+  });
+
+  it('In Maintenance tile links to /devices', () => {
+    renderDashboard();
+    const link = screen.getByText('In Maintenance').closest('a');
+    expect(link).toHaveAttribute('href', '/devices');
   });
 
   it('polls devices every 15 seconds', () => {

@@ -42,6 +42,8 @@ interface DeviceState {
   metricsLoading: boolean;
   correlation: CorrelateResponse | null;
   correlationLoading: boolean;
+  /** Fleet-wide count of devices currently in maintenance (from the summary endpoint). */
+  maintenanceCount: number;
   isLoading: boolean;
   error: string | null;
   fetchGroups: () => Promise<void>;
@@ -59,6 +61,8 @@ interface DeviceState {
   fetchMetrics: (id: string, params: MetricsParams) => Promise<void>;
   correlate: (id: string, params: CorrelateParams) => Promise<void>;
   upgradeAgent: (deviceId: string, version: string, os: string, arch: string) => Promise<boolean>;
+  setMaintenance: (id: string, enabled: boolean, reason?: string) => Promise<boolean>;
+  fetchMaintenanceSummary: () => Promise<void>;
 }
 
 async function retryHardwareFetch(set: (partial: Partial<DeviceState>) => void, id: string) {
@@ -87,6 +91,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   metricsLoading: false,
   correlation: null,
   correlationLoading: false,
+  maintenanceCount: 0,
   isLoading: false,
   error: null,
 
@@ -269,5 +274,32 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       }), false,
     );
     return res.ok;
+  },
+
+  setMaintenance: async (id, enabled, reason) => {
+    // Maintenance is a desired state, not a live command — the server persists
+    // it and reconciles to the agent over the control channel, so this succeeds
+    // even when the device is offline. An empty reason is omitted so an exit
+    // never records a stray note.
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/devices/{id}/maintenance', {
+        params: { path: { id } },
+        body: { enabled, ...(reason ? { reason } : {}) },
+      }), false,
+    );
+    if (res.ok) {
+      set((state) => ({
+        selectedDevice: state.selectedDevice?.id === id ? res.data : state.selectedDevice,
+        devices: state.devices.map((d) => (d.id === id ? res.data : d)),
+      }));
+    }
+    return res.ok;
+  },
+
+  fetchMaintenanceSummary: async () => {
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/devices/maintenance-summary'), false,
+    );
+    if (res.ok) set({ maintenanceCount: res.data.count });
   },
 }));

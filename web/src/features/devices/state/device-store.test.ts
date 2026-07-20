@@ -573,4 +573,93 @@ describe('device store', () => {
     await promise;
     expect(useDeviceStore.getState().isLoading).toBe(false);
   });
+
+  const deviceIn = (over: Partial<import('../../../types/api').components['schemas']['Device']> = {}) => ({
+    id: 'd1', group_id: 'g1', hostname: 'host1', os: 'linux', agent_version: '1.0.0',
+    capabilities: [], status: 'online' as const, last_seen: '', created_at: '', updated_at: '', ...over,
+  });
+
+  it('setMaintenance posts enabled + reason and updates selectedDevice', async () => {
+    useDeviceStore.setState({ selectedDevice: deviceIn() });
+    mockPost.mockResolvedValueOnce({
+      data: deviceIn({ maintenance_on: true, maintenance_since: '2026-07-19T00:00:00Z', maintenance_reason: 'kernel upgrade' }),
+      error: undefined,
+    });
+
+    const ok = await useDeviceStore.getState().setMaintenance('d1', true, 'kernel upgrade');
+
+    expect(ok).toBe(true);
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/devices/{id}/maintenance', {
+      params: { path: { id: 'd1' } },
+      body: { enabled: true, reason: 'kernel upgrade' },
+    });
+    expect(useDeviceStore.getState().selectedDevice?.maintenance_on).toBe(true);
+    expect(useDeviceStore.getState().selectedDevice?.maintenance_reason).toBe('kernel upgrade');
+  });
+
+  it('setMaintenance omits an empty reason from the request body', async () => {
+    useDeviceStore.setState({ selectedDevice: deviceIn({ maintenance_on: true }) });
+    mockPost.mockResolvedValueOnce({ data: deviceIn(), error: undefined });
+
+    await useDeviceStore.getState().setMaintenance('d1', false);
+
+    // Exit carries no reason — kills a mutant that always spreads a reason key.
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/devices/{id}/maintenance', {
+      params: { path: { id: 'd1' } },
+      body: { enabled: false },
+    });
+  });
+
+  it('setMaintenance updates the matching device in the list', async () => {
+    useDeviceStore.setState({
+      devices: [deviceIn({ id: 'd1' }), deviceIn({ id: 'd2', hostname: 'other' })],
+      selectedDevice: null,
+    });
+    mockPost.mockResolvedValueOnce({ data: deviceIn({ id: 'd1', maintenance_on: true }), error: undefined });
+
+    await useDeviceStore.getState().setMaintenance('d1', true);
+
+    const devices = useDeviceStore.getState().devices;
+    expect(devices.find((d) => d.id === 'd1')?.maintenance_on).toBe(true);
+    // The sibling device is untouched — kills a mutant that rewrites every row.
+    expect(devices.find((d) => d.id === 'd2')?.maintenance_on).toBeUndefined();
+  });
+
+  it('setMaintenance returns false and does not mutate on error', async () => {
+    const original = deviceIn({ maintenance_on: false });
+    useDeviceStore.setState({ selectedDevice: original, devices: [original] });
+    mockPost.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
+
+    const ok = await useDeviceStore.getState().setMaintenance('d1', true);
+
+    expect(ok).toBe(false);
+    // Kills `if (res.ok)` → `if (true)` mutant on setMaintenance.
+    expect(useDeviceStore.getState().selectedDevice?.maintenance_on).toBe(false);
+    expect(useDeviceStore.getState().devices[0]?.maintenance_on).toBe(false);
+  });
+
+  it('setMaintenance never toggles isLoading (silent mutation)', async () => {
+    mockPost.mockResolvedValueOnce({ data: deviceIn(), error: undefined });
+    const { peak } = await captureIsLoading(() => useDeviceStore.getState().setMaintenance('d1', true));
+    expect(peak).toBe(false);
+  });
+
+  it('fetchMaintenanceSummary sets the fleet in-maintenance count', async () => {
+    mockGet.mockResolvedValueOnce({ data: { count: 4 }, error: undefined });
+
+    await useDeviceStore.getState().fetchMaintenanceSummary();
+
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/devices/maintenance-summary');
+    expect(useDeviceStore.getState().maintenanceCount).toBe(4);
+  });
+
+  it('fetchMaintenanceSummary leaves the count unchanged on error', async () => {
+    useDeviceStore.setState({ maintenanceCount: 2 });
+    mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'unauthorized' } });
+
+    await useDeviceStore.getState().fetchMaintenanceSummary();
+
+    // Kills `if (res.ok)` → `if (true)` mutant (would set count to undefined→NaN).
+    expect(useDeviceStore.getState().maintenanceCount).toBe(2);
+  });
 });
