@@ -13,6 +13,7 @@ crate mesh_agent_core
 ├── mod error: pub
 ├── mod file_ops: pub
 ├── mod identity: pub
+├── mod maintenance: pub
 ├── mod ml: pub
 │   ├── mod backfill: pub
 │   ├── mod ensemble: pub

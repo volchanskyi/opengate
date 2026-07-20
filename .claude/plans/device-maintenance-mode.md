@@ -1,6 +1,6 @@
 # Device Maintenance Mode + Remove Opt-in Flags — Master Plan
 
-Status: **IN PROGRESS — D1–D9 locked. Implementing directly (user-directed), one workstream at a time. WS-A + WS-B landed 2026-07-17; WS-C landed 2026-07-18; WS-D–F pending.**
+Status: **IN PROGRESS — D1–D9 locked. Implementing directly (user-directed), one workstream at a time. WS-A + WS-B landed 2026-07-17; WS-C landed 2026-07-18; WS-D landed 2026-07-19; WS-E–F pending.**
 Owner: Ivan Volchanskyi
 
 ## Two coupled changes
@@ -149,6 +149,19 @@ exceptional suppression.
 - **WS-D — Agent runtime:** on maintenance, **stop** the sampler/discovery/log
   collectors and suppress alert-breach evaluation while **keeping the control
   channel + remote-management** paths live; resume + re-baseline on exit.
+  **Landed 2026-07-19.** A shared `MaintenanceGate` (`Arc<AtomicBool>`) in
+  `mesh-agent-core::maintenance` is cloned into all three collectors; each
+  consults `in_maintenance()` and skips its cycle (sampler: no sample/store
+  write/alert eval; discovery: no sweep; log readers: no window). The sampler
+  holds a `MaintenanceTransition` and on the maintenance→Active edge re-baselines
+  — discards the anomaly ensemble + warm-up and clears breach-emit state so the
+  post-change footprint retrains as the new normal. The control loop flips the
+  gate on `SetMaintenanceMode`, echoes `MaintenanceApplied { enabled }`, and
+  **resets the gate to Active on every registration** (fulfilling the WS-C
+  contract: the server pushes `true` post-register only for an in-maintenance
+  device). Remote management stays live — `SessionRequest`/logs/hardware/update
+  dispatch is untouched. New pure-logic tests in
+  `mesh-agent-core/tests/maintenance_test.rs`.
 - **WS-E — Web UI:** maintenance toggle (with reason), Maintenance badge on
   device detail + device list, fleet-level in-maintenance count, escalating
   "in maintenance for N days" warning, maintenance-aware empty states (replaces

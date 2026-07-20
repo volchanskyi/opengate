@@ -10,6 +10,7 @@ pub mod discovery;
 pub mod error;
 pub mod file_ops;
 pub mod identity;
+pub mod maintenance;
 pub mod ml;
 pub mod platform;
 pub mod session;

@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
 use crate::host_logs::{build_log_rate_window, collect_host_logs, LogSource};
+use mesh_agent_core::maintenance::{MaintenanceGate, MaintenanceTransition};
 use mesh_agent_core::ml::store_sink::LocalStoreSink;
 use mesh_protocol::{ControlMessage, ThresholdRule};
 
@@ -36,9 +37,15 @@ const LOG_SOURCES: [LogSource; 3] = [
 pub(crate) fn spawn_log_readers(
     log_dir: PathBuf,
     sink: SyncSender<ControlMessage>,
+    maintenance: MaintenanceGate,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || loop {
         std::thread::sleep(LOG_READER_INTERVAL);
+        // In maintenance the device is being worked on; skip the window so log
+        // churn from the admin's changes never ships or pollutes the baseline.
+        if maintenance.in_maintenance() {
+            continue;
+        }
         for source in LOG_SOURCES {
             let entries = collect_host_logs(source, &log_dir);
             let Some(window) = build_log_rate_window(source, &entries, unix_now()) else {
@@ -70,10 +77,20 @@ const DISCOVERY_INTERVAL: Duration = Duration::from_secs(1800);
 /// loop over `sink`. A report is dropped when the channel is full so a sweep can
 /// never backpressure the control stream. The first sweep runs immediately; the
 /// task then yields for [`DISCOVERY_INTERVAL`] between sweeps.
-pub(crate) fn spawn_discovery(sink: SyncSender<ControlMessage>) -> tokio::task::JoinHandle<()> {
+pub(crate) fn spawn_discovery(
+    sink: SyncSender<ControlMessage>,
+    maintenance: MaintenanceGate,
+) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         let mut last_fingerprint: Option<u64> = None;
         loop {
+            // In maintenance, skip the sweep entirely: services and ports churn
+            // as the admin works, and shipping that would flap the Discovered
+            // Footprint. On resume the next sweep ships the settled profile.
+            if maintenance.in_maintenance() {
+                std::thread::sleep(DISCOVERY_INTERVAL);
+                continue;
+            }
             let profile = mesh_agent_core::discovery::collect_profile();
             let fingerprint = profile.fingerprint();
             if last_fingerprint != Some(fingerprint) {
@@ -189,6 +206,7 @@ const STORE_COMMIT_EVERY: usize = 60;
 pub(crate) fn spawn_sampler(
     sink: Option<SharedSink>,
     alerts: Option<AlertWiring>,
+    maintenance: MaintenanceGate,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         use mesh_agent_core::alerts::AlertEvaluator;
@@ -213,8 +231,30 @@ pub(crate) fn spawn_sampler(
         let mut last_health_emit: Option<i64> = None;
         let mut last_breaching = false;
 
+        // Tracks the maintenance→Active edge so the sampler re-baselines when the
+        // device leaves maintenance.
+        let mut maintenance_edge = MaintenanceTransition::new();
+
         loop {
             std::thread::sleep(Duration::from_secs(1));
+
+            // Maintenance suppresses all sampler work — no sampling, store write,
+            // or alert evaluation — so the admin's disruptive host changes never
+            // pollute the anomaly baseline or fire a breach. On leaving
+            // maintenance, discard the pre-change ensemble and breach state so the
+            // post-change footprint retrains as the new normal (re-baseline).
+            let in_maintenance = maintenance.in_maintenance();
+            if maintenance_edge.just_exited(in_maintenance) {
+                ensemble = None;
+                warmup.clear();
+                last_health_emit = None;
+                last_breaching = false;
+                info!("edge-sentinel: left maintenance, re-baselining anomaly detection");
+            }
+            if in_maintenance {
+                continue;
+            }
+
             let sample = match sampler.sample() {
                 Ok(sample) => sample,
                 Err(e) => {
