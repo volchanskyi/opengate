@@ -149,10 +149,17 @@ proves every non-test Go source is assigned once or explicitly excluded. Go keep
 module-wide coverage with `GOFLAGS=-count=1`, while strict Rust/Go merges and
 [`scripts/mutation-status-build.sh`](../scripts/mutation-status-build.sh) prevent
 an incomplete artifact set from becoming a canonical score row. Every run still
-publishes run/shard completion status for diagnosis.
+publishes run/shard completion status for diagnosis. `go-agentapi-backfill`
+carries a scoped-down gremlins timeout coefficient
+(`mutation_go_shard_timeout_coefficient` in
+[`scripts/lib/mutation-shards.sh`](../scripts/lib/mutation-shards.sh), consumed by
+both the workflow and `make mutate-go`): its `conn_backfill.go` guard-clause
+mutants block under the Postgres harness and TIME OUT, which already counts as
+caught, so the tighter budget ends those timeout waves early and keeps headroom
+under the 75-minute cap without changing the score. Every other shard inherits
+the baseline in `server/.gremlins.yaml`.
 
 **Pay-down trigger:** after score repair clears the existing floor, confirm three
 consecutive scheduled runs with every shard complete, at least ten minutes of
 per-shard headroom, and Rust/Go/Web score plus completion series present in
-VictoriaMetrics. Only then close the recovery plan; a per-shard Go config remains
-an option if a named scope later needs a lower timeout coefficient.
+VictoriaMetrics. Only then close the recovery plan.

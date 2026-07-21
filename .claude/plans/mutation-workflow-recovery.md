@@ -114,6 +114,99 @@ The corrected map separates backfill from connection/handshake, moves discovery
 to the edge-telemetry shard, and gives every current shard a descriptive id. The
 Rust ids state their round-robin selector; the Go ids state the behavior they own.
 
+## Re-review findings (2026-07-20)
+
+The liveness recovery from the 2026-07-13 findings has **landed on `dev`**
+(recovery commit `69f7270`, "fix(ci): recover mutation workflow completeness").
+The eight round-robin Rust shards, the ten behavior-named Go shards, the strict
+Rust/Go merges, and the status-artifact contract are all live in
+[`.github/workflows/mutation.yml`](../../.github/workflows/mutation.yml) and
+[`scripts/lib/mutation-shards.sh`](../../scripts/lib/mutation-shards.sh). Findings
+1–6 above are therefore implemented, not pending; the open work is score repair,
+nightly confirmation, and one new tail shard.
+
+### 7. Completeness is restored — runs finish instead of cancelling
+
+Post-recovery scheduled and dispatch runs terminate through the
+complete-vs-incomplete contract instead of being cancelled mid-flight. `success`
+(complete, clean) and `failure` (complete, score red) now replace the earlier wall
+of `cancelled` (incomplete): runs #80, #81, #83, #84, and #86 completed, while #82
+and #85 completed red on score. The `cancelled` conclusion once again means exactly
+what the contract intends — a shard hit the job cap — and no longer coexists with a
+published canonical row.
+
+### 8. `go-agentapi-backfill` lost its headroom (run #87, 2026-07-20)
+
+The isolated backfill shard **timed out at the 75-minute cap** today while all
+nineteen other shards (eight Rust, web, nine Go) finished green. This is a
+single-shard liveness regression, and the cause is the per-mutant budget, not
+scope:
+
+- Backfill mutates only `conn_backfill.go` and `backfill_scheduler.go` — 37 mutants
+  total in the last clean run (#86).
+- Seven of them **TIMED OUT**, all in `conn_backfill.go` lines 45–78
+  (`CONDITIONALS_NEGATION`, `INVERT_NEGATIVES`, and `ARITHMETIC_BASE` on the guard
+  clauses and retention-clamp arithmetic). None is a genuine infinite loop; they are
+  slow/blocking mutant paths under the Postgres-backed harness.
+- gremlins sets each mutant's budget to *coverage-dry-run elapsed × coefficient*. On
+  #86 the module dry-run took **70.8 s**, so at coefficient 15 each mutant gets a
+  **~17.7-minute** budget. Seven such timeouts, run ~4-wide, consumed **~35 of the 36
+  minutes** of that clean run — the shard runtime is almost entirely timeout waves.
+- With only ~4 minutes of margin under the cap, any runner slowdown that inflates the
+  dry-run or reduces effective parallelism (turning two timeout waves into three)
+  overflows 75 minutes. That is what cancelled #87.
+
+Scope reduction — the lever that fixed every other shard — is exhausted here: the
+shard is already two files, and splitting `conn_backfill.go` from
+`backfill_scheduler.go` would not help because all seven timeouts live in
+`conn_backfill.go` alone. The remaining levers are:
+
+1. **A per-shard timeout coefficient for the backfill scope** — the option the
+   tech-debt note already anticipated. Because TIMED-OUT mutants already count as
+   *caught* in [`mutation-summarize.sh`](../../scripts/mutation-summarize.sh), cutting
+   the budget from ~17.7 min to a few minutes cannot lower the score; it only stops
+   burning wall-clock on mutants that were never going to be reported as survivors.
+   The floor is on false *caught* credit, so the coefficient must stay high enough
+   that a genuinely-killable-but-slow Postgres mutant elsewhere is not cut off — which
+   is why this belongs in a **backfill-scoped** config, not a global change.
+2. **Fast-failing tests on the seven `conn_backfill.go` guard clauses** so those
+   mutants are KILLED in seconds instead of timing out. This removes the waves at the
+   source and is the most surgical fix, though it is runtime-only (the score already
+   counts them as caught).
+
+**Resolved (2026-07-21) — lever 1.** `go-agentapi-backfill` runs at timeout
+coefficient 5 (baseline is 15), scoped in `mutation_go_shard_timeout_coefficient`
+(`scripts/lib/mutation-shards.sh`) and applied by both `mutation.yml` and
+`make mutate-go`. Each mutant still gets ~6 minutes — far above the ~40 s a genuine
+Postgres-backed test pays, so no would-be survivor is falsely credited — while the
+blocking guard-clause mutants' timeout waves end in a third of the wall-clock. The
+score is unchanged by construction (TIMED_OUT already counts as caught). Observed
+per-shard headroom under runner load (step 6 / reviewer checklist) is still to be
+confirmed across three consecutive scheduled runs.
+
+### 9. Stale-spec corrections (code drifted after 2026-07-13)
+
+Two workstreams landed after this plan was written; the live shard library was kept
+in sync, but the tables in this plan were not. They are corrected in place below:
+
+- Maintenance mode added `internal/api/handlers_maintenance.go` (now in
+  `go-api-device-operations`) and `internal/agentapi/conn_maintenance.go` (now in
+  `go-agentapi-connection-handshake`).
+- Fault-injection added `internal/faulttest/` to the global mutation exclusions
+  (test-support scaffolding, carved out like `internal/testutil/`).
+
+The live partition is verified disjoint and complete: 150 non-test `server/**` Go
+sources, zero unassigned, zero double-assigned.
+
+### Where the recovery stands against its success criteria
+
+- **Score repair** reached the floor at least once — #86 (2026-07-19) completed fully
+  green — but is not yet stable (#85 completed red the day before).
+- **Nightly confirmation is unmet:** no three consecutive scheduled runs are clean,
+  and today (#87) regressed on the backfill cap. Do not archive this plan or narrow
+  the tech-debt item until the *Confirm nightly reliability* criteria hold with the
+  backfill fix in place.
+
 ## Success criteria
 
 - Every expected Rust, Go, and Web shard completes within the existing 75-minute
@@ -182,6 +275,17 @@ VictoriaMetrics decisions rather than changing them.
 
 ## Implementation plan
 
+> **Status (2026-07-21):** steps 1–4 landed on `dev` (recovery commit `69f7270`),
+> and the `go-agentapi-backfill` headroom fix (2026-07-20 finding 8) has now landed
+> too — lever 1, a backfill-scoped gremlins timeout coefficient of 5, via
+> `mutation_go_shard_timeout_coefficient` in `scripts/lib/mutation-shards.sh`,
+> consumed by both `mutation.yml` and `make mutate-go` and pinned by
+> `scripts/tests/mutation-workflow.test.sh`. The open work is steps 5–6 (score
+> repair from the first complete recovered artifact set, then nightly
+> confirmation), which require live scheduled runs. Steps 1–4 remain below as the
+> record of the contracts they established and the reference for any future
+> re-shard.
+
 ### 1. Pin the corrected contracts with failing shell tests
 
 Extend `scripts/tests/mutation-workflow.test.sh` before changing workflow or shell
@@ -240,9 +344,9 @@ Use these ten behavior-named shards:
 |---|---|
 | `go-api-runtime` | `api.go`, `converters.go`, `middleware.go`, `wsconn.go`, `handlers_client_errors.go`, `handlers_health.go`, `log_redact.go`, `metrics_assemble.go`, `ratelimit.go` |
 | `go-api-identity-admin` | `handlers_auth.go`, `handlers_users.go`, `handlers_groups.go`, `handlers_security_groups.go`, `handlers_security_group_members.go`, `handlers_audit.go`, `handlers_push.go` |
-| `go-api-device-operations` | `handlers_devices.go`, `handlers_device_actions.go`, `handlers_device_correlate.go`, `handlers_device_history.go`, `handlers_device_inventory.go`, `handlers_device_metrics.go`, `handlers_amt.go`, `handlers_relay.go`, `handlers_sessions.go` |
+| `go-api-device-operations` | `handlers_devices.go`, `handlers_device_actions.go`, `handlers_maintenance.go`, `handlers_device_correlate.go`, `handlers_device_history.go`, `handlers_device_inventory.go`, `handlers_device_metrics.go`, `handlers_amt.go`, `handlers_relay.go`, `handlers_sessions.go` |
 | `go-api-provisioning-lifecycle` | `handlers_enrollment.go`, `handlers_install.go`, `handlers_updates.go`, `handlers_purge.go` |
-| `go-agentapi-connection-handshake` | `conn.go`, `server.go`, `errors.go`, `handshaker.go`, `deregister.go` |
+| `go-agentapi-connection-handshake` | `conn.go`, `conn_maintenance.go`, `server.go`, `errors.go`, `handshaker.go`, `deregister.go` |
 | `go-agentapi-backfill` | `backfill_scheduler.go`, `conn_backfill.go` |
 | `go-agentapi-edge-telemetry` | `conn_discovery.go`, `conn_telemetry.go`, `conn_logs.go`, `conn_history.go`, `alert_breach.go`, `alert_rules.go` |
 | `go-domain-persistence` | `internal/auth/`, `internal/db/`, `internal/dbtx/`, `internal/device/`, `internal/inventory/`, `internal/lifecycle/`, `internal/session/`, `internal/audit/`, `internal/usecase/` |
@@ -265,10 +369,17 @@ Global exclusions remain:
 - `cmd/meshserver/main.go`
 - `tests/loadtest/main.go`
 - `internal/testutil/`
+- `internal/faulttest/`
 
-Do not tune `server/.gremlins.yaml`'s timeout coefficient in this recovery. The
-runtime problem is duplicated and oversized mutation scope, not evidence that the
-per-mutant budget is wrong.
+The initial recovery deliberately did not tune `server/.gremlins.yaml`'s timeout
+coefficient: with duplicated and oversized scope, horizontal partitioning was the
+correct first lever, and it has landed. The residual `go-agentapi-backfill` timeout
+(2026-07-20 finding 8) is a different problem — minimal scope (37 mutants) whose
+runtime is dominated by seven `conn_backfill.go` timeouts each granted a ~17.7-minute
+budget — so a **backfill-scoped** timeout coefficient or fast-failing tests, not
+further partitioning, is the remaining lever there. Do not lower the coefficient
+globally: the Postgres-backed domain shards still need the wide budget to avoid
+false timeouts that would inflate their *caught* count.
 
 ### 3. Make completeness explicit and impossible to confuse with score
 
@@ -455,6 +566,12 @@ After all language scores clear the floor:
 - [ ] API units include both device history and purge handlers.
 - [ ] `agentapi` is isolated into three non-empty file-unit shards, with
       `conn_backfill.go` and `handshaker.go` owned by different shards.
+- [ ] `go-agentapi-backfill` completes with at least 10 minutes of headroom across
+      three consecutive scheduled runs; the `conn_backfill.go` timeout-wave fix
+      (per-shard coefficient or fast-failing guard-clause tests) holds under runner
+      load.
+- [ ] Shard tables and the global exclusion list match the live
+      `mutation-shards.sh` (the maintenance-mode and `faulttest` drift is closed).
 - [ ] Rust and Go merge scripts reject malformed/non-numeric inputs and write atomically.
 - [ ] Rust merge rejects `end_time: null`.
 - [ ] Incomplete runs upload and push status but never publish a canonical score row.

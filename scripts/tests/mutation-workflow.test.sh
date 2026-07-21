@@ -304,6 +304,53 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "conn_backfill.go and handshaker.go must be isolated (backfill=$backfill_owner handshake=$handshake_owner)"
   fi
 
+  # go-agentapi-backfill's runtime is dominated by a few conn_backfill.go
+  # guard-clause mutants that block under the Postgres harness and TIME OUT
+  # (already counted as caught). The baseline coefficient in
+  # server/.gremlins.yaml grants each a multi-minute budget, so those timeout
+  # waves burn the whole shard. A tighter backfill-scoped coefficient keeps them
+  # caught while restoring headroom under the 75-minute cap; it must stay well
+  # above 1 so a genuinely-killable slow Postgres mutant is not cut off — false
+  # caught credit is the only correctness risk. Every other shard inherits the
+  # baseline (empty override).
+  baseline_coef="$(sed -nE 's/^[[:space:]]*timeout-coefficient:[[:space:]]*([0-9]+).*/\1/p' "$REPO_ROOT/server/.gremlins.yaml")"
+  backfill_coef="$(mutation_go_shard_timeout_coefficient go-agentapi-backfill)"
+  if [[ "$backfill_coef" =~ ^[0-9]+$ ]] \
+    && [ -n "$baseline_coef" ] \
+    && [ "$backfill_coef" -lt "$baseline_coef" ] \
+    && [ "$backfill_coef" -ge 2 ]; then
+    pass "go-agentapi-backfill uses a scoped timeout coefficient below the baseline"
+  else
+    fail "go-agentapi-backfill coefficient must be numeric, >=2 and <baseline($baseline_coef) (got='$backfill_coef')"
+  fi
+
+  coef_bad=""
+  for shard in "${go_shards[@]}"; do
+    [ "$shard" = "go-agentapi-backfill" ] && continue
+    got="$(mutation_go_shard_timeout_coefficient "$shard")"
+    [ -z "$got" ] || coef_bad="$coef_bad [$shard=$got]"
+  done
+  if [ -z "$coef_bad" ]; then
+    pass "non-backfill Go shards inherit the baseline timeout coefficient"
+  else
+    fail "only go-agentapi-backfill may override the coefficient:$coef_bad"
+  fi
+
+  # Both CI and local runs must derive the per-shard coefficient from the shard
+  # library, not hardcode it, so the two stay identical.
+  if grep -q 'mutation_go_shard_timeout_coefficient' "$WORKFLOW" \
+    && grep -q -- '--timeout-coefficient' "$WORKFLOW"; then
+    pass "workflow derives --timeout-coefficient from the shard library"
+  else
+    fail "workflow must derive --timeout-coefficient from mutation_go_shard_timeout_coefficient"
+  fi
+  if grep -q 'mutation_go_shard_timeout_coefficient' "$REPO_ROOT/Makefile" \
+    && grep -q -- '--timeout-coefficient' "$REPO_ROOT/Makefile"; then
+    pass "make mutate-go derives --timeout-coefficient from the shard library"
+  else
+    fail "Makefile mutate-go must derive --timeout-coefficient from the shard library"
+  fi
+
   # Global excludes must stay in sync with server/.gremlins.yaml exclude-files.
   globals="$(mutation_go_global_excludes)"
   sync_bad=""

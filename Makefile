@@ -322,8 +322,10 @@ mutate-go:
 	reports=""; \
 	for shard in $$(mutation_go_shards); do \
 	  excl="$$(mutation_go_shard_exclude_regex $$shard)"; \
-	  echo ">> mutating shard $$shard (exclude: $$excl)"; \
-	  ( cd server && gremlins unleash . -E "$$excl" --output "mutation-report-$$shard.json" ) || true; \
+	  coef="$$(mutation_go_shard_timeout_coefficient $$shard)"; \
+	  coef_flag=""; [ -n "$$coef" ] && coef_flag="--timeout-coefficient $$coef"; \
+	  echo ">> mutating shard $$shard (exclude: $$excl) (coef: $${coef:-baseline})"; \
+	  ( cd server && gremlins unleash . -E "$$excl" $$coef_flag --output "mutation-report-$$shard.json" ) || true; \
 	  reports="$$reports server/mutation-report-$$shard.json"; \
 	done; \
 	./scripts/mutation-merge-go.sh server/mutation-report.json $$reports; \
