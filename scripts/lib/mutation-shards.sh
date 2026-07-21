@@ -73,6 +73,26 @@ mutation_go_shard_units() {
   esac
 }
 
+# Per-shard gremlins timeout-coefficient override. Most shards inherit the
+# baseline in server/.gremlins.yaml (empty output => no CLI flag). The isolated
+# go-agentapi-backfill shard is the exception: its runtime is dominated by a
+# handful of conn_backfill.go guard-clause mutants that block under the
+# Postgres-backed harness and TIME OUT. gremlins already counts TIMED_OUT as
+# caught, so those mutants were never going to be reported as survivors — the
+# baseline's multi-minute per-mutant budget only burns wall-clock on them and
+# leaves the shard with no headroom under the 75-minute cap. A coefficient of 5
+# still gives a genuine slow Postgres mutant a comfortable budget (well above
+# the ~40s schema re-setup a real test pays) so no would-be survivor is falsely
+# credited as caught, while cutting the blocking mutants' budget by two-thirds
+# and restoring headroom. The baseline stays high globally because the wide
+# Postgres domain shards need it to avoid false timeouts inflating their score.
+mutation_go_shard_timeout_coefficient() {
+  case "$1" in
+    go-agentapi-backfill) echo "5" ;;
+    *) echo "" ;;
+  esac
+}
+
 mutation_go_unit_matches() {
   local unit="${1:?mutation unit required}"
   local source="${2:?source path required}"

@@ -168,8 +168,15 @@ jobs:
           . scripts/lib/mutation-shards.sh
           excl="$(mutation_go_shard_exclude_regex '${{ matrix.shard }}')"
           echo "shard ${{ matrix.shard }} exclude: $excl"
+          # Most shards inherit the timeout coefficient from server/.gremlins.yaml;
+          # go-agentapi-backfill scopes it lower to end its conn_backfill.go
+          # timeout waves early (still counted as caught) and keep headroom.
+          coef="$(mutation_go_shard_timeout_coefficient '${{ matrix.shard }}')"
+          coef_flag=()
+          [ -n "$coef" ] && coef_flag=(--timeout-coefficient "$coef")
+          echo "shard ${{ matrix.shard }} timeout-coefficient: ${coef:-baseline}"
           cd server
-          gremlins unleash . -E "$excl" --output "mutation-report-${{ matrix.shard }}.json" || EXIT=$?
+          gremlins unleash . -E "$excl" "${coef_flag[@]}" --output "mutation-report-${{ matrix.shard }}.json" || EXIT=$?
           echo "gremlins exit: ${EXIT:-0}"
 
       # -- Web ---------------------------------------------------------------
