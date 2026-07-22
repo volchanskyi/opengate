@@ -52,7 +52,7 @@ jobs:
           docker logs pg-ci
           exit 1
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         if: matrix.lang == 'go'
         with:
           go-version: '1.26'
