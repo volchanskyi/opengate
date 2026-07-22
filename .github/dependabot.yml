@@ -34,6 +34,10 @@ updates:
     groups:
       npm-deps:
         patterns: ["*"]
+    # Hold typescript: typescript-eslint does not support TypeScript 7, so a
+    # bump breaks `eslint .` (Web Lint) and the web build (E2E).
+    ignore:
+      - dependency-name: "typescript"
 
   - package-ecosystem: github-actions
     directory: /
