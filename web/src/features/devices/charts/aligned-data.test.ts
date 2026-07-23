@@ -139,4 +139,21 @@ describe('buildFamilyChart', () => {
     ]);
     expect(chart.scaleRange).toBeNull();
   });
+
+  it('tracks the family maximum even when it is not the final sample', () => {
+    // avg peaks at 30 mid-series then falls; the y-scale top must reflect the
+    // running maximum (30), not merely the last value.
+    const chart = buildFamilyChart([1000, 1010, 1020], [series({ name: 'cpu.util', avg: [10, 30, 20] })]);
+    expect(chart.scaleRange).toEqual([9, 31]);
+  });
+
+  it('suppresses the band when provenance is none even if bounds are present', () => {
+    const chart = buildFamilyChart([1000, 1010], [
+      series({ name: 'cpu.util', avg: [10, 20], min: [5, 15], max: [15, 25], min_max_source: 'none' }),
+    ]);
+    // Provenance none means avg-only: no min/max columns, no band.
+    expect(chart.data).toHaveLength(2);
+    expect(chart.bands).toHaveLength(0);
+    expect(chart.series).toHaveLength(2);
+  });
 });
