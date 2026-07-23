@@ -32,9 +32,16 @@ describe('DeviceLogs', () => {
 
   afterEach(() => { vi.useRealTimers(); });
 
-  it('renders fetch button', () => {
+  it('renders the Agent Logs header without a Fetch Logs button', () => {
     render(<DeviceLogs deviceId="d1" />);
-    expect(screen.getByText('Fetch Logs')).toBeInTheDocument();
+    expect(screen.getByText('Agent Logs')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Fetch Logs' })).toBeNull();
+  });
+
+  it('does not render the log-rate sparkline', () => {
+    useDeviceStore.setState({ logs: sampleLogs });
+    render(<DeviceLogs deviceId="d1" />);
+    expect(screen.queryByText('Log rate')).toBeNull();
   });
 
   it('displays log entries with level color coding', () => {
@@ -64,10 +71,10 @@ describe('DeviceLogs', () => {
     expect(screen.getByText('Showing 1-3 of 3')).toBeInTheDocument();
   });
 
-  it('shows loading state while fetching', () => {
+  it('shows a loading indicator while fetching', () => {
     useDeviceStore.setState({ logsLoading: true });
     render(<DeviceLogs deviceId="d1" />);
-    expect(screen.getByText('Fetching...')).toBeInTheDocument();
+    expect(screen.getByText('Fetching…')).toBeInTheDocument();
   });
 
   it('shows empty state when no logs', () => {
@@ -76,22 +83,26 @@ describe('DeviceLogs', () => {
     expect(screen.getByText('No logs available')).toBeInTheDocument();
   });
 
-  it('fetch button disabled while loading', () => {
-    useDeviceStore.setState({ logsLoading: true });
-    render(<DeviceLogs deviceId="d1" />);
-    const button = screen.getByText('Fetching...');
-    expect(button).toBeDisabled();
-  });
-
-  it('calls fetchLogs on button click', async () => {
+  it('refetches immediately when the level dropdown changes', async () => {
     const user = userEvent.setup();
     const fetchLogs = vi.fn();
     useDeviceStore.setState({ fetchLogs });
 
     render(<DeviceLogs deviceId="d1" />);
-    await user.click(screen.getByText('Fetch Logs'));
+    await user.selectOptions(screen.getByDisplayValue('All Levels'), 'ERROR');
 
-    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({ offset: 0, limit: 300 }));
+    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({ level: 'ERROR', offset: 0, limit: 300 }));
+  });
+
+  it('fetches on Enter in the search box', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+
+    render(<DeviceLogs deviceId="d1" />);
+    await user.type(screen.getByPlaceholderText('Search keyword...'), 'timeout{Enter}');
+
+    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ search: 'timeout', offset: 0 }));
   });
 
   it('shows Load More button when has_more is true', () => {
@@ -122,20 +133,18 @@ describe('DeviceLogs', () => {
     expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ offset: 600 }));
   });
 
-  it('passes level and search filters to fetchLogs', async () => {
+  it('passes level and search filters to fetchLogs via a window button', async () => {
     const user = userEvent.setup();
     const fetchLogs = vi.fn();
     useDeviceStore.setState({ fetchLogs });
     render(<DeviceLogs deviceId="d1" />);
 
-    // Set level filter
-    await user.selectOptions(screen.getByDisplayValue('All Levels'), 'ERROR');
-    // Set search filter
+    // Set search filter, then apply via a time-window button.
     await user.type(screen.getByPlaceholderText('Search keyword...'), 'timeout');
+    // Set level filter — the dropdown refetches immediately.
+    await user.selectOptions(screen.getByDisplayValue('All Levels'), 'ERROR');
 
-    await user.click(screen.getByText('Fetch Logs'));
-
-    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({
+    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({
       level: 'ERROR',
       search: 'timeout',
       offset: 0,
@@ -148,7 +157,7 @@ describe('DeviceLogs', () => {
     useDeviceStore.setState({ fetchLogs });
     render(<DeviceLogs deviceId="d1" />);
 
-    await user.click(screen.getByText('Fetch Logs'));
+    await user.click(screen.getByRole('button', { name: '1h' }));
 
     expect(fetchLogs).toHaveBeenCalledTimes(1);
     const [, args] = fetchLogs.mock.calls[0]!;

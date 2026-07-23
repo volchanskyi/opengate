@@ -219,7 +219,7 @@ describe('DeviceDetail', () => {
 
   it('renders logs card as separate tile', () => {
     renderDetail();
-    expect(screen.getByText('Fetch Logs')).toBeInTheDocument();
+    expect(screen.getByText('Agent Logs')).toBeInTheDocument();
   });
 
   it('calls upgradeAgent when upgrade button is clicked', async () => {

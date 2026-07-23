@@ -276,11 +276,8 @@ series on the grid.
 Raw logs are read through the on-demand broker in the logs explorer
 ([`DeviceLogs`](../web/src/features/devices/DeviceLogs.tsx)) with level, time-range,
 and full-text filters plus level facets over the returned page, rendering only the
-redacted lines the broker returns. A compact log-rate sparkline
-([`LogRateSparkline`](../web/src/features/devices/LogRateSparkline.tsx)) plots the
-numeric `log.rate.*` dims only — message text is never a chart label. A
-metrics↔logs correlation jump carries a device window from the metrics panel
-straight into the explorer.
+redacted lines the broker returns. A metrics↔logs correlation jump carries a device
+window from the metrics panel straight into the explorer.
 
 ### Long-term (cold) tier
 

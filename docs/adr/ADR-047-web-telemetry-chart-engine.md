@@ -50,11 +50,8 @@ owning chrome and the renderer owning pixels.
 - The logs explorer
   ([`DeviceLogs`](../../web/src/features/devices/DeviceLogs.tsx)) renders only the
   redacted lines the WS-11 broker returns, with level/time/full-text filters and
-  page facets. A log-rate sparkline
-  ([`LogRateSparkline`](../../web/src/features/devices/LogRateSparkline.tsx))
-  plots only numeric `log.rate.*` dims — message text is never a chart label. A
-  metrics↔logs correlation jump carries a device window from the panel into the
-  explorer.
+  page facets. A metrics↔logs correlation jump carries a device window from the
+  panel into the explorer.
 
 ## Consequences
 
