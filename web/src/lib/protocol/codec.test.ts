@@ -64,6 +64,19 @@ describe('encodeFrame', () => {
     const result = encodeFrame({ type: FRAME_FILE, frame });
     expect(result[0]).toBe(0x04);
   });
+
+  it('rejects a payload that encodes larger than MAX_FRAME_SIZE', () => {
+    const frame: DesktopFrame = {
+      sequence: 1, x: 0, y: 0, width: 1, height: 1, encoding: 'Raw',
+      // A bin just past the cap: msgpack framing pushes the payload over MAX.
+      data: new Uint8Array(MAX_FRAME_SIZE + 16),
+    };
+    expect(() => encodeFrame({ type: FRAME_DESKTOP, frame })).toThrow('frame payload too large');
+  });
+
+  it('rejects an unknown frame type', () => {
+    expect(() => encodeFrame({ type: 0x42 } as unknown as Frame)).toThrow('unexpected frame type');
+  });
 });
 
 describe('decodeFrame', () => {
