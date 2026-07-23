@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toFloat32, groupByFamily, buildFamilyChart, FAMILY_PALETTE } from './aligned-data';
+import { toFloat32, groupByFamily, buildFamilyChart, familyCurrentLabel, FAMILY_PALETTE } from './aligned-data';
 import type { components } from '../../../types/api';
 
 type MetricSeries = components['schemas']['MetricSeries'];
@@ -155,5 +155,46 @@ describe('buildFamilyChart', () => {
     expect(chart.data).toHaveLength(2);
     expect(chart.bands).toHaveLength(0);
     expect(chart.series).toHaveLength(2);
+  });
+});
+
+describe('familyCurrentLabel', () => {
+  it('renders a rounded percent from the latest cpu utilisation sample', () => {
+    expect(familyCurrentLabel([series({ name: 'cpu.util', avg: [10, 20, 42.4] })])).toBe('42%');
+  });
+
+  it('reads cpu.total as a percent family too', () => {
+    expect(familyCurrentLabel([series({ name: 'cpu.total', avg: [70.6] })])).toBe('71%');
+  });
+
+  it('uses the *_percent series for mem/disk families, rounding half up', () => {
+    expect(familyCurrentLabel([
+      series({ name: 'mem.rss', avg: [1, 2, 3] }),
+      series({ name: 'mem.used_percent', avg: [40, 58.6] }),
+    ])).toBe('59%');
+    expect(familyCurrentLabel([series({ name: 'disk.used_percent', avg: [72.1] })])).toBe('72%');
+  });
+
+  it('ignores a trailing gap and reads the last finite sample', () => {
+    expect(familyCurrentLabel([series({ name: 'cpu.util', avg: [30, 55, null] })])).toBe('55%');
+  });
+
+  it('sums the latest per-series readings of the net family as bytes', () => {
+    expect(familyCurrentLabel([
+      series({ name: 'net.rx_bytes', avg: [0, 1_000_000] }),
+      series({ name: 'net.tx_bytes', avg: [0, 500_000] }),
+    ])).toBe('1.4 MB');
+  });
+
+  it('formats a sub-kilobyte net total in bytes', () => {
+    expect(familyCurrentLabel([series({ name: 'net.rx_bytes', avg: [900] })])).toBe('900 B');
+  });
+
+  it('returns null when the percent series has no finite sample', () => {
+    expect(familyCurrentLabel([series({ name: 'cpu.util', avg: [null, Number.NaN] })])).toBeNull();
+  });
+
+  it('returns null for a family that is neither percent nor net', () => {
+    expect(familyCurrentLabel([series({ name: 'uptime.seconds', avg: [1234] })])).toBeNull();
   });
 });

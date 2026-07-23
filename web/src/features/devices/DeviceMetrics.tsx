@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { components } from '../../types/api';
 import { useDeviceStore } from './state/device-store';
 import { TimeSeriesChart } from './charts/TimeSeriesChart';
-import { buildFamilyChart, groupByFamily } from './charts/aligned-data';
+import { buildFamilyChart, familyCurrentLabel, groupByFamily } from './charts/aligned-data';
 import { HealthBadge } from './HealthBadge';
 import { healthBand, HEALTH_META } from './health';
 import { formatMaintenanceSince } from './maintenance';
@@ -192,7 +192,12 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
       .filter(([family]) => family !== 'log')
       .map(([family, series]) => {
         const chart = buildFamilyChart(metrics.t, series);
-        return { family, chart, source: series[0]?.min_max_source ?? 'none' as MinMaxSource };
+        return {
+          family,
+          chart,
+          source: series[0]?.min_max_source ?? 'none' as MinMaxSource,
+          current: familyCurrentLabel(series),
+        };
       });
   }, [metrics]);
 
@@ -228,10 +233,13 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
       {families.length > 0 ? (
         <>
           <p className="text-xs text-gray-500">Drag across a chart to correlate that window.</p>
-          {families.map(({ family, chart, source }) => (
+          {families.map(({ family, chart, source, current }) => (
             <div key={family}>
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-semibold text-gray-300 capitalize">{family}</h4>
+                <div className="flex items-baseline gap-2">
+                  <h4 className="text-xs font-semibold text-gray-300 capitalize">{family}</h4>
+                  {current && <span className="text-sm font-bold text-gray-100 tabular-nums">{current}</span>}
+                </div>
                 <span className="text-[10px] text-gray-500">{bandCaption(chart.bands.length > 0, source)}</span>
               </div>
               <TimeSeriesChart

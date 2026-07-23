@@ -124,8 +124,8 @@ describe('Device Detail Flow (integration)', () => {
     const user = userEvent.setup();
     renderDeviceDetailFlow();
 
-    await user.click(screen.getByText('Delete Device'));
-    expect(screen.getByText('Confirm Delete')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete Device' }));
+    expect(screen.getByRole('button', { name: 'Confirm Delete' })).toBeInTheDocument();
   });
 
   it('redirects to login when unauthenticated', () => {

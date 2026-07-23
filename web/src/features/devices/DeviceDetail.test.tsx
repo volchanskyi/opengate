@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-dom';
@@ -69,6 +69,7 @@ describe('DeviceDetail', () => {
       fetchDevice: vi.fn(),
       refreshDevice: vi.fn(),
       fetchGroups: vi.fn(),
+      fetchHardware: vi.fn(),
       deleteDevice: vi.fn(),
       upgradeAgent: vi.fn().mockResolvedValue(true),
     });
@@ -135,7 +136,7 @@ describe('DeviceDetail', () => {
 
   it('has start session button in header', () => {
     renderDetail();
-    expect(screen.getByText('Start Session')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Session' })).toBeInTheDocument();
   });
 
   it('delete requires confirmation', async () => {
@@ -143,8 +144,8 @@ describe('DeviceDetail', () => {
     const user = userEvent.setup();
     renderDetail();
 
-    await user.click(screen.getByText('Delete Device'));
-    expect(screen.getByText('Confirm Delete')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete Device' }));
+    expect(screen.getByRole('button', { name: 'Confirm Delete' })).toBeInTheDocument();
   });
 
   it('shows agent version', () => {
@@ -176,7 +177,7 @@ describe('DeviceDetail', () => {
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
-    await user.click(screen.getByText('Start Session'));
+    await user.click(screen.getByRole('button', { name: 'Start Session' }));
 
     const toasts = useToastStore.getState().toasts;
     expect(toasts).toHaveLength(1);
@@ -196,7 +197,7 @@ describe('DeviceDetail', () => {
     );
     render(<RouterProvider router={router} />);
 
-    await user.click(screen.getByText('Start Session'));
+    await user.click(screen.getByRole('button', { name: 'Start Session' }));
 
     expect(await screen.findByText('Session View')).toBeInTheDocument();
   });
@@ -214,7 +215,7 @@ describe('DeviceDetail', () => {
       manifests: [{ version: '1.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' }],
     });
     renderDetail();
-    expect(screen.getByText('Up to date')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Up to date' })).toBeInTheDocument();
   });
 
   it('renders logs card as separate tile', () => {
@@ -264,11 +265,11 @@ describe('DeviceDetail', () => {
     renderDetail();
 
     // First click shows confirmation
-    await user.click(screen.getByText('Restart Agent'));
-    expect(screen.getByText(/Confirm \(1 active\)/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Restart Agent' }));
+    expect(screen.getByRole('button', { name: /Confirm \(1 active\)/ })).toBeInTheDocument();
 
     // Second click triggers the actual restart
-    await user.click(screen.getByText(/Confirm \(1 active\)/));
+    await user.click(screen.getByRole('button', { name: /Confirm \(1 active\)/ }));
     expect(restartFn).toHaveBeenCalledWith('d1');
   });
 
@@ -281,7 +282,7 @@ describe('DeviceDetail', () => {
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
-    await user.click(screen.getByText('Restart Agent'));
+    await user.click(screen.getByRole('button', { name: 'Restart Agent' }));
 
     const toasts = useToastStore.getState().toasts;
     expect(toasts.some((t) => t.message.includes('Failed to restart'))).toBe(true);
@@ -328,11 +329,11 @@ describe('DeviceDetail', () => {
     render(<RouterProvider router={router} />);
 
     // First click shows confirm
-    await user.click(screen.getByText('Delete Device'));
-    expect(screen.getByText('Confirm Delete')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Delete Device' }));
+    expect(screen.getByRole('button', { name: 'Confirm Delete' })).toBeInTheDocument();
 
     // Second click deletes and navigates
-    await user.click(screen.getByText('Confirm Delete'));
+    await user.click(screen.getByRole('button', { name: 'Confirm Delete' }));
     expect(deleteFn).toHaveBeenCalledWith('d1');
     expect(await screen.findByText('Device List')).toBeInTheDocument();
   });
@@ -676,6 +677,44 @@ describe('DeviceDetail', () => {
     expect(fetchHardwareFn).toHaveBeenCalledWith('d1');
   });
 
+  it('auto-loads hardware once when the device is already online on mount', () => {
+    const fetchHardwareFn = vi.fn();
+    useDeviceStore.setState({ fetchHardware: fetchHardwareFn }); // mockDevice is online
+    renderDetail();
+    expect(fetchHardwareFn).toHaveBeenCalledTimes(1);
+    expect(fetchHardwareFn).toHaveBeenCalledWith('d1');
+  });
+
+  it('auto-loads hardware on an offline→online transition but not on a steady poll', () => {
+    const fetchHardwareFn = vi.fn();
+    useDeviceStore.setState({
+      fetchHardware: fetchHardwareFn,
+      selectedDevice: { ...mockDevice, status: 'offline' as const },
+    });
+    renderDetail();
+    expect(fetchHardwareFn).not.toHaveBeenCalled(); // offline: nothing pulled
+
+    // Agent comes back online → pull once.
+    act(() => { useDeviceStore.setState({ selectedDevice: { ...mockDevice, status: 'online' as const } }); });
+    expect(fetchHardwareFn).toHaveBeenCalledTimes(1);
+
+    // A subsequent poll that leaves the device online must not re-pull.
+    act(() => { useDeviceStore.setState({ selectedDevice: { ...mockDevice, status: 'online' as const, last_seen: '2026-01-02T00:00:00Z' } }); });
+    expect(fetchHardwareFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows N/A for the Group ID when the device is not in a group', () => {
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, group_id: '' } });
+    renderDetail();
+    expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('N/A');
+  });
+
+  it('shows the group id when the device belongs to a group', () => {
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, group_id: 'g-42' } });
+    renderDetail();
+    expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('g-42');
+  });
+
   it('network interface row shows MAC alone when ipv4 is empty', () => {
     useDeviceStore.setState({
       hardware: {
@@ -803,7 +842,7 @@ describe('DeviceDetail', () => {
     renderDetail();
     // Windows manifest must be filtered out; linux 5.0.0 == device 5.0.0 → Up to date
     expect(screen.queryByText(/Upgrade to v99\.0\.0/)).not.toBeInTheDocument();
-    expect(screen.getByText('Up to date')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Up to date' })).toBeInTheDocument();
   });
 
   it('latestManifest sorts numerically (10.0.0 > 2.0.0, not lexicographic)', () => {
@@ -834,7 +873,7 @@ describe('DeviceDetail', () => {
     // Without numeric comparison, '5.0.0' >= '10.0.0' lexicographically → "Up to date".
     // With numeric comparison, '5.0.0' < '10.0.0' → "Upgrade to v10.0.0".
     expect(screen.getByText('Upgrade to v10.0.0')).toBeInTheDocument();
-    expect(screen.queryByText('Up to date')).not.toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Up to date' })).not.toBeInTheDocument();
   });
 
   it('Upgrade button disabled when device is offline', () => {
@@ -892,13 +931,13 @@ describe('DeviceDetail', () => {
       selectedDevice: { ...mockDevice, status: 'offline' as const },
     });
     renderDetail();
-    const btn = screen.getByText('Restart Agent').closest('button') as HTMLButtonElement;
+    const btn = screen.getByRole('button', { name: 'Restart Agent' }).closest('button') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
   });
 
   it('Restart button enabled when device online and not restarting', () => {
     renderDetail();
-    const btn = screen.getByText('Restart Agent').closest('button') as HTMLButtonElement;
+    const btn = screen.getByRole('button', { name: 'Restart Agent' }).closest('button') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
   });
 
@@ -911,15 +950,15 @@ describe('DeviceDetail', () => {
     useSessionStore.setState({ sessions: [] });
 
     renderDetail();
-    await user.click(screen.getByText('Restart Agent'));
+    await user.click(screen.getByRole('button', { name: 'Restart Agent' }));
 
-    expect(await screen.findByText('Restarting...')).toBeInTheDocument();
-    const btn = screen.getByText('Restarting...').closest('button') as HTMLButtonElement;
+    expect(await screen.findByRole('button', { name: 'Restarting...' })).toBeInTheDocument();
+    const btn = screen.getByRole('button', { name: 'Restarting...' }).closest('button') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
 
     resolve(true);
     // Label flips back to "Restart Agent" after promise settles.
-    expect(await screen.findByText('Restart Agent')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Restart Agent' })).toBeInTheDocument();
   });
 
   it('handleRestart success toast contains "Restart command sent"', async () => {
@@ -931,7 +970,7 @@ describe('DeviceDetail', () => {
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
-    await user.click(screen.getByText('Restart Agent'));
+    await user.click(screen.getByRole('button', { name: 'Restart Agent' }));
 
     const toasts = useToastStore.getState().toasts;
     expect(toasts.some((t) => t.message === 'Restart command sent' && t.type === 'success')).toBe(true);
@@ -969,7 +1008,7 @@ describe('DeviceDetail', () => {
     );
     render(<RouterProvider router={router} />);
 
-    await user.click(screen.getByText('Start Session'));
+    await user.click(screen.getByRole('button', { name: 'Start Session' }));
 
     expect(await screen.findByText('Session View')).toBeInTheDocument();
     expect(screen.getByTestId('relay').textContent).toBe('wss://relay.example');
@@ -1088,6 +1127,7 @@ describe('DeviceDetail', () => {
     // button click directly by rendering with an id and then calling the handler. Here we simply
     // confirm the wiring: with id present the click forwards to fetchHardware.
     renderDetail();
+    fetchHardwareFn.mockClear(); // discard the online-mount auto-load; assert only the button wiring
     await user.click(screen.getByText('Refresh Hardware'));
     expect(fetchHardwareFn).toHaveBeenCalledTimes(1);
     expect(fetchHardwareFn).toHaveBeenCalledWith('d1');
@@ -1132,7 +1172,7 @@ describe('DeviceDetail', () => {
       manifests: [{ version: '1.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com', sha256: 'a', signature: 's', created_at: '2026-01-01T00:00:00Z' }],
     });
     renderDetail();
-    const pill = screen.getByText('Up to date');
+    const pill = screen.getByRole('img', { name: 'Up to date' });
     expect(pill.tagName).toBe('SPAN');
     // Upgrade button must NOT be rendered when isUpToDate.
     expect(screen.queryByText(/Upgrade to v/)).not.toBeInTheDocument();

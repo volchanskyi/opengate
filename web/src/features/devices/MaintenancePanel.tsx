@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { WrenchIcon, ActivityIcon, SpinnerIcon } from '../../components/icons';
 import {
   daysInMaintenance,
   maintenanceSeverity,
@@ -61,9 +62,11 @@ export function MaintenancePanel({ device, onToggle }: MaintenancePanelProps) {
           type="button"
           onClick={() => { fireAndForget(submit(false)); }}
           disabled={submitting}
-          className="mt-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium disabled:opacity-50"
+          aria-label="Exit maintenance"
+          title={submitting ? 'Resuming…' : 'Exit maintenance'}
+          className="mt-2 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium disabled:opacity-50 inline-flex items-center"
         >
-          {submitting ? 'Resuming…' : 'Exit Maintenance'}
+          {submitting ? <SpinnerIcon /> : <ActivityIcon />}
         </button>
       </div>
     );
@@ -89,9 +92,11 @@ export function MaintenancePanel({ device, onToggle }: MaintenancePanelProps) {
           type="button"
           onClick={() => { fireAndForget(submit(true)); }}
           disabled={submitting}
-          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 rounded text-xs font-medium disabled:opacity-50 whitespace-nowrap"
+          aria-label="Enter maintenance"
+          title={submitting ? 'Entering…' : 'Enter maintenance'}
+          className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 rounded text-xs font-medium disabled:opacity-50 whitespace-nowrap inline-flex items-center"
         >
-          {submitting ? 'Entering…' : 'Enter Maintenance'}
+          {submitting ? <SpinnerIcon /> : <WrenchIcon />}
         </button>
       </div>
     </div>

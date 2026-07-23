@@ -107,6 +107,26 @@ describe('DeviceMetrics', () => {
     expect(screen.getByText('50%')).toBeInTheDocument();
   });
 
+  it('shows the latest utilisation reading beside each family header', () => {
+    resetStore({
+      metrics: {
+        ...sampleMetrics,
+        series: [
+          { name: 'cpu.util', avg: [10, 20, 42], min_max_source: 'none' as const },
+          { name: 'mem.used_percent', avg: [40, 50, 58], min_max_source: 'none' as const },
+          { name: 'disk.used_percent', avg: [70, 71, 72], min_max_source: 'none' as const },
+          { name: 'net.rx_bytes', avg: [0, 500_000, 1_000_000], min_max_source: 'none' as const },
+          { name: 'net.tx_bytes', avg: [0, 250_000, 500_000], min_max_source: 'none' as const },
+        ],
+      },
+    });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.1} />);
+    expect(screen.getByText('42%')).toBeInTheDocument();
+    expect(screen.getByText('58%')).toBeInTheDocument();
+    expect(screen.getByText('72%')).toBeInTheDocument();
+    expect(screen.getByText('1.4 MB')).toBeInTheDocument();
+  });
+
   it('shows an empty-state message when the window has no telemetry', () => {
     resetStore({ metrics: { t: [], series: [], downsampled: false, bucket_s: 60 } });
     render(<DeviceMetrics deviceId="d1" anomalyRate={null} />);
