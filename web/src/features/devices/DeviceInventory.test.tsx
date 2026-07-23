@@ -61,26 +61,41 @@ describe('DeviceInventory', () => {
     expect(screen.queryByText(/No footprint discovered/i)).toBeNull();
   });
 
-  it('renders grouped tables and a summary for a discovered footprint', () => {
+  it('renders grouped table toggles and a summary for a discovered footprint', () => {
     useInventoryStore.setState({ byDevice: new Map([['d1', items]]) });
     render(<DeviceInventory deviceId="d1" />);
-    expect(screen.getByText('Listening Ports (2)')).toBeInTheDocument();
-    expect(screen.getByText('Services (1)')).toBeInTheDocument();
-    expect(screen.getByText('Database Engines (1)')).toBeInTheDocument();
-    expect(screen.getByText('Containers (1)')).toBeInTheDocument();
-    expect(screen.getByText('Packages (1)')).toBeInTheDocument();
-    expect(screen.getByText('sshd')).toBeInTheDocument();
-    expect(screen.getByText('nginx:latest')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Listening Ports \(2\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Services \(1\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Database Engines \(1\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Containers \(1\)/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Packages \(1\)/ })).toBeInTheDocument();
     expect(screen.getByText(/^Discovered:/)).toHaveTextContent(
       'Discovered: 2 listening ports · 1 services · 1 database engines · 1 containers · 1 packages',
     );
+  });
+
+  it('collapses tables by default and expands one when its header is clicked', async () => {
+    const user = userEvent.setup();
+    useInventoryStore.setState({ byDevice: new Map([['d1', items]]) });
+    render(<DeviceInventory deviceId="d1" />);
+    // Collapsed by default: no table body / row content is rendered.
+    expect(screen.queryByText('sshd')).toBeNull();
+    expect(document.querySelector('table')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /Listening Ports \(2\)/ }));
+    expect(screen.getByText('sshd')).toBeInTheDocument();
+
+    // Collapsing again hides the rows.
+    await user.click(screen.getByRole('button', { name: /Listening Ports \(2\)/ }));
+    expect(screen.queryByText('sshd')).toBeNull();
   });
 
   it('sorts a table when a column header is clicked', async () => {
     const user = userEvent.setup();
     useInventoryStore.setState({ byDevice: new Map([['d1', items]]) });
     render(<DeviceInventory deviceId="d1" />);
-    const portsTable = screen.getByText('Listening Ports (2)').parentElement!.querySelector('table')!;
+    await user.click(screen.getByRole('button', { name: /Listening Ports \(2\)/ }));
+    const portsTable = document.querySelector('table')!;
     const firstDataRow = () => within(portsTable).getAllByRole('row')[1];
     // Default sort: port ascending → 22 before 443.
     expect(firstDataRow()).toHaveTextContent('22');
@@ -98,12 +113,13 @@ describe('DeviceInventory', () => {
     expect(fetchInventory).toHaveBeenCalledWith('d1', true);
   });
 
-  it('renders empty values as dashes and formats last-seen timestamps', () => {
+  it('renders empty values as dashes and formats last-seen timestamps', async () => {
     const sparse = item({ kind: 'service', name: 'agent.service', last_seen: '' });
     const dated = item({ kind: 'service', name: 'cron.service', state: 'running', version: '1.2', last_seen: '2026-07-12T03:04:05Z' });
     useInventoryStore.setState({ byDevice: new Map([['d1', [sparse, dated]]]) });
     render(<DeviceInventory deviceId="d1" />);
-    const table = screen.getByText('Services (2)').parentElement!.querySelector('table')!;
+    await userEvent.click(screen.getByRole('button', { name: /Services \(2\)/ }));
+    const table = document.querySelector('table')!;
     const rows = within(table).getAllByRole('row');
     expect(rows[1]).toHaveTextContent('agent.service');
     expect(rows[1]).toHaveTextContent('—');
@@ -118,7 +134,8 @@ describe('DeviceInventory', () => {
     ];
     useInventoryStore.setState({ byDevice: new Map([['d1', ports]]) });
     render(<DeviceInventory deviceId="d1" />);
-    const table = screen.getByText('Listening Ports (2)').parentElement!.querySelector('table')!;
+    await user.click(screen.getByRole('button', { name: /Listening Ports \(2\)/ }));
+    const table = document.querySelector('table')!;
     const firstRow = () => within(table).getAllByRole('row')[1]!;
 
     await user.click(within(table).getByRole('button', { name: 'Proto' }));

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDeviceStore } from './state/device-store';
-import { LogRateSparkline } from './LogRateSparkline';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 const levelColors = new Map<string, string>([
@@ -41,7 +40,6 @@ export function DeviceLogs({ deviceId, focusWindow = null }: DeviceLogsProps) {
   const logs = useDeviceStore((s) => s.logs);
   const logsLoading = useDeviceStore((s) => s.logsLoading);
   const fetchLogs = useDeviceStore((s) => s.fetchLogs);
-  const metrics = useDeviceStore((s) => s.metrics);
 
   const [level, setLevel] = useState('');
   const [search, setSearch] = useState('');
@@ -61,7 +59,6 @@ export function DeviceLogs({ deviceId, focusWindow = null }: DeviceLogsProps) {
     }));
   }, [deviceId, fetchLogs, search]);
 
-  const handleFetch = useCallback(() => { runFetch(0, level, timeWindow); }, [runFetch, level, timeWindow]);
   const handleLoadMore = useCallback(() => { runFetch(offset + LIMIT, level, timeWindow); }, [runFetch, offset, level, timeWindow]);
   const selectLevel = useCallback((lvl: string) => { setLevel(lvl); runFetch(0, lvl, timeWindow); }, [runFetch, timeWindow]);
 
@@ -98,22 +95,13 @@ export function DeviceLogs({ deviceId, focusWindow = null }: DeviceLogsProps) {
     <div ref={containerRef}>
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-semibold text-gray-300">Agent Logs</h3>
-        <button
-          type="button"
-          onClick={handleFetch}
-          disabled={logsLoading}
-          className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium disabled:opacity-50"
-        >
-          {logsLoading ? 'Fetching...' : 'Fetch Logs'}
-        </button>
+        {logsLoading && <span className="text-xs text-gray-500">Fetching…</span>}
       </div>
-
-      <LogRateSparkline metrics={metrics} />
 
       <div className="flex gap-2 mb-2">
         <select
           value={level}
-          onChange={(e) => setLevel(e.target.value)}
+          onChange={(e) => selectLevel(e.target.value)}
           className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs"
         >
           {levels.map((l) => (
@@ -124,6 +112,7 @@ export function DeviceLogs({ deviceId, focusWindow = null }: DeviceLogsProps) {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') runFetch(0, level, timeWindow); }}
           placeholder="Search keyword..."
           className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs flex-1"
         />

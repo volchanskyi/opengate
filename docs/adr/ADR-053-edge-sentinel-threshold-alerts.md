@@ -73,7 +73,10 @@ anomaly detector.
   management (a UI, a Postgres-backed ruleset, per-user overrides) is an additive
   follow-up: the wire contract, the capability gate, and the tenant-scoped push
   do not change when the rule *source* becomes a table.
-- `AgentHealthSummary` is now emitted live for the first time (breach-carrying).
-  The anomaly-rate series is written only when a summary actually carries a
-  sampler computation, so a breach-only summary does not record a misleading zero
-  anomaly rate; a later dense health-summary emission path densifies that series.
+- `AgentHealthSummary` is emitted live in two forms: breach-carrying summaries on
+  WS-19 threshold breaches, and a periodic node anomaly-rate summary the sampler
+  ships on a fixed cadence once its ensemble is trained. The anomaly-rate series
+  (`opengate_edge_node_anomaly_rate`) is written only from a summary carrying a
+  sampler computation (a non-empty `sampler_ver` or per-family rates), so a
+  breach-only summary never records a misleading zero; the periodic summary is
+  what keeps the series — and the fleet-health badge — populated on a steady host.

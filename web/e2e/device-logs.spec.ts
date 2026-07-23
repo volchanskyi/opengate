@@ -110,7 +110,9 @@ test.describe("Device logs UI", () => {
     );
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
-    await authedPage.getByRole("button", { name: /fetch logs/i }).click();
+    // Fetching is driven by the time-window buttons now (no Fetch Logs button).
+    // Scope to the logs "Window:" row — the metrics panel has its own 1h button.
+    await authedPage.getByText("Window:", { exact: true }).locator("..").getByRole("button", { name: "1h" }).click();
 
     await expect(authedPage.getByText("entry #0")).toBeVisible();
     await expect(authedPage.getByText(/Showing 1-300 of 500/)).toBeVisible();
@@ -139,8 +141,8 @@ test.describe("Device logs UI", () => {
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
 
+    // Selecting a level in the dropdown refetches immediately.
     await authedPage.getByRole("combobox").first().selectOption("ERROR");
-    await authedPage.getByRole("button", { name: /fetch logs/i }).click();
 
     await expect(authedPage.getByText("synthetic log message #0")).toBeVisible();
     // Every rendered row must carry the requested level.
@@ -160,7 +162,7 @@ test.describe("Device logs UI", () => {
     );
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
-    await authedPage.getByRole("button", { name: /fetch logs/i }).click();
+    await authedPage.getByText("Window:", { exact: true }).locator("..").getByRole("button", { name: "1h" }).click();
 
     await expect(authedPage.getByText(/no logs available/i)).toBeVisible();
   });

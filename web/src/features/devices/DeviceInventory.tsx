@@ -80,6 +80,9 @@ function InventoryTable({ meta, items }: { readonly meta: KindMeta; readonly ite
   const firstCol = columns.at(0);
   const [sortLabel, setSortLabel] = useState(firstCol?.label ?? '');
   const [asc, setAsc] = useState(true);
+  // Collapsed by default: the header count keeps every kind legible at a glance
+  // while the tables stay out of the way until the operator opens one.
+  const [open, setOpen] = useState(false);
 
   const sortCol = columns.find((c) => c.label === sortLabel) ?? firstCol;
   const sorted = useMemo(() => {
@@ -100,7 +103,18 @@ function InventoryTable({ meta, items }: { readonly meta: KindMeta; readonly ite
 
   return (
     <div className="mb-4">
-      <h4 className="text-xs font-semibold text-gray-400 mb-1">{label} ({items.length})</h4>
+      <h4 className="mb-1">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex items-center gap-1 text-xs font-semibold text-gray-400 hover:text-gray-300"
+        >
+          <span className={`transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden="true">&#9654;</span>
+          {label} ({items.length})
+        </button>
+      </h4>
+      {open && (
       <div className="overflow-x-auto bg-gray-900 border border-gray-700 rounded">
         <table className="w-full text-xs">
           <thead>
@@ -125,6 +139,7 @@ function InventoryTable({ meta, items }: { readonly meta: KindMeta; readonly ite
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

@@ -76,10 +76,17 @@ test.describe("Discovered footprint", () => {
     await authedPage.goto(`/devices/${DEVICE_ID}`);
     await fetched;
 
-    // Grouped tables, one per discovered kind, with counts.
-    await expect(authedPage.getByText("Listening Ports (2)")).toBeVisible();
-    await expect(authedPage.getByText("Services (1)")).toBeVisible();
-    await expect(authedPage.getByText("Containers (1)")).toBeVisible();
+    // Grouped tables, one per discovered kind, with counts. Collapsed by default,
+    // so the count header is the toggle button.
+    await expect(authedPage.getByRole("button", { name: /Listening Ports \(2\)/ })).toBeVisible();
+    await expect(authedPage.getByRole("button", { name: /Services \(1\)/ })).toBeVisible();
+    await expect(authedPage.getByRole("button", { name: /Containers \(1\)/ })).toBeVisible();
+
+    // Expand the tables whose rows we assert into.
+    await authedPage.getByRole("button", { name: /Listening Ports \(2\)/ }).click();
+    await authedPage.getByRole("button", { name: /Database Engines \(1\)/ }).click();
+    await authedPage.getByRole("button", { name: /Containers \(1\)/ }).click();
+
     // Verbatim discovered values render.
     await expect(authedPage.getByText("sshd")).toBeVisible();
     await expect(authedPage.getByText("nginx:latest")).toBeVisible();

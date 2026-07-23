@@ -184,8 +184,8 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
     onViewLogs(toSec - seconds, toSec);
   }, [onViewLogs, selectedWindow, seconds]);
 
-  // The log-rate timeline lives beside the logs explorer (LogRateSparkline), so
-  // the system-metric families here exclude the `log` family to avoid duplicating it.
+  // System-metric families exclude the `log` family: its dimensions are log
+  // volume/severity counts, not a system resource, so they are not charted here.
   const families = useMemo(() => {
     if (!metrics) return [];
     return [...groupByFamily(metrics.series).entries()]

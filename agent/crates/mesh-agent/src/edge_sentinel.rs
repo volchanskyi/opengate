@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
@@ -131,6 +132,72 @@ fn breach_summary(now: i64, breaches: Vec<mesh_protocol::AlertBreach>) -> Contro
     }
 }
 
+/// Sampler/model version stamped on emitted node anomaly-rate summaries. The
+/// server records the anomaly-rate series only for a summary that carries a
+/// sampler computation (non-empty version or per-family rates), so this must be
+/// set for the fleet-health badge to receive data.
+const SAMPLER_VERSION: &str = "edge-ensemble-v1";
+
+/// Rolling window of recent per-second anomaly verdicts the node anomaly rate is
+/// computed over — roughly the last minute at the 1 s sample cadence.
+const ANOMALY_WINDOW: usize = 64;
+
+/// Minimum seconds between emitted node anomaly-rate summaries. Above the
+/// server's 10 s ingest floor and well within its instant-query lookback, so the
+/// fleet-health badge always reads a fresh sample from a steady host.
+const ANOMALY_EMIT_INTERVAL_SECS: i64 = 60;
+
+/// Fraction of anomalous verdicts in the rolling window, in `[0, 1]`; `0` when
+/// the window is empty.
+fn window_anomaly_rate(bits: &VecDeque<bool>) -> f64 {
+    if bits.is_empty() {
+        return 0.0;
+    }
+    let anomalous = bits.iter().filter(|&&b| b).count();
+    anomalous as f64 / bits.len() as f64
+}
+
+/// Pack the rolling anomaly window into bytes, oldest verdict first and MSB-first
+/// within each byte, so the recent per-sample sequence survives the wire.
+fn pack_bitmask(bits: &VecDeque<bool>) -> Vec<u8> {
+    let mut out = vec![0u8; bits.len().div_ceil(8)];
+    for (i, &bit) in bits.iter().enumerate() {
+        if bit {
+            out[i / 8] |= 1 << (7 - (i % 8));
+        }
+    }
+    out
+}
+
+/// Build the periodic node anomaly-rate summary. Unlike [`breach_summary`] this
+/// carries the sampler computation — the rate, its packed verdict history, and a
+/// version — which the server records as the `opengate_edge_node_anomaly_rate`
+/// series behind the fleet-health badge.
+fn anomaly_summary(
+    now: i64,
+    rate: f64,
+    bitmask: Vec<u8>,
+    breaches: Vec<mesh_protocol::AlertBreach>,
+) -> ControlMessage {
+    ControlMessage::AgentHealthSummary {
+        ts: now,
+        org_id: String::new(),
+        node_anomaly_rate: rate,
+        per_family_rates: Vec::new(),
+        recent_bitmask: bitmask,
+        sampler_ver: SAMPLER_VERSION.to_string(),
+        model_ver: String::new(),
+        breaches,
+    }
+}
+
+/// Whether a node anomaly-rate summary is due this tick, throttled to at least
+/// [`ANOMALY_EMIT_INTERVAL_SECS`] apart. The first summary after training (or a
+/// re-baseline) emits promptly so the badge populates quickly.
+fn should_emit_anomaly(last_emit: Option<i64>, now: i64) -> bool {
+    last_emit.is_none_or(|last| now.saturating_sub(last) >= ANOMALY_EMIT_INTERVAL_SECS)
+}
+
 /// Decide whether to emit a WS-19 health summary this tick. Emission is throttled
 /// to at least [`HEALTH_EMIT_INTERVAL_SECS`] apart and fires while a breach is
 /// active — plus once more, when the set has just cleared, to report the clear —
@@ -231,6 +298,12 @@ pub(crate) fn spawn_sampler(
         let mut last_health_emit: Option<i64> = None;
         let mut last_breaching = false;
 
+        // Rolling window of trained-ensemble anomaly verdicts and the last time a
+        // node anomaly-rate summary was shipped — the signal behind the
+        // fleet-health badge.
+        let mut anomaly_bits: VecDeque<bool> = VecDeque::with_capacity(ANOMALY_WINDOW);
+        let mut last_anomaly_emit: Option<i64> = None;
+
         // Tracks the maintenance→Active edge so the sampler re-baselines when the
         // device leaves maintenance.
         let mut maintenance_edge = MaintenanceTransition::new();
@@ -249,6 +322,8 @@ pub(crate) fn spawn_sampler(
                 warmup.clear();
                 last_health_emit = None;
                 last_breaching = false;
+                anomaly_bits.clear();
+                last_anomaly_emit = None;
                 info!("edge-sentinel: left maintenance, re-baselining anomaly detection");
             }
             if in_maintenance {
@@ -297,6 +372,17 @@ pub(crate) fn spawn_sampler(
                 "edge-sentinel sample"
             );
 
+            // Once the ensemble is trained, feed each verdict into the rolling
+            // window. Warm-up verdicts are meaningless (always false) and excluded
+            // so the emitted rate reflects the trained model only.
+            let trained = ensemble.is_some();
+            if trained {
+                if anomaly_bits.len() == ANOMALY_WINDOW {
+                    anomaly_bits.pop_front();
+                }
+                anomaly_bits.push_back(anomaly);
+            }
+
             // WS-19: install any freshly-pushed ruleset, evaluate the sample, and
             // emit a breach-carrying health summary. Emission is throttled to
             // >= HEALTH_EMIT_INTERVAL_SECS and only fires while a breach is
@@ -325,6 +411,23 @@ pub(crate) fn spawn_sampler(
                     }
                     last_health_emit = Some(now);
                     last_breaching = breaching;
+                }
+
+                // Periodic node anomaly-rate summary: the trained-window rate on a
+                // fixed cadence, carrying a sampler version so the server records
+                // the series behind the fleet-health badge (a steady host emits no
+                // breach summary, so this is the badge's only source).
+                if trained && should_emit_anomaly(last_anomaly_emit, now) {
+                    let rate = window_anomaly_rate(&anomaly_bits);
+                    let bitmask = pack_bitmask(&anomaly_bits);
+                    if alerts
+                        .health_tx
+                        .try_send(anomaly_summary(now, rate, bitmask, Vec::new()))
+                        .is_err()
+                    {
+                        debug!("edge-sentinel anomaly summary dropped: telemetry channel full");
+                    }
+                    last_anomaly_emit = Some(now);
                 }
             }
 
@@ -368,8 +471,17 @@ pub(crate) fn open_sink(cfg: &StoreConfig) -> Option<LocalStoreSink> {
 
 #[cfg(test)]
 mod tests {
-    use super::{breach_summary, should_emit_health, HEALTH_EMIT_INTERVAL_SECS};
+    use super::{
+        anomaly_summary, breach_summary, pack_bitmask, should_emit_anomaly, should_emit_health,
+        window_anomaly_rate, ANOMALY_EMIT_INTERVAL_SECS, HEALTH_EMIT_INTERVAL_SECS,
+        SAMPLER_VERSION,
+    };
     use mesh_protocol::{AlertBreach, ControlMessage};
+    use std::collections::VecDeque;
+
+    fn bits(values: &[bool]) -> VecDeque<bool> {
+        values.iter().copied().collect()
+    }
 
     #[test]
     fn breach_summary_carries_only_breaches() {
@@ -443,5 +555,61 @@ mod tests {
             false,
             false
         ));
+    }
+
+    #[test]
+    fn window_rate_is_fraction_anomalous() {
+        assert_eq!(window_anomaly_rate(&bits(&[])), 0.0, "empty window is 0");
+        assert_eq!(window_anomaly_rate(&bits(&[false, false])), 0.0);
+        assert_eq!(
+            window_anomaly_rate(&bits(&[true, false, false, false])),
+            0.25
+        );
+        assert_eq!(window_anomaly_rate(&bits(&[true, true])), 1.0);
+    }
+
+    #[test]
+    fn bitmask_packs_oldest_first_msb_first() {
+        // 10 bits: byte 0 = 1010_0000, byte 1 = 11xx_xxxx → 0xA0, 0xC0.
+        let packed = pack_bitmask(&bits(&[
+            true, false, true, false, false, false, false, false, true, true,
+        ]));
+        assert_eq!(packed, vec![0b1010_0000, 0b1100_0000]);
+        assert!(pack_bitmask(&bits(&[])).is_empty());
+    }
+
+    #[test]
+    fn anomaly_summary_carries_sampler_computation() {
+        match anomaly_summary(1_700_000_000, 0.5, vec![0b1000_0000], Vec::new()) {
+            ControlMessage::AgentHealthSummary {
+                ts,
+                node_anomaly_rate,
+                recent_bitmask,
+                sampler_ver,
+                breaches,
+                ..
+            } => {
+                assert_eq!(ts, 1_700_000_000);
+                assert_eq!(node_anomaly_rate, 0.5);
+                assert_eq!(recent_bitmask, vec![0b1000_0000]);
+                assert_eq!(
+                    sampler_ver, SAMPLER_VERSION,
+                    "non-empty version makes the server record the rate series"
+                );
+                assert!(breaches.is_empty());
+            }
+            other => panic!("expected AgentHealthSummary, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn first_anomaly_summary_emits_immediately_then_throttles() {
+        assert!(should_emit_anomaly(None, 500), "no prior emit → due now");
+        let last = Some(500);
+        assert!(!should_emit_anomaly(
+            last,
+            500 + ANOMALY_EMIT_INTERVAL_SECS - 1
+        ));
+        assert!(should_emit_anomaly(last, 500 + ANOMALY_EMIT_INTERVAL_SECS));
     }
 }
