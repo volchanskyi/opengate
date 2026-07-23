@@ -24,6 +24,7 @@
     "!src/types/**/*.d.ts",
     "!src/main.tsx",
     "!src/router.tsx",
+    "!src/components/icons.tsx",
     "!src/features/terminal/use-terminal.ts",
     "!src/features/remote-desktop/use-remote-desktop.ts",
     "!src/features/remote-desktop/input-handler.ts",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDeviceStore } from './state/device-store';
 import { useSessionStore } from '../session';
@@ -13,6 +13,7 @@ import { DeviceMetrics } from './DeviceMetrics';
 import { DeviceInventory } from './DeviceInventory';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 type AMTDevice = components['schemas']['AMTDevice'];
@@ -157,6 +158,19 @@ export function DeviceDetail() {
     return () => clearInterval(interval);
   }, [id, refreshDevice]);
 
+  // Pull the hardware inventory once whenever the agent first appears online and
+  // on each offline→online transition (a reboot refreshes it) — but never on a
+  // steady-state poll. The manual "Refresh Hardware" button covers on-demand pulls.
+  const prevStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    const status = device?.status;
+    const previous = prevStatusRef.current;
+    prevStatusRef.current = status ?? null;
+    if (id && status === 'online' && previous !== 'online') {
+      fireAndForget(fetchHardware(id));
+    }
+  }, [id, device?.status, fetchHardware]);
+
   const amtDevice = device ? amtDevices.find((a) => a.hostname === device.hostname) : undefined;
 
   // Find the latest manifest matching this device's OS.
@@ -285,17 +299,21 @@ export function DeviceDetail() {
             <button
               type="button"
               onClick={() => { fireAndForget(handleStartSession()); }}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium"
+              aria-label="Start Session"
+              title="Start Session"
+              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium inline-flex items-center"
             >
-              Start Session
+              <PlayIcon />
             </button>
             <button
               type="button"
               onClick={() => { fireAndForget(handleRestart()); }}
               disabled={device.status !== 'online' || isRestarting}
-              className="px-3 py-1.5 bg-yellow-600 hover:bg-yellow-700 rounded text-xs font-medium disabled:opacity-50"
+              aria-label={restartButtonLabel}
+              title={restartButtonLabel}
+              className={`px-2.5 py-1.5 rounded text-xs font-medium disabled:opacity-50 inline-flex items-center ${confirmRestart ? 'bg-yellow-500 ring-2 ring-yellow-300' : 'bg-yellow-600 hover:bg-yellow-700'}`}
             >
-              {restartButtonLabel}
+              {isRestarting ? <SpinnerIcon /> : <RestartIcon />}
             </button>
             {latestManifest && !isUpToDate && (
               <button
@@ -308,8 +326,13 @@ export function DeviceDetail() {
               </button>
             )}
             {isUpToDate && (
-              <span className="px-3 py-1.5 bg-gray-700 text-gray-400 rounded text-xs font-medium">
-                Up to date
+              <span
+                role="img"
+                aria-label="Up to date"
+                title="Up to date"
+                className="px-2.5 py-1.5 bg-gray-700 text-green-400 rounded text-xs font-medium inline-flex items-center"
+              >
+                <CheckIcon />
               </span>
             )}
             {confirmDelete && (
@@ -320,9 +343,11 @@ export function DeviceDetail() {
             <button
               type="button"
               onClick={() => { fireAndForget(handleDelete()); }}
-              className="px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-xs font-medium"
+              aria-label={confirmDelete ? 'Confirm Delete' : 'Delete Device'}
+              title={confirmDelete ? 'Confirm Delete' : 'Delete Device'}
+              className={`px-2.5 py-1.5 rounded text-xs font-medium inline-flex items-center ${confirmDelete ? 'bg-red-500 ring-2 ring-red-300' : 'bg-red-600 hover:bg-red-700'}`}
             >
-              {confirmDelete ? 'Confirm Delete' : 'Delete Device'}
+              <TrashIcon />
             </button>
           </div>
         </div>
@@ -334,7 +359,7 @@ export function DeviceDetail() {
           </div>
           <div>
             <dt className="text-gray-400">Group ID</dt>
-            <dd className="font-mono text-xs">{device.group_id}</dd>
+            <dd className="font-mono text-xs">{device.group_id?.trim() ? device.group_id : 'N/A'}</dd>
           </div>
           <div>
             <dt className="text-gray-400">Last Seen</dt>
