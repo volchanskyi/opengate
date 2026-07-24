@@ -5,6 +5,7 @@
 
 pub mod backfill;
 pub mod ensemble;
+pub mod host_metric_stream;
 pub mod kmeans;
 pub mod redact;
 pub mod sampler;
