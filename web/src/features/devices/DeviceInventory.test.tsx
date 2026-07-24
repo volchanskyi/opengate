@@ -109,7 +109,7 @@ describe('DeviceInventory', () => {
     const fetchInventory = vi.fn();
     useInventoryStore.setState({ byDevice: new Map([['d1', items]]), fetchInventory });
     render(<DeviceInventory deviceId="d1" />);
-    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    await user.click(screen.getByRole('button', { name: 'Refresh Footprint' }));
     expect(fetchInventory).toHaveBeenCalledWith('d1', true);
   });
 
@@ -150,12 +150,14 @@ describe('DeviceInventory', () => {
     expect(firstRow()).toHaveTextContent('alpha');
   });
 
-  it('disables refresh and changes its label while loading cached data', () => {
+  it('disables the icon refresh button and shows the spinner while loading cached data', () => {
     useInventoryStore.setState({
       byDevice: new Map([['d1', items]]),
       loading: new Map([['d1', true]]),
     });
-    render(<DeviceInventory deviceId="d1" />);
-    expect(screen.getByRole('button', { name: 'Refreshing...' })).toBeDisabled();
+    const { container } = render(<DeviceInventory deviceId="d1" />);
+    const refresh = screen.getByRole('button', { name: 'Refresh Footprint' });
+    expect(refresh).toBeDisabled();
+    expect(container.querySelector('.animate-spin')).toBeInTheDocument();
   });
 });

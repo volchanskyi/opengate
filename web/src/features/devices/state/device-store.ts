@@ -12,6 +12,24 @@ type DeviceLogsResponse = components['schemas']['DeviceLogsResponse'];
 type MetricRangeResponse = components['schemas']['MetricRangeResponse'];
 type CorrelateResponse = components['schemas']['CorrelateResponse'];
 
+/**
+ * Which log pane a fetch targets: `agent` reads the agent's own rotated files;
+ * `system` reads the platform host log (journald / Windows Event Log). The two
+ * panes hold independent state so one never clobbers the other.
+ */
+export type LogPaneSource = 'agent' | 'system';
+
+/** Filters accepted by a log fetch; `unit` applies to the system pane only. */
+export interface LogFetchParams {
+  level?: string;
+  from?: string;
+  to?: string;
+  search?: string;
+  unit?: string;
+  offset?: number;
+  limit?: number;
+}
+
 /** Downsampled-window request for the device metrics timelines. */
 export interface MetricsParams {
   from: string;
@@ -36,8 +54,10 @@ interface DeviceState {
   selectedGroupId: string | null;
   selectedDevice: Device | null;
   hardware: DeviceHardware | null;
-  logs: DeviceLogsResponse | null;
-  logsLoading: boolean;
+  /** Per-pane log responses, keyed by source so the two panes stay independent. */
+  logs: Record<LogPaneSource, DeviceLogsResponse | null>;
+  /** Per-pane in-flight flags, keyed by source. */
+  logsLoading: Record<LogPaneSource, boolean>;
   metrics: MetricRangeResponse | null;
   metricsLoading: boolean;
   correlation: CorrelateResponse | null;
@@ -57,7 +77,7 @@ interface DeviceState {
   updateDeviceGroup: (id: string, groupId: string) => Promise<boolean>;
   restartAgent: (id: string) => Promise<boolean>;
   fetchHardware: (id: string) => Promise<void>;
-  fetchLogs: (id: string, params?: { level?: string; from?: string; to?: string; search?: string; offset?: number; limit?: number }) => Promise<void>;
+  fetchLogs: (source: LogPaneSource, id: string, params?: LogFetchParams) => Promise<void>;
   fetchMetrics: (id: string, params: MetricsParams) => Promise<void>;
   correlate: (id: string, params: CorrelateParams) => Promise<void>;
   upgradeAgent: (deviceId: string, version: string, os: string, arch: string) => Promise<boolean>;
@@ -85,8 +105,8 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   selectedGroupId: null,
   selectedDevice: null,
   hardware: null,
-  logs: null,
-  logsLoading: false,
+  logs: { agent: null, system: null },
+  logsLoading: { agent: false, system: false },
   metrics: null,
   metricsLoading: false,
   correlation: null,
@@ -111,7 +131,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   fetchDevice: async (id) => {
     // Reset per-device fields so stale data from a previously viewed device
     // does not leak into this one while we wait for the fetch to complete.
-    set({ selectedDevice: null, hardware: null, logs: null, metrics: null, correlation: null });
+    set({ selectedDevice: null, hardware: null, logs: { agent: null, system: null }, metrics: null, correlation: null });
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/{id}', { params: { path: { id } } }),
     );
@@ -198,13 +218,16 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     }
   },
 
-  fetchLogs: async (id, params) => {
-    set({ logsLoading: true });
-    const query: Record<string, string | number> = {};
+  fetchLogs: async (source, id, params) => {
+    set((s) => ({ logsLoading: { ...s.logsLoading, [source]: true } }));
+    // The agent pane reads the agent's own files ("self"); the system pane reads
+    // the platform host log ("host"). The unit filter applies to the host source.
+    const query: Record<string, string | number> = { source: source === 'system' ? 'host' : 'self' };
     if (params?.level) query.level = params.level;
     if (params?.from) query.from = params.from;
     if (params?.to) query.to = params.to;
     if (params?.search) query.search = params.search;
+    if (params?.unit) query.unit = params.unit;
     if (params?.offset !== undefined) query.offset = params.offset;
     if (params?.limit !== undefined) query.limit = params.limit;
 
@@ -215,7 +238,10 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     });
 
     if (response.status === 200 && data) {
-      set({ logs: data, logsLoading: false });
+      set((s) => ({
+        logs: { ...s.logs, [source]: data },
+        logsLoading: { ...s.logsLoading, [source]: false },
+      }));
       return;
     }
 
@@ -226,7 +252,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       504: 'The device did not return logs in time.',
     };
     useToastStore.getState().addToast(messages[response.status] ?? 'Failed to fetch logs.', 'error');
-    set({ logsLoading: false });
+    set((s) => ({ logsLoading: { ...s.logsLoading, [source]: false } }));
   },
 
   fetchMetrics: async (id, params) => {

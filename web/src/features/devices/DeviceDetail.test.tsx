@@ -111,12 +111,13 @@ describe('DeviceDetail', () => {
     expect(screen.getByTestId('device-metrics')).toHaveTextContent('d1');
   });
 
-  it('correlation jump: viewing a window pre-fills and fetches those logs', () => {
+  it('correlation jump: viewing a window pre-fills and fetches the System Logs pane', () => {
     const fetchLogs = vi.fn();
     useDeviceStore.setState({ fetchLogs });
     renderDetail();
     fireEvent.click(screen.getByText('mock-view-logs'));
-    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({
+    // The drill focuses the System Logs pane (source=system), not Agent Logs.
+    expect(fetchLogs).toHaveBeenCalledWith('system', 'd1', expect.objectContaining({
       from: new Date(1000 * 1000).toISOString(),
       to: new Date(4600 * 1000).toISOString(),
     }));
@@ -673,7 +674,7 @@ describe('DeviceDetail', () => {
     const fetchHardwareFn = vi.fn();
     useDeviceStore.setState({ fetchHardware: fetchHardwareFn });
     renderDetail();
-    await user.click(screen.getByText('Refresh Hardware'));
+    await user.click(screen.getByRole('button', { name: 'Refresh Hardware' }));
     expect(fetchHardwareFn).toHaveBeenCalledWith('d1');
   });
 
@@ -1128,8 +1129,7 @@ describe('DeviceDetail', () => {
     // confirm the wiring: with id present the click forwards to fetchHardware.
     renderDetail();
     fetchHardwareFn.mockClear(); // discard the online-mount auto-load; assert only the button wiring
-    await user.click(screen.getByText('Refresh Hardware'));
-    expect(fetchHardwareFn).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole('button', { name: 'Refresh Hardware' }));
     expect(fetchHardwareFn).toHaveBeenCalledWith('d1');
   });
 

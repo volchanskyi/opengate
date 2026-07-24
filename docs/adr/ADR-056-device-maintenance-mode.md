@@ -14,7 +14,7 @@ Accepted.
 ## Context
 
 Edge-Sentinel gives every managed device a local sampler, anomaly detector,
-threshold-alert evaluator, discovery profiler, and log-rate readers
+threshold-alert evaluator, and discovery profiler
 ([ADR-043](ADR-043-edge-sentinel-local-ml-sampler.md),
 [ADR-053](ADR-053-edge-sentinel-threshold-alerts.md),
 [ADR-050](ADR-050-edge-sentinel-log-reader-sourcing.md),
@@ -38,8 +38,8 @@ questions were open:
 ### Edge collectors are always-on
 
 Every device runs the full Edge-Sentinel collector set unconditionally — the
-sampler/anomaly detector, threshold-alert evaluator, discovery profiler, and
-log-rate readers all start with the agent
+sampler/anomaly detector, threshold-alert evaluator, and discovery profiler all
+start with the agent
 ([`main.rs`](../../agent/crates/mesh-agent/src/main.rs)). There are no opt-in
 flags or environment variables and no capability gate on running a collector; the
 agent advertises `Discovery` and `ThresholdAlerts` unconditionally, and

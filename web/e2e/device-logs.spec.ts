@@ -111,8 +111,9 @@ test.describe("Device logs UI", () => {
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
     // Fetching is driven by the time-window buttons now (no Fetch Logs button).
-    // Scope to the logs "Window:" row — the metrics panel has its own 1h button.
-    await authedPage.getByText("Window:", { exact: true }).locator("..").getByRole("button", { name: "1h" }).click();
+    // Scope to the Agent Logs pane — the System Logs pane and the metrics panel
+    // each have their own 1h button (heading's grandparent is the pane root).
+    await authedPage.getByRole("heading", { name: "Agent Logs" }).locator("xpath=../..").getByRole("button", { name: "1h" }).click();
 
     await expect(authedPage.getByText("entry #0")).toBeVisible();
     await expect(authedPage.getByText(/Showing 1-300 of 500/)).toBeVisible();
@@ -162,7 +163,7 @@ test.describe("Device logs UI", () => {
     );
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
-    await authedPage.getByText("Window:", { exact: true }).locator("..").getByRole("button", { name: "1h" }).click();
+    await authedPage.getByRole("heading", { name: "Agent Logs" }).locator("xpath=../..").getByRole("button", { name: "1h" }).click();
 
     await expect(authedPage.getByText(/no logs available/i)).toBeVisible();
   });

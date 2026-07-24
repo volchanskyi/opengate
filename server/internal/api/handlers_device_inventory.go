@@ -106,7 +106,7 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 	defer cancel()
 
 	start := time.Now()
-	entries, total, err := ac.RequestLogsSync(fetchCtx, filter)
+	entries, total, units, err := ac.RequestLogsSync(fetchCtx, filter)
 	s.observeLogPull(logPullResult(err), time.Since(start))
 	if err != nil {
 		return logsBrokerErrorResponse(err)
@@ -116,7 +116,7 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 	redactLogEntries(entries)
 	// Audit every raw pull: who, which device, and the requested window/filters.
 	s.auditLog(ctx, ContextUserID(ctx), "device.logs.read", request.Id.String(), logAuditDetails(filter))
-	return GetDeviceLogs200JSONResponse(deviceLogsToAPI(entries, total, filter)), nil
+	return GetDeviceLogs200JSONResponse(deviceLogsToAPI(entries, total, units, filter)), nil
 }
 
 // observeLogPull records a raw-log broker pull outcome and latency when metrics
@@ -161,6 +161,10 @@ func logsBrokerErrorResponse(err error) (GetDeviceLogsResponseObject, error) {
 }
 
 func logFilterFromParams(params GetDeviceLogsParams) device.LogFilter {
+	source := ""
+	if params.Source != nil {
+		source = string(*params.Source)
+	}
 	return device.LogFilter{
 		Level:  derefStr(params.Level),
 		From:   derefStr(params.From),
@@ -168,5 +172,7 @@ func logFilterFromParams(params GetDeviceLogsParams) device.LogFilter {
 		Search: derefStr(params.Search),
 		Offset: derefInt(params.Offset, 0),
 		Limit:  clampLogLimit(derefInt(params.Limit, defaultLogLimit)),
+		Source: source,
+		Unit:   derefStr(params.Unit),
 	}
 }

@@ -229,6 +229,10 @@ type ControlMessage struct {
 	LogEntries []LogEntry `msgpack:"log_entries,omitempty"`
 	TotalCount uint32     `msgpack:"total_count,omitempty"`
 	HasMore    *bool      `msgpack:"has_more,omitempty"`
+	// AvailableUnits enumerates the distinct emitting units the host source
+	// offers for the unit dropdown (systemd units / Windows providers), capped
+	// and sorted. Empty for the agent's own files and for older agents.
+	AvailableUnits []string `msgpack:"available_units,omitempty"`
 
 	// DiscoveryReport (WS-16). TS/OrgID/Truncated are shared with the fields
 	// above. Each category is per-device bounded on the agent; Truncated is set

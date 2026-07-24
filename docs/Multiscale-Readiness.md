@@ -97,8 +97,8 @@ Before Medium-Free can be activated, the implementation must deliver:
    `-default-telemetry` emits the default per-agent shape (health summary + host
    metric window + process report), `-orgs` spreads agents across tenant cohorts,
    `-backfill-batches` runs a fleet-wide reconnect storm through the admission
-   scheduler, and `-log-windows` / `-answer-log-pulls` cover log-rate ingest and
-   broker pulls. A run must show control-plane p99 within ~20% of the
+   scheduler, and `-metric-windows` / `-answer-log-pulls` cover extra host-metric
+   ingest and broker pulls. A run must show control-plane p99 within ~20% of the
    telemetry-free baseline, VM cardinality and disk growth tracking the model, and
    the reconnect storm draining without starving live traffic — observed on the
    **Edge-Sentinel Soak** dashboard (see [Monitoring](Monitoring.md)).

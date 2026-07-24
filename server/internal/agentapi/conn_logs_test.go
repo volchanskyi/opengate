@@ -25,12 +25,13 @@ func TestRequestLogsSync_DeliversResponse(t *testing.T) {
 	type result struct {
 		entries []device.LogEntry
 		total   int
+		units   []string
 		err     error
 	}
 	resCh := make(chan result, 1)
 	go func() {
-		entries, total, err := ac.RequestLogsSync(context.Background(), device.LogFilter{Limit: 50})
-		resCh <- result{entries, total, err}
+		entries, total, units, err := ac.RequestLogsSync(context.Background(), device.LogFilter{Limit: 50})
+		resCh <- result{entries, total, units, err}
 	}()
 
 	// The read-loop side delivers once the waiter is registered.
@@ -41,6 +42,7 @@ func TestRequestLogsSync_DeliversResponse(t *testing.T) {
 				{Timestamp: "2026-01-01T00:00:02Z", Level: "ERROR", Target: "net", Message: "connection lost"},
 			},
 			total: 2,
+			units: []string{"nginx.service", "sshd.service"},
 		})
 	}, time.Second, 2*time.Millisecond)
 
@@ -49,6 +51,8 @@ func TestRequestLogsSync_DeliversResponse(t *testing.T) {
 	assert.Equal(t, 2, got.total)
 	require.Len(t, got.entries, 2)
 	assert.Equal(t, "connection lost", got.entries[1].Message)
+	// Available units flow straight through to the caller for the unit dropdown.
+	assert.Equal(t, []string{"nginx.service", "sshd.service"}, got.units)
 }
 
 // TestRequestLogsSync_RequiresCapability keeps old agents safe: without the
@@ -56,7 +60,7 @@ func TestRequestLogsSync_DeliversResponse(t *testing.T) {
 func TestRequestLogsSync_RequiresCapability(t *testing.T) {
 	ac, buf := newTestAgentConn(t, uuid.New(), nil)
 
-	_, _, err := ac.RequestLogsSync(context.Background(), device.LogFilter{Limit: 10})
+	_, _, _, err := ac.RequestLogsSync(context.Background(), device.LogFilter{Limit: 10})
 	assert.ErrorIs(t, err, ErrCapabilityNotAdvertised)
 	assert.Zero(t, buf.Len())
 }
@@ -68,7 +72,7 @@ func TestRequestLogsSync_SingleFlight(t *testing.T) {
 	ac.Capabilities = []protocol.AgentCapability{protocol.CapDeviceLogs}
 	ac.logWaiter = make(chan logsResult, 1) // simulate an in-flight request
 
-	_, _, err := ac.RequestLogsSync(context.Background(), device.LogFilter{Limit: 10})
+	_, _, _, err := ac.RequestLogsSync(context.Background(), device.LogFilter{Limit: 10})
 	assert.ErrorIs(t, err, ErrLogsBusy)
 }
 
@@ -80,7 +84,7 @@ func TestRequestLogsSync_Timeout(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	_, _, err := ac.RequestLogsSync(ctx, device.LogFilter{Limit: 10})
+	_, _, _, err := ac.RequestLogsSync(ctx, device.LogFilter{Limit: 10})
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	// Waiter is cleared so a subsequent pull is not reported busy.
 	assert.Nil(t, ac.logWaiter)

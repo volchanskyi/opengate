@@ -1025,6 +1025,8 @@ export interface components {
             entries: components["schemas"]["DeviceLogEntry"][];
             total: number;
             has_more: boolean;
+            /** @description Distinct emitting units the host source offers for the unit filter dropdown (systemd units / Windows providers). Empty for the agent's own files and where no host source exists. */
+            available_units?: string[];
         };
         DeviceLogEntry: {
             timestamp: string;
@@ -2100,6 +2102,10 @@ export interface operations {
                 from?: string;
                 to?: string;
                 search?: string;
+                /** @description Log source: "self" (or omitted) reads the agent's own files; "host" auto-resolves the platform system log (journald on Linux, Windows Event Log on Windows). */
+                source?: "self" | "host";
+                /** @description Narrows host logs to one emitting unit (systemd unit / Windows provider). Ignored for the agent's own files. */
+                unit?: string;
                 offset?: number;
                 limit?: number;
             };

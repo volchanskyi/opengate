@@ -15,7 +15,7 @@ and [`handlers_device_actions.go`](../server/internal/api/handlers_device_action
 
 | Store | Device delete | Tenant/org purge |
 |-------|---------------|------------------|
-| VictoriaMetrics series (numeric, log-rate, inline anomaly scores) | scoped delete-series `{org_id,device_id}` | `{org_id}` |
+| VictoriaMetrics series (numeric host metrics, inline anomaly scores) | scoped delete-series `{org_id,device_id}` | `{org_id}` |
 | Postgres `device_processes`, `device_inventory` (+ the `devices` row) | FK `ON DELETE CASCADE` | every device in the org |
 | Cold-tier objects (optional) | device prefix | org prefix |
 | Agent local store | deprovision → wiped on next reconnect | every agent in the org |

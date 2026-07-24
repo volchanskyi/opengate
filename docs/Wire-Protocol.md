@@ -131,16 +131,18 @@ when the bounded persistence path is saturated. The source-of-truth payload defi
 [`ControlMessage`](../server/internal/protocol/control.go) flat struct; the
 store decision is [ADR-044](./adr/ADR-044-edge-sentinel-server-telemetry-ingest.md).
 
-Endpoint log-rate signals reuse `AgentMetricWindow`: each `dims` entry is named
-`log.rate.<source>.<field>`, where `<source>` is `self`, `journald`, or `windows`
-and `<field>` is a severity level (`error`/`warn`/`info`/`debug`/`trace`), a
-top-emitting-unit rank (`unit_rank1`–`unit_rank3`), or `volume`. The dims carry
-only counts and ranks — never a unit name or message text — so central series stay
-bounded. The agent's host log readers produce these windows and forward them over
-a bounded channel that drops under pressure, so log bursts never backpressure the
-control stream. On the on-demand query,
-`RequestDeviceLogs.source` selects a host log source and `unit` narrows to one
-emitting unit; an empty `source` reads the agent's own files.
+Live host metrics reuse `AgentMetricWindow`: the sampler folds its 1 s samples
+into a 10 s average and emits one window per 10 s over a bounded channel that
+drops under pressure, so a burst never backpressures the control stream. Each
+`dims` entry is a host-resource series (`cpu.total`, `mem.used_percent`,
+`disk.used_percent`, `net.rx_bytes`, `net.tx_bytes`); network bytes are
+cumulative. The 10 s averaging matches reconnect-backfill's roll-up exactly, so a
+live point and a later gap-filled point for the same `(dim, ts)` land in one
+series. On the on-demand log query, `RequestDeviceLogs.source` selects the log
+source (`host` resolves journald / the Windows Event Log; empty or `self` reads
+the agent's own files) and `unit` narrows host logs to one emitting unit;
+`DeviceLogsResponse.available_units` enumerates the source's distinct units for
+the UI unit dropdown.
 
 `DiscoveryReport` carries a non-intrusive, read-only host profile: listening
 ports (transport, port, owning process basename), host services (systemd unit /
@@ -159,7 +161,7 @@ empty.
 `SetMaintenanceMode` carries the server's desired maintenance state for the
 device (`enabled`), pushed on the Active↔Maintenance transition and, for a device
 already in maintenance, on reconnect. The agent applies it — suppressing the
-sampler, discovery, log readers, and alert evaluation while `enabled` is true —
+sampler, discovery, and alert evaluation while `enabled` is true —
 and echoes `MaintenanceApplied { enabled }` as its applied-state report. Both
 carry an explicit boolean, so a `false` (resume) is distinct from an absent field.
 `SetMaintenanceMode` is universal control and is not capability-gated; the agent
