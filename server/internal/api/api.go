@@ -56,7 +56,7 @@ type AgentControl interface {
 
 	// Synchronous request/response reads (server → agent → server): each sends a
 	// request and blocks for the agent's bounded response.
-	RequestLogsSync(ctx context.Context, filter device.LogFilter) ([]device.LogEntry, int, error)
+	RequestLogsSync(ctx context.Context, filter device.LogFilter) ([]device.LogEntry, int, []string, error)
 	RequestLocalHistorySync(ctx context.Context, dim string, fromTS, toTS int64, maxPoints uint32) ([]protocol.HistoryPoint, bool, error)
 
 	// Meta returns a consistent snapshot of the agent's registration metadata.

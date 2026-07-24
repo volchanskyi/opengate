@@ -280,6 +280,29 @@ const HEALTH_TELEMETRY_CAP: usize = 8;
 /// control.
 const HOST_METRIC_TELEMETRY_CAP: usize = 16;
 
+/// Collects host system logs for a `RequestDeviceLogs` whose source is not the
+/// agent's own files: resolves the platform host source, applies the shared
+/// severity/time/search filter and pagination, and enumerates the available
+/// units for the dropdown. A host with neither journald nor Windows Event Log
+/// yields an empty result (no error), so the pane shows "No logs available".
+fn collect_system_logs(filter: &logs::LogFilter, unit: &str) -> (logs::LogResult, Vec<String>) {
+    let Some(source) = host_logs::resolve_host_source() else {
+        return (
+            logs::LogResult {
+                entries: Vec::new(),
+                total_count: 0,
+                has_more: false,
+            },
+            Vec::new(),
+        );
+    };
+    let raw = host_logs::collect_host_logs(source, filter, unit);
+    let filtered = logs::filter_entries(raw, filter);
+    let result = logs::paginate(filtered, filter);
+    let available_units = host_logs::list_units(source);
+    (result, available_units)
+}
+
 /// Hard footprint cap for the Edge-Sentinel local store, in MiB. The store
 /// enforces it with coarsest-first eviction and host-free backoff, so it is a
 /// coarse fleet-wide safety limit rather than a per-host tuning knob.
@@ -824,13 +847,10 @@ async fn main() -> Result<()> {
                             search,
                             log_offset,
                             log_limit,
-                            // This path returns the agent's own log files; the
-                            // host-source selector and unit filter are not
-                            // consumed here.
-                            ..
+                            source,
+                            unit,
                         }) => {
-                            info!("device logs requested by server");
-                            let collector = logs::LogCollector::new(PathBuf::from(LOG_DIR));
+                            info!(%source, "device logs requested by server");
                             let filter = logs::LogFilter {
                                 level: if log_level.is_empty() { None } else { Some(log_level) },
                                 time_from: if time_from.is_empty() { None } else { Some(time_from) },
@@ -839,8 +859,19 @@ async fn main() -> Result<()> {
                                 offset: log_offset,
                                 limit: log_limit,
                             };
-                            match collector.collect(&filter) {
-                                Ok(mut result) => {
+                            // "self"/"" returns the agent's own rotated files
+                            // (unchanged); any other source ("host") resolves to
+                            // the platform host log source and carries the unit
+                            // filter + available-unit enumeration.
+                            let outcome = if source.is_empty() || source == "self" {
+                                logs::LogCollector::new(PathBuf::from(LOG_DIR))
+                                    .collect(&filter)
+                                    .map(|result| (result, Vec::new()))
+                            } else {
+                                Ok(collect_system_logs(&filter, &unit))
+                            };
+                            match outcome {
+                                Ok((mut result, available_units)) => {
                                     // Edge-side redaction is the first of two
                                     // independent guards on secret-dense raw lines.
                                     host_logs::redact_entries(&mut result.entries);
@@ -848,6 +879,7 @@ async fn main() -> Result<()> {
                                         log_entries: result.entries,
                                         total_count: result.total_count,
                                         has_more: result.has_more,
+                                        available_units,
                                     };
                                     if let Err(e) = conn.send_control(msg).await {
                                         warn!(error = %e, "failed to send device logs response");

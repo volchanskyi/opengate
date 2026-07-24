@@ -13,6 +13,7 @@ import (
 type logsResult struct {
 	entries []device.LogEntry
 	total   int
+	units   []string
 	err     error
 }
 
@@ -22,16 +23,16 @@ type logsResult struct {
 // the caller — nothing is persisted centrally. Only one pull runs per connection
 // at a time (responses carry no correlation id), so a concurrent caller gets
 // ErrLogsBusy.
-func (a *AgentConn) RequestLogsSync(ctx context.Context, filter device.LogFilter) ([]device.LogEntry, int, error) {
+func (a *AgentConn) RequestLogsSync(ctx context.Context, filter device.LogFilter) ([]device.LogEntry, int, []string, error) {
 	if err := a.requireCapability(protocol.CapDeviceLogs); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	ch := make(chan logsResult, 1)
 	a.logMu.Lock()
 	if a.logWaiter != nil {
 		a.logMu.Unlock()
-		return nil, 0, ErrLogsBusy
+		return nil, 0, nil, ErrLogsBusy
 	}
 	a.logWaiter = ch
 	a.logMu.Unlock()
@@ -42,14 +43,14 @@ func (a *AgentConn) RequestLogsSync(ctx context.Context, filter device.LogFilter
 	}()
 
 	if err := a.SendRequestDeviceLogs(ctx, filter); err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	select {
 	case res := <-ch:
-		return res.entries, res.total, res.err
+		return res.entries, res.total, res.units, res.err
 	case <-ctx.Done():
-		return nil, 0, ctx.Err()
+		return nil, 0, nil, ctx.Err()
 	}
 }
 
@@ -89,7 +90,7 @@ func (a *AgentConn) handleDeviceLogsResponse(_ context.Context, msg *protocol.Co
 	if total < len(entries) {
 		total = len(entries)
 	}
-	if !a.deliverLogs(logsResult{entries: entries, total: total}) {
+	if !a.deliverLogs(logsResult{entries: entries, total: total, units: msg.AvailableUnits}) {
 		a.logger.Debug("dropping unsolicited device logs response", "device_id", a.DeviceID, "count", len(entries))
 	}
 	return nil

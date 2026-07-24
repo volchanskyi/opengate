@@ -29,8 +29,8 @@ describe('device store', () => {
       selectedGroupId: null,
       selectedDevice: null,
       hardware: null,
-      logs: null,
-      logsLoading: false,
+      logs: { agent: null, system: null },
+      logsLoading: { agent: false, system: false },
       isLoading: false,
       error: null,
     });
@@ -87,28 +87,36 @@ describe('device store', () => {
     await promise;
   });
 
-  it('fetchLogs never sends a refresh param (the broker is always live)', async () => {
+  it('fetchLogs sends the agent source and never a refresh param (the broker is always live)', async () => {
     mockGet.mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
-    await useDeviceStore.getState().fetchLogs('d1', { level: 'INFO' });
+    await useDeviceStore.getState().fetchLogs('agent', 'd1', { level: 'INFO' });
     expect(mockGet).toHaveBeenLastCalledWith('/api/v1/devices/{id}/logs', {
-      params: { path: { id: 'd1' }, query: { level: 'INFO' } },
+      params: { path: { id: 'd1' }, query: { source: 'self', level: 'INFO' } },
+    });
+  });
+
+  it('fetchLogs sends source=host and the unit for the system pane', async () => {
+    mockGet.mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
+    await useDeviceStore.getState().fetchLogs('system', 'd1', { unit: 'nginx.service' });
+    expect(mockGet).toHaveBeenLastCalledWith('/api/v1/devices/{id}/logs', {
+      params: { path: { id: 'd1' }, query: { source: 'host', unit: 'nginx.service' } },
     });
   });
 
   it('fetchLogs does NOT set logs when status is 404', async () => {
     // Kills `if (response.status === 200 && data)` → `if (true && data)` mutant.
     mockGet.mockResolvedValueOnce({ data: { entries: [{ a: 1 }] }, response: { status: 404 } });
-    await useDeviceStore.getState().fetchLogs('d1');
-    expect(useDeviceStore.getState().logs).toBeNull();
+    await useDeviceStore.getState().fetchLogs('agent', 'd1');
+    expect(useDeviceStore.getState().logs.agent).toBeNull();
   });
 
   it('fetchLogs does NOT set logs when data is missing even on 200', async () => {
     // Kills `if (response.status === 200 && data)` → `if (response.status === 200 || data)` mutant
     // when data=undefined.
     mockGet.mockResolvedValueOnce({ data: undefined, response: { status: 200 } });
-    await useDeviceStore.getState().fetchLogs('d1');
-    expect(useDeviceStore.getState().logs).toBeNull();
-    expect(useDeviceStore.getState().logsLoading).toBe(false);
+    await useDeviceStore.getState().fetchLogs('agent', 'd1');
+    expect(useDeviceStore.getState().logs.agent).toBeNull();
+    expect(useDeviceStore.getState().logsLoading.agent).toBe(false);
   });
 
   it('fetchHardware retry catch block fires toast for non-Error rejections', async () => {
@@ -262,7 +270,7 @@ describe('device store', () => {
     useDeviceStore.setState({
       selectedDevice: { id: 'old', group_id: 'g1', hostname: 'old', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
       hardware: mockHardware,
-      logs: { entries: [], total: 0, has_more: false },
+      logs: { agent: { entries: [], total: 0, has_more: false }, system: null },
     });
 
     mockGet.mockResolvedValueOnce({
@@ -274,7 +282,7 @@ describe('device store', () => {
     // Synchronous reset BEFORE await resolves.
     expect(useDeviceStore.getState().selectedDevice).toBeNull();
     expect(useDeviceStore.getState().hardware).toBeNull();
-    expect(useDeviceStore.getState().logs).toBeNull();
+    expect(useDeviceStore.getState().logs).toEqual({ agent: null, system: null });
     await promise;
 
     expect(useDeviceStore.getState().selectedDevice?.hostname).toBe('host1');
@@ -319,22 +327,24 @@ describe('device store', () => {
       response: { status: 200 },
     });
 
-    await useDeviceStore.getState().fetchLogs('d1', { level: 'INFO', limit: 50 });
+    await useDeviceStore.getState().fetchLogs('agent', 'd1', { level: 'INFO', limit: 50 });
 
-    expect(useDeviceStore.getState().logs).toEqual(logsData);
-    expect(useDeviceStore.getState().logsLoading).toBe(false);
+    expect(useDeviceStore.getState().logs.agent).toEqual(logsData);
+    expect(useDeviceStore.getState().logsLoading.agent).toBe(false);
   });
 
-  it('fetchLogs raises its dedicated loading flag before the broker responds', async () => {
+  it('fetchLogs raises only its own pane loading flag before the broker responds', async () => {
     let resolve!: (value: unknown) => void;
     mockGet.mockReturnValueOnce(new Promise((r) => { resolve = r; }));
 
-    const pending = useDeviceStore.getState().fetchLogs('d1');
-    expect(useDeviceStore.getState().logsLoading).toBe(true);
+    const pending = useDeviceStore.getState().fetchLogs('system', 'd1');
+    // Only the system pane flips loading; the agent pane is untouched.
+    expect(useDeviceStore.getState().logsLoading.system).toBe(true);
+    expect(useDeviceStore.getState().logsLoading.agent).toBe(false);
 
     resolve({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
     await pending;
-    expect(useDeviceStore.getState().logsLoading).toBe(false);
+    expect(useDeviceStore.getState().logsLoading.system).toBe(false);
   });
 
   it.each([
@@ -346,7 +356,7 @@ describe('device store', () => {
   ])('fetchLogs reports the exact broker error for status %s', async (status, message) => {
     mockGet.mockResolvedValueOnce({ data: undefined, response: { status } });
 
-    await useDeviceStore.getState().fetchLogs('d1');
+    await useDeviceStore.getState().fetchLogs('agent', 'd1');
 
     expect(addToast).toHaveBeenCalledExactlyOnceWith(message, 'error');
   });
@@ -356,12 +366,12 @@ describe('device store', () => {
     async (status) => {
       mockGet.mockResolvedValueOnce({ data: undefined, response: { status } });
 
-      await useDeviceStore.getState().fetchLogs('d1');
+      await useDeviceStore.getState().fetchLogs('agent', 'd1');
 
       // Synchronous broker: a single request, no retry.
       expect(mockGet).toHaveBeenCalledTimes(1);
-      expect(useDeviceStore.getState().logsLoading).toBe(false);
-      expect(useDeviceStore.getState().logs).toBeNull();
+      expect(useDeviceStore.getState().logsLoading.agent).toBe(false);
+      expect(useDeviceStore.getState().logs.agent).toBeNull();
     },
   );
 
@@ -516,7 +526,7 @@ describe('device store', () => {
       response: { status: 200 },
     });
 
-    await useDeviceStore.getState().fetchLogs('d1', {
+    await useDeviceStore.getState().fetchLogs('agent', 'd1', {
       level: 'ERROR',
       from: '2026-01-01',
       to: '2026-01-31',
@@ -529,6 +539,7 @@ describe('device store', () => {
       params: {
         path: { id: 'd1' },
         query: {
+          source: 'self',
           level: 'ERROR',
           from: '2026-01-01',
           to: '2026-01-31',
@@ -542,7 +553,7 @@ describe('device store', () => {
 
   it('refreshDevice updates selectedDevice without clearing hardware or logs', async () => {
     const existingHardware = mockHardware;
-    const existingLogs = { entries: [], total: 0, has_more: false };
+    const existingLogs = { agent: { entries: [], total: 0, has_more: false }, system: null };
     useDeviceStore.setState({
       selectedDevice: { id: 'd1', group_id: 'g1', hostname: 'old', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
       hardware: existingHardware,

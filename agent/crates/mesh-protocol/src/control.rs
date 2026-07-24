@@ -415,6 +415,11 @@ pub enum ControlMessage {
         log_entries: Vec<LogEntry>,
         total_count: u32,
         has_more: bool,
+        /// Distinct emitting units the host source offers for the unit dropdown
+        /// (systemd units / Windows providers), capped and sorted. Empty for the
+        /// agent's own files and for older agents, so it degrades to "all units".
+        #[serde(default)]
+        available_units: Vec<String>,
     },
 
     /// Agent reports a log retrieval error.

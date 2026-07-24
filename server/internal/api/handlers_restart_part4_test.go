@@ -50,6 +50,25 @@ func TestGetDeviceLogs(t *testing.T) {
 	})
 }
 
+// TestLogFilterFromParams_MapsSourceAndUnit pins the new host-source selector
+// and unit filter mapping: "host" and a unit reach the broker filter, and an
+// omitted source/unit default to empty (the agent's own files).
+func TestLogFilterFromParams_MapsSourceAndUnit(t *testing.T) {
+	t.Parallel()
+
+	host := GetDeviceLogsParamsSource("host")
+	unit := "nginx.service"
+	level := GetDeviceLogsParamsLevel("WARN")
+	got := logFilterFromParams(GetDeviceLogsParams{Level: &level, Source: &host, Unit: &unit})
+	assert.Equal(t, "host", got.Source)
+	assert.Equal(t, "nginx.service", got.Unit)
+	assert.Equal(t, "WARN", got.Level)
+
+	def := logFilterFromParams(GetDeviceLogsParams{})
+	assert.Empty(t, def.Source, "omitted source defaults to the agent's own files")
+	assert.Empty(t, def.Unit)
+}
+
 // TestGetDeviceLogs_OnlineWithoutCapability pins that an online agent that never
 // advertised DeviceLogs is treated as unavailable rather than sent a request.
 func TestGetDeviceLogs_OnlineWithoutCapability(t *testing.T) {

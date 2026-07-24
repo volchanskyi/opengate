@@ -3,6 +3,7 @@ import { useInventoryStore } from './state/inventory-store';
 import type { components } from '../../types/api';
 import { formatMaintenanceSince } from './maintenance';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { RefreshIcon, SpinnerIcon } from '../../components/icons';
 
 type InventoryItem = components['schemas']['InventoryItem'];
 type Kind = InventoryItem['kind'];
@@ -176,9 +177,11 @@ export function DeviceInventory({ deviceId, maintenanceSince }: {
         type="button"
         onClick={() => { fireAndForget(fetchInventory(deviceId, true)); }}
         disabled={loading}
-        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium disabled:opacity-50"
+        aria-label="Refresh Footprint"
+        title="Refresh Footprint"
+        className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium disabled:opacity-50 inline-flex items-center"
       >
-        {loading ? 'Refreshing...' : 'Refresh'}
+        {loading ? <SpinnerIcon /> : <RefreshIcon />}
       </button>
     </div>
   );

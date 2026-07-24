@@ -320,6 +320,8 @@ func (a *AgentConn) SendRequestDeviceLogs(ctx context.Context, filter device.Log
 		Search:    filter.Search,
 		LogOffset: offset,
 		LogLimit:  limit,
+		Source:    filter.Source,
+		Unit:      filter.Unit,
 	})
 }
 

@@ -20,12 +20,22 @@ const sampleLogs = {
   has_more: false,
 };
 
-describe('DeviceLogs', () => {
+type Logs = typeof sampleLogs | { entries: { timestamp: string; level: string; target: string; message: string }[]; total: number; has_more: boolean } | null;
+
+/** Set the agent pane's slice (the DeviceLogs wrapper renders `source=agent`). */
+function setAgentLogs(logs: Logs, loading = false) {
+  useDeviceStore.setState({
+    logs: { agent: logs, system: null },
+    logsLoading: { agent: loading, system: false },
+  });
+}
+
+describe('DeviceLogs (Agent pane over LogExplorer)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useDeviceStore.setState({
-      logs: null,
-      logsLoading: false,
+      logs: { agent: null, system: null },
+      logsLoading: { agent: false, system: false },
       fetchLogs: vi.fn(),
     });
   });
@@ -38,21 +48,19 @@ describe('DeviceLogs', () => {
     expect(screen.queryByRole('button', { name: 'Fetch Logs' })).toBeNull();
   });
 
-  it('does not render the log-rate sparkline', () => {
-    useDeviceStore.setState({ logs: sampleLogs });
+  it('does not render a unit filter dropdown (agent pane has no units)', () => {
     render(<DeviceLogs deviceId="d1" />);
-    expect(screen.queryByText('Log rate')).toBeNull();
+    expect(screen.queryByLabelText('Unit')).toBeNull();
   });
 
   it('displays log entries with level color coding', () => {
-    useDeviceStore.setState({ logs: sampleLogs });
+    setAgentLogs(sampleLogs);
     render(<DeviceLogs deviceId="d1" />);
 
     expect(screen.getByText('agent started')).toBeInTheDocument();
     expect(screen.getByText('slow heartbeat')).toBeInTheDocument();
     expect(screen.getByText('connection lost')).toBeInTheDocument();
 
-    // Check level text is present
     const errorCells = screen.getAllByText(/ERROR/);
     expect(errorCells.length).toBeGreaterThan(0);
     const warnCells = screen.getAllByText(/WARN/);
@@ -66,19 +74,19 @@ describe('DeviceLogs', () => {
   });
 
   it('shows entry count', () => {
-    useDeviceStore.setState({ logs: sampleLogs });
+    setAgentLogs(sampleLogs);
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('Showing 1-3 of 3')).toBeInTheDocument();
   });
 
   it('shows a loading indicator while fetching', () => {
-    useDeviceStore.setState({ logsLoading: true });
+    setAgentLogs(null, true);
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('Fetching…')).toBeInTheDocument();
   });
 
   it('shows empty state when no logs', () => {
-    useDeviceStore.setState({ logs: { entries: [], total: 0, has_more: false } });
+    setAgentLogs({ entries: [], total: 0, has_more: false });
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('No logs available')).toBeInTheDocument();
   });
@@ -91,7 +99,7 @@ describe('DeviceLogs', () => {
     render(<DeviceLogs deviceId="d1" />);
     await user.selectOptions(screen.getByDisplayValue('All Levels'), 'ERROR');
 
-    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({ level: 'ERROR', offset: 0, limit: 300 }));
+    expect(fetchLogs).toHaveBeenCalledWith('agent', 'd1', expect.objectContaining({ level: 'ERROR', offset: 0, limit: 300 }));
   });
 
   it('fetches on Enter in the search box', async () => {
@@ -102,13 +110,11 @@ describe('DeviceLogs', () => {
     render(<DeviceLogs deviceId="d1" />);
     await user.type(screen.getByPlaceholderText('Search keyword...'), 'timeout{Enter}');
 
-    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ search: 'timeout', offset: 0 }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ search: 'timeout', offset: 0 }));
   });
 
   it('shows Load More button when has_more is true', () => {
-    useDeviceStore.setState({
-      logs: { ...sampleLogs, has_more: true, total: 150 },
-    });
+    setAgentLogs({ ...sampleLogs, has_more: true, total: 150 });
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('Load More')).toBeInTheDocument();
   });
@@ -116,21 +122,19 @@ describe('DeviceLogs', () => {
   it('Load More increments offset and fetches next page', async () => {
     const user = userEvent.setup();
     const fetchLogs = vi.fn();
-    useDeviceStore.setState({
-      fetchLogs,
-      logs: { ...sampleLogs, has_more: true, total: 600 },
-    });
+    useDeviceStore.setState({ fetchLogs });
+    setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
     render(<DeviceLogs deviceId="d1" />);
 
     await user.click(screen.getByText('Load More'));
 
-    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({
+    expect(fetchLogs).toHaveBeenCalledWith('agent', 'd1', expect.objectContaining({
       offset: 300,
       limit: 300,
     }));
 
     await user.click(screen.getByText('Load More'));
-    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ offset: 600 }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ offset: 600 }));
   });
 
   it('passes level and search filters to fetchLogs via a window button', async () => {
@@ -139,12 +143,10 @@ describe('DeviceLogs', () => {
     useDeviceStore.setState({ fetchLogs });
     render(<DeviceLogs deviceId="d1" />);
 
-    // Set search filter, then apply via a time-window button.
     await user.type(screen.getByPlaceholderText('Search keyword...'), 'timeout');
-    // Set level filter — the dropdown refetches immediately.
     await user.selectOptions(screen.getByDisplayValue('All Levels'), 'ERROR');
 
-    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({
       level: 'ERROR',
       search: 'timeout',
       offset: 0,
@@ -160,27 +162,33 @@ describe('DeviceLogs', () => {
     await user.click(screen.getByRole('button', { name: '1h' }));
 
     expect(fetchLogs).toHaveBeenCalledTimes(1);
-    const [, args] = fetchLogs.mock.calls[0]!;
+    const [, , args] = fetchLogs.mock.calls[0]!;
     expect(args.level).toBeUndefined();
     expect(args.search).toBeUndefined();
   });
 
-  it('level entry uses red color class for ERROR rows', () => {
-    useDeviceStore.setState({ logs: sampleLogs });
+  it('agent pane never sends a unit filter', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
     render(<DeviceLogs deviceId="d1" />);
-    // Find the cell containing ERROR padded with whitespace
+    await user.click(screen.getByRole('button', { name: '1h' }));
+    const [, , args] = fetchLogs.mock.calls[0]!;
+    expect(args.unit).toBeUndefined();
+  });
+
+  it('level entry uses red color class for ERROR rows', () => {
+    setAgentLogs(sampleLogs);
+    render(<DeviceLogs deviceId="d1" />);
     const errorCell = screen.getAllByText(/ERROR/).find((el) => el.tagName === 'TD');
     expect(errorCell?.className).toContain('text-red-400');
   });
 
   it('level entry uses gray-400 fallback class for unknown level', () => {
-    useDeviceStore.setState({
-      logs: { ...sampleLogs, entries: [
-        { timestamp: 't1', level: 'UNKNOWN', target: 'x', message: 'weird' },
-      ] },
-    });
+    setAgentLogs({ ...sampleLogs, entries: [
+      { timestamp: 't1', level: 'UNKNOWN', target: 'x', message: 'weird' },
+    ] });
     render(<DeviceLogs deviceId="d1" />);
-    // The level also appears as a facet chip; target the table cell specifically.
     const td = screen.getAllByText(/UNKNOWN/).find((el) => el.tagName === 'TD');
     expect(td?.className).toContain('text-gray-400');
   });
@@ -191,7 +199,7 @@ describe('DeviceLogs', () => {
     useDeviceStore.setState({ fetchLogs });
     render(<DeviceLogs deviceId="d1" />);
     await user.click(screen.getByRole('button', { name: '1h' }));
-    const [, args] = fetchLogs.mock.calls[0]!;
+    const [, , args] = fetchLogs.mock.calls[0]!;
     expect(typeof args.from).toBe('string');
     expect(new Date(args.to).getTime() - new Date(args.from).getTime()).toBe(3600 * 1000);
   });
@@ -203,7 +211,7 @@ describe('DeviceLogs', () => {
     render(<DeviceLogs deviceId="d1" />);
     await user.click(screen.getByRole('button', { name: '6h' }));
     await user.click(screen.getByRole('button', { name: /✕/ }));
-    const lastArgs = fetchLogs.mock.calls.at(-1)![1];
+    const lastArgs = fetchLogs.mock.calls.at(-1)![2];
     expect(lastArgs.from).toBeUndefined();
     expect(lastArgs.to).toBeUndefined();
   });
@@ -211,24 +219,23 @@ describe('DeviceLogs', () => {
   it('clicking a level facet chip quick-filters that level', async () => {
     const user = userEvent.setup();
     const fetchLogs = vi.fn();
-    useDeviceStore.setState({ fetchLogs, logs: sampleLogs });
+    useDeviceStore.setState({ fetchLogs });
+    setAgentLogs(sampleLogs);
     render(<DeviceLogs deviceId="d1" />);
     await user.click(screen.getByRole('button', { name: /ERROR 1/ }));
-    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({ level: 'ERROR', offset: 0 }));
+    expect(fetchLogs).toHaveBeenCalledWith('agent', 'd1', expect.objectContaining({ level: 'ERROR', offset: 0 }));
   });
 
   it('orders facets by exact count and renders their inactive colors', () => {
-    useDeviceStore.setState({
-      logs: {
-        entries: [
-          ...sampleLogs.entries,
-          { ...sampleLogs.entries[1]!, timestamp: 'w2' },
-          { ...sampleLogs.entries[1]!, timestamp: 'w3' },
-          { ...sampleLogs.entries[0]!, timestamp: 'i2' },
-        ],
-        total: 6,
-        has_more: false,
-      },
+    setAgentLogs({
+      entries: [
+        ...sampleLogs.entries,
+        { ...sampleLogs.entries[1]!, timestamp: 'w2' },
+        { ...sampleLogs.entries[1]!, timestamp: 'w3' },
+        { ...sampleLogs.entries[0]!, timestamp: 'i2' },
+      ],
+      total: 6,
+      has_more: false,
     });
     const { container } = render(<DeviceLogs deviceId="d1" />);
 
@@ -244,21 +251,22 @@ describe('DeviceLogs', () => {
 
   it('toggles an active facet back to the all-level filter', async () => {
     const fetchLogs = vi.fn();
-    useDeviceStore.setState({ fetchLogs, logs: sampleLogs });
+    useDeviceStore.setState({ fetchLogs });
+    setAgentLogs(sampleLogs);
     render(<DeviceLogs deviceId="d1" />);
     const errorFacet = screen.getByRole('button', { name: 'ERROR 1' });
 
     await userEvent.click(errorFacet);
     expect(errorFacet).toHaveClass('bg-blue-600', 'text-white', 'text-red-400');
-    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ level: 'ERROR' }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ level: 'ERROR' }));
 
     await userEvent.click(errorFacet);
     expect(errorFacet).toHaveClass('bg-gray-700', 'hover:bg-gray-600', 'text-red-400');
-    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ level: undefined }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ level: undefined }));
   });
 
   it('omits the facet row when the page has no levels', () => {
-    useDeviceStore.setState({ logs: { entries: [], total: 0, has_more: false } });
+    setAgentLogs({ entries: [], total: 0, has_more: false });
     const { container } = render(<DeviceLogs deviceId="d1" />);
     expect(container.querySelectorAll('div.flex.items-center.gap-1.mb-2.flex-wrap')).toHaveLength(1);
   });
@@ -277,9 +285,10 @@ describe('DeviceLogs', () => {
 
     fireEvent.click(screen.getByRole('button', { name: label }));
 
-    expect(fetchLogs).toHaveBeenCalledExactlyOnceWith('d1', {
+    expect(fetchLogs).toHaveBeenCalledExactlyOnceWith('agent', 'd1', {
       level: undefined,
       search: undefined,
+      unit: undefined,
       from,
       to: '2026-07-14T19:00:00.000Z',
       offset: 0,
@@ -291,7 +300,7 @@ describe('DeviceLogs', () => {
     const fetchLogs = vi.fn();
     useDeviceStore.setState({ fetchLogs });
     render(<DeviceLogs deviceId="d1" focusWindow={{ from: '2026-07-08T00:00:00Z', to: '2026-07-08T01:00:00Z' }} />);
-    expect(fetchLogs).toHaveBeenCalledWith('d1', expect.objectContaining({
+    expect(fetchLogs).toHaveBeenCalledWith('agent', 'd1', expect.objectContaining({
       from: '2026-07-08T00:00:00Z',
       to: '2026-07-08T01:00:00Z',
       offset: 0,
@@ -311,9 +320,10 @@ describe('DeviceLogs', () => {
 
     const label = `${new Date(second.from).toLocaleString()} – ${new Date(second.to).toLocaleString()}`;
     expect(screen.getByRole('button', { name: `${label} ✕` })).toHaveAttribute('title', label);
-    expect(fetchLogs).toHaveBeenLastCalledWith('d2', {
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd2', {
       level: 'ERROR',
       search: undefined,
+      unit: undefined,
       from: second.from,
       to: second.to,
       offset: 0,
@@ -326,46 +336,41 @@ describe('DeviceLogs', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-14T19:00:00.000Z'));
     const fetchLogs = vi.fn();
-    useDeviceStore.setState({ fetchLogs, logs: sampleLogs });
+    useDeviceStore.setState({ fetchLogs });
+    setAgentLogs(sampleLogs);
     render(<DeviceLogs deviceId="d1" />);
 
     fireEvent.change(screen.getByDisplayValue('All Levels'), { target: { value: 'ERROR' } });
     fireEvent.click(screen.getByRole('button', { name: '1h' }));
-    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({ level: 'ERROR' }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ level: 'ERROR' }));
 
     fireEvent.click(screen.getByRole('button', { name: 'WARN 1' }));
-    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({
       level: 'WARN',
       from: '2026-07-14T18:00:00.000Z',
       to: '2026-07-14T19:00:00.000Z',
     }));
 
     fireEvent.click(screen.getByRole('button', { name: /✕/ }));
-    expect(fetchLogs).toHaveBeenLastCalledWith('d1', expect.objectContaining({
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({
       level: 'WARN', from: undefined, to: undefined,
     }));
   });
 
   it('Showing total clamps to logs.total (Math.min branch)', () => {
-    useDeviceStore.setState({
-      logs: { ...sampleLogs, total: 5 },
-    });
+    setAgentLogs({ ...sampleLogs, total: 5 });
     render(<DeviceLogs deviceId="d1" />);
-    // offset 0 + 3 entries = 3, total is 5, Math.min(3, 5) = 3 → "Showing 1-3 of 5"
     expect(screen.getByText('Showing 1-3 of 5')).toBeInTheDocument();
   });
 
   it('Load More hidden when has_more is false', () => {
-    useDeviceStore.setState({ logs: { ...sampleLogs, has_more: false } });
+    setAgentLogs({ ...sampleLogs, has_more: false });
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.queryByText('Load More')).toBeNull();
   });
 
   it('Load More button is disabled while another fetch is in flight', () => {
-    useDeviceStore.setState({
-      logs: { ...sampleLogs, has_more: true, total: 100 },
-      logsLoading: true,
-    });
+    setAgentLogs({ ...sampleLogs, has_more: true, total: 100 }, true);
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('Load More')).toBeDisabled();
   });

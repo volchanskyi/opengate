@@ -216,7 +216,7 @@ func networkInterfaceToAPI(ni device.NetworkInterfaceInfo) NetworkInterfaceInfo 
 	}
 }
 
-func deviceLogsToAPI(entries []device.LogEntry, total int, filter device.LogFilter) DeviceLogsResponse {
+func deviceLogsToAPI(entries []device.LogEntry, total int, units []string, filter device.LogFilter) DeviceLogsResponse {
 	apiEntries := make([]DeviceLogEntry, len(entries))
 	for i, e := range entries {
 		apiEntries[i] = DeviceLogEntry{
@@ -227,11 +227,15 @@ func deviceLogsToAPI(entries []device.LogEntry, total int, filter device.LogFilt
 		}
 	}
 	hasMore := filter.Offset+filter.Limit < total
-	return DeviceLogsResponse{
+	resp := DeviceLogsResponse{
 		Entries: apiEntries,
 		Total:   total,
 		HasMore: hasMore,
 	}
+	if len(units) > 0 {
+		resp.AvailableUnits = &units
+	}
+	return resp
 }
 
 func iceServersToAPI(servers []signaling.ICEServer) []ICEServer {

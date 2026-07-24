@@ -494,6 +494,14 @@ components:
           type: integer
         has_more:
           type: boolean
+        available_units:
+          type: array
+          description: >-
+            Distinct emitting units the host source offers for the unit filter
+            dropdown (systemd units / Windows providers). Empty for the agent's
+            own files and where no host source exists.
+          items:
+            type: string
 
     DeviceLogEntry:
       type: object
@@ -1603,6 +1611,23 @@ paths:
             type: string
         - name: search
           in: query
+          schema:
+            type: string
+        - name: source
+          in: query
+          description: >-
+            Log source: "self" (or omitted) reads the agent's own files; "host"
+            auto-resolves the platform system log (journald on Linux, Windows
+            Event Log on Windows).
+          schema:
+            type: string
+            enum: ["self", "host"]
+            default: "self"
+        - name: unit
+          in: query
+          description: >-
+            Narrows host logs to one emitting unit (systemd unit / Windows
+            provider). Ignored for the agent's own files.
           schema:
             type: string
         - name: offset

@@ -40,6 +40,7 @@ type fakeAgentControl struct {
 
 	logs      []device.LogEntry
 	logsTotal int
+	logsUnits []string
 	logsErr   error
 
 	hwErr error
@@ -69,8 +70,8 @@ func (f *fakeAgentControl) SendSetMaintenanceMode(_ context.Context, enabled boo
 	return f.maintenanceErr
 }
 
-func (f *fakeAgentControl) RequestLogsSync(_ context.Context, _ device.LogFilter) ([]device.LogEntry, int, error) {
-	return f.logs, f.logsTotal, f.logsErr
+func (f *fakeAgentControl) RequestLogsSync(_ context.Context, _ device.LogFilter) ([]device.LogEntry, int, []string, error) {
+	return f.logs, f.logsTotal, f.logsUnits, f.logsErr
 }
 
 func (f *fakeAgentControl) RequestLocalHistorySync(_ context.Context, _ string, _, _ int64, _ uint32) ([]protocol.HistoryPoint, bool, error) {

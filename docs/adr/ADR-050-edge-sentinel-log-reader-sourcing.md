@@ -14,9 +14,9 @@ Accepted.
 ## Context
 
 The agent reads host log sources — the systemd journal on Linux and the Windows
-Event Log — to compute the log-rate signal
-([ADR-048](ADR-048-edge-sentinel-endpoint-log-model.md)) and to serve on-demand
-raw pulls ([ADR-046](ADR-046-edge-sentinel-raw-log-broker.md)). Both sources
+Event Log — to serve the System Logs pane and on-demand raw pulls
+([ADR-046](ADR-046-edge-sentinel-raw-log-broker.md),
+[ADR-048](ADR-048-edge-sentinel-endpoint-log-model.md)). Both sources
 have native library bindings, but the obvious Linux one is a licensing hazard:
 `libsystemd` (the journal C API, and the common Rust `systemd`/`sd-journal`
 crates that link it) is **LGPL/GPL**, incompatible with the workspace's Apache-2
@@ -41,8 +41,8 @@ structured output — no GPL-licensed library is linked into the agent.
 Every collector is **bounded** (a hard line cap per read) and **no-ops off its
 platform** — a missing binary, a non-matching OS, or a non-zero exit yields an
 empty result — so a single call site is safe on every fleet machine without
-platform branches. The readers run on every device and pause only while it is in
-maintenance mode.
+platform branches. Collection is **on-demand** (invoked per System Logs pull),
+with severity, time, and unit filters pushed down to the tool to bound the read.
 
 ## Consequences
 
@@ -53,5 +53,5 @@ maintenance mode.
   the readers without needing a live journal or Event Log.
 - Output-format drift (a `journalctl`/`Get-WinEvent` schema change) is a parser
   concern caught by the fixture tests, not a linkage/ABI concern.
-- Reader overhead on real Linux and Windows hosts stays tracked: the parse/fold
-  hot path is benchmarked in the Edge-Sentinel Criterion bench.
+- Reader overhead on real Linux and Windows hosts stays tracked: the per-line
+  redaction hot path is benchmarked in the Edge-Sentinel Criterion bench.

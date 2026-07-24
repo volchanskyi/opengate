@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
@@ -176,21 +177,29 @@ func TestDeviceLogsToAPI(t *testing.T) {
 	}
 
 	t.Run("has more", func(t *testing.T) {
-		result := deviceLogsToAPI(entries, 10, device.LogFilter{Offset: 0, Limit: 2})
+		result := deviceLogsToAPI(entries, 10, nil, device.LogFilter{Offset: 0, Limit: 2})
 		assert.Len(t, result.Entries, 2)
 		assert.Equal(t, 10, result.Total)
 		assert.True(t, result.HasMore)
+		assert.Nil(t, result.AvailableUnits, "no units → omitted")
 	})
 
 	t.Run("no more", func(t *testing.T) {
-		result := deviceLogsToAPI(entries, 2, device.LogFilter{Offset: 0, Limit: 5})
+		result := deviceLogsToAPI(entries, 2, nil, device.LogFilter{Offset: 0, Limit: 5})
 		assert.False(t, result.HasMore)
 	})
 
 	// Pin the Offset+Limit == total boundary so the `<` cannot mutate to `<=`.
 	t.Run("exact page boundary is no-more", func(t *testing.T) {
-		result := deviceLogsToAPI(entries, 2, device.LogFilter{Offset: 0, Limit: 2})
+		result := deviceLogsToAPI(entries, 2, nil, device.LogFilter{Offset: 0, Limit: 2})
 		assert.False(t, result.HasMore, "Offset+Limit == total must mean no more pages")
+	})
+
+	// Available units are surfaced for the host-source unit dropdown.
+	t.Run("available units passed through", func(t *testing.T) {
+		result := deviceLogsToAPI(entries, 2, []string{"nginx.service", "sshd.service"}, device.LogFilter{Offset: 0, Limit: 5})
+		require.NotNil(t, result.AvailableUnits)
+		assert.Equal(t, []string{"nginx.service", "sshd.service"}, *result.AvailableUnits)
 	})
 }
 

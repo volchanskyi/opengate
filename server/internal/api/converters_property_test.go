@@ -100,7 +100,7 @@ func TestProperty_DeviceLogsToAPI_Pagination(t *testing.T) {
 		entries := make([]device.LogEntry, nEntries)
 		filter := device.LogFilter{Offset: offset, Limit: limit}
 
-		resp := deviceLogsToAPI(entries, total, filter)
+		resp := deviceLogsToAPI(entries, total, nil, filter)
 		require.Len(t, resp.Entries, nEntries)
 		require.Equal(t, total, resp.Total)
 		require.Equal(t, offset+limit < total, resp.HasMore)

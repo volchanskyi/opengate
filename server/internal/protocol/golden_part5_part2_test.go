@@ -30,6 +30,8 @@ func TestGoldenControlDeviceLogsResponse(t *testing.T) {
 	assert.Equal(t, uint32(42), msg.TotalCount)
 	require.NotNil(t, msg.HasMore)
 	assert.True(t, *msg.HasMore)
+	// The host source enumerates its distinct units for the dropdown, sorted.
+	assert.Equal(t, []string{"mesh-agent.service", "nginx.service", "sshd.service"}, msg.AvailableUnits)
 }
 
 func TestGoldenControlDeviceLogsError(t *testing.T) {

@@ -124,14 +124,12 @@ that client so the server injects the authoritative `org_id` matcher. Process
 snapshots with basenames and optional command-line hashes stay in Postgres RLS;
 see [Database](Database.md#device-processes-table).
 
-Endpoint log signals ride the same numeric path: per-window log-rate dims
-(`opengate_edge_metric_avg{dim="log.rate.…"}`, counts and ranks only) are
-ingested to VM scoped by the server-resolved org. This edge-stored,
-server-proxied model — cheap rate signal centralized, secret-dense raw lines
-kept at the edge and read on demand — is recorded in
-[ADR-048](adr/ADR-048-edge-sentinel-endpoint-log-model.md). The host log readers
-source their input through first-party CLIs (`journalctl -o json`, PowerShell
-`Get-WinEvent`) rather than a GPL journal library, per
+Host logs are edge-stored and server-proxied: raw lines stay on the device and
+are read on demand, never centralized. The System Logs pane pulls them through
+the transient broker with `source=host`, filtered by severity/time/search and an
+optional unit; see [ADR-057](adr/ADR-057-live-host-metric-streaming-and-system-logs.md).
+The host log source is read through first-party CLIs (`journalctl -o json`,
+PowerShell `Get-WinEvent`) rather than a GPL journal library, per
 [ADR-050](adr/ADR-050-edge-sentinel-log-reader-sourcing.md).
 
 Raw log lines are never centralized — they are brokered on demand, redacted, and
@@ -303,8 +301,8 @@ chart intentionally does not duplicate dashboard JSON; its
 ConfigMaps from the canonical files.
 
 Current dashboard files include the app overview, DB performance, PostgreSQL,
-the Edge-Sentinel Logs dashboard (log-rate ingest, raw-log pull rate/latency, and
-audited reads), the Edge-Sentinel Soak dashboard (telemetry ingest/drop rates, VM
+the Edge-Sentinel Logs dashboard (raw-log pull rate/latency and audited reads),
+the Edge-Sentinel Soak dashboard (telemetry ingest/drop rates, VM
 cardinality + disk growth, control-plane and correlation query p99,
 reconnect-backfill scheduler state, and threshold-alert breach counts),
 benchmark trend, mutation trend, PMAT trend,

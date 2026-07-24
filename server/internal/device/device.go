@@ -110,6 +110,12 @@ type LogFilter struct {
 	Search string
 	Offset int
 	Limit  int
+	// Source selects the host log source: "self"/"" for the agent's own files,
+	// "host" to auto-resolve journald (Linux) / Windows Event Log (Windows).
+	Source string
+	// Unit narrows host logs to one emitting unit (systemd unit / Windows
+	// provider); empty matches every unit.
+	Unit string
 }
 
 // Repository is the outbound persistence port for the Device aggregate root.

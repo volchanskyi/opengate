@@ -393,6 +393,11 @@ fn golden_control_frame_device_logs_response() {
         ],
         total_count: 42,
         has_more: true,
+        available_units: vec![
+            "mesh-agent.service".to_string(),
+            "nginx.service".to_string(),
+            "sshd.service".to_string(),
+        ],
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();

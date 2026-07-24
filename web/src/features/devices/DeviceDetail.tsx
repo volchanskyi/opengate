@@ -9,11 +9,12 @@ import { StatusBadge } from './StatusBadge';
 import { MaintenanceBadge } from './MaintenanceBadge';
 import { MaintenancePanel } from './MaintenancePanel';
 import { DeviceLogs } from './DeviceLogs';
+import { SystemLogs } from './SystemLogs';
 import { DeviceMetrics } from './DeviceMetrics';
 import { DeviceInventory } from './DeviceInventory';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
-import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
+import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon, RefreshIcon } from '../../components/icons';
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 type AMTDevice = components['schemas']['AMTDevice'];
@@ -139,6 +140,13 @@ export function DeviceDetail() {
   // Correlation jump target: the metrics panel hands up a unix-second window,
   // which the logs explorer consumes (as ISO) to pre-filter and fetch.
   const [logWindow, setLogWindow] = useState<{ from: string; to: string } | null>(null);
+  const [isRefreshingHardware, setIsRefreshingHardware] = useState(false);
+
+  const refreshHardware = () => {
+    if (!id) return;
+    setIsRefreshingHardware(true);
+    void Promise.resolve(fetchHardware(id)).finally(() => setIsRefreshingHardware(false));
+  };
 
   useEffect(() => {
     if (id) {
@@ -429,10 +437,13 @@ export function DeviceDetail() {
             <h3 className="text-sm font-semibold text-gray-300">Hardware</h3>
             <button
               type="button"
-              onClick={() => { if (id) fireAndForget(fetchHardware(id)); }}
-              className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium"
+              onClick={refreshHardware}
+              disabled={isRefreshingHardware}
+              aria-label="Refresh Hardware"
+              title="Refresh Hardware"
+              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium disabled:opacity-50 inline-flex items-center"
             >
-              Refresh Hardware
+              {isRefreshingHardware ? <SpinnerIcon /> : <RefreshIcon />}
             </button>
           </div>
           {hardware && (
@@ -472,9 +483,14 @@ export function DeviceDetail() {
         </div>
       </div>
 
-      {/* Agent Logs Card (separate tile, right side) */}
+      {/* Agent Logs Card (the agent's own files; browsable, no correlation jump) */}
       <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
-        <DeviceLogs deviceId={device.id} focusWindow={logWindow} />
+        <DeviceLogs deviceId={device.id} />
+      </div>
+
+      {/* System Logs Card (host journald / Windows Event Log; drill target) */}
+      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+        <SystemLogs deviceId={device.id} focusWindow={logWindow} />
       </div>
 
       {/* Discovered footprint (ports / services / DB engines / containers / packages), full width */}

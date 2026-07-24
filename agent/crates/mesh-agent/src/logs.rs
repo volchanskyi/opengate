@@ -122,27 +122,7 @@ impl LogCollector {
             }
         }
 
-        // Sort newest-first by timestamp. Files are scanned newest-first (for
-        // scan-budget efficiency) but lines within each file are chronological,
-        // so a simple reverse wouldn't produce correct ordering.
-        all_entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-
-        let total_count = all_entries.len() as u32;
-        let offset = filter.offset as usize;
-        let limit = if filter.limit == 0 {
-            DEFAULT_LIMIT
-        } else {
-            filter.limit as usize
-        };
-        let has_more = offset + limit < all_entries.len();
-
-        let entries = all_entries.into_iter().skip(offset).take(limit).collect();
-
-        Ok(LogResult {
-            entries,
-            total_count,
-            has_more,
-        })
+        Ok(paginate(all_entries, filter))
     }
 
     /// Discovers log files sorted by name (newest first).
@@ -217,6 +197,44 @@ fn parse_log_line(line: &str) -> Option<LogEntry> {
         target: target.to_string(),
         message,
     })
+}
+
+/// Applies the shared severity/time/search filter to a batch of already-parsed
+/// entries, so a host log source (journald / Windows Event Log) gets identical
+/// level/time/search semantics to the agent's own files (min-severity WARN ⊇
+/// ERROR). The agent-file path applies the same `matches_filter` inline during
+/// the scan; the host path has no scan, so it filters the collected batch here.
+pub(crate) fn filter_entries(entries: Vec<LogEntry>, filter: &LogFilter) -> Vec<LogEntry> {
+    entries
+        .into_iter()
+        .filter(|entry| matches_filter(entry, filter))
+        .collect()
+}
+
+/// Sorts entries newest-first and applies offset/limit pagination, reporting the
+/// pre-page total and whether more remain. Shared by the agent-file and host log
+/// paths so both paginate identically. Files are scanned newest-first (for
+/// scan-budget efficiency) but lines within each file are chronological, so a
+/// simple reverse wouldn't order correctly — hence a full sort.
+pub(crate) fn paginate(mut all_entries: Vec<LogEntry>, filter: &LogFilter) -> LogResult {
+    all_entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+    let total_count = all_entries.len() as u32;
+    let offset = filter.offset as usize;
+    let limit = if filter.limit == 0 {
+        DEFAULT_LIMIT
+    } else {
+        filter.limit as usize
+    };
+    let has_more = offset + limit < all_entries.len();
+
+    let entries = all_entries.into_iter().skip(offset).take(limit).collect();
+
+    LogResult {
+        entries,
+        total_count,
+        has_more,
+    }
 }
 
 /// Checks if an entry matches the filter criteria.
