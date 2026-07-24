@@ -7,6 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
 use mesh_agent_core::maintenance::{MaintenanceGate, MaintenanceTransition};
+use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
 use mesh_agent_core::ml::store_sink::LocalStoreSink;
 use mesh_protocol::{ControlMessage, ThresholdRule};
 
@@ -212,6 +213,23 @@ const ENSEMBLE_ITERS: usize = 20;
 /// Durable flush cadence for the local store (bounded-loss window, in samples).
 const STORE_COMMIT_EVERY: usize = 60;
 
+/// Fold one sample into the live host-metric windower and forward a window this
+/// tick closed. A full channel drops the window rather than backpressuring the
+/// control stream (same contract as discovery/health telemetry). Separated from
+/// the sampler loop so the emit contract is unit-testable.
+fn emit_host_metric_window(
+    windower: &mut HostMetricWindower,
+    tx: &SyncSender<ControlMessage>,
+    ts: i64,
+    sample: &mesh_agent_core::ml::sampler::MetricSample,
+) {
+    if let Some(window) = windower.push(ts, sample) {
+        if tx.try_send(window).is_err() {
+            debug!("host-metric window dropped: telemetry channel full");
+        }
+    }
+}
+
 /// Spawn the Edge-Sentinel sampler task. It samples host metrics once per second,
 /// trains a local anomaly ensemble on a warm-up window, and — when `sink` is
 /// set — persists each raw sample with its inline anomaly bit into the graduated
@@ -222,9 +240,17 @@ const STORE_COMMIT_EVERY: usize = 60;
 /// When `alerts` is set, the same 1 s tick also evaluates the tenant-pushed
 /// WS-19 threshold ruleset over the sample and emits a breach-carrying
 /// `AgentHealthSummary` (throttled, breach-driven, silent when nothing breaches).
+///
+/// When `host_metric_tx` is set, the same tick folds the sample into a 10 s
+/// average and forwards each closed window as an `AgentMetricWindow` — the live
+/// host-metric stream that lights up the central Telemetry charts continuously
+/// (averaging identical to reconnect-backfill, so the two never diverge). A
+/// window is dropped when the channel is full so a burst never backpressures
+/// control.
 pub(crate) fn spawn_sampler(
     sink: Option<SharedSink>,
     alerts: Option<AlertWiring>,
+    host_metric_tx: Option<SyncSender<ControlMessage>>,
     maintenance: MaintenanceGate,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
@@ -260,6 +286,9 @@ pub(crate) fn spawn_sampler(
         // device leaves maintenance.
         let mut maintenance_edge = MaintenanceTransition::new();
 
+        // Folds 1 s samples into 10 s-average windows for the live central stream.
+        let mut windower = HostMetricWindower::new();
+
         loop {
             std::thread::sleep(Duration::from_secs(1));
 
@@ -279,6 +308,9 @@ pub(crate) fn spawn_sampler(
                 info!("edge-sentinel: left maintenance, re-baselining anomaly detection");
             }
             if in_maintenance {
+                // Discard any partial window so none spans the maintenance
+                // interval; the stream resumes cleanly on the next Active tick.
+                windower.reset();
                 continue;
             }
 
@@ -289,6 +321,14 @@ pub(crate) fn spawn_sampler(
                     continue;
                 }
             };
+            let now = unix_now();
+
+            // Live host-metric stream: fold the sample into its 10 s window and
+            // forward any window this tick closed to the control loop.
+            if let Some(tx) = host_metric_tx.as_ref() {
+                emit_host_metric_window(&mut windower, tx, now, &sample);
+            }
+
             let features = [
                 sample.cpu_total_percent,
                 sample.memory_used_percent,
@@ -341,7 +381,6 @@ pub(crate) fn spawn_sampler(
             // active (plus one final summary reporting the clear), so a steady
             // host is silent and a burst never backpressures control.
             if let Some(alerts) = alerts.as_ref() {
-                let now = unix_now();
                 if let Ok(mut slot) = alerts.rules.lock() {
                     if let Some(rules) = slot.take() {
                         debug!(
@@ -386,7 +425,7 @@ pub(crate) fn spawn_sampler(
             if let Some(sink) = sink.as_ref() {
                 match sink.lock() {
                     Ok(mut sink) => {
-                        if let Err(e) = sink.record(unix_now(), &sample, anomaly) {
+                        if let Err(e) = sink.record(now, &sample, anomaly) {
                             warn!(error = %e, "edge-sentinel store write failed");
                         }
                     }
@@ -424,15 +463,72 @@ pub(crate) fn open_sink(cfg: &StoreConfig) -> Option<LocalStoreSink> {
 #[cfg(test)]
 mod tests {
     use super::{
-        anomaly_summary, breach_summary, pack_bitmask, should_emit_anomaly, should_emit_health,
-        window_anomaly_rate, ANOMALY_EMIT_INTERVAL_SECS, HEALTH_EMIT_INTERVAL_SECS,
-        SAMPLER_VERSION,
+        anomaly_summary, breach_summary, emit_host_metric_window, pack_bitmask,
+        should_emit_anomaly, should_emit_health, window_anomaly_rate, ANOMALY_EMIT_INTERVAL_SECS,
+        HEALTH_EMIT_INTERVAL_SECS, SAMPLER_VERSION,
     };
+    use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
+    use mesh_agent_core::ml::sampler::MetricSample;
     use mesh_protocol::{AlertBreach, ControlMessage};
     use std::collections::VecDeque;
+    use std::sync::mpsc::sync_channel;
 
     fn bits(values: &[bool]) -> VecDeque<bool> {
         values.iter().copied().collect()
+    }
+
+    fn host_sample(cpu: f32) -> MetricSample {
+        MetricSample {
+            cpu_total_percent: cpu,
+            memory_used_percent: 50.0,
+            disk_used_percent: 50.0,
+            network_rx_bytes: 0,
+            network_tx_bytes: 0,
+            processes: Vec::new(),
+        }
+    }
+
+    /// A closed window (a sample crossing into a later 10 s bucket) is forwarded
+    /// on the channel; samples inside one window send nothing yet.
+    #[test]
+    fn emit_host_metric_window_forwards_closed_windows() {
+        let mut windower = HostMetricWindower::new();
+        let (tx, rx) = sync_channel::<ControlMessage>(4);
+
+        emit_host_metric_window(&mut windower, &tx, 100, &host_sample(10.0));
+        emit_host_metric_window(&mut windower, &tx, 105, &host_sample(30.0));
+        assert!(rx.try_recv().is_err(), "an open window sends nothing");
+
+        // A later-window sample closes the 100-window and forwards it.
+        emit_host_metric_window(&mut windower, &tx, 110, &host_sample(99.0));
+        match rx.try_recv().expect("closed window is forwarded") {
+            ControlMessage::AgentMetricWindow { ts, dims, .. } => {
+                assert_eq!(ts, 100);
+                assert_eq!(dims[0].name, "cpu.total");
+                assert_eq!(dims[0].avg, 20.0, "mean(10,30)");
+            }
+            other => panic!("expected AgentMetricWindow, got {other:?}"),
+        }
+    }
+
+    /// A full channel drops the closed window silently — a metric burst never
+    /// backpressures the control stream.
+    #[test]
+    fn emit_host_metric_window_drops_when_channel_full() {
+        let mut windower = HostMetricWindower::new();
+        let (tx, rx) = sync_channel::<ControlMessage>(1);
+
+        // Fill the single channel slot with a first closed window.
+        emit_host_metric_window(&mut windower, &tx, 100, &host_sample(10.0));
+        emit_host_metric_window(&mut windower, &tx, 110, &host_sample(20.0));
+        // The next close finds the channel full; it must drop without panicking.
+        emit_host_metric_window(&mut windower, &tx, 120, &host_sample(30.0));
+
+        assert!(rx.try_recv().is_ok(), "the first window occupied the slot");
+        assert!(
+            rx.try_recv().is_err(),
+            "the second window was dropped, not queued"
+        );
     }
 
     #[test]

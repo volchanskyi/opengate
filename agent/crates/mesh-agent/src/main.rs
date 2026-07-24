@@ -274,6 +274,12 @@ const DISCOVERY_TELEMETRY_CAP: usize = 4;
 /// summaries beyond it are dropped rather than backpressuring control.
 const HEALTH_TELEMETRY_CAP: usize = 8;
 
+/// Bounded backlog of live host-metric windows awaiting the control loop. One
+/// window closes per 10 s, drained on the 60 s heartbeat, so a handful in flight
+/// covers a heartbeat; windows beyond it are dropped rather than backpressuring
+/// control.
+const HOST_METRIC_TELEMETRY_CAP: usize = 16;
+
 /// Hard footprint cap for the Edge-Sentinel local store, in MiB. The store
 /// enforces it with coarsest-first eviction and host-free backoff, so it is a
 /// coarse fleet-wide safety limit rather than a per-host tuning knob.
@@ -466,13 +472,22 @@ async fn main() -> Result<()> {
         std::sync::Arc::new(std::sync::Mutex::new(None));
     let (health_tx, health_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(HEALTH_TELEMETRY_CAP);
+    // Live host-metric windows produced by the sampler reach the control loop
+    // over a bounded channel, drained on the heartbeat alongside discovery/health.
+    let (host_metric_tx, host_metric_rx) =
+        std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(HOST_METRIC_TELEMETRY_CAP);
     let _edge_sentinel_sampler = {
         info!("edge-sentinel sampler starting");
         let alerts = edge_sentinel::AlertWiring {
             rules: alert_rules_mailbox.clone(),
             health_tx,
         };
-        edge_sentinel::spawn_sampler(shared_sink.clone(), Some(alerts), maintenance.clone())
+        edge_sentinel::spawn_sampler(
+            shared_sink.clone(),
+            Some(alerts),
+            Some(host_metric_tx),
+            maintenance.clone(),
+        )
     };
 
     // WS-15 reconnect-backfill coordinator: present only when the local store
@@ -681,13 +696,14 @@ async fn main() -> Result<()> {
                         tracing::debug!("backfill: reconnect drain in progress");
                     }
 
-                    // Forward any queued discovery reports and health summaries.
-                    // Drain into a Vec first so no receiver is held across the
-                    // send await; the bounded channels already dropped anything
-                    // beyond capacity, so neither can backpressure the control
-                    // stream.
+                    // Forward any queued host-metric windows, discovery reports,
+                    // and health summaries. Drain into a Vec first so no receiver
+                    // is held across the send await; the bounded channels already
+                    // dropped anything beyond capacity, so none can backpressure
+                    // the control stream.
                     let mut windows: Vec<mesh_protocol::ControlMessage> =
-                        std::iter::from_fn(|| discovery_rx.try_recv().ok()).collect();
+                        std::iter::from_fn(|| host_metric_rx.try_recv().ok()).collect();
+                    windows.extend(std::iter::from_fn(|| discovery_rx.try_recv().ok()));
                     windows.extend(std::iter::from_fn(|| health_rx.try_recv().ok()));
                     let mut telemetry_lost = false;
                     for window in windows {

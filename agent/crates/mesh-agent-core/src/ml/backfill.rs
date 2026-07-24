@@ -369,13 +369,21 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
     }
 }
 
+/// The 10 s window start a raw second-timestamp falls into
+/// (window start = `floor(ts/10)*10`). Shared with the live host-metric emitter
+/// so a live 10 s average and a reconnect-backfilled 10 s average key the same
+/// bucket for the same second — the two paths never diverge on a timestamp.
+pub(crate) fn window_start_10s(ts: i64) -> i64 {
+    ts.div_euclid(RAW_STEP) * RAW_STEP
+}
+
 /// Fold 1 s raw samples into 10 s-window averages (window start = `floor(ts/10)*10`),
 /// ascending. A partial window (fewer than 10 samples, e.g. across an offline
 /// gap) averages the samples that exist — the best available value.
-fn roll_to_10s(samples: &[(Sample, bool)]) -> Vec<(i64, f64)> {
+pub(crate) fn roll_to_10s(samples: &[(Sample, bool)]) -> Vec<(i64, f64)> {
     let mut acc: BTreeMap<i64, (f64, u32)> = BTreeMap::new();
     for (s, _) in samples {
-        let window = s.ts.div_euclid(RAW_STEP) * RAW_STEP;
+        let window = window_start_10s(s.ts);
         let e = acc.entry(window).or_insert((0.0, 0));
         e.0 += s.value;
         e.1 += 1;
