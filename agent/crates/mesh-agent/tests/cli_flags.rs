@@ -1,7 +1,7 @@
 //! Regression guard for the always-on Edge-Sentinel collectors.
 //!
-//! Every agent runs the sampler, the local store, the host log-rate readers, and
-//! auto-discovery unconditionally — there is no opt-in. The CLI must therefore
+//! Every agent runs the sampler, the local store, and auto-discovery
+//! unconditionally — there is no opt-in. The CLI must therefore
 //! *reject* the retired `--edge-*` flags (and their `OPENGATE_EDGE_*` env vars,
 //! which are removed with the fields) so a stale systemd unit or deployment that
 //! still passes one fails loudly at startup instead of silently ignoring it.

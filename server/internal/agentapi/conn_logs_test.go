@@ -124,12 +124,12 @@ func TestDeliverLogs_NoWaiterDrops(t *testing.T) {
 	assert.False(t, ac.deliverLogs(logsResult{total: 1}))
 }
 
-// TestLogRateDimsIngestScopedByConnectionOrg pins WS-11 step 1: endpoint
-// log-rate signals ride the AgentMetricWindow path and land in the telemetry
-// writer as `opengate_edge_metric_avg{dim=...}` scoped to the connection's
-// authoritative org — never the agent-supplied one. Cross-tenant reads are then
-// denied by the VM scoped reader (see telemetry.ScopeSelector tests).
-func TestLogRateDimsIngestScopedByConnectionOrg(t *testing.T) {
+// TestHostMetricDimsIngestScopedByConnectionOrg pins that live host-metric
+// windows ride the AgentMetricWindow path and land in the telemetry writer as
+// `opengate_edge_metric_avg{dim=...}` scoped to the connection's authoritative
+// org — never the agent-supplied one. Cross-tenant reads are then denied by the
+// VM scoped reader (see telemetry.ScopeSelector tests).
+func TestHostMetricDimsIngestScopedByConnectionOrg(t *testing.T) {
 	deviceID := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
 	ac, buf := newTestAgentConn(t, deviceID, nil)
@@ -140,8 +140,8 @@ func TestLogRateDimsIngestScopedByConnectionOrg(t *testing.T) {
 		TS:    time.Now().Unix(),
 		OrgID: uuid.New().String(), // agent-supplied org must be ignored
 		Dims: []protocol.MetricDim{
-			{Name: "log.rate.journald.error", Avg: 4},
-			{Name: "log.rate.self.volume", Avg: 128},
+			{Name: "cpu.total", Avg: 42.5},
+			{Name: "net.rx_bytes", Avg: 123456},
 		},
 	})
 
@@ -153,6 +153,7 @@ func TestLogRateDimsIngestScopedByConnectionOrg(t *testing.T) {
 	require.Len(t, call.samples, 2)
 	for _, s := range call.samples {
 		assert.Equal(t, "opengate_edge_metric_avg", s.Name)
-		assert.Contains(t, s.Labels["dim"], "log.rate.")
 	}
+	assert.Equal(t, "cpu.total", call.samples[0].Labels["dim"])
+	assert.Equal(t, "net.rx_bytes", call.samples[1].Labels["dim"])
 }

@@ -1,7 +1,6 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use mesh_agent_core::ml::{
     ensemble::EdgeMlEnsemble,
-    log_rate::LogRateExtractor,
     redact::redact_log_line,
     sampler::{MetricSampler, SysinfoSampler},
     window::AnomalyRateWindow,
@@ -35,27 +34,6 @@ fn bench_sysinfo_sampler_capture(c: &mut Criterion) {
     let mut sampler = SysinfoSampler::new(10).unwrap();
     c.bench_function("edge_sentinel_sysinfo_sample", |b| {
         b.iter(|| black_box(sampler.sample().unwrap()))
-    });
-}
-
-/// Edge log-reader hot path: folding a window of normalized entries into the
-/// fixed log-rate feature vector. This is the per-window CPU cost the host log
-/// readers add on top of metric sampling, and it gates default-on. A realistic
-/// window mixes severities and a long tail of emitting units.
-fn bench_log_rate_window_fold(c: &mut Criterion) {
-    let levels = ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
-    let window: Vec<(&str, String)> = (0..2_000)
-        .map(|i| (levels[i % levels.len()], format!("unit-{}.service", i % 64)))
-        .collect();
-
-    c.bench_function("edge_sentinel_log_rate_window_fold", |b| {
-        b.iter(|| {
-            let mut extractor = LogRateExtractor::new();
-            for (level, unit) in black_box(&window) {
-                extractor.observe_label(level, unit);
-            }
-            black_box(extractor.finish())
-        })
     });
 }
 
@@ -122,7 +100,7 @@ criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
     targets = bench_detection_vote_and_window, bench_sysinfo_sampler_capture,
-        bench_log_rate_window_fold, bench_log_line_redaction, bench_rss_probe
+        bench_log_line_redaction, bench_rss_probe
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -130,7 +108,7 @@ criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(10);
     targets = bench_detection_vote_and_window, bench_sysinfo_sampler_capture,
-        bench_log_rate_window_fold, bench_log_line_redaction
+        bench_log_line_redaction
 }
 
 criterion_main!(benches);

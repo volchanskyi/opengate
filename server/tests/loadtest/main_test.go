@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,19 +9,19 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// buildLogRateWindow produces an AgentMetricWindow carrying only log-rate dims
+// buildExtraMetricWindow produces an AgentMetricWindow over the host-metric dims
 // with an empty org (the server assigns the authoritative org from the
-// connection), mirroring the agent's WS-10 emission.
-func TestBuildLogRateWindow(t *testing.T) {
-	msg := buildLogRateWindow(1_700_000_000)
+// connection), mirroring the agent's live host-metric emission.
+func TestBuildExtraMetricWindow(t *testing.T) {
+	msg := buildExtraMetricWindow(1_700_000_000)
 
 	assert.Equal(t, protocol.MsgAgentMetricWindow, msg.Type)
 	assert.EqualValues(t, 1_700_000_000, msg.TS)
 	assert.Empty(t, msg.OrgID, "agent must not assert an org; the server assigns it")
-	require.NotEmpty(t, msg.Dims)
-	for _, dim := range msg.Dims {
-		assert.True(t, strings.HasPrefix(dim.Name, "log.rate."),
-			"every dim must be a log-rate dim, got %q", dim.Name)
+	require.Len(t, msg.Dims, len(defaultMetricDimNames))
+	for i, dim := range msg.Dims {
+		assert.Equal(t, defaultMetricDimNames[i], dim.Name,
+			"every dim must be a host-metric dim")
 	}
 }
 
