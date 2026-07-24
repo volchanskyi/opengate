@@ -2,12 +2,12 @@
 //! Edge-Sentinel collectors.
 //!
 //! Maintenance is a server-authoritative desired state pushed over the control
-//! channel. While in maintenance the sampler, discovery, and log-rate collectors
-//! suppress all work — no sampling, local-store writes, discovery sweeps, log-rate
-//! windows, or alert-breach evaluation — so an admin's disruptive host work never
-//! pollutes the anomaly baseline or pages anyone. The QUIC control channel and the
-//! remote-management paths stay live so the server can still tell the agent to
-//! leave maintenance and the admin can keep working through the agent.
+//! channel. While in maintenance the sampler and discovery collectors suppress
+//! all work — no sampling, local-store writes, discovery sweeps, or alert-breach
+//! evaluation — so an admin's disruptive host work never pollutes the anomaly
+//! baseline or pages anyone. The QUIC control channel and the remote-management
+//! paths stay live so the server can still tell the agent to leave maintenance
+//! and the admin can keep working through the agent.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

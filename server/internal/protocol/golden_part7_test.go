@@ -90,28 +90,25 @@ func TestGoldenControlAgentMetricWindow(t *testing.T) {
 	assert.InEpsilon(t, 2048.0, msg.Dims[1].Avg, 0.0001)
 }
 
-func TestGoldenControlAgentMetricWindowLogRates(t *testing.T) {
-	// Log-rate signals ride the AgentMetricWindow telemetry path. Each dim is
-	// named log.rate.<source>.<field>, carrying only counts/ranks — never a unit
-	// name or message text — so the server can route them without unbounded series.
-	msg := decodeControlFrame(t, "control_agent_metric_window_log_rates.bin")
+func TestGoldenControlAgentMetricWindowHostMetrics(t *testing.T) {
+	// The host-metric emitter aggregates the 1 s sampler into a 10 s-average
+	// AgentMetricWindow over the five host-resource series. The dim names are the
+	// shared central labels; net bytes are cumulative, exactly as reconnect-
+	// backfill writes them, so live and backfilled points land in the same series.
+	msg := decodeControlFrame(t, "control_agent_metric_window_host_metrics.bin")
 	assert.Equal(t, MsgAgentMetricWindow, msg.Type)
 	assert.Equal(t, int64(1700000260), msg.TS)
 	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.OrgID)
-	require.Len(t, msg.Dims, 9)
+	require.Len(t, msg.Dims, 5)
 	want := []struct {
 		name string
 		avg  float64
 	}{
-		{"log.rate.journald.error", 2.0},
-		{"log.rate.journald.warn", 1.0},
-		{"log.rate.journald.info", 10.0},
-		{"log.rate.journald.debug", 0.0},
-		{"log.rate.journald.trace", 0.0},
-		{"log.rate.journald.unit_rank1", 8.0},
-		{"log.rate.journald.unit_rank2", 3.0},
-		{"log.rate.journald.unit_rank3", 2.0},
-		{"log.rate.journald.volume", 13.0},
+		{"cpu.total", 42.5},
+		{"mem.used_percent", 63.0},
+		{"disk.used_percent", 55.0},
+		{"net.rx_bytes", 123456.0},
+		{"net.tx_bytes", 654321.0},
 	}
 	for i, w := range want {
 		assert.Equal(t, w.name, msg.Dims[i].Name, "dim %d name", i)

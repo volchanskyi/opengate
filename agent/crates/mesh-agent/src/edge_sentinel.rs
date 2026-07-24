@@ -6,7 +6,6 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tracing::{debug, info, warn};
 
-use crate::host_logs::{build_log_rate_window, collect_host_logs, LogSource};
 use mesh_agent_core::maintenance::{MaintenanceGate, MaintenanceTransition};
 use mesh_agent_core::ml::store_sink::LocalStoreSink;
 use mesh_protocol::{ControlMessage, ThresholdRule};
@@ -16,53 +15,6 @@ use mesh_protocol::{ControlMessage, ThresholdRule};
 /// `record`/`commit` each second; the coordinator holds it only to open an MVCC
 /// snapshot or advance a cursor — neither blocks the other for a meaningful time.
 pub(crate) type SharedSink = Arc<Mutex<LocalStoreSink>>;
-
-/// Interval between host log-rate windows. Long enough that the bounded reads
-/// never compete with control or session traffic on constrained fleet hosts.
-const LOG_READER_INTERVAL: Duration = Duration::from_secs(60);
-
-/// Host log sources the reader task sweeps each window. Sources that do not
-/// apply to the current platform collect nothing and are skipped.
-const LOG_SOURCES: [LogSource; 3] = [
-    LogSource::AgentSelf,
-    LogSource::Journald,
-    LogSource::WindowsEventLog,
-];
-
-/// Spawn the bounded host log-rate reader task. Each window it
-/// reads a capped slice of every host source, folds it into the log-rate
-/// feature vector (level counts + top-unit ranks + volume — never message text),
-/// and forwards it to the control loop as a metric window over `sink`. A window
-/// is dropped when the channel is full so a log burst can never backpressure the
-/// control stream. The task yields for [`LOG_READER_INTERVAL`] between windows.
-pub(crate) fn spawn_log_readers(
-    log_dir: PathBuf,
-    sink: SyncSender<ControlMessage>,
-    maintenance: MaintenanceGate,
-) -> tokio::task::JoinHandle<()> {
-    tokio::task::spawn_blocking(move || loop {
-        std::thread::sleep(LOG_READER_INTERVAL);
-        // In maintenance the device is being worked on; skip the window so log
-        // churn from the admin's changes never ships or pollutes the baseline.
-        if maintenance.in_maintenance() {
-            continue;
-        }
-        for source in LOG_SOURCES {
-            let entries = collect_host_logs(source, &log_dir);
-            let Some(window) = build_log_rate_window(source, &entries, unix_now()) else {
-                continue;
-            };
-            debug!(
-                ?source,
-                entries = entries.len(),
-                "edge-sentinel log-rate window"
-            );
-            if sink.try_send(window).is_err() {
-                debug!(?source, "log-rate window dropped: telemetry channel full");
-            }
-        }
-    })
-}
 
 /// Interval between auto-discovery sweeps. Long by design: the host profile
 /// changes rarely, and a sweep shells out to package managers and lists

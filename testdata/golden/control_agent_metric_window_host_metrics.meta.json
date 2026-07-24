@@ -1,5 +1,5 @@
 {
-  "variant": "control_agent_metric_window_log_rates",
+  "variant": "control_agent_metric_window_host_metrics",
   "protocol_version": 0,
   "format": "msgpack",
   "created": "2026-05-14"

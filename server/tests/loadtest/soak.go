@@ -13,13 +13,13 @@ import (
 
 // loadOptions carries the Edge-Sentinel soak toggles: emitting the default
 // telemetry shape (health summary + host metric window + process report — the
-// WS-4 ingest path), emitting log-rate windows, answering on-demand raw-log
-// pulls (the broker round-trip), and driving a reconnect-storm backfill drain
-// (the WS-15 scheduler + tiered import path).
+// WS-4 ingest path), emitting extra host-metric windows, answering on-demand
+// raw-log pulls (the broker round-trip), and driving a reconnect-storm backfill
+// drain (the WS-15 scheduler + tiered import path).
 type loadOptions struct {
 	defaultTelemetry        bool
 	telemetryCycles         int
-	logWindows              int
+	metricWindows           int
 	answerLogPulls          bool
 	backfillBatches         int
 	backfillSamplesPerBatch int
@@ -44,26 +44,20 @@ const maxSoakLogLines = 300
 // up, so a bare load run (no admin driving pulls) never blocks on the read.
 const answerPullDeadline = 2 * time.Second
 
-// logRateFields are the nine log-rate feature slots the agent reports, in WS-9
-// slot order (five severities, three top-unit ranks, total volume).
-var logRateFields = []string{
-	"error", "warn", "info", "debug", "trace",
-	"unit_rank1", "unit_rank2", "unit_rank3", "volume",
-}
-
 // soakStream is the subset of a QUIC stream the soak traffic uses.
 type soakStream interface {
 	io.ReadWriter
 	SetReadDeadline(t time.Time) error
 }
 
-// buildLogRateWindow builds an AgentMetricWindow carrying only log-rate dims for
-// the self source, with an empty org (the server assigns the authoritative org
-// from the connection). It drives the WS-4 ingest path under multi-tenant load.
-func buildLogRateWindow(ts int64) *protocol.ControlMessage {
-	dims := make([]protocol.MetricDim, len(logRateFields))
-	for i, field := range logRateFields {
-		dims[i] = protocol.MetricDim{Name: "log.rate.self." + field, Avg: float64(i)}
+// buildExtraMetricWindow builds an AgentMetricWindow over the host-metric dims
+// with an empty org (the server assigns the authoritative org from the
+// connection). It drives extra WS-4 avg-series ingest load under multi-tenant
+// stress, on top of the default telemetry shape.
+func buildExtraMetricWindow(ts int64) *protocol.ControlMessage {
+	dims := make([]protocol.MetricDim, len(defaultMetricDimNames))
+	for i, name := range defaultMetricDimNames {
+		dims[i] = protocol.MetricDim{Name: name, Avg: float64(i)}
 	}
 	return &protocol.ControlMessage{Type: protocol.MsgAgentMetricWindow, TS: ts, Dims: dims}
 }
@@ -118,9 +112,9 @@ func readControlFrame(codec *protocol.Codec, r io.Reader) (*protocol.ControlMess
 }
 
 // runSoakTraffic drives the Edge-Sentinel soak load for one agent: it emits the
-// default telemetry shape and log-rate windows (ingest), runs a reconnect-storm
-// backfill drain, and optionally answers one on-demand raw-log pull (the agent
-// side of the broker round-trip).
+// default telemetry shape and extra host-metric windows (ingest), runs a
+// reconnect-storm backfill drain, and optionally answers one on-demand raw-log
+// pull (the agent side of the broker round-trip).
 func runSoakTraffic(codec *protocol.Codec, stream soakStream, opts loadOptions) error {
 	if err := emitDefaultTelemetry(codec, stream, opts); err != nil {
 		return err
@@ -128,7 +122,7 @@ func runSoakTraffic(codec *protocol.Codec, stream soakStream, opts loadOptions) 
 	if _, err := drainBackfill(codec, stream, opts); err != nil {
 		return err
 	}
-	if err := emitLogWindows(codec, stream, opts.logWindows); err != nil {
+	if err := emitMetricWindows(codec, stream, opts.metricWindows); err != nil {
 		return err
 	}
 	if !opts.answerLogPulls {
@@ -145,15 +139,15 @@ func runSoakTraffic(codec *protocol.Codec, stream soakStream, opts loadOptions) 
 	return nil
 }
 
-// emitLogWindows writes n log-rate metric windows, driving the ingest path.
-func emitLogWindows(codec *protocol.Codec, w io.Writer, n int) error {
+// emitMetricWindows writes n host-metric windows, driving the ingest path.
+func emitMetricWindows(codec *protocol.Codec, w io.Writer, n int) error {
 	for i := 0; i < n; i++ {
-		payload, err := codec.EncodeControl(buildLogRateWindow(time.Now().Unix()))
+		payload, err := codec.EncodeControl(buildExtraMetricWindow(time.Now().Unix()))
 		if err != nil {
-			return fmt.Errorf("encode log window: %w", err)
+			return fmt.Errorf("encode metric window: %w", err)
 		}
 		if err := codec.WriteFrame(w, protocol.FrameControl, payload); err != nil {
-			return fmt.Errorf("write log window: %w", err)
+			return fmt.Errorf("write metric window: %w", err)
 		}
 	}
 	return nil

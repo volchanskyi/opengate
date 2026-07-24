@@ -62,11 +62,11 @@ func TestDefaultTelemetryFrames(t *testing.T) {
 		assert.Empty(t, f.OrgID, "agent must not assert an org; the server assigns it")
 	}
 
-	// The metric window carries the default host dims, not log-rate dims.
+	// The metric window carries the default host dims.
 	window := frames[1]
-	require.NotEmpty(t, window.Dims)
-	for _, d := range window.Dims {
-		assert.NotContains(t, d.Name, "log.rate.", "default window is host metrics, not log rates")
+	require.Len(t, window.Dims, len(defaultMetricDimNames))
+	for i, d := range window.Dims {
+		assert.Equal(t, defaultMetricDimNames[i], d.Name, "default window is host metrics")
 	}
 	// The process report is bounded and rank-ordered.
 	require.NotEmpty(t, frames[2].TopN)

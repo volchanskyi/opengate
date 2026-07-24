@@ -40,7 +40,7 @@ func main() {
 	orgs := flag.Int("orgs", 1, "number of tenant cohorts to spread agents across")
 	defaultTelemetry := flag.Bool("default-telemetry", false, "emit the default telemetry shape (health summary + host metric window + process report) per agent")
 	telemetryCycles := flag.Int("telemetry-cycles", 1, "default-telemetry emission cycles per agent")
-	logWindows := flag.Int("log-windows", 0, "log-rate metric windows each agent emits after register")
+	metricWindows := flag.Int("metric-windows", 0, "extra host-metric windows each agent emits after register")
 	answerLogPulls := flag.Bool("answer-log-pulls", false, "answer one on-demand raw-log pull per agent")
 	backfillBatches := flag.Int("backfill-batches", 0, "reconnect-storm backfill batches each agent drains after register")
 	backfillSamples := flag.Int("backfill-samples", 100, "pre-rolled samples per backfill batch")
@@ -49,7 +49,7 @@ func main() {
 	opts := loadOptions{
 		defaultTelemetry:        *defaultTelemetry,
 		telemetryCycles:         *telemetryCycles,
-		logWindows:              *logWindows,
+		metricWindows:           *metricWindows,
 		answerLogPulls:          *answerLogPulls,
 		backfillBatches:         *backfillBatches,
 		backfillSamplesPerBatch: *backfillSamples,

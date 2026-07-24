@@ -55,7 +55,7 @@ func buildHealthSummary(ts int64) *protocol.ControlMessage {
 }
 
 // buildDefaultMetricWindow builds a host metric window over the default sampler
-// dimensions (not log-rate dims), driving the WS-4 avg-series ingest path.
+// dimensions, driving the WS-4 avg-series ingest path.
 func buildDefaultMetricWindow(ts int64) *protocol.ControlMessage {
 	dims := make([]protocol.MetricDim, len(defaultMetricDimNames))
 	for i, name := range defaultMetricDimNames {

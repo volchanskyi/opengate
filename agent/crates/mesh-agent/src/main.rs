@@ -264,10 +264,6 @@ async fn perform_fast_handshake(
 /// Default log directory for persistent log files.
 const LOG_DIR: &str = "/var/log/mesh-agent";
 
-/// Bounded backlog of log-rate telemetry windows awaiting the control loop.
-/// Windows beyond this are dropped so telemetry never backpressures control.
-const LOG_RATE_TELEMETRY_CAP: usize = 32;
-
 /// Bounded backlog of discovery reports awaiting the control loop. Reports are
 /// change-triggered and infrequent, so a small buffer suffices; reports beyond
 /// it are dropped rather than backpressuring control.
@@ -486,15 +482,8 @@ async fn main() -> Result<()> {
         .clone()
         .map(backfill_loop::BackfillCoordinator::new);
 
-    // Log-rate windows produced by the reader task reach the control loop over a
-    // bounded channel; the receiver is drained when connected (see below).
-    let (log_rate_tx, log_rate_rx) =
-        std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(LOG_RATE_TELEMETRY_CAP);
-    let _edge_log_readers =
-        edge_sentinel::spawn_log_readers(PathBuf::from(LOG_DIR), log_rate_tx, maintenance.clone());
-
     // Auto-discovery reports produced by the discovery task reach the control
-    // loop over a bounded channel, drained alongside log-rate windows below.
+    // loop over a bounded channel, drained on the heartbeat below.
     let (discovery_tx, discovery_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(DISCOVERY_TELEMETRY_CAP);
     let _edge_discovery = edge_sentinel::spawn_discovery(discovery_tx, maintenance.clone());
@@ -692,19 +681,18 @@ async fn main() -> Result<()> {
                         tracing::debug!("backfill: reconnect drain in progress");
                     }
 
-                    // Forward any queued log-rate windows and discovery reports.
+                    // Forward any queued discovery reports and health summaries.
                     // Drain into a Vec first so no receiver is held across the
                     // send await; the bounded channels already dropped anything
                     // beyond capacity, so neither can backpressure the control
                     // stream.
                     let mut windows: Vec<mesh_protocol::ControlMessage> =
-                        std::iter::from_fn(|| log_rate_rx.try_recv().ok()).collect();
-                    windows.extend(std::iter::from_fn(|| discovery_rx.try_recv().ok()));
+                        std::iter::from_fn(|| discovery_rx.try_recv().ok()).collect();
                     windows.extend(std::iter::from_fn(|| health_rx.try_recv().ok()));
                     let mut telemetry_lost = false;
                     for window in windows {
                         if let Err(e) = conn.send_control(window).await {
-                            warn!(error = %e, "log-rate telemetry send failed, will reconnect");
+                            warn!(error = %e, "telemetry send failed, will reconnect");
                             telemetry_lost = true;
                             break;
                         }
