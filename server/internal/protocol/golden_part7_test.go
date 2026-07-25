@@ -93,8 +93,9 @@ func TestGoldenControlAgentMetricWindow(t *testing.T) {
 func TestGoldenControlAgentMetricWindowHostMetrics(t *testing.T) {
 	// The host-metric emitter aggregates the 1 s sampler into a 10 s-average
 	// AgentMetricWindow over the five host-resource series. The dim names are the
-	// shared central labels; net bytes are cumulative, exactly as reconnect-
-	// backfill writes them, so live and backfilled points land in the same series.
+	// shared central labels; the net dims are primary-interface throughput in
+	// bytes/second, averaged the same way reconnect-backfill rolls them, so live
+	// and backfilled points land in the same series.
 	msg := decodeControlFrame(t, "control_agent_metric_window_host_metrics.bin")
 	assert.Equal(t, MsgAgentMetricWindow, msg.Type)
 	assert.Equal(t, int64(1700000260), msg.TS)
@@ -107,8 +108,8 @@ func TestGoldenControlAgentMetricWindowHostMetrics(t *testing.T) {
 		{"cpu.total", 42.5},
 		{"mem.used_percent", 63.0},
 		{"disk.used_percent", 55.0},
-		{"net.rx_bytes", 123456.0},
-		{"net.tx_bytes", 654321.0},
+		{"net.rx_bps", 123456.0},
+		{"net.tx_bps", 654321.0},
 	}
 	for i, w := range want {
 		assert.Equal(t, w.name, msg.Dims[i].Name, "dim %d name", i)

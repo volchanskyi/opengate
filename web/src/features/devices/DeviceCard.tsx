@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import type { components } from '../../types/api';
 import { StatusBadge } from './StatusBadge';
 import { HealthBadge } from './HealthBadge';

@@ -6,8 +6,10 @@
 //! reconnect-backfill roll-up ([`super::backfill::roll_to_10s`]): both key a
 //! bucket by [`super::backfill::window_start_10s`] and report `sum/n`, so a
 //! live point and a later gap-filled point for the same `(dim, ts)` are equal
-//! and land in one central series. Net bytes are cumulative, exactly as backfill
-//! writes them.
+//! and land in one central series. The net dims are primary-interface
+//! throughput in bytes/second; a sample with no computable rate is skipped for
+//! those dims (per-dim counts), exactly as the local store leaves a gap that
+//! backfill then rolls over the same seconds.
 
 use mesh_protocol::{ControlMessage, MetricDim};
 
@@ -16,20 +18,21 @@ use super::sampler::MetricSample;
 use super::store_sink::{series_dim_name, BACKFILL_SERIES};
 
 /// The number of host-resource series streamed per window, in [`BACKFILL_SERIES`]
-/// order (`cpu.total`, `mem.used_percent`, `disk.used_percent`, `net.rx_bytes`,
-/// `net.tx_bytes`).
+/// order (`cpu.total`, `mem.used_percent`, `disk.used_percent`, `net.rx_bps`,
+/// `net.tx_bps`).
 const DIMS: usize = BACKFILL_SERIES.len();
 
 /// The per-dim readings of one sample, in [`BACKFILL_SERIES`] order — the same
 /// mapping [`super::store_sink::LocalStoreSink::record`] persists, so the live
-/// average and the backfilled average fold identical values.
-fn sample_values(sample: &MetricSample) -> [f64; DIMS] {
+/// average and the backfilled average fold identical values. A `None` entry (the
+/// net rate before it can be computed) is skipped from that dim's average.
+fn sample_values(sample: &MetricSample) -> [Option<f64>; DIMS] {
     [
-        f64::from(sample.cpu_total_percent),
-        f64::from(sample.memory_used_percent),
-        f64::from(sample.disk_used_percent),
-        sample.network_rx_bytes as f64,
-        sample.network_tx_bytes as f64,
+        Some(f64::from(sample.cpu_total_percent)),
+        Some(f64::from(sample.memory_used_percent)),
+        Some(f64::from(sample.disk_used_percent)),
+        sample.network_rx_bps,
+        sample.network_tx_bps,
     ]
 }
 
@@ -45,8 +48,10 @@ pub struct HostMetricWindower {
     window: Option<i64>,
     /// Running per-dim sums for the open window, in [`BACKFILL_SERIES`] order.
     sums: [f64; DIMS],
-    /// Number of samples folded into the open window.
-    count: u32,
+    /// Per-dim count of folded samples — a dim whose value was `None` (an
+    /// uncomputable net rate) is not counted, so its average divides only the
+    /// samples that actually carried a reading.
+    counts: [u32; DIMS],
 }
 
 impl HostMetricWindower {
@@ -67,10 +72,12 @@ impl HostMetricWindower {
             _ => None,
         };
         let values = sample_values(sample);
-        for (slot, v) in self.sums.iter_mut().zip(values) {
-            *slot += v;
+        for ((sum, count), v) in self.sums.iter_mut().zip(self.counts.iter_mut()).zip(values) {
+            if let Some(v) = v {
+                *sum += v;
+                *count += 1;
+            }
         }
-        self.count += 1;
         self.window = Some(bucket);
         closed
     }
@@ -87,29 +94,34 @@ impl HostMetricWindower {
     pub fn reset(&mut self) {
         self.window = None;
         self.sums = [0.0; DIMS];
-        self.count = 0;
+        self.counts = [0; DIMS];
     }
 
     /// Build the metric-window message for the open window and clear the
-    /// accumulator. `None` when no samples are buffered. The server assigns the
+    /// accumulator. `None` when no samples are buffered. Each dim is averaged
+    /// over its own sample count and a dim with no readings this window (e.g. a
+    /// net rate that never resolved) is omitted. The server assigns the
     /// authoritative org, so `org_id` is left empty.
     fn close(&mut self) -> Option<ControlMessage> {
         let start = self.window?;
-        if self.count == 0 {
-            return None;
-        }
-        let n = f64::from(self.count);
         let dims = BACKFILL_SERIES
             .iter()
             .zip(self.sums)
-            .filter_map(|(&series, sum)| {
+            .zip(self.counts)
+            .filter_map(|((&series, sum), count)| {
+                if count == 0 {
+                    return None;
+                }
                 series_dim_name(series).map(|name| MetricDim {
                     name: name.to_string(),
-                    avg: sum / n,
+                    avg: sum / f64::from(count),
                 })
             })
-            .collect();
+            .collect::<Vec<_>>();
         self.reset();
+        if dims.is_empty() {
+            return None;
+        }
         Some(ControlMessage::AgentMetricWindow {
             ts: start,
             org_id: String::new(),
@@ -138,8 +150,9 @@ mod tests {
                     cpu_total_percent: 1.0 + (i as f32) * 0.37,
                     memory_used_percent: 20.0 + (i as f32) * 1.11,
                     disk_used_percent: 55.5,
-                    network_rx_bytes: 1_000 + (i as u64) * 512,
-                    network_tx_bytes: 2_000 + (i as u64) * 256,
+                    // Net dims are whole-byte/second rates.
+                    network_rx_bps: Some(1_000.0 + (i as f64) * 512.0),
+                    network_tx_bps: Some(2_000.0 + (i as f64) * 256.0),
                     processes: Vec::new(),
                 };
                 (ts, s)
@@ -157,7 +170,9 @@ mod tests {
             let name = series_dim_name(series).unwrap();
             let raw: Vec<(Sample, bool)> = seq
                 .iter()
-                .map(|(ts, s)| (Sample::new(*ts, sample_values(s)[dim_idx]), false))
+                .filter_map(|(ts, s)| {
+                    sample_values(s)[dim_idx].map(|v| (Sample::new(*ts, v), false))
+                })
                 .collect();
             let rolled = roll_to_10s(&raw);
 
@@ -186,8 +201,8 @@ mod tests {
             cpu_total_percent: 5.0,
             memory_used_percent: 5.0,
             disk_used_percent: 5.0,
-            network_rx_bytes: 0,
-            network_tx_bytes: 0,
+            network_rx_bps: Some(0.0),
+            network_tx_bps: Some(0.0),
             processes: Vec::new(),
         };
         assert!(w.push(1_700_000_000, &s).is_none());
@@ -204,5 +219,47 @@ mod tests {
             10,
             "windows are exactly 10 s apart"
         );
+    }
+
+    /// A window whose first net rate is `None` (the first sample of a process, or
+    /// an interface change) averages net over only the samples that carried a
+    /// reading, while cpu/mem/disk average over every sample.
+    #[test]
+    fn net_none_is_excluded_from_only_the_net_average() {
+        let mut w = HostMetricWindower::new();
+        let base = MetricSample {
+            cpu_total_percent: 10.0,
+            memory_used_percent: 20.0,
+            disk_used_percent: 30.0,
+            network_rx_bps: None,
+            network_tx_bps: None,
+            processes: Vec::new(),
+        };
+        // Two samples in the first 10 s bucket: net None then net 100/200.
+        assert!(w.push(1_700_000_000, &base).is_none());
+        assert!(w
+            .push(
+                1_700_000_001,
+                &MetricSample {
+                    network_rx_bps: Some(100.0),
+                    network_tx_bps: Some(200.0),
+                    ..base.clone()
+                }
+            )
+            .is_none());
+        // Crossing into the next bucket closes the window.
+        let closed = w
+            .push(1_700_000_010, &base)
+            .expect("boundary closes window");
+        let dims = match closed {
+            ControlMessage::AgentMetricWindow { dims, .. } => dims,
+            other => panic!("expected AgentMetricWindow, got {other:?}"),
+        };
+        let by_name = |name: &str| dims.iter().find(|d| d.name == name).map(|d| d.avg);
+        // cpu averaged over both samples (10, 10) → 10.
+        assert_eq!(by_name("cpu.total"), Some(10.0));
+        // net averaged over the single sample that carried a rate → 100 / 1.
+        assert_eq!(by_name("net.rx_bps"), Some(100.0));
+        assert_eq!(by_name("net.tx_bps"), Some(200.0));
     }
 }

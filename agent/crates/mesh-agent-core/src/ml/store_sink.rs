@@ -4,7 +4,9 @@
 //! graduated agent-local [`LocalTsdb`]: the sovereign copy of min/max/last + 1 s
 //! raw that central `avg`-only VictoriaMetrics does not keep. Each host metric
 //! dimension is a fixed series; percentage gauges use ×100 fixed-point (lossless
-//! to centi precision), while byte counters ride the adaptive integer path.
+//! to centi precision), while the net-rate gauges are rounded to whole
+//! bytes/second and ride the adaptive integer path (lossless), so a live 10 s
+//! average and a reconnect-backfilled average of the same seconds agree exactly.
 //!
 //! Writes are buffered and flushed on a cadence — never fsync-per-sample — so the
 //! sampler stays inside the agent's <1 % CPU budget. Detection reads its recent
@@ -26,9 +28,9 @@ pub const SERIES_CPU: SeriesId = 0;
 pub const SERIES_MEM: SeriesId = 1;
 /// Used-disk percentage.
 pub const SERIES_DISK: SeriesId = 2;
-/// Cumulative received network bytes.
+/// Received throughput on the primary interface, bytes/second.
 pub const SERIES_NET_RX: SeriesId = 3;
-/// Cumulative transmitted network bytes.
+/// Transmitted throughput on the primary interface, bytes/second.
 pub const SERIES_NET_TX: SeriesId = 4;
 
 /// Fixed-point scale for percentage gauges: centi precision, lossless.
@@ -54,8 +56,8 @@ pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
         SERIES_CPU => Some("cpu.total"),
         SERIES_MEM => Some("mem.used_percent"),
         SERIES_DISK => Some("disk.used_percent"),
-        SERIES_NET_RX => Some("net.rx_bytes"),
-        SERIES_NET_TX => Some("net.tx_bytes"),
+        SERIES_NET_RX => Some("net.rx_bps"),
+        SERIES_NET_TX => Some("net.tx_bps"),
         _ => None,
     }
 }
@@ -69,8 +71,8 @@ pub fn dim_series(name: &str) -> Option<SeriesId> {
         "cpu.total" => Some(SERIES_CPU),
         "mem.used_percent" => Some(SERIES_MEM),
         "disk.used_percent" => Some(SERIES_DISK),
-        "net.rx_bytes" => Some(SERIES_NET_RX),
-        "net.tx_bytes" => Some(SERIES_NET_TX),
+        "net.rx_bps" => Some(SERIES_NET_RX),
+        "net.tx_bps" => Some(SERIES_NET_TX),
         _ => None,
     }
 }
@@ -111,6 +113,9 @@ impl LocalStoreSink {
 
     /// Append one host sample across every metric series, stamping each with the
     /// window's `anomaly` verdict, and flush durably on the configured cadence.
+    /// The net-rate series are appended only when a rate is available; an absent
+    /// rate (first sample, interface change, counter reset) leaves a gap rather
+    /// than writing a wrong number, and reconnect-backfill rolls the same gaps.
     pub fn record(
         &mut self,
         ts: i64,
@@ -118,14 +123,16 @@ impl LocalStoreSink {
         anomaly: bool,
     ) -> Result<(), TsdbError> {
         let dims = [
-            (SERIES_CPU, f64::from(sample.cpu_total_percent)),
-            (SERIES_MEM, f64::from(sample.memory_used_percent)),
-            (SERIES_DISK, f64::from(sample.disk_used_percent)),
-            (SERIES_NET_RX, sample.network_rx_bytes as f64),
-            (SERIES_NET_TX, sample.network_tx_bytes as f64),
+            (SERIES_CPU, Some(f64::from(sample.cpu_total_percent))),
+            (SERIES_MEM, Some(f64::from(sample.memory_used_percent))),
+            (SERIES_DISK, Some(f64::from(sample.disk_used_percent))),
+            (SERIES_NET_RX, sample.network_rx_bps),
+            (SERIES_NET_TX, sample.network_tx_bps),
         ];
         for (series, value) in dims {
-            self.store.append(series, Sample::new(ts, value), anomaly)?;
+            if let Some(value) = value {
+                self.store.append(series, Sample::new(ts, value), anomaly)?;
+            }
         }
         self.since_commit += 1;
         if self.since_commit >= self.commit_every {

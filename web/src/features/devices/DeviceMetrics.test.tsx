@@ -77,13 +77,16 @@ describe('DeviceMetrics', () => {
     expect(screen.getByLabelText('mem metrics')).toBeInTheDocument();
   });
 
-  it('labels the band provenance honestly (avg_of_10s is not host extrema)', () => {
+  it('exposes band provenance as a header tooltip, not visible caption text', () => {
     resetStore({ metrics: sampleMetrics });
     render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-    expect(screen.getAllByText(/10 s averages/i).length).toBeGreaterThan(0);
+    // The inline caption text is removed (item 8) — provenance lives in a tooltip.
+    expect(screen.queryByText(/10 s averages/i)).toBeNull();
+    const cpuHeader = screen.getByText('cpu').closest('[title]');
+    expect(cpuHeader?.getAttribute('title')).toMatch(/10 s averages/i);
   });
 
-  it('labels local extrema and avg-only families exactly', () => {
+  it('exposes local-extrema and avg-only provenance via the header tooltip', () => {
     resetStore({
       metrics: {
         ...sampleMetrics,
@@ -94,8 +97,11 @@ describe('DeviceMetrics', () => {
       },
     });
     render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-    expect(screen.getByText('Band: host min/max (local history)')).toBeInTheDocument();
-    expect(screen.getByText('avg only')).toBeInTheDocument();
+    // No visible caption text; provenance is on the family header title attribute.
+    expect(screen.queryByText('Band: host min/max (local history)')).toBeNull();
+    expect(screen.queryByText('avg only')).toBeNull();
+    expect(screen.getByText('cpu').closest('[title]')?.getAttribute('title')).toBe('Band: host min/max (local history)');
+    expect(screen.getByText('mem').closest('[title]')?.getAttribute('title')).toBe('avg only');
     expect(screen.getByLabelText('cpu metrics')).toHaveAttribute('data-bands', '1');
     expect(screen.getByLabelText('mem metrics')).toHaveAttribute('data-bands', '0');
     expect(screen.getByLabelText('cpu metrics')).toHaveAttribute('data-height', '160');
@@ -115,8 +121,8 @@ describe('DeviceMetrics', () => {
           { name: 'cpu.util', avg: [10, 20, 42], min_max_source: 'none' as const },
           { name: 'mem.used_percent', avg: [40, 50, 58], min_max_source: 'none' as const },
           { name: 'disk.used_percent', avg: [70, 71, 72], min_max_source: 'none' as const },
-          { name: 'net.rx_bytes', avg: [0, 500_000, 1_000_000], min_max_source: 'none' as const },
-          { name: 'net.tx_bytes', avg: [0, 250_000, 500_000], min_max_source: 'none' as const },
+          { name: 'net.rx_bps', avg: [0, 500_000, 1_000_000], min_max_source: 'none' as const },
+          { name: 'net.tx_bps', avg: [0, 250_000, 500_000], min_max_source: 'none' as const },
         ],
       },
     });
@@ -124,7 +130,7 @@ describe('DeviceMetrics', () => {
     expect(screen.getByText('42%')).toBeInTheDocument();
     expect(screen.getByText('58%')).toBeInTheDocument();
     expect(screen.getByText('72%')).toBeInTheDocument();
-    expect(screen.getByText('1.4 MB')).toBeInTheDocument();
+    expect(screen.getByText('1.4 MB/s')).toBeInTheDocument();
   });
 
   it('shows an empty-state message when the window has no telemetry', () => {
@@ -224,6 +230,48 @@ describe('DeviceMetrics', () => {
     resetStore({ metrics: sampleMetrics });
     render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
     expect(screen.queryByText('View logs for this window')).toBeNull();
+  });
+
+  it('the view-logs button uses the Restart-Agent yellow palette', () => {
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} onViewLogs={vi.fn()} />);
+    expect(screen.getByText('View logs for this window')).toHaveClass('bg-yellow-600', 'hover:bg-yellow-700');
+  });
+
+  it('shows a Clear-selection affordance only while a window is selected', () => {
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    expect(screen.queryByRole('button', { name: /clear selection/i })).toBeNull();
+    fireEvent.click(screen.getByText('select-cpu metrics'));
+    expect(screen.getByRole('button', { name: /clear selection/i })).toBeInTheDocument();
+  });
+
+  it('freezes the 30s poll while a selection is active and resumes on Clear', () => {
+    vi.useFakeTimers();
+    const fetchMetrics = vi.fn().mockResolvedValue(undefined);
+    resetStore({ fetchMetrics, metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    fetchMetrics.mockClear();
+
+    // Activate a drag selection → poll frozen so setData never wipes the overlay.
+    fireEvent.click(screen.getByText('select-cpu metrics'));
+    act(() => { vi.advanceTimersByTime(90_000); });
+    expect(fetchMetrics).not.toHaveBeenCalled();
+
+    // Clear → one immediate reload, then live polling resumes.
+    fireEvent.click(screen.getByRole('button', { name: /clear selection/i }));
+    expect(fetchMetrics).toHaveBeenCalledTimes(1);
+    act(() => { vi.advanceTimersByTime(30_000); });
+    expect(fetchMetrics).toHaveBeenCalledTimes(2);
+  });
+
+  it('changing the preset clears an active selection', () => {
+    resetStore({ metrics: sampleMetrics });
+    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
+    fireEvent.click(screen.getByText('select-cpu metrics'));
+    expect(screen.getByRole('button', { name: /clear selection/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '24h' }));
+    expect(screen.queryByRole('button', { name: /clear selection/i })).toBeNull();
   });
 
   it('shows a loading state while the first metrics window is in flight', () => {

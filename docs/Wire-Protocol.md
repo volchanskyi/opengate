@@ -135,10 +135,11 @@ Live host metrics reuse `AgentMetricWindow`: the sampler folds its 1 s samples
 into a 10 s average and emits one window per 10 s over a bounded channel that
 drops under pressure, so a burst never backpressures the control stream. Each
 `dims` entry is a host-resource series (`cpu.total`, `mem.used_percent`,
-`disk.used_percent`, `net.rx_bytes`, `net.tx_bytes`); network bytes are
-cumulative. The 10 s averaging matches reconnect-backfill's roll-up exactly, so a
-live point and a later gap-filled point for the same `(dim, ts)` land in one
-series. On the on-demand log query, `RequestDeviceLogs.source` selects the log
+`disk.used_percent`, `net.rx_bps`, `net.tx_bps`); the net dims are
+primary-interface throughput in bytes/second (rounded to whole bytes so they
+stay on the lossless integer path). The 10 s averaging matches reconnect-
+backfill's roll-up exactly, so a live point and a later gap-filled point for the
+same `(dim, ts)` land in one series. On the on-demand log query, `RequestDeviceLogs.source` selects the log
 source (`host` resolves journald / the Windows Event Log; empty or `self` reads
 the agent's own files) and `unit` narrows host logs to one emitting unit;
 `DeviceLogsResponse.available_units` enumerates the source's distinct units for

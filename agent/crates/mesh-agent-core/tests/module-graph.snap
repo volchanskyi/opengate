@@ -19,6 +19,7 @@ crate mesh_agent_core
 │   ├── mod ensemble: pub
 │   ├── mod host_metric_stream: pub
 │   ├── mod kmeans: pub
+│   ├── mod primary_iface: pub
 │   ├── mod redact: pub
 │   ├── mod sampler: pub
 │   ├── mod store_sink: pub

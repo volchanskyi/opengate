@@ -64,6 +64,21 @@ resuming (`DidResume`).
 
 ## Severity: Low
 
+### Device-list filtering is client-side (future server-side concern at scale)
+
+The Dashboard/Fleet-Health deep links narrow the device list with a pure
+client-side reducer ([`device-filter.ts`](../web/src/features/devices/device-filter.ts)):
+the full device list is already fetched for the grid, so `status`/`maintenance`/
+`health` filtering happens in the browser with no extra round-trip. This is
+correct and cheap at the current fleet size (the list endpoint has no server-side
+pagination), but at **>20k agents** the unpaginated list fetch itself becomes the
+bottleneck, and filtering should move behind a paginated, server-filtered
+`/devices` query (matching the multiscale-readiness scaling posture). No action
+needed until list-fetch latency shows up in practice.
+
+**Pay-down trigger:** device-list fetch latency or payload size becomes a
+problem as the fleet approaches the >20k-agent scaling tier.
+
 ### On-demand network drills deferred
 
 The deployed fault drills are active in staging CD: with the `STAGING_FAULT_TESTS`

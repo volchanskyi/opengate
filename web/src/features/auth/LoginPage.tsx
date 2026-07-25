@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router';
 import { useAuthStore } from '../../state/auth-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
 

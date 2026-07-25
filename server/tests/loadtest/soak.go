@@ -29,7 +29,7 @@ type loadOptions struct {
 // default (mirrors the agent's store_sink series set). Central VM keeps avg
 // only; min/max/last + 1 s raw stay agent-local.
 var defaultMetricDimNames = []string{
-	"cpu.total", "mem.used_percent", "disk.used_percent", "net.rx_bytes", "net.tx_bytes",
+	"cpu.total", "mem.used_percent", "disk.used_percent", "net.rx_bps", "net.tx_bps",
 }
 
 // defaultFamilies are the per-family anomaly-rate buckets a health summary

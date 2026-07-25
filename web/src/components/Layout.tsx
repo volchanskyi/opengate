@@ -1,4 +1,4 @@
-import { Link, Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router';
 import { useAuthStore } from '../state/auth-store';
 import { NotificationCenter } from '../features/admin/NotificationCenter';
 import { ToastContainer } from './ToastContainer';

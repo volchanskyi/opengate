@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -41,16 +40,7 @@ func (v *VMClient) DeleteSeries(ctx context.Context, orgID uuid.UUID, deviceID *
 		return fmt.Errorf("build vm delete request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := v.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("post vm delete: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("vm delete status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
-	return nil
+	return v.sendChecked(req, "post", "delete")
 }
 
 // CountSeries returns how many series still match the subject selector. A purge
@@ -62,19 +52,11 @@ func (v *VMClient) CountSeries(ctx context.Context, orgID uuid.UUID, deviceID *u
 	}
 	q := url.Values{}
 	q.Set(matchParam, selector)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.baseURL+"/api/v1/series?"+q.Encode(), nil)
+	resp, err := v.getChecked(ctx, "/api/v1/series?"+q.Encode(), "series")
 	if err != nil {
-		return 0, fmt.Errorf("build vm series request: %w", err)
-	}
-	resp, err := v.client.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("get vm series: %w", err)
+		return 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return 0, fmt.Errorf("vm series status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
 	var body struct {
 		Status string              `json:"status"`
 		Data   []map[string]string `json:"data"`
@@ -98,19 +80,11 @@ type SeriesSubject struct {
 func (v *VMClient) ListSubjects(ctx context.Context) ([]SeriesSubject, error) {
 	q := url.Values{}
 	q.Set(matchParam, `{device_id=~".+"}`)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.baseURL+"/api/v1/series?"+q.Encode(), nil)
+	resp, err := v.getChecked(ctx, "/api/v1/series?"+q.Encode(), "subjects")
 	if err != nil {
-		return nil, fmt.Errorf("build vm subjects request: %w", err)
-	}
-	resp, err := v.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get vm subjects: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("vm subjects status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
 	var body struct {
 		Data []map[string]string `json:"data"`
 	}

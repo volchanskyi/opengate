@@ -1,20 +1,21 @@
 //! Integration coverage for the live host-metric 10 s windower — the emitter
-//! that streams `cpu.total`/`mem.used_percent`/`disk.used_percent`/`net.rx_bytes`/
-//! `net.tx_bytes` to central VictoriaMetrics on the same 10 s cadence
+//! that streams `cpu.total`/`mem.used_percent`/`disk.used_percent`/`net.rx_bps`/
+//! `net.tx_bps` to central VictoriaMetrics on the same 10 s cadence
 //! reconnect-backfill uses, so live and backfilled points land in one series.
 
 use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
 use mesh_agent_core::ml::sampler::MetricSample;
 use mesh_protocol::ControlMessage;
 
-/// Build a host sample with the given resource readings and no processes.
+/// Build a host sample with the given resource readings (net as byte/second
+/// rates) and no processes.
 fn sample(cpu: f32, mem: f32, disk: f32, rx: u64, tx: u64) -> MetricSample {
     MetricSample {
         cpu_total_percent: cpu,
         memory_used_percent: mem,
         disk_used_percent: disk,
-        network_rx_bytes: rx,
-        network_tx_bytes: tx,
+        network_rx_bps: Some(rx as f64),
+        network_tx_bps: Some(tx as f64),
         processes: Vec::new(),
     }
 }
@@ -54,8 +55,8 @@ fn closes_a_window_only_when_a_later_sample_arrives() {
             ("cpu.total".to_string(), 20.0),         // mean(10,20,30)
             ("mem.used_percent".to_string(), 50.0),  // mean(40,50,60)
             ("disk.used_percent".to_string(), 72.0), // mean(70,72,74)
-            ("net.rx_bytes".to_string(), 1200.0),    // mean(1000,1200,1400)
-            ("net.tx_bytes".to_string(), 2200.0),    // mean(2000,2200,2400)
+            ("net.rx_bps".to_string(), 1200.0),      // mean(1000,1200,1400)
+            ("net.tx_bps".to_string(), 2200.0),      // mean(2000,2200,2400)
         ],
     );
 }
@@ -71,7 +72,7 @@ fn flush_emits_the_open_partial_window() {
     let (ts, dims) = window_dims(&w.flush().expect("open window flushes"));
     assert_eq!(ts, 200);
     assert_eq!(dims[0], ("cpu.total".to_string(), 20.0));
-    assert_eq!(dims[3], ("net.rx_bytes".to_string(), 200.0));
+    assert_eq!(dims[3], ("net.rx_bps".to_string(), 200.0));
 
     // After a flush the accumulator is empty.
     assert!(w.flush().is_none(), "nothing left after a flush");

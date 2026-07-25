@@ -340,9 +340,10 @@ fn golden_control_frame_request_device_logs() {
 fn golden_control_frame_agent_metric_window_host_metrics() {
     // The host-metric emitter aggregates the 1 s sampler into a 10 s-average
     // AgentMetricWindow over the five host-resource series. The dim names are the
-    // shared central labels from `store_sink::series_dim_name`; net bytes are
-    // cumulative, exactly as reconnect-backfill writes them. This fixture pins
-    // that naming contract for the server.
+    // shared central labels from `store_sink::series_dim_name`; the net dims are
+    // primary-interface throughput in bytes/second, averaged the same way
+    // reconnect-backfill rolls them. This fixture pins that naming contract for
+    // the server.
     let msg = ControlMessage::AgentMetricWindow {
         ts: 1700000260,
         org_id: "00000000-0000-0000-0000-000000000002".to_string(),
@@ -360,11 +361,11 @@ fn golden_control_frame_agent_metric_window_host_metrics() {
                 avg: 55.0,
             },
             MetricDim {
-                name: "net.rx_bytes".to_string(),
+                name: "net.rx_bps".to_string(),
                 avg: 123456.0,
             },
             MetricDim {
-                name: "net.tx_bytes".to_string(),
+                name: "net.tx_bps".to_string(),
                 avg: 654321.0,
             },
         ],

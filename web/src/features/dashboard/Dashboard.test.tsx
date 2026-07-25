@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router';
 import { useDeviceStore } from '../devices';
 import { Dashboard } from './Dashboard';
 
@@ -77,6 +77,28 @@ describe('Dashboard', () => {
     expect(card).toHaveTextContent('3');
   });
 
+  it('does not render the Device Groups card', () => {
+    renderDashboard();
+    expect(screen.queryByText('Device Groups')).toBeNull();
+  });
+
+  it('does not fetch groups on mount (FleetHealth needs no groups)', () => {
+    const fetchGroups = vi.fn();
+    useDeviceStore.setState({ fetchGroups });
+    renderDashboard();
+    expect(fetchGroups).not.toHaveBeenCalled();
+  });
+
+  it('Online tile deep-links to the online filter', () => {
+    renderDashboard();
+    expect(screen.getByText('Online').closest('a')).toHaveAttribute('href', '/devices?status=online');
+  });
+
+  it('Offline tile deep-links to the offline filter', () => {
+    renderDashboard();
+    expect(screen.getByText('Offline').closest('a')).toHaveAttribute('href', '/devices?status=offline');
+  });
+
   it('fetches the maintenance summary on mount and on each 15s poll', () => {
     const fetchSummary = vi.fn();
     useDeviceStore.setState({ fetchMaintenanceSummary: fetchSummary });
@@ -86,10 +108,10 @@ describe('Dashboard', () => {
     expect(fetchSummary).toHaveBeenCalledTimes(2);
   });
 
-  it('In Maintenance tile links to /devices', () => {
+  it('In Maintenance tile deep-links to the maintenance filter', () => {
     renderDashboard();
     const link = screen.getByText('In Maintenance').closest('a');
-    expect(link).toHaveAttribute('href', '/devices');
+    expect(link).toHaveAttribute('href', '/devices?maintenance=true');
   });
 
   it('polls devices every 15 seconds', () => {
@@ -116,12 +138,6 @@ describe('Dashboard', () => {
     expect(totalDevicesLink).toHaveAttribute('href', '/devices');
   });
 
-  it('non-linked tiles are not clickable', () => {
-    renderDashboard();
-    const onlineTile = screen.getByText('Online').closest('a');
-    expect(onlineTile).toBeNull();
-  });
-
   it('does not render View All Devices button', () => {
     renderDashboard();
     expect(screen.queryByText('View All Devices')).not.toBeInTheDocument();
@@ -138,9 +154,9 @@ describe('Dashboard', () => {
     // 2 total appears once; 1 online appears once; 1 offline appears once.
     expect(totals.length).toBeGreaterThanOrEqual(1);
     // Find each labelled value
-    const totalCard = screen.getByText('Total Devices').closest('div')!;
-    const onlineCard = screen.getByText('Online').closest('div')!;
-    const offlineCard = screen.getByText('Offline').closest('div')!;
+    const totalCard = screen.getByText('Total Devices').closest('a')!;
+    const onlineCard = screen.getByText('Online').closest('a')!;
+    const offlineCard = screen.getByText('Offline').closest('a')!;
     expect(totalCard.textContent).toContain('2');
     expect(onlineCard.textContent).toContain('1');
     expect(offlineCard.textContent).toContain('1');
@@ -155,27 +171,14 @@ describe('Dashboard', () => {
       ],
     });
     renderDashboard();
-    const onlineCard = screen.getByText('Online').closest('div')!;
+    const onlineCard = screen.getByText('Online').closest('a')!;
     expect(onlineCard.textContent).toContain('2');
-    const offlineCard = screen.getByText('Offline').closest('div')!;
+    const offlineCard = screen.getByText('Offline').closest('a')!;
     expect(offlineCard.textContent).toContain('1');
   });
 
   it('Dashboard heading is rendered', () => {
     renderDashboard();
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
-  });
-
-  it('Device Groups tile shows the groups count', () => {
-    useDeviceStore.setState({
-      groups: [
-        { id: 'g1', name: 'Group A', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group B', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g3', name: 'Group C', owner_id: 'u1', created_at: '', updated_at: '' },
-      ],
-    });
-    renderDashboard();
-    const groupsCard = screen.getByText('Device Groups').closest('div')!;
-    expect(groupsCard.textContent).toContain('3');
   });
 });

@@ -1,6 +1,7 @@
 package agentapi
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"sync/atomic"
@@ -69,7 +70,9 @@ func TestAgentConn_HandleAgentHealthSummaryUsesAuthoritativeTenant(t *testing.T)
 	}
 	writeControlMsg(t, ac.codec, buf, msg)
 
-	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+	require.NoError(t, ac.handleControl(ctx))
+	ac.flushTelemetry(ctx)
 
 	call := receiveTelemetryCall(t, writer.calls)
 	assert.Equal(t, dbtx.DefaultOrgID, call.orgID)
@@ -99,7 +102,9 @@ func TestAgentConn_HandleProcessReportStoresRowsAndRankOnlyMetrics(t *testing.T)
 	}
 	writeControlMsg(t, ac.codec, buf, msg)
 
-	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+	require.NoError(t, ac.handleControl(ctx))
+	ac.flushTelemetry(ctx)
 
 	processCall := receiveProcessCall(t, processes.calls)
 	assert.Equal(t, deviceID, processCall.deviceID)
@@ -134,19 +139,16 @@ func TestAgentConn_HandleProcessReportSupportsEitherBackend(t *testing.T) {
 	})
 
 	t.Run("numeric telemetry only", func(t *testing.T) {
-		writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-		ac, _ := newTestAgentConn(t, uuid.New(), nil)
-		ac.telemetry = writer
+		ac, _, writer := telemetryConn(t, 1)
 
 		require.NoError(t, ac.handleProcessReport(ctx, msg, 256))
+		ac.flushTelemetry(ctx)
 		require.Len(t, receiveTelemetryCall(t, writer.calls).samples, 2)
 	})
 }
 
 func TestAgentConn_TelemetryIntervalFloorDropsFastSamples(t *testing.T) {
-	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 2)}
-	ac, buf := newTestAgentConn(t, uuid.New(), nil)
-	ac.telemetry = writer
+	ac, buf, writer := telemetryConn(t, 2)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 	now := time.Now().Unix()
 
@@ -163,15 +165,16 @@ func TestAgentConn_TelemetryIntervalFloorDropsFastSamples(t *testing.T) {
 
 	require.NoError(t, ac.handleControl(ctx))
 	require.NoError(t, ac.handleControl(ctx))
+	ac.flushTelemetry(ctx)
 	_ = receiveTelemetryCall(t, writer.calls)
 	assert.Equal(t, uint64(1), ac.DroppedTelemetryCount())
+	// The accepted window coalesces into one flush; the interval-floored second
+	// window never reaches the buffer, so exactly one write occurs.
 	assert.Equal(t, int64(1), writer.count.Load())
 }
 
 func TestAgentConn_TelemetryPayloadCapDropsOversizedMessage(t *testing.T) {
-	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, buf := newTestAgentConn(t, uuid.New(), nil)
-	ac.telemetry = writer
+	ac, buf, writer := telemetryConn(t, 1)
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type: protocol.MsgAgentMetricWindow,
 		TS:   time.Now().Unix(),
@@ -197,17 +200,19 @@ func TestAgentConn_TelemetryWriterDoesNotBlockControlLoop(t *testing.T) {
 		Dims: []protocol.MetricDim{{Name: "cpu", Avg: 1}},
 	})
 
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+	require.NoError(t, ac.handleControl(ctx))
+	// The flush persists on a bounded slot goroutine, so even a blocked writer
+	// never stalls the read-loop goroutine that triggered it.
 	start := time.Now()
-	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
+	ac.flushTelemetry(ctx)
 	assert.Less(t, time.Since(start), 100*time.Millisecond)
 	close(writer.block)
 	_ = receiveTelemetryCall(t, writer.calls)
 }
 
 func TestAgentConn_HandleHealthWindowResponseFansOutSummaries(t *testing.T) {
-	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, buf := newTestAgentConn(t, uuid.New(), nil)
-	ac.telemetry = writer
+	ac, buf, writer := telemetryConn(t, 1)
 
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type: protocol.MsgHealthWindowResponse,
@@ -220,7 +225,9 @@ func TestAgentConn_HandleHealthWindowResponseFansOutSummaries(t *testing.T) {
 		}},
 	})
 
-	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+	require.NoError(t, ac.handleControl(ctx))
+	ac.flushTelemetry(ctx)
 
 	call := receiveTelemetryCall(t, writer.calls)
 	require.Len(t, call.samples, 2)
@@ -292,6 +299,17 @@ func TestTelemetryTimestamp(t *testing.T) {
 	got := telemetryTimestamp(0)
 	assert.WithinDuration(t, time.Now().UTC(), got, 5*time.Second)
 	assert.Equal(t, time.UTC, got.Location())
+}
+
+// telemetryConn wires an AgentConn to a recording telemetry writer with a
+// buffered call channel of the given capacity, returning all three for driving
+// the persist/coalesce paths without repeating the setup in every test.
+func telemetryConn(t *testing.T, callCap int) (*AgentConn, *bytes.Buffer, *recordingTelemetryWriter) {
+	t.Helper()
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, callCap)}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
+	ac.telemetry = writer
+	return ac, buf, writer
 }
 
 func receiveTelemetryCall(t *testing.T, calls <-chan telemetryWriteCall) telemetryWriteCall {

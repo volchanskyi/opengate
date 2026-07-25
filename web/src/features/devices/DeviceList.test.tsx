@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router';
 import { useDeviceStore } from './state/device-store';
 import { useUpdateStore } from './state/update-store';
 import { useInventoryStore } from './state/inventory-store';
@@ -16,13 +16,13 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
-function renderDeviceList() {
+function renderDeviceList(initialEntry = '/devices') {
   const router = createMemoryRouter(
     [
       { path: '/devices', element: <DeviceList /> },
       { path: '/devices/:id', element: <p>Device Detail</p> },
     ],
-    { initialEntries: ['/devices'] },
+    { initialEntries: [initialEntry] },
   );
   return render(<RouterProvider router={router} />);
 }
@@ -384,6 +384,66 @@ describe('DeviceList', () => {
       renderDeviceList();
       expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
       expect(screen.getByText('Select a group to filter devices, or add a new device to get started.')).toBeInTheDocument();
+    });
+  });
+
+  describe('URL filter', () => {
+    beforeEach(() => {
+      useDeviceStore.setState({
+        devices: [
+          { id: 'd1', group_id: 'g1', hostname: 'online-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'd2', group_id: 'g1', hostname: 'offline-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'd3', group_id: 'g1', hostname: 'maint-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '', maintenance_on: true },
+          { id: 'd4', group_id: 'g1', hostname: 'anomalous-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '', anomaly_rate: 0.9 },
+        ],
+      });
+    });
+
+    it('filters by status=online from the URL', () => {
+      renderDeviceList('/devices?status=online');
+      expect(screen.getByText('online-host')).toBeInTheDocument();
+      expect(screen.queryByText('offline-host')).toBeNull();
+    });
+
+    it('filters by status=offline (excludes online devices)', () => {
+      renderDeviceList('/devices?status=offline');
+      expect(screen.getByText('offline-host')).toBeInTheDocument();
+      expect(screen.queryByText('online-host')).toBeNull();
+      expect(screen.queryByText('maint-host')).toBeNull();
+    });
+
+    it('filters by maintenance=true', () => {
+      renderDeviceList('/devices?maintenance=true');
+      expect(screen.getByText('maint-host')).toBeInTheDocument();
+      expect(screen.queryByText('online-host')).toBeNull();
+    });
+
+    it('filters by health=anomalous', () => {
+      renderDeviceList('/devices?health=anomalous');
+      expect(screen.getByText('anomalous-host')).toBeInTheDocument();
+      expect(screen.queryByText('online-host')).toBeNull();
+    });
+
+    it('renders a removable filter chip describing the active filter', () => {
+      renderDeviceList('/devices?status=online');
+      const chip = screen.getByRole('button', { name: /clear filter/i });
+      expect(chip).toBeInTheDocument();
+      expect(chip).toHaveTextContent('Online');
+    });
+
+    it('clearing the chip removes the filter and shows all devices', async () => {
+      renderDeviceList('/devices?status=online');
+      expect(screen.queryByText('offline-host')).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: /clear filter/i }));
+      expect(screen.getByText('offline-host')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /clear filter/i })).toBeNull();
+    });
+
+    it('ignores a garbage filter param (no chip, no narrowing)', () => {
+      renderDeviceList('/devices?status=bogus');
+      expect(screen.getByText('online-host')).toBeInTheDocument();
+      expect(screen.getByText('offline-host')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /clear filter/i })).toBeNull();
     });
   });
 

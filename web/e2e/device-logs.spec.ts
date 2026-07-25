@@ -85,7 +85,7 @@ test.describe("Device logs UI", () => {
     );
   });
 
-  test("renders fetched logs and paginates via Load More", async ({
+  test("renders fetched logs and paginates via prev/next arrows", async ({
     authedPage,
   }) => {
     let callCount = 0;
@@ -110,18 +110,26 @@ test.describe("Device logs UI", () => {
     );
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
-    // Fetching is driven by the time-window buttons now (no Fetch Logs button).
-    // Scope to the Agent Logs pane — the System Logs pane and the metrics panel
-    // each have their own 1h button (heading's grandparent is the pane root).
-    await authedPage.getByRole("heading", { name: "Agent Logs" }).locator("xpath=../..").getByRole("button", { name: "1h" }).click();
+    // Scope to the Agent Logs pane — the System Logs pane (which now auto-loads
+    // its recent window on mount) and the metrics panel each render their own
+    // controls. The pane title is a collapse-toggle button; its grandparent is
+    // the pane root.
+    const agentPane = authedPage.getByRole("button", { name: /Agent Logs/ }).locator("xpath=../..");
+    // Fetching is driven by the time-window buttons (no Fetch Logs button).
+    await agentPane.getByRole("button", { name: "1h" }).click();
 
-    await expect(authedPage.getByText("entry #0")).toBeVisible();
-    await expect(authedPage.getByText(/Showing 1-300 of 500/)).toBeVisible();
+    await expect(agentPane.getByText("entry #0")).toBeVisible();
+    await expect(agentPane.getByText(/Showing 1-300 of 500/)).toBeVisible();
 
-    await authedPage.getByRole("button", { name: /load more/i }).click();
+    // Offset paging via the ›/‹ arrows (replaced the single Load More button).
+    await agentPane.getByRole("button", { name: "Next page" }).click();
 
-    await expect(authedPage.getByText("entry #300")).toBeVisible();
-    await expect(authedPage.getByText(/Showing 301-500 of 500/)).toBeVisible();
+    await expect(agentPane.getByText("entry #300")).toBeVisible();
+    await expect(agentPane.getByText(/Showing 301-500 of 500/)).toBeVisible();
+
+    // Stepping back returns to the first page.
+    await agentPane.getByRole("button", { name: "Previous page" }).click();
+    await expect(agentPane.getByText(/Showing 1-300 of 500/)).toBeVisible();
 
     expect(callCount).toBeGreaterThanOrEqual(2);
   });
@@ -142,12 +150,15 @@ test.describe("Device logs UI", () => {
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
 
-    // Selecting a level in the dropdown refetches immediately.
-    await authedPage.getByRole("combobox").first().selectOption("ERROR");
+    // Scope to the Agent Logs pane so the auto-loaded System Logs table never
+    // dilutes the row count / level assertions.
+    const agentPane = authedPage.getByRole("button", { name: /Agent Logs/ }).locator("xpath=../..");
+    // Selecting a level in the pane's severity dropdown refetches immediately.
+    await agentPane.getByRole("combobox").first().selectOption("ERROR");
 
-    await expect(authedPage.getByText("synthetic log message #0")).toBeVisible();
+    await expect(agentPane.getByText("synthetic log message #0")).toBeVisible();
     // Every rendered row must carry the requested level.
-    const rows = authedPage.locator("table tbody tr");
+    const rows = agentPane.locator("table tbody tr");
     const count = await rows.count();
     expect(count).toBe(5);
     for (let i = 0; i < count; i += 1) {
@@ -163,8 +174,9 @@ test.describe("Device logs UI", () => {
     );
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
-    await authedPage.getByRole("heading", { name: "Agent Logs" }).locator("xpath=../..").getByRole("button", { name: "1h" }).click();
+    const agentPane = authedPage.getByRole("button", { name: /Agent Logs/ }).locator("xpath=../..");
+    await agentPane.getByRole("button", { name: "1h" }).click();
 
-    await expect(authedPage.getByText(/no logs available/i)).toBeVisible();
+    await expect(agentPane.getByText(/no logs available/i)).toBeVisible();
   });
 });

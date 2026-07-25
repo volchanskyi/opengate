@@ -307,8 +307,8 @@ mod tests {
             cpu_total_percent: cpu,
             memory_used_percent: 10.0,
             disk_used_percent: 20.0,
-            network_rx_bytes: 0,
-            network_tx_bytes: 0,
+            network_rx_bps: Some(0.0),
+            network_tx_bps: Some(0.0),
             processes: Vec::new(),
         }
     }

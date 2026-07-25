@@ -46,6 +46,17 @@ func (f *fakeMetricsReader) QueryInstant(_ context.Context, orgID uuid.UUID, _ s
 	return f.instant, nil
 }
 
+// QueryInstantLookback mirrors QueryInstant for the fake: the badge path uses the
+// lookback variant, so it shares the same recorded state and canned result.
+func (f *fakeMetricsReader) QueryInstantLookback(_ context.Context, orgID uuid.UUID, _ string, _ map[string]string, _ time.Time, _ time.Duration) ([]telemetry.InstantValue, error) {
+	f.instantOrg = orgID
+	f.instantSeen++
+	if f.instantErr != nil {
+		return nil, f.instantErr
+	}
+	return f.instant, nil
+}
+
 func seedOwnedDevice(t *testing.T, srv *Server, ownerID uuid.UUID) *device.Device {
 	t.Helper()
 	ctx := testTenantContext(t)

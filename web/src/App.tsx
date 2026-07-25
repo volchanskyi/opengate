@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { RouterProvider } from 'react-router-dom';
+import { RouterProvider } from 'react-router';
 import { router } from './router';
 import { useAuthStore } from './state/auth-store';
 import { ErrorBoundary } from './components/ErrorBoundary';

@@ -23,6 +23,12 @@ const (
 	defaultMaxPoints      = 1000 // chart pixel width order of magnitude
 	minMaxPointsBound     = 10
 	maxMaxPointsBound     = 2000
+	// anomalyBadgeLookback bounds how stale the fleet-health badge's node anomaly
+	// rate may be: the summary is low-rate, so a bare instant query at `now` can
+	// miss a sample that landed a minute ago. last_over_time over this window
+	// keeps the badge showing the most recent rate without going indefinitely
+	// stale.
+	anomalyBadgeLookback = 10 * time.Minute
 )
 
 // enrichAnomalyRates fills each device's AnomalyRate from the latest node
@@ -37,7 +43,7 @@ func (s *Server) enrichAnomalyRates(ctx context.Context, devices []Device) {
 	if !ok {
 		return
 	}
-	vals, err := s.telemetryReader.QueryInstant(ctx, tenant.OrgID, metricNodeAnomalyRate, nil, time.Now())
+	vals, err := s.telemetryReader.QueryInstantLookback(ctx, tenant.OrgID, metricNodeAnomalyRate, nil, time.Now(), anomalyBadgeLookback)
 	if err != nil {
 		s.logger.WarnContext(ctx, "anomaly-rate badge query failed", "error", err)
 		return

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { applyDeviceFilter, parseDeviceFilter, describeDeviceFilter } from './device-filter';
 import { useDeviceStore } from './state/device-store';
 import { useUpdateStore } from './state/update-store';
 import { useInventoryStore } from './state/inventory-store';
@@ -53,6 +54,18 @@ export function DeviceList() {
   const addToast = useToastStore((s) => s.addToast);
   const [searchQuery, setSearchQuery] = useState('');
   const [isUpgradingAll, setIsUpgradingAll] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deviceFilter = useMemo(() => parseDeviceFilter(searchParams), [searchParams]);
+  const filterLabel = describeDeviceFilter(deviceFilter);
+  const clearFilter = useCallback(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('status');
+      next.delete('maintenance');
+      next.delete('health');
+      return next;
+    });
+  }, [setSearchParams]);
 
   useEffect(() => {
     fireAndForget(fetchGroups());
@@ -74,14 +87,15 @@ export function DeviceList() {
   const handleSearch = useCallback((q: string) => setSearchQuery(q), []);
 
   const filteredDevices = useMemo(() => {
-    if (!searchQuery) return devices;
+    const narrowed = applyDeviceFilter(devices, deviceFilter);
+    if (!searchQuery) return narrowed;
     const q = searchQuery.toLowerCase();
-    return devices.filter(
+    return narrowed.filter(
       (d) =>
         d.hostname.toLowerCase().includes(q) ||
         d.os.toLowerCase().includes(q),
     );
-  }, [devices, searchQuery]);
+  }, [devices, searchQuery, deviceFilter]);
 
   // Devices that have an available upgrade (version behind latest manifest for their OS).
   const outdatedDevices = useMemo(() => {
@@ -153,11 +167,24 @@ export function DeviceList() {
       <GroupSidebar />
       <div className="flex-1 p-6 flex flex-col gap-4 min-h-0">
         <div className="flex items-center justify-between">
-          <DeviceSearchBar
-            onSearch={handleSearch}
-            totalCount={devices.length}
-            filteredCount={filteredDevices.length}
-          />
+          <div className="flex items-center gap-3">
+            <DeviceSearchBar
+              onSearch={handleSearch}
+              totalCount={devices.length}
+              filteredCount={filteredDevices.length}
+            />
+            {filterLabel && (
+              <button
+                type="button"
+                onClick={clearFilter}
+                aria-label={`Clear filter: ${filterLabel}`}
+                title="Clear filter"
+                className="px-2 py-0.5 rounded text-xs bg-blue-900/60 text-blue-200 hover:bg-blue-900 whitespace-nowrap"
+              >
+                {filterLabel} ✕
+              </button>
+            )}
+          </div>
           <div className="flex gap-2">
             {outdatedDevices.length > 0 && (
               <button
@@ -195,16 +222,20 @@ export function DeviceList() {
               <h3 className="text-lg font-semibold mb-2">
                 {searchQuery
                   ? 'No devices match your search'
-                  : selectedGroupId
-                    ? 'No devices in this group'
-                    : 'Welcome to OpenGate'}
+                  : filterLabel
+                    ? `No devices match the "${filterLabel}" filter`
+                    : selectedGroupId
+                      ? 'No devices in this group'
+                      : 'Welcome to OpenGate'}
               </h3>
               <p className="text-gray-500 mb-4">
                 {searchQuery
                   ? 'Try a different search term.'
-                  : selectedGroupId
-                    ? 'Download and install the agent to add devices.'
-                    : 'Select a group to filter devices, or add a new device to get started.'}
+                  : filterLabel
+                    ? 'Clear the filter to see all devices.'
+                    : selectedGroupId
+                      ? 'Download and install the agent to add devices.'
+                      : 'Select a group to filter devices, or add a new device to get started.'}
               </p>
             </div>
           )}

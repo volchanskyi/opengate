@@ -17,5 +17,5 @@ interface SystemLogsProps {
  * clickable `target` column.
  */
 export function SystemLogs({ deviceId, focusWindow = null }: SystemLogsProps) {
-  return <LogExplorer deviceId={deviceId} source="system" title="System Logs" showUnitFilter focusWindow={focusWindow} />;
+  return <LogExplorer deviceId={deviceId} source="system" title="System Logs" showUnitFilter focusWindow={focusWindow} autoLoadOnMount />;
 }

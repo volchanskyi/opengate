@@ -25,8 +25,9 @@ const PRESETS = [
 
 const DEFAULT_PRESET = '6h';
 
-/** Honest description of what a family's band represents (central VM is avg-only). */
-function bandCaption(hasBand: boolean, source: MinMaxSource): string {
+/** Honest description of what a family's band represents (central VM is avg-only).
+ *  Surfaced as a header `title` tooltip rather than an inline caption. */
+function bandProvenance(hasBand: boolean, source: MinMaxSource): string {
   if (!hasBand) return 'avg only';
   if (source === 'local') return 'Band: host min/max (local history)';
   if (source === 'avg_of_10s') return 'Band: min/max across 10 s averages (not host extrema)';
@@ -154,11 +155,25 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
   useEffect(() => { load(); }, [load]);
 
   // Keep the window fresh without re-running the React reconciler over points —
-  // the adapter pushes new data through setData.
+  // the adapter pushes new data through setData. Frozen while a drag selection is
+  // active: a reload's setData would wipe uPlot's select overlay and re-apply the
+  // preset, discarding the highlight + correlation. Clearing the selection (or a
+  // preset change, which clears it first) resumes polling.
   useEffect(() => {
+    if (selectedWindow) return;
     const id = setInterval(load, POLL_MS);
     return () => { clearInterval(id); };
+  }, [load, selectedWindow]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedWindow(null);
+    load();
   }, [load]);
+
+  const selectPreset = useCallback((key: string) => {
+    setSelectedWindow(null);
+    setPresetKey(key);
+  }, []);
 
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
 
@@ -206,11 +221,21 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <AnomalyPanel anomalyRate={anomalyRate} maintenanceSince={maintenanceSince} />
         <div className="flex items-center gap-2">
+          {selectedWindow && (
+            <button
+              type="button"
+              onClick={clearSelection}
+              aria-label="Clear selection"
+              className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-200 hover:bg-gray-600"
+            >
+              Clear selection ✕
+            </button>
+          )}
           {onViewLogs && (
             <button
               type="button"
               onClick={handleViewLogs}
-              className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-200 hover:bg-gray-600"
+              className="px-2 py-1 rounded text-xs bg-yellow-600 hover:bg-yellow-700"
             >
               View logs for this window
             </button>
@@ -220,7 +245,7 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
               <button
                 key={p.key}
                 type="button"
-                onClick={() => setPresetKey(p.key)}
+                onClick={() => selectPreset(p.key)}
                 className={`px-2 py-1 rounded text-xs ${presetKey === p.key ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
               >
                 {p.key}
@@ -235,12 +260,12 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
           <p className="text-xs text-gray-500">Drag across a chart to correlate that window.</p>
           {families.map(({ family, chart, source, current }) => (
             <div key={family}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-baseline gap-2">
-                  <h4 className="text-xs font-semibold text-gray-300 capitalize">{family}</h4>
-                  {current && <span className="text-sm font-bold text-gray-100 tabular-nums">{current}</span>}
-                </div>
-                <span className="text-[10px] text-gray-500">{bandCaption(chart.bands.length > 0, source)}</span>
+              <div
+                className="flex items-baseline gap-2"
+                title={bandProvenance(chart.bands.length > 0, source)}
+              >
+                <h4 className="text-xs font-semibold text-gray-300 capitalize">{family}</h4>
+                {current && <span className="text-sm font-bold text-gray-100 tabular-nums">{current}</span>}
               </div>
               <TimeSeriesChart
                 data={chart.data}

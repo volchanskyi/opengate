@@ -179,15 +179,15 @@ describe('familyCurrentLabel', () => {
     expect(familyCurrentLabel([series({ name: 'cpu.util', avg: [30, 55, null] })])).toBe('55%');
   });
 
-  it('sums the latest per-series readings of the net family as bytes', () => {
+  it('sums the latest per-series throughput of the net family as a rate', () => {
     expect(familyCurrentLabel([
-      series({ name: 'net.rx_bytes', avg: [0, 1_000_000] }),
-      series({ name: 'net.tx_bytes', avg: [0, 500_000] }),
-    ])).toBe('1.4 MB');
+      series({ name: 'net.rx_bps', avg: [0, 1_000_000] }),
+      series({ name: 'net.tx_bps', avg: [0, 500_000] }),
+    ])).toBe('1.4 MB/s');
   });
 
-  it('formats a sub-kilobyte net total in bytes', () => {
-    expect(familyCurrentLabel([series({ name: 'net.rx_bytes', avg: [900] })])).toBe('900 B');
+  it('formats a sub-kilobyte net total as a byte rate', () => {
+    expect(familyCurrentLabel([series({ name: 'net.rx_bps', avg: [900] })])).toBe('900 B/s');
   });
 
   it('returns null when the percent series has no finite sample', () => {

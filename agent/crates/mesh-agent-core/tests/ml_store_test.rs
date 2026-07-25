@@ -15,8 +15,8 @@ fn sample(cpu: f32, mem: f32, disk: f32) -> MetricSample {
         cpu_total_percent: cpu,
         memory_used_percent: mem,
         disk_used_percent: disk,
-        network_rx_bytes: 1_000,
-        network_tx_bytes: 2_000,
+        network_rx_bps: Some(1_000.0),
+        network_tx_bps: Some(2_000.0),
         processes: Vec::new(),
     }
 }

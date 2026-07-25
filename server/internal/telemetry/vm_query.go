@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
@@ -114,12 +112,40 @@ func (v *VMClient) QueryRange(ctx context.Context, orgID uuid.UUID, rq RangeQuer
 // yields one value per device in the org — a single query behind the fleet
 // health badge.
 func (v *VMClient) QueryInstant(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]InstantValue, error) {
+	return v.scopedInstant(ctx, orgID, metric, matchers, at, nil)
+}
+
+// QueryInstantLookback runs an org-scoped instant query returning the most
+// recent value within `lookback` of `at` per series, via
+// `last_over_time(<selector>[<lookback>])`. It backs the fleet-health badge: a
+// brief gap between anomaly summaries (the summary is low-rate) never blanks the
+// badge, because the last sample inside the window still resolves.
+func (v *VMClient) QueryInstantLookback(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time, lookback time.Duration) ([]InstantValue, error) {
+	return v.scopedInstant(ctx, orgID, metric, matchers, at, func(selector string) string {
+		return fmt.Sprintf("last_over_time(%s[%ds])", selector, int64(lookback.Seconds()))
+	})
+}
+
+// scopedInstant scopes the selector for orgID/metric/matchers, optionally
+// rewrites it with wrap (nil evaluates the bare selector), and runs it as an
+// instant query at `at`. It is the shared spine of the two instant read paths.
+func (v *VMClient) scopedInstant(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time, wrap func(string) string) ([]InstantValue, error) {
 	scoped, err := v.scopedSelector(orgID, metric, matchers)
 	if err != nil {
 		return nil, err
 	}
+	if wrap != nil {
+		scoped = wrap(scoped)
+	}
+	return v.instantQuery(ctx, scoped, at)
+}
+
+// instantQuery evaluates a pre-built PromQL expression as an instant query at
+// `at`, returning the latest value per series. The single HTTP round-trip both
+// instant read paths share.
+func (v *VMClient) instantQuery(ctx context.Context, expr string, at time.Time) ([]InstantValue, error) {
 	q := url.Values{}
-	q.Set("query", scoped)
+	q.Set("query", expr)
 	q.Set("time", strconv.FormatInt(at.Unix(), 10))
 
 	resp, err := v.getMatrix(ctx, "/api/v1/query?"+q.Encode())
@@ -140,19 +166,11 @@ func (v *VMClient) scopedSelector(orgID uuid.UUID, metric string, matchers map[s
 }
 
 func (v *VMClient) getMatrix(ctx context.Context, path string) (*vmMatrixResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.baseURL+path, nil)
+	resp, err := v.getChecked(ctx, path, "query")
 	if err != nil {
-		return nil, fmt.Errorf("build vm query request: %w", err)
-	}
-	resp, err := v.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get vm query: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("vm query status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
 	var out vmMatrixResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("decode vm query: %w", err)

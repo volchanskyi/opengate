@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router';
 import { useAuthStore } from '../../src/state/auth-store';
 import { useDeviceStore } from '../../src/features/devices/state/device-store';
 import { useSessionStore } from '../../src/features/session/state/session-store';
@@ -10,7 +10,7 @@ import { AuthGuard } from '../../src/features/auth/AuthGuard';
 import { Layout } from '../../src/components/Layout';
 import { DeviceList } from '../../src/features/devices/DeviceList';
 import { DeviceDetail } from '../../src/features/devices/DeviceDetail';
-import { Navigate } from 'react-router-dom';
+import { Navigate } from 'react-router';
 
 vi.mock('../../src/lib/api', () => ({
   api: {

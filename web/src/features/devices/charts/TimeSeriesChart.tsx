@@ -68,6 +68,9 @@ export function TimeSeriesChart({
       width: el.clientWidth || FALLBACK_WIDTH,
       height: h,
       series: [...s],
+      // The current value is shown beside each family title, so uPlot's default
+      // legend (which renders a "Time --" row) is redundant noise — disable it.
+      legend: { show: false },
       cursor: { drag: { x: true, y: false } },
       ...(b && b.length > 0 ? { bands: [...b] } : {}),
       ...(yr ? { scales: { y: { range: [yr[0], yr[1]] } } } : {}),
@@ -89,6 +92,18 @@ export function TimeSeriesChart({
   useLayoutEffect(() => {
     chartRef.current?.setData(data);
   }, [data]);
+
+  // Re-apply the y-scale on every yRange change. The mount effect only sets the
+  // range once (keyed on structure), so without this a later poll that brings a
+  // new peak/trough beyond the initial window's range would be clipped by the
+  // stale fixed range until the series structure changes. Runs after setData so
+  // the scale sticks over the fresh data.
+  const yMin = yRange?.[0];
+  const yMax = yRange?.[1];
+  useLayoutEffect(() => {
+    if (yMin == null || yMax == null) return;
+    chartRef.current?.setScale('y', { min: yMin, max: yMax });
+  }, [yMin, yMax]);
 
   return <figure ref={containerRef} className={className} aria-label={ariaLabel} />;
 }
