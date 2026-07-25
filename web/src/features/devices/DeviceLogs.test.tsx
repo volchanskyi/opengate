@@ -153,28 +153,40 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
     expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ offset: 0 }));
   });
 
-  it('paginator arrows use the Restart-Agent yellow palette', () => {
+  it('paginator arrows use the Restart-Agent yellow palette with white glyphs', () => {
     setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
     render(<DeviceLogs deviceId="d1" />);
-    expect(screen.getByRole('button', { name: 'Next page' })).toHaveClass('bg-yellow-600', 'hover:bg-yellow-700');
+    // text-white overrides the pager row's text-gray-400, so the chevrons
+    // (stroke=currentColor) read white against the yellow button.
+    expect(screen.getByRole('button', { name: 'Next page' })).toHaveClass('bg-yellow-600', 'hover:bg-yellow-700', 'text-white');
+    expect(screen.getByRole('button', { name: 'Previous page' })).toHaveClass('text-white');
   });
 
-  it('collapse caret hides the entries + pager but keeps the filter bar', async () => {
+  it('collapse caret hides the whole body — filter bar, entries and pager', async () => {
     const user = userEvent.setup();
     setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('agent started')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /collapse|expand/i }));
-    // entries + pager gone…
     expect(screen.queryByText('agent started')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Next page' })).toBeNull();
-    // …filter bar stays.
-    expect(screen.getByPlaceholderText('Search keyword...')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Search keyword...')).toBeNull();
+    expect(screen.queryByRole('button', { name: '1h' })).toBeNull();
 
     // Toggling again restores the entries.
     await user.click(screen.getByRole('button', { name: /collapse|expand/i }));
     expect(screen.getByText('agent started')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search keyword...')).toBeInTheDocument();
+  });
+
+  it('the agent pane is expanded on mount and pulls nothing on its own', () => {
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    render(<DeviceLogs deviceId="d1" />);
+
+    expect(screen.getByPlaceholderText('Search keyword...')).toBeInTheDocument();
+    expect(fetchLogs).not.toHaveBeenCalled();
   });
 
   it('the entries region is drag-resizable (native resize handle)', () => {

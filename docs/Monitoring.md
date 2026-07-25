@@ -128,6 +128,10 @@ Host logs are edge-stored and server-proxied: raw lines stay on the device and
 are read on demand, never centralized. The System Logs pane pulls them through
 the transient broker with `source=host`, filtered by severity/time/search and an
 optional unit; see [ADR-057](adr/ADR-057-live-host-metric-streaming-and-system-logs.md).
+The pane starts collapsed and pulls once, on its first open per device; the
+response is cached for the browser session, so returning to a device page
+renders the lines it already has and every later pull is an explicit action
+(Refresh, a window button, or a filter change).
 The host log source is read through first-party CLIs (`journalctl -o json`,
 PowerShell `Get-WinEvent`) rather than a GPL journal library, per
 [ADR-050](adr/ADR-050-edge-sentinel-log-reader-sourcing.md).

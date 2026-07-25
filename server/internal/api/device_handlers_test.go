@@ -87,6 +87,23 @@ func TestDeviceHandlers(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
+	t.Run("update device group to the nil uuid ungroups the device", func(t *testing.T) {
+		body := map[string]interface{}{"group_id": uuid.Nil.String()}
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), token, body)
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var d Device
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&d))
+		assert.Equal(t, uuid.Nil, d.GroupId)
+
+		// The device stays reachable and re-groupable once ungrouped.
+		regroup := map[string]interface{}{"group_id": group.ID.String()}
+		w = doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), token, regroup)
+		require.Equal(t, http.StatusOK, w.Code)
+		require.NoError(t, json.NewDecoder(w.Body).Decode(&d))
+		assert.Equal(t, group.ID, d.GroupId)
+	})
+
 	t.Run("update device not found", func(t *testing.T) {
 		body := map[string]interface{}{"group_id": uuid.New().String()}
 		w := doRequest(srv, http.MethodPatch, testPathDevicesS+uuid.New().String(), token, body)

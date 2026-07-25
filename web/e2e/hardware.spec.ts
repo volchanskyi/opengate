@@ -77,6 +77,10 @@ test.describe("Hardware inventory", () => {
     await authedPage.getByRole("button", { name: "Refresh Hardware" }).click();
     await fetched;
 
+    // The section starts collapsed; the caret opens it. `exact` keeps this off
+    // the "Refresh Hardware" button next to it.
+    await authedPage.getByRole("button", { name: "Hardware", exact: true }).click();
+
     // CPU model + core count render together in the CPU field.
     await expect(authedPage.getByText(/Intel Core i7-9750H/)).toBeVisible();
     await expect(authedPage.getByText(/12 cores/)).toBeVisible();

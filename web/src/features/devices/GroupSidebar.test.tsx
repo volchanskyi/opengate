@@ -1,7 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { useToastStore } from '../../lib/feedback/toast-store';
 import { useDeviceStore } from './state/device-store';
+import { DEVICE_DRAG_MIME, UNGROUPED_GROUP_ID } from './device-drag';
 import { GroupSidebar } from './GroupSidebar';
 
 vi.mock('../../lib/api', () => ({
@@ -172,5 +174,120 @@ describe('GroupSidebar', () => {
     render(<GroupSidebar />);
     const heading = screen.getByRole('heading', { name: 'Groups' });
     expect(heading.tagName).toBe('H2');
+  });
+
+  describe('drop target for device drags', () => {
+    const device = {
+      id: 'd1', group_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '1.0.0',
+      capabilities: [], status: 'online' as const, last_seen: '', created_at: '', updated_at: '',
+    };
+
+    /** A DataTransfer stand-in carrying a device drag. */
+    const deviceTransfer = (id = 'd1') => ({
+      types: [DEVICE_DRAG_MIME],
+      getData: (type: string) => (type === DEVICE_DRAG_MIME ? id : ''),
+      dropEffect: 'none',
+    });
+
+    const dropZone = (name: string) => screen.getByRole('listitem', { name });
+
+    beforeEach(() => {
+      useDeviceStore.setState({ devices: [device] });
+    });
+
+    it('dropping a device on a group moves it there', async () => {
+      const updateDeviceGroup = vi.fn().mockResolvedValue(true);
+      const fetchDevices = vi.fn().mockResolvedValue(undefined);
+      useDeviceStore.setState({ updateDeviceGroup, fetchDevices });
+      render(<GroupSidebar />);
+
+      fireEvent.drop(dropZone('Group B'), { dataTransfer: deviceTransfer() });
+
+      await waitFor(() => { expect(updateDeviceGroup).toHaveBeenCalledWith('d1', 'g2'); });
+      // The list is re-pulled for the active filter so the card leaves the view.
+      await waitFor(() => { expect(fetchDevices).toHaveBeenCalledWith('g1'); });
+    });
+
+    it('dropping on the Ungrouped zone clears the device group', async () => {
+      const updateDeviceGroup = vi.fn().mockResolvedValue(true);
+      useDeviceStore.setState({ updateDeviceGroup, fetchDevices: vi.fn() });
+      render(<GroupSidebar />);
+
+      fireEvent.drop(dropZone('Ungrouped'), { dataTransfer: deviceTransfer() });
+
+      await waitFor(() => { expect(updateDeviceGroup).toHaveBeenCalledWith('d1', UNGROUPED_GROUP_ID); });
+    });
+
+    it('names the device and the destination in the success toast', async () => {
+      const addToast = vi.fn();
+      useToastStore.setState({ addToast });
+      useDeviceStore.setState({ updateDeviceGroup: vi.fn().mockResolvedValue(true), fetchDevices: vi.fn() });
+      render(<GroupSidebar />);
+
+      fireEvent.drop(dropZone('Group B'), { dataTransfer: deviceTransfer() });
+
+      await waitFor(() => { expect(addToast).toHaveBeenCalledWith('Moved web-01 to Group B', 'success'); });
+    });
+
+    it('reports a failed move and does not re-pull the list', async () => {
+      const addToast = vi.fn();
+      const fetchDevices = vi.fn();
+      useToastStore.setState({ addToast });
+      useDeviceStore.setState({ updateDeviceGroup: vi.fn().mockResolvedValue(false), fetchDevices });
+      render(<GroupSidebar />);
+
+      fireEvent.drop(dropZone('Group B'), { dataTransfer: deviceTransfer() });
+
+      await waitFor(() => { expect(addToast).toHaveBeenCalledWith('Failed to move web-01 to Group B', 'error'); });
+      expect(fetchDevices).not.toHaveBeenCalled();
+    });
+
+    it('dropping a device on the group it is already in is a no-op', async () => {
+      const updateDeviceGroup = vi.fn();
+      useDeviceStore.setState({ updateDeviceGroup, fetchDevices: vi.fn() });
+      render(<GroupSidebar />);
+
+      fireEvent.drop(dropZone('Group A'), { dataTransfer: deviceTransfer() });
+
+      await waitFor(() => { expect(updateDeviceGroup).not.toHaveBeenCalled(); });
+    });
+
+    it('ignores a drop that carries no device', async () => {
+      const updateDeviceGroup = vi.fn();
+      useDeviceStore.setState({ updateDeviceGroup, fetchDevices: vi.fn() });
+      render(<GroupSidebar />);
+
+      fireEvent.drop(dropZone('Group B'), {
+        dataTransfer: {
+          types: ['text/plain'],
+          getData: (type: string) => (type === 'text/plain' ? 'hello' : ''),
+          dropEffect: 'none',
+        },
+      });
+
+      await waitFor(() => { expect(updateDeviceGroup).not.toHaveBeenCalled(); });
+    });
+
+    it('highlights only the hovered zone while a device drag is over it', () => {
+      useDeviceStore.setState({ updateDeviceGroup: vi.fn(), fetchDevices: vi.fn() });
+      render(<GroupSidebar />);
+      const target = dropZone('Group B');
+
+      fireEvent.dragOver(target, { dataTransfer: deviceTransfer() });
+      expect(target).toHaveClass('ring-2');
+      expect(dropZone('Group A')).not.toHaveClass('ring-2');
+
+      fireEvent.dragLeave(target);
+      expect(target).not.toHaveClass('ring-2');
+    });
+
+    it('does not highlight for a drag that carries no device', () => {
+      render(<GroupSidebar />);
+      const target = dropZone('Group B');
+
+      fireEvent.dragOver(target, { dataTransfer: { types: ['text/plain'], getData: () => '', dropEffect: 'none' } });
+
+      expect(target).not.toHaveClass('ring-2');
+    });
   });
 });

@@ -6,9 +6,9 @@ interface TimeWindow {
 }
 
 interface DeviceLogsProps {
-  deviceId: string;
+  readonly deviceId: string;
   /** Correlation jump: pre-filter the explorer to this window and fetch it. */
-  focusWindow?: TimeWindow | null;
+  readonly focusWindow?: TimeWindow | null;
 }
 
 /** Agent Logs pane: the agent's own rotated `tracing` files (`source=self`). */

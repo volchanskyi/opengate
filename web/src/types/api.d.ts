@@ -1035,7 +1035,10 @@ export interface components {
             message: string;
         };
         UpdateDeviceRequest: {
-            /** Format: uuid */
+            /**
+             * Format: uuid
+             * @description Destination group for the device. The all-zeros UUID takes the device out of its group and leaves it ungrouped.
+             */
             group_id?: string | null;
         };
         CreateGroupRequest: {

@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import type { components } from '../../types/api';
 import { DeviceCard } from './DeviceCard';
+import { DEVICE_DRAG_MIME } from './device-drag';
 import { useInventoryStore } from './state/inventory-store';
 
 type Device = components['schemas']['Device'];
@@ -163,5 +164,24 @@ describe('DeviceCard', () => {
       renderCard({ last_seen: lastSeen });
       expect(screen.getByText('Last seen: 1d ago')).toBeInTheDocument();
     });
+  });
+
+  describe('drag to regroup', () => {
+    it('the card is draggable', () => {
+      renderCard();
+      expect(screen.getByRole('button', { name: /test-host/ })).toHaveAttribute('draggable', 'true');
+    });
+
+    it('dragging publishes the device id and hostname on the transfer', () => {
+      renderCard();
+      const setData = vi.fn();
+      const dataTransfer = { setData, types: [], effectAllowed: 'none' };
+
+      fireEvent.dragStart(screen.getByRole('button', { name: /test-host/ }), { dataTransfer });
+
+      expect(setData).toHaveBeenCalledWith(DEVICE_DRAG_MIME, 'd1');
+      expect(setData).toHaveBeenCalledWith('text/plain', 'test-host');
+    });
+
   });
 });

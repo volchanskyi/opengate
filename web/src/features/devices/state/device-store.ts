@@ -56,6 +56,9 @@ interface DeviceState {
   hardware: DeviceHardware | null;
   /** Per-pane log responses, keyed by source so the two panes stay independent. */
   logs: Record<LogPaneSource, DeviceLogsResponse | null>;
+  /** Which device each pane's payload belongs to — the cache key that lets a
+   *  re-opened device page render its logs without pulling them again. */
+  logsDeviceId: Record<LogPaneSource, string | null>;
   /** Per-pane in-flight flags, keyed by source. */
   logsLoading: Record<LogPaneSource, boolean>;
   metrics: MetricRangeResponse | null;
@@ -99,6 +102,67 @@ async function retryHardwareFetch(set: (partial: Partial<DeviceState>) => void, 
   }
 }
 
+/**
+ * Tail of the in-flight log-pull chain per device. The server brokers exactly
+ * one raw-log request per agent at a time and answers a second one with 409, so
+ * the Agent Logs and System Logs panes take turns rather than racing.
+ */
+const logFetchQueue = new Map<string, Promise<void>>();
+
+async function queueLogFetch(id: string, run: () => Promise<void>): Promise<void> {
+  const turn = (logFetchQueue.get(id) ?? Promise.resolve()).then(run);
+  // Failures must not poison the queue for the next pull.
+  logFetchQueue.set(id, turn.catch(() => undefined));
+  try {
+    await turn;
+  } finally {
+    if (logFetchQueue.get(id) === turn) logFetchQueue.delete(id);
+  }
+}
+
+const logErrorMessages: Record<number, string> = {
+  403: 'Viewing device logs requires administrator access.',
+  404: 'Logs unavailable — device offline or not found.',
+  409: 'A log request is already in progress for this device.',
+  504: 'The device did not return logs in time.',
+};
+
+async function pullLogs(
+  set: (partial: (state: DeviceState) => Partial<DeviceState>) => void,
+  source: LogPaneSource,
+  id: string,
+  params?: LogFetchParams,
+): Promise<void> {
+  // The agent pane reads the agent's own files ("self"); the system pane reads
+  // the platform host log ("host"). The unit filter applies to the host source.
+  const query: Record<string, string | number> = { source: source === 'system' ? 'host' : 'self' };
+  if (params?.level) query.level = params.level;
+  if (params?.from) query.from = params.from;
+  if (params?.to) query.to = params.to;
+  if (params?.search) query.search = params.search;
+  if (params?.unit) query.unit = params.unit;
+  if (params?.offset !== undefined) query.offset = params.offset;
+  if (params?.limit !== undefined) query.limit = params.limit;
+
+  // The server brokers the pull straight from the agent and blocks until it
+  // responds, so a single request returns the logs (or a bounded failure).
+  const { data, response } = await api.GET('/api/v1/devices/{id}/logs', {
+    params: { path: { id }, query },
+  });
+
+  if (response.status === 200 && data) {
+    set((s) => ({
+      logs: { ...s.logs, [source]: data },
+      logsDeviceId: { ...s.logsDeviceId, [source]: id },
+      logsLoading: { ...s.logsLoading, [source]: false },
+    }));
+    return;
+  }
+
+  useToastStore.getState().addToast(logErrorMessages[response.status] ?? 'Failed to fetch logs.', 'error');
+  set((s) => ({ logsLoading: { ...s.logsLoading, [source]: false } }));
+}
+
 export const useDeviceStore = create<DeviceState>((set, get) => ({
   devices: [],
   groups: [],
@@ -106,6 +170,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   selectedDevice: null,
   hardware: null,
   logs: { agent: null, system: null },
+  logsDeviceId: { agent: null, system: null },
   logsLoading: { agent: false, system: false },
   metrics: null,
   metricsLoading: false,
@@ -131,7 +196,23 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   fetchDevice: async (id) => {
     // Reset per-device fields so stale data from a previously viewed device
     // does not leak into this one while we wait for the fetch to complete.
-    set({ selectedDevice: null, hardware: null, logs: { agent: null, system: null }, metrics: null, correlation: null });
+    // Log panes are the exception: a pane already holding this device's logs
+    // keeps them, so re-opening a device page renders from cache and issues no
+    // pull (the agent broker serves one log request at a time).
+    set((s) => ({
+      selectedDevice: null,
+      hardware: null,
+      logs: {
+        agent: s.logsDeviceId.agent === id ? s.logs.agent : null,
+        system: s.logsDeviceId.system === id ? s.logs.system : null,
+      },
+      logsDeviceId: {
+        agent: s.logsDeviceId.agent === id ? id : null,
+        system: s.logsDeviceId.system === id ? id : null,
+      },
+      metrics: null,
+      correlation: null,
+    }));
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/{id}', { params: { path: { id } } }),
     );
@@ -188,7 +269,12 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       }), false,
     );
     if (res.ok) {
-      set({ selectedDevice: res.data });
+      // Keep both views in step: the detail pane (when it is this device) and
+      // the card the user dragged out of the list.
+      set((state) => ({
+        selectedDevice: state.selectedDevice?.id === id ? res.data : state.selectedDevice,
+        devices: state.devices.map((d) => (d.id === id ? res.data : d)),
+      }));
     }
     return res.ok;
   },
@@ -219,40 +305,10 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   fetchLogs: async (source, id, params) => {
+    // The flag is raised before the queue so both panes show "Fetching…" the
+    // moment they ask, even while one waits its turn behind the other.
     set((s) => ({ logsLoading: { ...s.logsLoading, [source]: true } }));
-    // The agent pane reads the agent's own files ("self"); the system pane reads
-    // the platform host log ("host"). The unit filter applies to the host source.
-    const query: Record<string, string | number> = { source: source === 'system' ? 'host' : 'self' };
-    if (params?.level) query.level = params.level;
-    if (params?.from) query.from = params.from;
-    if (params?.to) query.to = params.to;
-    if (params?.search) query.search = params.search;
-    if (params?.unit) query.unit = params.unit;
-    if (params?.offset !== undefined) query.offset = params.offset;
-    if (params?.limit !== undefined) query.limit = params.limit;
-
-    // The server brokers the pull straight from the agent and blocks until it
-    // responds, so a single request returns the logs (or a bounded failure).
-    const { data, response } = await api.GET('/api/v1/devices/{id}/logs', {
-      params: { path: { id }, query },
-    });
-
-    if (response.status === 200 && data) {
-      set((s) => ({
-        logs: { ...s.logs, [source]: data },
-        logsLoading: { ...s.logsLoading, [source]: false },
-      }));
-      return;
-    }
-
-    const messages: Record<number, string> = {
-      403: 'Viewing device logs requires administrator access.',
-      404: 'Logs unavailable — device offline or not found.',
-      409: 'A log request is already in progress for this device.',
-      504: 'The device did not return logs in time.',
-    };
-    useToastStore.getState().addToast(messages[response.status] ?? 'Failed to fetch logs.', 'error');
-    set((s) => ({ logsLoading: { ...s.logsLoading, [source]: false } }));
+    await queueLogFetch(id, () => pullLogs(set, source, id, params));
   },
 
   fetchMetrics: async (id, params) => {
