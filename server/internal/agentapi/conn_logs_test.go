@@ -145,11 +145,12 @@ func TestHostMetricDimsIngestScopedByConnectionOrg(t *testing.T) {
 		OrgID: uuid.New().String(), // agent-supplied org must be ignored
 		Dims: []protocol.MetricDim{
 			{Name: "cpu.total", Avg: 42.5},
-			{Name: "net.rx_bytes", Avg: 123456},
+			{Name: "net.rx_bps", Avg: 123456},
 		},
 	})
 
 	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
+	ac.flushTelemetry(dbtx.WithDefaultTenant(context.Background(), false))
 
 	call := receiveTelemetryCall(t, writer.calls)
 	assert.Equal(t, dbtx.DefaultOrgID, call.orgID, "org must be the connection's, not agent-supplied")
@@ -159,5 +160,5 @@ func TestHostMetricDimsIngestScopedByConnectionOrg(t *testing.T) {
 		assert.Equal(t, "opengate_edge_metric_avg", s.Name)
 	}
 	assert.Equal(t, "cpu.total", call.samples[0].Labels["dim"])
-	assert.Equal(t, "net.rx_bytes", call.samples[1].Labels["dim"])
+	assert.Equal(t, "net.rx_bps", call.samples[1].Labels["dim"])
 }

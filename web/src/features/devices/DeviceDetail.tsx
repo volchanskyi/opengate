@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router';
 import { useDeviceStore } from './state/device-store';
 import { useSessionStore } from '../session';
 import { useAMTStore } from './state/amt-store';
@@ -97,6 +97,14 @@ function AmtSection({ amtDevice, confirmPowerAction, showAmtInstructions, onPowe
   );
 }
 
+const UNASSIGNED_GROUP_ID = '00000000-0000-0000-0000-000000000000';
+
+/** A device with no real group: an empty id or the all-zeros placeholder UUID. */
+function isUnassignedGroup(id: string | undefined | null): boolean {
+  const trimmed = id?.trim();
+  return !trimmed || trimmed === UNASSIGNED_GROUP_ID;
+}
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -137,6 +145,7 @@ export function DeviceDetail() {
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [showAmtInstructions, setShowAmtInstructions] = useState(false);
+  const [showHardware, setShowHardware] = useState(true);
   // Correlation jump target: the metrics panel hands up a unix-second window,
   // which the logs explorer consumes (as ISO) to pre-filter and fetch.
   const [logWindow, setLogWindow] = useState<{ from: string; to: string } | null>(null);
@@ -309,7 +318,7 @@ export function DeviceDetail() {
               onClick={() => { fireAndForget(handleStartSession()); }}
               aria-label="Start Session"
               title="Start Session"
-              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium inline-flex items-center"
+              className="px-2.5 py-1.5 bg-green-500 hover:bg-green-600 rounded text-xs font-medium inline-flex items-center"
             >
               <PlayIcon />
             </button>
@@ -367,7 +376,7 @@ export function DeviceDetail() {
           </div>
           <div>
             <dt className="text-gray-400">Group ID</dt>
-            <dd className="font-mono text-xs">{device.group_id?.trim() ? device.group_id : 'N/A'}</dd>
+            <dd className="font-mono text-xs">{isUnassignedGroup(device.group_id) ? 'N/A' : device.group_id}</dd>
           </div>
           <div>
             <dt className="text-gray-400">Last Seen</dt>
@@ -434,7 +443,15 @@ export function DeviceDetail() {
 
         <div>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-300">Hardware</h3>
+            <button
+              type="button"
+              onClick={() => setShowHardware(!showHardware)}
+              aria-expanded={showHardware}
+              className="text-sm font-semibold text-gray-300 flex items-center gap-2"
+            >
+              <span className={`text-xs transition-transform ${showHardware ? 'rotate-90' : ''}`}>&#9654;</span>
+              {' '}Hardware
+            </button>
             <button
               type="button"
               onClick={refreshHardware}
@@ -446,7 +463,7 @@ export function DeviceDetail() {
               {isRefreshingHardware ? <SpinnerIcon /> : <RefreshIcon />}
             </button>
           </div>
-          {hardware && (
+          {showHardware && hardware && (
             <>
               <dl className="grid grid-cols-2 gap-3 text-sm">
                 <div>

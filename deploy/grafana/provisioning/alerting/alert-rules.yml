@@ -235,3 +235,44 @@ groups:
         annotations:
           summary: "Memory usage is above 80%"
           description: "System memory utilization has exceeded 80%."
+
+      - uid: edge-telemetry-drop-ratio
+        title: "Edge telemetry drop ratio > 5%"
+        noDataState: OK
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                sum(rate(opengate_edge_telemetry_drops_total[10m])) /
+                clamp_min(sum(rate(opengate_edge_telemetry_ingested_total[10m])), 1) * 100
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [5]
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Edge-Sentinel telemetry drop ratio exceeds 5%"
+          description: >-
+            Server-side telemetry bounds are dropping more than 5% of accepted
+            messages over 10 minutes; anomaly summaries or host windows may be
+            silently lost.

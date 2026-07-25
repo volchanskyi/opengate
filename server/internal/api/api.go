@@ -90,6 +90,7 @@ type CorrelationRanker interface {
 type MetricsReader interface {
 	QueryRange(ctx context.Context, orgID uuid.UUID, rq telemetry.RangeQuery) ([]telemetry.RangeSeries, error)
 	QueryInstant(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]telemetry.InstantValue, error)
+	QueryInstantLookback(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time, lookback time.Duration) ([]telemetry.InstantValue, error)
 }
 
 // ServerConfig holds all dependencies for the API server.

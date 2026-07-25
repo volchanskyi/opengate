@@ -94,10 +94,35 @@ describe('SystemLogs (Host pane over LogExplorer)', () => {
 
     await user.click(screen.getByRole('button', { name: '1h' }));
 
-    const [source, id, args] = fetchLogs.mock.calls[0]!;
+    const [source, id, args] = fetchLogs.mock.calls.at(-1)!;
     expect(source).toBe('system');
     expect(id).toBe('d1');
     expect(args.unit).toBeUndefined();
+  });
+
+  it('auto-loads the most-recent default window on mount so units populate immediately', () => {
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    render(<SystemLogs deviceId="d1" />);
+    // Exactly one fetch on mount — the default recent window — so available_units
+    // and recent logs render immediately without a manual range click.
+    expect(fetchLogs).toHaveBeenCalledTimes(1);
+    const [source, id, args] = fetchLogs.mock.calls[0]!;
+    expect(source).toBe('system');
+    expect(id).toBe('d1');
+    expect(args.offset).toBe(0);
+    expect(typeof args.from).toBe('string');
+    expect(typeof args.to).toBe('string');
+  });
+
+  it('does not add an auto-load when a correlation focusWindow drives the initial fetch', () => {
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    const win = { from: '2026-07-08T00:00:00Z', to: '2026-07-08T01:00:00Z' };
+    render(<SystemLogs deviceId="d1" focusWindow={win} />);
+    // Focus wins: exactly one fetch (the focus window), no extra default-window load.
+    expect(fetchLogs).toHaveBeenCalledTimes(1);
+    expect(fetchLogs).toHaveBeenCalledWith('system', 'd1', expect.objectContaining({ from: win.from, to: win.to }));
   });
 
   it('shows only "All units" when the host reports no units', () => {

@@ -113,28 +113,74 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
     expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ search: 'timeout', offset: 0 }));
   });
 
-  it('shows Load More button when has_more is true', () => {
+  it('enables the Next-page arrow when has_more is true', () => {
     setAgentLogs({ ...sampleLogs, has_more: true, total: 150 });
     render(<DeviceLogs deviceId="d1" />);
-    expect(screen.getByText('Load More')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled();
   });
 
-  it('Load More increments offset and fetches next page', async () => {
+  it('Next page advances the offset by one page (offset paging, not append)', async () => {
     const user = userEvent.setup();
     const fetchLogs = vi.fn();
     useDeviceStore.setState({ fetchLogs });
     setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
     render(<DeviceLogs deviceId="d1" />);
 
-    await user.click(screen.getByText('Load More'));
-
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
     expect(fetchLogs).toHaveBeenCalledWith('agent', 'd1', expect.objectContaining({
       offset: 300,
       limit: 300,
     }));
 
-    await user.click(screen.getByText('Load More'));
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
     expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ offset: 600 }));
+  });
+
+  it('Previous page is disabled on the first page and enabled after paging forward', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
+    render(<DeviceLogs deviceId="d1" />);
+
+    // offset 0 → cannot go back
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: 'Next page' }));
+    // now on page 2 → prev is enabled and steps back one page
+    expect(screen.getByRole('button', { name: 'Previous page' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Previous page' }));
+    expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ offset: 0 }));
+  });
+
+  it('paginator arrows use the Restart-Agent yellow palette', () => {
+    setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
+    render(<DeviceLogs deviceId="d1" />);
+    expect(screen.getByRole('button', { name: 'Next page' })).toHaveClass('bg-yellow-600', 'hover:bg-yellow-700');
+  });
+
+  it('collapse caret hides the entries + pager but keeps the filter bar', async () => {
+    const user = userEvent.setup();
+    setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
+    render(<DeviceLogs deviceId="d1" />);
+    expect(screen.getByText('agent started')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /collapse|expand/i }));
+    // entries + pager gone…
+    expect(screen.queryByText('agent started')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Next page' })).toBeNull();
+    // …filter bar stays.
+    expect(screen.getByPlaceholderText('Search keyword...')).toBeInTheDocument();
+
+    // Toggling again restores the entries.
+    await user.click(screen.getByRole('button', { name: /collapse|expand/i }));
+    expect(screen.getByText('agent started')).toBeInTheDocument();
+  });
+
+  it('the entries region is drag-resizable (native resize handle)', () => {
+    setAgentLogs(sampleLogs);
+    const { container } = render(<DeviceLogs deviceId="d1" />);
+    expect(container.querySelector('.resize-y')).not.toBeNull();
   });
 
   it('passes level and search filters to fetchLogs via a window button', async () => {
@@ -363,16 +409,17 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
     expect(screen.getByText('Showing 1-3 of 5')).toBeInTheDocument();
   });
 
-  it('Load More hidden when has_more is false', () => {
+  it('Next-page arrow disabled when has_more is false', () => {
     setAgentLogs({ ...sampleLogs, has_more: false });
     render(<DeviceLogs deviceId="d1" />);
-    expect(screen.queryByText('Load More')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
   });
 
-  it('Load More button is disabled while another fetch is in flight', () => {
+  it('pager arrows are disabled while another fetch is in flight', () => {
     setAgentLogs({ ...sampleLogs, has_more: true, total: 100 }, true);
     render(<DeviceLogs deviceId="d1" />);
-    expect(screen.getByText('Load More')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    // prev is also disabled (offset 0), so assert the in-flight guard via next.
   });
 
   it('level dropdown contains all five named levels plus "All Levels"', () => {

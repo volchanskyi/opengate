@@ -16,6 +16,11 @@ const (
 	minTelemetryIntervalSeconds = 10
 	telemetryPersistTimeout     = 2 * time.Second
 	telemetryConcurrentWrites   = 4
+	// telemetryFlushMaxSamples caps the coalescing buffer so a pathological burst
+	// (or a backfill flood) flushes mid-stream instead of growing without bound.
+	// A steady heartbeat carries far fewer samples than this, so the normal
+	// trigger stays the heartbeat/disconnect flush.
+	telemetryFlushMaxSamples = 512
 )
 
 func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
@@ -50,9 +55,7 @@ func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.
 	if len(samples) == 0 {
 		return nil
 	}
-	a.persistTelemetry(ctx, func(jobCtx context.Context, tenant dbtx.Tenant) error {
-		return a.telemetry.WriteSamples(jobCtx, tenant.OrgID, a.DeviceID, samples)
-	})
+	a.bufferTelemetry(ctx, samples)
 	return nil
 }
 
@@ -70,9 +73,7 @@ func (a *AgentConn) handleAgentMetricWindow(ctx context.Context, msg *protocol.C
 			Labels: map[string]string{"dim": dim.Name},
 		})
 	}
-	a.persistTelemetry(ctx, func(jobCtx context.Context, tenant dbtx.Tenant) error {
-		return a.telemetry.WriteSamples(jobCtx, tenant.OrgID, a.DeviceID, samples)
-	})
+	a.bufferTelemetry(ctx, samples)
 	return nil
 }
 
@@ -108,17 +109,17 @@ func (a *AgentConn) handleProcessReport(ctx context.Context, msg *protocol.Contr
 			},
 		)
 	}
-	a.persistTelemetry(ctx, func(jobCtx context.Context, tenant dbtx.Tenant) error {
-		if a.processes != nil {
-			if err := a.processes.UpsertReport(jobCtx, a.DeviceID, ts, processSamples); err != nil {
-				return err
-			}
-		}
-		if a.telemetry != nil {
-			return a.telemetry.WriteSamples(jobCtx, tenant.OrgID, a.DeviceID, numericSamples)
-		}
-		return nil
-	})
+	// The process report's rows land in their own RLS table via UpsertReport,
+	// which keeps its own persist slot; only the rank-numeric samples join the
+	// coalescing buffer so they flush with the rest of the heartbeat's telemetry.
+	if a.processes != nil {
+		a.persistTelemetry(ctx, func(jobCtx context.Context, _ dbtx.Tenant) error {
+			return a.processes.UpsertReport(jobCtx, a.DeviceID, ts, processSamples)
+		})
+	}
+	if a.telemetry != nil {
+		a.bufferTelemetry(ctx, numericSamples)
+	}
 	return nil
 }
 
@@ -148,10 +149,37 @@ func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protoco
 			})
 		}
 	}
-	a.persistTelemetry(ctx, func(jobCtx context.Context, tenant dbtx.Tenant) error {
-		return a.telemetry.WriteSamples(jobCtx, tenant.OrgID, a.DeviceID, samples)
-	})
+	a.bufferTelemetry(ctx, samples)
 	return nil
+}
+
+// bufferTelemetry appends samples to the per-connection coalescing buffer. It
+// runs only on the single read-loop goroutine, so the buffer needs no lock. When
+// the buffer reaches the size cap it flushes immediately; the common path leaves
+// it for the next heartbeat or connection teardown to flush.
+func (a *AgentConn) bufferTelemetry(ctx context.Context, samples []telemetry.Sample) {
+	if a.telemetry == nil || len(samples) == 0 {
+		return
+	}
+	a.telemetryBuf = append(a.telemetryBuf, samples...)
+	if len(a.telemetryBuf) >= telemetryFlushMaxSamples {
+		a.flushTelemetry(ctx)
+	}
+}
+
+// flushTelemetry drains the coalescing buffer into a single WriteSamples via one
+// persist slot, so a whole heartbeat's telemetry burst is one write and the
+// tail-ordered anomaly summary can no longer lose the slot race to the
+// host-window firehose. A no-op when the buffer is empty.
+func (a *AgentConn) flushTelemetry(ctx context.Context) {
+	if len(a.telemetryBuf) == 0 {
+		return
+	}
+	batch := a.telemetryBuf
+	a.telemetryBuf = nil
+	a.persistTelemetry(ctx, func(jobCtx context.Context, tenant dbtx.Tenant) error {
+		return a.telemetry.WriteSamples(jobCtx, tenant.OrgID, a.DeviceID, batch)
+	})
 }
 
 func (a *AgentConn) acceptTelemetry(msgType protocol.ControlMessageType, ts int64, payloadLen int) bool {

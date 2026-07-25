@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useDeviceStore, FleetHealth } from '../devices';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
@@ -31,17 +31,14 @@ function StatCard({ label, value, to, colorClasses = '' }: StatCardProps) {
 
 export function Dashboard() {
   const devices = useDeviceStore((s) => s.devices);
-  const groups = useDeviceStore((s) => s.groups);
   const maintenanceCount = useDeviceStore((s) => s.maintenanceCount);
   const fetchDevices = useDeviceStore((s) => s.fetchDevices);
-  const fetchGroups = useDeviceStore((s) => s.fetchGroups);
   const fetchMaintenanceSummary = useDeviceStore((s) => s.fetchMaintenanceSummary);
 
   useEffect(() => {
     fireAndForget(fetchDevices());
-    fireAndForget(fetchGroups());
     fireAndForget(fetchMaintenanceSummary());
-  }, [fetchDevices, fetchGroups, fetchMaintenanceSummary]);
+  }, [fetchDevices, fetchMaintenanceSummary]);
 
   // Poll device status and the maintenance count so the tiles stay current.
   useEffect(() => {
@@ -58,16 +55,14 @@ export function Dashboard() {
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <h2 className="text-xl font-bold">Dashboard</h2>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         <StatCard label="Total Devices" value={devices.length} to="/devices"
           colorClasses="border-l-4 border-l-blue-500 bg-blue-900/10" />
-        <StatCard label="Online" value={onlineCount}
+        <StatCard label="Online" value={onlineCount} to="/devices?status=online"
           colorClasses="border-l-4 border-l-green-500 bg-green-900/10" />
-        <StatCard label="Device Groups" value={groups.length}
-          colorClasses="border-l-4 border-l-indigo-500 bg-indigo-900/10" />
-        <StatCard label="Offline" value={devices.length - onlineCount}
+        <StatCard label="Offline" value={devices.length - onlineCount} to="/devices?status=offline"
           colorClasses="border-l-4 border-l-amber-500 bg-amber-900/10" />
-        <StatCard label="In Maintenance" value={maintenanceCount} to="/devices"
+        <StatCard label="In Maintenance" value={maintenanceCount} to="/devices?maintenance=true"
           colorClasses="border-l-4 border-l-sky-500 bg-sky-900/10" />
       </div>
 

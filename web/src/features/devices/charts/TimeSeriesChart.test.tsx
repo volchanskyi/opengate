@@ -8,6 +8,7 @@ interface FakeInstance {
   data: uPlot.AlignedData;
   target: HTMLElement | undefined;
   setData: ReturnType<typeof vi.fn>;
+  setScale: ReturnType<typeof vi.fn>;
   setSize: ReturnType<typeof vi.fn>;
   destroy: ReturnType<typeof vi.fn>;
 }
@@ -21,6 +22,7 @@ const mock = vi.hoisted(() => {
       data,
       target,
       setData: vi.fn(),
+      setScale: vi.fn(),
       setSize: vi.fn(),
       destroy: vi.fn(),
     };
@@ -111,5 +113,20 @@ describe('TimeSeriesChart adapter', () => {
   it('omits select hooks entirely when no onSelectWindow is given', () => {
     render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} />);
     expect(mock.instances[0]!.opts.hooks?.setSelect).toBeUndefined();
+  });
+
+  it('disables the default uPlot legend (removes the "Time --" row)', () => {
+    render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} />);
+    expect(mock.instances[0]!.opts.legend?.show).toBe(false);
+  });
+
+  it('re-applies the y-scale via setScale when a poll brings a wider yRange (clip regression)', () => {
+    const { rerender } = render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} yRange={[0, 10]} />);
+    const inst = mock.instances[0]!;
+    // A later poll brings a new peak (50) beyond the initial window → the caller
+    // passes a wider yRange. Without setScale the stale fixed range clips the line.
+    rerender(<TimeSeriesChart data={makeData([1, 2, 50])} series={series} yRange={[0, 55]} />);
+    expect(mock.ctor).toHaveBeenCalledTimes(1); // no reconstruction
+    expect(inst.setScale).toHaveBeenLastCalledWith('y', { min: 0, max: 55 });
   });
 });

@@ -29,6 +29,7 @@ func TestTelemetryIngestIsCounted(t *testing.T) {
 		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 12.5}},
 	}
 	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(org), msg, 256))
+	ac.flushTelemetry(tenantCtx(org))
 
 	<-writer.calls
 	assert.InDelta(t, 1,
@@ -89,5 +90,6 @@ func TestNilMetricsIsSafe(t *testing.T) {
 		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 1}},
 	}
 	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(org), msg, 256))
+	ac.flushTelemetry(tenantCtx(org))
 	<-writer.calls
 }

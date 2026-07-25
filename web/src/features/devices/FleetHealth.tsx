@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { Link } from 'react-router';
 import type { components } from '../../types/api';
 import { healthBand, HEALTH_META, type HealthBand } from './health';
 
@@ -54,13 +55,17 @@ export function FleetHealth({ devices }: { readonly devices: readonly Device[] }
           </figure>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {CARDS.map(({ band, meta }) => (
-              <div key={band} className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+              <Link
+                key={band}
+                to={`/devices?health=${band}`}
+                className="bg-gray-800 border border-gray-700 rounded-lg p-3 hover:bg-gray-700 transition-colors block"
+              >
                 <p className="text-xs text-gray-400 flex items-center gap-1">
                   <span className={`w-2 h-2 rounded-full ${meta.dotClass}`} aria-hidden="true" />
                   {meta.label}
                 </p>
                 <p className="text-xl font-bold mt-1">{counts.get(band) ?? 0}</p>
-              </div>
+              </Link>
             ))}
           </div>
         </>

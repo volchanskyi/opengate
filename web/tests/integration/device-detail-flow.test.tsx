@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider } from 'react-router';
 import { useAuthStore } from '../../src/state/auth-store';
 import { useDeviceStore } from '../../src/features/devices/state/device-store';
 import { useSessionStore } from '../../src/features/session/state/session-store';

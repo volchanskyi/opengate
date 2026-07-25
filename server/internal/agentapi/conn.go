@@ -67,6 +67,14 @@ type AgentConn struct {
 	telemetrySlots chan struct{}
 	telemetryDrops atomic.Uint64
 
+	// telemetryBuf coalesces every telemetry sample a heartbeat's burst produces
+	// (host-metric windows, the tail-ordered anomaly summary, process numerics)
+	// into one WriteSamples via a single persist slot, so the low-rate anomaly
+	// summary never loses the slot race to the host-window firehose. Touched only
+	// on the single read-loop goroutine, so it needs no lock. Flushed on the next
+	// heartbeat, a size cap, and connection teardown.
+	telemetryBuf []telemetry.Sample
+
 	// maintenanceApplied records the last maintenance state the agent reported
 	// applying (via MaintenanceApplied). The server's desired state lives in
 	// Postgres; this is the confirmation signal that the agent reconciled, read
@@ -567,6 +575,11 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 }
 
 func (a *AgentConn) handleHeartbeat(ctx context.Context, msg *protocol.ControlMessage) error {
+	// The agent sends the heartbeat first, then drains its telemetry burst, so a
+	// heartbeat marks the boundary of the previous cycle's burst: flush the
+	// coalescing buffer here to persist that burst as one write.
+	a.flushTelemetry(ctx)
+
 	if err := a.devices.SetStatus(ctx, a.DeviceID, device.StatusOnline); err != nil {
 		return fmt.Errorf("update heartbeat: %w", err)
 	}

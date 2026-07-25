@@ -127,7 +127,8 @@ function lastFinite(values: readonly (number | null)[]): number | null {
   return null;
 }
 
-/** Compact binary-unit byte size (e.g. `1.4 MB`) for network counters. */
+/** Compact binary-unit byte size (e.g. `1.4 MB`); the net family appends `/s`
+ *  to read it as throughput. */
 function formatCompactBytes(bytes: number): string {
   if (bytes < 1024) return `${String(Math.round(bytes))} B`;
   const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
@@ -148,8 +149,8 @@ function isPercentDimension(name: string): boolean {
 /**
  * A one-glance "current" reading for a metric family, shown beside its chart:
  * the latest utilisation percent for cpu/mem/disk families, or the combined
- * latest byte counter for the net family. Returns null when the family carries
- * no such summary dimension or has no finite sample yet.
+ * latest throughput (rx + tx, bytes/second) for the net family. Returns null
+ * when the family carries no such summary dimension or has no finite sample yet.
  */
 export function familyCurrentLabel(series: readonly MetricSeries[]): string | null {
   const percent = series.find((s) => isPercentDimension(s.name));
@@ -167,7 +168,7 @@ export function familyCurrentLabel(series: readonly MetricSeries[]): string | nu
         any = true;
       }
     }
-    return any ? formatCompactBytes(total) : null;
+    return any ? `${formatCompactBytes(total)}/s` : null;
   }
   return null;
 }

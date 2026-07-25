@@ -14,7 +14,8 @@ Accepted.
 ## Context
 
 The host system-resource series (`cpu.total`, `mem.used_percent`,
-`disk.used_percent`, `net.rx_bytes`, `net.tx_bytes`) are sampled every second and
+`disk.used_percent`, `net.rx_bps`, `net.tx_bps` — the net dims are
+primary-interface throughput in bytes/second) are sampled every second and
 written to the agent-local store. They must also chart **live** on the central
 Telemetry pane for a continuously-connected device — not only after a
 reconnect-backfill or an on-demand deep-history pull. The reconnect-backfill path

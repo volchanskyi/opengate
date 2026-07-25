@@ -13,10 +13,25 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testvm"
 )
 
+// newTestVMClient builds a VM client against the throwaway test VictoriaMetrics
+// with a background context, sparing every test the same three-line setup.
+func newTestVMClient(t *testing.T) (*VMClient, context.Context) {
+	t.Helper()
+	return NewVMClient(testvm.BaseURL(t), nil), context.Background()
+}
+
+// writeAnomalyRate writes and flushes one node anomaly-rate sample for a device,
+// the shape the fleet-health badge reads.
+func writeAnomalyRate(t *testing.T, c *VMClient, ctx context.Context, org, device uuid.UUID, value float64, ts time.Time) {
+	t.Helper()
+	require.NoError(t, c.WriteSamples(ctx, org, device, []Sample{{
+		Name: "opengate_edge_node_anomaly_rate", Value: value, TS: ts,
+	}}))
+	require.NoError(t, c.Flush(ctx))
+}
+
 func TestVMClientWritesOrgScopedSamples(t *testing.T) {
-	base := testvm.BaseURL(t)
-	client := NewVMClient(base, nil)
-	ctx := context.Background()
+	client, ctx := newTestVMClient(t)
 
 	orgA := uuid.New()
 	orgB := uuid.New()
@@ -45,9 +60,7 @@ func TestVMClientWritesOrgScopedSamples(t *testing.T) {
 }
 
 func TestVMClientQueryRangeDownsamplesAndScopes(t *testing.T) {
-	base := testvm.BaseURL(t)
-	client := NewVMClient(base, nil)
-	ctx := context.Background()
+	client, ctx := newTestVMClient(t)
 
 	orgA := uuid.New()
 	orgB := uuid.New()
@@ -99,6 +112,32 @@ func TestVMClientQueryRangeDownsamplesAndScopes(t *testing.T) {
 	assert.GreaterOrEqual(t, maxSeries[0].Values[len(maxSeries[0].Values)-1], series[0].Values[len(series[0].Values)-1])
 }
 
+// TestVMClientQueryInstantLookbackSurfacesRecentSample proves the badge's
+// safety net: a node anomaly-rate sample a few minutes old is beyond VM's
+// instant-query staleness window (so a bare instant query at now is empty), yet
+// last_over_time over a 10 min window still resolves it.
+func TestVMClientQueryInstantLookbackSurfacesRecentSample(t *testing.T) {
+	client, ctx := newTestVMClient(t)
+
+	org := uuid.New()
+	deviceID := uuid.New()
+	now := time.Now().UTC().Truncate(time.Second)
+	old := now.Add(-8 * time.Minute)
+
+	writeAnomalyRate(t, client, ctx, org, deviceID, 0.33, old)
+
+	// Bare instant query at now: the sample is past the staleness window → empty.
+	bare, err := client.QueryInstant(ctx, org, "opengate_edge_node_anomaly_rate", nil, now)
+	require.NoError(t, err)
+	assert.Empty(t, bare, "an 8-minute-old sample is stale for a bare instant query")
+
+	// Lookback query: last_over_time([10m]) still resolves the recent sample.
+	vals, err := client.QueryInstantLookback(ctx, org, "opengate_edge_node_anomaly_rate", nil, now, 10*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, vals, 1)
+	assert.InDelta(t, 0.33, vals[0].Value, 0.0001)
+}
+
 func TestVMClientQueryRangeRejectsBadInput(t *testing.T) {
 	t.Parallel()
 	client := NewVMClient("http://127.0.0.1:0", nil)
@@ -116,19 +155,16 @@ func TestVMClientQueryRangeRejectsBadInput(t *testing.T) {
 }
 
 func TestVMClientQueryInstantScopesToOrg(t *testing.T) {
-	base := testvm.BaseURL(t)
-	client := NewVMClient(base, nil)
-	ctx := context.Background()
+	client, ctx := newTestVMClient(t)
 
 	orgA := uuid.New()
 	orgB := uuid.New()
 	devA := uuid.New()
 	devB := uuid.New()
 	ts := time.Now().UTC().Truncate(time.Second)
-	require.NoError(t, client.WriteSamples(ctx, orgA, devA, []Sample{{Name: "opengate_edge_node_anomaly_rate", Value: 0.42, TS: ts}}))
-	require.NoError(t, client.WriteSamples(ctx, orgA, devB, []Sample{{Name: "opengate_edge_node_anomaly_rate", Value: 0.13, TS: ts}}))
-	require.NoError(t, client.WriteSamples(ctx, orgB, devA, []Sample{{Name: "opengate_edge_node_anomaly_rate", Value: 0.99, TS: ts}}))
-	require.NoError(t, client.Flush(ctx))
+	writeAnomalyRate(t, client, ctx, orgA, devA, 0.42, ts)
+	writeAnomalyRate(t, client, ctx, orgA, devB, 0.13, ts)
+	writeAnomalyRate(t, client, ctx, orgB, devA, 0.99, ts)
 
 	// VM applies a 30 s search latency offset, so evaluate past that boundary.
 	vals, err := client.QueryInstant(ctx, orgA, "opengate_edge_node_anomaly_rate", nil, ts.Add(time.Minute))

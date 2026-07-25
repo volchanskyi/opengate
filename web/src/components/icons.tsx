@@ -93,6 +93,24 @@ export function RefreshIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** Left chevron — page backwards through log entries. */
+export function ChevronLeftIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <polyline points="15 18 9 12 15 6" />
+    </Icon>
+  );
+}
+
+/** Right chevron — page forwards through log entries. */
+export function ChevronRightIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <Icon {...props}>
+      <polyline points="9 18 15 12 9 6" />
+    </Icon>
+  );
+}
+
 /** Spinning ring — an action is in flight. */
 export function SpinnerIcon(props: SVGProps<SVGSVGElement>) {
   return (

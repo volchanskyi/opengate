@@ -301,6 +301,10 @@ func agentOrgID(ctx context.Context) uuid.UUID {
 
 // runControlLoop processes control messages until the stream errors or the context is cancelled.
 func (s *AgentServer) runControlLoop(ctx context.Context, ac *AgentConn, logger *slog.Logger) {
+	// Flush any telemetry buffered since the last heartbeat on teardown so a
+	// disconnect never silently drops the in-flight burst. WithoutCancel keeps
+	// the connection's tenant scope while surviving the cancelled loop context.
+	defer ac.flushTelemetry(context.WithoutCancel(ctx))
 	for {
 		if err := ac.handleControl(ctx); err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || ctx.Err() != nil {

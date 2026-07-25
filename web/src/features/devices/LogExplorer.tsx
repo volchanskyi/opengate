@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDeviceStore, type LogPaneSource } from './state/device-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { ChevronLeftIcon, ChevronRightIcon } from '../../components/icons';
 
 const levelColors = new Map<string, string>([
   ['ERROR', 'text-red-400'],
@@ -21,6 +22,10 @@ const RANGES = [
 
 const LIMIT = 300;
 
+// Default window fetched once on mount for panes that opt into auto-loading
+// (System Logs), so `available_units` and recent entries populate immediately.
+const AUTOLOAD_WINDOW_SECONDS = 3600;
+
 interface TimeWindow {
   from: string;
   to: string;
@@ -36,6 +41,8 @@ interface LogExplorerProps {
   showUnitFilter?: boolean;
   /** Correlation jump: pre-filter the explorer to this window and fetch it. */
   focusWindow?: TimeWindow | null;
+  /** Fetch the most-recent default window once on mount (System Logs opt-in). */
+  autoLoadOnMount?: boolean;
 }
 
 function formatWindow(w: TimeWindow): string {
@@ -49,7 +56,7 @@ function formatWindow(w: TimeWindow): string {
  * an auto-detected unit dropdown and a clickable `target` column. Each source
  * reads and writes its own slice of the store, so the two panes never clobber.
  */
-export function LogExplorer({ deviceId, source, title, showUnitFilter = false, focusWindow = null }: LogExplorerProps) {
+export function LogExplorer({ deviceId, source, title, showUnitFilter = false, focusWindow = null, autoLoadOnMount = false }: LogExplorerProps) {
   // Explicit source selection (not `s.logs[source]`) so the security linter can
   // see the access is over a fixed, closed key set.
   const logs = useDeviceStore((s) => (source === 'agent' ? s.logs.agent : s.logs.system));
@@ -61,6 +68,7 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
   const [unit, setUnit] = useState('');
   const [offset, setOffset] = useState(0);
   const [timeWindow, setTimeWindow] = useState<TimeWindow | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const runFetch = useCallback((nextOffset: number, lvl: string, win: TimeWindow | null, unitFilter: string) => {
@@ -76,7 +84,8 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
     }));
   }, [source, deviceId, fetchLogs, search, showUnitFilter]);
 
-  const handleLoadMore = useCallback(() => { runFetch(offset + LIMIT, level, timeWindow, unit); }, [runFetch, offset, level, timeWindow, unit]);
+  const handlePrevPage = useCallback(() => { runFetch(Math.max(0, offset - LIMIT), level, timeWindow, unit); }, [runFetch, offset, level, timeWindow, unit]);
+  const handleNextPage = useCallback(() => { runFetch(offset + LIMIT, level, timeWindow, unit); }, [runFetch, offset, level, timeWindow, unit]);
   const selectLevel = useCallback((lvl: string) => { setLevel(lvl); runFetch(0, lvl, timeWindow, unit); }, [runFetch, timeWindow, unit]);
   const selectUnit = useCallback((u: string) => { setUnit(u); runFetch(0, level, timeWindow, u); }, [runFetch, level, timeWindow]);
 
@@ -102,6 +111,16 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
     containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [focusWindow]);
 
+  // Populate `available_units` + recent entries on mount for opted-in panes,
+  // fetching the most-recent default window exactly once. A correlation
+  // focusWindow drives its own initial fetch, so it wins and this is skipped.
+  const didAutoLoadRef = useRef(false);
+  useEffect(() => {
+    if (!autoLoadOnMount || focusWindow || didAutoLoadRef.current) return;
+    didAutoLoadRef.current = true;
+    selectRange(AUTOLOAD_WINDOW_SECONDS);
+  }, [autoLoadOnMount, focusWindow, selectRange]);
+
   // Level facets over the returned page — a point-and-click quick filter.
   const facets = useMemo(() => {
     const counts = new Map<string, number>();
@@ -114,7 +133,16 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
   return (
     <div ref={containerRef}>
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold text-gray-300">{title}</h3>
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
+          className="text-sm font-semibold text-gray-300 flex items-center gap-2"
+        >
+          <span className={`text-xs transition-transform ${collapsed ? '' : 'rotate-90'}`}>&#9654;</span>
+          {title}
+        </button>
         {logsLoading && <span className="text-xs text-gray-500">Fetching…</span>}
       </div>
 
@@ -191,9 +219,9 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
         </div>
       )}
 
-      {logs && logs.entries.length > 0 ? (
+      {collapsed ? null : logs && logs.entries.length > 0 ? (
         <>
-          <div className="max-h-96 overflow-y-auto bg-gray-900 border border-gray-700 rounded p-2">
+          <div className="resize-y overflow-auto min-h-24 max-h-160 h-96 bg-gray-900 border border-gray-700 rounded p-2">
             <table className="w-full font-mono text-xs">
               <tbody>
                 {logs.entries.map((entry, i) => (
@@ -228,16 +256,26 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
             <span>
               Showing {offset + 1}-{Math.min(offset + logs.entries.length, logs.total)} of {logs.total}
             </span>
-            {logs.has_more && (
+            <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={handleLoadMore}
-                disabled={logsLoading}
-                className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded disabled:opacity-50"
+                onClick={handlePrevPage}
+                disabled={offset === 0 || logsLoading}
+                aria-label="Previous page"
+                className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 rounded disabled:opacity-50 inline-flex items-center"
               >
-                Load More
+                <ChevronLeftIcon />
               </button>
-            )}
+              <button
+                type="button"
+                onClick={handleNextPage}
+                disabled={!logs.has_more || logsLoading}
+                aria-label="Next page"
+                className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 rounded disabled:opacity-50 inline-flex items-center"
+              >
+                <ChevronRightIcon />
+              </button>
+            </div>
           </div>
         </>
       ) : logs && logs.entries.length === 0 ? (

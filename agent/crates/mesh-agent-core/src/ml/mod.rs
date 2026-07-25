@@ -7,6 +7,7 @@ pub mod backfill;
 pub mod ensemble;
 pub mod host_metric_stream;
 pub mod kmeans;
+pub mod primary_iface;
 pub mod redact;
 pub mod sampler;
 pub mod store_sink;

@@ -80,16 +80,7 @@ func (v *VMClient) WriteSamples(ctx context.Context, orgID uuid.UUID, deviceID u
 		return fmt.Errorf("build vm import request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; version=0.0.4")
-	resp, err := v.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("post vm import: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("vm import status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
-	return nil
+	return v.sendChecked(req, "post", "import")
 }
 
 // Flush forces pending imports to become immediately queryable. It is intended
@@ -122,19 +113,11 @@ func (v *VMClient) Export(ctx context.Context, orgID uuid.UUID, selector string,
 	q.Set(matchParam, scoped)
 	q.Set("start", strconv.FormatInt(start.Unix(), 10))
 	q.Set("end", strconv.FormatInt(end.Unix(), 10))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.baseURL+"/api/v1/export?"+q.Encode(), nil)
+	resp, err := v.getChecked(ctx, "/api/v1/export?"+q.Encode(), "export")
 	if err != nil {
-		return nil, fmt.Errorf("build vm export request: %w", err)
-	}
-	resp, err := v.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get vm export: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return nil, fmt.Errorf("vm export status %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
 
 	var out []ExportedSeries
 	dec := json.NewDecoder(resp.Body)

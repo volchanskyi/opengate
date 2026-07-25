@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createMemoryRouter, RouterProvider, useLocation } from 'react-router-dom';
+import { createMemoryRouter, RouterProvider, useLocation } from 'react-router';
 import { useDeviceStore } from './state/device-store';
 import { useSessionStore } from '../session';
 import { useAMTStore } from './state/amt-store';
@@ -138,6 +138,11 @@ describe('DeviceDetail', () => {
   it('has start session button in header', () => {
     renderDetail();
     expect(screen.getByRole('button', { name: 'Start Session' })).toBeInTheDocument();
+  });
+
+  it('Start Session button uses the online-green palette', () => {
+    renderDetail();
+    expect(screen.getByRole('button', { name: 'Start Session' })).toHaveClass('bg-green-500', 'hover:bg-green-600');
   });
 
   it('delete requires confirmation', async () => {
@@ -714,6 +719,34 @@ describe('DeviceDetail', () => {
     useDeviceStore.setState({ selectedDevice: { ...mockDevice, group_id: 'g-42' } });
     renderDetail();
     expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('g-42');
+  });
+
+  it('shows N/A for the all-zeros placeholder Group ID', () => {
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, group_id: '00000000-0000-0000-0000-000000000000' } });
+    renderDetail();
+    expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('N/A');
+  });
+
+  it('Hardware section collapses and expands via the caret toggle', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    useDeviceStore.setState({
+      hardware: {
+        device_id: 'd1', cpu_model: 'cpu', cpu_cores: 1,
+        ram_total_mb: 1024, disk_free_mb: 0, disk_total_mb: 0,
+        updated_at: '2026-01-01T00:00:00Z', network_interfaces: [],
+      },
+    });
+    renderDetail();
+    // Expanded by default so the inventory is visible on open.
+    expect(screen.getByText('CPU')).toBeInTheDocument();
+    // The caret toggle hides the details (same pattern as Intel AMT Setup).
+    await user.click(screen.getByText('Hardware'));
+    expect(screen.queryByText('CPU')).toBeNull();
+    // Refresh Hardware stays reachable while collapsed.
+    expect(screen.getByRole('button', { name: 'Refresh Hardware' })).toBeInTheDocument();
+    await user.click(screen.getByText('Hardware'));
+    expect(screen.getByText('CPU')).toBeInTheDocument();
   });
 
   it('network interface row shows MAC alone when ipv4 is empty', () => {
