@@ -60,7 +60,7 @@ function AmtSection({ amtDevice, confirmPowerAction, showAmtInstructions, onPowe
         onClick={onToggleInstructions}
         className="text-sm font-semibold text-gray-300 flex items-center gap-2"
       >
-        <span className={`text-xs transition-transform ${showAmtInstructions ? 'rotate-90' : ''}`}>&#9654;</span>
+        <span className={`text-xs transition-transform ${showAmtInstructions ? 'rotate-90' : ''}`} aria-hidden="true">&#9654;</span>
         {' '}Intel AMT Setup
       </button>
       {showAmtInstructions && (
@@ -145,7 +145,9 @@ export function DeviceDetail() {
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [showAmtInstructions, setShowAmtInstructions] = useState(false);
-  const [showHardware, setShowHardware] = useState(true);
+  // Collapsed on open: the inventory is reference detail, so the host card
+  // stays scannable until an operator asks for it.
+  const [showHardware, setShowHardware] = useState(false);
   // Correlation jump target: the metrics panel hands up a unix-second window,
   // which the logs explorer consumes (as ISO) to pre-filter and fetch.
   const [logWindow, setLogWindow] = useState<{ from: string; to: string } | null>(null);
@@ -449,7 +451,7 @@ export function DeviceDetail() {
               aria-expanded={showHardware}
               className="text-sm font-semibold text-gray-300 flex items-center gap-2"
             >
-              <span className={`text-xs transition-transform ${showHardware ? 'rotate-90' : ''}`}>&#9654;</span>
+              <span className={`text-xs transition-transform ${showHardware ? 'rotate-90' : ''}`} aria-hidden="true">&#9654;</span>
               {' '}Hardware
             </button>
             <button
@@ -505,8 +507,8 @@ export function DeviceDetail() {
         <DeviceLogs deviceId={device.id} />
       </div>
 
-      {/* System Logs Card (host journald / Windows Event Log; drill target) */}
-      <div className="bg-gray-800 border border-gray-700 rounded-lg p-6">
+      {/* System Logs (host journald / Windows Event Log; drill target), full width */}
+      <div className="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-lg p-6">
         <SystemLogs deviceId={device.id} focusWindow={logWindow} />
       </div>
 

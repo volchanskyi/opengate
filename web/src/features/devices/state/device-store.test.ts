@@ -30,6 +30,7 @@ describe('device store', () => {
       selectedDevice: null,
       hardware: null,
       logs: { agent: null, system: null },
+      logsDeviceId: { agent: null, system: null },
       logsLoading: { agent: false, system: false },
       isLoading: false,
       error: null,
@@ -495,6 +496,9 @@ describe('device store', () => {
 
   it('updateDeviceGroup updates selectedDevice on success', async () => {
     const updatedDevice = { id: 'd1', group_id: 'g2', hostname: 'host1', os: 'linux', agent_version: '', status: 'online' };
+    useDeviceStore.setState({
+      selectedDevice: { id: 'd1', group_id: 'g1', hostname: 'host1', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+    });
     mockPatch.mockResolvedValueOnce({ data: updatedDevice, error: undefined });
 
     await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
@@ -672,5 +676,112 @@ describe('device store', () => {
 
     // Kills `if (res.ok)` → `if (true)` mutant (would set count to undefined→NaN).
     expect(useDeviceStore.getState().maintenanceCount).toBe(2);
+  });
+
+  it('fetchLogs records which device a pane holds', async () => {
+    mockGet.mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
+
+    await useDeviceStore.getState().fetchLogs('system', 'd7');
+
+    expect(useDeviceStore.getState().logsDeviceId.system).toBe('d7');
+    expect(useDeviceStore.getState().logsDeviceId.agent).toBeNull();
+  });
+
+  it('fetchDevice keeps a cached log pane that already belongs to this device', async () => {
+    const cached = { entries: [{ timestamp: 't', level: 'INFO', target: 'x', message: 'm' }], total: 1, has_more: false };
+    useDeviceStore.setState({
+      logs: { agent: null, system: cached },
+      logsDeviceId: { agent: null, system: 'd1' },
+    });
+    mockGet.mockResolvedValueOnce({ data: { id: 'd1', hostname: 'host1' }, error: undefined });
+
+    await useDeviceStore.getState().fetchDevice('d1');
+
+    // Re-opening the same device serves the cache — no refetch, no 409.
+    expect(useDeviceStore.getState().logs.system).toEqual(cached);
+    expect(useDeviceStore.getState().logsDeviceId.system).toBe('d1');
+  });
+
+  it('fetchDevice drops a cached log pane belonging to another device', async () => {
+    useDeviceStore.setState({
+      logs: { agent: { entries: [], total: 0, has_more: false }, system: { entries: [], total: 0, has_more: false } },
+      logsDeviceId: { agent: 'other', system: 'other' },
+    });
+    mockGet.mockResolvedValueOnce({ data: { id: 'd1', hostname: 'host1' }, error: undefined });
+
+    await useDeviceStore.getState().fetchDevice('d1');
+
+    expect(useDeviceStore.getState().logs).toEqual({ agent: null, system: null });
+    expect(useDeviceStore.getState().logsDeviceId).toEqual({ agent: null, system: null });
+  });
+
+  it('fetchLogs serializes overlapping pulls for one device (the broker allows only one)', async () => {
+    let releaseFirst!: (v: unknown) => void;
+    const first = new Promise((r) => { releaseFirst = r; });
+    mockGet.mockReturnValueOnce(first);
+    mockGet.mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
+
+    const a = useDeviceStore.getState().fetchLogs('system', 'd1');
+    const b = useDeviceStore.getState().fetchLogs('agent', 'd1');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Both panes report loading, but only one request is in flight.
+    expect(useDeviceStore.getState().logsLoading).toEqual({ agent: true, system: true });
+    expect(mockGet).toHaveBeenCalledTimes(1);
+
+    releaseFirst({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
+    await Promise.all([a, b]);
+
+    expect(mockGet).toHaveBeenCalledTimes(2);
+    expect(useDeviceStore.getState().logsLoading).toEqual({ agent: false, system: false });
+  });
+
+  it('fetchLogs does not serialize pulls aimed at different devices', async () => {
+    mockGet.mockReturnValueOnce(new Promise(() => { /* never settles */ }));
+    mockGet.mockReturnValueOnce(new Promise(() => { /* never settles */ }));
+
+    void useDeviceStore.getState().fetchLogs('system', 'd1');
+    void useDeviceStore.getState().fetchLogs('system', 'd2');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Different agents, different brokers — no reason to queue.
+    expect(mockGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('updateDeviceGroup rewrites the moved device in the devices list', async () => {
+    const d1 = deviceIn({ id: 'd1', group_id: 'g1' });
+    const d2 = deviceIn({ id: 'd2', group_id: 'g1' });
+    useDeviceStore.setState({ devices: [d1, d2], selectedDevice: null });
+    mockPatch.mockResolvedValueOnce({ data: { ...d1, group_id: 'g2' }, error: undefined });
+
+    const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+
+    expect(ok).toBe(true);
+    const devices = useDeviceStore.getState().devices;
+    expect(devices.find((d) => d.id === 'd1')?.group_id).toBe('g2');
+    // The sibling is untouched — kills a mutant that rewrites every row.
+    expect(devices.find((d) => d.id === 'd2')?.group_id).toBe('g1');
+  });
+
+  it('updateDeviceGroup leaves selectedDevice alone when a different device moved', async () => {
+    const viewing = deviceIn({ id: 'd9', group_id: 'g1' });
+    useDeviceStore.setState({ devices: [deviceIn({ id: 'd1', group_id: 'g1' })], selectedDevice: viewing });
+    mockPatch.mockResolvedValueOnce({ data: deviceIn({ id: 'd1', group_id: 'g2' }), error: undefined });
+
+    await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+
+    expect(useDeviceStore.getState().selectedDevice?.id).toBe('d9');
+  });
+
+  it('updateDeviceGroup does not mutate the list on error', async () => {
+    useDeviceStore.setState({ devices: [deviceIn({ id: 'd1', group_id: 'g1' })] });
+    mockPatch.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
+
+    const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+
+    expect(ok).toBe(false);
+    expect(useDeviceStore.getState().devices[0]?.group_id).toBe('g1');
   });
 });

@@ -75,7 +75,7 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/groups/{id}` | DELETE | JWT | Delete a group |
 | `/api/v1/devices` | GET | JWT | List devices (optional `group_id` filter) |
 | `/api/v1/devices/{id}` | GET | JWT | Get a device (includes `capabilities` array) |
-| `/api/v1/devices/{id}` | PATCH | JWT | Update device (reassign `group_id`) |
+| `/api/v1/devices/{id}` | PATCH | JWT | Update device (reassign `group_id`; the all-zeros UUID ungroups it) |
 | `/api/v1/devices/{id}` | DELETE | JWT | Delete a device and purge all its telemetry ([Data Lifecycle](Data-Lifecycle.md)) |
 | `/api/v1/devices/{id}/restart` | POST | JWT | Restart agent on device (optional `reason` field) |
 | `/api/v1/devices/{id}/hardware` | GET | JWT | Get hardware inventory for device (200 cached / 202 requested from agent) |

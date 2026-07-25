@@ -110,10 +110,9 @@ test.describe("Device logs UI", () => {
     );
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
-    // Scope to the Agent Logs pane — the System Logs pane (which now auto-loads
-    // its recent window on mount) and the metrics panel each render their own
-    // controls. The pane title is a collapse-toggle button; its grandparent is
-    // the pane root.
+    // Scope to the Agent Logs pane — the System Logs pane and the metrics panel
+    // each render their own controls. The pane title is a collapse-toggle
+    // button; its grandparent is the pane root.
     const agentPane = authedPage.getByRole("button", { name: /Agent Logs/ }).locator("xpath=../..");
     // Fetching is driven by the time-window buttons (no Fetch Logs button).
     await agentPane.getByRole("button", { name: "1h" }).click();
@@ -150,8 +149,8 @@ test.describe("Device logs UI", () => {
 
     await authedPage.goto(`/devices/${DEVICE_ID}`);
 
-    // Scope to the Agent Logs pane so the auto-loaded System Logs table never
-    // dilutes the row count / level assertions.
+    // Scope to the Agent Logs pane so the System Logs pane never dilutes the
+    // row count / level assertions.
     const agentPane = authedPage.getByRole("button", { name: /Agent Logs/ }).locator("xpath=../..");
     // Selecting a level in the pane's severity dropdown refetches immediately.
     await agentPane.getByRole("combobox").first().selectOption("ERROR");

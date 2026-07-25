@@ -69,14 +69,20 @@ func (s *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestOb
 
 func (s *Server) moveDeviceToGroup(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error) {
 	newGroupID := *request.Body.GroupId
-	if _, err := s.groups.Get(ctx, newGroupID); err != nil {
-		if errors.Is(err, device.ErrGroupNotFound) {
-			return UpdateDevice400JSONResponse{Error: "target group not found"}, nil
+	// The nil UUID is the "no group" destination: it takes the device out of
+	// its group instead of moving it into another one, so there is no target
+	// group to look up or own. Ownership of the device itself is checked by the
+	// caller before this runs.
+	if newGroupID != uuid.Nil {
+		if _, err := s.groups.Get(ctx, newGroupID); err != nil {
+			if errors.Is(err, device.ErrGroupNotFound) {
+				return UpdateDevice400JSONResponse{Error: "target group not found"}, nil
+			}
+			return nil, err
 		}
-		return nil, err
-	}
-	if !s.isGroupOwner(ctx, newGroupID) {
-		return UpdateDevice403JSONResponse{Error: msgForbidden}, nil
+		if !s.isGroupOwner(ctx, newGroupID) {
+			return UpdateDevice403JSONResponse{Error: msgForbidden}, nil
+		}
 	}
 	if err := s.devices.UpdateGroup(ctx, request.Id, newGroupID); err != nil {
 		return nil, err

@@ -40,6 +40,17 @@ function renderDetail() {
   return render(<RouterProvider router={router} />);
 }
 
+/**
+ * Render, then open the collapsed-by-default Hardware section. Located by
+ * accessible name, which pins the decorative caret as `aria-hidden` — otherwise
+ * the toggle answers to "▶ Hardware" and collides with "Refresh Hardware".
+ */
+function renderDetailWithHardware() {
+  const result = renderDetail();
+  fireEvent.click(screen.getByRole('button', { name: 'Hardware' }));
+  return result;
+}
+
 const mockDevice = {
   id: 'd1',
   group_id: 'g1',
@@ -569,7 +580,7 @@ describe('DeviceDetail', () => {
         network_interfaces: [],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     // RAM, disk free, disk total all 0 → three "0 B" occurrences (RAM row + "0 B free / 0 B")
     const zeros = screen.getAllByText(/0 B/);
     expect(zeros.length).toBeGreaterThanOrEqual(1);
@@ -586,7 +597,7 @@ describe('DeviceDetail', () => {
         network_interfaces: [],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     expect(screen.getByText('1.0 MB')).toBeInTheDocument();
   });
 
@@ -599,7 +610,7 @@ describe('DeviceDetail', () => {
         network_interfaces: [],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     expect(screen.getByText('200 MB')).toBeInTheDocument();
   });
 
@@ -612,7 +623,7 @@ describe('DeviceDetail', () => {
         network_interfaces: [],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     expect(screen.getByText('99.0 MB')).toBeInTheDocument();
   });
 
@@ -629,7 +640,7 @@ describe('DeviceDetail', () => {
         network_interfaces: [],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     expect(screen.getByText('2.0 MB')).toBeInTheDocument();
     // disk uses two formatBytes invocations inside a single dd
     const diskDd = screen.getByText('Disk').nextElementSibling;
@@ -648,7 +659,7 @@ describe('DeviceDetail', () => {
         network_interfaces: [],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     expect(screen.getByText('1024 TB')).toBeInTheDocument();
   });
 
@@ -662,7 +673,7 @@ describe('DeviceDetail', () => {
         network_interfaces: [],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     expect(screen.getByText('1.0 GB')).toBeInTheDocument();
   });
 
@@ -727,7 +738,7 @@ describe('DeviceDetail', () => {
     expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('N/A');
   });
 
-  it('Hardware section collapses and expands via the caret toggle', async () => {
+  it('Hardware section is collapsed by default and expands via the caret toggle', async () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     useDeviceStore.setState({
@@ -738,15 +749,21 @@ describe('DeviceDetail', () => {
       },
     });
     renderDetail();
-    // Expanded by default so the inventory is visible on open.
-    expect(screen.getByText('CPU')).toBeInTheDocument();
-    // The caret toggle hides the details (same pattern as Intel AMT Setup).
-    await user.click(screen.getByText('Hardware'));
+    // Collapsed on open — the host card stays short and scannable.
     expect(screen.queryByText('CPU')).toBeNull();
     // Refresh Hardware stays reachable while collapsed.
     expect(screen.getByRole('button', { name: 'Refresh Hardware' })).toBeInTheDocument();
+    // The caret toggle reveals the details (same pattern as Intel AMT Setup).
     await user.click(screen.getByText('Hardware'));
     expect(screen.getByText('CPU')).toBeInTheDocument();
+    await user.click(screen.getByText('Hardware'));
+    expect(screen.queryByText('CPU')).toBeNull();
+  });
+
+  it('the System Logs card spans the full grid width, like Discovered Footprint', () => {
+    renderDetail();
+    const card = screen.getByText('System Logs').closest('.rounded-lg');
+    expect(card).toHaveClass('lg:col-span-2');
   });
 
   it('network interface row shows MAC alone when ipv4 is empty', () => {
@@ -760,7 +777,7 @@ describe('DeviceDetail', () => {
         ],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     const li = screen.getByText(/eth0/).closest('li');
     expect(li?.textContent).toBe('eth0: 00:11:22:33:44:55');
     expect(li?.textContent).not.toContain('—');
@@ -777,7 +794,7 @@ describe('DeviceDetail', () => {
         ],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     const li = screen.getByText(/eth0/).closest('li');
     expect(li?.textContent).toBe('eth0: 00:11:22:33:44:55 — 10.0.0.1, 10.0.0.2');
   });
@@ -1195,7 +1212,7 @@ describe('DeviceDetail', () => {
         network_interfaces: [],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
     const cpuDd = screen.getByText('CPU').nextElementSibling;
     expect(cpuDd?.textContent).toBe('AMD Ryzen 9 7950X (16 cores)');
   });
@@ -1294,7 +1311,7 @@ describe('DeviceDetail', () => {
         ],
       },
     });
-    renderDetail();
+    renderDetailWithHardware();
 
     expect(screen.getByText(/Intel i7-12700/)).toBeInTheDocument();
     expect(screen.getByText(/12 cores/)).toBeInTheDocument();

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDeviceStore, type LogPaneSource } from './state/device-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
-import { ChevronLeftIcon, ChevronRightIcon } from '../../components/icons';
+import { ChevronLeftIcon, ChevronRightIcon, RefreshIcon, SpinnerIcon } from '../../components/icons';
 
 const levelColors = new Map<string, string>([
   ['ERROR', 'text-red-400'],
@@ -22,9 +22,9 @@ const RANGES = [
 
 const LIMIT = 300;
 
-// Default window fetched once on mount for panes that opt into auto-loading
-// (System Logs), so `available_units` and recent entries populate immediately.
-const AUTOLOAD_WINDOW_SECONDS = 3600;
+// Window pulled by the one automatic fetch a pane makes: the first time it is
+// opened for a device that has no logs cached yet.
+const FIRST_OPEN_WINDOW_SECONDS = 3600;
 
 interface TimeWindow {
   from: string;
@@ -32,17 +32,19 @@ interface TimeWindow {
 }
 
 interface LogExplorerProps {
-  deviceId: string;
+  readonly deviceId: string;
   /** Which pane this instance drives (independent per-source store state). */
-  source: LogPaneSource;
+  readonly source: LogPaneSource;
   /** Card heading. */
-  title: string;
+  readonly title: string;
   /** System logs only: show the auto-detected unit dropdown + `target` column. */
-  showUnitFilter?: boolean;
+  readonly showUnitFilter?: boolean;
   /** Correlation jump: pre-filter the explorer to this window and fetch it. */
-  focusWindow?: TimeWindow | null;
-  /** Fetch the most-recent default window once on mount (System Logs opt-in). */
-  autoLoadOnMount?: boolean;
+  readonly focusWindow?: TimeWindow | null;
+  /** Start closed, so opening a device page costs nothing (System Logs opt-in). */
+  readonly startCollapsed?: boolean;
+  /** On the first open with an empty cache, pull the most-recent default window. */
+  readonly loadOnFirstOpen?: boolean;
 }
 
 function formatWindow(w: TimeWindow): string {
@@ -56,7 +58,7 @@ function formatWindow(w: TimeWindow): string {
  * an auto-detected unit dropdown and a clickable `target` column. Each source
  * reads and writes its own slice of the store, so the two panes never clobber.
  */
-export function LogExplorer({ deviceId, source, title, showUnitFilter = false, focusWindow = null, autoLoadOnMount = false }: LogExplorerProps) {
+export function LogExplorer({ deviceId, source, title, showUnitFilter = false, focusWindow = null, startCollapsed = false, loadOnFirstOpen = false }: LogExplorerProps) {
   // Explicit source selection (not `s.logs[source]`) so the security linter can
   // see the access is over a fixed, closed key set.
   const logs = useDeviceStore((s) => (source === 'agent' ? s.logs.agent : s.logs.system));
@@ -68,7 +70,7 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
   const [unit, setUnit] = useState('');
   const [offset, setOffset] = useState(0);
   const [timeWindow, setTimeWindow] = useState<TimeWindow | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(startCollapsed);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const runFetch = useCallback((nextOffset: number, lvl: string, win: TimeWindow | null, unitFilter: string) => {
@@ -99,11 +101,18 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
 
   const clearWindow = useCallback(() => { setTimeWindow(null); runFetch(0, level, null, unit); }, [runFetch, level, unit]);
 
+  const refresh = useCallback(() => { runFetch(0, level, timeWindow, unit); }, [runFetch, level, timeWindow, unit]);
+
   // Correlation jump: apply an incoming focus window, fetch it, and scroll in.
   // The action is captured in a ref so the effect fires only on window change.
   const applyFocusRef = useRef<(w: TimeWindow) => void>(() => undefined);
   useEffect(() => {
-    applyFocusRef.current = (w: TimeWindow) => { setTimeWindow(w); runFetch(0, level, w, unit); };
+    applyFocusRef.current = (w: TimeWindow) => {
+      // A drilled-to window opens the pane: the operator asked for these lines.
+      setCollapsed(false);
+      setTimeWindow(w);
+      runFetch(0, level, w, unit);
+    };
   });
   useEffect(() => {
     if (!focusWindow) return;
@@ -111,15 +120,19 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
     containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [focusWindow]);
 
-  // Populate `available_units` + recent entries on mount for opted-in panes,
-  // fetching the most-recent default window exactly once. A correlation
-  // focusWindow drives its own initial fetch, so it wins and this is skipped.
-  const didAutoLoadRef = useRef(false);
+  // The single automatic pull an opted-in pane makes: the first time it is
+  // opened with nothing cached for this device, fetch the recent default window
+  // so `available_units` and entries are there. Everything after that is
+  // manual — a range button, a filter, or Refresh. Re-opening a device page
+  // renders the cached response and pulls nothing. A correlation focusWindow
+  // drives its own fetch, so it wins and this is skipped.
+  const hasLogs = logs !== null;
+  const didFirstOpenLoadRef = useRef(false);
   useEffect(() => {
-    if (!autoLoadOnMount || focusWindow || didAutoLoadRef.current) return;
-    didAutoLoadRef.current = true;
-    selectRange(AUTOLOAD_WINDOW_SECONDS);
-  }, [autoLoadOnMount, focusWindow, selectRange]);
+    if (!loadOnFirstOpen || collapsed || focusWindow || hasLogs || didFirstOpenLoadRef.current) return;
+    didFirstOpenLoadRef.current = true;
+    selectRange(FIRST_OPEN_WINDOW_SECONDS);
+  }, [loadOnFirstOpen, collapsed, focusWindow, hasLogs, selectRange]);
 
   // Level facets over the returned page — a point-and-click quick filter.
   const facets = useMemo(() => {
@@ -140,147 +153,165 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
           aria-label={collapsed ? `Expand ${title}` : `Collapse ${title}`}
           className="text-sm font-semibold text-gray-300 flex items-center gap-2"
         >
-          <span className={`text-xs transition-transform ${collapsed ? '' : 'rotate-90'}`}>&#9654;</span>
+          <span className={`text-xs transition-transform ${collapsed ? '' : 'rotate-90'}`} aria-hidden="true">&#9654;</span>
           {title}
         </button>
-        {logsLoading && <span className="text-xs text-gray-500">Fetching…</span>}
+        <div className="flex items-center gap-2">
+          {logsLoading && <span className="text-xs text-gray-500">Fetching…</span>}
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={refresh}
+              disabled={logsLoading}
+              aria-label={`Refresh ${title}`}
+              title={`Refresh ${title}`}
+              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium disabled:opacity-50 inline-flex items-center"
+            >
+              {logsLoading ? <SpinnerIcon /> : <RefreshIcon />}
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="flex gap-2 mb-2 flex-wrap">
-        <select
-          value={level}
-          onChange={(e) => selectLevel(e.target.value)}
-          aria-label="Severity"
-          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs"
-        >
-          {levels.map((l) => (
-            <option key={l} value={l}>{l || 'All Levels'}</option>
-          ))}
-        </select>
-        {showUnitFilter && (
+      {collapsed ? null : (
+        <>
+        <div className="flex gap-2 mb-2 flex-wrap">
           <select
-            value={unit}
-            onChange={(e) => selectUnit(e.target.value)}
-            aria-label="Unit"
-            className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs max-w-48"
+            value={level}
+            onChange={(e) => selectLevel(e.target.value)}
+            aria-label="Severity"
+            className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs"
           >
-            <option value="">All units</option>
-            {availableUnits.map((u) => (
-              <option key={u} value={u}>{u}</option>
+            {levels.map((l) => (
+              <option key={l} value={l}>{l || 'All Levels'}</option>
             ))}
           </select>
-        )}
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') runFetch(0, level, timeWindow, unit); }}
-          placeholder="Search keyword..."
-          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs flex-1"
-        />
-      </div>
-
-      <div className="flex items-center gap-1 mb-2 flex-wrap">
-        <span className="text-[10px] text-gray-500 mr-1">Window:</span>
-        {RANGES.map((r) => (
-          <button
-            key={r.key}
-            type="button"
-            onClick={() => selectRange(r.seconds)}
-            className="px-2 py-0.5 rounded text-[11px] bg-gray-700 text-gray-300 hover:bg-gray-600"
-          >
-            {r.key}
-          </button>
-        ))}
-        {timeWindow && (
-          <button
-            type="button"
-            onClick={clearWindow}
-            className="px-2 py-0.5 rounded text-[11px] bg-blue-900/60 text-blue-200 hover:bg-blue-900"
-            title={formatWindow(timeWindow)}
-          >
-            {formatWindow(timeWindow)} ✕
-          </button>
-        )}
-      </div>
-
-      {facets.length > 0 && (
-        <div className="flex items-center gap-1 mb-2 flex-wrap">
-          {facets.map(([lvl, count]) => (
-            <button
-              key={lvl}
-              type="button"
-              onClick={() => selectLevel(level === lvl ? '' : lvl)}
-              className={`px-2 py-0.5 rounded text-[11px] ${level === lvl ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600'} ${levelColors.get(lvl) ?? ''}`}
+          {showUnitFilter && (
+            <select
+              value={unit}
+              onChange={(e) => selectUnit(e.target.value)}
+              aria-label="Unit"
+              className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs max-w-48"
             >
-              {lvl} {count}
+              <option value="">All units</option>
+              {availableUnits.map((u) => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+          )}
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') runFetch(0, level, timeWindow, unit); }}
+            placeholder="Search keyword..."
+            className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs flex-1"
+          />
+        </div>
+
+        <div className="flex items-center gap-1 mb-2 flex-wrap">
+          <span className="text-[10px] text-gray-500 mr-1">Window:</span>
+          {RANGES.map((r) => (
+            <button
+              key={r.key}
+              type="button"
+              onClick={() => selectRange(r.seconds)}
+              className="px-2 py-0.5 rounded text-[11px] bg-gray-700 text-gray-300 hover:bg-gray-600"
+            >
+              {r.key}
             </button>
           ))}
+          {timeWindow && (
+            <button
+              type="button"
+              onClick={clearWindow}
+              className="px-2 py-0.5 rounded text-[11px] bg-blue-900/60 text-blue-200 hover:bg-blue-900"
+              title={formatWindow(timeWindow)}
+            >
+              {formatWindow(timeWindow)} ✕
+            </button>
+          )}
         </div>
-      )}
 
-      {collapsed ? null : logs && logs.entries.length > 0 ? (
-        <>
-          <div className="resize-y overflow-auto min-h-24 max-h-160 h-96 bg-gray-900 border border-gray-700 rounded p-2">
-            <table className="w-full font-mono text-xs">
-              <tbody>
-                {logs.entries.map((entry, i) => (
-                  <tr key={`${entry.timestamp}-${String(i)}`} className="hover:bg-gray-800">
-                    <td className="pr-2 text-gray-500 whitespace-nowrap align-top">{entry.timestamp}</td>
-                    <td className={`pr-2 font-semibold whitespace-nowrap align-top ${levelColors.get(entry.level) ?? 'text-gray-400'}`}>
-                      {entry.level.padEnd(5)}
-                    </td>
-                    {showUnitFilter && (
-                      <td className="pr-2 whitespace-nowrap align-top">
-                        {entry.target ? (
-                          <button
-                            type="button"
-                            onClick={() => selectUnit(entry.target)}
-                            title={`Filter to ${entry.target}`}
-                            className="text-cyan-400 hover:underline"
-                          >
-                            {entry.target}
-                          </button>
-                        ) : (
-                          <span className="text-gray-600">—</span>
-                        )}
+        {facets.length > 0 && (
+          <div className="flex items-center gap-1 mb-2 flex-wrap">
+            {facets.map(([lvl, count]) => (
+              <button
+                key={lvl}
+                type="button"
+                onClick={() => selectLevel(level === lvl ? '' : lvl)}
+                className={`px-2 py-0.5 rounded text-[11px] ${level === lvl ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600'} ${levelColors.get(lvl) ?? ''}`}
+              >
+                {lvl} {count}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {logs && (logs.entries.length > 0 ? (
+          <>
+            <div className="resize-y overflow-auto min-h-24 max-h-160 h-96 bg-gray-900 border border-gray-700 rounded p-2">
+              <table className="w-full font-mono text-xs">
+                <tbody>
+                  {logs.entries.map((entry, i) => (
+                    <tr key={`${entry.timestamp}-${String(i)}`} className="hover:bg-gray-800">
+                      <td className="pr-2 text-gray-500 whitespace-nowrap align-top">{entry.timestamp}</td>
+                      <td className={`pr-2 font-semibold whitespace-nowrap align-top ${levelColors.get(entry.level) ?? 'text-gray-400'}`}>
+                        {entry.level.padEnd(5)}
                       </td>
-                    )}
-                    <td className="text-gray-300 whitespace-pre-wrap break-all">{entry.message}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
-            <span>
-              Showing {offset + 1}-{Math.min(offset + logs.entries.length, logs.total)} of {logs.total}
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={handlePrevPage}
-                disabled={offset === 0 || logsLoading}
-                aria-label="Previous page"
-                className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 rounded disabled:opacity-50 inline-flex items-center"
-              >
-                <ChevronLeftIcon />
-              </button>
-              <button
-                type="button"
-                onClick={handleNextPage}
-                disabled={!logs.has_more || logsLoading}
-                aria-label="Next page"
-                className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 rounded disabled:opacity-50 inline-flex items-center"
-              >
-                <ChevronRightIcon />
-              </button>
+                      {showUnitFilter && (
+                        <td className="pr-2 whitespace-nowrap align-top">
+                          {entry.target ? (
+                            <button
+                              type="button"
+                              onClick={() => selectUnit(entry.target)}
+                              title={`Filter to ${entry.target}`}
+                              className="text-cyan-400 hover:underline"
+                            >
+                              {entry.target}
+                            </button>
+                          ) : (
+                            <span className="text-gray-600">—</span>
+                          )}
+                        </td>
+                      )}
+                      <td className="text-gray-300 whitespace-pre-wrap break-all">{entry.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>
+            <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
+              <span>
+                Showing {offset + 1}-{Math.min(offset + logs.entries.length, logs.total)} of {logs.total}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handlePrevPage}
+                  disabled={offset === 0 || logsLoading}
+                  aria-label="Previous page"
+                  className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded disabled:opacity-50 inline-flex items-center"
+                >
+                  <ChevronLeftIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNextPage}
+                  disabled={!logs.has_more || logsLoading}
+                  aria-label="Next page"
+                  className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded disabled:opacity-50 inline-flex items-center"
+                >
+                  <ChevronRightIcon />
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-gray-500">No logs available</p>
+        ))}
         </>
-      ) : logs && logs.entries.length === 0 ? (
-        <p className="text-xs text-gray-500">No logs available</p>
-      ) : null}
+      )}
     </div>
   );
 }

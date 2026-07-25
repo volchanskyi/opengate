@@ -4,6 +4,7 @@ import { StatusBadge } from './StatusBadge';
 import { HealthBadge } from './HealthBadge';
 import { MaintenanceBadge } from './MaintenanceBadge';
 import { useInventoryStore } from './state/inventory-store';
+import { startDeviceDrag } from './device-drag';
 import { fireAndForget } from '../../lib/fire-and-forget';
 
 type Device = components['schemas']['Device'];
@@ -31,7 +32,10 @@ export function DeviceCard({ device }: Readonly<{ device: Device }>) {
     <button
       type="button"
       onClick={() => { fireAndForget(navigate(`/devices/${device.id}`)); }}
-      className="w-full text-left bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-gray-500 transition-colors"
+      draggable
+      onDragStart={(e) => { startDeviceDrag(e.dataTransfer, device); }}
+      title={`Open ${device.hostname} — or drag onto a group to move it`}
+      className="w-full text-left bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-gray-500 transition-colors cursor-grab active:cursor-grabbing"
     >
       <div className="flex items-center justify-between mb-2 gap-2">
         <h3 className="font-medium truncate">{device.hostname}</h3>
