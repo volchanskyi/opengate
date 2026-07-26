@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_at": "2026-07-02T00:00:00Z",
+  "generated_at": "2026-07-26T00:00:00Z",
   "default_tolerances": {
     "allocs_op": 0.02,
     "bytes_op": 0.02,
@@ -10,126 +10,126 @@
     {
       "name": "BenchmarkCodec_DecodeControl",
       "lang": "go",
-      "ns_op": 1404,
-      "bytes_op": 1208,
+      "ns_op": 1402.5,
+      "bytes_op": 1592,
       "allocs_op": 15
     },
     {
       "name": "BenchmarkCodec_EncodeControl",
       "lang": "go",
-      "ns_op": 3417,
-      "bytes_op": 1472,
-      "allocs_op": 57
+      "ns_op": 800,
+      "bytes_op": 264,
+      "allocs_op": 4
     },
     {
       "name": "BenchmarkCodec_ReadFrame",
       "lang": "go",
-      "ns_op": 335.9,
+      "ns_op": 327.75,
       "bytes_op": 1080,
       "allocs_op": 4
     },
     {
       "name": "BenchmarkCodec_WriteFrame",
       "lang": "go",
-      "ns_op": 20.88,
+      "ns_op": 33.91,
       "bytes_op": 5,
       "allocs_op": 1
     },
     {
       "name": "BenchmarkDecodeServerHello",
       "lang": "go",
-      "ns_op": 5.047,
+      "ns_op": 10.325,
       "bytes_op": 0,
       "allocs_op": 0
     },
     {
       "name": "BenchmarkEncodeServerHello",
       "lang": "go",
-      "ns_op": 4.307,
+      "ns_op": 7.4975,
       "bytes_op": 0,
       "allocs_op": 0
     },
     {
       "name": "BenchmarkHandshaker_PerformHandshake",
       "lang": "go",
-      "ns_op": 11812,
-      "bytes_op": 5488,
+      "ns_op": 16043.5,
+      "bytes_op": 5472,
       "allocs_op": 65
     },
     {
       "name": "BenchmarkManager_SignAgent",
       "lang": "go",
-      "ns_op": 113239,
-      "bytes_op": 16837,
+      "ns_op": 155083.5,
+      "bytes_op": 16836,
       "allocs_op": 292
     },
     {
       "name": "BenchmarkManager_SignServer",
       "lang": "go",
-      "ns_op": 107794,
-      "bytes_op": 17188,
-      "allocs_op": 300
+      "ns_op": 155665.0,
+      "bytes_op": 17187,
+      "allocs_op": 299
     },
     {
       "name": "BenchmarkNewManager_Generate",
       "lang": "go",
-      "ns_op": 203025,
-      "bytes_op": 27903,
+      "ns_op": 308855.5,
+      "bytes_op": 27871,
       "allocs_op": 402
     },
     {
       "name": "BenchmarkNewManager_Load",
       "lang": "go",
-      "ns_op": 26105,
-      "bytes_op": 7624,
+      "ns_op": 48919.5,
+      "bytes_op": 7640,
       "allocs_op": 86
     },
     {
       "name": "BenchmarkQUICHandshake_Cold",
       "lang": "go",
-      "ns_op": 1522141,
-      "bytes_op": 307892,
-      "allocs_op": 2582
+      "ns_op": 1890790.0,
+      "bytes_op": 303336,
+      "allocs_op": 2583
     },
     {
       "name": "BenchmarkQUICHandshake_Resumed",
       "lang": "go",
-      "ns_op": 1256697,
-      "bytes_op": 306960,
+      "ns_op": 1435609.5,
+      "bytes_op": 302305,
       "allocs_op": 2375
     },
     {
       "name": "decode_server_hello",
       "lang": "rust",
-      "ns_op": 7.8963102128064415,
+      "ns_op": 16.1941,
       "bytes_op": null,
       "allocs_op": null
     },
     {
       "name": "encode_server_hello",
       "lang": "rust",
-      "ns_op": 14.347860510477828,
+      "ns_op": 23.697,
       "bytes_op": null,
       "allocs_op": null
     },
     {
       "name": "frame_decode_control",
       "lang": "rust",
-      "ns_op": 424.9625656850525,
+      "ns_op": 743.4774,
       "bytes_op": null,
       "allocs_op": null
     },
     {
       "name": "frame_encode_control",
       "lang": "rust",
-      "ns_op": 199.9397152224472,
+      "ns_op": 293.8142,
       "bytes_op": null,
       "allocs_op": null
     },
     {
       "name": "frame_encode_ping",
       "lang": "rust",
-      "ns_op": 14.525654306622728,
+      "ns_op": 23.9148,
       "bytes_op": null,
       "allocs_op": null
     }

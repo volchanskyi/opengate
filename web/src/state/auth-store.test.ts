@@ -65,8 +65,9 @@ describe('auth store', () => {
   });
 
   it('register stores token and fetches user', async () => {
+    const token = jwtWithOrg('33333333-3333-3333-3333-333333333333');
     mockPost.mockResolvedValueOnce({
-      data: { token: 'jwt-456' },
+      data: { token },
       error: undefined,
     });
     mockGet.mockResolvedValueOnce({
@@ -77,7 +78,9 @@ describe('auth store', () => {
 
     await useAuthStore.getState().register('b@c.com', 'pass', 'B');
 
-    expect(localStorage.getItem('token')).toBe('jwt-456');
+    expect(localStorage.getItem('token')).toBe(token);
+    expect(useAuthStore.getState().token).toBe(token);
+    expect(useAuthStore.getState().orgId).toBe('33333333-3333-3333-3333-333333333333');
     expect(useAuthStore.getState().user?.display_name).toBe('B');
   });
 
@@ -143,8 +146,47 @@ describe('auth store', () => {
     expect(localStorage.getItem('token')).toBeNull();
   });
 
+  it('keeps the session when fetchMe fails for a reason other than 401', async () => {
+    useAuthStore.setState({ token: 'live-token' });
+    localStorage.setItem('token', 'live-token');
+    mockGet.mockResolvedValueOnce({
+      data: undefined,
+      error: { error: 'upstream unavailable' },
+      response: { status: 503 },
+    });
+
+    await useAuthStore.getState().fetchMe();
+
+    expect(useAuthStore.getState().token).toBe('live-token');
+    expect(localStorage.getItem('token')).toBe('live-token');
+  });
+
   it('orgIdFromToken fails closed on malformed tokens', () => {
     expect(orgIdFromToken('not-a-jwt')).toBeNull();
     expect(orgIdFromToken('a.b.c')).toBeNull();
+  });
+
+  it('orgIdFromToken decodes a base64url payload needing both substitutions and padding', () => {
+    // This org encodes to a payload carrying '-' and '_' (base64url's stand-ins
+    // for '+' and '/') whose length is not a multiple of four, so decoding it
+    // exercises both character substitutions and the '=' padding together.
+    const org = '_%Y~NBDRz?rZS';
+    const token = jwtWithOrg(org);
+    const payload = token.split('.')[1] ?? '';
+    expect(payload).toContain('-');
+    expect(payload).toContain('_');
+    expect(payload.length % 4).not.toBe(0);
+
+    expect(orgIdFromToken(token)).toBe(org);
+  });
+
+  it('orgIdFromToken treats an absent, empty, or non-string org as no org', () => {
+    const encode = (value: object) =>
+      btoa(JSON.stringify(value)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+    const tokenWithClaims = (claims: object) => `${encode({ alg: 'none' })}.${encode(claims)}.sig`;
+
+    expect(orgIdFromToken(tokenWithClaims({}))).toBeNull();
+    expect(orgIdFromToken(jwtWithOrg(''))).toBeNull();
+    expect(orgIdFromToken(tokenWithClaims({ org: 42 }))).toBeNull();
   });
 });

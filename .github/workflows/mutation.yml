@@ -87,15 +87,19 @@ jobs:
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
+      # Only the Go legs pull an image, so only they need the registry mirror.
       - uses: ./.github/actions/docker-hub-mirror
+        if: matrix.language == 'go'
         with:
           dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
           dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
-      # Only the Go matrix leg needs Postgres, but launch is cheap (~5s)
-      # and uniform across legs simplifies the conditional. `-c
+      # Postgres backs the Go legs only; the Rust and web legs never open a
+      # connection, so starting it there costs an image pull and a container for
+      # nothing and puts a registry dependency on legs that have none. `-c
       # max_connections=400` is required so the parallel per-schema test
       # store pattern in testutil.NewTestStore stays within the conn budget.
       - name: Start Postgres with max_connections=400
+        if: matrix.language == 'go'
         run: |
           docker run -d --rm --name pg-ci \
             -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
@@ -251,6 +255,12 @@ jobs:
     environment: observability
     permissions:
       contents: read
+    # This job's result is the observability environment's deployment status. It
+    # covers collecting and publishing the scores (an incomplete artifact set is
+    # a genuine publish failure); the score verdict is the separate gate job
+    # below, so a real score regression does not read as a broken environment.
+    outputs:
+      regression: ${{ steps.summarize.outputs.regression }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -492,11 +502,27 @@ jobs:
           fi
           echo "Telegram alert delivered ✓"
 
+  # Separate from publish so a Telegram outage cannot suppress the failure
+  # signal, and so the score verdict is not recorded against the observability
+  # environment: the regression is the reason the run is red, not the
+  # notification channel and not the publishing step.
+  gate:
+    name: Mutation score gate
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
       - name: Fail workflow red on regression
-        if: always() && steps.summarize.outputs.regression == '1'
-        # `always()` so a Telegram outage above doesn't suppress the actual
-        # workflow failure signal — the regression is the reason this run is
-        # red, not the notification channel.
         run: |
-          echo "Regression detected — see workflow summary and Telegram alert (if delivered) above."
-          exit 1
+          if [ "${{ needs.publish.result }}" != "success" ]; then
+            echo "::error::Mutation results were not published; see the publish job."
+            exit 1
+          fi
+          if [ "${{ needs.publish.outputs.regression }}" = "1" ]; then
+            echo "::error::Mutation score regression — see workflow summary and Telegram alert (if delivered)."
+            exit 1
+          fi
+          echo "No mutation score regression."

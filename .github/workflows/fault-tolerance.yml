@@ -6,29 +6,16 @@ name: Fault Tolerance Drills
 # in-process app-fault suite gates separately as an ordinary Go test in CI
 # (make test) — this workflow owns only the deployed drills.
 #
-# Reachable two ways:
-#   * workflow_call — invoked by cd.yml after staging E2E, gated by the
-#     STAGING_FAULT_TESTS repo variable, so activation is config-only.
-#   * workflow_dispatch — a manual drill against staging.
+# Reached one way: workflow_call from cd.yml after staging E2E, gated by the
+# STAGING_FAULT_TESTS repo variable, so activation is config-only and every
+# drill is tied to a deploy that is about to be promoted.
 #
 # The scenario is always one of an enumerated allow-list; a runtime guard
 # re-validates it so the workflow_call string path (a repo variable) can never
 # smuggle a free-form scenario into staging. Deeper on-demand network drills are
-# run manually from their own tooling, never wired into this gating path.
+# run from their own tooling, never wired into this gating path.
 
 on:
-  workflow_dispatch:
-    inputs:
-      scenario:
-        description: "Staging fault scenario to run"
-        required: true
-        type: choice
-        default: pod-delete
-        options:
-          - pod-delete
-          - bad-rollout
-          - ingress-504
-          - ingress-502
   workflow_call:
     inputs:
       scenario:

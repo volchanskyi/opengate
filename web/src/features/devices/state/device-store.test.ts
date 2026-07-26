@@ -655,8 +655,30 @@ describe('device store', () => {
 
     const devices = useDeviceStore.getState().devices;
     expect(devices.find((d) => d.id === 'd1')?.maintenance_on).toBe(true);
-    // The sibling device is untouched — kills a mutant that rewrites every row.
+    // Identity of every row is preserved. Asserting on find() alone is not
+    // enough: a mutant that rewrites every row to the response leaves no 'd2' to
+    // find, and an assertion on the missing row's field passes vacuously.
+    expect(devices.map((d) => d.id)).toEqual(['d1', 'd2']);
+    expect(devices.find((d) => d.id === 'd2')?.hostname).toBe('other');
     expect(devices.find((d) => d.id === 'd2')?.maintenance_on).toBeUndefined();
+  });
+
+  it('setMaintenance leaves a different selected device alone', async () => {
+    const selected = deviceIn({ id: 'd2', hostname: 'other' });
+    useDeviceStore.setState({
+      devices: [deviceIn({ id: 'd1' }), selected],
+      selectedDevice: selected,
+    });
+    mockPost.mockResolvedValueOnce({
+      data: deviceIn({ id: 'd1', maintenance_on: true }),
+      error: undefined,
+    });
+
+    await useDeviceStore.getState().setMaintenance('d1', true);
+
+    // The response describes d1, so the pane showing d2 must not adopt it.
+    expect(useDeviceStore.getState().selectedDevice?.id).toBe('d2');
+    expect(useDeviceStore.getState().selectedDevice?.maintenance_on).toBeUndefined();
   });
 
   it('setMaintenance returns false and does not mutate on error', async () => {
@@ -719,6 +741,24 @@ describe('device store', () => {
     // Re-opening the same device serves the cache — no refetch, no 409.
     expect(useDeviceStore.getState().logs.system).toEqual(cached);
     expect(useDeviceStore.getState().logsDeviceId.system).toBe('d1');
+  });
+
+  it('fetchDevice keeps a cached agent pane independently of the system pane', async () => {
+    const cached = { entries: [{ timestamp: 't', level: 'INFO', target: 'x', message: 'm' }], total: 1, has_more: false };
+    useDeviceStore.setState({
+      logs: { agent: cached, system: null },
+      logsDeviceId: { agent: 'd1', system: null },
+    });
+    mockGet.mockResolvedValueOnce({ data: { id: 'd1', hostname: 'host1' }, error: undefined });
+
+    await useDeviceStore.getState().fetchDevice('d1');
+
+    // Each pane carries its own device id, so the agent pane must survive on its
+    // own — exercising only the system pane leaves this branch unverified.
+    expect(useDeviceStore.getState().logs.agent).toEqual(cached);
+    expect(useDeviceStore.getState().logsDeviceId.agent).toBe('d1');
+    expect(useDeviceStore.getState().logs.system).toBeNull();
+    expect(useDeviceStore.getState().logsDeviceId.system).toBeNull();
   });
 
   it('fetchDevice drops a cached log pane belonging to another device', async () => {

@@ -109,9 +109,16 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # This job's result is the observability environment's deployment status, so
+    # it reports only whether the trend was collected and published. The
+    # regression verdict is a separate job below: a regression is a finding about
+    # the code, not a failure to publish, and folding it in here would mark the
+    # environment red for a healthy pipeline that did its job.
     environment: observability
     permissions:
       contents: read
+    outputs:
+      regression: ${{ steps.summarize.outputs.regression }}
     steps:
       - uses: actions/checkout@v7
 
@@ -284,8 +291,23 @@ jobs:
           fi
           echo "Telegram alert delivered ✓"
 
+  gate:
+    name: Benchmark regression gate
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
       - name: Fail workflow red on regression
-        if: always() && steps.summarize.outputs.regression == '1'
         run: |
-          echo "Benchmark regression detected (allocs/bytes vs committed baseline, or ns/op vs VM window baseline / absolute ceiling) — see workflow summary and Telegram alert (if delivered) above."
-          exit 1
+          if [ "${{ needs.publish.result }}" != "success" ]; then
+            echo "::error::Benchmark trend publishing did not succeed; see the publish job."
+            exit 1
+          fi
+          if [ "${{ needs.publish.outputs.regression }}" = "1" ]; then
+            echo "::error::Benchmark regression detected (allocs/bytes vs committed baseline, or ns/op vs VM window baseline / absolute ceiling) — see workflow summary and Telegram alert (if delivered)."
+            exit 1
+          fi
+          echo "No benchmark regression."
