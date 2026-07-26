@@ -190,11 +190,9 @@ func main() {
 	// local while both connection sides pair in this process.
 	agentRelay := relay.NewRelay(logger)
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
 		// A row the stale-session sweep already collected is the expected race,
 		// not a failure — the session is gone either way.
-		if err := sessionsRepo.Delete(ctx, string(token)); err != nil && !errors.Is(err, session.ErrSessionNotFound) {
+		if err := cleanupRelaySession(sessionsRepo, token); err != nil && !errors.Is(err, session.ErrSessionNotFound) {
 			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
 		}
 	}
@@ -462,6 +460,12 @@ const sessionGracePeriod = 5 * time.Minute
 
 // sessionSweepInterval is how often the stale-session sweep runs.
 const sessionSweepInterval = time.Minute
+
+func cleanupRelaySession(repo session.Repository, token protocol.SessionToken) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return repo.DeleteRelaySession(ctx, string(token))
+}
 
 // liveRelayTokens adapts the relay's live token set to the plain strings the
 // session store keys on.

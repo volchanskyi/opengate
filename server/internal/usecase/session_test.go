@@ -42,6 +42,9 @@ func (f *fakeSessions) Delete(_ context.Context, token string) error {
 	delete(f.stored, token)
 	return nil
 }
+func (f *fakeSessions) DeleteRelaySession(ctx context.Context, token string) error {
+	return f.Delete(ctx, token)
+}
 func (f *fakeSessions) ListActiveForDevice(context.Context, uuid.UUID) ([]*session.Session, error) {
 	return nil, nil
 }

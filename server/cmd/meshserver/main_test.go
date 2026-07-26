@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -78,4 +79,31 @@ func TestStartSessionSweepLoop_SweepsAtBootThenStops(t *testing.T) {
 func TestSessionSweepTiming(t *testing.T) {
 	assert.Positive(t, sessionSweepInterval)
 	assert.Less(t, sessionSweepInterval, sessionGracePeriod)
+}
+
+type relayCleanupRepo struct {
+	session.Repository
+	token string
+	err   error
+}
+
+func (r *relayCleanupRepo) DeleteRelaySession(_ context.Context, token string) error {
+	r.token = token
+	return r.err
+}
+
+func TestCleanupRelaySessionUsesBackgroundDelete(t *testing.T) {
+	token := protocol.GenerateSessionToken()
+
+	t.Run("deletes by relay token", func(t *testing.T) {
+		repo := &relayCleanupRepo{}
+		require.NoError(t, cleanupRelaySession(repo, token))
+		assert.Equal(t, string(token), repo.token)
+	})
+
+	t.Run("propagates repository failure", func(t *testing.T) {
+		want := errors.New("delete failed")
+		repo := &relayCleanupRepo{err: want}
+		assert.ErrorIs(t, cleanupRelaySession(repo, token), want)
+	})
 }

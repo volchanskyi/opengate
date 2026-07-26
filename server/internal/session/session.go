@@ -29,6 +29,10 @@ type Repository interface {
 	Create(ctx context.Context, s *Session) error
 	Get(ctx context.Context, token string) (*Session, error)
 	Delete(ctx context.Context, token string) error
+	// DeleteRelaySession removes one ended relay session by its globally unique
+	// token. It carries its own admin scope because relay teardown outlives both
+	// request contexts and therefore has no request tenant.
+	DeleteRelaySession(ctx context.Context, token string) error
 	ListActiveForDevice(ctx context.Context, deviceID uuid.UUID) ([]*Session, error)
 	// DeleteStale removes every session created before cutoff whose token is
 	// absent from keep, across all organizations, and reports how many rows it

@@ -185,14 +185,17 @@ sequenceDiagram
 3. Both sides connect to the relay WebSocket at `/ws/relay/{token}` with their side parameter
 4. The relay pipes binary frames bidirectionally — desktop, terminal, file, and control frames all flow through the same connection
 5. Browser authenticates via `?auth=<jwt>` query parameter (browser WebSocket API cannot set custom headers)
-6. On disconnect, the relay's `OnSessionEnd` callback deletes the DB session record, keeping the session table consistent with active connections
+6. When the relay releases a token, its `OnSessionEnd` callback deletes the DB session record through a background, relay-scoped repository operation, keeping the session table consistent with active connections
 
 ### Relay Limits and Cleanup
 
 - **Max message size**: 4 MiB per WebSocket message (prevents memory exhaustion from oversized frames)
 - **Orphaned session cleanup**: When a relay send to an agent fails, the server automatically cleans up the orphaned session record from the database
-- **Unpaired release**: A side that connects and leaves before its peer arrives never reaches the pipe, so the relay handler releases it explicitly — dropping the entry, the active-session count and the session row together
+- **Bounded unpaired release**: The relay bounds how long either side may wait for its peer. If that deadline expires, the handler releases the token — dropping the entry, the active-session count and the session row together
+- **Background row deletion**: `OnSessionEnd` deletes by globally unique token through the relay-scoped repository path, so cleanup is not tied to a disconnected request's tenant context. Relay bookkeeping and row cleanup run before a potentially blocking graceful WebSocket close
 - **Stale-session sweep**: A periodic sweep deletes session rows the relay no longer holds once they pass a grace period, which collects tokens that were issued but never connected and rows left behind by a process restart. Live sessions are named by the relay's active-token set and are never swept, however long they run
+
+See [ADR-059](adr/ADR-059-agent-session-row-lifecycle.md) for the cleanup invariants and failure recovery design.
 
 ### Relay Observability
 
@@ -216,8 +219,9 @@ The relay WebSocket route passes through global HTTP middleware (metrics, securi
 ## Session Lifecycle
 
 End-to-end view of a browser↔agent session: establish (REST + control plane),
-stream (bidirectional frames over the relay), and teardown (relay `OnSessionEnd`
-deletes the session row so the table tracks live connections).
+stream (bidirectional frames over the relay), and teardown. A paired session ends
+when either connection leaves; an unpaired session ends when its peer wait expires.
+Both paths release relay state and delete the session row.
 
 ```mermaid
 sequenceDiagram
@@ -226,6 +230,7 @@ sequenceDiagram
   participant AgentAPI
   participant Agent
   participant Relay
+  participant Sessions as Session store
 
   Note over Browser,Relay: Establish
   Browser->>REST: POST /api/v1/sessions
@@ -234,19 +239,24 @@ sequenceDiagram
   Agent-->>AgentAPI: SessionAccept
   REST-->>Browser: token + relay_url
   Browser->>Relay: connect ?side=browser&auth=jwt
-  Agent->>Relay: connect ?side=agent
-
-  Note over Browser,Relay: Stream
-  loop active session
-    Agent-->>Relay: desktop / terminal / file frames
-    Relay-->>Browser: agent frames
-    Browser->>Relay: input / control frames
-    Relay->>Agent: browser frames
+  opt agent accepts before peer deadline
+    Agent->>Relay: connect ?side=agent
   end
 
-  Note over Browser,Relay: Teardown
-  Browser-)Relay: disconnect
-  Relay->>REST: OnSessionEnd (delete session row)
+  alt both sides connected
+    Note over Browser,Relay: Stream
+    loop active session
+      Agent-->>Relay: desktop / terminal / file frames
+      Relay-->>Browser: agent frames
+      Browser->>Relay: input / control frames
+      Relay->>Agent: browser frames
+    end
+    Note over Browser,Relay: Teardown
+    Browser-)Relay: disconnect
+  else peer missing
+    Relay->>Relay: peer wait expires; unregister token
+  end
+  Relay->>Sessions: OnSessionEnd → delete by token
   Note over Agent,Relay: agent returns to idle
 ```
 

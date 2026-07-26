@@ -121,12 +121,13 @@ func (f *fakeObserver) Observe(op string, d time.Duration, ok bool) {
 // memRepo is an in-memory session.Repository for testing the Instrumented
 // decorator and the Sweeper.
 type memRepo struct {
-	createErr error
-	getErr    error
-	listErr   error
-	deleteErr error
-	staleErr  error
-	sessions  map[string]*session.Session
+	createErr      error
+	getErr         error
+	listErr        error
+	deleteErr      error
+	relayDeleteErr error
+	staleErr       error
+	sessions       map[string]*session.Session
 
 	// staleCalls records every DeleteStale argument pair, in order.
 	staleCalls []staleCall
@@ -162,6 +163,10 @@ func (m *memRepo) Get(_ context.Context, token string) (*session.Session, error)
 }
 
 func (m *memRepo) Delete(_ context.Context, _ string) error { return m.deleteErr }
+
+func (m *memRepo) DeleteRelaySession(_ context.Context, _ string) error {
+	return m.relayDeleteErr
+}
 
 func (m *memRepo) ListActiveForDevice(_ context.Context, _ uuid.UUID) ([]*session.Session, error) {
 	if m.listErr != nil {
@@ -224,4 +229,17 @@ func TestInstrumented_ObservesDelete(t *testing.T) {
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "session.Delete", obs.calls[0].op)
+}
+
+func TestInstrumented_ObservesDeleteRelaySessionError(t *testing.T) {
+	t.Parallel()
+	obs := &fakeObserver{}
+	repo := session.NewInstrumented(&memRepo{relayDeleteErr: sql.ErrConnDone}, obs)
+
+	err := repo.DeleteRelaySession(context.Background(), "tok")
+	require.ErrorIs(t, err, sql.ErrConnDone)
+
+	require.Len(t, obs.calls, 1)
+	assert.Equal(t, "session.DeleteRelaySession", obs.calls[0].op)
+	assert.False(t, obs.calls[0].ok)
 }
