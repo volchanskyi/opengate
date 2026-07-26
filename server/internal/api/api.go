@@ -132,6 +132,10 @@ type ServerConfig struct {
 	WebDir                string // directory containing SPA static assets (optional)
 	MetricsRegistry       *prometheus.Registry
 	Metrics               *appmetrics.Metrics
+	// RequestTimeout bounds a single API request. Zero selects
+	// defaultRequestTimeout. Tests inject a short budget so timeout-boundary
+	// behavior is provable in milliseconds rather than in wall-clock seconds.
+	RequestTimeout time.Duration
 }
 
 // Server is the HTTP API server.
@@ -175,6 +179,7 @@ type Server struct {
 	metricsRegistry *prometheus.Registry
 	metrics         *appmetrics.Metrics
 	loginLimiter    *emailLimiter
+	requestTimeout  time.Duration
 }
 
 // resolveAuditHandlers returns the per-domain Handlers from cfg, or
@@ -278,6 +283,10 @@ func NewServer(cfg ServerConfig) *Server {
 		metricsRegistry: cfg.MetricsRegistry,
 		metrics:         cfg.Metrics,
 		loginLimiter:    newEmailLimiter(loginMaxFailures, loginFailureWindow),
+		requestTimeout:  cfg.RequestTimeout,
+	}
+	if s.requestTimeout <= 0 {
+		s.requestTimeout = defaultRequestTimeout
 	}
 	s.routes()
 	return s
@@ -334,7 +343,7 @@ func (s *Server) routes() {
 	// API routes in a group with rate limiting and request timeout.
 	// WebSocket routes stay outside so TimeoutHandler doesn't break upgrades.
 	r.Group(func(apiRouter chi.Router) {
-		apiRouter.Use(RequestTimeout(30 * time.Second))
+		apiRouter.Use(RequestTimeout(s.requestTimeout))
 		apiRouter.Use(RateLimiter(100, 200))
 
 		HandlerWithOptions(strictHandler, ChiServerOptions{

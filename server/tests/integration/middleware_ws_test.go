@@ -52,39 +52,69 @@ func TestWebSocketUpgradeThroughFullMiddlewareStack(t *testing.T) {
 	assert.Equal(t, payload2, data2)
 }
 
-// TestRelayRouteBypassesRequestTimeout verifies that the WebSocket relay
-// route lives outside the 30-second RequestTimeout middleware group.
-// A relay connection must survive longer than the API timeout. Instead of
-// sleeping silently for 32s the test exchanges heartbeats every 2s for the
-// duration, asserting the relay stays bidirectionally functional past the
-// 30s timeout point.
+// apiTimeoutUnderTest is the injected RequestTimeout for the two tests below.
+// It is short enough that "outlives the API timeout" costs ~1.5s of wall clock
+// instead of ~32s, and long enough that a healthy REST round-trip completes
+// inside it on a loaded CI runner.
+const apiTimeoutUnderTest = 150 * time.Millisecond
+
+// TestInjectedRequestTimeoutReachesAPIRoutes is the control for
+// TestRelayRouteBypassesRequestTimeout: it proves ServerConfig.RequestTimeout
+// actually reaches the middleware group. Without it, a mis-wired field would
+// leave the relay test asserting survival past a timeout that was never armed.
+// A 1ns budget cannot be met by any route that touches Postgres, so the group
+// must answer 503 from http.TimeoutHandler.
+func TestInjectedRequestTimeoutReachesAPIRoutes(t *testing.T) {
+	t.Parallel()
+	env := newSessionTestEnvWithAPITimeout(t, time.Nanosecond)
+
+	req, err := http.NewRequest(http.MethodGet, env.httpSrv.URL+"/api/v1/health", nil)
+	require.NoError(t, err)
+	resp, err := env.httpSrv.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode,
+		"a 1ns RequestTimeout must expire on an API route — the injected value is not reaching the middleware group")
+}
+
+// TestRelayRouteBypassesRequestTimeout verifies that the WebSocket relay route
+// lives outside the RequestTimeout middleware group: a relay connection must
+// stay bidirectionally functional well past the API timeout. The timeout is
+// injected so the window is a multiple of a 150ms budget rather than the
+// production 30s. RequestTimeout's own expiry behavior is pinned separately by
+// TestRequestTimeout in internal/api; what this test owns is the route grouping.
 func TestRelayRouteBypassesRequestTimeout(t *testing.T) {
 	t.Parallel()
-	env := newSessionTestEnv(t)
+	env := newSessionTestEnvWithAPITimeout(t, apiTimeoutUnderTest)
 	ctx := context.Background()
 
 	agentConn, browserConn := env.setupRelayPair(t, ctx)
 
-	const (
-		heartbeatInterval = 2 * time.Second
-		totalDuration     = 32 * time.Second
-	)
-	t.Logf("exchanging heartbeats every %s for %s to confirm relay survives past API timeout", heartbeatInterval, totalDuration)
+	// Ten heartbeats one timeout-budget apart ⇒ the exchange spans 10× the API
+	// timeout, and every beat after the first lands past the expiry point.
+	const heartbeats = 10
+	totalDuration := heartbeats * apiTimeoutUnderTest
+	t.Logf("exchanging heartbeats every %s for %s to confirm relay survives past the %s API timeout",
+		apiTimeoutUnderTest, totalDuration, apiTimeoutUnderTest)
 
-	ticker := time.NewTicker(heartbeatInterval)
+	ticker := time.NewTicker(apiTimeoutUnderTest)
 	defer ticker.Stop()
-	deadline := time.Now().Add(totalDuration)
+	start := time.Now()
 
-	for i := 0; time.Now().Before(deadline); i++ {
+	for i := range heartbeats {
 		<-ticker.C
-		wsCtx, wsCancel := context.WithTimeout(ctx, 2*time.Second)
-		payload := []byte(fmt.Sprintf("heartbeat-%d", i))
+		wsCtx, wsCancel := context.WithTimeout(ctx, 5*time.Second)
+		payload := fmt.Appendf(nil, "heartbeat-%d", i)
 		require.NoError(t, agentConn.Write(wsCtx, websocket.MessageBinary, payload), "heartbeat %d agent→browser write failed", i)
 		_, data, err := browserConn.Read(wsCtx)
 		wsCancel()
 		require.NoError(t, err, "heartbeat %d browser read failed", i)
 		require.Equal(t, payload, data, "heartbeat %d payload mismatch", i)
 	}
+
+	require.Greater(t, time.Since(start), apiTimeoutUnderTest,
+		"the exchange must outlast the API timeout for this test to mean anything")
 
 	wsCtx, wsCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer wsCancel()

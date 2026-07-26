@@ -68,19 +68,22 @@ cat >"$WORK/baseline.json" <<'JSON'
 }
 JSON
 
-run_clean() {
-  GO_BENCH_FILE="$WORK/go.txt" CRITERION_ROOT="$WORK/criterion" BASELINE_FILE="$WORK/baseline.json" \
-    GITHUB_SHA="deadbeef" "$SUMMARIZE"
-}
-
-# --- VM-window ns/op gate: mock kubectl on PATH -------------------------------
+# --- kubectl mock: hermetic for the WHOLE file --------------------------------
 # The ns/op gate reads a 14d window median (and sample count for cold-start) from
-# VictoriaMetrics through scripts/lib/vm-query.sh's kubectl curl-pod transport.
-# This mock serves canned /api/v1/query vectors keyed by {benchmark,lang},
+# VictoriaMetrics through scripts/lib/vm-query.sh's kubectl curl-pod transport,
+# and regression_check runs it on EVERY summarizer invocation — so the mock must
+# be installed before the first run, not just around the ns/op cases. An unmocked
+# call issues `kubectl -n monitoring run vm-query-$$ --rm …` against whatever
+# cluster the caller is logged into, and the gate fails open, so the damage is
+# silent. Three layers make that impossible: the mock shadows kubectl on PATH,
+# KUBECONFIG names a nonexistent file, and the VM namespace/service are test-only
+# names that match nothing real.
+#
+# The mock serves canned /api/v1/query vectors keyed by {benchmark,lang},
 # selecting median vs. count by the aggregation in the PromQL. VM_PROFILE picks a
 # scenario; empty/transport-fail exercise fail-open (⇒ absolute-only, never red on
 # infra). The mock also records its args so we can assert the current commit is
-# excluded from the window query.
+# excluded from the window query — and that no query ever addressed a real target.
 BIN_DIR="$WORK/bin"
 mkdir -p "$BIN_DIR"
 cat >"$BIN_DIR/kubectl" <<'EOF'
@@ -105,21 +108,32 @@ exit "${KUBECTL_STATUS:-0}"
 EOF
 chmod +x "$BIN_DIR/kubectl"
 
+export PATH="$BIN_DIR:$PATH"
+export KUBECONFIG="$WORK/nonexistent-kubeconfig"
+export VM_NAMESPACE="benchmark-summarize-test"
+export VM_SERVICE="benchmark-summarize-test-vm"
+export KUBECTL_ARGS="$WORK/kubectl.args"
+: >"$KUBECTL_ARGS"
+
+echo "kubectl hermeticity:"
+assert_eq "kubectl resolves to the test mock" "$BIN_DIR/kubectl" "$(command -v kubectl)"
+
+run_clean() {
+  GO_BENCH_FILE="$WORK/go.txt" CRITERION_ROOT="$WORK/criterion" BASELINE_FILE="$WORK/baseline.json" \
+    GITHUB_SHA="deadbeef" "$SUMMARIZE"
+}
+
 # Write a one-line go.txt benchmark for EncodeFrame at the given ns/op, with the
 # baseline's own bytes/allocs so only the ns/op dimension moves.
 write_go_ns() { printf 'BenchmarkEncodeFrame-8   1000000   %s ns/op   64 B/op   2 allocs/op\n' "$1" >"$WORK/go-ns.txt"; }
 
-# Run the summarizer with the mock kubectl on PATH and the VM transport env.
 # Per-case knobs (VM_PROFILE / VM_COUNT / KUBECTL_STATUS) are inherited.
 run_ns_gate() {
-  (
-    export PATH="$BIN_DIR:$PATH"
-    export KUBECTL_ARGS="$WORK/kubectl.args"
-    GO_BENCH_FILE="$WORK/go-ns.txt" CRITERION_ROOT="$WORK/criterion" \
-      BASELINE_FILE="$WORK/baseline.json" GITHUB_SHA="deadbeef" "$SUMMARIZE"
-  )
+  GO_BENCH_FILE="$WORK/go-ns.txt" CRITERION_ROOT="$WORK/criterion" \
+    BASELINE_FILE="$WORK/baseline.json" GITHUB_SHA="deadbeef" "$SUMMARIZE"
 }
 
+echo
 echo "canonical rows:"
 OUT="$(run_clean)"
 RC=$?
@@ -136,6 +150,10 @@ assert_eq "criterion allocations are unavailable" "null" "$(jq -r '.[] | select(
 # ns/op from new/estimates.json alone, with no report/ HTML in the artifact.
 assert_eq "criterion fixture is data-only (no HTML report)" "" "$(find "$WORK/criterion" -name '*.html' -print -quit)"
 assert_eq "commit tagged" "deadbeef" "$(jq -r '.[0].commit' <<<"$ROWS")"
+# The canonical run also crosses the VM gate, so its two window queries (median +
+# count) must be served by the mock — proof the summarizer never reaches a cluster
+# outside the ns/op cases.
+assert_eq "clean run's window queries went through the mock" "2" "$(grep -c 'api/v1/query' "$KUBECTL_ARGS")"
 
 echo
 echo "regression gate:"
@@ -223,6 +241,16 @@ assert_eq "baseline contains three rows" "3" "$(jq -r '.benchmarks | length' <<<
 rc=0
 GO_BENCH_FILE="$WORK/missing.txt" CRITERION_ROOT="$WORK/criterion" BASELINE_FILE="$WORK/baseline.json" "$SUMMARIZE" >/dev/null 2>&1 || rc=$?
 if [ "$rc" -eq 2 ]; then pass "missing Go file exits 2"; else fail "missing Go file expected exit 2, got $rc"; fi
+
+echo
+echo "kubectl blast radius:"
+# Every query recorded across the whole file must carry the test-only namespace.
+# A single line naming the real monitoring namespace means an invocation escaped
+# the mock and addressed the live cluster.
+assert_eq "no query addressed the real monitoring namespace" "0" \
+  "$(grep -c -- '-n monitoring ' "$KUBECTL_ARGS" || true)"
+assert_eq "every recorded query used the test namespace" "0" \
+  "$(grep -c -v -- "-n $VM_NAMESPACE " "$KUBECTL_ARGS" || true)"
 
 echo
 echo "Summary: $PASS passed, $FAIL failed"

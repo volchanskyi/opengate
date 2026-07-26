@@ -147,6 +147,10 @@ func (s *Server) isGroupOwner(ctx context.Context, groupID uuid.UUID) bool {
 // maxRequestBodySize is the maximum allowed request body size (1 MB).
 const maxRequestBodySize = 1 << 20
 
+// defaultRequestTimeout bounds a single API request when ServerConfig leaves
+// RequestTimeout at zero.
+const defaultRequestTimeout = 30 * time.Second
+
 // MaxBodySize returns middleware that limits request body size.
 func MaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

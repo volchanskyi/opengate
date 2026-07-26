@@ -75,9 +75,14 @@ async function getBootstrapAdminToken(
   return login(request, email, password);
 }
 
-/** Inject the JWT into localStorage so the SPA treats the session as logged in. */
-export async function injectAuth(page: Page, token: string): Promise<void> {
-  await page.evaluate((t) => {
+/**
+ * Seed the JWT into localStorage before any page script runs, so the SPA boots
+ * already authenticated. Init scripts re-run on every navigation, which is what
+ * lets a fixture reach an authenticated page in ONE navigation — injecting after
+ * a first load would require a reload to re-bootstrap the app.
+ */
+export async function seedAuth(page: Page, token: string): Promise<void> {
+  await page.addInitScript((t) => {
     localStorage.setItem("token", t);
   }, token);
 }
