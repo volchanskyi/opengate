@@ -223,9 +223,12 @@ cd web && lhci autorun
 ## Performance Benchmarks
 
 The standalone [benchmark workflow](../.github/workflows/benchmark.yml) tracks hot-path
-performance trends in VictoriaMetrics. Allocation metrics (`allocs/op`, `B/op`) are the
-deterministic regression gate; wall-clock `ns/op` is advisory because shared GitHub
-runners are noisy.
+performance trends in VictoriaMetrics. Allocation metrics (`allocs/op`, `B/op`) are
+deterministic and gate against the committed
+[baseline](../benchmarks/baseline.json); wall-clock `ns/op` gates against a
+VictoriaMetrics window baseline plus an absolute ceiling, sized from the live
+series' measured variance because shared GitHub runners are noisy. See
+[CI Pipeline](./CI-Pipeline.md) for the gate semantics.
 
 | Language | What's Benchmarked | Tool |
 |----------|--------------------|------|

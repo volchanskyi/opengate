@@ -198,3 +198,55 @@ describe('familyCurrentLabel', () => {
     expect(familyCurrentLabel([series({ name: 'uptime.seconds', avg: [1234] })])).toBeNull();
   });
 });
+
+describe('familyCurrentLabel byte formatting', () => {
+  function netTotal(bytes: number): string | null {
+    return familyCurrentLabel([series({ name: 'net.rx_bps', avg: [bytes] })]);
+  }
+
+  it('switches from raw bytes to KB exactly at the 1024 boundary', () => {
+    expect(netTotal(1023)).toBe('1023 B/s');
+    expect(netTotal(1024)).toBe('1.0 KB/s');
+  });
+
+  it('names each binary unit as the total grows', () => {
+    expect(netTotal(1024)).toBe('1.0 KB/s');
+    expect(netTotal(1.5 * 1024 ** 3)).toBe('1.5 GB/s');
+    expect(netTotal(2 * 1024 ** 4)).toBe('2.0 TB/s');
+    expect(netTotal(3 * 1024 ** 5)).toBe('3.0 PB/s');
+  });
+
+  it('steps up a unit exactly at 1024 of the current one', () => {
+    expect(netTotal(1024 * 1024)).toBe('1.0 MB/s');
+  });
+
+  it('stops at the largest known unit rather than running off the table', () => {
+    expect(netTotal(1024 ** 6)).toBe('1024 PB/s');
+  });
+
+  it('drops the fraction from three-digit values and keeps it below 100', () => {
+    expect(netTotal(100 * 1024)).toBe('100 KB/s');
+    expect(netTotal(99.5 * 1024)).toBe('99.5 KB/s');
+    expect(netTotal(200 * 1024 * 1024)).toBe('200 MB/s');
+  });
+});
+
+describe('familyCurrentLabel dimension selection', () => {
+  it('treats _percent as a suffix, not a substring', () => {
+    expect(familyCurrentLabel([series({ name: 'disk._percent_used', avg: [42] })])).toBeNull();
+  });
+
+  it('sums the net family when only some of its series are net dimensions', () => {
+    expect(familyCurrentLabel([
+      series({ name: 'net.rx_bps', avg: [100] }),
+      series({ name: 'other.thing', avg: [5] }),
+    ])).toBe('105 B/s');
+  });
+
+  it('returns null when no net series has a finite sample', () => {
+    expect(familyCurrentLabel([
+      series({ name: 'net.rx_bps', avg: [null, Number.NaN] }),
+      series({ name: 'net.tx_bps', avg: [null] }),
+    ])).toBeNull();
+  });
+});

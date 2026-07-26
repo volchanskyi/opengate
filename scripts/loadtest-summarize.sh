@@ -56,7 +56,10 @@ emit_k6_rows() {
     --arg timestamp "$TIMESTAMP" \
     --arg scenario "$scenario" \
     '
-      def values($name): (.metrics[$name].values // {});
+      # k6 v1.x writes a metric statistics flat on the metric object; v0.x
+      # nested them under "values". Accept both so the extraction does not
+      # depend on the exporter generation.
+      def values($name): (.metrics[$name] // {}) | (.values // .);
       def compact: with_entries(select(.value != null));
       def base($phase): {
         source: "k6",
@@ -72,7 +75,8 @@ emit_k6_rows() {
         latency_p95_ms: (values("http_req_duration")["p(95)"] // null),
         latency_p99_ms: (values("http_req_duration")["p(99)"] // null),
         rps: (values("http_reqs").rate // null),
-        error_rate: (values("http_req_failed").rate // null)
+        # Rate metrics carry the ratio as "value"; "rate" is the counter shape.
+        error_rate: (values("http_req_failed").value // values("http_req_failed").rate // null)
       } | compact),
       (if (.metrics.relay_msg_latency_ms.values? != null) then
         (base("relay") + {

@@ -122,6 +122,43 @@ assert_num_eq "QUIC rps computed" "20" "$(jq -r '.[] | select(.source=="quic" an
 assert_num_eq "QUIC error rate computed" "0.02" "$(jq -r '.[] | select(.source=="quic" and .phase=="aggregate") | .error_rate' <<<"$OUT")"
 assert_eq "commit tagged" "deadbeef" "$(jq -r '.[0].commit' <<<"$OUT")"
 
+# k6 v1.x --summary-export writes each metric's statistics flat on the metric
+# object; the v0.x nesting under a "values" key is gone, and rate metrics expose
+# the ratio as "value" rather than "rate". The fixture below is the verbatim
+# shape emitted by the pinned K6_VERSION, so the summarizer is exercised against
+# the schema CI actually feeds it.
+mkdir -p "$WORK/k6v1"
+cat >"$WORK/k6v1/api-baseline.json" <<'JSON'
+{
+  "metrics": {
+    "http_req_duration": {
+      "avg": 0.598, "min": 0.408, "med": 0.689,
+      "p(50)": 0.689, "p(95)": 0.696, "p(99)": 0.697, "max": 0.697
+    },
+    "http_reqs": { "count": 3, "rate": 599.5 },
+    "http_req_failed": { "passes": 0, "fails": 3, "value": 0.25 }
+  },
+  "root_group": { "name": "", "path": "", "groups": {}, "checks": {} }
+}
+JSON
+
+V1OUT="$(
+  K6_SUMMARY_DIR="$WORK/k6v1" QUIC_OUTPUT_FILE="$WORK/missing-quic.txt" GITHUB_SHA="deadbeef" \
+    "$SUMMARIZE"
+)"
+V1ROW="$(jq -r '.[] | select(.source=="k6" and .scenario=="api-baseline" and .phase=="http")' <<<"$V1OUT")"
+assert_num_eq "k6 v1 p50 parsed" "0.689" "$(jq -r '.latency_p50_ms' <<<"$V1ROW")"
+assert_num_eq "k6 v1 p95 parsed" "0.696" "$(jq -r '.latency_p95_ms' <<<"$V1ROW")"
+assert_num_eq "k6 v1 p99 parsed" "0.697" "$(jq -r '.latency_p99_ms' <<<"$V1ROW")"
+assert_num_eq "k6 v1 rps parsed" "599.5" "$(jq -r '.rps' <<<"$V1ROW")"
+assert_num_eq "k6 v1 error rate parsed" "0.25" "$(jq -r '.error_rate' <<<"$V1ROW")"
+
+# A k6 row that carries no metrics at all is indistinguishable from a scenario
+# that never ran, and silently empties the gate. Every metric key must survive.
+assert_eq "k6 v1 row carries every metric key" \
+  "error_rate latency_p50_ms latency_p95_ms latency_p99_ms rps" \
+  "$(jq -r 'keys - ["source","scenario","phase","commit","env","timestamp"] | join(" ")' <<<"$V1ROW")"
+
 # shellcheck source=../loadtest-summarize.sh
 source "$SUMMARIZE"
 assert_num_eq "sourceable duration converter" "62000" "$(duration_to_ms "1m2s")"

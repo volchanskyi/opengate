@@ -29,6 +29,9 @@ jobs:
   load-test:
     name: Load Tests (k6 + QUIC)
     runs-on: ubuntu-latest
+    # The k6 phases plus the in-cluster QUIC run finish in well under 15 minutes;
+    # this bounds a wedged port-forward or a staging pod that never goes Ready.
+    timeout-minutes: 30
     # Deliberately avoid `environment: staging`: its required reviewers would
     # block the scheduled run. This read-only workload uses repository-level OCI
     # credentials and creates only short-lived port-forwards and test pods.
@@ -180,13 +183,23 @@ jobs:
           K6_SUMMARY_DIR="$LOADTEST_K6_SUMMARY_DIR" \
             QUIC_OUTPUT_FILE="$LOADTEST_QUIC_OUTPUT" \
             scripts/loadtest-summarize.sh > loadtest-summary.json
+          # Stage the raw exports inside the workspace so the artifact keeps a
+          # workspace-relative layout and the publish job's download path holds.
+          mkdir -p loadtest-k6-raw
+          cp "$LOADTEST_K6_SUMMARY_DIR"/*.json loadtest-k6-raw/ 2>/dev/null || true
 
+      # The raw k6 exports ship alongside the canonical summary. Without them a
+      # summary row that silently lost its metrics is indistinguishable from a
+      # scenario that never ran, and the extraction has no observable input to
+      # check it against.
       - name: Upload canonical load-test summary
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: loadtest-summary
-          path: loadtest-summary.json
+          path: |
+            loadtest-summary.json
+            loadtest-k6-raw
           if-no-files-found: error
           retention-days: 90
 
@@ -196,9 +209,15 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # This job's result is the observability environment's deployment status, so
+    # it reports only whether the trend was collected and published. The
+    # regression verdict is a separate job below: a regression is a finding about
+    # the system under test, not a failure to publish.
     environment: observability
     permissions:
       contents: read
+    outputs:
+      regression: ${{ steps.check.outputs.regression }}
     steps:
       - uses: actions/checkout@v7
 
@@ -331,8 +350,23 @@ jobs:
           fi
           echo "Telegram alert delivered"
 
+  gate:
+    name: Load-test regression gate
+    needs: [publish]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
       - name: Fail workflow red on regression
-        if: always() && steps.check.outputs.regression == '1'
         run: |
-          echo "Load-test regression detected (latency/rps/error_rate vs VM window or absolute ceilings) — see workflow summary and Telegram alert (if delivered) above."
-          exit 1
+          if [ "${{ needs.publish.result }}" != "success" ]; then
+            echo "::error::Load-test trend publishing did not succeed; see the publish job."
+            exit 1
+          fi
+          if [ "${{ needs.publish.outputs.regression }}" = "1" ]; then
+            echo "::error::Load-test regression detected (latency/rps/error_rate vs VM window or absolute ceilings) — see workflow summary and Telegram alert (if delivered)."
+            exit 1
+          fi
+          echo "No load-test regression."

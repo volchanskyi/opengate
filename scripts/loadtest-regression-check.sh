@@ -12,11 +12,17 @@ export VM_EXCLUDE_COMMIT="${VM_EXCLUDE_COMMIT:-$COMMIT_SHA}"
 WINDOW_DAYS=14
 MIN_WINDOW_SAMPLES=3
 
-# Frozen tolerance bands, calibrated once offline from the live 14-30d VM series.
+# Frozen tolerance bands, calibrated offline from the live VM series.
 # Deliberately broad: staging load crosses GitHub-hosted runners, a kubectl
-# port-forward, and the OKE cluster, so run-to-run variance is large.
-LATENCY_REL_TOL=2.0
-RPS_REL_TOL=0.50
+# port-forward, and a shared free-tier OKE cluster, so run-to-run variance is
+# large. A contended night degrades throughput and latency together while every
+# agent still succeeds — measured over a 24-run window, aggregate rps swings
+# between 0.36x and 1.22x its median and connect p95 reaches 4.5x its median with
+# error_rate flat at zero. The bands below clear the widest excursion in that
+# window, so they red on a collapse rather than on a busy neighbour; error_rate
+# and the absolute floors carry the correctness signal.
+LATENCY_REL_TOL=4.0
+RPS_REL_TOL=0.65
 P99_REL_TOL=3.0
 ERROR_RATE_REL_TOL=1.0
 
@@ -48,19 +54,23 @@ vm_metric_name() {
   esac
 }
 
+# Backstops for a collapse the window rule cannot see (a cold series, or a
+# degradation that drifted the median with it). Each is about twice the widest
+# value the series reached over the calibration window, so it fires on a genuine
+# break rather than on the spread the shared cluster produces on its own.
 latency_abs_ceiling() {
   local source="$1" scenario="$2" phase="$3" metric="$4"
   case "$source/$scenario/$phase/$metric" in
     k6/api-baseline/http/*) printf '%s\n' "200" ;;
     k6/concurrent-agents/http/*) printf '%s\n' "500" ;;
-    k6/relay-throughput/relay/*) printf '%s\n' "150" ;;
+    k6/relay-throughput/relay/*) printf '%s\n' "400" ;;
     k6/relay-throughput/http/*) printf '%s\n' "500" ;;
-    quic/quic-agents/connect/latency_p50_ms) printf '%s\n' "600" ;;
-    quic/quic-agents/connect/latency_p95_ms) printf '%s\n' "1000" ;;
-    quic/quic-agents/handshake/latency_p50_ms) printf '%s\n' "300" ;;
-    quic/quic-agents/handshake/latency_p95_ms) printf '%s\n' "500" ;;
+    quic/quic-agents/connect/latency_p50_ms) printf '%s\n' "800" ;;
+    quic/quic-agents/connect/latency_p95_ms) printf '%s\n' "2000" ;;
+    quic/quic-agents/handshake/latency_p50_ms) printf '%s\n' "400" ;;
+    quic/quic-agents/handshake/latency_p95_ms) printf '%s\n' "1500" ;;
     quic/quic-agents/register/latency_p50_ms) printf '%s\n' "100" ;;
-    quic/quic-agents/register/latency_p95_ms) printf '%s\n' "250" ;;
+    quic/quic-agents/register/latency_p95_ms) printf '%s\n' "500" ;;
     *) printf '%s\n' "1000" ;;
   esac
 }
@@ -70,11 +80,11 @@ p99_abs_ceiling() {
   case "$source/$scenario/$phase" in
     k6/api-baseline/http) printf '%s\n' "400" ;;
     k6/concurrent-agents/http) printf '%s\n' "500" ;;
-    k6/relay-throughput/relay) printf '%s\n' "300" ;;
+    k6/relay-throughput/relay) printf '%s\n' "700" ;;
     k6/relay-throughput/http) printf '%s\n' "1000" ;;
     quic/quic-agents/connect) printf '%s\n' "2000" ;;
-    quic/quic-agents/handshake) printf '%s\n' "1000" ;;
-    quic/quic-agents/register) printf '%s\n' "500" ;;
+    quic/quic-agents/handshake) printf '%s\n' "2000" ;;
+    quic/quic-agents/register) printf '%s\n' "1000" ;;
     *) printf '%s\n' "2000" ;;
   esac
 }

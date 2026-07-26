@@ -267,8 +267,7 @@ regressions in two ways, by metric class:
   drift-proof boiling-frog backstop). The band and ceiling are calibrated from the live
   series' measured run-to-run variance, not hand-picked. The gate is fail-open: a VM or
   transport failure falls back to the absolute rule only and never reds on infra, and a
-  cold-start window (too few samples) skips the relative rule. This replaces the earlier
-  advisory-only `ns/op` treatment.
+  cold-start window (too few samples) skips the relative rule.
 
 All benchmark trends are also rendered in Grafana's **Benchmark Trends** dashboard.
 
@@ -276,12 +275,20 @@ All benchmark trends are also rendered in Grafana's **Benchmark Trends** dashboa
 
 [`load-test.yml`](../.github/workflows/load-test.yml) runs the staging k6 and
 QUIC load scenarios on its own schedule and by `workflow_dispatch`; it is not in
-the `merge-to-main` gate graph. The run job uploads the canonical summary rows,
-and the publish job reads the VictoriaMetrics window baseline through
+the `merge-to-main` gate graph. The run job uploads the canonical summary rows
+alongside the raw k6 exports, and the publish job reads the VictoriaMetrics
+window baseline through
 [`scripts/loadtest-regression-check.sh`](../scripts/loadtest-regression-check.sh),
 pushes the current rows through
-[`scripts/loadtest-vm-push.sh`](../scripts/loadtest-vm-push.sh), sends Telegram on
-regression, and then fails the workflow red for an audit trail.
+[`scripts/loadtest-vm-push.sh`](../scripts/loadtest-vm-push.sh), and sends
+Telegram on regression. A separate `gate` job then fails the workflow red for an
+audit trail.
+
+The publish job carries the `observability` environment, so its result is that
+environment's deployment status; keeping the verdict in its own job means a
+deployment records whether the trend was published, not whether the system under
+test regressed. The benchmark and mutation trend workflows are split the same
+way.
 
 The regression semantics are recorded in
 [ADR-045](./adr/ADR-045-load-test-regression-gate.md). In short: latency and rps

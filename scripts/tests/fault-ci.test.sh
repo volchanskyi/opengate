@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Policy tests for the FI6 fault-tolerance CI wiring:
-#   .github/workflows/fault-tolerance.yml  (reusable + workflow_dispatch drill)
+#   .github/workflows/fault-tolerance.yml  (reusable staging drill)
 #   .github/workflows/cd.yml               (staging fault-drill gate)
 #
 # These are static-policy assertions over the workflow YAML — no runner needed.
@@ -59,13 +59,13 @@ assert_file "cd.yml exists" "$CD"
   exit 1
 }
 
-# --- Enumerated inputs, never free-form -------------------------------------
-assert_re "workflow_dispatch scenario input is an enumerated choice" "$WF" \
-  'type:[[:space:]]*choice'
-assert_re "dispatch scenario exposes an options list" "$WF" '^[[:space:]]*options:'
-# The four self-contained, reversible gating scenarios.
+# --- Enumerated scenarios, never free-form ----------------------------------
+# The four self-contained, reversible gating scenarios. With workflow_call as
+# the only entry point, the runtime guard is the sole allow-list, so each
+# scenario must appear both there and as a dispatch branch that runs it.
 for s in pod-delete bad-rollout ingress-504 ingress-502; do
-  assert_re "scenario '$s' is an enumerated option" "$WF" "-[[:space:]]*$s"
+  assert_fixed "scenario '$s' is on the runtime allow-list" "$WF" "$s"
+  assert_re "scenario '$s' has a dispatch branch" "$WF" "^[[:space:]]*$s\)"
 done
 
 # --- Runtime allow-list guard (covers the workflow_call string path) ---------
@@ -77,7 +77,10 @@ assert_fixed "a runtime guard validates the scenario against an allow-list" "$WF
 # --- Reusable entry callable after staging E2E ------------------------------
 assert_re "fault-tolerance is a reusable workflow (workflow_call)" "$WF" \
   '^[[:space:]]*workflow_call:'
-assert_re "fault-tolerance is manually dispatchable" "$WF" \
+# The deploy pipeline is the only way to start a staging drill, so a run is
+# always attached to the deploy it gates and can never be fired at staging on
+# its own.
+assert_no_re "fault-tolerance has no manual dispatch entry point" "$WF" \
   '^[[:space:]]*workflow_dispatch:'
 
 # --- Concurrency guard (no two overlapping staging fault runs) --------------

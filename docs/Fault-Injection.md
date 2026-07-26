@@ -210,12 +210,12 @@ Activation is **config-only**, by repository variable:
 - `STAGING_FAULT_PROFILE` — selects the enumerated scenario (`pod-delete`,
   `bad-rollout`, `ingress-504`, `ingress-502`); defaults to `pod-delete`.
 
-The scenario is always one of that enumerated allow-list: the workflow's
-`workflow_dispatch` input is a `choice`, and a runtime guard re-validates the
-`workflow_call` string so a repository variable can never inject a free-form or
-out-of-band scenario. On-demand network drills (packet loss/corrupt/partition on
-the QUIC path) are run manually from their own tooling and are never wired into
-this gating path.
+The deploy pipeline is the workflow's only entry point, so every drill runs
+against the staging deploy it gates. The scenario is always one of that
+enumerated allow-list: a runtime guard re-validates the `workflow_call` string so
+a repository variable can never inject a free-form or out-of-band scenario.
+On-demand network drills (packet loss/corrupt/partition on the QUIC path) are run
+from their own tooling and are never wired into this gating path.
 
 Because the deployed drills gate promotion when activated, their determinism is
 mandatory: a flaky drill blocks deploys. Before an infra scenario is trusted for
