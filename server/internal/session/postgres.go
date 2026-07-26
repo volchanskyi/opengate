@@ -72,6 +72,27 @@ func (p *PostgresSessions) Delete(ctx context.Context, token string) error {
 	})
 }
 
+// DeleteRelaySession implements [Repository]. Relay teardown has no request
+// tenant, so this path supplies an admin scope and identifies the row by the
+// globally unique token across organizations.
+func (p *PostgresSessions) DeleteRelaySession(ctx context.Context, token string) error {
+	ctx = dbtx.WithDefaultTenant(ctx, true)
+	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM agent_sessions WHERE token = $1`, token)
+		if err != nil {
+			return err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrSessionNotFound
+		}
+		return nil
+	})
+}
+
 // DeleteStale implements [Repository]. It scopes itself to the seeded default
 // organization with admin rights, which the RLS policy widens to every org, so
 // the fleet-wide sweep runs outside any request tenant.

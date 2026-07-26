@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-07-25; test-suite waste audit outcomes incorporated. -->
+<!-- Last reviewed: 2026-07-26; terminal/session lifecycle correction added no debt. -->
 
 ## Severity: High
 

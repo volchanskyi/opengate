@@ -48,6 +48,13 @@ func (i *Instrumented) Delete(ctx context.Context, token string) error {
 	return err
 }
 
+func (i *Instrumented) DeleteRelaySession(ctx context.Context, token string) error {
+	start := time.Now()
+	err := i.inner.DeleteRelaySession(ctx, token)
+	i.observer.Observe("session.DeleteRelaySession", time.Since(start), err == nil)
+	return err
+}
+
 func (i *Instrumented) ListActiveForDevice(ctx context.Context, deviceID uuid.UUID) ([]*Session, error) {
 	start := time.Now()
 	sessions, err := i.inner.ListActiveForDevice(ctx, deviceID)

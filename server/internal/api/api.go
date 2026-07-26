@@ -136,6 +136,9 @@ type ServerConfig struct {
 	// defaultRequestTimeout. Tests inject a short budget so timeout-boundary
 	// behavior is provable in milliseconds rather than in wall-clock seconds.
 	RequestTimeout time.Duration
+	// RelayPeerTimeout bounds how long one relay side may wait for its peer.
+	// Zero selects defaultRelayPeerTimeout; paired sessions are not time-limited.
+	RelayPeerTimeout time.Duration
 }
 
 // Server is the HTTP API server.
@@ -180,6 +183,7 @@ type Server struct {
 	metrics         *appmetrics.Metrics
 	loginLimiter    *emailLimiter
 	requestTimeout  time.Duration
+	peerWaitTimeout time.Duration
 }
 
 // resolveAuditHandlers returns the per-domain Handlers from cfg, or
@@ -284,9 +288,13 @@ func NewServer(cfg ServerConfig) *Server {
 		metrics:         cfg.Metrics,
 		loginLimiter:    newEmailLimiter(loginMaxFailures, loginFailureWindow),
 		requestTimeout:  cfg.RequestTimeout,
+		peerWaitTimeout: cfg.RelayPeerTimeout,
 	}
 	if s.requestTimeout <= 0 {
 		s.requestTimeout = defaultRequestTimeout
+	}
+	if s.peerWaitTimeout <= 0 {
+		s.peerWaitTimeout = defaultRelayPeerTimeout
 	}
 	s.routes()
 	return s

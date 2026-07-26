@@ -254,17 +254,19 @@ func (r *Relay) Unregister(token protocol.SessionToken) {
 	if started {
 		r.count.Add(-1)
 	}
-	for _, conn := range []Conn{agent, browser} {
-		if conn != nil {
-			_ = conn.Close()
-		}
-	}
 	if err := r.registry.DeleteSession(context.Background(), token); err != nil {
 		r.logger.Error("registry delete session", "token_prefix", protocol.RedactToken(string(token)), "error", err)
 	}
 	r.logger.Info("relay session released unpaired", "token_prefix", protocol.RedactToken(string(token)))
 	if r.OnSessionEnd != nil {
 		r.OnSessionEnd(token)
+	}
+	// A graceful WebSocket close can wait for a peer acknowledgement. External
+	// cleanup must already be complete before that network wait begins.
+	for _, conn := range []Conn{agent, browser} {
+		if conn != nil {
+			_ = conn.Close()
+		}
 	}
 }
 

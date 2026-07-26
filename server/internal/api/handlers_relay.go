@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
@@ -11,6 +13,11 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"nhooyr.io/websocket"
 )
+
+// defaultRelayPeerTimeout bounds half-open relay entries. Pairing normally
+// completes in milliseconds; after this window a missing peer cannot leave a
+// session row and relay token alive indefinitely.
+const defaultRelayPeerTimeout = 30 * time.Second
 
 // rejectWebSocket accepts the WebSocket handshake and immediately closes the
 // connection with a policy-violation status code carrying the given reason.
@@ -78,17 +85,23 @@ func (s *Server) upgradeRelayWebSocket(w http.ResponseWriter, r *http.Request) *
 // It is inert once the pair started piping — that teardown belongs to the pipe.
 func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn relay.Conn, token string, side relay.Side) {
 	ctx := r.Context()
-	tp := protocol.RedactToken(token)
 
 	if err := s.relay.Register(ctx, protocol.SessionToken(token), conn, side); err != nil {
-		s.logger.Error("relay register failed", "error", err, "token_prefix", tp)
+		s.logger.Error("relay register failed", "error", err, "token_prefix", protocol.RedactToken(token))
 		_ = wsConn.Close(websocket.StatusInternalError, "relay error")
 		return
 	}
 	defer s.relay.Unregister(protocol.SessionToken(token))
 
-	if err := s.relay.WaitForPeer(ctx, protocol.SessionToken(token)); err != nil {
-		s.logger.Error("relay wait for peer failed", "error", err, "token_prefix", tp)
+	peerCtx, cancelPeerWait := context.WithTimeout(ctx, s.peerWaitTimeout)
+	err := s.relay.WaitForPeer(peerCtx, protocol.SessionToken(token))
+	cancelPeerWait()
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			s.logger.Warn("relay peer wait timed out", "token_prefix", protocol.RedactToken(token))
+		} else {
+			s.logger.Error("relay wait for peer failed", "error", err, "token_prefix", protocol.RedactToken(token))
+		}
 		return
 	}
 

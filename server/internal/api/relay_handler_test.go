@@ -38,6 +38,11 @@ func newRelayTestServer(t *testing.T) (*httptest.Server, *Server, *auth.JWTConfi
 // tests can inject a relay backed by a degraded registry (readiness probe).
 func newRelayTestServerWith(t *testing.T, r *relay.Relay) (*httptest.Server, *Server, *auth.JWTConfig) {
 	t.Helper()
+	return newRelayTestServerWithPeerTimeout(t, r, 0)
+}
+
+func newRelayTestServerWithPeerTimeout(t *testing.T, r *relay.Relay, peerTimeout time.Duration) (*httptest.Server, *Server, *auth.JWTConfig) {
+	t.Helper()
 	store := testutil.NewTestStore(t)
 	cfg := &auth.JWTConfig{
 		Secret:   "test-secret-key-at-least-32-bytes!",
@@ -45,7 +50,7 @@ func newRelayTestServerWith(t *testing.T, r *relay.Relay) (*httptest.Server, *Se
 		Duration: 15 * time.Minute,
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := NewServer(ServerConfig{
+	serverCfg := ServerConfig{
 		Store:          store,
 		Audit:          testutil.NewTestAudit(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
@@ -62,7 +67,9 @@ func newRelayTestServerWith(t *testing.T, r *relay.Relay) (*httptest.Server, *Se
 		Relay:          r,
 		Notifier:       &notifications.NoopNotifier{},
 		Logger:         logger,
-	})
+	}
+	serverCfg.RelayPeerTimeout = peerTimeout
+	srv := NewServer(serverCfg)
 
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
@@ -261,5 +268,38 @@ func TestRelayWebSocket(t *testing.T) {
 		defer readCancel()
 		_, _, err = browserConn.Read(readCtx)
 		assert.Error(t, err) // context deadline exceeded
+	})
+
+	t.Run("browser_only_session_times_out_and_is_released", func(t *testing.T) {
+		agentRelay := relay.NewRelay(slog.Default())
+		ts, srv, cfg := newRelayTestServerWithPeerTimeout(t, agentRelay, 200*time.Millisecond)
+		require.Equal(t, 200*time.Millisecond, srv.peerWaitTimeout)
+		tenantCtx := dbtx.WithDefaultTenant(context.Background(), true)
+		token, jwtToken := seedRelaySession(t, tenantCtx, srv, cfg)
+		cleanup := make(chan error, 1)
+		agentRelay.OnSessionEnd = func(ended protocol.SessionToken) {
+			cleanup <- srv.sessions.DeleteRelaySession(context.Background(), string(ended))
+		}
+
+		browserHeaders := http.Header{}
+		browserHeaders.Set("Authorization", testBearerPrefix+jwtToken)
+		browserConn := dialWS(t, context.Background(), ts.URL, testPathWSRelay+token+testSideBrowser, browserHeaders)
+		defer browserConn.CloseNow()
+
+		require.Eventually(t, func() bool {
+			return agentRelay.ActiveSessionCount() == 1
+		}, time.Second, 10*time.Millisecond)
+
+		select {
+		case err := <-cleanup:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("browser-only relay was not released after the peer timeout")
+		}
+
+		assert.Equal(t, 0, agentRelay.ActiveSessionCount())
+		assert.Empty(t, agentRelay.ActiveTokens())
+		_, err := srv.sessions.Get(tenantCtx, token)
+		assert.ErrorIs(t, err, session.ErrSessionNotFound)
 	})
 }
