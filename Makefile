@@ -20,8 +20,10 @@ test-short:
 test-rust:
 	cd agent && cargo test --workspace
 
+# One Postgres and one VictoriaMetrics back the whole run — see scripts/test-go.sh
+# for why the per-binary fallback would otherwise start a dozen-plus containers.
 test-go:
-	cd server && go test -race -timeout 5m ./...
+	./scripts/test-go.sh
 
 test-web:
 	cd web && npx vitest run
@@ -242,10 +244,14 @@ ci: lint test build
 # DOCKER_CONFIG is sanitized by docker-credstore-guard.sh so a broken local
 # credential helper (e.g. WSL docker-credential-desktop.exe) cannot break pulls
 # of public base images. No-op in CI (no broken credsStore there).
+# Sole owner of the Compose lifecycle: bring the stack up, run Playwright, then
+# tear down in the same recipe line so the teardown also runs when the suite
+# fails, while the suite's exit code still propagates to make.
 e2e:
 	cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml up -d --build --wait
-	cd web && npx playwright test
-	cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml down -v
+	@cd web && npx playwright test; rc=$$?; \
+		cd ../deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml down -v; \
+		exit $$rc
 
 load-test:
 	k6 run --env BASE_URL=http://localhost:8080 load/k6/scenarios/api-baseline.js

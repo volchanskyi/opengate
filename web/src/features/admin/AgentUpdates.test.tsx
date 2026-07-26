@@ -83,12 +83,6 @@ describe('AgentUpdates', () => {
     expect(screen.getByText('Something went wrong')).toBeInTheDocument();
   });
 
-  it('does not render manifest or signing key sections', () => {
-    render(<AgentUpdates />);
-    expect(screen.queryByText('Published Manifests')).not.toBeInTheDocument();
-    expect(screen.queryByText('Signing Key')).not.toBeInTheDocument();
-  });
-
   it('submits create token form', async () => {
     const createFn = vi.fn().mockResolvedValue(undefined);
     useUpdateStore.setState({ createEnrollmentToken: createFn });

@@ -505,7 +505,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    /// A run that fails twice then succeeds returns the value and stops
+    /// retrying. Paused time auto-advances through the two backoff sleeps.
+    #[tokio::test(start_paused = true)]
     async fn test_reconnect_backoff_succeeds_after_failures() {
         let attempt_count = Arc::new(AtomicU32::new(0));
         let count = attempt_count.clone();
@@ -698,7 +700,11 @@ mod tests {
         assert_eq!(msg, ControlMessage::Unknown);
     }
 
-    #[tokio::test]
+    /// Exhausting every attempt must surface an error naming the attempt count.
+    /// Paused time auto-advances through the full-jitter backoff sleeps, so the
+    /// randomized 1s + 2s wait costs no wall clock and the runtime is
+    /// deterministic across runs.
+    #[tokio::test(start_paused = true)]
     async fn test_reconnect_backoff_all_failures() {
         let result: Result<u32, _> = reconnect_with_backoff(
             || async { Err::<u32, String>("always fail".to_string()) },

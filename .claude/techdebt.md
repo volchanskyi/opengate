@@ -1,7 +1,7 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-07-13; mutation shard timeout follow-up incorporated. -->
+<!-- Last reviewed: 2026-07-25; test-suite waste audit outcomes incorporated. -->
 
 ## Severity: High
 
@@ -63,6 +63,41 @@ quinn caches and presents tickets and a reconnecting production agent is observe
 resuming (`DidResume`).
 
 ## Severity: Low
+
+### Per-test migration replay is real cost but not on the wall-clock critical path
+
+[`NewTestStore`](../server/internal/testutil/testutil.go) creates a schema and
+applies every migration for each of its 56 call sites. Measured against a warm
+shared Postgres: **~356 ms** per store for schema + migrations, versus **~80 ms**
+for a `CREATE DATABASE … TEMPLATE` clone of a pre-migrated template — a 4.4x
+per-operation gain. A full template-clone implementation (content-addressed
+template, advisory-lock creation protocol, scratch-and-rename publish) was built
+and measured end-to-end: `internal/api` came out at **33.29 s** cloned versus
+**32.84 s** on the existing schema path, i.e. no improvement. Store creation is
+not the critical path under test parallelism, and `CREATE DATABASE` serializes on
+the shared template, which cancels the per-operation win. The implementation was
+therefore dropped rather than landed; the isolation contract it exercised is kept
+in [`testutil_test.go`](../server/internal/testutil/testutil_test.go).
+
+**Pay-down trigger:** store creation becomes the measured bottleneck — e.g. if
+`maxLiveStores` is raised, or a package's runtime is shown to be dominated by
+migration time rather than by the tests themselves.
+
+### E2E worker-scoped identities not adopted; Playwright stays single-worker
+
+46 of 56 Playwright tests provision their own account
+([`fixtures.ts`](../web/e2e/fixtures.ts)), and `workers: 1` is a deliberate fix
+for `createAdminUser` racing on shared IAM state. Sharing one identity per worker
+would cut account setup and is the prerequisite for raising the worker count, but
+it makes every test that writes devices, groups, or users visible to its
+siblings. Adopting it needs a per-test audit classifying which of the 19 spec
+files mutate state that another test observes; guessing at that trades a known
+cost for unpredictable cross-test flake. The per-test navigation cost has been
+halved in the meantime (the token is seeded via `addInitScript`, so an
+authenticated page is reached in one navigation instead of two).
+
+**Pay-down trigger:** E2E wall time becomes a merge-latency problem, making the
+per-test mutation audit worth its cost.
 
 ### Device-list filtering is client-side (future server-side concern at scale)
 

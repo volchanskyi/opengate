@@ -42,10 +42,12 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
 
   afterEach(() => { vi.useRealTimers(); });
 
-  it('renders the Agent Logs header without a Fetch Logs button', () => {
+  // Every control in the pane already pulls the window it describes, so there is
+  // no manual fetch/refresh affordance to duplicate them.
+  it('renders the Agent Logs header with no manual fetch control', () => {
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('Agent Logs')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Fetch Logs' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /refresh|fetch/i })).toBeNull();
   });
 
   it('does not render a unit filter dropdown (agent pane has no units)', () => {

@@ -22,10 +22,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/volchanskyi/opengate/server/internal/testvm"
@@ -169,21 +171,24 @@ func TestVMCardinalitySpike(t *testing.T) {
 	base := testvm.BaseURL(t)
 	p := typicalProfile
 	perAgent := avgOnlySeriesPerAgent(p)
+	// Every series this run writes is tagged with a fresh run_id, so the counts
+	// below measure exactly what this test ingested and nothing else in the TSDB.
+	runID := "vmcard-" + uuid.NewString()
 
 	// Stage 1: first 100 agents. The generator's line count must equal the
 	// model, and VM's active-series count must equal the lines ingested.
-	lines100, n100 := generate(p, 0, 100)
+	lines100, n100 := generate(runID, p, 0, 100)
 	require.Equal(t, 100*perAgent, n100, "generator must match the series model")
 	ingest(t, base, lines100)
-	require.Equal(t, n100, measureTotalSeries(t, base, n100))
+	require.Equal(t, n100, measureRunSeries(t, base, runID, n100))
 
 	// Stage 2: scale to the reference fleet (add the remaining agents).
-	lines500, n400 := generate(p, 100, referenceAgents)
+	lines500, n400 := generate(runID, p, 100, referenceAgents)
 	require.Equal(t, (referenceAgents-100)*perAgent, n400)
 	ingest(t, base, lines500)
 
 	total := referenceAgents * perAgent
-	require.Equal(t, total, measureTotalSeries(t, base, total),
+	require.Equal(t, total, measureRunSeries(t, base, runID, total),
 		"measured VM active series must match the avg-only model at reference scale")
 	require.LessOrEqualf(t, total, seriesBudget,
 		"avg-only cardinality (%d) must fit the central budget (%d)", total, seriesBudget)
@@ -200,16 +205,16 @@ func TestVMCardinalitySpike(t *testing.T) {
 // given profile, spread across a handful of tenants, plus the number of distinct
 // series produced. Metric name + label set is unique per (agent, dimension,
 // entity), so the line count equals the distinct active-series count.
-func generate(p hostProfile, start, end int) (string, int) {
+func generate(runID string, p hostProfile, start, end int) (string, int) {
 	const tenants = 5
 	ts := time.Now().UnixMilli()
 	var b strings.Builder
 	count := 0
 	emit := func(name, device, org, extraKey, extraVal string) {
 		if extraKey == "" {
-			fmt.Fprintf(&b, "%s{org_id=%q,device_id=%q} 1 %d\n", name, org, device, ts)
+			fmt.Fprintf(&b, "%s{run_id=%q,org_id=%q,device_id=%q} 1 %d\n", name, runID, org, device, ts)
 		} else {
-			fmt.Fprintf(&b, "%s{org_id=%q,device_id=%q,%s=%q} 1 %d\n", name, org, device, extraKey, extraVal, ts)
+			fmt.Fprintf(&b, "%s{run_id=%q,org_id=%q,device_id=%q,%s=%q} 1 %d\n", name, runID, org, device, extraKey, extraVal, ts)
 		}
 		count++
 	}
@@ -259,16 +264,16 @@ func ingest(t *testing.T, base, body string) {
 	require.Lessf(t, resp.StatusCode, 300, "import should succeed, got %d", resp.StatusCode)
 }
 
-// measureTotalSeries flushes VM and reads data.totalSeries, retrying (in the
+// measureRunSeries flushes VM and re-counts this run's series, retrying (in the
 // same goroutine, so -race stays clean) until the count reaches want or the
 // budget of attempts is spent — then returns the last reading for the caller to
 // assert on, so a mismatch fails loudly rather than skips.
-func measureTotalSeries(t *testing.T, base string, want int) int {
+func measureRunSeries(t *testing.T, base, runID string, want int) int {
 	t.Helper()
 	var last int
 	for range 25 {
 		forceFlush(t, base)
-		last = totalSeries(t, base)
+		last = runSeries(t, base, runID)
 		if last == want {
 			return last
 		}
@@ -287,19 +292,29 @@ func forceFlush(t *testing.T, base string) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-func totalSeries(t *testing.T, base string) int {
+// runSeries counts the series carrying this run's run_id label. Scoping the
+// count to the run — rather than reading the TSDB-wide total — keeps the
+// measurement exact when VICTORIAMETRICS_TEST_URL points at a VM shared with
+// other packages or with a longer-lived local stack. run_id takes a single value
+// across every generated series, so it does not move the cardinality it measures.
+//
+// /api/v1/series answers this rather than an instant `count()` query: VM's
+// default -search.latencyOffset evaluates instant queries 30s in the past, so a
+// query would never see samples written moments earlier.
+func runSeries(t *testing.T, base, runID string) int {
 	t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/api/v1/status/tsdb", nil)
+	q := url.Values{"match[]": {fmt.Sprintf(`{run_id=%q}`, runID)}}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
+		base+"/api/v1/series?"+q.Encode(), nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var status struct {
-		Data struct {
-			TotalSeries int `json:"totalSeries"`
-		} `json:"data"`
+	var result struct {
+		Data []map[string]string `json:"data"`
 	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&status))
-	return status.Data.TotalSeries
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	return len(result.Data)
 }

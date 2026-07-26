@@ -170,6 +170,11 @@ func connectedAMT(t *testing.T) (*Server, net.Conn, uuid.UUID) {
 	amtUUID := uuid.New()
 	conn := connectAMT(t, addr)
 	simulateCIRA(t, conn, amtUUID)
+	// The CIRA handshake completes on the server's reader goroutine. Wait for the
+	// registered connection rather than guessing a sleep duration: callers can
+	// then read server-side state immediately.
+	require.Eventually(t, func() bool { return srv.GetConn(amtUUID) != nil },
+		2*time.Second, 5*time.Millisecond, "server should register the CIRA connection")
 	return srv, conn, amtUUID
 }
 
@@ -329,7 +334,6 @@ func TestMPSBadHandshake(t *testing.T) {
 
 func TestMPSChannelOpenClose(t *testing.T) {
 	srv, conn, amtUUID := connectedAMT(t)
-	time.Sleep(50 * time.Millisecond)
 
 	// Send a channel open from "AMT device" side.
 	msg := append([]byte{APFChannelOpen}, buildChannelOpen(7, 0x4000, 0x4000)...)
@@ -349,17 +353,17 @@ func TestMPSChannelOpenClose(t *testing.T) {
 	// Read the close response.
 	expectMessage(t, conn, APFChannelClose)
 
-	time.Sleep(50 * time.Millisecond)
-	assert.Equal(t, 0, channelCount(mc))
+	require.Eventually(t, func() bool { return channelCount(mc) == 0 },
+		2*time.Second, 5*time.Millisecond, "server should drop the closed channel")
 }
 
 func TestHandshakeTracksFirstBoundPort(t *testing.T) {
 	srv, _, amtUUID := connectedAMT(t)
-	time.Sleep(50 * time.Millisecond)
 
-	ports := boundPorts(requireConn(t, srv, amtUUID))
-	require.Len(t, ports, 1)
-	assert.Equal(t, uint32(16992), ports[0].Port)
+	mc := requireConn(t, srv, amtUUID)
+	require.Eventually(t, func() bool { return len(boundPorts(mc)) == 1 },
+		2*time.Second, 5*time.Millisecond, "handshake should bind exactly one port")
+	assert.Equal(t, uint32(16992), boundPorts(mc)[0].Port)
 }
 
 func TestMessageLoopTracksAdditionalPorts(t *testing.T) {
@@ -377,10 +381,11 @@ func TestMessageLoopTracksAdditionalPorts(t *testing.T) {
 		expectMessage(t, conn, APFRequestSuccess)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	mc := requireConn(t, srv, amtUUID)
+	require.Eventually(t, func() bool { return len(boundPorts(mc)) == 3 },
+		2*time.Second, 5*time.Millisecond, "server should track all three forwarded ports")
 
-	ports := boundPorts(requireConn(t, srv, amtUUID))
-	require.Len(t, ports, 3)
+	ports := boundPorts(mc)
 	assert.Equal(t, uint32(16992), ports[0].Port)
 	assert.Equal(t, uint32(16993), ports[1].Port)
 	assert.Equal(t, uint32(5900), ports[2].Port)
@@ -388,7 +393,6 @@ func TestMessageLoopTracksAdditionalPorts(t *testing.T) {
 
 func TestChannelDataSendsWindowAdjust(t *testing.T) {
 	_, conn, _ := connectedAMT(t)
-	time.Sleep(50 * time.Millisecond)
 
 	// Open a channel from AMT side (window 32K).
 	_, err := conn.Write(append([]byte{APFChannelOpen}, buildChannelOpen(7, 0x8000, 0x8000)...))
@@ -411,7 +415,6 @@ func TestChannelDataSendsWindowAdjust(t *testing.T) {
 
 func TestChannelWindowAdjIncrementsSendWindow(t *testing.T) {
 	srv, conn, amtUUID := connectedAMT(t)
-	time.Sleep(50 * time.Millisecond)
 
 	// Open a channel from AMT side with a small window=1024.
 	_, err := conn.Write(append([]byte{APFChannelOpen}, buildChannelOpen(5, 1024, 0x8000)...))
@@ -429,9 +432,8 @@ func TestChannelWindowAdjIncrementsSendWindow(t *testing.T) {
 
 	// Send a WindowAdj from AMT side to increase the server's send window.
 	require.NoError(t, WriteChannelWindowAdj(conn, 0, 4096))
-	time.Sleep(50 * time.Millisecond)
-
-	assert.Equal(t, int64(1024+4096), sendWindow(ch))
+	require.Eventually(t, func() bool { return sendWindow(ch) == int64(1024+4096) },
+		2*time.Second, 5*time.Millisecond, "WindowAdj should raise the server's send window")
 }
 
 func TestKeepaliveRequestReplyEcho(t *testing.T) {

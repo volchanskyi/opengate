@@ -131,13 +131,16 @@ The public key is delivered out-of-band during enrollment (see [Signing Key Deli
 
 ## Admin UI
 
-The Settings > Agent Updates page (`/settings/updates`) provides:
+Update actions live next to the devices they act on; the Agent Settings page owns
+enrollment only.
 
-- **Manifest list**: All published versions with OS/arch, hash, signature
-- **Publish form**: Create new manifests manually
-- **Push updates**: Push a specific version to eligible agents (filters by OS/arch after normalization)
-- **Status view**: Per-device update status (pending/success/failed) after a push
-- **Signing key display**: The server's Ed25519 public key for reference
+**Agent Settings** ([`AgentUpdates.tsx`](../web/src/features/admin/AgentUpdates.tsx), route `/updates`) manages enrollment tokens: create a token with a label, use cap and expiry; reveal or mask its value; delete one; and bulk-clean every inactive (expired or exhausted) token behind a confirm step.
+
+**Device Detail** ([`DeviceDetail.tsx`](../web/src/features/devices/DeviceDetail.tsx)) offers an upgrade button for a single device when a newer manifest matches its OS/arch, resolved from the manifest list the page fetches on mount.
+
+**Device List** ([`DeviceList.tsx`](../web/src/features/devices/DeviceList.tsx)) offers "Upgrade All Agents" across every outdated device, picking each device's newest matching manifest by numeric version compare and reporting per-device success and failure counts.
+
+Manifests reach the server through [GitHub Release Sync](#github-release-sync) or a direct `POST /api/v1/updates/manifests`; the signing key is delivered to agents during enrollment (see [Signing Key Delivery](#signing-key-delivery)).
 
 ## OS/Arch Normalization
 

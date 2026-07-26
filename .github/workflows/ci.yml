@@ -73,10 +73,21 @@ jobs:
       - uses: taiki-e/install-action@7572810d7dd469b651bb7793945692cf78da5dd7 # v2
         with:
           tool: cargo-nextest
-      - name: Tests
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@7572810d7dd469b651bb7793945692cf78da5dd7 # v2 — newer pin requires explicit tool input
+        with:
+          tool: cargo-llvm-cov
+      # The instrumented run is the canonical execution of the workspace suite:
+      # it reports pass/fail AND produces lcov.info, so the workspace is compiled
+      # and executed once rather than once bare and once under instrumentation.
+      - name: Tests & coverage
+        id: coverage
         run: |
           set +e
-          cargo nextest run --workspace --no-fail-fast --color never > test-output.txt 2>&1
+          cargo llvm-cov nextest --workspace --no-fail-fast --color never \
+            --lcov --output-path lcov.info \
+            --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)' \
+            --fail-under-lines 80 > test-output.txt 2>&1
           EXIT_CODE=$?
           cat test-output.txt
           SUMMARY=$(grep "Summary" test-output.txt | tail -1 || echo "no summary")
@@ -95,38 +106,32 @@ jobs:
               fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+          # cargo-llvm-cov only writes LCOV to the file when --lcov is set, so
+          # compute the line-coverage % from lcov.info directly. A failing suite
+          # can abort before the file is written, hence the guard.
+          PCT=0
+          if [ -f lcov.info ]; then
+            PCT=$(awk -F: '
+              /^LF:/ { lf += $2 }
+              /^LH:/ { lh += $2 }
+              END { if (lf > 0) printf "%.1f", (lh / lf) * 100; else print "0" }
+            ' lcov.info)
+          fi
+          echo "Rust coverage: $PCT%"
+          echo "percentage=$PCT" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
+      - name: Upload Rust coverage
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-coverage
+          path: agent/lcov.info
+          retention-days: 20
       - name: Generate golden files
         run: GENERATE_GOLDEN=1 cargo nextest run -p mesh-protocol -E 'binary(golden_test)'
       - uses: actions/upload-artifact@v7
         with:
           name: golden-files
           path: testdata/golden/
-          retention-days: 20
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@7572810d7dd469b651bb7793945692cf78da5dd7 # v2 — newer pin requires explicit tool input
-        with:
-          tool: cargo-llvm-cov
-      - name: Generate Rust coverage
-        id: coverage
-        run: |
-          cargo llvm-cov nextest --workspace --lcov --output-path lcov.info \
-            --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)' \
-            --fail-under-lines 80
-          # cargo-llvm-cov only writes LCOV to the file when --lcov is set,
-          # so compute the line-coverage % from lcov.info directly.
-          PCT=$(awk -F: '
-            /^LF:/ { lf += $2 }
-            /^LH:/ { lh += $2 }
-            END { if (lf > 0) printf "%.1f", (lh / lf) * 100; else print "0" }
-          ' lcov.info)
-          echo "Rust coverage: $PCT%"
-          echo "percentage=$PCT" >> "$GITHUB_OUTPUT"
-      - name: Upload Rust coverage
-        uses: actions/upload-artifact@v7
-        with:
-          name: rust-coverage
-          path: agent/lcov.info
           retention-days: 20
 
   go-lint:
@@ -920,10 +925,14 @@ jobs:
           echo "::error::cargo audit failed after 3 attempts"
           exit 1
       - name: npm vulnerability check (with retry)
+        # Install once, outside the loop: a retry exists for the registry lookup
+        # `npm audit` performs, not for dependency installation, which has its own
+        # caching and is not the transient point.
         run: |
           set -e
+          (cd web && npm ci)
           for attempt in 1 2 3; do
-            if (cd web && npm ci && npm audit --audit-level=high); then exit 0; fi
+            if (cd web && npm audit --audit-level=high); then exit 0; fi
             echo "::warning::npm audit attempt $attempt/3 failed; retrying in $((attempt * 15))s"
             sleep $((attempt * 15))
           done

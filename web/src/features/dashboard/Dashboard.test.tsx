@@ -77,18 +77,6 @@ describe('Dashboard', () => {
     expect(card).toHaveTextContent('3');
   });
 
-  it('does not render the Device Groups card', () => {
-    renderDashboard();
-    expect(screen.queryByText('Device Groups')).toBeNull();
-  });
-
-  it('does not fetch groups on mount (FleetHealth needs no groups)', () => {
-    const fetchGroups = vi.fn();
-    useDeviceStore.setState({ fetchGroups });
-    renderDashboard();
-    expect(fetchGroups).not.toHaveBeenCalled();
-  });
-
   it('Online tile deep-links to the online filter', () => {
     renderDashboard();
     expect(screen.getByText('Online').closest('a')).toHaveAttribute('href', '/devices?status=online');
@@ -138,15 +126,6 @@ describe('Dashboard', () => {
     expect(totalDevicesLink).toHaveAttribute('href', '/devices');
   });
 
-  it('does not render View All Devices button', () => {
-    renderDashboard();
-    expect(screen.queryByText('View All Devices')).not.toBeInTheDocument();
-  });
-
-  it('does not render an Add Device link', () => {
-    renderDashboard();
-    expect(screen.queryByText('Add Device')).toBeNull();
-  });
 
   it('online and offline counts add up to total devices', () => {
     renderDashboard();

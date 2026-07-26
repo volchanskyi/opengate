@@ -48,6 +48,14 @@ func (g serverAgentGetter) DeregisterAgent(ctx context.Context, deviceID uuid.UU
 
 func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 	t.Helper()
+	return newSessionTestEnvWithAPITimeout(t, 0)
+}
+
+// newSessionTestEnvWithAPITimeout builds the env with an explicit per-request
+// timeout on the API middleware group. A zero duration keeps the production
+// default, so only tests that assert timeout behavior pay attention to it.
+func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *sessionTestEnv {
+	t.Helper()
 
 	store := testutil.NewTestStore(t)
 	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
@@ -107,6 +115,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 		Signing:        signingKeys,
 		Manifests:      manifestStore,
 		Logger:         logger,
+		RequestTimeout: apiTimeout,
 	})
 	ts := httptest.NewServer(apiSrv)
 

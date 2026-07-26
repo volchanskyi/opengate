@@ -98,6 +98,18 @@ func readyRelay(t *testing.T) (r *Relay, agentLocal, browserLocal *mockConn) {
 	return r, agentLocal, browserLocal
 }
 
+// awaitPumping round-trips a probe to prove both copy goroutines are running.
+// A test that closes a side immediately after Register would otherwise race
+// goroutine startup; observing a delivered byte is the deterministic signal.
+func awaitPumping(t *testing.T, agentLocal, browserLocal *mockConn) {
+	t.Helper()
+	probe := []byte("pump-probe")
+	require.NoError(t, agentLocal.WriteMessage(probe))
+	got, err := browserLocal.ReadMessage()
+	require.NoError(t, err)
+	require.Equal(t, probe, got)
+}
+
 // TestNewRelay_InitialState pins a fresh relay at zero active sessions.
 func TestNewRelay_InitialState(t *testing.T) {
 	r := NewRelay(slog.Default())
@@ -173,7 +185,7 @@ func TestRelay_Pipe_LargeMessage(t *testing.T) {
 func TestRelay_CloseOnOneSideDisconnect(t *testing.T) {
 	_, agentLocal, browserLocal := readyRelay(t)
 
-	time.Sleep(10 * time.Millisecond)
+	awaitPumping(t, agentLocal, browserLocal)
 	agentLocal.Close()
 
 	// Browser local sees EOF because the relay closed its browser side.
@@ -188,8 +200,8 @@ func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
 	token := protocol.GenerateSessionToken()
 	ctx := context.Background()
 
-	_, agentRelay := newMockConnPair(t)
-	_, browserRelay := newMockConnPair(t)
+	agentLocal, agentRelay := newMockConnPair(t)
+	browserLocal, browserRelay := newMockConnPair(t)
 
 	assert.Equal(t, 0, r.ActiveSessionCount())
 
@@ -198,7 +210,7 @@ func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
 
 	require.NoError(t, r.Register(ctx, token, browserRelay, SideBrowser))
 
-	time.Sleep(10 * time.Millisecond)
+	awaitPumping(t, agentLocal, browserLocal)
 
 	agentRelay.Close()
 
@@ -399,9 +411,9 @@ func TestRelay_CopyMessages_LogsExactCount(t *testing.T) {
 
 // TestRelay_ConnectionClose drives the active count back to zero after a close.
 func TestRelay_ConnectionClose(t *testing.T) {
-	r, agentLocal, _ := readyRelay(t)
+	r, agentLocal, browserLocal := readyRelay(t)
 
-	time.Sleep(10 * time.Millisecond)
+	awaitPumping(t, agentLocal, browserLocal)
 	agentLocal.Close()
 
 	require.Eventually(t, func() bool {
