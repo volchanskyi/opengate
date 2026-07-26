@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
@@ -73,6 +74,41 @@ func TestAgentConn_MetaRace(t *testing.T) {
 	assert.Equal(t, "amd64", got.Arch)
 	assert.Equal(t, "1.2.3", got.AgentVersion)
 	assert.NoError(t, ac.requireCapability(protocol.CapDeviceLogs))
+}
+
+// TestAgentConn_RegisterRequestsHardwareReport pins the pull that keeps the
+// device page's Hardware card current: a device that reboots or reconnects with
+// swapped RAM or a new NIC re-reports as it registers, so the stored row is
+// refreshed by coming back online rather than by an operator asking.
+func TestAgentConn_RegisterRequestsHardwareReport(t *testing.T) {
+	store := testutil.NewTestStore(t)
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+	group := testutil.SeedGroup(t, ctx, store, testutil.SeedUser(t, ctx, store).ID)
+
+	ac := newMetaTestConn(t, store, uuid.New(), group.ID)
+	buf := ac.stream.(*bytes.Buffer)
+
+	require.NoError(t, ac.handleRegister(ctx, registerMsg()))
+
+	assert.Equal(t, protocol.MsgRequestHardwareReport, readOutboundControl(t, ac, buf).Type)
+}
+
+// TestAgentConn_RegisterWithoutHardwareCapabilitySendsNothing keeps registration
+// clean for an agent that never advertised the inventory: the unsupported pull
+// is skipped rather than written and rejected.
+func TestAgentConn_RegisterWithoutHardwareCapabilitySendsNothing(t *testing.T) {
+	store := testutil.NewTestStore(t)
+	ctx := dbtx.WithDefaultTenant(context.Background(), false)
+	group := testutil.SeedGroup(t, ctx, store, testutil.SeedUser(t, ctx, store).ID)
+
+	ac := newMetaTestConn(t, store, uuid.New(), group.ID)
+	buf := ac.stream.(*bytes.Buffer)
+	msg := registerMsg()
+	msg.Capabilities = []protocol.AgentCapability{protocol.CapDeviceLogs}
+
+	require.NoError(t, ac.handleRegister(ctx, msg))
+
+	assert.Zero(t, buf.Len())
 }
 
 func newMetaTestConn(t *testing.T, store *db.PostgresStore, deviceID, groupID uuid.UUID) *AgentConn {

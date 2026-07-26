@@ -153,31 +153,71 @@ describe('DeviceLogs (Agent pane over LogExplorer)', () => {
     expect(fetchLogs).toHaveBeenLastCalledWith('agent', 'd1', expect.objectContaining({ offset: 0 }));
   });
 
-  it('paginator arrows use the Restart-Agent yellow palette with white glyphs', () => {
-    setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
+  it('paginator arrows keep white glyphs on yellow in both states — no grey fade', () => {
+    // A single page disables both arrows, which is the state an operator sees
+    // most. The disabled treatment darkens the yellow instead of fading the
+    // whole button, so the chevrons (stroke=currentColor) stay white rather
+    // than washing out to grey.
+    setAgentLogs({ ...sampleLogs, has_more: false, total: 3 });
     render(<DeviceLogs deviceId="d1" />);
-    // text-white overrides the pager row's text-gray-400, so the chevrons
-    // (stroke=currentColor) read white against the yellow button.
-    expect(screen.getByRole('button', { name: 'Next page' })).toHaveClass('bg-yellow-600', 'hover:bg-yellow-700', 'text-white');
-    expect(screen.getByRole('button', { name: 'Previous page' })).toHaveClass('text-white');
+
+    for (const name of ['Previous page', 'Next page']) {
+      const arrow = screen.getByRole('button', { name });
+      expect(arrow).toBeDisabled();
+      expect(arrow).toHaveClass('bg-yellow-600', 'hover:bg-yellow-700', 'text-white', 'disabled:bg-yellow-800');
+      expect(arrow.className).not.toContain('opacity');
+    }
   });
 
-  it('collapse caret hides the whole body — filter bar, entries and pager', async () => {
+  it('has no manual refresh control — a window, filter or search drives every pull', () => {
+    setAgentLogs(sampleLogs);
+    render(<DeviceLogs deviceId="d1" />);
+    expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
+  });
+
+  it('collapse caret hides only the log output — filters, search and window stay', async () => {
     const user = userEvent.setup();
     setAgentLogs({ ...sampleLogs, has_more: true, total: 600 });
     render(<DeviceLogs deviceId="d1" />);
     expect(screen.getByText('agent started')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /collapse|expand/i }));
+    // The output — entries and pager — is gone …
     expect(screen.queryByText('agent started')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Next page' })).toBeNull();
-    expect(screen.queryByPlaceholderText('Search keyword...')).toBeNull();
-    expect(screen.queryByRole('button', { name: '1h' })).toBeNull();
+    // … while every control stays usable.
+    expect(screen.getByPlaceholderText('Search keyword...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1h' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Severity')).toBeInTheDocument();
 
     // Toggling again restores the entries.
     await user.click(screen.getByRole('button', { name: /collapse|expand/i }));
     expect(screen.getByText('agent started')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Search keyword...')).toBeInTheDocument();
+  });
+
+  it('empty state is part of the output and collapses with it', async () => {
+    const user = userEvent.setup();
+    setAgentLogs({ entries: [], total: 0, has_more: false });
+    render(<DeviceLogs deviceId="d1" />);
+    expect(screen.getByText('No logs available')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /collapse|expand/i }));
+    expect(screen.queryByText('No logs available')).toBeNull();
+  });
+
+  it('a window click while collapsed re-opens the output', async () => {
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    setAgentLogs(sampleLogs);
+    render(<DeviceLogs deviceId="d1" />);
+
+    await user.click(screen.getByRole('button', { name: /collapse/i }));
+    expect(screen.queryByText('agent started')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '1h' }));
+    expect(fetchLogs).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('agent started')).toBeInTheDocument();
   });
 
   it('the agent pane is expanded on mount and pulls nothing on its own', () => {

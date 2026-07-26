@@ -290,7 +290,10 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   fetchHardware: async (id) => {
-    set({ hardware: null });
+    // The inventory is replaced only by a successful pull. A device switch is
+    // already blanked by fetchDevice, so holding the last known values through
+    // a failed refresh keeps the card useful — its Last Updated stamp shows how
+    // old they are.
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/{id}/hardware', {
         params: { path: { id } },

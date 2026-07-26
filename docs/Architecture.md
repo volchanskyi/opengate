@@ -191,6 +191,8 @@ sequenceDiagram
 
 - **Max message size**: 4 MiB per WebSocket message (prevents memory exhaustion from oversized frames)
 - **Orphaned session cleanup**: When a relay send to an agent fails, the server automatically cleans up the orphaned session record from the database
+- **Unpaired release**: A side that connects and leaves before its peer arrives never reaches the pipe, so the relay handler releases it explicitly — dropping the entry, the active-session count and the session row together
+- **Stale-session sweep**: A periodic sweep deletes session rows the relay no longer holds once they pass a grace period, which collects tokens that were issued but never connected and rows left behind by a process restart. Live sessions are named by the relay's active-token set and are never swept, however long they run
 
 ### Relay Observability
 

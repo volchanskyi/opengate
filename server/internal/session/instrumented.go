@@ -54,3 +54,10 @@ func (i *Instrumented) ListActiveForDevice(ctx context.Context, deviceID uuid.UU
 	i.observer.Observe("session.ListActiveForDevice", time.Since(start), err == nil)
 	return sessions, err
 }
+
+func (i *Instrumented) DeleteStale(ctx context.Context, cutoff time.Time, keep []string) (int, error) {
+	start := time.Now()
+	deleted, err := i.inner.DeleteStale(ctx, cutoff, keep)
+	i.observer.Observe("session.DeleteStale", time.Since(start), err == nil)
+	return deleted, err
+}

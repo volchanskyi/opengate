@@ -18,6 +18,7 @@ describe('session store', () => {
     vi.clearAllMocks();
     useSessionStore.setState({
       sessions: [],
+      sessionsDeviceId: null,
       isLoading: false,
       error: null,
     });
@@ -77,6 +78,7 @@ describe('session store', () => {
     // clear the prior list must be gone *before* the await resolves.
     useSessionStore.setState({
       sessions: [{ token: 'old', device_id: 'd0', user_id: 'u1', created_at: '' }],
+      sessionsDeviceId: 'd0',
     });
     mockGet.mockResolvedValueOnce({
       data: [{ token: 'new', device_id: 'd1', user_id: 'u1', created_at: '' }],
@@ -90,6 +92,24 @@ describe('session store', () => {
     expect(useSessionStore.getState().sessions).toEqual([
       { token: 'new', device_id: 'd1', user_id: 'u1', created_at: '' },
     ]);
+  });
+
+  it('a repeat fetch for the same device leaves the list up while it reloads', async () => {
+    // The device page re-reads its sessions on every poll; blanking the list
+    // first would flash "Active Sessions" out of the card twice a minute.
+    useSessionStore.setState({
+      sessions: [{ token: 't1', device_id: 'd1', user_id: 'u1', created_at: '' }],
+      sessionsDeviceId: 'd1',
+    });
+    mockGet.mockResolvedValueOnce({
+      data: [{ token: 't1', device_id: 'd1', user_id: 'u1', created_at: '' }],
+      error: undefined,
+    });
+
+    const promise = useSessionStore.getState().fetchSessions('d1');
+    expect(useSessionStore.getState().sessions).toHaveLength(1);
+    await promise;
+    expect(useSessionStore.getState().sessions).toHaveLength(1);
   });
 
   it('deleteSession does NOT mutate list on error', async () => {

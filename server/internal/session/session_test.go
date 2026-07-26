@@ -118,13 +118,25 @@ func (f *fakeObserver) Observe(op string, d time.Duration, ok bool) {
 	f.calls = append(f.calls, observerCall{op: op, duration: d, ok: ok})
 }
 
-// memRepo is an in-memory session.Repository for testing the Instrumented decorator.
+// memRepo is an in-memory session.Repository for testing the Instrumented
+// decorator and the Sweeper.
 type memRepo struct {
 	createErr error
 	getErr    error
 	listErr   error
 	deleteErr error
+	staleErr  error
 	sessions  map[string]*session.Session
+
+	// staleCalls records every DeleteStale argument pair, in order.
+	staleCalls []staleCall
+	// staleDeleted is the count DeleteStale reports.
+	staleDeleted int
+}
+
+type staleCall struct {
+	cutoff time.Time
+	keep   []string
 }
 
 func (m *memRepo) Create(_ context.Context, s *session.Session) error {
@@ -156,6 +168,14 @@ func (m *memRepo) ListActiveForDevice(_ context.Context, _ uuid.UUID) ([]*sessio
 		return nil, m.listErr
 	}
 	return nil, nil
+}
+
+func (m *memRepo) DeleteStale(_ context.Context, cutoff time.Time, keep []string) (int, error) {
+	m.staleCalls = append(m.staleCalls, staleCall{cutoff: cutoff, keep: keep})
+	if m.staleErr != nil {
+		return 0, m.staleErr
+	}
+	return m.staleDeleted, nil
 }
 
 func TestInstrumented_ObservesCreate(t *testing.T) {

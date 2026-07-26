@@ -4,8 +4,8 @@ import type { Response, Route } from "@playwright/test";
 // Hardware inventory render on the DeviceDetail page.
 //
 // audit-tests-coverage.md F4: prior specs only mention "hardware" as tab/label
-// presence. This asserts the real fetch+render: clicking "Refresh Hardware"
-// issues GET /api/v1/devices/:id/hardware and the returned CPU/RAM/disk and
+// presence. This asserts the real fetch+render: an online device issues GET
+// /api/v1/devices/:id/hardware on its own and the returned CPU/RAM/disk and
 // network-interface values render. Server-side hardware handling is covered by
 // the Go handler tests; the store mapping by device-store.test.ts.
 
@@ -67,18 +67,16 @@ async function stubDetailRoutes(page: AuthedPage) {
 }
 
 test.describe("Hardware inventory", () => {
-  test("Refresh Hardware fetches and renders inventory values", async ({ authedPage }) => {
+  test("an online device fetches and renders inventory values", async ({ authedPage }) => {
     await stubDetailRoutes(authedPage);
-    await authedPage.goto(`/devices/${DEVICE_ID}`);
 
     const fetched = authedPage.waitForResponse(
       (r: Response) => r.url().includes(`/devices/${DEVICE_ID}/hardware`) && r.status() === 200,
     );
-    await authedPage.getByRole("button", { name: "Refresh Hardware" }).click();
+    await authedPage.goto(`/devices/${DEVICE_ID}`);
     await fetched;
 
-    // The section starts collapsed; the caret opens it. `exact` keeps this off
-    // the "Refresh Hardware" button next to it.
+    // The section starts collapsed; the caret opens it.
     await authedPage.getByRole("button", { name: "Hardware", exact: true }).click();
 
     // CPU model + core count render together in the CPU field.

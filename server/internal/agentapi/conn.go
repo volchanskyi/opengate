@@ -571,6 +571,14 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 	// toggle handler's unconditional push, not here.
 	a.pushMaintenanceState(ctx)
 
+	// Refresh the stored inventory: a device that reconnects may have rebooted
+	// with different RAM, disks or interfaces, so coming back online is what
+	// keeps the hardware card current. A capability error just means the agent
+	// does not collect an inventory; neither case fails registration.
+	if err := a.SendRequestHardwareReport(ctx); err != nil && !IsCapabilityError(err) {
+		a.logger.Warn("request hardware report on register failed", "device_id", a.DeviceID, "error", err)
+	}
+
 	return nil
 }
 

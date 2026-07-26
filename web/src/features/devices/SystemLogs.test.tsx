@@ -27,7 +27,7 @@ function setSystemLogs(logs: typeof hostLogs | { entries: never[]; total: number
   });
 }
 
-/** Open the collapsed-by-default pane so its controls and entries are reachable. */
+/** Open the collapsed-by-default output so its entries are reachable. */
 async function expandPane(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'Expand System Logs' }));
 }
@@ -47,16 +47,18 @@ describe('SystemLogs (Host pane over LogExplorer)', () => {
     expect(screen.getByText('System Logs')).toBeInTheDocument();
   });
 
-  it('is collapsed by default — no controls, no entries, and no fetch', () => {
+  it('starts with the output collapsed — controls are live, entries hidden, no fetch', () => {
     const fetchLogs = vi.fn();
     useDeviceStore.setState({ fetchLogs });
     setSystemLogs(hostLogs);
     render(<SystemLogs deviceId="d1" />);
 
     expect(screen.getByRole('button', { name: 'Expand System Logs' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Unit')).toBeNull();
-    expect(screen.queryByLabelText('Severity')).toBeNull();
-    expect(screen.queryByPlaceholderText('Search keyword...')).toBeNull();
+    // Only the output is collapsed: every control answers straight away.
+    expect(screen.getByLabelText('Unit')).toBeInTheDocument();
+    expect(screen.getByLabelText('Severity')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search keyword...')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1h' })).toBeInTheDocument();
     expect(screen.queryByText('accepted login')).toBeNull();
     expect(fetchLogs).not.toHaveBeenCalled();
   });
@@ -166,18 +168,29 @@ describe('SystemLogs (Host pane over LogExplorer)', () => {
     expect(screen.getByText('accepted login')).toBeInTheDocument();
   });
 
-  it('the Refresh button re-pulls the current window on demand', async () => {
+  it('has no manual refresh control — a window, filter or search drives every pull', async () => {
     const user = userEvent.setup();
-    const fetchLogs = vi.fn();
-    useDeviceStore.setState({ fetchLogs });
     setSystemLogs(hostLogs);
     render(<SystemLogs deviceId="d1" />);
     await expandPane(user);
 
-    await user.click(screen.getByRole('button', { name: 'Refresh System Logs' }));
+    expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
+  });
+
+  it('a window click while collapsed opens the output and is the only pull', async () => {
+    // The one automatic first-open pull must stand down once an explicit load
+    // has run, or expanding-by-fetching would fire the same window twice.
+    const user = userEvent.setup();
+    const fetchLogs = vi.fn();
+    useDeviceStore.setState({ fetchLogs });
+    render(<SystemLogs deviceId="d1" />);
+
+    await user.click(screen.getByRole('button', { name: '6h' }));
 
     expect(fetchLogs).toHaveBeenCalledTimes(1);
-    expect(fetchLogs).toHaveBeenCalledWith('system', 'd1', expect.objectContaining({ offset: 0 }));
+    const [, , args] = fetchLogs.mock.calls[0]!;
+    expect(new Date(args.to).getTime() - new Date(args.from).getTime()).toBe(6 * 3600 * 1000);
+    expect(screen.getByRole('button', { name: 'Collapse System Logs' })).toBeInTheDocument();
   });
 
   it('a correlation focusWindow expands the pane and drives the only fetch', () => {
