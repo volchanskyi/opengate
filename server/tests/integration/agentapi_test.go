@@ -171,6 +171,24 @@ func (e *agentTestEnv) dialAgentStream(t *testing.T, deviceID uuid.UUID) (*quic.
 	return stream, tlsCert.Certificate[0]
 }
 
+// drainRegisterHardwareRequest consumes the RequestHardwareReport the server
+// pushes as an agent registers — the pull that refreshes a reconnecting
+// device's inventory. Registration advertises HardwareInventory, so the request
+// is always sent; draining it here leaves each test's own control-frame reads
+// starting from a clean stream.
+func drainRegisterHardwareRequest(t *testing.T, stream *quic.Stream) {
+	t.Helper()
+	require.NoError(t, stream.SetReadDeadline(time.Now().Add(5*time.Second)))
+	codec := &protocol.Codec{}
+	frameType, payload, err := codec.ReadFrame(stream)
+	require.NoError(t, err)
+	require.Equal(t, protocol.FrameControl, frameType)
+	msg, err := codec.DecodeControl(payload)
+	require.NoError(t, err)
+	require.Equal(t, protocol.MsgRequestHardwareReport, msg.Type)
+	require.NoError(t, stream.SetReadDeadline(time.Time{}))
+}
+
 // connectAgentWithID establishes a QUIC connection as a test agent with a
 // specific device ID (which must already exist in the DB) via the full handshake.
 func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) *quic.Stream {
@@ -178,6 +196,7 @@ func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) *qui
 	stream, agentCertDER := e.dialAgentStream(t, deviceID)
 	performClientHandshake(t, stream, agentCertDER)
 	sendAgentRegister(t, stream)
+	drainRegisterHardwareRequest(t, stream)
 	return stream
 }
 
@@ -190,6 +209,7 @@ func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stre
 	stream, agentCertDER := e.dialAgentStream(t, deviceID)
 	performClientHandshake(t, stream, agentCertDER)
 	sendAgentRegister(t, stream)
+	drainRegisterHardwareRequest(t, stream)
 	return stream, deviceID
 }
 

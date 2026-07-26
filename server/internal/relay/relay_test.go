@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -204,6 +205,82 @@ func TestRelay_ActiveSessionCount_Lifecycle(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return r.ActiveSessionCount() == 0
 	}, time.Second, 10*time.Millisecond)
+}
+
+// TestRelay_ActiveTokens_ReportsLiveSessions exposes the live token set the
+// stale-session sweep consults, so a session mid-flight is never swept.
+func TestRelay_ActiveTokens_ReportsLiveSessions(t *testing.T) {
+	r := NewRelay(slog.Default())
+	assert.Empty(t, r.ActiveTokens())
+
+	token, agentLocal, _ := registerSession(t, r)
+	assert.Equal(t, []protocol.SessionToken{token}, r.ActiveTokens())
+
+	agentLocal.Close()
+	require.Eventually(t, func() bool {
+		return len(r.ActiveTokens()) == 0
+	}, time.Second, 10*time.Millisecond)
+}
+
+// TestRelay_Unregister_TearsDownHalfOpenSession covers the side that connects
+// and leaves while its peer never arrives: no pipe ever runs, so teardown has
+// to come from Unregister — otherwise the entry, the active count and the
+// caller's session row all leak for the life of the process.
+func TestRelay_Unregister_TearsDownHalfOpenSession(t *testing.T) {
+	r := NewRelay(slog.Default())
+	var ended []protocol.SessionToken
+	r.OnSessionEnd = func(token protocol.SessionToken) { ended = append(ended, token) }
+
+	token := protocol.GenerateSessionToken()
+	_, browserRelay := newMockConnPair(t)
+	require.NoError(t, r.Register(context.Background(), token, browserRelay, SideBrowser))
+	require.Equal(t, 1, r.ActiveSessionCount())
+
+	r.Unregister(token)
+
+	assert.Equal(t, 0, r.ActiveSessionCount())
+	assert.Empty(t, r.ActiveTokens())
+	assert.Equal(t, []protocol.SessionToken{token}, ended)
+}
+
+// TestRelay_Unregister_LeavesPipedSessionAlone keeps Unregister off a paired
+// session: the pipe owns that teardown, and a second one would double-count.
+func TestRelay_Unregister_LeavesPipedSessionAlone(t *testing.T) {
+	r := NewRelay(slog.Default())
+	// The pipe goroutine fires OnSessionEnd, so the count is read across
+	// goroutines and has to be atomic.
+	var ends atomic.Int64
+	r.OnSessionEnd = func(protocol.SessionToken) { ends.Add(1) }
+
+	token, agentLocal, browserLocal := registerSession(t, r)
+	r.Unregister(token)
+
+	assert.Equal(t, 1, r.ActiveSessionCount())
+	assert.Equal(t, int64(0), ends.Load())
+
+	// The pipe still carries frames, then ends the session exactly once.
+	require.NoError(t, agentLocal.WriteMessage([]byte("still piping")))
+	data, err := browserLocal.ReadMessage()
+	require.NoError(t, err)
+	assert.Equal(t, []byte("still piping"), data)
+
+	agentLocal.Close()
+	require.Eventually(t, func() bool {
+		return r.ActiveSessionCount() == 0 && ends.Load() == 1
+	}, time.Second, 10*time.Millisecond)
+}
+
+// TestRelay_Unregister_UnknownTokenIsNoop keeps a late or repeated call inert,
+// so it can be deferred unconditionally by the WebSocket handler.
+func TestRelay_Unregister_UnknownTokenIsNoop(t *testing.T) {
+	r := NewRelay(slog.Default())
+	var ends int
+	r.OnSessionEnd = func(protocol.SessionToken) { ends++ }
+
+	r.Unregister(protocol.GenerateSessionToken())
+
+	assert.Equal(t, 0, r.ActiveSessionCount())
+	assert.Equal(t, 0, ends)
 }
 
 // TestRelay_Pipe_SurvivesRegisterContextCancel proves the pipe outlives the

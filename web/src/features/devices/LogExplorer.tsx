@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDeviceStore, type LogPaneSource } from './state/device-store';
 import { fireAndForget } from '../../lib/fire-and-forget';
-import { ChevronLeftIcon, ChevronRightIcon, RefreshIcon, SpinnerIcon } from '../../components/icons';
+import { ChevronLeftIcon, ChevronRightIcon } from '../../components/icons';
 
 const levelColors = new Map<string, string>([
   ['ERROR', 'text-red-400'],
@@ -22,6 +22,13 @@ const RANGES = [
 
 const LIMIT = 300;
 
+// Pager arrows. Disabled is the resting state on a single page, so it darkens
+// the yellow rather than fading the whole button: a fade would take the white
+// chevron (stroke=currentColor) down to grey with it.
+const pagerButtonClass =
+  'px-2 py-1 rounded inline-flex items-center bg-yellow-600 hover:bg-yellow-700 text-white ' +
+  'disabled:bg-yellow-800 disabled:hover:bg-yellow-800 disabled:cursor-not-allowed';
+
 // Window pulled by the one automatic fetch a pane makes: the first time it is
 // opened for a device that has no logs cached yet.
 const FIRST_OPEN_WINDOW_SECONDS = 3600;
@@ -41,7 +48,7 @@ interface LogExplorerProps {
   readonly showUnitFilter?: boolean;
   /** Correlation jump: pre-filter the explorer to this window and fetch it. */
   readonly focusWindow?: TimeWindow | null;
-  /** Start closed, so opening a device page costs nothing (System Logs opt-in). */
+  /** Start with the output closed, so opening a device page costs nothing. */
   readonly startCollapsed?: boolean;
   /** On the first open with an empty cache, pull the most-recent default window. */
   readonly loadOnFirstOpen?: boolean;
@@ -57,6 +64,10 @@ function formatWindow(w: TimeWindow): string {
  * search, a time-window selector, and pagination. The System Logs instance adds
  * an auto-detected unit dropdown and a clickable `target` column. Each source
  * reads and writes its own slice of the store, so the two panes never clobber.
+ *
+ * Every control pulls the window it describes, so there is no separate refresh
+ * action; the caret collapses the returned output alone, leaving the controls
+ * live, and any pull re-opens it.
  */
 export function LogExplorer({ deviceId, source, title, showUnitFilter = false, focusWindow = null, startCollapsed = false, loadOnFirstOpen = false }: LogExplorerProps) {
   // Explicit source selection (not `s.logs[source]`) so the security linter can
@@ -73,7 +84,14 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
   const [collapsed, setCollapsed] = useState(startCollapsed);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
+  // Every load funnels through here. A load is an operator asking for lines, so
+  // it opens the output and stands in for the one automatic first-open pull —
+  // without that, expanding-by-fetching would pull the same window twice.
+  const didLoadRef = useRef(false);
+
   const runFetch = useCallback((nextOffset: number, lvl: string, win: TimeWindow | null, unitFilter: string) => {
+    didLoadRef.current = true;
+    setCollapsed(false);
     setOffset(nextOffset);
     fireAndForget(fetchLogs(source, deviceId, {
       level: lvl || undefined,
@@ -101,15 +119,11 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
 
   const clearWindow = useCallback(() => { setTimeWindow(null); runFetch(0, level, null, unit); }, [runFetch, level, unit]);
 
-  const refresh = useCallback(() => { runFetch(0, level, timeWindow, unit); }, [runFetch, level, timeWindow, unit]);
-
   // Correlation jump: apply an incoming focus window, fetch it, and scroll in.
   // The action is captured in a ref so the effect fires only on window change.
   const applyFocusRef = useRef<(w: TimeWindow) => void>(() => undefined);
   useEffect(() => {
     applyFocusRef.current = (w: TimeWindow) => {
-      // A drilled-to window opens the pane: the operator asked for these lines.
-      setCollapsed(false);
       setTimeWindow(w);
       runFetch(0, level, w, unit);
     };
@@ -120,17 +134,15 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
     containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [focusWindow]);
 
-  // The single automatic pull an opted-in pane makes: the first time it is
-  // opened with nothing cached for this device, fetch the recent default window
-  // so `available_units` and entries are there. Everything after that is
-  // manual — a range button, a filter, or Refresh. Re-opening a device page
-  // renders the cached response and pulls nothing. A correlation focusWindow
-  // drives its own fetch, so it wins and this is skipped.
+  // The single automatic pull an opted-in pane makes: the first time its output
+  // is opened with nothing cached for this device, fetch the recent default
+  // window so `available_units` and entries are there. Everything after that is
+  // an explicit control — a range button, a filter, or a search. Re-opening a
+  // device page renders the cached response and pulls nothing. A correlation
+  // focusWindow drives its own fetch, so it wins and this is skipped.
   const hasLogs = logs !== null;
-  const didFirstOpenLoadRef = useRef(false);
   useEffect(() => {
-    if (!loadOnFirstOpen || collapsed || focusWindow || hasLogs || didFirstOpenLoadRef.current) return;
-    didFirstOpenLoadRef.current = true;
+    if (!loadOnFirstOpen || collapsed || focusWindow || hasLogs || didLoadRef.current) return;
     selectRange(FIRST_OPEN_WINDOW_SECONDS);
   }, [loadOnFirstOpen, collapsed, focusWindow, hasLogs, selectRange]);
 
@@ -156,162 +168,144 @@ export function LogExplorer({ deviceId, source, title, showUnitFilter = false, f
           <span className={`text-xs transition-transform ${collapsed ? '' : 'rotate-90'}`} aria-hidden="true">&#9654;</span>
           {title}
         </button>
-        <div className="flex items-center gap-2">
-          {logsLoading && <span className="text-xs text-gray-500">Fetching…</span>}
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={refresh}
-              disabled={logsLoading}
-              aria-label={`Refresh ${title}`}
-              title={`Refresh ${title}`}
-              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium disabled:opacity-50 inline-flex items-center"
-            >
-              {logsLoading ? <SpinnerIcon /> : <RefreshIcon />}
-            </button>
-          )}
-        </div>
+        {logsLoading && <span className="text-xs text-gray-500">Fetching…</span>}
       </div>
 
-      {collapsed ? null : (
-        <>
-        <div className="flex gap-2 mb-2 flex-wrap">
+      <div className="flex gap-2 mb-2 flex-wrap">
+        <select
+          value={level}
+          onChange={(e) => selectLevel(e.target.value)}
+          aria-label="Severity"
+          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs"
+        >
+          {levels.map((l) => (
+            <option key={l} value={l}>{l || 'All Levels'}</option>
+          ))}
+        </select>
+        {showUnitFilter && (
           <select
-            value={level}
-            onChange={(e) => selectLevel(e.target.value)}
-            aria-label="Severity"
-            className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs"
+            value={unit}
+            onChange={(e) => selectUnit(e.target.value)}
+            aria-label="Unit"
+            className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs max-w-48"
           >
-            {levels.map((l) => (
-              <option key={l} value={l}>{l || 'All Levels'}</option>
+            <option value="">All units</option>
+            {availableUnits.map((u) => (
+              <option key={u} value={u}>{u}</option>
             ))}
           </select>
-          {showUnitFilter && (
-            <select
-              value={unit}
-              onChange={(e) => selectUnit(e.target.value)}
-              aria-label="Unit"
-              className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs max-w-48"
-            >
-              <option value="">All units</option>
-              {availableUnits.map((u) => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
-          )}
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') runFetch(0, level, timeWindow, unit); }}
-            placeholder="Search keyword..."
-            className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs flex-1"
-          />
-        </div>
+        )}
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') runFetch(0, level, timeWindow, unit); }}
+          placeholder="Search keyword..."
+          className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs flex-1"
+        />
+      </div>
 
+      <div className="flex items-center gap-1 mb-2 flex-wrap">
+        <span className="text-[10px] text-gray-500 mr-1">Window:</span>
+        {RANGES.map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            onClick={() => selectRange(r.seconds)}
+            className="px-2 py-0.5 rounded text-[11px] bg-gray-700 text-gray-300 hover:bg-gray-600"
+          >
+            {r.key}
+          </button>
+        ))}
+        {timeWindow && (
+          <button
+            type="button"
+            onClick={clearWindow}
+            className="px-2 py-0.5 rounded text-[11px] bg-blue-900/60 text-blue-200 hover:bg-blue-900"
+            title={formatWindow(timeWindow)}
+          >
+            {formatWindow(timeWindow)} ✕
+          </button>
+        )}
+      </div>
+
+      {facets.length > 0 && (
         <div className="flex items-center gap-1 mb-2 flex-wrap">
-          <span className="text-[10px] text-gray-500 mr-1">Window:</span>
-          {RANGES.map((r) => (
+          {facets.map(([lvl, count]) => (
             <button
-              key={r.key}
+              key={lvl}
               type="button"
-              onClick={() => selectRange(r.seconds)}
-              className="px-2 py-0.5 rounded text-[11px] bg-gray-700 text-gray-300 hover:bg-gray-600"
+              onClick={() => selectLevel(level === lvl ? '' : lvl)}
+              className={`px-2 py-0.5 rounded text-[11px] ${level === lvl ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600'} ${levelColors.get(lvl) ?? ''}`}
             >
-              {r.key}
+              {lvl} {count}
             </button>
           ))}
-          {timeWindow && (
-            <button
-              type="button"
-              onClick={clearWindow}
-              className="px-2 py-0.5 rounded text-[11px] bg-blue-900/60 text-blue-200 hover:bg-blue-900"
-              title={formatWindow(timeWindow)}
-            >
-              {formatWindow(timeWindow)} ✕
-            </button>
-          )}
         </div>
-
-        {facets.length > 0 && (
-          <div className="flex items-center gap-1 mb-2 flex-wrap">
-            {facets.map(([lvl, count]) => (
-              <button
-                key={lvl}
-                type="button"
-                onClick={() => selectLevel(level === lvl ? '' : lvl)}
-                className={`px-2 py-0.5 rounded text-[11px] ${level === lvl ? 'bg-blue-600 text-white' : 'bg-gray-700 hover:bg-gray-600'} ${levelColors.get(lvl) ?? ''}`}
-              >
-                {lvl} {count}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {logs && (logs.entries.length > 0 ? (
-          <>
-            <div className="resize-y overflow-auto min-h-24 max-h-160 h-96 bg-gray-900 border border-gray-700 rounded p-2">
-              <table className="w-full font-mono text-xs">
-                <tbody>
-                  {logs.entries.map((entry, i) => (
-                    <tr key={`${entry.timestamp}-${String(i)}`} className="hover:bg-gray-800">
-                      <td className="pr-2 text-gray-500 whitespace-nowrap align-top">{entry.timestamp}</td>
-                      <td className={`pr-2 font-semibold whitespace-nowrap align-top ${levelColors.get(entry.level) ?? 'text-gray-400'}`}>
-                        {entry.level.padEnd(5)}
-                      </td>
-                      {showUnitFilter && (
-                        <td className="pr-2 whitespace-nowrap align-top">
-                          {entry.target ? (
-                            <button
-                              type="button"
-                              onClick={() => selectUnit(entry.target)}
-                              title={`Filter to ${entry.target}`}
-                              className="text-cyan-400 hover:underline"
-                            >
-                              {entry.target}
-                            </button>
-                          ) : (
-                            <span className="text-gray-600">—</span>
-                          )}
-                        </td>
-                      )}
-                      <td className="text-gray-300 whitespace-pre-wrap break-all">{entry.message}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
-              <span>
-                Showing {offset + 1}-{Math.min(offset + logs.entries.length, logs.total)} of {logs.total}
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={handlePrevPage}
-                  disabled={offset === 0 || logsLoading}
-                  aria-label="Previous page"
-                  className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded disabled:opacity-50 inline-flex items-center"
-                >
-                  <ChevronLeftIcon />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleNextPage}
-                  disabled={!logs.has_more || logsLoading}
-                  aria-label="Next page"
-                  className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white rounded disabled:opacity-50 inline-flex items-center"
-                >
-                  <ChevronRightIcon />
-                </button>
-              </div>
-            </div>
-          </>
-        ) : (
-          <p className="text-xs text-gray-500">No logs available</p>
-        ))}
-        </>
       )}
+
+      {!collapsed && logs && (logs.entries.length > 0 ? (
+        <>
+          <div className="resize-y overflow-auto min-h-24 max-h-160 h-96 bg-gray-900 border border-gray-700 rounded p-2">
+            <table className="w-full font-mono text-xs">
+              <tbody>
+                {logs.entries.map((entry, i) => (
+                  <tr key={`${entry.timestamp}-${String(i)}`} className="hover:bg-gray-800">
+                    <td className="pr-2 text-gray-500 whitespace-nowrap align-top">{entry.timestamp}</td>
+                    <td className={`pr-2 font-semibold whitespace-nowrap align-top ${levelColors.get(entry.level) ?? 'text-gray-400'}`}>
+                      {entry.level.padEnd(5)}
+                    </td>
+                    {showUnitFilter && (
+                      <td className="pr-2 whitespace-nowrap align-top">
+                        {entry.target ? (
+                          <button
+                            type="button"
+                            onClick={() => selectUnit(entry.target)}
+                            title={`Filter to ${entry.target}`}
+                            className="text-cyan-400 hover:underline"
+                          >
+                            {entry.target}
+                          </button>
+                        ) : (
+                          <span className="text-gray-600">—</span>
+                        )}
+                      </td>
+                    )}
+                    <td className="text-gray-300 whitespace-pre-wrap break-all">{entry.message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between mt-2 text-xs text-gray-400">
+            <span>
+              Showing {offset + 1}-{Math.min(offset + logs.entries.length, logs.total)} of {logs.total}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handlePrevPage}
+                disabled={offset === 0 || logsLoading}
+                aria-label="Previous page"
+                className={pagerButtonClass}
+              >
+                <ChevronLeftIcon />
+              </button>
+              <button
+                type="button"
+                onClick={handleNextPage}
+                disabled={!logs.has_more || logsLoading}
+                aria-label="Next page"
+                className={pagerButtonClass}
+              >
+                <ChevronRightIcon />
+              </button>
+            </div>
+          </div>
+        </>
+      ) : (
+        <p className="text-xs text-gray-500">No logs available</p>
+      ))}
     </div>
   );
 }

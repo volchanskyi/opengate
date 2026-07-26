@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -191,7 +192,9 @@ func main() {
 	agentRelay.OnSessionEnd = func(token protocol.SessionToken) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := sessionsRepo.Delete(ctx, string(token)); err != nil {
+		// A row the stale-session sweep already collected is the expected race,
+		// not a failure — the session is gone either way.
+		if err := sessionsRepo.Delete(ctx, string(token)); err != nil && !errors.Is(err, session.ErrSessionNotFound) {
 			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
 		}
 	}
@@ -304,6 +307,11 @@ func main() {
 	// Periodically garbage-collect any orphaned telemetry series (defense in depth
 	// against a purge that partially failed). A no-op when purging is disabled.
 	go startReconcileLoop(ctx, reconciler, logger)
+
+	// Periodically garbage-collect session rows the relay no longer holds, so a
+	// token that was never connected — or one this process was serving when it
+	// last died — stops showing up as an active session.
+	go startSessionSweepLoop(ctx, session.NewSweeper(sessionsRepo, liveRelayTokens(agentRelay), sessionGracePeriod, logger), logger)
 
 	// Periodically sync agent manifests from GitHub releases (default: every hour).
 	if githubRepo != "" {
@@ -441,6 +449,51 @@ func startReconcileLoop(ctx context.Context, reconciler *lifecycle.Reconciler, l
 			if purged > 0 {
 				logger.Warn("reconcile sweep purged orphan telemetry", "count", purged)
 			}
+		}
+	}
+}
+
+// sessionGracePeriod is how long a session row survives without the relay
+// holding its token. It only has to outlast the gap between issuing a token and
+// connecting with it — a live session is spared by the keep-list however old it
+// gets — so it doubles as the worst-case lag before a session orphaned by a
+// process restart disappears from the device page.
+const sessionGracePeriod = 5 * time.Minute
+
+// sessionSweepInterval is how often the stale-session sweep runs.
+const sessionSweepInterval = time.Minute
+
+// liveRelayTokens adapts the relay's live token set to the plain strings the
+// session store keys on.
+func liveRelayTokens(r *relay.Relay) session.LiveTokens {
+	return func() []string {
+		live := r.ActiveTokens()
+		tokens := make([]string, len(live))
+		for i, token := range live {
+			tokens[i] = string(token)
+		}
+		return tokens
+	}
+}
+
+// startSessionSweepLoop runs the stale-session sweep on a ticker until ctx is
+// cancelled, starting with one pass at boot: a process that just started holds
+// no relay sessions, so any row left behind by its predecessor is collectable
+// as soon as it ages past the grace period.
+func startSessionSweepLoop(ctx context.Context, sweeper *session.Sweeper, logger *slog.Logger) {
+	ticker := time.NewTicker(sessionSweepInterval)
+	defer ticker.Stop()
+	for {
+		deleted, err := sweeper.Sweep(ctx)
+		if err != nil {
+			logger.Error("stale session sweep failed", "error", err)
+		} else if deleted > 0 {
+			logger.Info("swept stale agent sessions", "count", deleted)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
 		}
 	}
 }

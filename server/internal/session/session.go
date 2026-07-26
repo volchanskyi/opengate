@@ -30,4 +30,8 @@ type Repository interface {
 	Get(ctx context.Context, token string) (*Session, error)
 	Delete(ctx context.Context, token string) error
 	ListActiveForDevice(ctx context.Context, deviceID uuid.UUID) ([]*Session, error)
+	// DeleteStale removes every session created before cutoff whose token is
+	// absent from keep, across all organizations, and reports how many rows it
+	// deleted. It carries its own scope, so a background caller needs none.
+	DeleteStale(ctx context.Context, cutoff time.Time, keep []string) (int, error)
 }

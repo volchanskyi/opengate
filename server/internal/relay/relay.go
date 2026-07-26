@@ -48,12 +48,13 @@ type Conn interface {
 }
 
 type session struct {
-	mu      sync.Mutex
-	agent   Conn
-	browser Conn
-	ready   chan struct{} // closed when both sides are registered
-	started bool
-	piping  bool // guards the one-time local pipe start
+	mu       sync.Mutex
+	agent    Conn
+	browser  Conn
+	ready    chan struct{} // closed when both sides are registered
+	started  bool
+	piping   bool // guards the one-time local pipe start
+	released bool // Unregister claimed the session; no pipe may start on it
 }
 
 // setSide assigns conn to the side's slot, returning ErrDuplicateSide if that
@@ -175,11 +176,12 @@ func (r *Relay) writeOwnerMeta(ctx context.Context, token protocol.SessionToken)
 // startPipeIfReady starts the local pipe exactly once, when both sides are
 // present. Guarded by s.piping so the close of s.ready and the pipe goroutine
 // launch happen exactly once even though the lock is released between
-// registration phases.
+// registration phases. A session Unregister has already released stays dead:
+// its peer left, so pairing it now would resurrect a torn-down session.
 func (r *Relay) startPipeIfReady(token protocol.SessionToken, s *session) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.piping || s.agent == nil || s.browser == nil {
+	if s.piping || s.released || s.agent == nil || s.browser == nil {
 		return
 	}
 	s.piping = true
@@ -208,6 +210,62 @@ func (r *Relay) WaitForPeer(ctx context.Context, token protocol.SessionToken) er
 // ActiveSessionCount returns the number of active sessions.
 func (r *Relay) ActiveSessionCount() int {
 	return int(r.count.Load())
+}
+
+// ActiveTokens returns the tokens the relay currently holds, whether paired and
+// piping or still waiting for a peer. It is the liveness answer the stale-session
+// sweep needs: a token in this set is in use and must not be collected.
+func (r *Relay) ActiveTokens() []protocol.SessionToken {
+	var tokens []protocol.SessionToken
+	r.sessions.Range(func(key, _ any) bool {
+		tokens = append(tokens, key.(protocol.SessionToken))
+		return true
+	})
+	return tokens
+}
+
+// Unregister releases a session that never paired, ending it as if it had piped:
+// the entry, the active count and the registry record all go, any conn still
+// waiting on the missing peer is closed, and OnSessionEnd fires so external
+// state (the caller's session row) is cleaned up too.
+//
+// A session that reached the pipe is left alone — the pipe's own teardown owns
+// it, and a second release would double-count. Unknown or already-released
+// tokens are a no-op, so a request handler can defer this unconditionally.
+func (r *Relay) Unregister(token protocol.SessionToken) {
+	val, ok := r.sessions.Load(token)
+	if !ok {
+		return
+	}
+	s := val.(*session)
+
+	s.mu.Lock()
+	if s.piping || s.released {
+		s.mu.Unlock()
+		return
+	}
+	// Set under the lock so a peer registering right now cannot start a pipe on
+	// a session this call has already claimed.
+	s.released = true
+	started, agent, browser := s.started, s.agent, s.browser
+	s.mu.Unlock()
+
+	r.sessions.CompareAndDelete(token, val)
+	if started {
+		r.count.Add(-1)
+	}
+	for _, conn := range []Conn{agent, browser} {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}
+	if err := r.registry.DeleteSession(context.Background(), token); err != nil {
+		r.logger.Error("registry delete session", "token_prefix", protocol.RedactToken(string(token)), "error", err)
+	}
+	r.logger.Info("relay session released unpaired", "token_prefix", protocol.RedactToken(string(token)))
+	if r.OnSessionEnd != nil {
+		r.OnSessionEnd(token)
+	}
 }
 
 // copyMessages reads complete messages from src and writes them to dst,

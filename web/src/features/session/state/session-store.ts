@@ -7,6 +7,9 @@ type AgentSession = components['schemas']['AgentSession'];
 
 interface SessionState {
   sessions: AgentSession[];
+  /** Which device the list belongs to — the key that tells a device switch
+   *  (clear first) apart from a periodic re-read of the same device (keep). */
+  sessionsDeviceId: string | null;
   isLoading: boolean;
   error: string | null;
   fetchSessions: (deviceId: string) => Promise<void>;
@@ -16,16 +19,18 @@ interface SessionState {
 
 export const useSessionStore = create<SessionState>((set) => ({
   sessions: [],
+  sessionsDeviceId: null,
   isLoading: false,
   error: null,
 
   fetchSessions: async (deviceId) => {
-    // Clear stale sessions from a previous device immediately.
-    set({ sessions: [] });
+    // Drop a previous device's sessions immediately; a re-read of the device
+    // already on screen keeps its list up while the response is in flight.
+    set((state) => (state.sessionsDeviceId === deviceId ? {} : { sessions: [], sessionsDeviceId: deviceId }));
     const res = await apiAction(set, () =>
       api.GET('/api/v1/sessions', { params: { query: { device_id: deviceId } } }),
     );
-    if (res.ok) set({ sessions: res.data });
+    if (res.ok) set({ sessions: res.data, sessionsDeviceId: deviceId });
   },
 
   createSession: async (deviceId) => {

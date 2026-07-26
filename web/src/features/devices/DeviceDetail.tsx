@@ -14,7 +14,7 @@ import { DeviceMetrics } from './DeviceMetrics';
 import { DeviceInventory } from './DeviceInventory';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
-import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon, RefreshIcon } from '../../components/icons';
+import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 type AMTDevice = components['schemas']['AMTDevice'];
@@ -151,13 +151,6 @@ export function DeviceDetail() {
   // Correlation jump target: the metrics panel hands up a unix-second window,
   // which the logs explorer consumes (as ISO) to pre-filter and fetch.
   const [logWindow, setLogWindow] = useState<{ from: string; to: string } | null>(null);
-  const [isRefreshingHardware, setIsRefreshingHardware] = useState(false);
-
-  const refreshHardware = () => {
-    if (!id) return;
-    setIsRefreshingHardware(true);
-    void Promise.resolve(fetchHardware(id)).finally(() => setIsRefreshingHardware(false));
-  };
 
   useEffect(() => {
     if (id) {
@@ -169,17 +162,23 @@ export function DeviceDetail() {
     fireAndForget(fetchManifests());
   }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchManifests]);
 
-  // Poll device data every 30s so agent_version and status stay in sync.
+  // Poll device data every 30s so agent_version and status stay in sync, and
+  // re-read the session list on the same beat so a session that ended anywhere
+  // — tab closed, agent restarted, relay torn down — leaves the card.
   // Uses refreshDevice (not fetchDevice) to preserve hardware/logs state.
   useEffect(() => {
     if (!id) return;
-    const interval = setInterval(() => { fireAndForget(refreshDevice(id)); }, 30_000);
+    const interval = setInterval(() => {
+      fireAndForget(refreshDevice(id));
+      fireAndForget(fetchSessions(id));
+    }, 30_000);
     return () => clearInterval(interval);
-  }, [id, refreshDevice]);
+  }, [id, refreshDevice, fetchSessions]);
 
   // Pull the hardware inventory once whenever the agent first appears online and
   // on each offline→online transition (a reboot refreshes it) — but never on a
-  // steady-state poll. The manual "Refresh Hardware" button covers on-demand pulls.
+  // steady-state poll. The agent reports fresh hardware as it registers, so the
+  // row this reads is the one the reconnect just wrote.
   const prevStatusRef = useRef<string | null>(null);
   useEffect(() => {
     const status = device?.status;
@@ -454,17 +453,10 @@ export function DeviceDetail() {
               <span className={`text-xs transition-transform ${showHardware ? 'rotate-90' : ''}`} aria-hidden="true">&#9654;</span>
               {' '}Hardware
             </button>
-            <button
-              type="button"
-              onClick={refreshHardware}
-              disabled={isRefreshingHardware}
-              aria-label="Refresh Hardware"
-              title="Refresh Hardware"
-              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-xs font-medium disabled:opacity-50 inline-flex items-center"
-            >
-              {isRefreshingHardware ? <SpinnerIcon /> : <RefreshIcon />}
-            </button>
           </div>
+          {showHardware && !hardware && (
+            <p className="text-xs text-gray-500">Hardware inventory not reported yet.</p>
+          )}
           {showHardware && hardware && (
             <>
               <dl className="grid grid-cols-2 gap-3 text-sm">

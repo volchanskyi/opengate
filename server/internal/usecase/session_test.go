@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -43,6 +44,9 @@ func (f *fakeSessions) Delete(_ context.Context, token string) error {
 }
 func (f *fakeSessions) ListActiveForDevice(context.Context, uuid.UUID) ([]*session.Session, error) {
 	return nil, nil
+}
+func (f *fakeSessions) DeleteStale(context.Context, time.Time, []string) (int, error) {
+	return 0, nil
 }
 
 type fakeNotifier struct{ events []notifications.Event }

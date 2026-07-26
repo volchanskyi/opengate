@@ -71,6 +71,11 @@ func (s *Server) upgradeRelayWebSocket(w http.ResponseWriter, r *http.Request) *
 
 // registerAndWait registers conn with the relay and blocks until the peer connects
 // or the request context is cancelled. It closes wsConn on registration failure.
+//
+// The deferred release covers the side that connects and leaves while its peer
+// never arrives: no pipe runs for that session, so without it the relay entry,
+// the active-session count and the session row would all outlive the connection.
+// It is inert once the pair started piping — that teardown belongs to the pipe.
 func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn relay.Conn, token string, side relay.Side) {
 	ctx := r.Context()
 	tp := protocol.RedactToken(token)
@@ -80,6 +85,7 @@ func (s *Server) registerAndWait(r *http.Request, wsConn *websocket.Conn, conn r
 		_ = wsConn.Close(websocket.StatusInternalError, "relay error")
 		return
 	}
+	defer s.relay.Unregister(protocol.SessionToken(token))
 
 	if err := s.relay.WaitForPeer(ctx, protocol.SessionToken(token)); err != nil {
 		s.logger.Error("relay wait for peer failed", "error", err, "token_prefix", tp)

@@ -78,14 +78,33 @@ describe('device store', () => {
     expect(peaks.every((p) => p === false)).toBe(true);
   });
 
-  it('fetchHardware clears hardware synchronously before awaiting', async () => {
+  it('fetchHardware keeps the last known inventory when a refresh fails', async () => {
+    // The pull happens on reconnect with no manual re-pull left in the UI, so
+    // blanking first would strand the card empty on a transient failure until
+    // the device next goes offline and back.
+    vi.useFakeTimers();
     useDeviceStore.setState({ hardware: mockHardware });
-    mockGet.mockResolvedValueOnce({ data: mockHardware, error: undefined });
+    mockGet
+      .mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } })
+      .mockResolvedValueOnce({ data: undefined, error: { error: 'still nothing' } });
 
     const promise = useDeviceStore.getState().fetchHardware('d1');
-    // Synchronous reset BEFORE await — kills `set({})` mutant on hardware:null.
-    expect(useDeviceStore.getState().hardware).toBeNull();
+    expect(useDeviceStore.getState().hardware).toEqual(mockHardware);
     await promise;
+    await vi.runAllTimersAsync();
+
+    expect(useDeviceStore.getState().hardware).toEqual(mockHardware);
+    vi.useRealTimers();
+  });
+
+  it('fetchHardware replaces the inventory on a successful pull', async () => {
+    const refreshed = { ...mockHardware, cpu_cores: 32 };
+    useDeviceStore.setState({ hardware: mockHardware });
+    mockGet.mockResolvedValueOnce({ data: refreshed, error: undefined });
+
+    await useDeviceStore.getState().fetchHardware('d1');
+
+    expect(useDeviceStore.getState().hardware).toEqual(refreshed);
   });
 
   it('fetchLogs sends the agent source and never a refresh param (the broker is always live)', async () => {

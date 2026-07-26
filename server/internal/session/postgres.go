@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
@@ -69,6 +70,33 @@ func (p *PostgresSessions) Delete(ctx context.Context, token string) error {
 		}
 		return nil
 	})
+}
+
+// DeleteStale implements [Repository]. It scopes itself to the seeded default
+// organization with admin rights, which the RLS policy widens to every org, so
+// the fleet-wide sweep runs outside any request tenant.
+func (p *PostgresSessions) DeleteStale(ctx context.Context, cutoff time.Time, keep []string) (int, error) {
+	if keep == nil {
+		// A nil slice binds as SQL NULL, and `token = ANY(NULL)` is NULL rather
+		// than false — which would spare every row instead of none.
+		keep = []string{}
+	}
+	ctx = dbtx.WithDefaultTenant(ctx, true)
+	var deleted int64
+	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`DELETE FROM agent_sessions WHERE created_at < $1 AND NOT (token = ANY($2))`,
+			cutoff, keep)
+		if err != nil {
+			return err
+		}
+		deleted, err = res.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return int(deleted), nil
 }
 
 func (p *PostgresSessions) ListActiveForDevice(ctx context.Context, deviceID uuid.UUID) ([]*Session, error) {

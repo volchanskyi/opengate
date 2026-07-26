@@ -43,7 +43,7 @@ function renderDetail() {
 /**
  * Render, then open the collapsed-by-default Hardware section. Located by
  * accessible name, which pins the decorative caret as `aria-hidden` — otherwise
- * the toggle answers to "▶ Hardware" and collides with "Refresh Hardware".
+ * the toggle answers to "▶ Hardware" instead of "Hardware".
  */
 function renderDetailWithHardware() {
   const result = renderDetail();
@@ -684,14 +684,15 @@ describe('DeviceDetail', () => {
     expect(screen.queryByText('RAM')).not.toBeInTheDocument();
   });
 
-  it('Refresh Hardware button calls fetchHardware with device id', async () => {
-    vi.useRealTimers();
-    const user = userEvent.setup();
-    const fetchHardwareFn = vi.fn();
-    useDeviceStore.setState({ fetchHardware: fetchHardwareFn });
+  it('has no manual hardware refresh control — coming back online pulls it', () => {
     renderDetail();
-    await user.click(screen.getByRole('button', { name: 'Refresh Hardware' }));
-    expect(fetchHardwareFn).toHaveBeenCalledWith('d1');
+    expect(screen.queryByRole('button', { name: /refresh hardware/i })).toBeNull();
+  });
+
+  it('says so when the agent has never reported an inventory', () => {
+    useDeviceStore.setState({ hardware: null });
+    renderDetailWithHardware();
+    expect(screen.getByText('Hardware inventory not reported yet.')).toBeInTheDocument();
   });
 
   it('auto-loads hardware once when the device is already online on mount', () => {
@@ -751,8 +752,6 @@ describe('DeviceDetail', () => {
     renderDetail();
     // Collapsed on open — the host card stays short and scannable.
     expect(screen.queryByText('CPU')).toBeNull();
-    // Refresh Hardware stays reachable while collapsed.
-    expect(screen.getByRole('button', { name: 'Refresh Hardware' })).toBeInTheDocument();
     // The caret toggle reveals the details (same pattern as Intel AMT Setup).
     await user.click(screen.getByText('Hardware'));
     expect(screen.getByText('CPU')).toBeInTheDocument();
@@ -1168,19 +1167,16 @@ describe('DeviceDetail', () => {
     expect(screen.getByText('Power Cycle')).toBeInTheDocument();
   });
 
-  it('hardware fetch button is no-op when id param is missing', async () => {
-    vi.useRealTimers();
-    const user = userEvent.setup();
-    const fetchHardwareFn = vi.fn();
-    useDeviceStore.setState({ fetchHardware: fetchHardwareFn });
+  it('the 30s poll re-reads the session list so ended sessions drop out', () => {
+    const fetchSessionsFn = vi.fn();
+    useSessionStore.setState({ ...useSessionStore.getState(), fetchSessions: fetchSessionsFn });
 
-    // Route without an :id param does not even mount DeviceDetail's effects; instead, exercise the
-    // button click directly by rendering with an id and then calling the handler. Here we simply
-    // confirm the wiring: with id present the click forwards to fetchHardware.
     renderDetail();
-    fetchHardwareFn.mockClear(); // discard the online-mount auto-load; assert only the button wiring
-    await user.click(screen.getByRole('button', { name: 'Refresh Hardware' }));
-    expect(fetchHardwareFn).toHaveBeenCalledWith('d1');
+    expect(fetchSessionsFn).toHaveBeenCalledTimes(1); // mount
+
+    vi.advanceTimersByTime(30_000);
+    expect(fetchSessionsFn).toHaveBeenCalledTimes(2);
+    expect(fetchSessionsFn).toHaveBeenLastCalledWith('d1');
   });
 
   it('Confirm Cycle label switches back to Power Cycle on successful confirm', async () => {

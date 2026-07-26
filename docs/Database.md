@@ -220,7 +220,7 @@ The `device_hardware` table stores on-demand hardware inventory collected from a
 | `network_interfaces` | JSONB | Array of network interfaces (name, mac, ipv4, ipv6) |
 | `updated_at` | TIMESTAMPTZ | Last update timestamp |
 
-Hardware data is collected on demand via `RequestHardwareReport` control message and upserted via `UpsertDeviceHardware`. Retrieved via `GetDeviceHardware`.
+Hardware data is collected via the `RequestHardwareReport` control message and upserted via `UpsertDeviceHardware`. The server sends that request as an agent registers, so a device that reboots or reconnects with different RAM, disks or interfaces refreshes its row by coming back online. Retrieved via `GetDeviceHardware`.
 
 ### Device Logs
 
