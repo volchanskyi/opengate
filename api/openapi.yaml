@@ -161,6 +161,34 @@ components:
           description: >-
             Operator-supplied reason for the current maintenance window. Present
             only while maintenance_on is true.
+        amt:
+          $ref: "#/components/schemas/DeviceAMT"
+
+    DeviceAMT:
+      type: object
+      required: [available]
+      description: >-
+        The device's Intel AMT property, read alongside the device row. Omitted
+        entirely when the device neither supports AMT nor has an AMT connection.
+      properties:
+        available:
+          type: boolean
+          description: >-
+            Whether the hardware supports Intel AMT, as reported by the agent
+            from the host's Management Engine interface. Independent of
+            connection state, so the AMT badge never flickers.
+        status:
+          type: string
+          enum: [online, offline]
+          description: >-
+            CIRA connection state. Absent until an AMT connection has been linked
+            to this device.
+        uuid:
+          type: string
+          format: uuid
+          description: >-
+            The AMT device's CIRA identity, which power commands address. Absent
+            until an AMT connection has been linked to this device.
 
     SetMaintenanceRequest:
       type: object
@@ -420,6 +448,18 @@ components:
         updated_at:
           type: string
           format: date-time
+        amt_available:
+          type: boolean
+          description: Whether the host exposes an Intel Management Engine interface.
+        amt_version:
+          type: string
+          description: ME/AMT firmware version read by the agent over the MEI interface.
+        amt_model:
+          type: string
+          description: Machine model read from the device over its AMT connection.
+        amt_firmware:
+          type: string
+          description: AMT firmware version read from the device over its AMT connection.
 
     NetworkInterfaceInfo:
       type: object
@@ -672,26 +712,6 @@ components:
           type: boolean
         display_name:
           type: string
-
-    AMTDevice:
-      type: object
-      required: [uuid, hostname, model, firmware, status, last_seen]
-      properties:
-        uuid:
-          type: string
-          format: uuid
-        hostname:
-          type: string
-        model:
-          type: string
-        firmware:
-          type: string
-        status:
-          type: string
-          enum: [online, offline]
-        last_seen:
-          type: string
-          format: date-time
 
     AMTPowerRequest:
       type: object
@@ -2227,73 +2247,6 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Session not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-
-  /api/v1/amt/devices:
-    get:
-      operationId: listAMTDevices
-      summary: List AMT devices
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: List of AMT devices
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/AMTDevice"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-
-  /api/v1/amt/devices/{uuid}:
-    get:
-      operationId: getAMTDevice
-      summary: Get AMT device details
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: uuid
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: AMT device details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AMTDevice"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "404":
-          description: Device not found
           content:
             application/json:
               schema:

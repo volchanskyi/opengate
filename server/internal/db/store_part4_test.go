@@ -65,8 +65,19 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	runMigrationSteps(t, dbURL, 1)
 	assertMaintenanceColumns(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 007 maintenance columns verified")
+
+	// Give 008 both a linkable and an unlinkable AMT row to sort. Seeded here
+	// rather than pre-tenancy so the 002 backfill assertions keep their
+	// one-row-per-table shape.
+	rehearsalExecNoTx(t, ctx, rehearsalDB,
+		`INSERT INTO amt_devices (uuid, org_id, hostname)
+		 VALUES ('00000000-0000-0000-0000-000000000107', '00000000-0000-0000-0000-000000000002', 'rehearsal-a')`)
+
+	runMigrationSteps(t, dbURL, 1)
+	assertAMTDeviceLink(t, ctx, rehearsalDB)
 	assertMigrationNoChange(t, dbURL)
-	t.Log("rehearsal: 007 maintenance columns verified; head is idempotent")
+	t.Log("rehearsal: 008 AMT device link verified; head is idempotent")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
@@ -77,7 +88,12 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 	assertInventoryRLS(t, ctx, restoredDB, "public")
 	assertDataLifecycleTables(t, ctx, restoredDB)
 	assertMaintenanceColumns(t, ctx, restoredDB)
+	assertAMTDeviceLink(t, ctx, restoredDB)
 	t.Log("rehearsal: pg_dump -> pg_restore completed and restored DB re-verified")
+
+	runMigrationSteps(t, dbURL, -1)
+	assertAMTDeviceLinkDownReversal(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 008 down rollback restored the original amt_devices shape")
 
 	runMigrationSteps(t, dbURL, -1)
 	assertMaintenanceColumnsDownReversal(t, ctx, rehearsalDB)

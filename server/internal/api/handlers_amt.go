@@ -6,7 +6,6 @@ import (
 
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/amt/transport/wsman"
-	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
 // powerActionMap maps OpenAPI enum strings to WSMAN PowerState int values.
@@ -15,40 +14,6 @@ var powerActionMap = map[AMTPowerRequestAction]int{
 	PowerCycle: int(wsman.PowerCycle),
 	SoftOff:    int(wsman.SoftOff),
 	HardReset:  int(wsman.HardReset),
-}
-
-// ListAMTDevices returns all AMT devices from the database.
-func (s *Server) ListAMTDevices(ctx context.Context, _ ListAMTDevicesRequestObject) (ListAMTDevicesResponseObject, error) {
-	if resp, denied := denyIfNotAdmin(ctx, ListAMTDevices403JSONResponse{Error: msgAdminRequired}); denied {
-		return resp, nil
-	}
-
-	devices, err := s.amtHandlers.ListDevices(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(ListAMTDevices200JSONResponse, 0, len(devices))
-	for _, d := range devices {
-		result = append(result, amtDeviceToAPI(d))
-	}
-	return result, nil
-}
-
-// GetAMTDevice returns a single AMT device by UUID.
-func (s *Server) GetAMTDevice(ctx context.Context, request GetAMTDeviceRequestObject) (GetAMTDeviceResponseObject, error) {
-	if resp, denied := denyIfNotAdmin(ctx, GetAMTDevice403JSONResponse{Error: msgAdminRequired}); denied {
-		return resp, nil
-	}
-
-	d, err := s.amtHandlers.GetDevice(ctx, request.Uuid)
-	if err != nil {
-		if errors.Is(err, amt.ErrAMTDeviceNotFound) {
-			return GetAMTDevice404JSONResponse{Error: "device not found"}, nil
-		}
-		return nil, err
-	}
-	return GetAMTDevice200JSONResponse(amtDeviceToAPI(d)), nil
 }
 
 // AmtPowerAction sends a power command to a connected AMT device.
@@ -69,19 +34,4 @@ func (s *Server) AmtPowerAction(ctx context.Context, request AmtPowerActionReque
 		return nil, err
 	}
 	return AmtPowerAction200Response{}, nil
-}
-
-func amtDeviceToAPI(d *db.AMTDevice) AMTDevice {
-	status := AMTDeviceStatusOffline
-	if d.Status == db.StatusOnline {
-		status = AMTDeviceStatusOnline
-	}
-	return AMTDevice{
-		Uuid:     d.UUID,
-		Hostname: d.Hostname,
-		Model:    d.Model,
-		Firmware: d.Firmware,
-		Status:   status,
-		LastSeen: d.LastSeen,
-	}
 }

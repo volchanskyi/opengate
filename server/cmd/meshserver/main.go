@@ -234,12 +234,15 @@ func main() {
 	}
 	manifestStore := updater.NewManifestStore(*dataDir)
 
-	mpsSrv := transport.NewServer(certMgr, amtRepo, logger)
+	mpsSrv := transport.NewServer(certMgr, amtRepo, hardwareRepo, logger)
 	amtSvc := amt.NewService(mpsSrv, *amtUser, *amtPass, logger)
+	// Wired after construction: the service holds the MPS server, so the WSMAN
+	// detail reader can only be handed back once both exist.
+	mpsSrv.SetDetailProber(amtSvc)
 
 	sigTracker := signaling.NewTracker(signaling.DefaultConfig())
 	auditHandlers := audit.NewHandlers(auditRepo)
-	amtHandlers := amt.NewHandlers(amtRepo, amtSvc)
+	amtHandlers := amt.NewHandlers(amtSvc)
 	notifHandlers := notifications.NewHandlers(webPushRepo, notifier)
 
 	srv := api.NewServer(api.ServerConfig{
@@ -255,7 +258,6 @@ func main() {
 		Inventory:             inventoryRepo,
 		WebPush:               webPushRepo,
 		NotificationsHandlers: notifHandlers,
-		AMTDevices:            amtRepo,
 		AMTHandlers:           amtHandlers,
 		Sessions:              sessionsRepo,
 		Users:                 usersRepo,

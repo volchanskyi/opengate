@@ -457,40 +457,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/amt/devices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List AMT devices */
-        get: operations["listAMTDevices"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/amt/devices/{uuid}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get AMT device details */
-        get: operations["getAMTDevice"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/amt/devices/{uuid}/power": {
         parameters: {
             query?: never;
@@ -844,6 +810,22 @@ export interface components {
             maintenance_by?: string;
             /** @description Operator-supplied reason for the current maintenance window. Present only while maintenance_on is true. */
             maintenance_reason?: string;
+            amt?: components["schemas"]["DeviceAMT"];
+        };
+        /** @description The device's Intel AMT property, read alongside the device row. Omitted entirely when the device neither supports AMT nor has an AMT connection. */
+        DeviceAMT: {
+            /** @description Whether the hardware supports Intel AMT, as reported by the agent from the host's Management Engine interface. Independent of connection state, so the AMT badge never flickers. */
+            available: boolean;
+            /**
+             * @description CIRA connection state. Absent until an AMT connection has been linked to this device.
+             * @enum {string}
+             */
+            status?: "online" | "offline";
+            /**
+             * Format: uuid
+             * @description The AMT device's CIRA identity, which power commands address. Absent until an AMT connection has been linked to this device.
+             */
+            uuid?: string;
         };
         SetMaintenanceRequest: {
             /** @description Desired maintenance state — true to suppress, false to resume. */
@@ -992,6 +974,14 @@ export interface components {
             network_interfaces: components["schemas"]["NetworkInterfaceInfo"][];
             /** Format: date-time */
             updated_at: string;
+            /** @description Whether the host exposes an Intel Management Engine interface. */
+            amt_available?: boolean;
+            /** @description ME/AMT firmware version read by the agent over the MEI interface. */
+            amt_version?: string;
+            /** @description Machine model read from the device over its AMT connection. */
+            amt_model?: string;
+            /** @description AMT firmware version read from the device over its AMT connection. */
+            amt_firmware?: string;
         };
         NetworkInterfaceInfo: {
             name: string;
@@ -1111,17 +1101,6 @@ export interface components {
         UpdateUserRequest: {
             is_admin?: boolean;
             display_name?: string;
-        };
-        AMTDevice: {
-            /** Format: uuid */
-            uuid: string;
-            hostname: string;
-            model: string;
-            firmware: string;
-            /** @enum {string} */
-            status: "online" | "offline";
-            /** Format: date-time */
-            last_seen: string;
         };
         AMTPowerRequest: {
             /** @enum {string} */
@@ -2795,93 +2774,6 @@ export interface operations {
                 };
             };
             /** @description Session not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    listAMTDevices: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List of AMT devices */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AMTDevice"][];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    getAMTDevice: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                uuid: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description AMT device details */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AMTDevice"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Device not found */
             404: {
                 headers: {
                     [name: string]: unknown;

@@ -27,7 +27,7 @@ func newTestService(t *testing.T) *amt.Service {
 
 	logger := discardLogger()
 	repo := testutil.NewTestAMTDevices(t, store)
-	mpsSrv := transport.NewServer(cm, repo, logger)
+	mpsSrv := transport.NewServer(cm, repo, testutil.NewTestHardware(t, store), logger)
 	return amt.NewService(mpsSrv, "admin", "password", logger)
 }
 

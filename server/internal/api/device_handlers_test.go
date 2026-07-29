@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
+	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
 const (
@@ -134,4 +135,112 @@ func TestDeviceHandlers(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathDevices+"?group_id="+group.ID.String(), "", nil)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
+}
+
+// TestDeviceAMTProperty covers the shape of the amt object across the three
+// states a device can be in. The badge reads it straight off this payload, so
+// the device detail page issues no AMT request at all.
+func TestDeviceAMTProperty(t *testing.T) {
+	t.Parallel()
+	srv, cfg := newTestServer(t)
+	user, token := seedTestUser(t, srv, cfg, "amt-device@example.com", false)
+	ctx := testTenantContext(t)
+
+	group := &device.Group{ID: uuid.New(), Name: "amt-group", OwnerID: user.ID}
+	require.NoError(t, srv.groups.Create(ctx, group))
+
+	seed := func(hostname string) *device.Device {
+		d := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: hostname, OS: "linux", Status: db.StatusOnline}
+		require.NoError(t, srv.devices.Upsert(ctx, d))
+		return d
+	}
+	available := true
+
+	t.Run("absent when the device neither supports AMT nor has a link", func(t *testing.T) {
+		d := seed("amt-absent")
+		require.NoError(t, srv.hardware.Upsert(ctx, &device.Hardware{DeviceID: d.ID, CPUModel: "AMD Ryzen 9 7950X"}))
+
+		amt := fetchDeviceAMTField(t, srv, token, d.ID)
+		assert.Nil(t, amt, "a machine with no Management Engine carries no amt object")
+	})
+
+	t.Run("available but unlinked when the hardware supports AMT", func(t *testing.T) {
+		d := seed("amt-capable")
+		systemUUID := uuid.New()
+		require.NoError(t, srv.hardware.Upsert(ctx, &device.Hardware{
+			DeviceID:     d.ID,
+			CPUModel:     "Intel Core i7-12700K",
+			SystemUUID:   &systemUUID,
+			AMTAvailable: &available,
+			AMTVersion:   "16.1.30.2260",
+		}))
+
+		amt := fetchDeviceAMTField(t, srv, token, d.ID)
+		require.NotNil(t, amt)
+		assert.True(t, amt.Available, "the badge shows on capability alone, so it never flickers")
+		assert.Nil(t, amt.Status)
+		assert.Nil(t, amt.Uuid)
+	})
+
+	t.Run("carries status and uuid once a connection is linked", func(t *testing.T) {
+		d := seed("amt-linked")
+		systemUUID := uuid.New()
+		require.NoError(t, srv.hardware.Upsert(ctx, &device.Hardware{
+			DeviceID:     d.ID,
+			CPUModel:     "Intel Core i5-1145G7",
+			SystemUUID:   &systemUUID,
+			AMTAvailable: &available,
+		}))
+		conn := testutil.SeedAMTDevice(t, ctx, srv.store, d.ID)
+
+		amt := fetchDeviceAMTField(t, srv, token, d.ID)
+		require.NotNil(t, amt)
+		assert.True(t, amt.Available)
+		require.NotNil(t, amt.Status)
+		assert.Equal(t, DeviceAMTStatusOffline, *amt.Status)
+		require.NotNil(t, amt.Uuid)
+		assert.Equal(t, conn.UUID, *amt.Uuid)
+	})
+}
+
+// TestDeviceResponseNeverLeaksSystemUUID guards the locked decision that the
+// join key is stored but never returned.
+func TestDeviceResponseNeverLeaksSystemUUID(t *testing.T) {
+	t.Parallel()
+	srv, cfg := newTestServer(t)
+	user, token := seedTestUser(t, srv, cfg, "amt-leak@example.com", false)
+	ctx := testTenantContext(t)
+
+	group := &device.Group{ID: uuid.New(), Name: "leak-group", OwnerID: user.ID}
+	require.NoError(t, srv.groups.Create(ctx, group))
+	d := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "leak-host", OS: "linux", Status: db.StatusOnline}
+	require.NoError(t, srv.devices.Upsert(ctx, d))
+
+	systemUUID := uuid.New()
+	available := true
+	require.NoError(t, srv.hardware.Upsert(ctx, &device.Hardware{
+		DeviceID:     d.ID,
+		CPUModel:     "Intel Core i7-12700K",
+		SystemUUID:   &systemUUID,
+		AMTAvailable: &available,
+	}))
+
+	for _, path := range []string{testPathDevicesS + d.ID.String(), testPathDevicesS + d.ID.String() + "/hardware"} {
+		w := doRequest(srv, http.MethodGet, path, token, nil)
+		require.Equal(t, http.StatusOK, w.Code, path)
+		body := w.Body.String()
+		assert.NotContains(t, body, systemUUID.String(), "%s must not return the system UUID", path)
+		assert.NotContains(t, body, "system_uuid", "%s must not name the join key", path)
+	}
+}
+
+// fetchDeviceAMTField reads one device and returns its decoded amt object.
+func fetchDeviceAMTField(t *testing.T, srv *Server, token string, deviceID uuid.UUID) *DeviceAMT {
+	t.Helper()
+	w := doRequest(srv, http.MethodGet, testPathDevicesS+deviceID.String(), token, nil)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got Device
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&got))
+	return got.Amt
 }

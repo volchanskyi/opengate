@@ -12,8 +12,11 @@ const (
 	PowerMgmtResourceURI      = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_PowerManagementService"
 	PowerMgmtAction           = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_PowerManagementService/RequestPowerStateChange"
 	ComputerSystemResourceURI = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ComputerSystem"
-	AMTSetupResourceURI       = "http://intel.com/wbem/wscim/1/amt-schema/1/AMT_SetupAndConfigurationService"
-	TransferGetAction         = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get"
+	// SoftwareIdentityResourceURI carries the AMT firmware version, published by
+	// the Management Engine as the instance with InstanceID "AMT".
+	SoftwareIdentityResourceURI = "http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_SoftwareIdentity"
+	AMTSetupResourceURI         = "http://intel.com/wbem/wscim/1/amt-schema/1/AMT_SetupAndConfigurationService"
+	TransferGetAction           = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get"
 )
 
 // PowerState represents an AMT power state for CIM_PowerManagementService.
@@ -85,6 +88,42 @@ func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 	info.Hostname = extractXMLField(bodyXML, "Name")
 	info.Model = extractXMLField(bodyXML, "Model")
 	return info, nil
+}
+
+// GetGeneralInfo queries the two attributes the server files on a linked
+// device's hardware row: the machine model from CIM_ComputerSystem and the AMT
+// firmware version from the CIM_SoftwareIdentity instance the Management Engine
+// publishes for AMT.
+//
+// The firmware read is best-effort: a device that answers for its model but not
+// for its software inventory still yields a usable model, and a blank attribute
+// leaves the stored value alone.
+func (c *Client) GetGeneralInfo(ctx context.Context) (*DeviceInfo, error) {
+	info, err := c.GetDeviceInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	info.Firmware = c.amtFirmwareVersion(ctx)
+	return info, nil
+}
+
+// amtFirmwareVersion reads CIM_SoftwareIdentity for the AMT instance, returning
+// an empty string when the device does not answer.
+func (c *Client) amtFirmwareVersion(ctx context.Context) string {
+	selector := `<w:Selector Name="InstanceID">AMT</w:Selector>`
+	env := Envelope(SoftwareIdentityResourceURI, TransferGetAction, selector, "")
+
+	resp, err := c.Do(ctx, TransferGetAction, env)
+	if err != nil {
+		c.logger.Debug("get AMT firmware version", "error", err)
+		return ""
+	}
+	bodyXML, err := ParseEnvelopeBody(resp)
+	if err != nil {
+		c.logger.Debug("parse AMT firmware version response", "error", err)
+		return ""
+	}
+	return extractXMLField(bodyXML, "VersionString")
 }
 
 // GetPowerState queries the current power state.

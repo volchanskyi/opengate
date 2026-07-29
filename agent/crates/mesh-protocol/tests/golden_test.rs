@@ -301,10 +301,34 @@ fn golden_control_frame_hardware_report() {
             ipv4: vec!["192.168.1.100".to_string()],
             ipv6: vec!["fe80::1".to_string()],
         }],
+        system_uuid: "4c4c4544-0037-5a10-8054-b4c04f335432".to_string(),
+        amt_available: true,
+        amt_version: "16.1.30.2260".to_string(),
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
     golden_check("control_hardware_report.bin", &encoded);
+}
+
+/// A host with no Management Engine: the presence flag must ride the wire as a
+/// stated `false`, which is what lets the server tell "no AMT here" apart from
+/// "this agent predates AMT reporting".
+#[test]
+fn golden_control_frame_hardware_report_no_amt() {
+    let msg = ControlMessage::HardwareReport {
+        cpu_model: "AMD Ryzen 9 7950X".to_string(),
+        cpu_cores: 32,
+        ram_total_mb: 65536,
+        disk_total_mb: 1_048_576,
+        disk_free_mb: 524_288,
+        network_interfaces: vec![],
+        system_uuid: String::new(),
+        amt_available: false,
+        amt_version: String::new(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_hardware_report_no_amt.bin", &encoded);
 }
 
 #[test]
@@ -784,6 +808,9 @@ fn golden_control_hardware_report_large_size() {
         disk_total_mb: 8_388_608,
         disk_free_mb: 4_194_304,
         network_interfaces,
+        system_uuid: "b1f7c2d0-9a3e-4c58-8f61-2d7a4e0b93c5".to_string(),
+        amt_available: true,
+        amt_version: "12.0.95.2276".to_string(),
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();

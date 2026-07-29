@@ -107,7 +107,6 @@ type ServerConfig struct {
 	Inventory             inventory.Repository
 	WebPush               notifications.WebPushRepository
 	NotificationsHandlers *notifications.Handlers
-	AMTDevices            amt.Repository
 	AMTHandlers           *amt.Handlers
 	Sessions              session.Repository
 	SessionUseCase        *usecase.SessionService
@@ -155,7 +154,6 @@ type Server struct {
 	inventory       inventory.Repository
 	webPush         notifications.WebPushRepository
 	notifHandlers   *notifications.Handlers
-	amtDevices      amt.Repository
 	amtHandlers     *amt.Handlers
 	sessions        session.Repository
 	sessionUC       *usecase.SessionService
@@ -202,16 +200,15 @@ func resolveAuditHandlers(cfg ServerConfig) *audit.Handlers {
 	return nil
 }
 
-// resolveAMTHandlers — same pattern as resolveAuditHandlers. The amt
-// Handlers struct needs BOTH the Repository (List/Get) and the Operator
-// (PowerAction); fall back via cfg.AMTDevices + cfg.AMT when AMTHandlers
-// is nil so existing test ServerConfig literals stay green.
+// resolveAMTHandlers — same pattern as resolveAuditHandlers. The amt Handlers
+// struct needs the Operator (PowerAction); fall back via cfg.AMT when
+// AMTHandlers is nil so existing test ServerConfig literals stay green.
 func resolveAMTHandlers(cfg ServerConfig) *amt.Handlers {
 	if cfg.AMTHandlers != nil {
 		return cfg.AMTHandlers
 	}
-	if cfg.AMTDevices != nil && cfg.AMT != nil {
-		return amt.NewHandlers(cfg.AMTDevices, cfg.AMT)
+	if cfg.AMT != nil {
+		return amt.NewHandlers(cfg.AMT)
 	}
 	return nil
 }
@@ -260,7 +257,6 @@ func NewServer(cfg ServerConfig) *Server {
 		inventory:       cfg.Inventory,
 		webPush:         cfg.WebPush,
 		notifHandlers:   resolveNotificationsHandlers(cfg),
-		amtDevices:      cfg.AMTDevices,
 		amtHandlers:     resolveAMTHandlers(cfg),
 		sessions:        cfg.Sessions,
 		sessionUC:       resolveSessionUseCase(cfg),

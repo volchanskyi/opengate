@@ -1014,6 +1014,7 @@ fn collect_hardware_info() -> mesh_protocol::ControlMessage {
     });
 
     let network_interfaces = collect_network_interfaces();
+    let amt = mesh_agent_core::amt_detect::detect();
 
     mesh_protocol::ControlMessage::HardwareReport {
         cpu_model,
@@ -1022,6 +1023,9 @@ fn collect_hardware_info() -> mesh_protocol::ControlMessage {
         disk_total_mb: disk_total / (1024 * 1024),
         disk_free_mb: disk_free / (1024 * 1024),
         network_interfaces,
+        system_uuid: mesh_agent_core::hardware::system_uuid(),
+        amt_available: amt.available,
+        amt_version: amt.version,
     }
 }
 

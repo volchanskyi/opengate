@@ -3,8 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider, useLocation } from 'react-router';
 import { useDeviceStore } from './state/device-store';
+import type { components } from '../../types/api';
 import { useSessionStore } from '../session';
-import { useAMTStore } from './state/amt-store';
 import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { DeviceDetail } from './DeviceDetail';
@@ -64,7 +64,17 @@ const mockDevice = {
   updated_at: '2026-01-01T00:00:00Z',
 };
 
+type PowerAction = components['schemas']['AMTPowerRequest']['action'];
+
 const newerManifest = { version: '2.0.0', os: 'linux', arch: 'amd64', url: 'https://example.com/agent', sha256: 'abc', signature: 'sig', created_at: '2026-01-01T00:00:00Z' };
+
+/** Puts the selected device in the linked-and-online AMT state power actions need. */
+function setLinkedAmtDevice(sendPowerAction: (uuid: string, action: PowerAction) => Promise<boolean>) {
+  useDeviceStore.setState({
+    selectedDevice: { ...mockDevice, amt: { available: true, status: 'online' as const, uuid: 'amt-1' } },
+    sendPowerAction,
+  });
+}
 
 describe('DeviceDetail', () => {
   beforeEach(() => {
@@ -83,14 +93,6 @@ describe('DeviceDetail', () => {
       fetchHardware: vi.fn(),
       deleteDevice: vi.fn(),
       upgradeAgent: vi.fn().mockResolvedValue(true),
-    });
-    useAMTStore.setState({
-      amtDevices: [],
-      selectedAmtDevice: null,
-      isLoading: false,
-      error: null,
-      fetchAmtDevices: vi.fn(),
-      fetchAmtDevice: vi.fn(),
       sendPowerAction: vi.fn(),
     });
     useSessionStore.setState({
@@ -376,10 +378,7 @@ describe('DeviceDetail', () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const sendPowerFn = vi.fn().mockResolvedValue(true);
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-      sendPowerAction: sendPowerFn,
-    });
+    setLinkedAmtDevice(sendPowerFn);
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
@@ -394,10 +393,7 @@ describe('DeviceDetail', () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const sendPowerFn = vi.fn().mockResolvedValue(true);
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-      sendPowerAction: sendPowerFn,
-    });
+    setLinkedAmtDevice(sendPowerFn);
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
@@ -416,10 +412,7 @@ describe('DeviceDetail', () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const sendPowerFn = vi.fn().mockResolvedValue(false);
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-      sendPowerAction: sendPowerFn,
-    });
+    setLinkedAmtDevice(sendPowerFn);
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
@@ -427,22 +420,6 @@ describe('DeviceDetail', () => {
 
     const toasts = useToastStore.getState().toasts;
     expect(toasts.some((t) => t.message.includes('Failed to send power action'))).toBe(true);
-  });
-
-  it('shows AMT instructions toggle when no AMT device', async () => {
-    vi.useRealTimers();
-    const user = userEvent.setup();
-    useAMTStore.setState({ amtDevices: [] });
-
-    renderDetail();
-
-    expect(screen.getByText('Intel AMT Setup')).toBeInTheDocument();
-    // Instructions hidden by default
-    expect(screen.queryByText(/Enable AMT in BIOS/)).not.toBeInTheDocument();
-
-    // Click to expand
-    await user.click(screen.getByText('Intel AMT Setup'));
-    expect(screen.getByText(/Enable AMT in BIOS/)).toBeInTheDocument();
   });
 
   it('handleMoveGroup shows failure toast on error', async () => {
@@ -467,56 +444,38 @@ describe('DeviceDetail', () => {
     expect(toasts.some((t) => t.message.includes('Failed to move device'))).toBe(true);
   });
 
-  it('AMT section shows offline status with red class and Offline label', () => {
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'offline' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-    });
+  it('shows the Intel AMT badge for a capable device that has never dialled in', () => {
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, amt: { available: true } } });
     renderDetail();
-    const offline = screen.getByText('Offline');
-    expect(offline).toHaveClass('text-red-400');
-    expect(offline).not.toHaveClass('text-green-400');
+    expect(screen.getByText('Intel AMT').getAttribute('title')).toBe('Intel AMT · not connected');
   });
 
-  it('AMT section shows online status with green class and Online label', () => {
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
+  it('hides the power buttons until the AMT connection is online', () => {
+    useDeviceStore.setState({
+      selectedDevice: { ...mockDevice, amt: { available: true, status: 'offline' as const, uuid: 'amt-1' } },
     });
     renderDetail();
-    // StatusBadge also renders "Online" in the page header, so scope the lookup to the AMT paragraph.
-    const para = screen.getByText(/AMT Status:/).closest('p')!;
-    const online = Array.from(para.querySelectorAll('span')).find((s) => s.textContent === 'Online');
-    expect(online).toBeDefined();
-    expect(online).toHaveClass('text-green-400');
-    expect(online).not.toHaveClass('text-red-400');
+    expect(screen.getByText('Intel AMT').getAttribute('title')).toBe('Intel AMT · offline');
+    expect(screen.queryByText('Power On')).not.toBeInTheDocument();
   });
 
-  it('AMT section shows · model when model field is present', () => {
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-    });
+  it('shows the power buttons once the AMT connection is online', () => {
+    setLinkedAmtDevice(vi.fn());
     renderDetail();
-    const para = screen.getByText(/AMT Status:/).closest('p');
-    expect(para?.textContent).toContain('·');
-    expect(para?.textContent).toContain('vPro');
+    expect(screen.getByText('Power On')).toBeInTheDocument();
   });
 
-  it('AMT section omits middot and model when model is empty', () => {
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: '', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-    });
+  it('renders no AMT badge or power buttons for a device without AMT', () => {
     renderDetail();
-    const para = screen.getByText(/AMT Status:/).closest('p');
-    expect(para?.textContent).not.toContain('·');
+    expect(screen.queryByText('Intel AMT')).not.toBeInTheDocument();
+    expect(screen.queryByText('Power On')).not.toBeInTheDocument();
   });
 
   it('handlePowerAction hard_reset shows Confirm Reset on first click', async () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const sendPowerFn = vi.fn().mockResolvedValue(true);
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-      sendPowerAction: sendPowerFn,
-    });
+    setLinkedAmtDevice(sendPowerFn);
     renderDetail();
 
     await user.click(screen.getByText('Hard Reset'));
@@ -531,43 +490,12 @@ describe('DeviceDetail', () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const sendPowerFn = vi.fn().mockResolvedValue(true);
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-      sendPowerAction: sendPowerFn,
-    });
+    setLinkedAmtDevice(sendPowerFn);
     renderDetail();
     await user.click(screen.getByText('Soft Off'));
     expect(sendPowerFn).toHaveBeenCalledWith('amt-1', 'soft_off');
     // No "Confirm" variant should appear for soft_off
     expect(screen.queryByText(/Confirm Soft/)).not.toBeInTheDocument();
-  });
-
-  it('AMT instructions arrow rotates 90deg when expanded', async () => {
-    vi.useRealTimers();
-    const user = userEvent.setup();
-    useAMTStore.setState({ amtDevices: [] });
-
-    renderDetail();
-    const toggle = screen.getByRole('button', { name: /Intel AMT Setup/ });
-    const arrowBefore = toggle.querySelector('span');
-    expect(arrowBefore?.className).toContain('transition-transform');
-    expect(arrowBefore?.className).not.toContain('rotate-90');
-
-    await user.click(toggle);
-    const arrowAfter = toggle.querySelector('span');
-    expect(arrowAfter?.className).toContain('rotate-90');
-
-    await user.click(toggle);
-    const arrowCollapsed = toggle.querySelector('span');
-    expect(arrowCollapsed?.className).not.toContain('rotate-90');
-  });
-
-  it('AMT toggle button text includes leading space before Intel AMT Setup', () => {
-    useAMTStore.setState({ amtDevices: [] });
-    renderDetail();
-    const toggle = screen.getByRole('button', { name: /Intel AMT Setup/ });
-    // The component renders `<span>▶</span> Intel AMT Setup` — a leading space character matters.
-    expect(toggle.textContent).toMatch(/\s+Intel AMT Setup/);
   });
 
   it('formatBytes renders 0 B when total is zero', () => {
@@ -1069,10 +997,7 @@ describe('DeviceDetail', () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const sendPowerFn = vi.fn().mockResolvedValue(true);
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-      sendPowerAction: sendPowerFn,
-    });
+    setLinkedAmtDevice(sendPowerFn);
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
@@ -1129,19 +1054,16 @@ describe('DeviceDetail', () => {
   it('mount triggers fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchManifests', () => {
     const fetchDeviceFn = vi.fn();
     const fetchSessionsFn = vi.fn();
-    const fetchAmtFn = vi.fn();
     const fetchGroupsFn = vi.fn();
     const fetchManifestsFn = vi.fn();
     useDeviceStore.setState({ fetchDevice: fetchDeviceFn, fetchGroups: fetchGroupsFn });
     useSessionStore.setState({ ...useSessionStore.getState(), fetchSessions: fetchSessionsFn });
-    useAMTStore.setState({ ...useAMTStore.getState(), fetchAmtDevices: fetchAmtFn });
     useUpdateStore.setState({ fetchManifests: fetchManifestsFn });
 
     renderDetail();
 
     expect(fetchDeviceFn).toHaveBeenCalledWith('d1');
     expect(fetchSessionsFn).toHaveBeenCalledWith('d1');
-    expect(fetchAmtFn).toHaveBeenCalled();
     expect(fetchGroupsFn).toHaveBeenCalled();
     expect(fetchManifestsFn).toHaveBeenCalled();
   });
@@ -1151,10 +1073,7 @@ describe('DeviceDetail', () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const sendPowerFn = vi.fn().mockResolvedValue(true);
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-      sendPowerAction: sendPowerFn,
-    });
+    setLinkedAmtDevice(sendPowerFn);
     renderDetail();
 
     await user.click(screen.getByText('Power Cycle'));
@@ -1183,10 +1102,7 @@ describe('DeviceDetail', () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const sendPowerFn = vi.fn().mockResolvedValue(true);
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-      sendPowerAction: sendPowerFn,
-    });
+    setLinkedAmtDevice(sendPowerFn);
     renderDetail();
 
     await user.click(screen.getByText('Power Cycle'));
@@ -1241,50 +1157,26 @@ describe('DeviceDetail', () => {
     expect(screen.queryByText(/Upgrade to v2\.0\.0/)).not.toBeInTheDocument();
   });
 
-  it('AMT Status text node uses the green class only and contains exact label "Online"', () => {
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-    });
+  it('the AMT badge carries connection state in its tooltip, not in the page body', () => {
+    setLinkedAmtDevice(vi.fn());
     renderDetail();
-    const para = screen.getByText(/AMT Status:/).closest('p')!;
-    const span = Array.from(para.querySelectorAll('span')).find((s) => s.textContent === 'Online');
-    expect(span).toBeDefined();
-    expect(span!.tagName).toBe('SPAN');
-    expect(span!.className).toBe('text-green-400');
+    const badge = screen.getByText('Intel AMT');
+    expect(badge.getAttribute('title')).toBe('Intel AMT · online');
+    // Connection state belongs to the badge tooltip; the body carries no status line.
+    expect(screen.queryByText(/AMT Status:/)).not.toBeInTheDocument();
   });
 
-  it('AMT Status text node uses the red class only and contains exact label "Offline"', () => {
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'offline' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-    });
+  it('keeps the AMT setup instructions off the device page', () => {
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, amt: { available: true } } });
     renderDetail();
-    const span = screen.getByText('Offline');
-    expect(span.tagName).toBe('SPAN');
-    expect(span.className).toBe('text-red-400');
-  });
-
-  it('AMT instructions panel toggles content on each click', async () => {
-    vi.useRealTimers();
-    const user = userEvent.setup();
-    useAMTStore.setState({ amtDevices: [] });
-
-    renderDetail();
-    expect(screen.queryByText(/Enable AMT in BIOS/)).not.toBeInTheDocument();
-
-    await user.click(screen.getByText(/Intel AMT Setup/));
-    expect(screen.getByText(/Enable AMT in BIOS/)).toBeInTheDocument();
-
-    await user.click(screen.getByText(/Intel AMT Setup/));
+    expect(screen.queryByText(/Intel AMT Setup/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Enable AMT in BIOS/)).not.toBeInTheDocument();
   });
 
   it('AMT Power Cycle button toggles between default and confirm labels', async () => {
     vi.useRealTimers();
     const user = userEvent.setup();
-    useAMTStore.setState({
-      amtDevices: [{ uuid: 'amt-1', hostname: 'test-host', status: 'online' as const, model: 'vPro', firmware: '16.1', last_seen: '2026-01-01T00:00:00Z' }],
-      sendPowerAction: vi.fn().mockResolvedValue(true),
-    });
+    setLinkedAmtDevice(vi.fn().mockResolvedValue(true));
     renderDetail();
     expect(screen.getByText('Power Cycle')).toBeInTheDocument();
     await user.click(screen.getByText('Power Cycle'));

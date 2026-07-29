@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/binary"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,65 +19,74 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
-	"github.com/volchanskyi/opengate/server/internal/testpg"
 )
 
-// pgAMTState is a tiny test-only AMTStateWriter that also reads back rows.
-// Defined here (not in amt/) because amt imports mps; importing amt from
-// mps_test.go would create a build cycle. Production wiring threads
-// amt.PostgresAMTDevices through main.go instead.
-type pgAMTState struct{ pool *db.PostgresStore }
+// The tests in this file exercise the APF protocol machinery, so they run
+// against in-memory ports. The persistence path — resolving a CIRA connection to
+// its device and writing that device's organization — is covered end to end in
+// mps_link_test.go, which drives the real amt.PostgresAMTDevices and
+// device.PostgresHardware from an external test package (importing amt from
+// package transport would be a build cycle).
 
-func (p *pgAMTState) Upsert(ctx context.Context, d *db.AMTDevice) error {
-	_, err := p.pool.DB().ExecContext(ctx,
-		`INSERT INTO amt_devices (uuid, org_id, hostname, model, firmware, status, last_seen)
-		 VALUES ($1, $2, $3, $4, $5, $6, NOW())
-		 ON CONFLICT (uuid) DO UPDATE SET
-		   org_id    = EXCLUDED.org_id,
-		   hostname  = CASE WHEN EXCLUDED.hostname = '' THEN amt_devices.hostname ELSE EXCLUDED.hostname END,
-		   model     = CASE WHEN EXCLUDED.model    = '' THEN amt_devices.model    ELSE EXCLUDED.model    END,
-		   firmware  = CASE WHEN EXCLUDED.firmware = '' THEN amt_devices.firmware ELSE EXCLUDED.firmware END,
-		   status    = EXCLUDED.status,
-		   last_seen = NOW()`,
-		d.UUID, dbtx.DefaultOrgID, d.Hostname, d.Model, d.Firmware, string(d.Status))
-	return err
+// memAMTState records connection-state writes in memory.
+type memAMTState struct {
+	mu       sync.Mutex
+	upserted []db.AMTDevice
+	statuses map[uuid.UUID]db.DeviceStatus
 }
 
-func (p *pgAMTState) SetStatus(ctx context.Context, id uuid.UUID, status db.DeviceStatus) error {
-	_, err := p.pool.DB().ExecContext(ctx,
-		`UPDATE amt_devices SET status = $1, last_seen = NOW() WHERE org_id = $2 AND uuid = $3`,
-		string(status), dbtx.DefaultOrgID, id)
-	return err
+func newMemAMTState() *memAMTState {
+	return &memAMTState{statuses: map[uuid.UUID]db.DeviceStatus{}}
 }
 
-func (p *pgAMTState) Get(ctx context.Context, id uuid.UUID) (*db.AMTDevice, error) {
-	var d db.AMTDevice
-	err := p.pool.DB().QueryRowContext(ctx,
-		`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices WHERE org_id = $1 AND uuid = $2`,
-		dbtx.DefaultOrgID, id).Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen)
-	if err != nil {
-		return nil, err
-	}
-	return &d, nil
+func (m *memAMTState) Upsert(_ context.Context, d *db.AMTDevice) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.upserted = append(m.upserted, *d)
+	m.statuses[d.UUID] = d.Status
+	return nil
 }
+
+func (m *memAMTState) SetStatus(_ context.Context, id uuid.UUID, status db.DeviceStatus) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statuses[id] = status
+	return nil
+}
+
+func (m *memAMTState) status(id uuid.UUID) (db.DeviceStatus, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.statuses[id]
+	return s, ok
+}
+
+// memLinker resolves every system UUID to one fixed device, so the APF tests get
+// a linked connection without a database.
+type memLinker struct {
+	deviceID uuid.UUID
+	orgID    uuid.UUID
+}
+
+func (m *memLinker) ResolveBySystemUUID(_ context.Context, _ uuid.UUID) (uuid.UUID, uuid.UUID, error) {
+	return m.deviceID, m.orgID, nil
+}
+
+func (m *memLinker) SetAMTDetail(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newTestServer(t *testing.T) (*Server, *pgAMTState) {
+func newTestServer(t *testing.T) (*Server, *memAMTState) {
 	t.Helper()
-
-	store, err := db.NewPostgresStore(t.Context(), testpg.BaseURL(t))
-	require.NoError(t, err)
-	t.Cleanup(func() { store.Close() })
 
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 
-	logger := discardLogger()
-	state := &pgAMTState{pool: store}
-	srv := NewServer(cm, state, logger)
+	state := newMemAMTState()
+	linker := &memLinker{deviceID: uuid.New(), orgID: dbtx.DefaultOrgID}
+	srv := NewServer(cm, state, linker, discardLogger())
 	return srv, state
 }
 
@@ -262,13 +273,12 @@ func TestMPSCIRAHandshake(t *testing.T) {
 
 	// Registration (conn map + online upsert) is async; poll instead of
 	// assuming a fixed delay so the test is deterministic under -race.
-	ctx := context.Background()
 	require.Eventually(t, func() bool {
 		return srv.ConnectedDeviceCount() == 1 && srv.GetConn(amtUUID) != nil
 	}, 2*time.Second, 5*time.Millisecond, "server should register the CIRA connection")
 	require.Eventually(t, func() bool {
-		device, err := store.Get(ctx, amtUUID)
-		return err == nil && device.Status == db.StatusOnline
+		status, ok := store.status(amtUUID)
+		return ok && status == db.StatusOnline
 	}, 2*time.Second, 5*time.Millisecond, "device should be upserted online")
 
 	// Disconnect — count, conn map and the offline upsert all settle async.
@@ -277,8 +287,8 @@ func TestMPSCIRAHandshake(t *testing.T) {
 		return srv.ConnectedDeviceCount() == 0 && srv.GetConn(amtUUID) == nil
 	}, 2*time.Second, 5*time.Millisecond, "server should drop the closed connection")
 	require.Eventually(t, func() bool {
-		device, err := store.Get(ctx, amtUUID)
-		return err == nil && device.Status == db.StatusOffline
+		status, ok := store.status(amtUUID)
+		return ok && status == db.StatusOffline
 	}, 2*time.Second, 5*time.Millisecond, "device should be marked offline")
 }
 
@@ -560,4 +570,69 @@ func (errWriter) Write(_ []byte) (int, error) { return 0, io.ErrClosedPipe }
 func TestWriteChannelOpenDirectWriteError(t *testing.T) {
 	err := writeChannelOpenDirect(errWriter{}, 1, "host", 80)
 	assert.ErrorIs(t, err, io.ErrClosedPipe)
+}
+
+// deferredLinker refuses the lookup until it is armed, standing in for a machine
+// whose AMT firmware dialled in before its agent had registered.
+type deferredLinker struct {
+	mu       sync.Mutex
+	deviceID uuid.UUID
+	armed    bool
+}
+
+func (d *deferredLinker) ResolveBySystemUUID(_ context.Context, _ uuid.UUID) (uuid.UUID, uuid.UUID, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.armed {
+		return uuid.Nil, uuid.Nil, errors.New("no device reports this system uuid")
+	}
+	return d.deviceID, dbtx.DefaultOrgID, nil
+}
+
+func (d *deferredLinker) SetAMTDetail(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }
+
+func (d *deferredLinker) arm() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.armed = true
+}
+
+// TestUnlinkedConnectionIsAdoptedOnRetry proves the retry loop: a connection the
+// server could not resolve at handshake time is picked up on a later tick, once
+// the device claims its system UUID — no reconnect required.
+func TestUnlinkedConnectionIsAdoptedOnRetry(t *testing.T) {
+	cm, err := cert.NewManager(t.TempDir())
+	require.NoError(t, err)
+
+	state := newMemAMTState()
+	linker := &deferredLinker{deviceID: uuid.New()}
+	srv := NewServer(cm, state, linker, discardLogger())
+	// Pace the retry for the test rather than waiting out the production tick.
+	srv.relinkInterval = 20 * time.Millisecond
+
+	addr, cancel := startTestServer(t, srv)
+	defer cancel()
+
+	amtUUID := uuid.New()
+	conn := connectAMT(t, addr)
+	simulateCIRA(t, conn, amtUUID)
+
+	require.Eventually(t, func() bool { return srv.GetConn(amtUUID) != nil },
+		2*time.Second, 5*time.Millisecond, "server should hold the unmatched connection")
+	_, persisted := state.status(amtUUID)
+	assert.False(t, persisted, "an unmatched connection must persist nothing")
+
+	// The agent registers now.
+	linker.arm()
+
+	require.Eventually(t, func() bool {
+		status, ok := state.status(amtUUID)
+		return ok && status == db.StatusOnline
+	}, 3*time.Second, 10*time.Millisecond, "the retry should adopt the connection and record it online")
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	require.Len(t, state.upserted, 1)
+	assert.Equal(t, linker.deviceID, state.upserted[0].DeviceID,
+		"the adopted row should point at the device that claimed the system UUID")
 }

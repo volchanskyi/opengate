@@ -21,33 +21,23 @@ func TestAMTAdminOnly(t *testing.T) {
 	admin, _ := srv.users.GetByEmail(ctx, "amt-admin@example.com")
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
-	amtDevice := testutil.SeedAMTDevice(t, ctx, srv.store)
-
-	t.Run("list AMT devices regular forbidden", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/amt/devices", regularToken, nil)
-		assert.Equal(t, http.StatusForbidden, w.Code)
-	})
-
-	t.Run("list AMT devices admin succeeds", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/amt/devices", adminToken, nil)
-		assert.Equal(t, http.StatusOK, w.Code)
-	})
-
-	t.Run("get AMT device regular forbidden", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/amt/devices/"+amtDevice.UUID.String(), regularToken, nil)
-		assert.Equal(t, http.StatusForbidden, w.Code)
-	})
-
-	t.Run("get AMT device admin succeeds", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, "/api/v1/amt/devices/"+amtDevice.UUID.String(), adminToken, nil)
-		// Could be 200 or 404 depending on whether AMT device is stored — just not 403.
-		assert.NotEqual(t, http.StatusForbidden, w.Code)
-	})
+	owner := testutil.SeedUser(t, ctx, srv.store)
+	group := testutil.SeedGroup(t, ctx, srv.store, owner.ID)
+	dev := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	amtDevice := testutil.SeedAMTDevice(t, ctx, srv.store, dev.ID)
 
 	t.Run("AMT power action regular forbidden", func(t *testing.T) {
-		body := map[string]string{"action": "PowerOn"}
+		body := map[string]string{"action": "power_on"}
 		w := doRequest(srv, http.MethodPost, "/api/v1/amt/devices/"+amtDevice.UUID.String()+"/power", regularToken, body)
 		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
+
+	t.Run("AMT power action admin reaches the operator", func(t *testing.T) {
+		body := map[string]string{"action": "power_on"}
+		w := doRequest(srv, http.MethodPost, "/api/v1/amt/devices/"+amtDevice.UUID.String()+"/power", adminToken, body)
+		// The device has no live CIRA tunnel, so the operator refuses with 409 —
+		// which is the proof the request cleared the admin gate.
+		assert.Equal(t, http.StatusConflict, w.Code)
 	})
 }
 

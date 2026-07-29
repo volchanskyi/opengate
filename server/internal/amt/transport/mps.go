@@ -24,6 +24,24 @@ import (
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/cert"
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
+)
+
+// amtLinkTimeout bounds the device lookup and the connection-state writes that
+// follow it. amtProbeTimeout bounds the WSMAN detail read, which crosses the
+// CIRA tunnel to the device itself and so deserves more room.
+const (
+	amtLinkTimeout  = 5 * time.Second
+	amtProbeTimeout = 30 * time.Second
+)
+
+// keepaliveInterval is the APF keepalive cadence negotiated with the device.
+// defaultRelinkInterval is how often an unlinked connection retries its device
+// lookup, so a machine whose agent registers after its AMT firmware dialled in
+// is adopted without reconnecting.
+const (
+	keepaliveInterval     = 30 * time.Second
+	defaultRelinkInterval = 30 * time.Second
 )
 
 // AMTStateWriter is the narrow port mps uses to persist device online/offline
@@ -37,25 +55,66 @@ type AMTStateWriter interface {
 	SetStatus(ctx context.Context, id uuid.UUID, status db.DeviceStatus) error
 }
 
+// AMTDeviceLinker resolves which managed device a CIRA connection belongs to and
+// files the detail read back over it. A CIRA connection carries no request
+// tenant, so this lookup is what supplies one: it maps the AMT firmware's UUID —
+// the host's SMBIOS system UUID on vPro hardware — to a device and its
+// organization. device.HardwareRepository satisfies it structurally, by the same
+// no-import rule as AMTStateWriter.
+type AMTDeviceLinker interface {
+	ResolveBySystemUUID(ctx context.Context, systemUUID uuid.UUID) (uuid.UUID, uuid.UUID, error)
+	SetAMTDetail(ctx context.Context, deviceID uuid.UUID, model, firmware string) error
+}
+
+// AMTDetailProber reads a connected device's machine model and AMT firmware
+// version over WSMAN. amt.Service implements it and is wired in after
+// construction, because amt.Service itself holds the MPS server.
+type AMTDetailProber interface {
+	ProbeDetail(ctx context.Context, mc *Conn) (string, string, error)
+}
+
 // Server is the Intel AMT Management Presence Server.
 type Server struct {
-	cert   *cert.Manager
-	state  AMTStateWriter
-	conns  sync.Map // map[uuid.UUID]*Conn
-	count  atomic.Int64
-	logger *slog.Logger
-	addrCh chan string
-	once   sync.Once
+	cert     *cert.Manager
+	state    AMTStateWriter
+	linker   AMTDeviceLinker
+	proberMu sync.RWMutex
+	prober   AMTDetailProber
+	conns    sync.Map // map[uuid.UUID]*Conn
+	count    atomic.Int64
+	logger   *slog.Logger
+	addrCh   chan string
+	once     sync.Once
+
+	// relinkInterval paces the retry for unlinked connections.
+	relinkInterval time.Duration
 }
 
 // NewServer creates a new MPS server.
-func NewServer(cm *cert.Manager, state AMTStateWriter, logger *slog.Logger) *Server {
+func NewServer(cm *cert.Manager, state AMTStateWriter, linker AMTDeviceLinker, logger *slog.Logger) *Server {
 	return &Server{
-		cert:   cm,
-		state:  state,
-		logger: logger,
-		addrCh: make(chan string, 1),
+		cert:           cm,
+		state:          state,
+		linker:         linker,
+		logger:         logger,
+		addrCh:         make(chan string, 1),
+		relinkInterval: defaultRelinkInterval,
 	}
+}
+
+// SetDetailProber supplies the WSMAN reader used to fill in a linked device's
+// machine model and AMT firmware. Without one the connection still links and
+// still accepts power commands; only the two hardware attributes stay blank.
+func (s *Server) SetDetailProber(p AMTDetailProber) {
+	s.proberMu.Lock()
+	defer s.proberMu.Unlock()
+	s.prober = p
+}
+
+func (s *Server) detailProber() AMTDetailProber {
+	s.proberMu.RLock()
+	defer s.proberMu.RUnlock()
+	return s.prober
 }
 
 // ConnectedDeviceCount returns the number of active AMT connections.
@@ -152,31 +211,91 @@ func (s *Server) handleConn(ctx context.Context, netConn net.Conn) {
 	s.messageLoop(connCtx, mc)
 }
 
-// registerConn stores the connection and marks the device online.
+// registerConn stores the connection and links it to the device that owns it.
 func (s *Server) registerConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) {
 	s.conns.Store(amtUUID, mc)
 	s.count.Add(1)
 
-	upsertCtx, upsertCancel := context.WithTimeout(ctx, 5*time.Second)
-	defer upsertCancel()
-	if err := s.state.Upsert(upsertCtx, &db.AMTDevice{
+	if !s.linkConn(ctx, mc, amtUUID) {
+		mc.logger.Info("AMT connection held unlinked: no managed device reports this system UUID")
+	}
+}
+
+// linkConn resolves the managed device that owns this AMT connection and records
+// the connection online under that device's organization. It reports whether the
+// connection is linked.
+//
+// A connection that resolves to nothing persists nothing: Intel AMT is a
+// property of a managed device, so an AMT box with no agent has no organization
+// to store state in. The connection stays live in memory and the keepalive
+// retries this lookup, so the machine is adopted the moment its agent registers.
+func (s *Server) linkConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) bool {
+	if _, _, ok := mc.linked(); ok {
+		return true
+	}
+
+	linkCtx, cancel := context.WithTimeout(ctx, amtLinkTimeout)
+	defer cancel()
+
+	deviceID, orgID, err := s.linker.ResolveBySystemUUID(linkCtx, amtUUID)
+	if err != nil {
+		return false
+	}
+
+	if err := s.state.Upsert(dbtx.WithTenant(linkCtx, orgID, false), &db.AMTDevice{
 		UUID:     amtUUID,
+		DeviceID: deviceID,
 		Status:   db.StatusOnline,
 		LastSeen: time.Now(),
 	}); err != nil {
 		mc.logger.Error("upsert AMT device", "error", err)
+		return false
+	}
+
+	mc.link(deviceID, orgID)
+	mc.logger.Info("AMT connection linked to device", "device_id", deviceID)
+	go s.storeDetail(ctx, mc, deviceID, orgID)
+	return true
+}
+
+// storeDetail reads the machine model and AMT firmware version back over the
+// CIRA connection and files them on the device's hardware row. It runs on its
+// own goroutine because the WSMAN reply arrives through the message loop the
+// caller is about to enter.
+func (s *Server) storeDetail(ctx context.Context, mc *Conn, deviceID, orgID uuid.UUID) {
+	prober := s.detailProber()
+	if prober == nil {
+		return
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, amtProbeTimeout)
+	defer cancel()
+
+	model, firmware, err := prober.ProbeDetail(probeCtx, mc)
+	if err != nil {
+		mc.logger.Warn("probe AMT device detail", "error", err)
+		return
+	}
+	if model == "" && firmware == "" {
+		return
+	}
+	if err := s.linker.SetAMTDetail(dbtx.WithTenant(probeCtx, orgID, false), deviceID, model, firmware); err != nil {
+		mc.logger.Error("store AMT device detail", "error", err)
 	}
 }
 
-// unregisterConn removes the connection and marks the device offline.
+// unregisterConn removes the connection and marks the device offline. An
+// unlinked connection wrote no row, so there is nothing to mark.
 func (s *Server) unregisterConn(mc *Conn, amtUUID uuid.UUID) {
 	s.conns.Delete(amtUUID)
 	s.count.Add(-1)
 
-	offCtx, offCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer offCancel()
-	if err := s.state.SetStatus(offCtx, amtUUID, db.StatusOffline); err != nil {
-		mc.logger.Error("set AMT device offline", "error", err)
+	if _, orgID, ok := mc.linked(); ok {
+		offCtx, offCancel := context.WithTimeout(context.Background(), amtLinkTimeout)
+		defer offCancel()
+		if err := s.state.SetStatus(dbtx.WithTenant(offCtx, orgID, false), amtUUID, db.StatusOffline); err != nil {
+			mc.logger.Error("set AMT device offline", "error", err)
+		}
 	}
 	mc.logger.Info("AMT device disconnected")
 }
@@ -189,14 +308,23 @@ func (s *Server) startKeepalive(ctx context.Context, mc *Conn) {
 		return
 	}
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(keepaliveInterval)
 	defer ticker.Stop()
+
+	// Retry the device lookup while the connection is unlinked, so an AMT box
+	// that dialled in before its agent registered is adopted on the next tick
+	// rather than on the next reconnect. linkConn returns immediately once the
+	// connection is linked, so this costs nothing in the steady state.
+	relink := time.NewTicker(s.relinkInterval)
+	defer relink.Stop()
 
 	var cookie uint32
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-relink.C:
+			s.linkConn(ctx, mc, mc.AMTUUID)
 		case <-ticker.C:
 			cookie++
 			if err := WriteKeepaliveRequest(mc.netConn, cookie); err != nil {

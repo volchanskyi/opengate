@@ -60,3 +60,11 @@ func (m *memHardware) Upsert(_ context.Context, _ *device.Hardware) error { retu
 func (m *memHardware) Get(_ context.Context, _ device.DeviceID) (*device.Hardware, error) {
 	return &device.Hardware{}, m.maybeFail()
 }
+
+func (m *memHardware) ResolveBySystemUUID(_ context.Context, _ uuid.UUID) (device.DeviceID, uuid.UUID, error) {
+	return uuid.Nil, uuid.Nil, m.maybeFail()
+}
+
+func (m *memHardware) SetAMTDetail(_ context.Context, _ device.DeviceID, _, _ string) error {
+	return m.maybeFail()
+}

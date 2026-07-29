@@ -11,6 +11,7 @@ type DeviceHardware = components['schemas']['DeviceHardware'];
 type DeviceLogsResponse = components['schemas']['DeviceLogsResponse'];
 type MetricRangeResponse = components['schemas']['MetricRangeResponse'];
 type CorrelateResponse = components['schemas']['CorrelateResponse'];
+type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 
 /**
  * Which log pane a fetch targets: `agent` reads the agent's own rotated files;
@@ -79,6 +80,9 @@ interface DeviceState {
   deleteDevice: (id: string) => Promise<void>;
   updateDeviceGroup: (id: string, groupId: string) => Promise<boolean>;
   restartAgent: (id: string) => Promise<boolean>;
+  /** Sends an out-of-band power command over the device's Intel AMT connection.
+   *  Addressed by the AMT uuid the device payload carries, not the device id. */
+  sendPowerAction: (amtUuid: string, action: PowerAction) => Promise<boolean>;
   fetchHardware: (id: string) => Promise<void>;
   fetchLogs: (source: LogPaneSource, id: string, params?: LogFetchParams) => Promise<void>;
   fetchMetrics: (id: string, params: MetricsParams) => Promise<void>;
@@ -284,6 +288,16 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
       api.POST('/api/v1/devices/{id}/restart', {
         params: { path: { id } },
         body: { reason: 'restart requested from web UI' },
+      }), false,
+    );
+    return res.ok;
+  },
+
+  sendPowerAction: async (amtUuid, action) => {
+    const res = await apiAction(set, () =>
+      api.POST('/api/v1/amt/devices/{uuid}/power', {
+        params: { path: { uuid: amtUuid } },
+        body: { action },
       }), false,
     );
     return res.ok;

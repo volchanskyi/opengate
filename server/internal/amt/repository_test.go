@@ -13,79 +13,88 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-func TestPostgres_AMTDeviceCRUD(t *testing.T) {
+// amtConnectionState reads back a row's device link and status directly, since
+// the repository is a write-only port — the device read serves AMT state to
+// callers.
+func amtConnectionState(t *testing.T, ctx context.Context, store *db.PostgresStore, id uuid.UUID) (uuid.UUID, db.DeviceStatus, bool) {
+	t.Helper()
+	tenant, ok := dbtx.TenantFromContext(ctx)
+	require.True(t, ok)
+
+	var deviceID uuid.UUID
+	var status db.DeviceStatus
+	err := store.DB().QueryRowContext(ctx,
+		`SELECT device_id, status FROM amt_devices WHERE org_id = $1 AND uuid = $2`,
+		tenant.OrgID, id).Scan(&deviceID, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return uuid.Nil, "", false
+	}
+	require.NoError(t, err)
+	return deviceID, status, true
+}
+
+// seedLinkedDevice creates a managed device in ctx's tenant to hang an AMT
+// connection off, since a connection with no device is never persisted.
+func seedLinkedDevice(t *testing.T, ctx context.Context, store *db.PostgresStore) *device.Device {
+	t.Helper()
+	owner := testutil.SeedUser(t, ctx, store)
+	group := testutil.SeedGroup(t, ctx, store, owner.ID)
+	return testutil.SeedDevice(t, ctx, store, group.ID)
+}
+
+func TestPostgres_AMTConnectionState(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestAMTDevices(t, store)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 
-	t.Run("upsert and get", func(t *testing.T) {
-		d := &db.AMTDevice{
-			UUID:     uuid.New(),
-			Hostname: "amt-host-1",
-			Model:    "vPro i7",
-			Firmware: "16.1.0",
-			Status:   db.StatusOnline,
-		}
+	t.Run("upsert records the device link and status", func(t *testing.T) {
+		dev := seedLinkedDevice(t, ctx, store)
+		d := &db.AMTDevice{UUID: uuid.New(), DeviceID: dev.ID, Status: db.StatusOnline}
 		require.NoError(t, repo.Upsert(ctx, d))
 
-		got, err := repo.Get(ctx, d.UUID)
-		require.NoError(t, err)
-		assert.Equal(t, d.UUID, got.UUID)
-		assert.Equal(t, "amt-host-1", got.Hostname)
-		assert.Equal(t, "vPro i7", got.Model)
-		assert.Equal(t, "16.1.0", got.Firmware)
-		assert.Equal(t, db.StatusOnline, got.Status)
-		assert.False(t, got.LastSeen.IsZero())
+		gotDevice, gotStatus, found := amtConnectionState(t, ctx, store, d.UUID)
+		require.True(t, found)
+		assert.Equal(t, dev.ID, gotDevice)
+		assert.Equal(t, db.StatusOnline, gotStatus)
 	})
 
-	t.Run("upsert preserves non-empty fields", func(t *testing.T) {
+	t.Run("upsert refreshes an existing connection", func(t *testing.T) {
+		dev := seedLinkedDevice(t, ctx, store)
 		id := uuid.New()
-		d := &db.AMTDevice{UUID: id, Hostname: "host-a", Model: "Model-X", Firmware: "1.0", Status: db.StatusOnline}
-		require.NoError(t, repo.Upsert(ctx, d))
+		require.NoError(t, repo.Upsert(ctx, &db.AMTDevice{UUID: id, DeviceID: dev.ID, Status: db.StatusOnline}))
+		require.NoError(t, repo.Upsert(ctx, &db.AMTDevice{UUID: id, DeviceID: dev.ID, Status: db.StatusOffline}))
 
-		d2 := &db.AMTDevice{UUID: id, Status: db.StatusOffline}
-		require.NoError(t, repo.Upsert(ctx, d2))
-
-		got, err := repo.Get(ctx, id)
-		require.NoError(t, err)
-		assert.Equal(t, "host-a", got.Hostname)
-		assert.Equal(t, "Model-X", got.Model)
-		assert.Equal(t, db.StatusOffline, got.Status)
+		gotDevice, gotStatus, found := amtConnectionState(t, ctx, store, id)
+		require.True(t, found)
+		assert.Equal(t, dev.ID, gotDevice)
+		assert.Equal(t, db.StatusOffline, gotStatus)
 	})
 
-	t.Run("get not found", func(t *testing.T) {
-		_, err := repo.Get(ctx, uuid.New())
-		assert.True(t, errors.Is(err, amt.ErrAMTDeviceNotFound))
-	})
-
-	t.Run("list", func(t *testing.T) {
-		id1 := uuid.New()
-		id2 := uuid.New()
-		require.NoError(t, repo.Upsert(ctx, &db.AMTDevice{UUID: id1, Hostname: "list-1", Status: db.StatusOnline}))
-		require.NoError(t, repo.Upsert(ctx, &db.AMTDevice{UUID: id2, Hostname: "list-2", Status: db.StatusOffline}))
-
-		devices, err := repo.List(ctx)
-		require.NoError(t, err)
-		assert.GreaterOrEqual(t, len(devices), 2)
+	t.Run("upsert requires a tenant", func(t *testing.T) {
+		dev := seedLinkedDevice(t, ctx, store)
+		err := repo.Upsert(context.Background(), &db.AMTDevice{UUID: uuid.New(), DeviceID: dev.ID, Status: db.StatusOnline})
+		assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 	})
 
 	t.Run("set status", func(t *testing.T) {
-		d := &db.AMTDevice{UUID: uuid.New(), Status: db.StatusOnline}
+		dev := seedLinkedDevice(t, ctx, store)
+		d := &db.AMTDevice{UUID: uuid.New(), DeviceID: dev.ID, Status: db.StatusOnline}
 		require.NoError(t, repo.Upsert(ctx, d))
 
 		require.NoError(t, repo.SetStatus(ctx, d.UUID, db.StatusOffline))
-		got, err := repo.Get(ctx, d.UUID)
-		require.NoError(t, err)
-		assert.Equal(t, db.StatusOffline, got.Status)
+		_, gotStatus, found := amtConnectionState(t, ctx, store, d.UUID)
+		require.True(t, found)
+		assert.Equal(t, db.StatusOffline, gotStatus)
 	})
 
 	t.Run("set status not found", func(t *testing.T) {
 		err := repo.SetStatus(ctx, uuid.New(), db.StatusOnline)
-		assert.True(t, errors.Is(err, amt.ErrAMTDeviceNotFound))
+		assert.ErrorIs(t, err, amt.ErrAMTDeviceNotFound)
 	})
 }
 
@@ -98,18 +107,13 @@ func TestPostgresAMTDevices_TenantDeny(t *testing.T) {
 	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
 	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
 
-	deviceA := testutil.SeedAMTDevice(t, ctxA, store)
-	deviceB := testutil.SeedAMTDevice(t, ctxB, store)
+	deviceB := testutil.SeedAMTDevice(t, ctxB, store, seedLinkedDevice(t, ctxB, store).ID)
 
-	_, err := repo.Get(ctxA, deviceB.UUID)
-	assert.ErrorIs(t, err, amt.ErrAMTDeviceNotFound)
-	devices, err := repo.List(ctxA)
-	require.NoError(t, err)
-	require.Len(t, devices, 1)
-	assert.Equal(t, deviceA.UUID, devices[0].UUID)
-
-	_, err = repo.Get(context.Background(), deviceA.UUID)
-	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
+	// Tenant A cannot see, let alone change, tenant B's AMT connection.
+	_, _, found := amtConnectionState(t, ctxA, store, deviceB.UUID)
+	assert.False(t, found)
+	assert.ErrorIs(t, repo.SetStatus(ctxA, deviceB.UUID, db.StatusOnline), amt.ErrAMTDeviceNotFound)
+	assert.ErrorIs(t, repo.SetStatus(context.Background(), deviceB.UUID, db.StatusOnline), dbtx.ErrTenantRequired)
 }
 
 // fakeObserver records every Observe call for the Instrumented decorator test.
@@ -130,8 +134,6 @@ func (f *fakeObserver) Observe(op string, d time.Duration, ok bool) {
 // memRepo is an in-memory amt.Repository for testing the Instrumented decorator.
 type memRepo struct {
 	upsertErr error
-	getErr    error
-	listErr   error
 	setErr    error
 	devices   map[uuid.UUID]*db.AMTDevice
 }
@@ -145,28 +147,6 @@ func (m *memRepo) Upsert(_ context.Context, d *db.AMTDevice) error {
 	}
 	m.devices[d.UUID] = d
 	return nil
-}
-
-func (m *memRepo) Get(_ context.Context, id uuid.UUID) (*db.AMTDevice, error) {
-	if m.getErr != nil {
-		return nil, m.getErr
-	}
-	d, ok := m.devices[id]
-	if !ok {
-		return nil, amt.ErrAMTDeviceNotFound
-	}
-	return d, nil
-}
-
-func (m *memRepo) List(_ context.Context) ([]*db.AMTDevice, error) {
-	if m.listErr != nil {
-		return nil, m.listErr
-	}
-	out := make([]*db.AMTDevice, 0, len(m.devices))
-	for _, d := range m.devices {
-		out = append(out, d)
-	}
-	return out, nil
 }
 
 func (m *memRepo) SetStatus(_ context.Context, _ uuid.UUID, _ db.DeviceStatus) error {
@@ -185,29 +165,16 @@ func TestInstrumented_ObservesUpsert(t *testing.T) {
 	assert.True(t, obs.calls[0].ok)
 }
 
-func TestInstrumented_ObservesGetError(t *testing.T) {
+func TestInstrumented_ObservesUpsertError(t *testing.T) {
 	t.Parallel()
 	obs := &fakeObserver{}
-	repo := amt.NewInstrumented(&memRepo{getErr: sql.ErrConnDone}, obs)
+	repo := amt.NewInstrumented(&memRepo{upsertErr: sql.ErrConnDone}, obs)
 
-	_, err := repo.Get(context.Background(), uuid.New())
-	require.Error(t, err)
+	require.Error(t, repo.Upsert(context.Background(), &db.AMTDevice{UUID: uuid.New()}))
 
 	require.Len(t, obs.calls, 1)
-	assert.Equal(t, "amt.Get", obs.calls[0].op)
+	assert.Equal(t, "amt.Upsert", obs.calls[0].op)
 	assert.False(t, obs.calls[0].ok)
-}
-
-func TestInstrumented_ObservesList(t *testing.T) {
-	t.Parallel()
-	obs := &fakeObserver{}
-	repo := amt.NewInstrumented(&memRepo{}, obs)
-
-	_, err := repo.List(context.Background())
-	require.NoError(t, err)
-
-	require.Len(t, obs.calls, 1)
-	assert.Equal(t, "amt.List", obs.calls[0].op)
 }
 
 func TestInstrumented_ObservesSetStatus(t *testing.T) {
@@ -219,4 +186,15 @@ func TestInstrumented_ObservesSetStatus(t *testing.T) {
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "amt.SetStatus", obs.calls[0].op)
+}
+
+func TestInstrumented_ObservesSetStatusError(t *testing.T) {
+	t.Parallel()
+	obs := &fakeObserver{}
+	repo := amt.NewInstrumented(&memRepo{setErr: sql.ErrConnDone}, obs)
+
+	require.Error(t, repo.SetStatus(context.Background(), uuid.New(), db.StatusOnline))
+
+	require.Len(t, obs.calls, 1)
+	assert.False(t, obs.calls[0].ok)
 }

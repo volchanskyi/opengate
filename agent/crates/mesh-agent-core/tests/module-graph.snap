@@ -2,6 +2,7 @@
 crate mesh_agent_core
 ├── mod alerts: pub
 │   └── mod evaluator: pub(self)
+├── mod amt_detect: pub
 ├── mod config: pub
 ├── mod connection: pub
 ├── mod discovery: pub
@@ -12,6 +13,7 @@ crate mesh_agent_core
 │   └── mod services: pub
 ├── mod error: pub
 ├── mod file_ops: pub
+├── mod hardware: pub
 ├── mod identity: pub
 ├── mod maintenance: pub
 ├── mod ml: pub

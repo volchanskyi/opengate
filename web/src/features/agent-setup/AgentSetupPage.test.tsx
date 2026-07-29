@@ -330,4 +330,40 @@ describe('AgentSetupPage', () => {
     render(<AgentSetupPage />);
     expect(screen.queryByText(/curl -sL/)).toBeNull();
   });
+
+  it('collapses the Intel AMT setup instructions by default', () => {
+    render(<AgentSetupPage />);
+    expect(screen.getByRole('button', { name: /Intel AMT Setup/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Enable AMT in BIOS/)).not.toBeInTheDocument();
+  });
+
+  it('expands and collapses the Intel AMT setup instructions on click', async () => {
+    render(<AgentSetupPage />);
+    const toggle = screen.getByRole('button', { name: /Intel AMT Setup/ });
+
+    await userEvent.click(toggle);
+    expect(screen.getByText(/Enable AMT in BIOS/)).toBeInTheDocument();
+    expect(screen.getByText(/Configure MEBx/)).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    await userEvent.click(toggle);
+    expect(screen.queryByText(/Enable AMT in BIOS/)).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('rotates the disclosure arrow while the AMT instructions are open', async () => {
+    render(<AgentSetupPage />);
+    const toggle = screen.getByRole('button', { name: /Intel AMT Setup/ });
+    expect(toggle.querySelector('span')?.className).not.toContain('rotate-90');
+
+    await userEvent.click(toggle);
+    expect(toggle.querySelector('span')?.className).toContain('rotate-90');
+  });
+
+  it('shows the AMT setup instructions to a non-admin too', () => {
+    // The steps are BIOS documentation, not tenant data — no admin gate.
+    useAuthStore.setState({ user: regularUser });
+    render(<AgentSetupPage />);
+    expect(screen.getByRole('button', { name: /Intel AMT Setup/ })).toBeInTheDocument();
+  });
 });

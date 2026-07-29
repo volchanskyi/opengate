@@ -43,4 +43,25 @@ func TestGoldenControlHardwareReport(t *testing.T) {
 	assert.Equal(t, "00:11:22:33:44:55", msg.NetworkInterfaces[0].MAC)
 	assert.Equal(t, []string{"192.168.1.100"}, msg.NetworkInterfaces[0].IPv4)
 	assert.Equal(t, []string{"fe80::1"}, msg.NetworkInterfaces[0].IPv6)
+
+	// The AMT link fields: the SMBIOS system UUID that resolves the device's
+	// CIRA connection, plus what the host's Management Engine reports.
+	assert.Equal(t, "4c4c4544-0037-5a10-8054-b4c04f335432", msg.SystemUUID)
+	require.NotNil(t, msg.AMTAvailable, "a reporting agent always states AMT presence")
+	assert.True(t, *msg.AMTAvailable)
+	assert.Equal(t, "16.1.30.2260", msg.AMTVersion)
+}
+
+// TestGoldenControlHardwareReportNoAMT covers the other half of the presence
+// flag: a host with no Management Engine reports false, and false must arrive as
+// a stated false rather than as an absent field the server cannot distinguish
+// from an agent too old to report at all.
+func TestGoldenControlHardwareReportNoAMT(t *testing.T) {
+	msg := decodeControlFrame(t, "control_hardware_report_no_amt.bin")
+
+	assert.Equal(t, MsgHardwareReport, msg.Type)
+	assert.Empty(t, msg.SystemUUID)
+	require.NotNil(t, msg.AMTAvailable)
+	assert.False(t, *msg.AMTAvailable)
+	assert.Empty(t, msg.AMTVersion)
 }

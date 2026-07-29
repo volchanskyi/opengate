@@ -85,9 +85,7 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/sessions` | POST | JWT | Create a remote session |
 | `/api/v1/sessions` | GET | JWT | List sessions (requires `device_id` query param) |
 | `/api/v1/sessions/{token}` | DELETE | JWT | Delete a session |
-| `/api/v1/amt/devices` | GET | JWT | List Intel AMT devices |
-| `/api/v1/amt/devices/{uuid}` | GET | JWT | Get AMT device details |
-| `/api/v1/amt/devices/{uuid}/power` | POST | JWT | Send AMT power command (on/cycle/soft-off/hard-reset) |
+| `/api/v1/amt/devices/{uuid}/power` | POST | JWT (admin) | Send AMT power command (on/cycle/soft-off/hard-reset) to the AMT connection identified by `uuid` |
 | `/api/v1/enroll/{token}` | POST | No | Enroll agent (CSR signing, returns CA + cert) |
 | `/api/v1/server/ca` | GET | No | Get server CA certificate PEM |
 | `/api/v1/enrollment-tokens` | POST | JWT (admin) | Create enrollment token |
@@ -218,6 +216,22 @@ Both are group-owner authorized. The four maintenance fields
 (`maintenance_on`/`_since`/`_by`/`_reason`) are present on the device DTO only
 while a device is in maintenance. The canonical request/response shapes are in
 [`api/openapi.yaml`](../api/openapi.yaml).
+
+### Intel AMT
+
+Intel AMT is a property of a managed device, not a separate collection. A device
+DTO carries an `amt` object when its hardware supports AMT or an AMT connection
+is linked to it: `available` (the agent's Management Engine reading), plus
+`status` and `uuid` once a CIRA connection has dialled in. Reading a device is
+therefore all the UI needs — there is no AMT list to join against.
+
+The join key is the host's SMBIOS system UUID, which the AMT firmware presents
+as its CIRA identity. The server stores it on the hardware row to resolve which
+device — and which organization — a CIRA connection belongs to, and never
+returns it in any response. AMT hardware attributes (`amt_available`,
+`amt_version`, `amt_model`, `amt_firmware`) live on the
+`GET /api/v1/devices/{id}/hardware` payload. See
+[ADR-061](adr/ADR-061-amt-as-device-property.md).
 
 ## Rate Limiting
 

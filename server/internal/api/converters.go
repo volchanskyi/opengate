@@ -49,7 +49,22 @@ func deviceToAPI(d *device.Device) Device {
 			dev.MaintenanceReason = &d.MaintenanceReason
 		}
 	}
+	dev.Amt = deviceAMTToAPI(d.AMT)
 	return dev
+}
+
+// deviceAMTToAPI maps the device's Intel AMT property. Nil in, nil out: a device
+// that neither supports AMT nor has an AMT connection carries no amt object.
+func deviceAMTToAPI(a *device.AMT) *DeviceAMT {
+	if a == nil {
+		return nil
+	}
+	out := &DeviceAMT{Available: a.Available, Uuid: a.UUID}
+	if a.Status != "" {
+		status := DeviceAMTStatus(a.Status)
+		out.Status = &status
+	}
+	return out
 }
 
 func devicesToAPI(ds []*device.Device) []Device {
@@ -195,7 +210,7 @@ func inventoryComponentToAPI(c inventory.Component) InventoryItem {
 }
 
 func deviceHardwareToAPI(hw *device.Hardware) DeviceHardware {
-	return DeviceHardware{
+	out := DeviceHardware{
 		DeviceId:          hw.DeviceID,
 		CpuModel:          hw.CPUModel,
 		CpuCores:          hw.CPUCores,
@@ -204,7 +219,20 @@ func deviceHardwareToAPI(hw *device.Hardware) DeviceHardware {
 		DiskFreeMb:        hw.DiskFreeMB,
 		NetworkInterfaces: mapSlice(hw.NetworkInterfaces, networkInterfaceToAPI),
 		UpdatedAt:         hw.UpdatedAt,
+		AmtAvailable:      hw.AMTAvailable,
 	}
+	// The AMT attributes follow the os_display / maintenance convention: present
+	// only when they carry something, absent on the common non-AMT machine.
+	if hw.AMTVersion != "" {
+		out.AmtVersion = &hw.AMTVersion
+	}
+	if hw.AMTModel != "" {
+		out.AmtModel = &hw.AMTModel
+	}
+	if hw.AMTFirmware != "" {
+		out.AmtFirmware = &hw.AMTFirmware
+	}
+	return out
 }
 
 func networkInterfaceToAPI(ni device.NetworkInterfaceInfo) NetworkInterfaceInfo {

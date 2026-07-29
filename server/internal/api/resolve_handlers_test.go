@@ -10,7 +10,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/amt/transport/wsman"
 	"github.com/volchanskyi/opengate/server/internal/audit"
-	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 )
 
@@ -48,17 +47,6 @@ func TestResolveAuditHandlers_NilWhenBothMissing(t *testing.T) {
 
 // ---- amt ----
 
-type minimalAMTRepo struct{}
-
-func (minimalAMTRepo) Upsert(context.Context, *db.AMTDevice) error { return nil }
-func (minimalAMTRepo) Get(context.Context, uuid.UUID) (*db.AMTDevice, error) {
-	return nil, nil
-}
-func (minimalAMTRepo) List(context.Context) ([]*db.AMTDevice, error) { return nil, nil }
-func (minimalAMTRepo) SetStatus(context.Context, uuid.UUID, db.DeviceStatus) error {
-	return nil
-}
-
 type minimalAMTOperator struct{}
 
 func (minimalAMTOperator) PowerAction(context.Context, uuid.UUID, int) error { return nil }
@@ -68,29 +56,20 @@ func (minimalAMTOperator) QueryDeviceInfo(context.Context, uuid.UUID) (*wsman.De
 func (minimalAMTOperator) ConnectedDeviceCount() int { return 0 }
 
 func TestResolveAMTHandlers_PrefersExplicitHandlers(t *testing.T) {
-	explicit := amt.NewHandlers(minimalAMTRepo{}, minimalAMTOperator{})
+	explicit := amt.NewHandlers(minimalAMTOperator{})
 	got := resolveAMTHandlers(ServerConfig{
 		AMTHandlers: explicit,
-		AMTDevices:  minimalAMTRepo{},
 		AMT:         minimalAMTOperator{},
 	})
 	require.Same(t, explicit, got)
 }
 
-func TestResolveAMTHandlers_FallsBackWhenBothPortsPresent(t *testing.T) {
-	got := resolveAMTHandlers(ServerConfig{
-		AMTDevices: minimalAMTRepo{},
-		AMT:        minimalAMTOperator{},
-	})
-	require.NotNil(t, got, "fallback must wrap when both Repository and Operator are set")
+func TestResolveAMTHandlers_FallsBackToOperator(t *testing.T) {
+	got := resolveAMTHandlers(ServerConfig{AMT: minimalAMTOperator{}})
+	require.NotNil(t, got, "fallback must wrap a non-nil Operator")
 }
 
-func TestResolveAMTHandlers_NilWhenAnyPortMissing(t *testing.T) {
-	// Only Repository, no Operator → must NOT construct (Handlers needs both).
-	require.Nil(t, resolveAMTHandlers(ServerConfig{AMTDevices: minimalAMTRepo{}}))
-	// Only Operator, no Repository → likewise.
-	require.Nil(t, resolveAMTHandlers(ServerConfig{AMT: minimalAMTOperator{}}))
-	// Neither.
+func TestResolveAMTHandlers_NilWhenOperatorMissing(t *testing.T) {
 	require.Nil(t, resolveAMTHandlers(ServerConfig{}))
 }
 

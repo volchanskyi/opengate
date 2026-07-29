@@ -2,10 +2,13 @@ package agentapi
 
 import (
 	"bytes"
+	"context"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"log/slog"
@@ -90,4 +93,83 @@ func TestNewAgentConn(t *testing.T) {
 	assert.Equal(t, groupID, ac.GroupID)
 	assert.NotNil(t, ac.codec)
 	assert.NotNil(t, ac.stream)
+}
+
+// TestHandleHardwareReportStoresAMTPresence covers the agent-sourced half of the
+// AMT link: the join key and the Management Engine reading must reach the
+// hardware row, and a malformed key must not.
+func TestHandleHardwareReportStoresAMTPresence(t *testing.T) {
+	t.Parallel()
+	systemUUID := uuid.New()
+	available := true
+
+	tests := []struct {
+		name     string
+		reported string
+		wantKey  *uuid.UUID
+	}{
+		{"well-formed system uuid is stored", systemUUID.String(), &systemUUID},
+		{"empty system uuid preserves the stored key", "", nil},
+		{"malformed system uuid is rejected", "not-a-uuid", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hw := &recordingHardware{}
+			conn := &AgentConn{DeviceID: uuid.New(), hardware: hw, logger: testLogger()}
+
+			require.NoError(t, conn.handleHardwareReport(context.Background(), &protocol.ControlMessage{
+				Type:         protocol.MsgHardwareReport,
+				CPUModel:     "Intel Core i7-12700K",
+				SystemUUID:   tt.reported,
+				AMTAvailable: &available,
+				AMTVersion:   "16.1.30.2260",
+			}))
+
+			require.NotNil(t, hw.last)
+			assert.Equal(t, tt.wantKey, hw.last.SystemUUID)
+			require.NotNil(t, hw.last.AMTAvailable)
+			assert.True(t, *hw.last.AMTAvailable)
+			assert.Equal(t, "16.1.30.2260", hw.last.AMTVersion)
+		})
+	}
+}
+
+// TestHandleHardwareReportFromSilentAgent covers version skew: an agent that
+// predates AMT reporting sends none of the three fields, and the nil presence
+// flag is what lets the repository preserve what it already knows.
+func TestHandleHardwareReportFromSilentAgent(t *testing.T) {
+	t.Parallel()
+	hw := &recordingHardware{}
+	conn := &AgentConn{DeviceID: uuid.New(), hardware: hw, logger: testLogger()}
+
+	require.NoError(t, conn.handleHardwareReport(context.Background(), &protocol.ControlMessage{
+		Type:     protocol.MsgHardwareReport,
+		CPUModel: "Intel Core i7-12700K",
+	}))
+
+	require.NotNil(t, hw.last)
+	assert.Nil(t, hw.last.SystemUUID)
+	assert.Nil(t, hw.last.AMTAvailable, "an absent flag must stay absent, not decode as a stated false")
+	assert.Empty(t, hw.last.AMTVersion)
+}
+
+// recordingHardware captures the last hardware row written.
+type recordingHardware struct{ last *device.Hardware }
+
+func (r *recordingHardware) Upsert(_ context.Context, hw *device.Hardware) error {
+	r.last = hw
+	return nil
+}
+
+func (r *recordingHardware) Get(context.Context, device.DeviceID) (*device.Hardware, error) {
+	return nil, device.ErrHardwareNotFound
+}
+
+func (r *recordingHardware) ResolveBySystemUUID(context.Context, uuid.UUID) (device.DeviceID, uuid.UUID, error) {
+	return uuid.Nil, uuid.Nil, device.ErrHardwareNotFound
+}
+
+func (r *recordingHardware) SetAMTDetail(context.Context, device.DeviceID, string, string) error {
+	return nil
 }

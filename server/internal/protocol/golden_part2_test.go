@@ -32,6 +32,7 @@ func TestGoldenFrameWireFormat(t *testing.T) {
 		{"RestartAgent", "control_restart_agent.bin", FrameControl},
 		{"RequestHardwareReport", "control_request_hardware_report.bin", FrameControl},
 		{"HardwareReport", "control_hardware_report.bin", FrameControl},
+		{"HardwareReportNoAMT", "control_hardware_report_no_amt.bin", FrameControl},
 		{"HardwareReportError", "control_hardware_report_error.bin", FrameControl},
 		{"RequestDeviceLogs", "control_request_device_logs.bin", FrameControl},
 		{"DeviceLogsResponse", "control_device_logs_response.bin", FrameControl},
