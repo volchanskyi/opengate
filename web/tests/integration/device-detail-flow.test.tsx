@@ -5,7 +5,6 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import { useAuthStore } from '../../src/state/auth-store';
 import { useDeviceStore } from '../../src/features/devices/state/device-store';
 import { useSessionStore } from '../../src/features/session/state/session-store';
-import { useAMTStore } from '../../src/features/devices/state/amt-store';
 import { AuthGuard } from '../../src/features/auth/AuthGuard';
 import { Layout } from '../../src/components/Layout';
 import { DeviceDetail } from '../../src/features/devices/DeviceDetail';
@@ -79,12 +78,6 @@ describe('Device Detail Flow (integration)', () => {
       fetchDevice: vi.fn(),
       deleteDevice: vi.fn(),
       fetchGroups: vi.fn(),
-    });
-    useAMTStore.setState({
-      amtDevices: [],
-      isLoading: false,
-      error: null,
-      fetchAmtDevices: vi.fn(),
       sendPowerAction: vi.fn(),
     });
     useSessionStore.setState({

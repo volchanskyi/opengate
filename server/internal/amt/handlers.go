@@ -4,35 +4,22 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-
-	"github.com/volchanskyi/opengate/server/internal/db"
 )
 
 // Handlers exposes the amt module's use cases to transport-layer callers.
 //
-// The api package's transport handlers translate HTTP requests and responses
-// to method calls on this
-// struct. The Repository handles persistence (List, Get); the Operator
-// handles live device interaction (PowerAction). Both ports are passed in
-// at construction so tests can substitute fakes.
+// The api package's transport handlers translate HTTP requests and responses to
+// method calls on this struct. Discovery is served by the device read — a device
+// carries its AMT property in its own payload — so the only use case left here
+// is live device interaction through the Operator port, passed in at
+// construction so tests can substitute a fake.
 type Handlers struct {
-	repo     Repository
 	operator Operator
 }
 
-// NewHandlers wires a Handlers struct against the persistence + operator ports.
-func NewHandlers(repo Repository, op Operator) *Handlers {
-	return &Handlers{repo: repo, operator: op}
-}
-
-// ListDevices returns every known AMT device.
-func (h *Handlers) ListDevices(ctx context.Context) ([]*db.AMTDevice, error) {
-	return h.repo.List(ctx)
-}
-
-// GetDevice returns a single AMT device by UUID, or ErrAMTDeviceNotFound.
-func (h *Handlers) GetDevice(ctx context.Context, id uuid.UUID) (*db.AMTDevice, error) {
-	return h.repo.Get(ctx, id)
+// NewHandlers wires a Handlers struct against the operator port.
+func NewHandlers(op Operator) *Handlers {
+	return &Handlers{operator: op}
 }
 
 // PowerAction sends a power command (PowerOn / PowerCycle / SoftOff /

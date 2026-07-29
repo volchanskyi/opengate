@@ -8,11 +8,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/volchanskyi/opengate/server/internal/db"
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-func TestAMTListDevicesEmpty(t *testing.T) {
+// Intel AMT is a property of a managed device: a device's own payload carries
+// whether the hardware supports AMT and, once a CIRA connection is linked, its
+// state and identity. Power actions are the only dedicated AMT endpoint left.
+
+// TestDeviceCarriesItsAMTProperty walks the three shapes a device can be in —
+// no AMT, AMT-capable but never dialled in, and AMT-capable with a linked
+// connection — through the real device read.
+func TestDeviceCarriesItsAMTProperty(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
 	ctx := t.Context()
@@ -20,59 +27,54 @@ func TestAMTListDevicesEmpty(t *testing.T) {
 	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
-	resp := env.doJSON(t, http.MethodGet, "/api/v1/amt/devices", adminToken, nil)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	owner := testutil.SeedUser(t, ctx, env.store)
+	group := testutil.SeedGroup(t, ctx, env.store, owner.ID)
+	hardware := testutil.NewTestHardware(t, env.store)
+	tenantCtx := defaultTenantContext()
 
-	var devices []json.RawMessage
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&devices))
-	assert.Empty(t, devices)
-}
+	plain := testutil.SeedDevice(t, ctx, env.store, group.ID)
+	require.NoError(t, hardware.Upsert(tenantCtx, &device.Hardware{DeviceID: plain.ID, CPUModel: "AMD Ryzen 9 7950X"}))
 
-func TestAMTListDevicesWithSeeded(t *testing.T) {
-	t.Parallel()
-	env := newTestEnv(t)
-	ctx := t.Context()
+	capable := testutil.SeedDevice(t, ctx, env.store, group.ID)
+	available := true
+	require.NoError(t, hardware.Upsert(tenantCtx, &device.Hardware{
+		DeviceID:     capable.ID,
+		CPUModel:     "Intel Core i7-12700K",
+		SystemUUID:   ptr(uuid.New()),
+		AMTAvailable: &available,
+		AMTVersion:   "16.1.30.2260",
+	}))
 
-	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
-	adminToken := env.login(t, adminUser.Email, adminPass)
+	linked := testutil.SeedDevice(t, ctx, env.store, group.ID)
+	require.NoError(t, hardware.Upsert(tenantCtx, &device.Hardware{
+		DeviceID:     linked.ID,
+		CPUModel:     "Intel Core i5-1145G7",
+		SystemUUID:   ptr(uuid.New()),
+		AMTAvailable: &available,
+		AMTVersion:   "16.1.30.2260",
+	}))
+	amtConn := testutil.SeedAMTDevice(t, ctx, env.store, linked.ID)
 
-	// Seed AMT devices
-	d1 := testutil.SeedAMTDevice(t, ctx, env.store)
-	d2 := testutil.SeedAMTDevice(t, ctx, env.store)
+	t.Run("device without AMT carries no amt object", func(t *testing.T) {
+		assert.Nil(t, fetchDeviceAMT(t, env, adminToken, plain.ID))
+	})
 
-	resp := env.doJSON(t, http.MethodGet, "/api/v1/amt/devices", adminToken, nil)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	t.Run("AMT-capable device that never dialled in", func(t *testing.T) {
+		amt := fetchDeviceAMT(t, env, adminToken, capable.ID)
+		require.NotNil(t, amt, "the badge must show on capability alone")
+		assert.True(t, amt.Available)
+		assert.Empty(t, amt.Status, "no connection has ever been linked")
+		assert.Nil(t, amt.UUID)
+	})
 
-	var devices []struct {
-		UUID     uuid.UUID `json:"uuid"`
-		Hostname string    `json:"hostname"`
-		Status   string    `json:"status"`
-	}
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&devices))
-	assert.Len(t, devices, 2)
-
-	// Check both devices are present
-	uuids := map[uuid.UUID]bool{}
-	for _, d := range devices {
-		uuids[d.UUID] = true
-	}
-	assert.True(t, uuids[d1.UUID], "first device should be in list")
-	assert.True(t, uuids[d2.UUID], "second device should be in list")
-}
-
-func TestAMTGetDeviceNotFound(t *testing.T) {
-	t.Parallel()
-	env := newTestEnv(t)
-	ctx := t.Context()
-
-	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
-	adminToken := env.login(t, adminUser.Email, adminPass)
-
-	resp := env.doJSON(t, http.MethodGet, "/api/v1/amt/devices/"+uuid.New().String(), adminToken, nil)
-	defer resp.Body.Close()
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	t.Run("AMT-capable device with a linked connection", func(t *testing.T) {
+		amt := fetchDeviceAMT(t, env, adminToken, linked.ID)
+		require.NotNil(t, amt)
+		assert.True(t, amt.Available)
+		assert.Equal(t, "offline", amt.Status)
+		require.NotNil(t, amt.UUID)
+		assert.Equal(t, amtConn.UUID, *amt.UUID)
+	})
 }
 
 func TestAMTPowerActionDeviceNotConnected(t *testing.T) {
@@ -83,16 +85,17 @@ func TestAMTPowerActionDeviceNotConnected(t *testing.T) {
 	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
-	// Seed an AMT device (not connected — no MPS)
-	amtDevice := testutil.SeedAMTDevice(t, ctx, env.store)
+	owner := testutil.SeedUser(t, ctx, env.store)
+	group := testutil.SeedGroup(t, ctx, env.store, owner.ID)
+	dev := testutil.SeedDevice(t, ctx, env.store, group.ID)
+	amtDevice := testutil.SeedAMTDevice(t, ctx, env.store, dev.ID)
 
-	// Try to power action on disconnected device
 	resp := env.doJSON(t, http.MethodPost, "/api/v1/amt/devices/"+amtDevice.UUID.String()+"/power", adminToken, map[string]string{
 		"action": "power_on",
 	})
 	defer resp.Body.Close()
 
-	// Should return 409 — device not connected
+	// No live CIRA tunnel — the operator refuses with 409.
 	assert.Equal(t, http.StatusConflict, resp.StatusCode)
 
 	var errResp struct {
@@ -101,8 +104,32 @@ func TestAMTPowerActionDeviceNotConnected(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&errResp))
 	assert.Contains(t, errResp.Error, "not connected")
 
-	// Verify device is still in DB unchanged
-	d, err := testutil.NewTestAMTDevices(t, env.store).Get(defaultTenantContext(), amtDevice.UUID)
-	require.NoError(t, err)
-	assert.Equal(t, db.StatusOffline, d.Status)
+	// The refusal changed nothing: the device still carries its offline link.
+	amt := fetchDeviceAMT(t, env, adminToken, dev.ID)
+	require.NotNil(t, amt)
+	assert.Equal(t, "offline", amt.Status)
 }
+
+// deviceAMT mirrors the amt object the device payload carries.
+type deviceAMT struct {
+	Available bool       `json:"available"`
+	Status    string     `json:"status"`
+	UUID      *uuid.UUID `json:"uuid"`
+}
+
+// fetchDeviceAMT reads one device over HTTP and returns its amt object, or nil
+// when the payload omits it.
+func fetchDeviceAMT(t *testing.T, env *testEnv, token string, deviceID uuid.UUID) *deviceAMT {
+	t.Helper()
+	resp := env.doJSON(t, http.MethodGet, "/api/v1/devices/"+deviceID.String(), token, nil)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var payload struct {
+		AMT *deviceAMT `json:"amt"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&payload))
+	return payload.AMT
+}
+
+func ptr[T any](v T) *T { return &v }

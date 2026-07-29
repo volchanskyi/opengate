@@ -143,3 +143,69 @@ func TestNewPostgresStoreErrors(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// amtLinkColumnCount returns how many of migration 008's AMT columns are present
+// on device_hardware.
+func amtLinkColumnCount(t *testing.T, ctx context.Context, db *sql.DB) int {
+	t.Helper()
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'device_hardware'
+		  AND column_name IN ('system_uuid', 'amt_available', 'amt_version', 'amt_model', 'amt_firmware')`).Scan(&count))
+	return count
+}
+
+// amtDeviceColumnNames returns the column names migration 008 moves off
+// amt_devices, plus the device link it adds.
+func amtDeviceColumnNames(t *testing.T, ctx context.Context, db *sql.DB) []string {
+	t.Helper()
+	rows, err := db.QueryContext(ctx, `
+		SELECT column_name FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'amt_devices'
+		  AND column_name IN ('device_id', 'hostname', 'model', 'firmware')
+		ORDER BY column_name`)
+	require.NoError(t, err)
+	defer rows.Close() //nolint:errcheck // test cleanup
+	var names []string
+	for rows.Next() {
+		var name string
+		require.NoError(t, rows.Scan(&name))
+		names = append(names, name)
+	}
+	require.NoError(t, rows.Err())
+	return names
+}
+
+// assertAMTDeviceLink confirms migration 008 moved the AMT attributes onto the
+// hardware row, reduced amt_devices to connection state keyed by device, and
+// discarded the seeded AMT row that matches no managed device — an AMT
+// connection with no device has no organization to live in.
+func assertAMTDeviceLink(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	assert.Equal(t, 5, amtLinkColumnCount(t, ctx, db), "all five AMT hardware columns should exist after migration 008")
+	assert.Equal(t, []string{"device_id"}, amtDeviceColumnNames(t, ctx, db),
+		"amt_devices should keep connection state only, linked by device_id")
+
+	var linked string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT device_id::text FROM amt_devices`).Scan(&linked),
+		"exactly the linkable AMT row should survive — the orphan has no organization to live in")
+	assert.Equal(t, "00000000-0000-0000-0000-000000000103", linked,
+		"the surviving row should point at the device that shares its hostname")
+
+	var indexed int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM pg_indexes
+		WHERE schemaname = 'public' AND indexname = 'idx_device_hardware_system_uuid'`).Scan(&indexed))
+	assert.Equal(t, 1, indexed, "the CIRA lookup index on system_uuid should exist")
+}
+
+// assertAMTDeviceLinkDownReversal confirms the 008 down rollback restored the
+// original amt_devices shape and removed the hardware columns.
+func assertAMTDeviceLinkDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	assert.Zero(t, amtLinkColumnCount(t, ctx, db), "AMT hardware columns should be gone after 008 down rollback")
+	assert.Equal(t, []string{"firmware", "hostname", "model"}, amtDeviceColumnNames(t, ctx, db),
+		"the 008 down rollback should restore the original amt_devices columns")
+}

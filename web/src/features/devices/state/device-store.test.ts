@@ -843,4 +843,30 @@ describe('device store', () => {
     expect(ok).toBe(false);
     expect(useDeviceStore.getState().devices[0]?.group_id).toBe('g1');
   });
+
+  it('sendPowerAction posts to the AMT uuid, not the device id', async () => {
+    // AMT connections are addressed by their own CIRA identity; sending the
+    // device id would target nothing.
+    mockPost.mockResolvedValue({ data: undefined, error: undefined });
+
+    const ok = await useDeviceStore.getState().sendPowerAction('amt-1', 'power_on');
+
+    expect(ok).toBe(true);
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/amt/devices/{uuid}/power', {
+      params: { path: { uuid: 'amt-1' } },
+      body: { action: 'power_on' },
+    });
+  });
+
+  it('sendPowerAction reports failure without raising the global error banner', async () => {
+    mockPost.mockResolvedValue({ data: undefined, error: { error: 'device not connected' } });
+
+    let ok = true;
+    const peak = await captureIsLoading(async () => {
+      ok = await useDeviceStore.getState().sendPowerAction('amt-1', 'hard_reset');
+    });
+
+    expect(ok).toBe(false);
+    expect(peak.peak).toBe(false);
+  });
 });

@@ -44,6 +44,20 @@ func (s *Service) PowerAction(ctx context.Context, amtUUID uuid.UUID, state int)
 	return client.RequestPowerStateChange(ctx, wsman.PowerState(state))
 }
 
+// ProbeDetail implements the MPS server's AMTDetailProber port: it reads the
+// machine model and AMT firmware version from a freshly linked CIRA connection
+// so the server can file them on that device's hardware row. The connection is
+// passed in rather than looked up, because registration holds it before the
+// connection map is queryable.
+func (s *Service) ProbeDetail(ctx context.Context, conn *transport.Conn) (string, string, error) {
+	client := wsman.NewClient(conn, s.username, s.password, s.logger)
+	info, err := client.GetGeneralInfo(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	return info.Model, info.Firmware, nil
+}
+
 // QueryDeviceInfo queries a connected AMT device for its info.
 func (s *Service) QueryDeviceInfo(ctx context.Context, amtUUID uuid.UUID) (*wsman.DeviceInfo, error) {
 	conn := s.mps.GetConn(amtUUID)

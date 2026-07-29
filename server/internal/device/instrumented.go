@@ -128,3 +128,16 @@ func (i *InstrumentedHardware) Upsert(ctx context.Context, hw *Hardware) error {
 func (i *InstrumentedHardware) Get(ctx context.Context, deviceID DeviceID) (*Hardware, error) {
 	return observe1(i.observer, "device.Hardware.Get", func() (*Hardware, error) { return i.inner.Get(ctx, deviceID) })
 }
+
+func (i *InstrumentedHardware) ResolveBySystemUUID(ctx context.Context, systemUUID uuid.UUID) (DeviceID, uuid.UUID, error) {
+	start := time.Now()
+	deviceID, orgID, err := i.inner.ResolveBySystemUUID(ctx, systemUUID)
+	i.observer.Observe("device.Hardware.ResolveBySystemUUID", time.Since(start), err == nil)
+	return deviceID, orgID, err
+}
+
+func (i *InstrumentedHardware) SetAMTDetail(ctx context.Context, deviceID DeviceID, model, firmware string) error {
+	return observe0(i.observer, "device.Hardware.SetAMTDetail", func() error {
+		return i.inner.SetAMTDetail(ctx, deviceID, model, firmware)
+	})
+}

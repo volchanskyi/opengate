@@ -3,7 +3,6 @@ package amt
 import (
 	"context"
 	"database/sql"
-	"errors"
 
 	"github.com/google/uuid"
 
@@ -23,6 +22,9 @@ func NewPostgresAMTDevices(d *sql.DB) *PostgresAMTDevices {
 	return &PostgresAMTDevices{db: d}
 }
 
+// Upsert records the connection state of one AMT device. The caller resolves the
+// device and its organization from the CIRA system UUID first and supplies both
+// on ctx, so this write always lands in the tenant that owns the machine.
 func (p *PostgresAMTDevices) Upsert(ctx context.Context, d *db.AMTDevice) error {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {
@@ -30,58 +32,16 @@ func (p *PostgresAMTDevices) Upsert(ctx context.Context, d *db.AMTDevice) error 
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO amt_devices (uuid, org_id, hostname, model, firmware, status, last_seen)
-			 VALUES ($1, $2, $3, $4, $5, $6, NOW())
+			`INSERT INTO amt_devices (uuid, org_id, device_id, status, last_seen)
+			 VALUES ($1, $2, $3, $4, NOW())
 			 ON CONFLICT (uuid) DO UPDATE SET
 			   org_id    = EXCLUDED.org_id,
-			   hostname  = CASE WHEN EXCLUDED.hostname = '' THEN amt_devices.hostname ELSE EXCLUDED.hostname END,
-			   model     = CASE WHEN EXCLUDED.model    = '' THEN amt_devices.model    ELSE EXCLUDED.model    END,
-			   firmware  = CASE WHEN EXCLUDED.firmware = '' THEN amt_devices.firmware ELSE EXCLUDED.firmware END,
+			   device_id = EXCLUDED.device_id,
 			   status    = EXCLUDED.status,
 			   last_seen = NOW()`,
-			d.UUID, tenant.OrgID, d.Hostname, d.Model, d.Firmware, string(d.Status))
+			d.UUID, tenant.OrgID, d.DeviceID, string(d.Status))
 		return err
 	})
-}
-
-func (p *PostgresAMTDevices) Get(ctx context.Context, id uuid.UUID) (*db.AMTDevice, error) {
-	var d db.AMTDevice
-	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx,
-			`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices
-			 WHERE org_id = current_setting('app.current_org')::uuid AND uuid = $1`,
-			id).Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen)
-	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrAMTDeviceNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &d, nil
-}
-
-func (p *PostgresAMTDevices) List(ctx context.Context) ([]*db.AMTDevice, error) {
-	var devices []*db.AMTDevice
-	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx,
-			`SELECT uuid, hostname, model, firmware, status, last_seen FROM amt_devices
-			 WHERE org_id = current_setting('app.current_org')::uuid`)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
-		for rows.Next() {
-			var d db.AMTDevice
-			if err := rows.Scan(&d.UUID, &d.Hostname, &d.Model, &d.Firmware, &d.Status, &d.LastSeen); err != nil {
-				return err
-			}
-			devices = append(devices, &d)
-		}
-		return rows.Err()
-	})
-	return devices, err
 }
 
 func (p *PostgresAMTDevices) SetStatus(ctx context.Context, id uuid.UUID, status db.DeviceStatus) error {

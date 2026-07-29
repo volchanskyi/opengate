@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useDeviceStore } from './state/device-store';
 import { useSessionStore } from '../session';
-import { useAMTStore } from './state/amt-store';
 import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { StatusBadge } from './StatusBadge';
+import { AmtBadge } from './AmtBadge';
 import { MaintenanceBadge } from './MaintenanceBadge';
 import { MaintenancePanel } from './MaintenancePanel';
 import { DeviceLogs } from './DeviceLogs';
@@ -17,82 +17,40 @@ import { fireAndForget } from '../../lib/fire-and-forget';
 import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
-type AMTDevice = components['schemas']['AMTDevice'];
+type DeviceAMT = components['schemas']['DeviceAMT'];
 
 interface AmtSectionProps {
-  readonly amtDevice: AMTDevice | undefined;
+  readonly amt: DeviceAMT | undefined;
   readonly confirmPowerAction: PowerAction | null;
-  readonly showAmtInstructions: boolean;
   readonly onPowerAction: (action: PowerAction) => void;
-  readonly onToggleInstructions: () => void;
 }
 
-function AmtSection({ amtDevice, confirmPowerAction, showAmtInstructions, onPowerAction, onToggleInstructions }: AmtSectionProps) {
-  if (amtDevice) {
-    return (
-      <div>
-        <h3 className="text-sm font-semibold text-gray-300 mb-2">AMT Power Actions</h3>
-        <p className="text-xs text-gray-500 mb-2">
-          AMT Status: <span className={amtDevice.status === 'online' ? 'text-green-400' : 'text-red-400'}>{amtDevice.status === 'online' ? 'Online' : 'Offline'}</span>
-          {amtDevice.model && <> &middot; {amtDevice.model}</>}
-        </p>
-        <div className="flex gap-2 flex-wrap">
-          <button type="button" onClick={() => { fireAndForget(onPowerAction('power_on')); }} className="px-3 py-1 bg-green-700 hover:bg-green-600 rounded text-xs">
-            Power On
-          </button>
-          <button type="button" onClick={() => { fireAndForget(onPowerAction('soft_off')); }} className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-xs">
-            Soft Off
-          </button>
-          <button type="button" onClick={() => { fireAndForget(onPowerAction('power_cycle')); }} className="px-3 py-1 bg-orange-700 hover:bg-orange-600 rounded text-xs">
-            {confirmPowerAction === 'power_cycle' ? 'Confirm Cycle' : 'Power Cycle'}
-          </button>
-          <button type="button" onClick={() => { fireAndForget(onPowerAction('hard_reset')); }} className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded text-xs">
-            {confirmPowerAction === 'hard_reset' ? 'Confirm Reset' : 'Hard Reset'}
-          </button>
-        </div>
-      </div>
-    );
-  }
+/**
+ * Out-of-band power controls. They need a live CIRA tunnel, so they appear only
+ * once the device's AMT connection is linked *and* online — the badge beside the
+ * hostname is what tells an operator AMT exists at all. Setup instructions are
+ * static BIOS/MEBx documentation and live on the /setup page.
+ */
+function AmtSection({ amt, confirmPowerAction, onPowerAction }: AmtSectionProps) {
+  if (!amt?.uuid || amt.status !== 'online') return null;
+
   return (
     <div>
-      <button
-        type="button"
-        onClick={onToggleInstructions}
-        className="text-sm font-semibold text-gray-300 flex items-center gap-2"
-      >
-        <span className={`text-xs transition-transform ${showAmtInstructions ? 'rotate-90' : ''}`} aria-hidden="true">&#9654;</span>
-        {' '}Intel AMT Setup
-      </button>
-      {showAmtInstructions && (
-        <div className="mt-2 bg-gray-900 border border-gray-700 rounded-lg p-4 text-sm text-gray-400 space-y-3">
-          <p>
-            Intel AMT (Active Management Technology) enables out-of-band power management
-            for supported hardware. To enable AMT for this device:
-          </p>
-          <ol className="list-decimal list-inside space-y-2">
-            <li>
-              <strong className="text-gray-300">Enable AMT in BIOS</strong> — Enter the BIOS/UEFI
-              setup (usually F2/Del at boot) and enable Intel AMT / ME (Management Engine).
-            </li>
-            <li>
-              <strong className="text-gray-300">Configure MEBx</strong> — Press Ctrl+P at boot to
-              enter MEBx. Set a strong password and configure the network settings (DHCP or static IP).
-            </li>
-            <li>
-              <strong className="text-gray-300">Enable remote access</strong> — In MEBx, enable
-              &quot;Remote Setup And Configuration&quot; and ensure the AMT network interface is active.
-            </li>
-            <li>
-              <strong className="text-gray-300">Verify connectivity</strong> — The device will
-              automatically register with the MPS server once AMT is configured and the network is
-              reachable. Power actions will appear here once connected.
-            </li>
-          </ol>
-          <p className="text-xs text-gray-500">
-            Requires Intel vPro-compatible hardware with AMT firmware. Not all Intel processors support AMT.
-          </p>
-        </div>
-      )}
+      <h3 className="text-sm font-semibold text-gray-300 mb-2">AMT Power Actions</h3>
+      <div className="flex gap-2 flex-wrap">
+        <button type="button" onClick={() => { onPowerAction('power_on'); }} className="px-3 py-1 bg-green-700 hover:bg-green-600 rounded text-xs">
+          Power On
+        </button>
+        <button type="button" onClick={() => { onPowerAction('soft_off'); }} className="px-3 py-1 bg-yellow-700 hover:bg-yellow-600 rounded text-xs">
+          Soft Off
+        </button>
+        <button type="button" onClick={() => { onPowerAction('power_cycle'); }} className="px-3 py-1 bg-orange-700 hover:bg-orange-600 rounded text-xs">
+          {confirmPowerAction === 'power_cycle' ? 'Confirm Cycle' : 'Power Cycle'}
+        </button>
+        <button type="button" onClick={() => { onPowerAction('hard_reset'); }} className="px-3 py-1 bg-red-700 hover:bg-red-600 rounded text-xs">
+          {confirmPowerAction === 'hard_reset' ? 'Confirm Reset' : 'Hard Reset'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -123,9 +81,7 @@ export function DeviceDetail() {
   const sessions = useSessionStore((s) => s.sessions);
   const fetchSessions = useSessionStore((s) => s.fetchSessions);
   const createSession = useSessionStore((s) => s.createSession);
-  const amtDevices = useAMTStore((s) => s.amtDevices);
-  const fetchAmtDevices = useAMTStore((s) => s.fetchAmtDevices);
-  const sendPowerAction = useAMTStore((s) => s.sendPowerAction);
+  const sendPowerAction = useDeviceStore((s) => s.sendPowerAction);
   const addToast = useToastStore((s) => s.addToast);
   const groups = useDeviceStore((s) => s.groups);
   const fetchGroups = useDeviceStore((s) => s.fetchGroups);
@@ -144,7 +100,6 @@ export function DeviceDetail() {
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
-  const [showAmtInstructions, setShowAmtInstructions] = useState(false);
   // Collapsed on open: the inventory is reference detail, so the host card
   // stays scannable until an operator asks for it.
   const [showHardware, setShowHardware] = useState(false);
@@ -157,10 +112,9 @@ export function DeviceDetail() {
       fireAndForget(fetchDevice(id));
       fireAndForget(fetchSessions(id));
     }
-    fireAndForget(fetchAmtDevices());
     fireAndForget(fetchGroups());
     fireAndForget(fetchManifests());
-  }, [id, fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchManifests]);
+  }, [id, fetchDevice, fetchSessions, fetchGroups, fetchManifests]);
 
   // Poll device data every 30s so agent_version and status stay in sync, and
   // re-read the session list on the same beat so a session that ended anywhere
@@ -189,8 +143,6 @@ export function DeviceDetail() {
     }
   }, [id, device?.status, fetchHardware]);
 
-  const amtDevice = device ? amtDevices.find((a) => a.hostname === device.hostname) : undefined;
-
   // Find the latest manifest matching this device's OS.
   const latestManifest = device
     ? manifests
@@ -211,8 +163,9 @@ export function DeviceDetail() {
       return;
     }
     setConfirmPowerAction(null);
-    if (!amtDevice) return;
-    const ok = await sendPowerAction(amtDevice.uuid, action);
+    const amtUuid = device?.amt?.uuid;
+    if (!amtUuid) return;
+    const ok = await sendPowerAction(amtUuid, action);
     if (ok) {
       addToast(`Power action "${action.replace('_', ' ')}" sent`, 'success');
     } else {
@@ -311,6 +264,7 @@ export function DeviceDetail() {
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-xl font-bold">{device.hostname}</h2>
             <StatusBadge status={device.status} />
+            <AmtBadge amt={device.amt} />
             {device.maintenance_on && <MaintenanceBadge since={device.maintenance_since} />}
           </div>
           <div className="flex gap-2 flex-wrap justify-end">
@@ -435,11 +389,9 @@ export function DeviceDetail() {
         )}
 
         <AmtSection
-          amtDevice={amtDevice}
+          amt={device.amt}
           confirmPowerAction={confirmPowerAction}
-          showAmtInstructions={showAmtInstructions}
           onPowerAction={(action) => { fireAndForget(handlePowerAction(action)); }}
-          onToggleInstructions={() => setShowAmtInstructions(!showAmtInstructions)}
         />
 
         <div>
@@ -472,6 +424,16 @@ export function DeviceDetail() {
                   <dt className="text-gray-400">Disk</dt>
                   <dd>{formatBytes(hardware.disk_free_mb * 1024 * 1024)} free / {formatBytes(hardware.disk_total_mb * 1024 * 1024)}</dd>
                 </div>
+                {hardware.amt_available && (
+                  <div>
+                    <dt className="text-gray-400">Intel AMT</dt>
+                    <dd>
+                      {hardware.amt_model || 'Supported'}
+                      {hardware.amt_firmware && ` — firmware ${hardware.amt_firmware}`}
+                      {!hardware.amt_firmware && hardware.amt_version && ` — ME ${hardware.amt_version}`}
+                    </dd>
+                  </div>
+                )}
                 <div>
                   <dt className="text-gray-400">Last Updated</dt>
                   <dd>{new Date(hardware.updated_at).toLocaleString()}</dd>

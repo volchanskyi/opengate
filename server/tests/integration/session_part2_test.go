@@ -104,7 +104,6 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 		Groups:         testutil.NewTestGroups(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
 		WebPush:        testutil.NewTestWebPush(t, store),
-		AMTDevices:     testutil.NewTestAMTDevices(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
 		JWT:            jwtCfg,

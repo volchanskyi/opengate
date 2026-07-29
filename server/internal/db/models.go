@@ -65,10 +65,13 @@ type WebPushSubscription = notifications.WebPushSubscription
 
 // AMTDevice represents an Intel AMT device connected via CIRA.
 type AMTDevice struct {
-	UUID     uuid.UUID    `json:"uuid"`
-	Hostname string       `json:"hostname"`
-	Model    string       `json:"model"`
-	Firmware string       `json:"firmware"`
+	// UUID is the AMT firmware's CIRA identity, which on vPro hardware equals the
+	// host's SMBIOS system UUID.
+	UUID uuid.UUID `json:"uuid"`
+	// DeviceID is the managed device this AMT connection belongs to, resolved
+	// from the system UUID. AMT is a property of a managed device, so a
+	// connection with no device is held in memory and never persisted.
+	DeviceID uuid.UUID    `json:"device_id"`
 	Status   DeviceStatus `json:"status"`
 	LastSeen time.Time    `json:"last_seen"`
 }

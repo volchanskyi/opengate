@@ -372,6 +372,14 @@ pub enum ControlMessage {
     RequestHardwareReport,
 
     /// Agent reports hardware inventory to the server.
+    ///
+    /// `system_uuid` is the host's SMBIOS system UUID. On vPro hardware the
+    /// Intel AMT firmware presents that same value over CIRA, so the server uses
+    /// it to resolve which managed device an AMT connection belongs to; it is a
+    /// join key only and is never returned over the API. `amt_available` and
+    /// `amt_version` report what the host's Management Engine interface exposes.
+    /// All three are always serialized, so a host with no Management Engine
+    /// states `false` rather than going silent.
     HardwareReport {
         cpu_model: String,
         cpu_cores: u32,
@@ -379,6 +387,12 @@ pub enum ControlMessage {
         disk_total_mb: u64,
         disk_free_mb: u64,
         network_interfaces: Vec<NetworkInterface>,
+        #[serde(default)]
+        system_uuid: String,
+        #[serde(default)]
+        amt_available: bool,
+        #[serde(default)]
+        amt_version: String,
     },
 
     /// Agent reports a hardware collection error.

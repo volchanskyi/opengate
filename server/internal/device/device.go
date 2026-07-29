@@ -61,6 +61,10 @@ type Device struct {
 	MaintenanceSince  *time.Time `json:"maintenance_since,omitempty"`
 	MaintenanceBy     *uuid.UUID `json:"maintenance_by,omitempty"`
 	MaintenanceReason string     `json:"maintenance_reason,omitempty"`
+
+	// AMT is the device's Intel AMT property, read alongside the device row.
+	// Nil when the device neither supports AMT nor has an AMT connection.
+	AMT *AMT `json:"amt,omitempty"`
 }
 
 // Group is a named collection of devices that share an owner for access control.
@@ -81,6 +85,11 @@ type NetworkInterfaceInfo struct {
 }
 
 // Hardware is the device-hardware-inventory read model.
+//
+// Two writers share the row. The agent's inventory report owns the host facts
+// plus SystemUUID / AMTAvailable / AMTVersion; the server's WSMAN query over a
+// CIRA connection owns AMTModel / AMTFirmware. Every write is column-targeted so
+// neither writer blanks the other's columns.
 type Hardware struct {
 	DeviceID          DeviceID               `json:"device_id"`
 	CPUModel          string                 `json:"cpu_model"`
@@ -90,6 +99,33 @@ type Hardware struct {
 	DiskFreeMB        int64                  `json:"disk_free_mb"`
 	NetworkInterfaces []NetworkInterfaceInfo `json:"network_interfaces"`
 	UpdatedAt         time.Time              `json:"updated_at"`
+
+	// SystemUUID is the host's SMBIOS system UUID, which an Intel AMT CIRA
+	// connection presents as its own identity. It is a join key only: stored to
+	// resolve that link, never returned by the API, and preserved when an agent
+	// report omits it.
+	SystemUUID *uuid.UUID `json:"-"`
+	// AMTAvailable reports whether the host exposes a Management Engine
+	// interface. Nil means the agent said nothing, which preserves the stored
+	// value; a non-nil false is a stated absence and overwrites it.
+	AMTAvailable *bool  `json:"amt_available,omitempty"`
+	AMTVersion   string `json:"amt_version,omitempty"`
+	AMTModel     string `json:"amt_model,omitempty"`
+	AMTFirmware  string `json:"amt_firmware,omitempty"`
+}
+
+// AMT is a managed device's Intel AMT property: whether the hardware supports
+// AMT at all, and the state of its CIRA connection when one is linked.
+type AMT struct {
+	// Available mirrors the agent's Management Engine reading. It drives the
+	// badge on its own, so the badge never flickers with connection state.
+	Available bool `json:"available"`
+	// Status is the CIRA connection state, empty when no AMT connection has ever
+	// dialled in for this device.
+	Status string `json:"status,omitempty"`
+	// UUID is the AMT device's CIRA identity, nil when unlinked. Power actions
+	// address the device by this value.
+	UUID *uuid.UUID `json:"uuid,omitempty"`
 }
 
 // LogEntry is a single raw log line brokered on-demand from a device. It is
@@ -153,4 +189,16 @@ type GroupRepository interface {
 type HardwareRepository interface {
 	Upsert(ctx context.Context, hw *Hardware) error
 	Get(ctx context.Context, deviceID DeviceID) (*Hardware, error)
+	// ResolveBySystemUUID maps an SMBIOS system UUID to the device that reported
+	// it and that device's organization. An Intel AMT CIRA connection arrives
+	// with no request tenant, so this lookup supplies its own admin scope and
+	// searches across organizations; the organization it returns is what scopes
+	// every write that follows. Returns ErrHardwareNotFound when no device
+	// matches, and likewise when several do — a UUID shared by cloned disk
+	// images is not an identity.
+	ResolveBySystemUUID(ctx context.Context, systemUUID uuid.UUID) (DeviceID, uuid.UUID, error)
+	// SetAMTDetail writes the machine model and AMT firmware version read over
+	// WSMAN, leaving every agent-sourced column untouched. Returns
+	// ErrHardwareNotFound when no hardware row for deviceID exists in scope.
+	SetAMTDetail(ctx context.Context, deviceID DeviceID, model, firmware string) error
 }

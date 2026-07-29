@@ -31,7 +31,6 @@ Each store lives at `web/src/features/<x>/state/`. Each feature exports its publ
 | `useDeviceStore` | `features/devices/state/device-store.ts` |
 | `useSessionStore` | `features/session/state/session-store.ts` |
 | `useConnectionStore` | `features/session/state/connection-store.ts` (connection lifecycle belongs to session) |
-| `useAMTStore` | `features/devices/state/amt-store.ts` (AMT is a device-detail concern) |
 | `useUpdateStore` | `features/devices/state/update-store.ts` |
 | `useChatStore` | `features/messenger/state/chat-store.ts` |
 | `useFileStore` | `features/file-manager/state/file-store.ts` |

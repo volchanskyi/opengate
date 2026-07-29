@@ -212,6 +212,15 @@ type ControlMessage struct {
 	DiskTotalMB       uint64             `msgpack:"disk_total_mb,omitempty"`
 	DiskFreeMB        uint64             `msgpack:"disk_free_mb,omitempty"`
 	NetworkInterfaces []NetworkInterface `msgpack:"network_interfaces,omitempty"`
+	// SystemUUID is the host's SMBIOS system UUID — the key that resolves which
+	// managed device an Intel AMT CIRA connection belongs to. AMTAvailable and
+	// AMTVersion report what the host's Management Engine interface exposes.
+	// AMTAvailable is a pointer so a stated false survives omitempty: the server
+	// must be able to tell "this host has no Management Engine" apart from "this
+	// agent is too old to report", which preserves the previous value instead.
+	SystemUUID   string `msgpack:"system_uuid,omitempty"`
+	AMTAvailable *bool  `msgpack:"amt_available,omitempty"`
+	AMTVersion   string `msgpack:"amt_version,omitempty"`
 
 	// RequestDeviceLogs
 	LogLevel  string `msgpack:"log_level,omitempty"`

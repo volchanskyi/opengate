@@ -323,15 +323,15 @@ func SeedAdminUser(t testing.TB, ctx context.Context, s *db.PostgresStore) (*aut
 	return u, password
 }
 
-// SeedAMTDevice inserts an AMT device record via the amt.Repository.
-func SeedAMTDevice(t testing.TB, ctx context.Context, s *db.PostgresStore) *db.AMTDevice {
+// SeedAMTDevice inserts an AMT connection record for deviceID via the
+// amt.Repository. AMT is a property of a managed device, so the caller supplies
+// the device the connection belongs to.
+func SeedAMTDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, deviceID uuid.UUID) *db.AMTDevice {
 	t.Helper()
 	ctx, _ = tenantOrDefault(ctx, false)
 	d := &db.AMTDevice{
 		UUID:     uuid.New(),
-		Hostname: "amt-" + uuid.New().String()[:8],
-		Model:    "Intel NUC",
-		Firmware: "16.1.0",
+		DeviceID: deviceID,
 		Status:   db.StatusOffline,
 		LastSeen: time.Now(),
 	}

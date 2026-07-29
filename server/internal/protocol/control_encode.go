@@ -7,7 +7,7 @@ import "github.com/vmihailenco/msgpack/v5"
 // positionally, so both must track the struct;
 // TestEncodeControlMatchesReflectionPerField walks the struct by reflection and
 // fails if any of the three ever drift.
-const controlFieldCount = 83
+const controlFieldCount = 86
 
 // Each put* helper writes one map entry: the key, then the value through the
 // same encoder method the reflection encoder picks for that Go type. The integer
@@ -192,24 +192,27 @@ func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	present[62] = m.DiskTotalMB != 0
 	present[63] = m.DiskFreeMB != 0
 	present[64] = len(m.NetworkInterfaces) != 0
-	present[65] = m.LogLevel != ""
-	present[66] = m.TimeFrom != ""
-	present[67] = m.TimeTo != ""
-	present[68] = m.Search != ""
-	present[69] = m.LogOffset != 0
-	present[70] = m.LogLimit != 0
-	present[71] = m.Source != ""
-	present[72] = m.Unit != ""
-	present[73] = len(m.LogEntries) != 0
-	present[74] = m.TotalCount != 0
-	present[75] = m.HasMore != nil
-	present[76] = len(m.AvailableUnits) != 0
-	present[77] = len(m.Ports) != 0
-	present[78] = len(m.Services) != 0
-	present[79] = len(m.DBEngines) != 0
-	present[80] = len(m.Containers) != 0
-	present[81] = len(m.Packages) != 0
-	present[82] = m.Enabled != nil
+	present[65] = m.SystemUUID != ""
+	present[66] = m.AMTAvailable != nil
+	present[67] = m.AMTVersion != ""
+	present[68] = m.LogLevel != ""
+	present[69] = m.TimeFrom != ""
+	present[70] = m.TimeTo != ""
+	present[71] = m.Search != ""
+	present[72] = m.LogOffset != 0
+	present[73] = m.LogLimit != 0
+	present[74] = m.Source != ""
+	present[75] = m.Unit != ""
+	present[76] = len(m.LogEntries) != 0
+	present[77] = m.TotalCount != 0
+	present[78] = m.HasMore != nil
+	present[79] = len(m.AvailableUnits) != 0
+	present[80] = len(m.Ports) != 0
+	present[81] = len(m.Services) != 0
+	present[82] = len(m.DBEngines) != 0
+	present[83] = len(m.Containers) != 0
+	present[84] = len(m.Packages) != 0
+	present[85] = m.Enabled != nil
 	return present
 }
 
@@ -348,40 +351,46 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 	case 64:
 		return putValue(enc, "network_interfaces", m.NetworkInterfaces)
 	case 65:
-		return putString(enc, "log_level", string(m.LogLevel))
+		return putString(enc, "system_uuid", string(m.SystemUUID))
 	case 66:
-		return putString(enc, "time_from", string(m.TimeFrom))
+		return putBool(enc, "amt_available", *m.AMTAvailable)
 	case 67:
-		return putString(enc, "time_to", string(m.TimeTo))
+		return putString(enc, "amt_version", string(m.AMTVersion))
 	case 68:
-		return putString(enc, "search", string(m.Search))
+		return putString(enc, "log_level", string(m.LogLevel))
 	case 69:
-		return putUint32(enc, "log_offset", m.LogOffset)
+		return putString(enc, "time_from", string(m.TimeFrom))
 	case 70:
-		return putUint32(enc, "log_limit", m.LogLimit)
+		return putString(enc, "time_to", string(m.TimeTo))
 	case 71:
-		return putString(enc, "source", string(m.Source))
+		return putString(enc, "search", string(m.Search))
 	case 72:
-		return putString(enc, "unit", string(m.Unit))
+		return putUint32(enc, "log_offset", m.LogOffset)
 	case 73:
-		return putValue(enc, "log_entries", m.LogEntries)
+		return putUint32(enc, "log_limit", m.LogLimit)
 	case 74:
-		return putUint32(enc, "total_count", m.TotalCount)
+		return putString(enc, "source", string(m.Source))
 	case 75:
-		return putBool(enc, "has_more", *m.HasMore)
+		return putString(enc, "unit", string(m.Unit))
 	case 76:
-		return putValue(enc, "available_units", m.AvailableUnits)
+		return putValue(enc, "log_entries", m.LogEntries)
 	case 77:
-		return putValue(enc, "ports", m.Ports)
+		return putUint32(enc, "total_count", m.TotalCount)
 	case 78:
-		return putValue(enc, "services", m.Services)
+		return putBool(enc, "has_more", *m.HasMore)
 	case 79:
-		return putValue(enc, "db_engines", m.DBEngines)
+		return putValue(enc, "available_units", m.AvailableUnits)
 	case 80:
-		return putValue(enc, "containers", m.Containers)
+		return putValue(enc, "ports", m.Ports)
 	case 81:
-		return putValue(enc, "packages", m.Packages)
+		return putValue(enc, "services", m.Services)
 	case 82:
+		return putValue(enc, "db_engines", m.DBEngines)
+	case 83:
+		return putValue(enc, "containers", m.Containers)
+	case 84:
+		return putValue(enc, "packages", m.Packages)
+	case 85:
 		return putBool(enc, "enabled", *m.Enabled)
 	}
 	return nil

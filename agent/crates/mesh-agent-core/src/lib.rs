@@ -4,11 +4,13 @@
 //! control message exchange with the server, and relay session management.
 
 pub mod alerts;
+pub mod amt_detect;
 pub mod config;
 pub mod connection;
 pub mod discovery;
 pub mod error;
 pub mod file_ops;
+pub mod hardware;
 pub mod identity;
 pub mod maintenance;
 pub mod ml;
