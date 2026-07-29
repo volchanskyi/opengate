@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -61,33 +62,54 @@ func (m *memAMTState) status(id uuid.UUID) (db.DeviceStatus, bool) {
 	return s, ok
 }
 
-// memLinker resolves every system UUID to one fixed device, so the APF tests get
-// a linked connection without a database.
+// memLinker resolves every system UUID to one fixed device once armed, so the APF
+// tests get a linked connection without a database, and the adoption test can
+// start unarmed to stand in for a machine whose AMT firmware dialled in before
+// its agent had registered.
 type memLinker struct {
+	mu       sync.Mutex
 	deviceID uuid.UUID
 	orgID    uuid.UUID
+	armed    bool
+}
+
+func newMemLinker(armed bool) *memLinker {
+	return &memLinker{deviceID: uuid.New(), orgID: dbtx.DefaultOrgID, armed: armed}
 }
 
 func (m *memLinker) ResolveBySystemUUID(_ context.Context, _ uuid.UUID) (uuid.UUID, uuid.UUID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.armed {
+		return uuid.Nil, uuid.Nil, errors.New("no device reports this system uuid")
+	}
 	return m.deviceID, m.orgID, nil
 }
 
 func (m *memLinker) SetAMTDetail(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }
 
+// arm makes the lookup start succeeding, as a registering agent would.
+func (m *memLinker) arm() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.armed = true
+}
+
 func discardLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
-func newTestServer(t *testing.T) (*Server, *memAMTState) {
+// newTestServer builds an MPS server over in-memory ports, returning it with the
+// recorded state and the CA PEM a client needs to verify its certificate.
+func newTestServer(t *testing.T) (*Server, *memAMTState, []byte) {
 	t.Helper()
 
 	cm, err := cert.NewManager(t.TempDir())
 	require.NoError(t, err)
 
 	state := newMemAMTState()
-	linker := &memLinker{deviceID: uuid.New(), orgID: dbtx.DefaultOrgID}
-	srv := NewServer(cm, state, linker, discardLogger())
-	return srv, state
+	srv := NewServer(cm, state, newMemLinker(true), discardLogger())
+	return srv, state, cm.CACertPEM()
 }
 
 func startTestServer(t *testing.T, srv *Server) (string, context.CancelFunc) {
@@ -103,12 +125,18 @@ func startTestServer(t *testing.T, srv *Server) (string, context.CancelFunc) {
 	return addr, cancel
 }
 
-func connectAMT(t *testing.T, addr string) net.Conn {
+// connectAMT dials the MPS listener as an AMT device would. The MPS certificate
+// is CA-signed with a localhost SAN, so the client verifies it against the
+// server's own CA rather than skipping verification.
+func connectAMT(t *testing.T, addr string, caPEM []byte) net.Conn {
 	t.Helper()
+	roots := x509.NewCertPool()
+	require.True(t, roots.AppendCertsFromPEM(caPEM), "the test CA should be parseable")
+
 	conn, err := tls.DialWithDialer(
 		&net.Dialer{Timeout: 5 * time.Second},
 		"tcp", addr,
-		&tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test only
+		&tls.Config{RootCAs: roots, ServerName: "localhost", MinVersion: tls.VersionTLS12},
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
@@ -174,12 +202,12 @@ func simulateCIRA(t *testing.T, conn net.Conn, amtUUID uuid.UUID) {
 // stopped on test cleanup.
 func connectedAMT(t *testing.T) (*Server, net.Conn, uuid.UUID) {
 	t.Helper()
-	srv, _ := newTestServer(t)
+	srv, _, caPEM := newTestServer(t)
 	addr, cancel := startTestServer(t, srv)
 	t.Cleanup(cancel)
 
 	amtUUID := uuid.New()
-	conn := connectAMT(t, addr)
+	conn := connectAMT(t, addr, caPEM)
 	simulateCIRA(t, conn, amtUUID)
 	// The CIRA handshake completes on the server's reader goroutine. Wait for the
 	// registered connection rather than guessing a sleep duration: callers can
@@ -244,7 +272,7 @@ func buildChannelOpen(senderCh, window, maxPacket uint32) []byte {
 }
 
 func TestMPSServerStartStop(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _, _ := newTestServer(t)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan error, 1)
@@ -262,12 +290,12 @@ func TestMPSServerStartStop(t *testing.T) {
 }
 
 func TestMPSCIRAHandshake(t *testing.T) {
-	srv, store := newTestServer(t)
+	srv, store, caPEM := newTestServer(t)
 	addr, cancel := startTestServer(t, srv)
 	defer cancel()
 
 	amtUUID := uuid.New()
-	conn := connectAMT(t, addr)
+	conn := connectAMT(t, addr, caPEM)
 
 	simulateCIRA(t, conn, amtUUID)
 
@@ -293,17 +321,17 @@ func TestMPSCIRAHandshake(t *testing.T) {
 }
 
 func TestMPSMultipleConnections(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _, caPEM := newTestServer(t)
 	addr, cancel := startTestServer(t, srv)
 	defer cancel()
 
 	uuid1 := uuid.New()
 	uuid2 := uuid.New()
 
-	conn1 := connectAMT(t, addr)
+	conn1 := connectAMT(t, addr, caPEM)
 	simulateCIRA(t, conn1, uuid1)
 
-	conn2 := connectAMT(t, addr)
+	conn2 := connectAMT(t, addr, caPEM)
 	simulateCIRA(t, conn2, uuid2)
 
 	require.Eventually(t, func() bool {
@@ -318,12 +346,12 @@ func TestMPSMultipleConnections(t *testing.T) {
 }
 
 func TestMPSBadHandshake(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _, caPEM := newTestServer(t)
 	addr, cancel := startTestServer(t, srv)
 	defer cancel()
 
 	t.Run("wrong first message type", func(t *testing.T) {
-		conn := connectAMT(t, addr)
+		conn := connectAMT(t, addr, caPEM)
 		// Send a service request instead of protocol version.
 		require.NoError(t, writeStringMsg(conn, APFServiceRequest, ServiceAuth))
 		// Server should close the connection (async).
@@ -333,7 +361,7 @@ func TestMPSBadHandshake(t *testing.T) {
 	})
 
 	t.Run("garbage data", func(t *testing.T) {
-		conn := connectAMT(t, addr)
+		conn := connectAMT(t, addr, caPEM)
 		_, err := conn.Write([]byte{0xFF, 0xFF, 0xFF})
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
@@ -572,31 +600,6 @@ func TestWriteChannelOpenDirectWriteError(t *testing.T) {
 	assert.ErrorIs(t, err, io.ErrClosedPipe)
 }
 
-// deferredLinker refuses the lookup until it is armed, standing in for a machine
-// whose AMT firmware dialled in before its agent had registered.
-type deferredLinker struct {
-	mu       sync.Mutex
-	deviceID uuid.UUID
-	armed    bool
-}
-
-func (d *deferredLinker) ResolveBySystemUUID(_ context.Context, _ uuid.UUID) (uuid.UUID, uuid.UUID, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if !d.armed {
-		return uuid.Nil, uuid.Nil, errors.New("no device reports this system uuid")
-	}
-	return d.deviceID, dbtx.DefaultOrgID, nil
-}
-
-func (d *deferredLinker) SetAMTDetail(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }
-
-func (d *deferredLinker) arm() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.armed = true
-}
-
 // TestUnlinkedConnectionIsAdoptedOnRetry proves the retry loop: a connection the
 // server could not resolve at handshake time is picked up on a later tick, once
 // the device claims its system UUID — no reconnect required.
@@ -605,7 +608,7 @@ func TestUnlinkedConnectionIsAdoptedOnRetry(t *testing.T) {
 	require.NoError(t, err)
 
 	state := newMemAMTState()
-	linker := &deferredLinker{deviceID: uuid.New()}
+	linker := newMemLinker(false)
 	srv := NewServer(cm, state, linker, discardLogger())
 	// Pace the retry for the test rather than waiting out the production tick.
 	srv.relinkInterval = 20 * time.Millisecond
@@ -614,7 +617,7 @@ func TestUnlinkedConnectionIsAdoptedOnRetry(t *testing.T) {
 	defer cancel()
 
 	amtUUID := uuid.New()
-	conn := connectAMT(t, addr)
+	conn := connectAMT(t, addr, cm.CACertPEM())
 	simulateCIRA(t, conn, amtUUID)
 
 	require.Eventually(t, func() bool { return srv.GetConn(amtUUID) != nil },

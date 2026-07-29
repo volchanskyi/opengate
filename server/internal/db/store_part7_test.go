@@ -166,7 +166,7 @@ func amtDeviceColumnNames(t *testing.T, ctx context.Context, db *sql.DB) []strin
 		  AND column_name IN ('device_id', 'hostname', 'model', 'firmware')
 		ORDER BY column_name`)
 	require.NoError(t, err)
-	defer rows.Close() //nolint:errcheck // test cleanup
+	defer rows.Close()
 	var names []string
 	for rows.Next() {
 		var name string

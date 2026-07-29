@@ -13,6 +13,7 @@ package transport_test
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"io"
 	"log/slog"
@@ -36,6 +37,7 @@ import (
 type linkEnv struct {
 	srv      *transport.Server
 	addr     string
+	caPEM    []byte
 	store    *db.PostgresStore
 	hardware device.HardwareRepository
 	amtRepo  amt.Repository
@@ -57,7 +59,14 @@ func newLinkEnv(t *testing.T) *linkEnv {
 	t.Cleanup(cancel)
 	go func() { _ = srv.ListenAndServe(ctx, "127.0.0.1:0") }()
 
-	return &linkEnv{srv: srv, addr: srv.Addr(), store: store, hardware: hardware, amtRepo: amtRepo}
+	return &linkEnv{
+		srv:      srv,
+		addr:     srv.Addr(),
+		caPEM:    cm.CACertPEM(),
+		store:    store,
+		hardware: hardware,
+		amtRepo:  amtRepo,
+	}
 }
 
 // seedDeviceWithSystemUUID creates a device in orgCtx's tenant whose hardware
@@ -107,7 +116,7 @@ func TestCIRAConnectPersistsUnderTheDeviceOrg(t *testing.T) {
 	amtUUID := uuid.New()
 	dev := seedDeviceWithSystemUUID(t, orgCtx, env, amtUUID)
 
-	conn := dialCIRA(t, env.addr, amtUUID)
+	conn := dialCIRA(t, env, amtUUID)
 	t.Cleanup(func() { _ = conn.Close() })
 
 	require.Eventually(t, func() bool { return env.srv.GetConn(amtUUID) != nil },
@@ -137,7 +146,7 @@ func TestCIRAConnectWithNoDevicePersistsNothing(t *testing.T) {
 	orgCtx := dbtx.WithDefaultTenant(context.Background(), true)
 	amtUUID := uuid.New()
 
-	conn := dialCIRA(t, env.addr, amtUUID)
+	conn := dialCIRA(t, env, amtUUID)
 	t.Cleanup(func() { _ = conn.Close() })
 
 	require.Eventually(t, func() bool { return env.srv.GetConn(amtUUID) != nil },
@@ -151,12 +160,19 @@ func TestCIRAConnectWithNoDevicePersistsNothing(t *testing.T) {
 
 // dialCIRA opens a TLS connection and walks the full CIRA handshake from the AMT
 // device side, returning once the server has sent its keepalive options.
-func dialCIRA(t *testing.T, addr string, amtUUID uuid.UUID) net.Conn {
+//
+// The MPS certificate is CA-signed with a localhost SAN, so the client verifies
+// it against the server's own CA rather than skipping verification — the
+// handshake under test is the one a real AMT device performs.
+func dialCIRA(t *testing.T, env *linkEnv, amtUUID uuid.UUID) net.Conn {
 	t.Helper()
+	roots := x509.NewCertPool()
+	require.True(t, roots.AppendCertsFromPEM(env.caPEM), "the test CA should be parseable")
+
 	conn, err := tls.DialWithDialer(
 		&net.Dialer{Timeout: 5 * time.Second},
-		"tcp", addr,
-		&tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test only
+		"tcp", env.addr,
+		&tls.Config{RootCAs: roots, ServerName: "localhost", MinVersion: tls.VersionTLS12},
 	)
 	require.NoError(t, err)
 

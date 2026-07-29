@@ -97,39 +97,37 @@ func (p *PostgresHardware) Get(ctx context.Context, deviceID DeviceID) (*Hardwar
 // device by the globally unique SMBIOS UUID across organizations.
 func (p *PostgresHardware) ResolveBySystemUUID(ctx context.Context, systemUUID uuid.UUID) (DeviceID, uuid.UUID, error) {
 	ctx = dbtx.WithDefaultTenant(ctx, true)
-	var deviceID, orgID uuid.UUID
+
+	// Exactly one row is an identity; none or several is not. LIMIT 2 is all it
+	// takes to tell those apart — cloned disk images share a system UUID, and
+	// counting past the second adds nothing.
+	type match struct{ deviceID, orgID uuid.UUID }
+	var matches []match
+
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		// LIMIT 2 turns a duplicate — cloned disk images share a system UUID —
-		// into "more than one row", which the caller treats as no match.
 		rows, err := tx.QueryContext(ctx,
 			`SELECT device_id, org_id FROM device_hardware WHERE system_uuid = $1 LIMIT 2`, systemUUID)
 		if err != nil {
 			return err
 		}
-		defer rows.Close() //nolint:errcheck // read-only; the row error is checked below
+		defer rows.Close()
 
-		matches := 0
 		for rows.Next() {
-			matches++
-			if matches > 1 {
-				return ErrHardwareNotFound
-			}
-			if err := rows.Scan(&deviceID, &orgID); err != nil {
+			var m match
+			if err := rows.Scan(&m.deviceID, &m.orgID); err != nil {
 				return err
 			}
+			matches = append(matches, m)
 		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if matches == 0 {
-			return ErrHardwareNotFound
-		}
-		return nil
+		return rows.Err()
 	})
 	if err != nil {
 		return uuid.Nil, uuid.Nil, err
 	}
-	return deviceID, orgID, nil
+	if len(matches) != 1 {
+		return uuid.Nil, uuid.Nil, ErrHardwareNotFound
+	}
+	return matches[0].deviceID, matches[0].orgID, nil
 }
 
 // SetAMTDetail implements [HardwareRepository]. It writes only the two columns

@@ -23,7 +23,8 @@ type amtFixture struct {
 	orgID    uuid.UUID
 }
 
-// seedSibling adds a second device to the same tenant, for cases that need two.
+// seedSibling adds another device to the fixture's tenant. It seeds the
+// fixture's own device too, so cases needing two clones call it again.
 func (f amtFixture) seedSibling(t *testing.T) device.DeviceID {
 	t.Helper()
 	owner := testutil.SeedUser(t, f.ctx, f.store)
@@ -45,10 +46,9 @@ func newAMTFixture(t *testing.T, orgID uuid.UUID) amtFixture {
 		orgID = dbtx.DefaultOrgID
 	}
 
-	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, owner.ID)
-	dev := testutil.SeedDevice(t, ctx, store, group.ID)
-	return amtFixture{hardware: hardware, store: store, ctx: ctx, deviceID: dev.ID, orgID: orgID}
+	f := amtFixture{hardware: hardware, store: store, ctx: ctx, orgID: orgID}
+	f.deviceID = f.seedSibling(t)
+	return f
 }
 
 // report is what the agent's hardware inventory writes: host facts plus the AMT
@@ -184,6 +184,14 @@ func TestResolveBySystemUUIDAmbiguousKey(t *testing.T) {
 	require.NoError(t, f.hardware.Upsert(f.ctx, report(f.seedSibling(t), &systemUUID, "clone-b")))
 
 	_, _, err := f.hardware.ResolveBySystemUUID(context.Background(), systemUUID)
+	assert.ErrorIs(t, err, device.ErrHardwareNotFound)
+
+	// A third clone must not sneak past: the lookup caps how many rows it reads,
+	// so "several" has to stay indistinguishable from "two" rather than wrapping
+	// back around to a single match.
+	require.NoError(t, f.hardware.Upsert(f.ctx, report(f.seedSibling(t), &systemUUID, "clone-c")))
+
+	_, _, err = f.hardware.ResolveBySystemUUID(context.Background(), systemUUID)
 	assert.ErrorIs(t, err, device.ErrHardwareNotFound)
 }
 
