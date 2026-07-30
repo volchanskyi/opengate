@@ -20,14 +20,15 @@ func TestGetDeviceHardware(t *testing.T) {
 		hasCached  bool
 		online     bool
 		found      bool
-		owned      bool
+		asOwner    bool
 		wantStatus int
 	}{
 		{"cached data available", true, true, true, true, http.StatusOK},
 		{"no cache but online triggers request", false, true, true, true, http.StatusAccepted},
 		{"no cache and offline", false, false, true, true, http.StatusNotFound},
 		{"device not found", false, false, false, true, http.StatusNotFound},
-		{"not owner", false, true, true, false, http.StatusForbidden},
+		// The hardware read is a fleet read, open to every member of the org.
+		{"peer in the same organization", true, true, true, false, http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -50,7 +51,7 @@ func TestGetDeviceHardware(t *testing.T) {
 			}
 
 			token := env.ownerToken
-			if !tt.owned {
+			if !tt.asOwner {
 				otherUser := testutil.SeedUser(t, env.ctx, env.store)
 				var err error
 				token, err = env.generateToken(otherUser.ID, otherUser.Email, otherUser.IsAdmin)

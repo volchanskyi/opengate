@@ -17,8 +17,7 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	user := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, user.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	d := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	// Create a pending update record

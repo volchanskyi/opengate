@@ -18,13 +18,15 @@ func TestRestartDevice(t *testing.T) {
 		name       string
 		online     bool
 		found      bool
-		owned      bool
+		asOwner    bool
 		wantStatus int
 	}{
 		{"online agent", true, true, true, http.StatusOK},
 		{"agent not connected", false, true, true, http.StatusConflict},
 		{"device not found", false, false, true, http.StatusNotFound},
-		{"not owner", true, true, false, http.StatusForbidden},
+		// Restarting an agent is a device command: any member of the
+		// organization may issue it, not only the device's original operator.
+		{"peer in the same organization", true, true, false, http.StatusOK},
 	}
 
 	for _, tt := range tests {
@@ -32,7 +34,7 @@ func TestRestartDevice(t *testing.T) {
 			env := setupDeviceTest(t, tt.online)
 
 			token := env.ownerToken
-			if !tt.owned {
+			if !tt.asOwner {
 				otherUser := testutil.SeedUser(t, env.ctx, env.store)
 				var err error
 				token, err = env.generateToken(otherUser.ID, otherUser.Email, otherUser.IsAdmin)

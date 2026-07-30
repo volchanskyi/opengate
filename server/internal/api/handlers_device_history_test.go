@@ -22,12 +22,15 @@ func TestGetDeviceHistory(t *testing.T) {
 		name       string
 		online     bool
 		found      bool
-		owned      bool
+		asOwner    bool
 		query      string
 		wantStatus int
 	}{
 		{"device not found", false, false, true, "dim=cpu.total&" + window, http.StatusNotFound},
-		{"not owner", true, true, false, "dim=cpu.total&" + window, http.StatusForbidden},
+		// A history pull is a fleet read: a peer in the same organization clears
+		// authorization and reaches the broker, which refuses because this agent
+		// never advertised the capability.
+		{"peer in the same organization", true, true, false, "dim=cpu.total&" + window, http.StatusNotFound},
 		{"offline", false, true, true, "dim=cpu.total&" + window, http.StatusNotFound},
 		{"empty dim", true, true, true, "dim=&" + window, http.StatusBadRequest},
 		{"window not increasing", true, true, true, "dim=cpu.total&from=2026-01-01T02:00:00Z&to=2026-01-01T01:00:00Z", http.StatusBadRequest},
@@ -41,7 +44,7 @@ func TestGetDeviceHistory(t *testing.T) {
 			env := setupDeviceTest(t, tt.online)
 
 			token := env.ownerToken
-			if !tt.owned {
+			if !tt.asOwner {
 				other := testutil.SeedUser(t, env.ctx, env.store)
 				var err error
 				token, err = env.generateToken(other.ID, other.Email, other.IsAdmin)

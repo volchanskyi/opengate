@@ -16,7 +16,7 @@ func TestAgentConn_HandleRegister_NormalizesOS(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store, testutil.SeedUser(t, ctx, store).ID)
+	group := testutil.SeedGroup(t, ctx, store)
 
 	deviceID := uuid.New()
 	codec := &protocol.Codec{}

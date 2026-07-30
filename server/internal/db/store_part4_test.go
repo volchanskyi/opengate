@@ -76,48 +76,60 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	runMigrationSteps(t, dbURL, 1)
 	assertAMTDeviceLink(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 008 AMT device link verified")
+
+	runMigrationSteps(t, dbURL, 1)
+	assertGroupOwnerDropped(t, ctx, rehearsalDB)
 	assertMigrationNoChange(t, dbURL)
-	t.Log("rehearsal: 008 AMT device link verified; head is idempotent")
+	t.Log("rehearsal: 009 dropped groups_.owner_id; head is idempotent")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
 	defer restoredDB.Close() //nolint:errcheck // test cleanup
-	assertRehearsalRLS(t, ctx, restoredDB, "public")
-	assertTelemetryProcessRLS(t, ctx, restoredDB, "public")
-	assertDeviceLogsRetired(t, ctx, restoredDB)
-	assertInventoryRLS(t, ctx, restoredDB, "public")
-	assertDataLifecycleTables(t, ctx, restoredDB)
-	assertMaintenanceColumns(t, ctx, restoredDB)
-	assertAMTDeviceLink(t, ctx, restoredDB)
+	assertHeadSchema(t, ctx, restoredDB)
 	t.Log("rehearsal: pg_dump -> pg_restore completed and restored DB re-verified")
 
-	runMigrationSteps(t, dbURL, -1)
-	assertAMTDeviceLinkDownReversal(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 008 down rollback restored the original amt_devices shape")
+	rollBackAndVerify(t, ctx, dbURL, rehearsalDB)
+}
 
-	runMigrationSteps(t, dbURL, -1)
-	assertMaintenanceColumnsDownReversal(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 007 down rollback removed maintenance columns cleanly")
+// assertHeadSchema re-runs every head-state assertion against db. It is applied
+// to the pg_dump/pg_restore copy, so a restored database must look exactly like
+// the one the migrations built.
+func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	assertRehearsalRLS(t, ctx, db, "public")
+	assertTelemetryProcessRLS(t, ctx, db, "public")
+	assertDeviceLogsRetired(t, ctx, db)
+	assertInventoryRLS(t, ctx, db, "public")
+	assertDataLifecycleTables(t, ctx, db)
+	assertMaintenanceColumns(t, ctx, db)
+	assertAMTDeviceLink(t, ctx, db)
+	assertGroupOwnerDropped(t, ctx, db)
+}
 
-	runMigrationSteps(t, dbURL, -1)
-	assertDataLifecycleDownReversal(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 006 down rollback removed data-lifecycle tables cleanly")
-
-	runMigrationSteps(t, dbURL, -1)
-	assertInventoryDownReversal(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 005 down rollback removed device_inventory cleanly")
-
-	runMigrationSteps(t, dbURL, -1)
-	assertDeviceLogsRestored(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 004 down rollback recreated device_logs cleanly")
-
-	runMigrationSteps(t, dbURL, -1)
-	assertTelemetryDownReversal(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 003 down rollback removed device_processes cleanly")
-
-	runMigrationSteps(t, dbURL, -1)
-	assertMultitenancyDownReversal(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 002 down rollback removed organizations/org_id cleanly")
+// rollBackAndVerify walks the migrations down one step at a time, asserting
+// after each that the step reversed cleanly. The slice is in rollback order —
+// newest migration first — and reaches the pre-tenancy schema at the end.
+func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.DB) {
+	t.Helper()
+	steps := []struct {
+		note   string
+		verify func(*testing.T, context.Context, *sql.DB)
+	}{
+		{"009 re-added a nullable owner_id", assertGroupOwnerDownReversal},
+		{"008 restored the original amt_devices shape", assertAMTDeviceLinkDownReversal},
+		{"007 removed maintenance columns cleanly", assertMaintenanceColumnsDownReversal},
+		{"006 removed data-lifecycle tables cleanly", assertDataLifecycleDownReversal},
+		{"005 removed device_inventory cleanly", assertInventoryDownReversal},
+		{"004 recreated device_logs cleanly", assertDeviceLogsRestored},
+		{"003 removed device_processes cleanly", assertTelemetryDownReversal},
+		{"002 removed organizations/org_id cleanly", assertMultitenancyDownReversal},
+	}
+	for _, step := range steps {
+		runMigrationSteps(t, dbURL, -1)
+		step.verify(t, ctx, db)
+		t.Logf("rehearsal: down rollback %s", step.note)
+	}
 }
 
 func ensureRLSRole(t *testing.T, ctx context.Context, db *sql.DB) {

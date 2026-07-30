@@ -103,7 +103,7 @@ func seedRelaySession(t *testing.T, ctx context.Context, srv *Server, cfg *auth.
 	t.Helper()
 	ctx = dbtx.WithDefaultTenant(ctx, true)
 	user := testutil.SeedUser(t, ctx, srv.store)
-	group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, srv.store)
 	device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
 	sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 	jwt, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
@@ -240,7 +240,7 @@ func TestRelayWebSocket(t *testing.T) {
 		tenantCtx := dbtx.WithDefaultTenant(context.Background(), true)
 
 		user := testutil.SeedUser(t, tenantCtx, srv.store)
-		group := testutil.SeedGroup(t, tenantCtx, srv.store, user.ID)
+		group := testutil.SeedGroup(t, tenantCtx, srv.store)
 		device := testutil.SeedDevice(t, tenantCtx, srv.store, group.ID)
 
 		token := protocol.GenerateSessionToken()

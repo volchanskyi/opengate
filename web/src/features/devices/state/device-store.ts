@@ -11,6 +11,7 @@ type DeviceHardware = components['schemas']['DeviceHardware'];
 type DeviceLogsResponse = components['schemas']['DeviceLogsResponse'];
 type MetricRangeResponse = components['schemas']['MetricRangeResponse'];
 type CorrelateResponse = components['schemas']['CorrelateResponse'];
+type DeviceSummary = components['schemas']['DeviceSummary'];
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 
 /**
@@ -66,8 +67,8 @@ interface DeviceState {
   metricsLoading: boolean;
   correlation: CorrelateResponse | null;
   correlationLoading: boolean;
-  /** Fleet-wide count of devices currently in maintenance (from the summary endpoint). */
-  maintenanceCount: number;
+  /** Fixed-size fleet rollup behind the dashboard tiles. Null until first load. */
+  summary: DeviceSummary | null;
   isLoading: boolean;
   error: string | null;
   fetchGroups: () => Promise<void>;
@@ -89,7 +90,7 @@ interface DeviceState {
   correlate: (id: string, params: CorrelateParams) => Promise<void>;
   upgradeAgent: (deviceId: string, version: string, os: string, arch: string) => Promise<boolean>;
   setMaintenance: (id: string, enabled: boolean, reason?: string) => Promise<boolean>;
-  fetchMaintenanceSummary: () => Promise<void>;
+  fetchSummary: () => Promise<void>;
 }
 
 async function retryHardwareFetch(set: (partial: Partial<DeviceState>) => void, id: string) {
@@ -180,7 +181,7 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   metricsLoading: false,
   correlation: null,
   correlationLoading: false,
-  maintenanceCount: 0,
+  summary: null,
   isLoading: false,
   error: null,
 
@@ -395,10 +396,12 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     return res.ok;
   },
 
-  fetchMaintenanceSummary: async () => {
+  fetchSummary: async () => {
+    // One fixed-size request drives every dashboard tile, so the dashboard
+    // never downloads the device list to count it.
     const res = await apiAction(set, () =>
-      api.GET('/api/v1/devices/maintenance-summary'), false,
+      api.GET('/api/v1/devices/summary'), false,
     );
-    if (res.ok) set({ maintenanceCount: res.data.count });
+    if (res.ok) set({ summary: res.data });
   },
 }));

@@ -51,7 +51,7 @@ async function stubDeviceRoutes(
   );
   await authedPage.route("**/api/v1/groups", (route: Route) =>
     ok(route, [
-      { id: GROUP_ID, name: "default", owner_id: "x", created_at: "", updated_at: "" },
+      { id: GROUP_ID, name: "default", created_at: "", updated_at: "" },
     ]),
   );
   await authedPage.route(`**/api/v1/sessions?device_id=${id}*`, (route: Route) =>

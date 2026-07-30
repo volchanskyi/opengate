@@ -17,17 +17,12 @@ import (
 func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error) {
 	deviceID := request.Body.DeviceId
 
-	// Verify device exists and user owns it.
-	d, err := s.devices.Get(ctx, deviceID)
-	if err != nil {
+	// Verify the device exists in the caller's organization.
+	if err := s.requireDeviceInScope(ctx, deviceID); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return CreateSession404JSONResponse{Error: "device not found"}, nil
 		}
 		return nil, err
-	}
-
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return CreateSession403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	// Check agent is connected
@@ -104,17 +99,12 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 
 // ListSessions implements StrictServerInterface.
 func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error) {
-	// Verify user owns the device's group.
-	d, err := s.devices.Get(ctx, request.Params.DeviceId)
-	if err != nil {
+	// Verify the device exists in the caller's organization.
+	if err := s.requireDeviceInScope(ctx, request.Params.DeviceId); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return ListSessions200JSONResponse([]AgentSession{}), nil
 		}
 		return nil, err
-	}
-
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return ListSessions403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	sessions, err := s.sessions.ListActiveForDevice(ctx, request.Params.DeviceId)
@@ -129,26 +119,28 @@ func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestOb
 	return ListSessions200JSONResponse(sessionsToAPI(sessions)), nil
 }
 
-// DeleteSession implements StrictServerInterface.
-//
-// This transport handler delegates orchestration to usecase.SessionService.Delete:
-// the use case owns the ownership check,
-// the persistence, the audit write, and the push event. The handler is a
-// thin translator — extract userID/isAdmin from JWT claims, map domain
-// errors to HTTP status codes.
+// DeleteSession implements StrictServerInterface. Ending a remote session is a
+// device command, so organization membership is the whole gate: the handler
+// resolves the token in the caller's tenant scope, then delegates orchestration
+// to usecase.SessionService.Delete, which owns the persistence, the audit write
+// and the push event.
 func (s *Server) DeleteSession(ctx context.Context, request DeleteSessionRequestObject) (DeleteSessionResponseObject, error) {
+	if err := s.requireSessionInScope(ctx, request.Token); err != nil {
+		if errors.Is(err, session.ErrSessionNotFound) {
+			return DeleteSession404JSONResponse{Error: msgSessionNotFound}, nil
+		}
+		return nil, err
+	}
+
 	err := s.sessionUC.Delete(ctx, usecase.DeleteSessionInput{
-		Token:   request.Token,
-		UserID:  ContextUserID(ctx),
-		IsAdmin: isAdmin(ctx),
+		Token:  request.Token,
+		UserID: ContextUserID(ctx),
 	})
 	switch {
 	case err == nil:
 		return DeleteSession204Response{}, nil
 	case errors.Is(err, usecase.ErrSessionNotFound):
-		return DeleteSession404JSONResponse{Error: "session not found"}, nil
-	case errors.Is(err, usecase.ErrSessionForbidden):
-		return DeleteSession403JSONResponse{Error: msgForbidden}, nil
+		return DeleteSession404JSONResponse{Error: msgSessionNotFound}, nil
 	default:
 		return nil, err
 	}

@@ -26,16 +26,10 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/session"
 )
 
-// Domain-level errors returned by SessionService. The transport layer
-// maps these to HTTP status codes (404 / 403 / etc.).
-var (
-	// ErrSessionNotFound is returned by Delete when the session token
-	// does not exist. Wraps session.ErrSessionNotFound.
-	ErrSessionNotFound = errors.New("session not found")
-	// ErrSessionForbidden is returned when the caller is neither the
-	// session creator nor an admin.
-	ErrSessionForbidden = errors.New("session forbidden")
-)
+// ErrSessionNotFound is returned by Delete when the session token does not
+// exist in the caller's tenant scope. Wraps session.ErrSessionNotFound; the
+// transport layer maps it to 404.
+var ErrSessionNotFound = errors.New("session not found")
 
 // SessionService orchestrates deletion across the session aggregate, notifier,
 // and audit log. Create and List remain in the transport layer because their
@@ -63,28 +57,22 @@ func NewSessionService(
 type DeleteSessionInput struct {
 	// Token identifies the session to delete.
 	Token string
-	// UserID is the caller's identity (from JWT claims).
+	// UserID is the caller's identity (from JWT claims), recorded on the audit
+	// event and the session-ended notification.
 	UserID uuid.UUID
-	// IsAdmin signals the caller has the admin role; admins may delete
-	// any session, regardless of creator.
-	IsAdmin bool
 }
 
-// Delete removes a session and emits an audit log + push event. Returns
-// ErrSessionNotFound if the token is unknown, ErrSessionForbidden if the
-// caller is neither the creator nor admin, or the underlying Repository
-// error on persistence failure.
+// Delete removes a session and emits an audit log + push event. Ending a remote
+// session is a device command, so organization membership is the whole gate: the
+// lookup runs in the caller's tenant scope and any member may end any session on
+// a device in that organization. Returns ErrSessionNotFound if the token is
+// unknown in scope, or the underlying Repository error on persistence failure.
 func (s *SessionService) Delete(ctx context.Context, in DeleteSessionInput) error {
-	sess, err := s.sessions.Get(ctx, in.Token)
-	if err != nil {
+	if _, err := s.sessions.Get(ctx, in.Token); err != nil {
 		if errors.Is(err, session.ErrSessionNotFound) {
 			return ErrSessionNotFound
 		}
 		return err
-	}
-
-	if sess.UserID != in.UserID && !in.IsAdmin {
-		return ErrSessionForbidden
 	}
 
 	if err := s.sessions.Delete(ctx, in.Token); err != nil {

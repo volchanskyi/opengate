@@ -40,7 +40,9 @@ func TestRequestTimeout(t *testing.T) {
 func TestMaxBodySize(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
-	_, token := seedTestUser(t, srv, cfg, "bodysize@example.com", false)
+	// Group creation is admin-gated, so the body-size middleware needs an admin
+	// caller to reach the handler at all.
+	_, token := seedTestUser(t, srv, cfg, "bodysize@example.com", true)
 
 	t.Run("small body accepted", func(t *testing.T) {
 		body := map[string]string{"name": "test-group"}

@@ -91,6 +91,10 @@ type MetricsReader interface {
 	QueryRange(ctx context.Context, orgID uuid.UUID, rq telemetry.RangeQuery) ([]telemetry.RangeSeries, error)
 	QueryInstant(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]telemetry.InstantValue, error)
 	QueryInstantLookback(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time, lookback time.Duration) ([]telemetry.InstantValue, error)
+	// CountAnomalyBands returns how many devices fall in each edge-health band,
+	// counted inside the time-series store so the dashboard rollup stays O(1) in
+	// fleet size.
+	CountAnomalyBands(ctx context.Context, orgID uuid.UUID, watch, anomalous float64, at time.Time, lookback time.Duration) (telemetry.BandCounts, error)
 }
 
 // ServerConfig holds all dependencies for the API server.

@@ -21,10 +21,13 @@ const (
 func TestDeviceHandlers(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
-	user, token := seedTestUser(t, srv, cfg, "dev@example.com", false)
+	// Device reads are open to every member; moving and deleting a device are
+	// configuration changes behind the admin gate.
+	_, token := seedTestUser(t, srv, cfg, "dev@example.com", false)
+	_, adminToken := seedTestUser(t, srv, cfg, "dev-admin@example.com", true)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "test-group", OwnerID: user.ID}
+	group := &device.Group{ID: uuid.New(), Name: "test-group"}
 	require.NoError(t, srv.groups.Create(ctx, group))
 
 	dev := &device.Device{
@@ -70,11 +73,11 @@ func TestDeviceHandlers(t *testing.T) {
 	})
 
 	t.Run("update device group", func(t *testing.T) {
-		newGroup := &device.Group{ID: uuid.New(), Name: "new-group", OwnerID: user.ID}
+		newGroup := &device.Group{ID: uuid.New(), Name: "new-group"}
 		require.NoError(t, srv.groups.Create(ctx, newGroup))
 
 		body := map[string]interface{}{"group_id": newGroup.ID.String()}
-		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), token, body)
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), adminToken, body)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var d Device
@@ -84,13 +87,13 @@ func TestDeviceHandlers(t *testing.T) {
 
 	t.Run("update device group not found", func(t *testing.T) {
 		body := map[string]interface{}{"group_id": uuid.New().String()}
-		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), token, body)
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), adminToken, body)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("update device group to the nil uuid ungroups the device", func(t *testing.T) {
 		body := map[string]interface{}{"group_id": uuid.Nil.String()}
-		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), token, body)
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), adminToken, body)
 		require.Equal(t, http.StatusOK, w.Code)
 
 		var d Device
@@ -99,7 +102,7 @@ func TestDeviceHandlers(t *testing.T) {
 
 		// The device stays reachable and re-groupable once ungrouped.
 		regroup := map[string]interface{}{"group_id": group.ID.String()}
-		w = doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), token, regroup)
+		w = doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), adminToken, regroup)
 		require.Equal(t, http.StatusOK, w.Code)
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&d))
 		assert.Equal(t, group.ID, d.GroupId)
@@ -107,12 +110,12 @@ func TestDeviceHandlers(t *testing.T) {
 
 	t.Run("update device not found", func(t *testing.T) {
 		body := map[string]interface{}{"group_id": uuid.New().String()}
-		w := doRequest(srv, http.MethodPatch, testPathDevicesS+uuid.New().String(), token, body)
+		w := doRequest(srv, http.MethodPatch, testPathDevicesS+uuid.New().String(), adminToken, body)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
 	t.Run("delete device", func(t *testing.T) {
-		w := doRequest(srv, http.MethodDelete, testPathDevicesS+dev.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathDevicesS+dev.ID.String(), adminToken, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 
@@ -143,10 +146,10 @@ func TestDeviceHandlers(t *testing.T) {
 func TestDeviceAMTProperty(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
-	user, token := seedTestUser(t, srv, cfg, "amt-device@example.com", false)
+	_, token := seedTestUser(t, srv, cfg, "amt-device@example.com", false)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "amt-group", OwnerID: user.ID}
+	group := &device.Group{ID: uuid.New(), Name: "amt-group"}
 	require.NoError(t, srv.groups.Create(ctx, group))
 
 	seed := func(hostname string) *device.Device {
@@ -208,10 +211,10 @@ func TestDeviceAMTProperty(t *testing.T) {
 func TestDeviceResponseNeverLeaksSystemUUID(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
-	user, token := seedTestUser(t, srv, cfg, "amt-leak@example.com", false)
+	_, token := seedTestUser(t, srv, cfg, "amt-leak@example.com", false)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "leak-group", OwnerID: user.ID}
+	group := &device.Group{ID: uuid.New(), Name: "leak-group"}
 	require.NoError(t, srv.groups.Create(ctx, group))
 	d := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "leak-host", OS: "linux", Status: db.StatusOnline}
 	require.NoError(t, srv.devices.Upsert(ctx, d))

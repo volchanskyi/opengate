@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 
-	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
@@ -26,9 +25,9 @@ func (p *PostgresGroups) Create(ctx context.Context, g *Group) error {
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO groups_ (id, org_id, name, owner_id, created_at, updated_at)
-			 VALUES ($1, $2, $3, $4, NOW(), NOW())`,
-			g.ID, tenant.OrgID, g.Name, g.OwnerID)
+			`INSERT INTO groups_ (id, org_id, name, created_at, updated_at)
+			 VALUES ($1, $2, $3, NOW(), NOW())`,
+			g.ID, tenant.OrgID, g.Name)
 		return err
 	})
 }
@@ -37,10 +36,10 @@ func (p *PostgresGroups) Get(ctx context.Context, id GroupID) (*Group, error) {
 	var g Group
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx,
-			`SELECT id, name, owner_id, created_at, updated_at
+			`SELECT id, name, created_at, updated_at
 			 FROM groups_
 			 WHERE org_id = current_setting('app.current_org')::uuid AND id = $1`, id).
-			Scan(&g.ID, &g.Name, &g.OwnerID, &g.CreatedAt, &g.UpdatedAt)
+			Scan(&g.ID, &g.Name, &g.CreatedAt, &g.UpdatedAt)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrGroupNotFound
@@ -51,13 +50,16 @@ func (p *PostgresGroups) Get(ctx context.Context, id GroupID) (*Group, error) {
 	return &g, nil
 }
 
-func (p *PostgresGroups) List(ctx context.Context, ownerID uuid.UUID) ([]*Group, error) {
+// List returns every group in the caller's organization. Organization is the
+// visibility boundary, so there is nothing narrower to filter on.
+func (p *PostgresGroups) List(ctx context.Context) ([]*Group, error) {
 	var groups []*Group
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx,
-			`SELECT id, name, owner_id, created_at, updated_at
+			`SELECT id, name, created_at, updated_at
 			 FROM groups_
-			 WHERE org_id = current_setting('app.current_org')::uuid AND owner_id = $1`, ownerID)
+			 WHERE org_id = current_setting('app.current_org')::uuid
+			 ORDER BY name`)
 		if err != nil {
 			return err
 		}
@@ -65,7 +67,7 @@ func (p *PostgresGroups) List(ctx context.Context, ownerID uuid.UUID) ([]*Group,
 
 		for rows.Next() {
 			var g Group
-			if err := rows.Scan(&g.ID, &g.Name, &g.OwnerID, &g.CreatedAt, &g.UpdatedAt); err != nil {
+			if err := rows.Scan(&g.ID, &g.Name, &g.CreatedAt, &g.UpdatedAt); err != nil {
 				return err
 			}
 			groups = append(groups, &g)

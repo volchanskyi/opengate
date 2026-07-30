@@ -5,6 +5,7 @@ import { useToastStore } from '../../lib/feedback/toast-store';
 import { useDeviceStore } from './state/device-store';
 import { DEVICE_DRAG_MIME, UNGROUPED_GROUP_ID } from './device-drag';
 import { GroupSidebar } from './GroupSidebar';
+import { useAuthStore } from '../../state/auth-store';
 
 vi.mock('../../lib/api', () => ({
   api: {
@@ -14,13 +15,22 @@ vi.mock('../../lib/api', () => ({
   },
 }));
 
+
+/** An administrator, so the admin-gated group controls render. */
+function seedAdminUser(isAdmin = true) {
+  useAuthStore.setState({
+    user: { id: 'u1', email: 'a@b.com', display_name: 'A', is_admin: isAdmin, created_at: '', updated_at: '' },
+  });
+}
+
 describe('GroupSidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    seedAdminUser();
     useDeviceStore.setState({
       groups: [
-        { id: 'g1', name: 'Group A', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group B', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'Group A', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group B', created_at: '', updated_at: '' },
       ],
       selectedGroupId: 'g1',
       devices: [],
@@ -288,6 +298,36 @@ describe('GroupSidebar', () => {
       fireEvent.dragOver(target, { dataTransfer: { types: ['text/plain'], getData: () => '', dropEffect: 'none' } });
 
       expect(target).not.toHaveClass('ring-2');
+    });
+  });
+
+  describe('non-admin', () => {
+    beforeEach(() => { seedAdminUser(false); });
+
+    it('omits the create-group control from the DOM', () => {
+      render(<GroupSidebar />);
+      expect(screen.queryByText('+ New')).toBeNull();
+    });
+
+    it('omits every delete-group control from the DOM', () => {
+      render(<GroupSidebar />);
+      expect(screen.queryByTitle('Delete group')).toBeNull();
+    });
+
+    it('omits the drag-to-move affordances', () => {
+      render(<GroupSidebar />);
+      expect(screen.queryByText(/drag a device card onto a group/i)).toBeNull();
+      expect(screen.queryByLabelText('Ungrouped')).toBeNull();
+    });
+
+    it('still lists and selects groups', async () => {
+      const user = userEvent.setup();
+      const selectGroupFn = vi.fn();
+      useDeviceStore.setState({ selectGroup: selectGroupFn });
+      render(<GroupSidebar />);
+      expect(screen.getByText('Group A')).toBeInTheDocument();
+      await user.click(screen.getByText('Group B'));
+      expect(selectGroupFn).toHaveBeenCalledWith('g2');
     });
   });
 });

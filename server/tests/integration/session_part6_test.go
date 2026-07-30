@@ -33,7 +33,7 @@ func TestSessionLifecycle_ConcurrentSessions(t *testing.T) {
 	}
 	agents := make([]agentInfo, 3)
 	for i := range agents {
-		group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+		group := testutil.SeedGroup(t, ctx, env.store)
 		stream, deviceID := env.connectAgent(t, group.ID)
 		agents[i] = agentInfo{stream: stream, deviceID: deviceID}
 	}

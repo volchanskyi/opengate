@@ -232,15 +232,18 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/devices/maintenance-summary": {
+    "/api/v1/devices/summary": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Count devices currently in maintenance */
-        get: operations["getDeviceMaintenanceSummary"];
+        /**
+         * Fleet rollup for the dashboard
+         * @description Returns a fixed-size count of the caller's organization — status tiles plus edge-health bands — in one aggregate row and one instant telemetry query. The response size does not grow with the fleet.
+         */
+        get: operations["getDeviceSummary"];
         put?: never;
         post?: never;
         delete?: never;
@@ -393,10 +396,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List user's groups */
+        /** List the organization's device groups */
         get: operations["listGroups"];
         put?: never;
-        /** Create a device group */
+        /**
+         * Create a device group
+         * @description Requires administrator access.
+         */
         post: operations["createGroup"];
         delete?: never;
         options?: never;
@@ -415,7 +421,10 @@ export interface paths {
         get: operations["getGroup"];
         put?: never;
         post?: never;
-        /** Delete group */
+        /**
+         * Delete group
+         * @description Requires administrator access.
+         */
         delete: operations["deleteGroup"];
         options?: never;
         head?: never;
@@ -466,7 +475,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Send power command to AMT device */
+        /**
+         * Send power command to AMT device
+         * @description Open to every member of the organization that owns the device. The managed device behind the AMT identity is resolved in the caller's tenant scope, so an identity outside it answers 404.
+         */
         post: operations["amtPowerAction"];
         delete?: never;
         options?: never;
@@ -833,9 +845,24 @@ export interface components {
             /** @description Optional operator note recorded while entering maintenance. */
             reason?: string;
         };
-        MaintenanceSummary: {
-            /** @description Number of devices in the tenant currently in maintenance. */
-            count: number;
+        /** @description Fixed-size fleet rollup for the dashboard tiles. Always describes the caller's own organization, administrators included, so the status counts and the health bands cover one device set. */
+        DeviceSummary: {
+            /** @description Devices in the organization. */
+            total: number;
+            /** @description Devices with a live agent connection. */
+            online: number;
+            /** @description total − online; a connecting device counts as offline. */
+            offline: number;
+            /** @description Devices currently in maintenance mode. */
+            maintenance: number;
+            health: components["schemas"]["FleetHealthCounts"];
+        };
+        /** @description Devices per edge-health band, classified by the latest node anomaly rate. unknown is total minus the three measured bands — the devices that reported no rate in the badge lookback window. */
+        FleetHealthCounts: {
+            anomalous: number;
+            watch: number;
+            healthy: number;
+            unknown: number;
         };
         /** @description Progress of a right-to-be-forgotten telemetry purge. "Logical" states mean ingest is blocked and the subject is no longer queryable; physical VictoriaMetrics compaction and offline-edge erasure complete later. */
         PurgeJob: {
@@ -1034,12 +1061,11 @@ export interface components {
         CreateGroupRequest: {
             name: string;
         };
+        /** @description A named collection of devices within one organization. A group is a filing label, not an access boundary — every member of an organization sees every group in it. */
         Group: {
             /** Format: uuid */
             id: string;
             name: string;
-            /** Format: uuid */
-            owner_id: string;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -1710,15 +1736,6 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
         };
     };
     getDevice: {
@@ -1743,15 +1760,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1910,15 +1918,6 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
             /** @description Device not found */
             404: {
                 headers: {
@@ -1939,7 +1938,7 @@ export interface operations {
             };
         };
     };
-    getDeviceMaintenanceSummary: {
+    getDeviceSummary: {
         parameters: {
             query?: never;
             header?: never;
@@ -1948,13 +1947,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Fleet maintenance summary */
+            /** @description Fleet summary */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MaintenanceSummary"];
+                    "application/json": components["schemas"]["DeviceSummary"];
                 };
             };
             /** @description Unauthorized */
@@ -1994,15 +1993,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2050,15 +2040,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2347,15 +2328,6 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
             /** @description Device not found or offline */
             404: {
                 headers: {
@@ -2416,15 +2388,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2521,6 +2484,15 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
         };
     };
     getGroup: {
@@ -2545,15 +2517,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2657,15 +2620,6 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
         };
     };
     createSession: {
@@ -2701,15 +2655,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2764,15 +2709,6 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
             /** @description Session not found */
             404: {
                 headers: {
@@ -2808,15 +2744,6 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -41,8 +41,7 @@ func amtConnectionState(t *testing.T, ctx context.Context, store *db.PostgresSto
 // connection off, since a connection with no device is never persisted.
 func seedLinkedDevice(t *testing.T, ctx context.Context, store *db.PostgresStore) *device.Device {
 	t.Helper()
-	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	return testutil.SeedDevice(t, ctx, store, group.ID)
 }
 

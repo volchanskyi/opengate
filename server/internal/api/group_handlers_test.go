@@ -18,13 +18,16 @@ const (
 func TestGroupHandlers(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
+	// Group reads are open to every member; creating and deleting one is a
+	// configuration change behind the admin gate.
 	_, token := seedTestUser(t, srv, cfg, "grp@example.com", false)
+	_, adminToken := seedTestUser(t, srv, cfg, "grp-admin@example.com", true)
 
 	var createdGroupID uuid.UUID
 
 	t.Run("create group", func(t *testing.T) {
 		body := map[string]string{"name": "my-group"}
-		w := doRequest(srv, http.MethodPost, testPathGroups, token, body)
+		w := doRequest(srv, http.MethodPost, testPathGroups, adminToken, body)
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		var g device.Group
@@ -54,12 +57,12 @@ func TestGroupHandlers(t *testing.T) {
 
 	t.Run("create group missing name", func(t *testing.T) {
 		body := map[string]string{}
-		w := doRequest(srv, http.MethodPost, testPathGroups, token, body)
+		w := doRequest(srv, http.MethodPost, testPathGroups, adminToken, body)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("create group invalid json", func(t *testing.T) {
-		w := doRawRequest(srv, http.MethodPost, testPathGroups, token, "bad json")
+		w := doRawRequest(srv, http.MethodPost, testPathGroups, adminToken, "bad json")
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
@@ -69,12 +72,12 @@ func TestGroupHandlers(t *testing.T) {
 	})
 
 	t.Run("delete group invalid id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodDelete, testPathGroupsS+"not-a-uuid", token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathGroupsS+"not-a-uuid", adminToken, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("delete group", func(t *testing.T) {
-		w := doRequest(srv, http.MethodDelete, testPathGroupsS+createdGroupID.String(), token, nil)
+		w := doRequest(srv, http.MethodDelete, testPathGroupsS+createdGroupID.String(), adminToken, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 }

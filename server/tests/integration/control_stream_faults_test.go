@@ -48,8 +48,7 @@ func setupOnlineAgent(t *testing.T) (*agentTestEnv, *quic.Stream, protocol.Devic
 	t.Helper()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 	stream, deviceID := env.connectAgent(t, group.ID)
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOnline)
 	return env, stream, deviceID

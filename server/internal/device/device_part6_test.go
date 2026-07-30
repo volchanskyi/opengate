@@ -23,7 +23,13 @@ func (m *memDevices) SetMaintenance(_ context.Context, _ device.DeviceID, _ bool
 	return m.maybeFail()
 }
 
-func (m *memDevices) CountInMaintenance(_ context.Context) (int, error) { return 0, m.maybeFail() }
+func (m *memDevices) Counts(_ context.Context) (device.Counts, error) {
+	return device.Counts{}, m.maybeFail()
+}
+
+func (m *memDevices) GetByAMTUUID(_ context.Context, _ uuid.UUID) (*device.Device, error) {
+	return &device.Device{}, m.maybeFail()
+}
 
 type memGroups struct{ failEvery bool }
 
@@ -40,7 +46,7 @@ func (m *memGroups) Get(_ context.Context, _ device.GroupID) (*device.Group, err
 	return &device.Group{}, m.maybeFail()
 }
 
-func (m *memGroups) List(_ context.Context, _ uuid.UUID) ([]*device.Group, error) {
+func (m *memGroups) List(_ context.Context) ([]*device.Group, error) {
 	return nil, m.maybeFail()
 }
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useDeviceStore } from './state/device-store';
+import { useAuthStore } from '../../state/auth-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { UNGROUPED_GROUP_ID, isDeviceDrag, readDraggedDeviceId } from './device-drag';
 import { fireAndForget } from '../../lib/fire-and-forget';
@@ -20,6 +21,10 @@ export function GroupSidebar() {
   const updateDeviceGroup = useDeviceStore((s) => s.updateDeviceGroup);
   const fetchDevices = useDeviceStore((s) => s.fetchDevices);
   const addToast = useToastStore((s) => s.addToast);
+  // Creating a group, deleting one, and dragging a device between them are all
+  // configuration changes the server refuses for a non-admin, so a non-admin
+  // gets a read-only sidebar rather than controls that fail on click.
+  const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const [newName, setNewName] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -63,7 +68,10 @@ export function GroupSidebar() {
   };
 
   /** Drop-zone wiring shared by every group row and the Ungrouped zone. */
-  const dropProps = (targetId: string, targetName: string) => ({
+  const dropProps = (targetId: string, targetName: string) => (!isAdmin ? {
+    role: 'listitem',
+    'aria-label': targetName,
+  } : {
     role: 'listitem',
     'aria-label': targetName,
     onDragOver: (e: React.DragEvent) => {
@@ -86,16 +94,18 @@ export function GroupSidebar() {
     <div className="w-64 bg-gray-800 border-r border-gray-700 p-4 space-y-2">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-300 uppercase">Groups</h2>
-        <button
-          type="button"
-          onClick={() => setShowForm(!showForm)}
-          className="text-sm text-blue-400 hover:text-blue-300"
-        >
-          {showForm ? 'Cancel' : '+ New'}
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setShowForm(!showForm)}
+            className="text-sm text-blue-400 hover:text-blue-300"
+          >
+            {showForm ? 'Cancel' : '+ New'}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {isAdmin && showForm && (
         <form onSubmit={(e) => { fireAndForget(handleCreate(e)); }} className="flex gap-2 mb-2">
           <input
             type="text"
@@ -126,18 +136,20 @@ export function GroupSidebar() {
             >
               {group.name}
             </button>
-            <button
-              type="button"
-              onClick={() => { fireAndForget(handleDelete(group.id)); }}
-              className="ml-2 text-xs text-gray-500 hover:text-red-400"
-              title={confirmDelete === group.id ? 'Click again to confirm' : 'Delete group'}
-            >
-              {confirmDelete === group.id ? 'Confirm?' : 'x'}
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => { fireAndForget(handleDelete(group.id)); }}
+                className="ml-2 text-xs text-gray-500 hover:text-red-400"
+                title={confirmDelete === group.id ? 'Click again to confirm' : 'Delete group'}
+              >
+                {confirmDelete === group.id ? 'Confirm?' : 'x'}
+              </button>
+            )}
           </div>
         ))}
 
-        {groups.length > 0 && (
+        {isAdmin && groups.length > 0 && (
           <div
             {...dropProps(UNGROUPED_GROUP_ID, 'Ungrouped')}
             title="Drop a device here to take it out of its group"
@@ -152,7 +164,7 @@ export function GroupSidebar() {
         <p className="text-sm text-gray-500">No groups yet</p>
       )}
 
-      {groups.length > 0 && (
+      {isAdmin && groups.length > 0 && (
         <p className="text-xs text-gray-600 pt-1">Drag a device card onto a group to move it.</p>
       )}
     </div>

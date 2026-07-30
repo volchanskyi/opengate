@@ -97,23 +97,35 @@ See [[Container-Images#supply-chain-security]] for verification commands.
 
 ## API Security Hardening
 
-### Access Control (IDOR Prevention)
+### Access Control
 
-All resource endpoints enforce ownership checks before granting access:
+**Organization is the visibility boundary. `is_admin` is the mutation
+boundary.** Every member of an organization sees the same fleet and may act on
+any device in it; only configuration and secret-bearing reads are gated on
+admin. See [ADR-062](adr/ADR-062-org-scoped-reads-and-fleet-summary.md).
 
-| Resource | Authorization rule |
-|----------|-------------------|
-| Device | User must own the device's group, or be admin |
-| Group | User must own the group, or be admin |
-| Session | User must have created the session, or be admin |
-| AMT devices | Admin only |
-| Enrollment tokens | Admin only |
-| Audit log | Admin only |
-| User management | Admin only (self-read allowed) |
+| Class | Authorization rule | Endpoints |
+|---|---|---|
+| Fleet reads | Organization membership | Device list/detail/summary, metrics, correlate, history, inventory, hardware, group list/detail, session list |
+| Device commands | Organization membership | Session create/delete, restart, maintenance, AMT power |
+| Configuration | Admin | Device delete, device group move, group create/delete, enrollment tokens, updates, users, security groups, organization purge |
+| Secret-bearing reads | Admin | Device logs, enrollment tokens, update signing key, audit log, user list |
 
-The `isGroupOwner()` helper resolves ownership by querying `device → group → group.owner_id` and comparing against the authenticated user. Admins bypass all ownership checks.
+Visibility is enforced in the repository, not in a handler branch: every read
+runs inside a transaction that sets `app.current_org`, so a resource in another
+organization resolves to "not found" rather than to a forbidden response. The
+mutation boundary is the `denyIfNotAdmin` helper, applied at the top of each
+configuration handler.
 
-Non-admin users listing devices without a `group_id` filter receive only devices belonging to their own groups via `ListDevicesForOwner()`.
+An Intel AMT power command is the one case where the underlying resource has no
+tenant of its own — the CIRA connection map is keyed by AMT UUID alone. The
+handler therefore resolves the managed device behind that UUID through the
+tenant-scoped repository first, so a UUID outside the caller's organization is
+refused before any command is dispatched.
+
+Admins keep cross-organization reads. The dashboard summary is the one
+deliberate exception: it always describes the caller's own organization, so its
+tiles and health bands cover a single device set.
 
 ### Tenant Isolation
 

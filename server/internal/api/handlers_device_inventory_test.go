@@ -36,10 +36,10 @@ func (f *fakeInventoryRepo) ListForDevice(_ context.Context, deviceID uuid.UUID,
 
 func TestGetDeviceInventoryHandler(t *testing.T) {
 	srv, cfg := newTestServer(t)
-	user, token := seedTestUser(t, srv, cfg, "inv@example.com", false)
+	_, token := seedTestUser(t, srv, cfg, "inv@example.com", false)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "inv-group", OwnerID: user.ID}
+	group := &device.Group{ID: uuid.New(), Name: "inv-group"}
 	require.NoError(t, srv.groups.Create(ctx, group))
 	dev := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "inv-host", OS: "linux", Status: db.StatusOnline}
 	require.NoError(t, srv.devices.Upsert(ctx, dev))
@@ -86,17 +86,16 @@ func TestGetDeviceInventoryHandler(t *testing.T) {
 		assert.Equal(t, 0, fake.called)
 	})
 
-	t.Run("403 when the caller does not own the device group", func(t *testing.T) {
-		other, _ := seedTestUser(t, srv, cfg, "inv-other@example.com", false)
-		otherGroup := &device.Group{ID: uuid.New(), Name: "inv-other-group", OwnerID: other.ID}
-		require.NoError(t, srv.groups.Create(ctx, otherGroup))
-		otherDev := &device.Device{ID: uuid.New(), GroupID: otherGroup.ID, Hostname: "other-host", OS: "linux", Status: db.StatusOnline}
-		require.NoError(t, srv.devices.Upsert(ctx, otherDev))
+	t.Run("200 for any device in the caller's organization", func(t *testing.T) {
+		peerGroup := &device.Group{ID: uuid.New(), Name: "inv-peer-group"}
+		require.NoError(t, srv.groups.Create(ctx, peerGroup))
+		peerDev := &device.Device{ID: uuid.New(), GroupID: peerGroup.ID, Hostname: "peer-host", OS: "linux", Status: db.StatusOnline}
+		require.NoError(t, srv.devices.Upsert(ctx, peerDev))
 
 		fake := &fakeInventoryRepo{}
 		srv.inventory = fake
-		w := doRequest(srv, http.MethodGet, "/api/v1/devices/"+otherDev.ID.String()+"/inventory", token, nil)
-		assert.Equal(t, http.StatusForbidden, w.Code)
-		assert.Equal(t, 0, fake.called, "ownership is checked before the repo is touched")
+		w := doRequest(srv, http.MethodGet, "/api/v1/devices/"+peerDev.ID.String()+"/inventory", token, nil)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, peerDev.ID, fake.gotDevice, "a group the caller never created is still in scope")
 	})
 }

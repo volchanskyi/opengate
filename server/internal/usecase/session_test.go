@@ -81,20 +81,26 @@ func TestSessionService_Delete_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, usecase.ErrSessionNotFound)
 }
 
-func TestSessionService_Delete_Forbidden_NonCreatorNonAdmin(t *testing.T) {
+// TestSessionService_Delete_PeerInSameOrg pins the organization-wide command
+// boundary: ending a session belongs to any member of the organization, not
+// only the member who opened it. The repository lookup is tenant-scoped, so a
+// token from another organization is simply not found.
+func TestSessionService_Delete_PeerInSameOrg(t *testing.T) {
 	creator := uuid.New()
-	caller := uuid.New()
+	peer := uuid.New()
 	sess := &fakeSessions{stored: map[string]*session.Session{"t": {Token: "t", UserID: creator}}}
-	svc := usecase.NewSessionService(sess, &fakeNotifier{}, &fakeAudit{})
+	audit := &fakeAudit{}
+	svc := usecase.NewSessionService(sess, &fakeNotifier{}, audit)
 
 	err := svc.Delete(context.Background(), usecase.DeleteSessionInput{
-		Token:   "t",
-		UserID:  caller,
-		IsAdmin: false,
+		Token:  "t",
+		UserID: peer,
 	})
 
-	require.ErrorIs(t, err, usecase.ErrSessionForbidden)
-	require.Contains(t, sess.stored, "t", "session must NOT be deleted on forbidden")
+	require.NoError(t, err)
+	require.NotContains(t, sess.stored, "t")
+	require.Len(t, audit.events, 1)
+	require.Equal(t, peer, audit.events[0].UserID, "the audit event names the caller, not the creator")
 }
 
 func TestSessionService_Delete_HappyPath_AuditsAndNotifies(t *testing.T) {
@@ -115,22 +121,6 @@ func TestSessionService_Delete_HappyPath_AuditsAndNotifies(t *testing.T) {
 	require.Equal(t, "session.delete", audit.events[0].Action)
 	require.Len(t, notif.events, 1, "session.end event must be emitted")
 	require.Equal(t, notifications.EventSessionEnded, notif.events[0].Type)
-}
-
-func TestSessionService_Delete_AdminCanDeleteAnyone(t *testing.T) {
-	creator := uuid.New()
-	admin := uuid.New()
-	sess := &fakeSessions{stored: map[string]*session.Session{"t": {Token: "t", UserID: creator}}}
-	svc := usecase.NewSessionService(sess, &fakeNotifier{}, &fakeAudit{})
-
-	err := svc.Delete(context.Background(), usecase.DeleteSessionInput{
-		Token:   "t",
-		UserID:  admin,
-		IsAdmin: true,
-	})
-
-	require.NoError(t, err)
-	require.NotContains(t, sess.stored, "t")
 }
 
 func TestSessionService_Delete_RepositoryError(t *testing.T) {

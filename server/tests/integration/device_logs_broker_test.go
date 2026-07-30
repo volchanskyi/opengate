@@ -26,7 +26,7 @@ func TestDeviceLogsBroker_RoundTripRedactedAndAudited(t *testing.T) {
 	ctx := context.Background()
 
 	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 	adminToken, err := env.jwt.GenerateToken(user.ID, user.Email, true)
 	require.NoError(t, err)
 
@@ -111,7 +111,7 @@ func TestDeviceLogsBroker_NonAdminForbidden(t *testing.T) {
 	ctx := context.Background()
 
 	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 	viewerToken, err := env.jwt.GenerateToken(user.ID, user.Email, false)
 	require.NoError(t, err)
 

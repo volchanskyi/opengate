@@ -175,6 +175,18 @@ if ! command -v pmat >/dev/null 2>&1; then
   exit 2
 fi
 
+# Mermaid validator deps — the docs Mermaid gate parses every fence with the
+# pinned official parser. node_modules is gitignored, so a fresh clone
+# provisions it once; fail loud rather than skip.
+if [ ! -d tools/mermaid-validate/node_modules ]; then
+  color "1;31"
+  echo "✗ tools/mermaid-validate/node_modules is missing — the Mermaid docs gate cannot run." >&2
+  echo "  Provision the pinned parser once:" >&2
+  echo "    (cd tools/mermaid-validate && npm ci --ignore-scripts)" >&2
+  color "0"
+  exit 2
+fi
+
 echo "✓ all prerequisites present" >&2
 
 # Phase 1: lints (fast, fail-fast for cheap signal).
@@ -232,6 +244,7 @@ run_check "depcruise" -- bash -c '
 run_check "shell-check" -- make shell-check
 run_check "actionlint" -- actionlint -shellcheck="$(command -v shellcheck)"
 run_check "doc links" -- bash -c 'GO111MODULE=off go run ./scripts/check-doc-links'
+run_check "mermaid syntax" -- bash -c 'cd tools/mermaid-validate && node validate-mermaid.mjs ../../docs'
 run_check "taint (go)" -- make taint-go
 run_check "taint (web)" -- make taint-web
 # ADR-027 adversarial pen-test gate. Diff vs origin/dev so a local dev-push

@@ -6,13 +6,18 @@
 #
 # OpenGate authorizes a mutating handler in one of these valid forms (all
 # accepted — the rule fires only when NONE appears in the function body):
-#   * denyIfNotAdmin(ctx, ...)  — admin-only gate (middleware.go:102)
-#   * isAdmin(ctx)              — inline admin branch / passed to a usecase
-#   * s.isGroupOwner(ctx, ...)  — group-ownership gate (middleware.go:112)
-#   * s.isOwner(ctx, ...)       — per-resource ownership gate
+#   * denyIfNotAdmin(ctx, ...)         — admin-only mutation gate
+#   * isAdmin(ctx)                     — inline admin branch / passed to a usecase
+#   * s.requireDeviceInScope(ctx, ...) — organization visibility gate for a
+#                                        device command
+#   * s.requireAMTDeviceInScope(...)   — same, for an Intel AMT identity whose
+#                                        connection map carries no tenant
+#   * s.requireSessionInScope(...)     — same, for a session token
+#   * s.isOwner(ctx, ...)              — per-resource ownership gate
 #
 # These calls appear in non-statement positions (if-init: `if r, d :=
-# denyIfNotAdmin(...); d {`, if-condition: `if !s.isGroupOwner(...) {`, struct
+# denyIfNotAdmin(...); d {`, if-condition:
+# `if err := s.requireDeviceInScope(...); err != nil {`, struct
 # field: `IsAdmin: isAdmin(ctx)`). A structural `pattern-not` keyed on statement
 # form misses those, so the exemption is a `pattern-not-regex` over the matched
 # function text — robust to position. This is approximate by design (a mention
@@ -29,7 +34,9 @@ rules:
     message: >-
       Mutating handler "$NAME" has no authorization check. A
       Create/Update/Delete/Promote/Demote/Revoke/Grant endpoint must gate on
-      admin (denyIfNotAdmin / isAdmin) or ownership (isGroupOwner / isOwner)
+      admin (denyIfNotAdmin / isAdmin), on organization scope
+      (requireDeviceInScope / requireAMTDeviceInScope / requireSessionInScope),
+      or on ownership (isOwner)
       before acting — see server/internal/api/middleware.go. Add the guard and
       early-return the typed 403, or — if this endpoint is intentionally
       unauthenticated — rename it so it is not mutation-verb-prefixed. ADR-027.
@@ -52,4 +59,4 @@ rules:
           regex: '^(Create|Update|Delete|Promote|Demote|Revoke|Grant)'
       # Cleared when the function body mentions ANY authorization helper, in any
       # syntactic position (statement, if-init, if-condition, struct field).
-      - pattern-not-regex: '\b(denyIfNotAdmin|isAdmin|isGroupOwner|isOwner)\b'
+      - pattern-not-regex: '\b(denyIfNotAdmin|isAdmin|isOwner|requireDeviceInScope|requireAMTDeviceInScope|requireSessionInScope)\b'

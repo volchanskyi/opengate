@@ -10,6 +10,10 @@ import { GroupSidebar } from './GroupSidebar';
 import { DeviceCard } from './DeviceCard';
 import { DeviceSearchBar } from './DeviceSearchBar';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { useVisibleInterval } from '../../lib/use-visible-interval';
+
+/** How often the grid refreshes device status while the tab is visible. */
+const DEVICE_LIST_POLL_MS = 15_000;
 
 // Estimated rendered height of one DeviceCard row including the grid gap. Exact
 // precision is not required — the virtualizer only uses it to place rows; cards
@@ -73,13 +77,11 @@ export function DeviceList() {
     fireAndForget(fetchManifests());
   }, [fetchGroups, fetchDevices, fetchManifests]);
 
-  // Poll device status so online/offline stays current.
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fireAndForget(fetchDevices(selectedGroupId ?? undefined));
-    }, 15_000);
-    return () => clearInterval(interval);
-  }, [fetchDevices, selectedGroupId]);
+  // Poll device status so online/offline stays current. A hidden tab issues
+  // nothing and catches up the moment it is shown again.
+  useVisibleInterval(() => {
+    fireAndForget(fetchDevices(selectedGroupId ?? undefined));
+  }, DEVICE_LIST_POLL_MS);
 
   const scrollParentRef = useRef<HTMLDivElement>(null);
   const columns = useColumnCount(scrollParentRef);

@@ -1,9 +1,9 @@
 name: Docs Validate
 
-# CI-only Mermaid syntax validation. The local /precommit gauntlet stays
-# grep-only / zero-network; all Mermaid parsing happens here in CI. Catches a
-# malformed fence (including experimental C4) before GitHub would render an
-# error box. The validator uses the official Mermaid parser pinned in
+# Mermaid syntax validation. Catches a malformed fence (including experimental
+# C4) before GitHub would render an error box. The same validator runs as a
+# step in the local /precommit gauntlet, so this job is the CI backstop. The
+# validator uses the official Mermaid parser pinned in
 # tools/mermaid-validate/package-lock.json; GitHub's renderer is the
 # authoritative check, this job is a fast pre-filter.
 
@@ -41,6 +41,6 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: tools/mermaid-validate/package-lock.json
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Validate Mermaid fences under docs/
         run: node validate-mermaid.mjs ../../docs

@@ -6,6 +6,7 @@ import type { components } from '../../types/api';
 import { DeviceCard } from './DeviceCard';
 import { DEVICE_DRAG_MIME } from './device-drag';
 import { useInventoryStore } from './state/inventory-store';
+import { useAuthStore } from '../../state/auth-store';
 
 type Device = components['schemas']['Device'];
 type InventoryItem = components['schemas']['InventoryItem'];
@@ -41,8 +42,16 @@ function renderCard(overrides: Partial<Device> = {}) {
   return render(<RouterProvider router={router} />);
 }
 
+/** Sets the signed-in user's admin flag; dragging a card to regroup is admin-only. */
+function seedUser(isAdmin: boolean) {
+  useAuthStore.setState({
+    user: { id: 'u1', email: 'a@b.com', display_name: 'A', is_admin: isAdmin, created_at: '', updated_at: '' },
+  });
+}
+
 describe('DeviceCard', () => {
   beforeEach(() => {
+    seedUser(true);
     useInventoryStore.setState({ byDevice: new Map(), loading: new Map(), errors: new Map() });
   });
 
@@ -170,6 +179,12 @@ describe('DeviceCard', () => {
     it('the card is draggable', () => {
       renderCard();
       expect(screen.getByRole('button', { name: /test-host/ })).toHaveAttribute('draggable', 'true');
+    });
+
+    it('is not draggable for a non-admin, who cannot move a device', () => {
+      seedUser(false);
+      renderCard();
+      expect(screen.getByRole('button', { name: /test-host/ })).toHaveAttribute('draggable', 'false');
     });
 
     it('dragging publishes the device id and hostname on the transfer', () => {

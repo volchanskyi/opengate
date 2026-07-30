@@ -16,7 +16,7 @@ import (
 // are never charted.
 const (
 	metricAvgName         = "opengate_edge_metric_avg"
-	metricNodeAnomalyRate = "opengate_edge_node_anomaly_rate"
+	metricNodeAnomalyRate = telemetry.MetricNodeAnomalyRate
 	metricDimLabel        = "dim"
 	metricDeviceIDLabel   = "device_id"
 	minRangeStepSecs      = 10   // raw 10 s sample cadence — never bucket finer than this
@@ -71,15 +71,11 @@ func (s *Server) GetDeviceMetrics(ctx context.Context, request GetDeviceMetricsR
 		return GetDeviceMetrics503JSONResponse{Error: "telemetry not available"}, nil
 	}
 
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return GetDeviceMetrics404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return GetDeviceMetrics403JSONResponse{Error: msgForbidden}, nil
 	}
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {

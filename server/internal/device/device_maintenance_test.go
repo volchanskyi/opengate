@@ -17,7 +17,7 @@ func TestPostgresDevices_Maintenance(t *testing.T) {
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := seedOwner(t, ctx, store)
 
-	g := &device.Group{ID: uuid.New(), Name: "gm-" + uuid.New().String()[:8], OwnerID: owner}
+	g := &device.Group{ID: uuid.New(), Name: "gm-" + uuid.New().String()[:8]}
 	require.NoError(t, groups.Create(ctx, g))
 
 	newDevice := func(host string) *device.Device {
@@ -93,8 +93,8 @@ func TestPostgresDevices_Maintenance(t *testing.T) {
 		assert.Equal(t, "reboot", got.MaintenanceReason)
 	})
 
-	t.Run("count reflects enabled devices", func(t *testing.T) {
-		before, err := devices.CountInMaintenance(ctx)
+	t.Run("counts reflect enabled devices", func(t *testing.T) {
+		before, err := devices.Counts(ctx)
 		require.NoError(t, err)
 
 		a := newDevice("mnt-count-a")
@@ -102,14 +102,15 @@ func TestPostgresDevices_Maintenance(t *testing.T) {
 		require.NoError(t, devices.SetMaintenance(ctx, a.ID, true, owner, ""))
 		require.NoError(t, devices.SetMaintenance(ctx, b.ID, true, owner, ""))
 
-		after, err := devices.CountInMaintenance(ctx)
+		after, err := devices.Counts(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, before+2, after)
+		assert.Equal(t, before.Maintenance+2, after.Maintenance)
+		assert.Equal(t, before.Total+2, after.Total, "the two new devices also raise the total")
 
 		require.NoError(t, devices.SetMaintenance(ctx, a.ID, false, owner, ""))
-		afterDisable, err := devices.CountInMaintenance(ctx)
+		afterDisable, err := devices.Counts(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, before+1, afterDisable)
+		assert.Equal(t, before.Maintenance+1, afterDisable.Maintenance)
 	})
 
 	t.Run("set on missing device is not found", func(t *testing.T) {
@@ -130,12 +131,12 @@ func TestInstrumentedDevices_Maintenance(t *testing.T) {
 		r := device.NewInstrumentedDevices(&memDevices{}, obs)
 
 		require.NoError(t, r.SetMaintenance(ctx, uuid.New(), true, uuid.New(), "work"))
-		_, err := r.CountInMaintenance(ctx)
+		_, err := r.Counts(ctx)
 		require.NoError(t, err)
 
 		require.Len(t, obs.calls, 2)
 		assert.Equal(t, "device.Device.SetMaintenance", obs.calls[0].op)
-		assert.Equal(t, "device.Device.CountInMaintenance", obs.calls[1].op)
+		assert.Equal(t, "device.Device.Counts", obs.calls[1].op)
 		for _, c := range obs.calls {
 			assert.True(t, c.ok)
 		}
@@ -146,7 +147,7 @@ func TestInstrumentedDevices_Maintenance(t *testing.T) {
 		r := device.NewInstrumentedDevices(&memDevices{failEvery: true}, obs)
 
 		assert.Error(t, r.SetMaintenance(ctx, uuid.New(), true, uuid.New(), "work"))
-		_, err := r.CountInMaintenance(ctx)
+		_, err := r.Counts(ctx)
 		assert.Error(t, err)
 
 		require.Len(t, obs.calls, 2)

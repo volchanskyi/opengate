@@ -8,18 +8,14 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
-// RestartDevice implements StrictServerInterface.
+// RestartDevice implements StrictServerInterface. Restarting an agent is a
+// device command, open to every member of the device's organization.
 func (s *Server) RestartDevice(ctx context.Context, request RestartDeviceRequestObject) (RestartDeviceResponseObject, error) {
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return RestartDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return RestartDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	ac := s.agents.GetAgent(request.Id)
@@ -40,18 +36,18 @@ func (s *Server) RestartDevice(ctx context.Context, request RestartDeviceRequest
 	return RestartDevice200Response{}, nil
 }
 
-// UpdateDevice implements StrictServerInterface.
+// UpdateDevice implements StrictServerInterface. Moving a device between groups
+// is a configuration change, so the whole endpoint sits behind the admin gate.
 func (s *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error) {
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if resp, denied := denyIfNotAdmin(ctx, UpdateDevice403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
+	}
+
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return UpdateDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return UpdateDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	if request.Body.GroupId != nil {
@@ -71,17 +67,14 @@ func (s *Server) moveDeviceToGroup(ctx context.Context, request UpdateDeviceRequ
 	newGroupID := *request.Body.GroupId
 	// The nil UUID is the "no group" destination: it takes the device out of
 	// its group instead of moving it into another one, so there is no target
-	// group to look up or own. Ownership of the device itself is checked by the
-	// caller before this runs.
+	// group to look up. A named destination must exist in the caller's
+	// organization, which the tenant-scoped lookup establishes.
 	if newGroupID != uuid.Nil {
 		if _, err := s.groups.Get(ctx, newGroupID); err != nil {
 			if errors.Is(err, device.ErrGroupNotFound) {
 				return UpdateDevice400JSONResponse{Error: "target group not found"}, nil
 			}
 			return nil, err
-		}
-		if !s.isGroupOwner(ctx, newGroupID) {
-			return UpdateDevice403JSONResponse{Error: msgForbidden}, nil
 		}
 	}
 	if err := s.devices.UpdateGroup(ctx, request.Id, newGroupID); err != nil {
@@ -90,18 +83,19 @@ func (s *Server) moveDeviceToGroup(ctx context.Context, request UpdateDeviceRequ
 	return nil, nil
 }
 
-// DeleteDevice implements StrictServerInterface.
+// DeleteDevice implements StrictServerInterface. Removing a device from the
+// fleet — and purging its telemetry with it — is a configuration change behind
+// the admin gate.
 func (s *Server) DeleteDevice(ctx context.Context, request DeleteDeviceRequestObject) (DeleteDeviceResponseObject, error) {
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if resp, denied := denyIfNotAdmin(ctx, DeleteDevice403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
+	}
+
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return DeleteDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return DeleteDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	if err := s.purgeDeletedDevice(ctx, request.Id); err != nil {

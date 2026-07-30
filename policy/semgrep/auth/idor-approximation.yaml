@@ -2,7 +2,9 @@
 #
 # Catches gap class (approximate): a handler fetches a resource by a
 # caller-supplied id (s.<repo>.Get(ctx, request.Id)) without first deriving the
-# acting user (ContextUserID) or asserting ownership (isOwner / isGroupOwner).
+# acting user (ContextUserID) or asserting organization scope
+# (requireDeviceInScope / requireAMTDeviceInScope / requireSessionInScope /
+# isOwner).
 # This is the IDOR shape — any authenticated user reading another tenant's
 # object by guessing its id.
 #
@@ -17,7 +19,7 @@ rules:
     severity: WARNING
     message: >-
       Resource fetched by caller-supplied id ("$REQ.$IDF") with no ownership
-      derivation in this handler (no ContextUserID / isOwner / isGroupOwner /
+      derivation in this handler (no ContextUserID / isOwner / requireDeviceInScope /
       denyIfNotAdmin). Confirm the caller is authorized for this specific
       object, not just authenticated. If this is an admin-only or global
       resource, gate it explicitly. ADR-027 (MEDIUM — review, not blocking).
@@ -54,7 +56,7 @@ rules:
       - pattern-not-inside: |
           func ($RECV $TYPE) $NAME(...) (...) {
             ...
-            $S.isGroupOwner(...)
+            $S.requireDeviceInScope(...)
             ...
           }
       - pattern-not-inside: |

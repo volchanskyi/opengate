@@ -23,7 +23,7 @@ func TestPostgres_DeleteRelaySession_CrossOrg(t *testing.T) {
 	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
 
 	userB := testutil.SeedUser(t, ctxB, store)
-	groupB := testutil.SeedGroup(t, ctxB, store, userB.ID)
+	groupB := testutil.SeedGroup(t, ctxB, store)
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 	sessionB := testutil.SeedAgentSession(t, ctxB, store, deviceB.ID, userB.ID)
 

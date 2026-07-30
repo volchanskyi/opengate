@@ -8,16 +8,22 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
-// CreateGroup implements StrictServerInterface.
+const msgGroupNotFound = "group not found"
+
+// CreateGroup implements StrictServerInterface. Adding a group reshapes the
+// fleet's organization, so it sits behind the admin gate.
 func (s *Server) CreateGroup(ctx context.Context, request CreateGroupRequestObject) (CreateGroupResponseObject, error) {
+	if resp, denied := denyIfNotAdmin(ctx, CreateGroup403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
+	}
+
 	if request.Body.Name == "" {
 		return CreateGroup400JSONResponse{Error: "name is required"}, nil
 	}
 
 	group := &device.Group{
-		ID:      uuid.New(),
-		Name:    request.Body.Name,
-		OwnerID: ContextUserID(ctx),
+		ID:   uuid.New(),
+		Name: request.Body.Name,
 	}
 
 	if err := s.groups.Create(ctx, group); err != nil {
@@ -27,9 +33,10 @@ func (s *Server) CreateGroup(ctx context.Context, request CreateGroupRequestObje
 	return CreateGroup201JSONResponse(groupToAPI(group)), nil
 }
 
-// ListGroups implements StrictServerInterface.
+// ListGroups implements StrictServerInterface. Groups are a fleet read: every
+// member of the organization sees every group in it.
 func (s *Server) ListGroups(ctx context.Context, _ ListGroupsRequestObject) (ListGroupsResponseObject, error) {
-	groups, err := s.groups.List(ctx, ContextUserID(ctx))
+	groups, err := s.groups.List(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -42,30 +49,26 @@ func (s *Server) GetGroup(ctx context.Context, request GetGroupRequestObject) (G
 	group, err := s.groups.Get(ctx, request.Id)
 	if err != nil {
 		if errors.Is(err, device.ErrGroupNotFound) {
-			return GetGroup404JSONResponse{Error: "group not found"}, nil
+			return GetGroup404JSONResponse{Error: msgGroupNotFound}, nil
 		}
 		return nil, err
-	}
-
-	if !s.isGroupOwner(ctx, group.ID) {
-		return GetGroup403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	return GetGroup200JSONResponse(groupToAPI(group)), nil
 }
 
-// DeleteGroup implements StrictServerInterface.
+// DeleteGroup implements StrictServerInterface. Removing a group reshapes the
+// fleet's organization, so it sits behind the admin gate.
 func (s *Server) DeleteGroup(ctx context.Context, request DeleteGroupRequestObject) (DeleteGroupResponseObject, error) {
-	group, err := s.groups.Get(ctx, request.Id)
-	if err != nil {
-		if errors.Is(err, device.ErrGroupNotFound) {
-			return DeleteGroup404JSONResponse{Error: "group not found"}, nil
-		}
-		return nil, err
+	if resp, denied := denyIfNotAdmin(ctx, DeleteGroup403JSONResponse{Error: msgAdminRequired}); denied {
+		return resp, nil
 	}
 
-	if !s.isGroupOwner(ctx, group.ID) {
-		return DeleteGroup403JSONResponse{Error: msgForbidden}, nil
+	if _, err := s.groups.Get(ctx, request.Id); err != nil {
+		if errors.Is(err, device.ErrGroupNotFound) {
+			return DeleteGroup404JSONResponse{Error: msgGroupNotFound}, nil
+		}
+		return nil, err
 	}
 
 	if err := s.groups.Delete(ctx, request.Id); err != nil {

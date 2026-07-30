@@ -97,8 +97,7 @@ func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 	store, _ := pgStore(t)
 	ctx := defaultTenantContext()
 
-	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	dev := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	originals := []device.NetworkInterfaceInfo{
@@ -211,8 +210,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 	store, _ := pgStore(t)
 	ctx := defaultTenantContext()
 
-	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 
 	const N = 32
 	ids := make([]uuid.UUID, N)
@@ -259,8 +257,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 	store, _ := pgStore(t)
 	ctx := defaultTenantContext()
 
-	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 
 	// 200 sequential upserts of distinct rows. The driver caches the
 	// prepared statement keyed by SQL text; a pool-config regression that

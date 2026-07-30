@@ -7,6 +7,7 @@ import { HealthBadge } from './HealthBadge';
 import { healthBand, HEALTH_META } from './health';
 import { formatMaintenanceSince } from './maintenance';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { useVisibleInterval } from '../../lib/use-visible-interval';
 
 type MinMaxSource = components['schemas']['MetricSeries']['min_max_source'];
 type CorrelateResponse = components['schemas']['CorrelateResponse'];
@@ -159,11 +160,10 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
   // active: a reload's setData would wipe uPlot's select overlay and re-apply the
   // preset, discarding the highlight + correlation. Clearing the selection (or a
   // preset change, which clears it first) resumes polling.
-  useEffect(() => {
+  useVisibleInterval(() => {
     if (selectedWindow) return;
-    const id = setInterval(load, POLL_MS);
-    return () => { clearInterval(id); };
-  }, [load, selectedWindow]);
+    load();
+  }, POLL_MS);
 
   const clearSelection = useCallback(() => {
     setSelectedWindow(null);

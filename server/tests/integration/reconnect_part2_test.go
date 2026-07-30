@@ -14,8 +14,7 @@ func TestAgentReconnectNewCert(t *testing.T) {
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
 
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 
 	// Connect agent
 	stream, deviceID := env.connectAgent(t, group.ID)

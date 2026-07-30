@@ -21,7 +21,7 @@ func TestUpdatePublishAndPush(t *testing.T) {
 	ctx := context.Background()
 
 	admin, _ := testutil.SeedAdminUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, admin.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 
 	adminJWT, err := env.jwt.GenerateToken(admin.ID, admin.Email, admin.IsAdmin)
 	require.NoError(t, err)

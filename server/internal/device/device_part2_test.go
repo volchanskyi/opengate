@@ -12,11 +12,10 @@ import (
 
 func TestPostgresDevices_CRUD(t *testing.T) {
 	t.Parallel()
-	devices, groups, _, store := newRepos(t)
+	devices, groups, _, _ := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
-	owner := seedOwner(t, ctx, store)
 
-	g := &device.Group{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8], OwnerID: owner}
+	g := &device.Group{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
 	require.NoError(t, groups.Create(ctx, g))
 
 	t.Run("upsert and get", func(t *testing.T) {
@@ -53,17 +52,19 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 		assert.GreaterOrEqual(t, len(ds), 1)
 	})
 
-	t.Run("list for owner", func(t *testing.T) {
-		ds, err := devices.ListForOwner(ctx, owner)
+	t.Run("counts roll up the tenant fleet", func(t *testing.T) {
+		counts, err := devices.Counts(ctx)
 		require.NoError(t, err)
-		assert.GreaterOrEqual(t, len(ds), 1)
+		assert.GreaterOrEqual(t, counts.Total, 1)
+		assert.LessOrEqual(t, counts.Online, counts.Total)
+		assert.LessOrEqual(t, counts.Maintenance, counts.Total)
 	})
 
 	t.Run("update group", func(t *testing.T) {
 		d := &device.Device{ID: uuid.New(), GroupID: g.ID, Hostname: "moveme", OS: "linux", Status: device.StatusOffline}
 		require.NoError(t, devices.Upsert(ctx, d))
 
-		g2 := &device.Group{ID: uuid.New(), Name: "g2-" + uuid.New().String()[:8], OwnerID: owner}
+		g2 := &device.Group{ID: uuid.New(), Name: "g2-" + uuid.New().String()[:8]}
 		require.NoError(t, groups.Create(ctx, g2))
 
 		require.NoError(t, devices.UpdateGroup(ctx, d.ID, g2.ID))

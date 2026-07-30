@@ -8,6 +8,7 @@ import { useSessionStore } from '../session';
 import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { DeviceDetail } from './DeviceDetail';
+import { useAuthStore } from '../../state/auth-store';
 
 vi.mock('../../lib/api', () => ({
   api: {
@@ -76,10 +77,18 @@ function setLinkedAmtDevice(sendPowerAction: (uuid: string, action: PowerAction)
   });
 }
 
+/** Sets the signed-in user's admin flag; delete and group-move are admin-only. */
+function seedUser(isAdmin: boolean) {
+  useAuthStore.setState({
+    user: { id: 'u1', email: 'a@b.com', display_name: 'A', is_admin: isAdmin, created_at: '', updated_at: '' },
+  });
+}
+
 describe('DeviceDetail', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    seedUser(true);
     useDeviceStore.setState({
       selectedDevice: mockDevice,
       isLoading: false,
@@ -313,8 +322,8 @@ describe('DeviceDetail', () => {
     const updateGroupFn = vi.fn().mockResolvedValue(true);
     useDeviceStore.setState({
       groups: [
-        { id: 'g1', name: 'Group 1', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
       ],
       updateDeviceGroup: updateGroupFn,
     });
@@ -428,8 +437,8 @@ describe('DeviceDetail', () => {
     const updateGroupFn = vi.fn().mockResolvedValue(false);
     useDeviceStore.setState({
       groups: [
-        { id: 'g1', name: 'Group 1', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
       ],
       updateDeviceGroup: updateGroupFn,
     });
@@ -747,7 +756,7 @@ describe('DeviceDetail', () => {
 
   it('Move to Group section hidden when groups.length === 1', () => {
     useDeviceStore.setState({
-      groups: [{ id: 'g1', name: 'Only', owner_id: 'u1', created_at: '', updated_at: '' }],
+      groups: [{ id: 'g1', name: 'Only', created_at: '', updated_at: '' }],
     });
     renderDetail();
     expect(screen.queryByText('Move to Group')).not.toBeInTheDocument();
@@ -756,9 +765,9 @@ describe('DeviceDetail', () => {
   it('Move to Group dropdown excludes the device current group', () => {
     useDeviceStore.setState({
       groups: [
-        { id: 'g1', name: 'Group 1', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g3', name: 'Group 3', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
+        { id: 'g3', name: 'Group 3', created_at: '', updated_at: '' },
       ],
     });
     renderDetail();
@@ -774,8 +783,8 @@ describe('DeviceDetail', () => {
     const updateGroupFn = vi.fn();
     useDeviceStore.setState({
       groups: [
-        { id: 'g1', name: 'Group 1', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
       ],
       updateDeviceGroup: updateGroupFn,
     });
@@ -1013,8 +1022,8 @@ describe('DeviceDetail', () => {
     const updateGroupFn = vi.fn().mockResolvedValue(true);
     useDeviceStore.setState({
       groups: [
-        { id: 'g1', name: 'Group 1', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
       ],
       updateDeviceGroup: updateGroupFn,
     });
@@ -1266,5 +1275,31 @@ describe('DeviceDetail', () => {
     await user.click(screen.getByRole('button', { name: /enter maintenance/i }));
 
     expect(useToastStore.getState().toasts.some((t) => t.type === 'error')).toBe(true);
+  });
+
+  describe('non-admin', () => {
+    beforeEach(() => { seedUser(false); });
+
+    it('omits the delete control from the DOM', () => {
+      renderDetail();
+      expect(screen.queryByRole('button', { name: /delete device/i })).toBeNull();
+    });
+
+    it('omits the Move to Group panel from the DOM', () => {
+      useDeviceStore.setState({
+        groups: [
+          { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
+          { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
+        ],
+      });
+      renderDetail();
+      expect(screen.queryByText('Move to Group')).toBeNull();
+    });
+
+    it('keeps the device commands a member may issue', () => {
+      renderDetail();
+      expect(screen.getByRole('button', { name: /restart/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /enter maintenance/i })).toBeInTheDocument();
+    });
   });
 });

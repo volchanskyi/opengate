@@ -20,7 +20,7 @@ import (
 func TestAgentConn_MetaSnapshot(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	group := testutil.SeedGroup(t, ctx, store, testutil.SeedUser(t, ctx, store).ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	deviceID := uuid.New()
 
 	ac := newMetaTestConn(t, store, deviceID, group.ID)
@@ -41,7 +41,7 @@ func TestAgentConn_MetaSnapshot(t *testing.T) {
 func TestAgentConn_MetaRace(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	group := testutil.SeedGroup(t, ctx, store, testutil.SeedUser(t, ctx, store).ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	deviceID := uuid.New()
 
 	ac := newMetaTestConn(t, store, deviceID, group.ID)
@@ -83,7 +83,7 @@ func TestAgentConn_MetaRace(t *testing.T) {
 func TestAgentConn_RegisterRequestsHardwareReport(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	group := testutil.SeedGroup(t, ctx, store, testutil.SeedUser(t, ctx, store).ID)
+	group := testutil.SeedGroup(t, ctx, store)
 
 	ac := newMetaTestConn(t, store, uuid.New(), group.ID)
 	buf := ac.stream.(*bytes.Buffer)
@@ -99,7 +99,7 @@ func TestAgentConn_RegisterRequestsHardwareReport(t *testing.T) {
 func TestAgentConn_RegisterWithoutHardwareCapabilitySendsNothing(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	group := testutil.SeedGroup(t, ctx, store, testutil.SeedUser(t, ctx, store).ID)
+	group := testutil.SeedGroup(t, ctx, store)
 
 	ac := newMetaTestConn(t, store, uuid.New(), group.ID)
 	buf := ac.stream.(*bytes.Buffer)

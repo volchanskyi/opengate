@@ -43,7 +43,7 @@ func setupMaintenanceEnv(t *testing.T, connected bool) *maintEnv {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(t.Context(), true)
 	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	dev := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	fake := &fakeAgentControl{}
@@ -147,15 +147,18 @@ func TestSetDeviceMaintenance_PushFailureIsNonFatal(t *testing.T) {
 	assert.Equal(t, 1, env.fake.maintenanceCalls)
 }
 
-func TestSetDeviceMaintenance_Forbidden(t *testing.T) {
+// TestSetDeviceMaintenance_OpenToOrgMembers pins the command boundary: toggling
+// maintenance is a device command, so any member of the organization may do it.
+func TestSetDeviceMaintenance_OpenToOrgMembers(t *testing.T) {
 	t.Parallel()
 	env := setupMaintenanceEnv(t, true)
-	_, otherToken := seedTestUser(t, env.srv, env.cfg, "not-owner@example.com", false)
+	_, peerToken := seedTestUser(t, env.srv, env.cfg, "maintenance-peer@example.com", false)
 
-	w := doRequest(env.srv, http.MethodPost, maintenancePath(env.dev.ID), otherToken,
+	w := doRequest(env.srv, http.MethodPost, maintenancePath(env.dev.ID), peerToken,
 		map[string]any{"enabled": true})
-	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Equal(t, 0, env.fake.maintenanceCalls)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, maintenanceOn(decodeDevice(t, w.Body)))
+	assert.Equal(t, 1, env.fake.maintenanceCalls)
 }
 
 func TestSetDeviceMaintenance_NotFound(t *testing.T) {
@@ -167,24 +170,27 @@ func TestSetDeviceMaintenance_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestGetDeviceMaintenanceSummary(t *testing.T) {
+// TestMaintenanceCountReachesTheSummary proves the toggle and the dashboard
+// rollup agree, through the one endpoint the dashboard polls.
+func TestMaintenanceCountReachesTheSummary(t *testing.T) {
 	t.Parallel()
 	env := setupMaintenanceEnv(t, true)
 
 	// Static route must resolve ahead of /devices/{id}.
-	w := doRequest(env.srv, http.MethodGet, "/api/v1/devices/maintenance-summary", env.token, nil)
+	w := doRequest(env.srv, http.MethodGet, "/api/v1/devices/summary", env.token, nil)
 	require.Equal(t, http.StatusOK, w.Code)
 
-	var before MaintenanceSummary
+	var before DeviceSummary
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &before))
 
 	w = doRequest(env.srv, http.MethodPost, maintenancePath(env.dev.ID), env.token,
 		map[string]any{"enabled": true})
 	require.Equal(t, http.StatusOK, w.Code)
 
-	w = doRequest(env.srv, http.MethodGet, "/api/v1/devices/maintenance-summary", env.token, nil)
+	w = doRequest(env.srv, http.MethodGet, "/api/v1/devices/summary", env.token, nil)
 	require.Equal(t, http.StatusOK, w.Code)
-	var after MaintenanceSummary
+	var after DeviceSummary
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &after))
-	assert.Equal(t, before.Count+1, after.Count)
+	assert.Equal(t, before.Maintenance+1, after.Maintenance)
+	assert.Equal(t, before.Total, after.Total, "a maintenance toggle never changes the fleet size")
 }

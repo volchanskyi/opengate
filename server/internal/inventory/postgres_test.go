@@ -17,8 +17,7 @@ import (
 // returns the device id, so tests can persist inventory against a real device.
 func seedInventoryDevice(t *testing.T, ctx context.Context, store *db.PostgresStore) uuid.UUID {
 	t.Helper()
-	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	return testutil.SeedDevice(t, ctx, store, group.ID).ID
 }
 

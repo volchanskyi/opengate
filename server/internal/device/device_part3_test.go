@@ -12,11 +12,10 @@ import (
 
 func TestPostgresGroups_CRUD(t *testing.T) {
 	t.Parallel()
-	_, groups, _, store := newRepos(t)
+	_, groups, _, _ := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
-	owner := seedOwner(t, ctx, store)
 
-	g := &device.Group{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8], OwnerID: owner}
+	g := &device.Group{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
 	require.NoError(t, groups.Create(ctx, g))
 
 	t.Run("get", func(t *testing.T) {
@@ -30,14 +29,14 @@ func TestPostgresGroups_CRUD(t *testing.T) {
 		assert.ErrorIs(t, err, device.ErrGroupNotFound)
 	})
 
-	t.Run("list for owner", func(t *testing.T) {
-		gs, err := groups.List(ctx, owner)
+	t.Run("list returns the organization's groups", func(t *testing.T) {
+		gs, err := groups.List(ctx)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(gs), 1)
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		g2 := &device.Group{ID: uuid.New(), Name: "del-" + uuid.New().String()[:8], OwnerID: owner}
+		g2 := &device.Group{ID: uuid.New(), Name: "del-" + uuid.New().String()[:8]}
 		require.NoError(t, groups.Create(ctx, g2))
 		require.NoError(t, groups.Delete(ctx, g2.ID))
 		_, err := groups.Get(ctx, g2.ID)
@@ -52,11 +51,10 @@ func TestPostgresGroups_CRUD(t *testing.T) {
 
 func TestPostgresHardware_UpsertAndGet(t *testing.T) {
 	t.Parallel()
-	devices, groups, hardware, store := newRepos(t)
+	devices, groups, hardware, _ := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
-	owner := seedOwner(t, ctx, store)
 
-	g := &device.Group{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8], OwnerID: owner}
+	g := &device.Group{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
 	require.NoError(t, groups.Create(ctx, g))
 	d := &device.Device{ID: uuid.New(), GroupID: g.ID, Hostname: "hw", OS: "linux", Status: device.StatusOffline}
 	require.NoError(t, devices.Upsert(ctx, d))

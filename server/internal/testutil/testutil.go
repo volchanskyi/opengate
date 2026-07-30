@@ -257,16 +257,15 @@ func SeedUser(t testing.TB, ctx context.Context, s *db.PostgresStore) *auth.User
 	return u
 }
 
-// SeedGroup inserts a group owned by ownerID into the store and returns it.
+// SeedGroup inserts a group into the store's tenant scope and returns it.
 // Uses an ad-hoc device.GroupRepository over the same connection pool to
 // avoid forcing every test setup to thread a repo through.
-func SeedGroup(t testing.TB, ctx context.Context, s *db.PostgresStore, ownerID uuid.UUID) *device.Group {
+func SeedGroup(t testing.TB, ctx context.Context, s *db.PostgresStore) *device.Group {
 	t.Helper()
 	ctx, _ = tenantOrDefault(ctx, false)
 	g := &device.Group{
-		ID:      uuid.New(),
-		Name:    "group-" + uuid.New().String()[:8],
-		OwnerID: ownerID,
+		ID:   uuid.New(),
+		Name: "group-" + uuid.New().String()[:8],
 	}
 	require.NoError(t, NewTestGroups(t, s).Create(ctx, g))
 	return g

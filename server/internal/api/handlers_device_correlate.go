@@ -18,15 +18,11 @@ func (s *Server) CorrelateDevice(ctx context.Context, request CorrelateDeviceReq
 		return CorrelateDevice503JSONResponse{Error: "correlation not available"}, nil
 	}
 
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return CorrelateDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return CorrelateDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	tenant, ok := dbtx.TenantFromContext(ctx)

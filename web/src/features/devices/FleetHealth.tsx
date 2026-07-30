@@ -1,44 +1,29 @@
-import { useMemo } from 'react';
 import { Link } from 'react-router';
 import type { components } from '../../types/api';
-import { healthBand, HEALTH_META, type HealthBand } from './health';
+import { HEALTH_META, type HealthBand } from './health';
 
-type Device = components['schemas']['Device'];
-
-// Display order (worst first, "no data" last), built from literal meta accesses
-// so no band is read through a bare-identifier computed key.
-const CARDS = [
-  { band: 'anomalous' as HealthBand, meta: HEALTH_META.anomalous },
-  { band: 'watch' as HealthBand, meta: HEALTH_META.watch },
-  { band: 'healthy' as HealthBand, meta: HEALTH_META.healthy },
-  { band: 'unknown' as HealthBand, meta: HEALTH_META.unknown },
-];
+type FleetHealthCounts = components['schemas']['FleetHealthCounts'];
 
 /**
- * Fleet-aggregate edge-health overview, derived entirely from each device's
- * latest anomaly rate — no per-device series, so it stays cheap at fleet scale.
- * A true fleet time-series overview would need a dedicated aggregate endpoint;
- * this is the honest client-side rollup of what the device list already carries.
+ * Fleet-aggregate edge-health overview. The bands are counted server-side
+ * inside the time-series store and arrive as four integers, so this stays the
+ * same size and the same cost whatever the fleet size.
  */
-export function FleetHealth({ devices }: { readonly devices: readonly Device[] }) {
-  const counts = useMemo(() => {
-    const c = new Map<HealthBand, number>();
-    for (const d of devices) {
-      const band = healthBand(d.anomaly_rate);
-      c.set(band, (c.get(band) ?? 0) + 1);
-    }
-    return c;
-  }, [devices]);
-
-  const anomalous = counts.get('anomalous') ?? 0;
-  const watch = counts.get('watch') ?? 0;
-  const healthy = counts.get('healthy') ?? 0;
-  const monitored = anomalous + watch + healthy;
+export function FleetHealth({ counts }: { readonly counts: FleetHealthCounts }) {
+  // Display order (worst first, "no data" last). Every band is read through a
+  // literal property access, never a computed key.
+  const cards: { band: HealthBand; meta: typeof HEALTH_META.healthy; count: number }[] = [
+    { band: 'anomalous', meta: HEALTH_META.anomalous, count: counts.anomalous },
+    { band: 'watch', meta: HEALTH_META.watch, count: counts.watch },
+    { band: 'healthy', meta: HEALTH_META.healthy, count: counts.healthy },
+    { band: 'unknown', meta: HEALTH_META.unknown, count: counts.unknown },
+  ];
+  const monitored = counts.anomalous + counts.watch + counts.healthy;
 
   const bars = [
-    { label: 'anomalous', count: anomalous, dotClass: HEALTH_META.anomalous.dotClass },
-    { label: 'watch', count: watch, dotClass: HEALTH_META.watch.dotClass },
-    { label: 'healthy', count: healthy, dotClass: HEALTH_META.healthy.dotClass },
+    { label: 'anomalous', count: counts.anomalous, dotClass: HEALTH_META.anomalous.dotClass },
+    { label: 'watch', count: counts.watch, dotClass: HEALTH_META.watch.dotClass },
+    { label: 'healthy', count: counts.healthy, dotClass: HEALTH_META.healthy.dotClass },
   ];
 
   return (
@@ -54,7 +39,7 @@ export function FleetHealth({ devices }: { readonly devices: readonly Device[] }
             ) : null))}
           </figure>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {CARDS.map(({ band, meta }) => (
+            {cards.map(({ band, meta, count }) => (
               <Link
                 key={band}
                 to={`/devices?health=${band}`}
@@ -64,7 +49,7 @@ export function FleetHealth({ devices }: { readonly devices: readonly Device[] }
                   <span className={`w-2 h-2 rounded-full ${meta.dotClass}`} aria-hidden="true" />
                   {meta.label}
                 </p>
-                <p className="text-xl font-bold mt-1">{counts.get(band) ?? 0}</p>
+                <p className="text-xl font-bold mt-1">{count}</p>
               </Link>
             ))}
           </div>

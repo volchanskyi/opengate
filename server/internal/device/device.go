@@ -67,11 +67,12 @@ type Device struct {
 	AMT *AMT `json:"amt,omitempty"`
 }
 
-// Group is a named collection of devices that share an owner for access control.
+// Group is a named collection of devices within one organization. It is a
+// filing label, not an access boundary: the organization is what scopes
+// visibility, so every member of an organization sees every group in it.
 type Group struct {
 	ID        GroupID   `json:"id"`
 	Name      string    `json:"name"`
-	OwnerID   uuid.UUID `json:"owner_id"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -158,10 +159,15 @@ type LogFilter struct {
 type Repository interface {
 	Upsert(ctx context.Context, d *Device) error
 	Get(ctx context.Context, id DeviceID) (*Device, error)
+	// GetByAMTUUID resolves the managed device behind an Intel AMT CIRA
+	// identity. The connection map that serves power commands is keyed by that
+	// UUID alone and carries no tenant, so this tenant-scoped lookup is what
+	// keeps an AMT command inside the caller's organization. Returns
+	// ErrDeviceNotFound when no device in scope owns the UUID.
+	GetByAMTUUID(ctx context.Context, amtUUID uuid.UUID) (*Device, error)
 	OrgForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error)
 	List(ctx context.Context, groupID GroupID) ([]*Device, error)
 	ListAll(ctx context.Context) ([]*Device, error)
-	ListForOwner(ctx context.Context, ownerID uuid.UUID) ([]*Device, error)
 	Delete(ctx context.Context, id DeviceID) error
 	UpdateGroup(ctx context.Context, id DeviceID, groupID GroupID) error
 	SetStatus(ctx context.Context, id DeviceID, status DeviceStatus) error
@@ -171,16 +177,28 @@ type Repository interface {
 	// the reason; disabling clears all three. Returns ErrDeviceNotFound when no
 	// device in the current tenant scope matches id.
 	SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error
-	// CountInMaintenance returns how many devices in the current tenant scope are
-	// currently in maintenance.
-	CountInMaintenance(ctx context.Context) (int, error)
+	// Counts returns the fleet status rollup for the current tenant scope in one
+	// aggregate row, so the dashboard never reads device rows to count them.
+	Counts(ctx context.Context) (Counts, error)
+}
+
+// Counts is the fleet status rollup behind the dashboard tiles: three integers
+// from one aggregate row, whatever the fleet size.
+type Counts struct {
+	// Total is every device in the organization.
+	Total int
+	// Online is the devices with a live agent connection. A connecting device
+	// is not online, which matches how the tiles present it.
+	Online int
+	// Maintenance is the devices currently in maintenance mode.
+	Maintenance int
 }
 
 // GroupRepository is the outbound persistence port for device groups.
 type GroupRepository interface {
 	Create(ctx context.Context, g *Group) error
 	Get(ctx context.Context, id GroupID) (*Group, error)
-	List(ctx context.Context, ownerID uuid.UUID) ([]*Group, error)
+	List(ctx context.Context) ([]*Group, error)
 	Delete(ctx context.Context, id GroupID) error
 }
 

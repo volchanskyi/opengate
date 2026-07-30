@@ -107,15 +107,22 @@ func (p *PostgresDevices) SetMaintenance(ctx context.Context, id DeviceID, on bo
 	})
 }
 
-func (p *PostgresDevices) CountInMaintenance(ctx context.Context) (int, error) {
-	var count int
+// Counts collapses the whole fleet rollup into one aggregate row. It is
+// deliberately org-scoped for every caller, administrators included: the
+// dashboard describes the caller's own organization, so the tiles and the
+// health bands always cover one device set.
+func (p *PostgresDevices) Counts(ctx context.Context) (Counts, error) {
+	var c Counts
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM devices
-			 WHERE (org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean)
-			   AND maintenance_on`).Scan(&count)
+			`SELECT COUNT(*),
+			        COUNT(*) FILTER (WHERE status = 'online'),
+			        COUNT(*) FILTER (WHERE maintenance_on)
+			   FROM devices
+			  WHERE org_id = current_setting('app.current_org')::uuid`).
+			Scan(&c.Total, &c.Online, &c.Maintenance)
 	})
-	return count, err
+	return c, err
 }
 
 func (p *PostgresDevices) ResetAllStatuses(ctx context.Context) error {

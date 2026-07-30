@@ -113,8 +113,16 @@ describe('Device Detail Flow (integration)', () => {
     expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
   });
 
-  it('delete requires confirmation click', async () => {
+  it('hides delete from a non-admin member', () => {
+    renderDeviceDetailFlow();
+    // Deleting a device is a configuration change: the control is absent from a
+    // non-admin's DOM, not merely disabled.
+    expect(screen.queryByRole('button', { name: 'Delete Device' })).toBeNull();
+  });
+
+  it('delete requires confirmation click for an admin', async () => {
     const user = userEvent.setup();
+    useAuthStore.setState({ user: { ...mockUser, is_admin: true } });
     renderDeviceDetailFlow();
 
     await user.click(screen.getByRole('button', { name: 'Delete Device' }));
