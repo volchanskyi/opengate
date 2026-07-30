@@ -346,6 +346,13 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   count (see [ADR-056](adr/ADR-056-device-maintenance-mode.md)).
 - [`007_maintenance_mode.down.sql`](../server/internal/db/migrations/007_maintenance_mode.down.sql)
   drops the columns and index for rollback.
+- [`008_amt_device_link.up.sql`](../server/internal/db/migrations/008_amt_device_link.up.sql)
+  adds the SMBIOS `system_uuid` join key and the AMT columns to
+  `device_hardware`, links `amt_devices` to its owning device, and reduces
+  `amt_devices` to connection state (see
+  [ADR-061](adr/ADR-061-amt-as-device-property.md)).
+- [`008_amt_device_link.down.sql`](../server/internal/db/migrations/008_amt_device_link.down.sql)
+  restores the standalone AMT columns for rollback.
 
 The automated rollback/dump rehearsal lives in
 [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) and
@@ -355,6 +362,13 @@ TestMultitenancyMigrationRehearsal`.
 On first startup, `NewPostgresStore` opens a connection, runs migrations,
 and the server is ready. Schema changes made after Phase 13a land as new
 sequentially numbered `.up.sql` / `.down.sql` pairs in the same directory.
+
+Migrations run on their own single-connection pool that carries the
+cross-tenant `app.is_admin` / `app.current_org` scope, because the deployed role
+is `NOBYPASSRLS` and owns tables under forced RLS — a migration that touches
+rows is otherwise refused by the tenant policy. The pool that serves application
+traffic never carries that scope. See
+[ADR-041](adr/ADR-041-postgres-rls-multitenancy.md).
 
 ## Backups
 
