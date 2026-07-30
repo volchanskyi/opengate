@@ -126,6 +126,78 @@ func (v *VMClient) QueryInstantLookback(ctx context.Context, orgID uuid.UUID, me
 	})
 }
 
+// BandCounts is how many devices fall in each edge-health band, as counted
+// inside VictoriaMetrics. It is the whole payload behind the dashboard's fleet
+// health rollup: three integers regardless of fleet size.
+type BandCounts struct {
+	Anomalous int
+	Watch     int
+	Healthy   int
+}
+
+// MetricNodeAnomalyRate is the per-device anomaly-rate gauge that drives both
+// the per-device health badge and the fleet health bands.
+const MetricNodeAnomalyRate = "opengate_edge_node_anomaly_rate"
+
+// bandLabel names the synthetic label the band query stamps on each count so a
+// single instant query can carry all three scalars back.
+const bandLabel = "band"
+
+// CountAnomalyBands returns the number of devices in each edge-health band for
+// one organization, in a single instant query. The counting happens inside
+// VictoriaMetrics, so no per-device sample crosses the wire however large the
+// fleet is.
+//
+// Each band is a count() over the devices whose most recent rate within
+// lookback falls in that band, tagged with a band label so the three scalars
+// travel in one vector. count() over an empty set yields no sample at all — a
+// band with no devices is simply absent from the result and reads back as 0.
+func (v *VMClient) CountAnomalyBands(ctx context.Context, orgID uuid.UUID, watch, anomalous float64, at time.Time, lookback time.Duration) (BandCounts, error) {
+	scoped, err := ScopeSelector(MetricNodeAnomalyRate, orgID)
+	if err != nil {
+		return BandCounts{}, err
+	}
+	window := fmt.Sprintf("last_over_time(%s[%ds])", scoped, int64(lookback.Seconds()))
+
+	bands := []struct {
+		name      string
+		predicate string
+	}{
+		{"anomalous", fmt.Sprintf(">= %s", formatThreshold(anomalous))},
+		{"watch", fmt.Sprintf(">= %s < %s", formatThreshold(watch), formatThreshold(anomalous))},
+		{"healthy", fmt.Sprintf("< %s", formatThreshold(watch))},
+	}
+	parts := make([]string, 0, len(bands))
+	for _, b := range bands {
+		parts = append(parts, fmt.Sprintf(`label_replace(count(%s %s), %q, %q, "", "")`,
+			window, b.predicate, bandLabel, b.name))
+	}
+
+	vals, err := v.instantQuery(ctx, strings.Join(parts, " or "), at)
+	if err != nil {
+		return BandCounts{}, err
+	}
+
+	var counts BandCounts
+	for _, val := range vals {
+		switch val.Labels[bandLabel] {
+		case "anomalous":
+			counts.Anomalous = int(val.Value)
+		case "watch":
+			counts.Watch = int(val.Value)
+		case "healthy":
+			counts.Healthy = int(val.Value)
+		}
+	}
+	return counts, nil
+}
+
+// formatThreshold renders a band boundary as a plain PromQL literal, without
+// scientific notation or a trailing exponent.
+func formatThreshold(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
 // scopedInstant scopes the selector for orgID/metric/matchers, optionally
 // rewrites it with wrap (nil evaluates the bare selector), and runs it as an
 // instant query at `at`. It is the shared spine of the two instant read paths.

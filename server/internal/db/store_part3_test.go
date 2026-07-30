@@ -37,8 +37,8 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 			userID, orgID, email)
 		require.NoError(t, err)
 		_, err = tx.ExecContext(ctx,
-			`INSERT INTO groups_ (id, org_id, name, owner_id) VALUES ($1, $2, $3, $4)`,
-			groupID, orgID, "owned", userID)
+			`INSERT INTO groups_ (id, org_id, name) VALUES ($1, $2, $3)`,
+			groupID, orgID, "owned")
 		require.NoError(t, err)
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO devices (id, org_id, group_id, hostname) VALUES ($1, $2, $3, $4)`,

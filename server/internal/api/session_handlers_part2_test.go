@@ -60,9 +60,9 @@ func TestCreateSessionDeviceNotFound(t *testing.T) {
 func TestCreateSessionAgentNotConnected(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
-	user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
+	_, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 	ctx := testTenantContext(t)
-	group := testutil.SeedGroup(t, ctx, srv.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, srv.store)
 	d := testutil.SeedDevice(t, ctx, srv.store, group.ID)
 
 	w := doRequest(srv, http.MethodPost, testPathSessions, token, map[string]string{"device_id": d.ID.String()})
@@ -130,7 +130,7 @@ func newCreateSessionEnv(t *testing.T) createSessionEnv {
 	store := testutil.NewTestStore(t)
 	ctx := testTenantContext(t)
 	user := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, user.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	d := testutil.SeedDevice(t, ctx, store, group.ID)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	ac := agentapi.NewAgentConn(agentapi.AgentConnConfig{DeviceID: d.ID, GroupID: group.ID, Stream: &agentStream, Devices: testutil.NewTestDevices(t, store), Hardware: testutil.NewTestHardware(t, store), DeviceUpdates: testutil.NewTestDeviceUpdates(t, store), Logger: logger})

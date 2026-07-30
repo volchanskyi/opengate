@@ -69,23 +69,24 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/push/subscribe` | POST | JWT | Subscribe to Web Push notifications |
 | `/api/v1/push/subscribe` | DELETE | JWT | Unsubscribe from Web Push |
 | `/api/v1/push/vapid-key` | GET | JWT | Get VAPID public key |
-| `/api/v1/groups` | POST | JWT | Create a device group |
+| `/api/v1/groups` | POST | JWT (admin) | Create a device group |
 | `/api/v1/groups` | GET | JWT | List groups |
 | `/api/v1/groups/{id}` | GET | JWT | Get a group |
-| `/api/v1/groups/{id}` | DELETE | JWT | Delete a group |
+| `/api/v1/groups/{id}` | DELETE | JWT (admin) | Delete a group |
 | `/api/v1/devices` | GET | JWT | List devices (optional `group_id` filter) |
+| `/api/v1/devices/summary` | GET | JWT | Fixed-size fleet rollup for the dashboard (status tiles + edge-health bands) |
 | `/api/v1/devices/{id}` | GET | JWT | Get a device (includes `capabilities` array) |
-| `/api/v1/devices/{id}` | PATCH | JWT | Update device (reassign `group_id`; the all-zeros UUID ungroups it) |
-| `/api/v1/devices/{id}` | DELETE | JWT | Delete a device and purge all its telemetry ([Data Lifecycle](Data-Lifecycle.md)) |
+| `/api/v1/devices/{id}` | PATCH | JWT (admin) | Update device (reassign `group_id`; the all-zeros UUID ungroups it) |
+| `/api/v1/devices/{id}` | DELETE | JWT (admin) | Delete a device and purge all its telemetry ([Data Lifecycle](Data-Lifecycle.md)) |
 | `/api/v1/devices/{id}/restart` | POST | JWT | Restart agent on device (optional `reason` field) |
 | `/api/v1/devices/{id}/hardware` | GET | JWT | Get hardware inventory for device (200 cached / 202 requested from agent) |
-| `/api/v1/devices/{id}/logs` | GET | JWT | Get device log entries (on-demand via agent) |
+| `/api/v1/devices/{id}/logs` | GET | JWT (admin) | Get device log entries (on-demand via agent) |
 | `/api/v1/devices/{id}/correlate` | POST | JWT | Rank anomalous metric dimensions for a window (on-demand, server-side over VictoriaMetrics) |
 | `/api/v1/devices/{id}/inventory` | GET | JWT | Get the device's auto-discovered footprint (ports, services, DB engines, containers, packages) |
 | `/api/v1/sessions` | POST | JWT | Create a remote session |
 | `/api/v1/sessions` | GET | JWT | List sessions (requires `device_id` query param) |
 | `/api/v1/sessions/{token}` | DELETE | JWT | Delete a session |
-| `/api/v1/amt/devices/{uuid}/power` | POST | JWT (admin) | Send AMT power command (on/cycle/soft-off/hard-reset) to the AMT connection identified by `uuid` |
+| `/api/v1/amt/devices/{uuid}/power` | POST | JWT | Send AMT power command (on/cycle/soft-off/hard-reset) to the AMT connection identified by `uuid`, which must belong to a device in the caller's organization |
 | `/api/v1/enroll/{token}` | POST | No | Enroll agent (CSR signing, returns CA + cert) |
 | `/api/v1/server/ca` | GET | No | Get server CA certificate PEM |
 | `/api/v1/enrollment-tokens` | POST | JWT (admin) | Create enrollment token |
@@ -169,8 +170,8 @@ and points.
 | `200` | Ranked correlation result (`ranked`, `series_considered`, `series_truncated`) |
 | `400` | Invalid window (e.g. `focus_end` not after `focus_start`) |
 | `401` | Unauthorized |
-| `403` | Forbidden (caller does not own the device's group) |
-| `404` | Device not found (also the cross-tenant deny — a device in another org is not visible) |
+| `403` | Forbidden (the request carries no tenant scope) |
+| `404` | Device not found (also the cross-organization deny — a device in another org is not visible) |
 | `503` | Correlation not configured (no VictoriaMetrics URL) or the engine is at capacity |
 
 ### Device Inventory
@@ -182,8 +183,8 @@ containers, and installed packages — as a flat list of items each carrying a
 [`device_inventory`](Database.md) RLS table, populated from the agent's
 [`DiscoveryReport`](Wire-Protocol.md); each report replaces the device's
 footprint. It is descriptive attack-surface data only (never a credential or
-connection string) and is visible to any device viewer in the organization, not
-just administrators.
+connection string) and is visible to every member of the organization, not just
+administrators.
 
 **Response Codes**
 
@@ -191,8 +192,7 @@ just administrators.
 |------|---------|
 | `200` | The device's inventory (`device_id`, `items`) |
 | `401` | Unauthorized |
-| `403` | Forbidden (caller does not own the device's group) |
-| `404` | Device not found (also the cross-tenant deny — a device in another org is not visible) |
+| `404` | Device not found (also the cross-organization deny — a device in another org is not visible) |
 | `503` | Inventory not configured |
 
 ### Maintenance Mode
@@ -208,14 +208,27 @@ check), and every enter/exit is written to the audit log. Entry stamps
 `maintenance_since`/`_by`/`_reason` on the `devices` row and pushes
 `SetMaintenanceMode` to a connected agent; exit clears them and pushes the resume.
 
-`GET /api/v1/devices/maintenance-summary` returns the tenant's fleet count of
-devices currently in maintenance, served from a partial index over the caller's
-organization.
-
-Both are group-owner authorized. The four maintenance fields
+Toggling maintenance is a device command, open to every member of the device's
+organization. The count of devices currently in maintenance is one field of the
+fleet summary below. The four maintenance fields
 (`maintenance_on`/`_since`/`_by`/`_reason`) are present on the device DTO only
 while a device is in maintenance. The canonical request/response shapes are in
 [`api/openapi.yaml`](../api/openapi.yaml).
+
+### Fleet Summary
+
+`GET /api/v1/devices/summary` answers the dashboard with a fixed-size rollup of
+the caller's organization: `total`, `online`, `offline`, `maintenance`, and a
+`health` object counting devices per edge-health band
+(`anomalous`/`watch`/`healthy`/`unknown`). It costs one aggregate row in
+Postgres and one instant query in VictoriaMetrics, so both the work and the
+payload are the same for a fleet of one and a fleet of ten thousand — the
+dashboard never downloads the device table to count it.
+
+It is organization-scoped for every caller, administrators included, so the
+tiles and the health bands always describe one device set and `unknown` is
+exact. With telemetry unconfigured or its query failing, the status counts are
+still returned and every device lands in `unknown`; the endpoint does not fail.
 
 ### Intel AMT
 

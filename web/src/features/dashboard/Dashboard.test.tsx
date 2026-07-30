@@ -24,33 +24,40 @@ function renderDashboard() {
   return render(<RouterProvider router={router} />);
 }
 
+/** Drives document.visibilityState and fires the matching event. */
+function setVisibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
 describe('Dashboard', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    setVisibility('visible');
     useDeviceStore.setState({
-      devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-        { id: 'd2', group_id: 'g1', hostname: 'host-2', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
-      ],
-      groups: [{ id: 'g1', name: 'Group A', owner_id: 'u1', created_at: '', updated_at: '' }],
+      devices: [],
+      groups: [{ id: 'g1', name: 'Group A', created_at: '', updated_at: '' }],
       isLoading: false,
       error: null,
-      maintenanceCount: 0,
+      summary: {
+        total: 2, online: 1, offline: 1, maintenance: 0,
+        health: { anomalous: 0, watch: 0, healthy: 0, unknown: 2 },
+      },
       fetchDevices: vi.fn(),
       fetchGroups: vi.fn(),
-      fetchMaintenanceSummary: vi.fn(),
+      fetchSummary: vi.fn(),
     });
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    setVisibility('visible');
   });
 
   it('renders device stats', () => {
     renderDashboard();
     expect(screen.getByText('Total Devices')).toBeInTheDocument();
-    expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.getByText('Online')).toBeInTheDocument();
   });
 
@@ -59,22 +66,34 @@ describe('Dashboard', () => {
     expect(screen.getByText('Fleet Health')).toBeInTheDocument();
   });
 
-  it('rolls up device anomaly rates into the fleet health bands', () => {
+  it('renders the server-counted health bands', () => {
     useDeviceStore.setState({
-      devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '1', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '', anomaly_rate: 0.9 },
-      ],
+      summary: {
+        total: 1, online: 1, offline: 0, maintenance: 0,
+        health: { anomalous: 1, watch: 0, healthy: 0, unknown: 0 },
+      },
     });
     renderDashboard();
     expect(screen.getByLabelText('Fleet health distribution')).toBeInTheDocument();
-    expect(screen.getByText('Anomalous').closest('div')).toHaveTextContent('1');
+    expect(screen.getByText('Anomalous').closest('a')).toHaveTextContent('1');
   });
 
   it('renders the fleet in-maintenance count from the summary endpoint', () => {
-    useDeviceStore.setState({ maintenanceCount: 3 });
+    useDeviceStore.setState({
+      summary: {
+        total: 5, online: 5, offline: 0, maintenance: 3,
+        health: { anomalous: 0, watch: 0, healthy: 0, unknown: 5 },
+      },
+    });
     renderDashboard();
-    const card = screen.getByText('In Maintenance').closest('a')!;
-    expect(card).toHaveTextContent('3');
+    expect(screen.getByText('In Maintenance').closest('a')).toHaveTextContent('3');
+  });
+
+  it('renders zeroes before the first summary arrives', () => {
+    useDeviceStore.setState({ summary: null });
+    renderDashboard();
+    expect(screen.getByText('Total Devices').closest('a')).toHaveTextContent('0');
+    expect(screen.getByText(/no edge telemetry yet/i)).toBeInTheDocument();
   });
 
   it('Online tile deep-links to the online filter', () => {
@@ -87,73 +106,48 @@ describe('Dashboard', () => {
     expect(screen.getByText('Offline').closest('a')).toHaveAttribute('href', '/devices?status=offline');
   });
 
-  it('fetches the maintenance summary on mount and on each 15s poll', () => {
-    const fetchSummary = vi.fn();
-    useDeviceStore.setState({ fetchMaintenanceSummary: fetchSummary });
-    renderDashboard();
-    expect(fetchSummary).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(15_000);
-    expect(fetchSummary).toHaveBeenCalledTimes(2);
-  });
-
   it('In Maintenance tile deep-links to the maintenance filter', () => {
     renderDashboard();
-    const link = screen.getByText('In Maintenance').closest('a');
-    expect(link).toHaveAttribute('href', '/devices?maintenance=true');
-  });
-
-  it('polls devices every 15 seconds', () => {
-    const fetchDevicesFn = vi.fn();
-    useDeviceStore.setState({ fetchDevices: fetchDevicesFn });
-    renderDashboard();
-
-    // Initial fetch on mount
-    expect(fetchDevicesFn).toHaveBeenCalledTimes(1);
-
-    // Advance 15s — should trigger second fetch
-    vi.advanceTimersByTime(15_000);
-    expect(fetchDevicesFn).toHaveBeenCalledTimes(2);
-
-    // Advance another 15s — third fetch
-    vi.advanceTimersByTime(15_000);
-    expect(fetchDevicesFn).toHaveBeenCalledTimes(3);
+    expect(screen.getByText('In Maintenance').closest('a')).toHaveAttribute('href', '/devices?maintenance=true');
   });
 
   it('Total Devices tile links to /devices', () => {
     renderDashboard();
-    const totalDevicesLink = screen.getByText('Total Devices').closest('a');
-    expect(totalDevicesLink).toBeInTheDocument();
-    expect(totalDevicesLink).toHaveAttribute('href', '/devices');
+    expect(screen.getByText('Total Devices').closest('a')).toHaveAttribute('href', '/devices');
   });
 
-
-  it('online and offline counts add up to total devices', () => {
+  it('fetches the summary on mount and on each 15s poll', () => {
+    const fetchSummary = vi.fn();
+    useDeviceStore.setState({ fetchSummary });
     renderDashboard();
-    const totals = screen.getAllByText('2');
-    // 2 total appears once; 1 online appears once; 1 offline appears once.
-    expect(totals.length).toBeGreaterThanOrEqual(1);
-    // Find each labelled value
-    const totalCard = screen.getByText('Total Devices').closest('a')!;
-    const onlineCard = screen.getByText('Online').closest('a')!;
-    const offlineCard = screen.getByText('Offline').closest('a')!;
-    expect(totalCard.textContent).toContain('2');
-    expect(onlineCard.textContent).toContain('1');
-    expect(offlineCard.textContent).toContain('1');
+
+    expect(fetchSummary).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(15_000);
+    expect(fetchSummary).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(15_000);
+    expect(fetchSummary).toHaveBeenCalledTimes(3);
   });
 
-  it('online count uses status === "online" filter (not !==)', () => {
-    useDeviceStore.setState({
-      devices: [
-        { id: 'a', group_id: 'g', hostname: 'a', os: 'l', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-        { id: 'b', group_id: 'g', hostname: 'b', os: 'l', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-        { id: 'c', group_id: 'g', hostname: 'c', os: 'l', agent_version: '', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
-      ],
-    });
+  it('never fetches the device list', () => {
+    const fetchDevices = vi.fn();
+    useDeviceStore.setState({ fetchDevices });
     renderDashboard();
-    const onlineCard = screen.getByText('Online').closest('a')!;
-    expect(onlineCard.textContent).toContain('2');
-    const offlineCard = screen.getByText('Offline').closest('a')!;
-    expect(offlineCard.textContent).toContain('1');
+    vi.advanceTimersByTime(60_000);
+    expect(fetchDevices).not.toHaveBeenCalled();
+  });
+
+  it('stops polling while the tab is hidden and catches up on re-show', () => {
+    const fetchSummary = vi.fn();
+    useDeviceStore.setState({ fetchSummary });
+    renderDashboard();
+    expect(fetchSummary).toHaveBeenCalledTimes(1);
+
+    setVisibility('hidden');
+    vi.advanceTimersByTime(60_000);
+    expect(fetchSummary).toHaveBeenCalledTimes(1);
+
+    setVisibility('visible');
+    expect(fetchSummary).toHaveBeenCalledTimes(2);
   });
 
   it('Dashboard heading is rendered', () => {

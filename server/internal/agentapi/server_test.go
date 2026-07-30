@@ -93,8 +93,7 @@ func TestAgentServer_ScopeForDeviceUsesStoredOrganization(t *testing.T) {
 	orgB := uuid.New()
 	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
 	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
-	owner := testutil.SeedUser(t, ctxB, store)
-	group := testutil.SeedGroup(t, ctxB, store, owner.ID)
+	group := testutil.SeedGroup(t, ctxB, store)
 	d := testutil.SeedDevice(t, ctxB, store, group.ID)
 	srv := AgentServer{
 		devices: testutil.NewTestDevices(t, store),

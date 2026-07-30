@@ -77,22 +77,21 @@ Edge Sentinel process snapshots are added by
 │─────────────────────│       │─────────────────────│
 │ id            PK    │◄──┐   │ id            PK    │
 │ email         UQ    │   │   │ name                │
-│ password_hash       │   ├───│ owner_id      FK    │
-│ display_name        │   │   │ created_at          │
-│ is_admin            │   │   │ updated_at          │
-│ created_at          │   │   └──────────┬──────────┘
-│ updated_at          │   │              │ 1:N (SET NULL)
-└─────────────────────┘   │   ┌──────────▼──────────┐
-                          │   │      devices         │
-┌─────────────────────┐   │   │─────────────────────│
-│  agent_sessions     │   │   │ id            PK    │
-│─────────────────────│   │   │ group_id FK (nullable)│
-│ token         PK    │   │   │ hostname            │
-│ device_id     FK    │───┤   │ os                  │
-│ user_id       FK    │───┤   │ capabilities (JSONB)│
-│ created_at          │   │   │ status              │
-└─────────────────────┘   │   │ last_seen           │
-                          │   │ created_at          │
+│ password_hash       │   │   │ created_at          │
+│ display_name        │   │   │ updated_at          │
+│ is_admin            │   │   └──────────┬──────────┘
+│ created_at          │   │              │ 1:N (SET NULL)
+│ updated_at          │   │   ┌──────────▼──────────┐
+└─────────────────────┘   │   │      devices         │
+                          │   │─────────────────────│
+┌─────────────────────┐   │   │ id            PK    │
+│  agent_sessions     │   │   │ group_id FK (nullable)│
+│─────────────────────│   │   │ hostname            │
+│ token         PK    │   │   │ os                  │
+│ device_id     FK    │───┤   │ capabilities (JSONB)│
+│ user_id       FK    │───┤   │ status              │
+│ created_at          │   │   │ last_seen           │
+└─────────────────────┘   │   │ created_at          │
                           │   │ agent_version       │
                           │   │ updated_at          │
 ┌─────────────────────┐   │   └─────────────────────┘

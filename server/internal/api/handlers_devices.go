@@ -7,19 +7,16 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
-// ListDevices implements StrictServerInterface.
+// ListDevices implements StrictServerInterface. The repository predicate is the
+// whole gate: a caller sees its own organization's devices, and an admin sees
+// every organization's. Narrowing to a group is a filter, not a permission.
 func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error) {
 	var devices []*device.Device
 	var err error
 	if request.Params.GroupId != nil {
-		if !s.isGroupOwner(ctx, *request.Params.GroupId) {
-			return ListDevices403JSONResponse{Error: msgForbidden}, nil
-		}
 		devices, err = s.devices.List(ctx, *request.Params.GroupId)
-	} else if isAdmin(ctx) {
-		devices, err = s.devices.ListAll(ctx)
 	} else {
-		devices, err = s.devices.ListForOwner(ctx, ContextUserID(ctx))
+		devices, err = s.devices.ListAll(ctx)
 	}
 	if err != nil {
 		return nil, err
@@ -38,10 +35,6 @@ func (s *Server) GetDevice(ctx context.Context, request GetDeviceRequestObject) 
 			return GetDevice404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return GetDevice403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	apiDevice := deviceToAPI(d)

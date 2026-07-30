@@ -70,8 +70,7 @@ func seedDeviceWithTelemetry(t *testing.T, f *orchestratorFixture, orgID uuid.UU
 	t.Helper()
 	ctx := dbtx.WithTenant(context.Background(), orgID, false)
 	testutil.EnsureOrganization(t, ctx, f.store, orgID, "Org "+orgID.String()[:8])
-	owner := testutil.SeedUser(t, ctx, f.store)
-	group := testutil.SeedGroup(t, ctx, f.store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, f.store)
 	device := testutil.SeedDevice(t, ctx, f.store, group.ID)
 
 	ts := time.Now().UTC().Truncate(time.Second)

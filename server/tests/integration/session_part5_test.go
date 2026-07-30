@@ -18,7 +18,7 @@ func TestSessionLifecycle_AgentRejectsSession(t *testing.T) {
 	ctx := context.Background()
 
 	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 
 	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestSessionLifecycle_MultipleSessionsSameDevice(t *testing.T) {
 	ctx := context.Background()
 
 	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 
 	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	require.NoError(t, err)

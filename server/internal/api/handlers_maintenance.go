@@ -14,15 +14,11 @@ import (
 // succeeds even when the agent is offline (reconciled on the next connect), so
 // there is no "agent not connected" failure like RestartDevice has.
 func (s *Server) SetDeviceMaintenance(ctx context.Context, request SetDeviceMaintenanceRequestObject) (SetDeviceMaintenanceResponseObject, error) {
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return SetDeviceMaintenance404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return SetDeviceMaintenance403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	enabled := request.Body.Enabled
@@ -65,14 +61,4 @@ func (s *Server) pushMaintenanceToAgent(ctx context.Context, deviceID uuid.UUID,
 	if err := ac.SendSetMaintenanceMode(ctx, enabled); err != nil {
 		s.logger.Warn("push maintenance mode failed", "device_id", deviceID, "error", err)
 	}
-}
-
-// GetDeviceMaintenanceSummary implements StrictServerInterface. It returns the
-// tenant-scoped count of devices currently in maintenance for the fleet badge.
-func (s *Server) GetDeviceMaintenanceSummary(ctx context.Context, _ GetDeviceMaintenanceSummaryRequestObject) (GetDeviceMaintenanceSummaryResponseObject, error) {
-	count, err := s.devices.CountInMaintenance(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return GetDeviceMaintenanceSummary200JSONResponse{Count: count}, nil
 }

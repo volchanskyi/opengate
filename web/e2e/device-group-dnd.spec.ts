@@ -43,8 +43,8 @@ async function stubList(page: import("@playwright/test").Page) {
 
   await page.route("**/api/v1/groups", (route: Route) =>
     ok(route, [
-      { id: GROUP_A, name: "Group A", owner_id: "u1", created_at: "", updated_at: "" },
-      { id: GROUP_B, name: "Group B", owner_id: "u1", created_at: "", updated_at: "" },
+      { id: GROUP_A, name: "Group A", created_at: "", updated_at: "" },
+      { id: GROUP_B, name: "Group B", created_at: "", updated_at: "" },
     ]),
   );
   await page.route("**/api/v1/updates/manifests*", (route: Route) => ok(route, []));
@@ -65,29 +65,29 @@ async function stubList(page: import("@playwright/test").Page) {
 }
 
 test.describe("Device group drag and drop", () => {
-  test("dropping a device card on a group moves it there", async ({ authedPage }) => {
-    const moves = await stubList(authedPage);
-    await authedPage.goto("/devices");
+  test("dropping a device card on a group moves it there", async ({ adminPage }) => {
+    const moves = await stubList(adminPage);
+    await adminPage.goto("/devices");
 
-    const card = authedPage.getByRole("button", { name: /e2e-dnd-host/ });
+    const card = adminPage.getByRole("button", { name: /e2e-dnd-host/ });
     await expect(card).toBeVisible();
 
-    await card.dragTo(authedPage.getByRole("listitem", { name: "Group B" }));
+    await card.dragTo(adminPage.getByRole("listitem", { name: "Group B" }));
 
-    await expect(authedPage.getByText(/Moved e2e-dnd-host to Group B/)).toBeVisible();
+    await expect(adminPage.getByText(/Moved e2e-dnd-host to Group B/)).toBeVisible();
     expect(moves).toEqual([{ id: DEVICE_ID, group_id: GROUP_B }]);
   });
 
-  test("dropping a device on the Ungrouped zone clears its group", async ({ authedPage }) => {
-    const moves = await stubList(authedPage);
-    await authedPage.goto("/devices");
+  test("dropping a device on the Ungrouped zone clears its group", async ({ adminPage }) => {
+    const moves = await stubList(adminPage);
+    await adminPage.goto("/devices");
 
-    const card = authedPage.getByRole("button", { name: /e2e-dnd-host/ });
+    const card = adminPage.getByRole("button", { name: /e2e-dnd-host/ });
     await expect(card).toBeVisible();
 
-    await card.dragTo(authedPage.getByRole("listitem", { name: "Ungrouped" }));
+    await card.dragTo(adminPage.getByRole("listitem", { name: "Ungrouped" }));
 
-    await expect(authedPage.getByText(/Moved e2e-dnd-host to Ungrouped/)).toBeVisible();
+    await expect(adminPage.getByText(/Moved e2e-dnd-host to Ungrouped/)).toBeVisible();
     expect(moves).toEqual([{ id: DEVICE_ID, group_id: UNGROUPED }]);
   });
 });

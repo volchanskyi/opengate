@@ -18,7 +18,7 @@ func TestAgentConn_HandleRegister(t *testing.T) {
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
 	// Create a group so the device can belong to it
-	group := testutil.SeedGroup(t, ctx, store, testutil.SeedUser(t, ctx, store).ID)
+	group := testutil.SeedGroup(t, ctx, store)
 
 	deviceID := uuid.New()
 	codec := &protocol.Codec{}

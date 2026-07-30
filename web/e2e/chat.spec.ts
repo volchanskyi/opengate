@@ -62,7 +62,7 @@ type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
 async function stubCommonRoutes(page: AuthedPage) {
   await page.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => ok(route, fakeDevice()));
   await page.route("**/api/v1/groups", (route: Route) =>
-    ok(route, [{ id: GROUP_ID, name: "default", owner_id: "x", created_at: "", updated_at: "" }]),
+    ok(route, [{ id: GROUP_ID, name: "default", created_at: "", updated_at: "" }]),
   );
   await page.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) => ok(route, []));
   await page.route("**/api/v1/amt/devices", (route: Route) => ok(route, []));

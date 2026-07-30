@@ -27,8 +27,7 @@ func TestDeviceCarriesItsAMTProperty(t *testing.T) {
 	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
-	owner := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 	hardware := testutil.NewTestHardware(t, env.store)
 	tenantCtx := defaultTenantContext()
 
@@ -85,8 +84,7 @@ func TestAMTPowerActionDeviceNotConnected(t *testing.T) {
 	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
-	owner := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 	dev := testutil.SeedDevice(t, ctx, env.store, group.ID)
 	amtDevice := testutil.SeedAMTDevice(t, ctx, env.store, dev.ID)
 

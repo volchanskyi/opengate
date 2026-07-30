@@ -11,7 +11,7 @@ import { DeviceList } from '../../src/features/devices/DeviceList';
 vi.mock('../../src/lib/api', () => ({
   api: {
     GET: vi.fn().mockResolvedValue({ data: [], error: undefined }),
-    POST: vi.fn().mockResolvedValue({ data: { id: 'new-g', name: 'New Group', owner_id: 'u1', created_at: '', updated_at: '' }, error: undefined }),
+    POST: vi.fn().mockResolvedValue({ data: { id: 'new-g', name: 'New Group', created_at: '', updated_at: '' }, error: undefined }),
     DELETE: vi.fn().mockResolvedValue({ error: undefined }),
   },
 }));
@@ -56,8 +56,8 @@ describe('Device List Flow (integration)', () => {
     useDeviceStore.setState({
       devices: [],
       groups: [
-        { id: 'g1', name: 'Production', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Staging', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'Production', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'Staging', created_at: '', updated_at: '' },
       ],
       selectedGroupId: null,
       selectedDevice: null,

@@ -254,7 +254,7 @@ sequenceDiagram
     Note over Browser,Relay: Teardown
     Browser-)Relay: disconnect
   else peer missing
-    Relay->>Relay: peer wait expires; unregister token
+    Relay->>Relay: peer wait expires, unregister token
   end
   Relay->>Sessions: OnSessionEnd → delete by token
   Note over Agent,Relay: agent returns to idle

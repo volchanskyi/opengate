@@ -75,7 +75,6 @@ func groupToAPI(g *device.Group) Group {
 	return Group{
 		Id:        g.ID,
 		Name:      g.Name,
-		OwnerId:   g.OwnerID,
 		CreatedAt: g.CreatedAt,
 		UpdatedAt: g.UpdatedAt,
 	}

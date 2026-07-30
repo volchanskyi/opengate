@@ -26,6 +26,12 @@ type fakeMetricsReader struct {
 	instant     []telemetry.InstantValue
 	instantErr  error
 	instantSeen int
+	bands       telemetry.BandCounts
+	bandsOrg    uuid.UUID
+	bandsWatch  float64
+	bandsAnom   float64
+	bandsErr    error
+	bandsSeen   int
 }
 
 func (f *fakeMetricsReader) QueryRange(_ context.Context, orgID uuid.UUID, rq telemetry.RangeQuery) ([]telemetry.RangeSeries, error) {
@@ -57,10 +63,23 @@ func (f *fakeMetricsReader) QueryInstantLookback(_ context.Context, orgID uuid.U
 	return f.instant, nil
 }
 
-func seedOwnedDevice(t *testing.T, srv *Server, ownerID uuid.UUID) *device.Device {
+// CountAnomalyBands records the thresholds the summary handler passed and
+// returns the canned band rollup.
+func (f *fakeMetricsReader) CountAnomalyBands(_ context.Context, orgID uuid.UUID, watch, anomalous float64, _ time.Time, _ time.Duration) (telemetry.BandCounts, error) {
+	f.bandsOrg = orgID
+	f.bandsWatch = watch
+	f.bandsAnom = anomalous
+	f.bandsSeen++
+	if f.bandsErr != nil {
+		return telemetry.BandCounts{}, f.bandsErr
+	}
+	return f.bands, nil
+}
+
+func seedOwnedDevice(t *testing.T, srv *Server) *device.Device {
 	t.Helper()
 	ctx := testTenantContext(t)
-	group := &device.Group{ID: uuid.New(), Name: "metrics-group", OwnerID: ownerID}
+	group := &device.Group{ID: uuid.New(), Name: "metrics-group"}
 	require.NoError(t, srv.groups.Create(ctx, group))
 	dev := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "metrics-host", OS: "linux", Status: db.StatusOnline}
 	require.NoError(t, srv.devices.Upsert(ctx, dev))
@@ -69,8 +88,8 @@ func seedOwnedDevice(t *testing.T, srv *Server, ownerID uuid.UUID) *device.Devic
 
 func TestGetDeviceMetricsHandler(t *testing.T) {
 	srv, cfg := newTestServer(t)
-	user, token := seedTestUser(t, srv, cfg, "metrics@example.com", false)
-	dev := seedOwnedDevice(t, srv, user.ID)
+	_, token := seedTestUser(t, srv, cfg, "metrics@example.com", false)
+	dev := seedOwnedDevice(t, srv)
 	path := "/api/v1/devices/" + dev.ID.String() + "/metrics?from=2026-07-02T00:00:00Z&to=2026-07-02T01:00:00Z"
 
 	t.Run("503 when telemetry not configured", func(t *testing.T) {
@@ -86,12 +105,11 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("403 when caller does not own the device group", func(t *testing.T) {
-		other, _ := seedTestUser(t, srv, cfg, "other-metrics@example.com", false)
-		foreign := seedOwnedDevice(t, srv, other.ID)
+	t.Run("200 for another member of the same organization", func(t *testing.T) {
+		_, peerToken := seedTestUser(t, srv, cfg, "other-metrics@example.com", false)
 		srv.telemetryReader = &fakeMetricsReader{}
-		w := doRequest(srv, http.MethodGet, "/api/v1/devices/"+foreign.ID.String()+"/metrics?from=2026-07-02T00:00:00Z&to=2026-07-02T01:00:00Z", token, nil)
-		assert.Equal(t, http.StatusForbidden, w.Code)
+		w := doRequest(srv, http.MethodGet, path, peerToken, nil)
+		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
 	t.Run("200 maps avg + avg_of_10s band, scopes to device, defaults band on", func(t *testing.T) {
@@ -227,9 +245,8 @@ func TestAssembleMetricRangeDimFilterAndDownsampled(t *testing.T) {
 }
 
 func TestEnrichAnomalyRates(t *testing.T) {
-	srv, cfg := newTestServer(t)
-	user, _ := seedTestUser(t, srv, cfg, "enrich@example.com", false)
-	dev := seedOwnedDevice(t, srv, user.ID)
+	srv, _ := newTestServer(t)
+	dev := seedOwnedDevice(t, srv)
 	other := uuid.New()
 
 	fake := &fakeMetricsReader{instant: []telemetry.InstantValue{

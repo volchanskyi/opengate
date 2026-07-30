@@ -201,13 +201,45 @@ components:
           type: string
           description: Optional operator note recorded while entering maintenance.
 
-    MaintenanceSummary:
+    DeviceSummary:
       type: object
-      required: [count]
+      description: >-
+        Fixed-size fleet rollup for the dashboard tiles. Always describes the
+        caller's own organization, administrators included, so the status counts
+        and the health bands cover one device set.
+      required: [total, online, offline, maintenance, health]
       properties:
-        count:
+        total:
           type: integer
-          description: Number of devices in the tenant currently in maintenance.
+          description: Devices in the organization.
+        online:
+          type: integer
+          description: Devices with a live agent connection.
+        offline:
+          type: integer
+          description: total − online; a connecting device counts as offline.
+        maintenance:
+          type: integer
+          description: Devices currently in maintenance mode.
+        health:
+          $ref: "#/components/schemas/FleetHealthCounts"
+
+    FleetHealthCounts:
+      type: object
+      description: >-
+        Devices per edge-health band, classified by the latest node anomaly
+        rate. unknown is total minus the three measured bands — the devices that
+        reported no rate in the badge lookback window.
+      required: [anomalous, watch, healthy, unknown]
+      properties:
+        anomalous:
+          type: integer
+        watch:
+          type: integer
+        healthy:
+          type: integer
+        unknown:
+          type: integer
 
     PurgeJob:
       type: object
@@ -577,16 +609,17 @@ components:
 
     Group:
       type: object
-      required: [id, name, owner_id, created_at, updated_at]
+      description: >-
+        A named collection of devices within one organization. A group is a
+        filing label, not an access boundary — every member of an organization
+        sees every group in it.
+      required: [id, name, created_at, updated_at]
       properties:
         id:
           type: string
           format: uuid
         name:
           type: string
-        owner_id:
-          type: string
-          format: uuid
         created_at:
           type: string
           format: date-time
@@ -1314,12 +1347,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
 
   /api/v1/devices/{id}:
     get:
@@ -1343,12 +1370,6 @@ paths:
                 $ref: "#/components/schemas/Device"
         "401":
           description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
           content:
             application/json:
               schema:
@@ -1470,12 +1491,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found
           content:
@@ -1489,19 +1504,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
-  /api/v1/devices/maintenance-summary:
+  /api/v1/devices/summary:
     get:
-      operationId: getDeviceMaintenanceSummary
-      summary: Count devices currently in maintenance
+      operationId: getDeviceSummary
+      summary: Fleet rollup for the dashboard
+      description: >-
+        Returns a fixed-size count of the caller's organization — status tiles
+        plus edge-health bands — in one aggregate row and one instant telemetry
+        query. The response size does not grow with the fleet.
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Fleet maintenance summary
+          description: Fleet summary
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MaintenanceSummary"
+                $ref: "#/components/schemas/DeviceSummary"
         "401":
           description: Unauthorized
           content:
@@ -1547,12 +1566,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found
           content:
@@ -1584,12 +1597,6 @@ paths:
           description: Hardware report requested, poll again shortly
         "401":
           description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
           content:
             application/json:
               schema:
@@ -1923,12 +1930,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found or offline
           content:
@@ -1986,12 +1987,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found
           content:
@@ -2009,6 +2004,7 @@ paths:
     post:
       operationId: createGroup
       summary: Create a device group
+      description: Requires administrator access.
       security:
         - bearerAuth: []
       requestBody:
@@ -2036,9 +2032,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
     get:
       operationId: listGroups
-      summary: List user's groups
+      summary: List the organization's device groups
       security:
         - bearerAuth: []
       responses:
@@ -2083,12 +2085,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
         "404":
           description: Group not found
           content:
@@ -2098,6 +2094,7 @@ paths:
     delete:
       operationId: deleteGroup
       summary: Delete group
+      description: Requires administrator access.
       security:
         - bearerAuth: []
       parameters:
@@ -2166,12 +2163,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
         "409":
           description: Agent not connected
           content:
@@ -2211,12 +2202,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
 
   /api/v1/sessions/{token}:
     delete:
@@ -2239,12 +2224,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
         "404":
           description: Session not found
           content:
@@ -2256,6 +2235,10 @@ paths:
     post:
       operationId: amtPowerAction
       summary: Send power command to AMT device
+      description: >-
+        Open to every member of the organization that owns the device. The
+        managed device behind the AMT identity is resolved in the caller's
+        tenant scope, so an identity outside it answers 404.
       security:
         - bearerAuth: []
       parameters:
@@ -2282,12 +2265,6 @@ paths:
                 $ref: "#/components/schemas/ApiError"
         "404":
           description: Device not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "403":
-          description: Forbidden
           content:
             application/json:
               schema:

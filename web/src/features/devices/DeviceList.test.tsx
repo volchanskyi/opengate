@@ -31,7 +31,7 @@ describe('DeviceList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useDeviceStore.setState({
-      groups: [{ id: 'g1', name: 'Group A', owner_id: 'u1', created_at: '', updated_at: '' }],
+      groups: [{ id: 'g1', name: 'Group A', created_at: '', updated_at: '' }],
       devices: [],
       selectedGroupId: null,
       selectedDevice: null,

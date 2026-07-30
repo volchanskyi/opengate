@@ -73,8 +73,7 @@ func newLinkEnv(t *testing.T) *linkEnv {
 // row reports systemUUID — the state a registered agent leaves behind.
 func seedDeviceWithSystemUUID(t *testing.T, orgCtx context.Context, env *linkEnv, systemUUID uuid.UUID) *device.Device {
 	t.Helper()
-	owner := testutil.SeedUser(t, orgCtx, env.store)
-	group := testutil.SeedGroup(t, orgCtx, env.store, owner.ID)
+	group := testutil.SeedGroup(t, orgCtx, env.store)
 	dev := testutil.SeedDevice(t, orgCtx, env.store, group.ID)
 	available := true
 	require.NoError(t, env.hardware.Upsert(orgCtx, &device.Hardware{

@@ -96,7 +96,7 @@ func setupControlTest(t *testing.T, fake *fakeAgentControl) *controlTestEnv {
 	ctx := dbtx.WithDefaultTenant(t.Context(), true)
 
 	user := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, user.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	dev := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	lookup := &stubAgentGetter{agents: map[protocol.DeviceID]AgentControl{dev.ID: fake}}

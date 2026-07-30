@@ -10,8 +10,9 @@ import (
 	"testing"
 )
 
-// TestAMTAdminOnly verifies that all AMT endpoints require admin access.
-func TestAMTAdminOnly(t *testing.T) {
+// TestAMTPowerActionIsOpenToOrgMembers verifies that an out-of-band power
+// command is a device command: organization membership is the whole gate.
+func TestAMTPowerActionIsOpenToOrgMembers(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)
@@ -21,24 +22,22 @@ func TestAMTAdminOnly(t *testing.T) {
 	admin, _ := srv.users.GetByEmail(ctx, "amt-admin@example.com")
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
-	owner := testutil.SeedUser(t, ctx, srv.store)
-	group := testutil.SeedGroup(t, ctx, srv.store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, srv.store)
 	dev := testutil.SeedDevice(t, ctx, srv.store, group.ID)
 	amtDevice := testutil.SeedAMTDevice(t, ctx, srv.store, dev.ID)
 
-	t.Run("AMT power action regular forbidden", func(t *testing.T) {
-		body := map[string]string{"action": "power_on"}
-		w := doRequest(srv, http.MethodPost, "/api/v1/amt/devices/"+amtDevice.UUID.String()+"/power", regularToken, body)
-		assert.Equal(t, http.StatusForbidden, w.Code)
-	})
-
-	t.Run("AMT power action admin reaches the operator", func(t *testing.T) {
-		body := map[string]string{"action": "power_on"}
-		w := doRequest(srv, http.MethodPost, "/api/v1/amt/devices/"+amtDevice.UUID.String()+"/power", adminToken, body)
-		// The device has no live CIRA tunnel, so the operator refuses with 409 —
-		// which is the proof the request cleared the admin gate.
-		assert.Equal(t, http.StatusConflict, w.Code)
-	})
+	// The device has no live CIRA tunnel, so the operator refuses with 409 —
+	// which is the proof the request cleared authorization.
+	for name, token := range map[string]string{
+		"member": regularToken,
+		"admin":  adminToken,
+	} {
+		t.Run("AMT power action "+name+" reaches the operator", func(t *testing.T) {
+			body := map[string]string{"action": "power_on"}
+			w := doRequest(srv, http.MethodPost, "/api/v1/amt/devices/"+amtDevice.UUID.String()+"/power", token, body)
+			assert.Equal(t, http.StatusConflict, w.Code)
+		})
+	}
 }
 
 // TestPasswordValidation verifies password length constraints during registration.

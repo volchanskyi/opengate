@@ -55,8 +55,8 @@ func (i *InstrumentedDevices) ListAll(ctx context.Context) ([]*Device, error) {
 	return observe1(i.observer, "device.Device.ListAll", func() ([]*Device, error) { return i.inner.ListAll(ctx) })
 }
 
-func (i *InstrumentedDevices) ListForOwner(ctx context.Context, ownerID uuid.UUID) ([]*Device, error) {
-	return observe1(i.observer, "device.Device.ListForOwner", func() ([]*Device, error) { return i.inner.ListForOwner(ctx, ownerID) })
+func (i *InstrumentedDevices) GetByAMTUUID(ctx context.Context, amtUUID uuid.UUID) (*Device, error) {
+	return observe1(i.observer, "device.Device.GetByAMTUUID", func() (*Device, error) { return i.inner.GetByAMTUUID(ctx, amtUUID) })
 }
 
 func (i *InstrumentedDevices) Delete(ctx context.Context, id DeviceID) error {
@@ -79,8 +79,8 @@ func (i *InstrumentedDevices) SetMaintenance(ctx context.Context, id DeviceID, o
 	return observe0(i.observer, "device.Device.SetMaintenance", func() error { return i.inner.SetMaintenance(ctx, id, on, by, reason) })
 }
 
-func (i *InstrumentedDevices) CountInMaintenance(ctx context.Context) (int, error) {
-	return observe1(i.observer, "device.Device.CountInMaintenance", func() (int, error) { return i.inner.CountInMaintenance(ctx) })
+func (i *InstrumentedDevices) Counts(ctx context.Context) (Counts, error) {
+	return observe1(i.observer, "device.Device.Counts", func() (Counts, error) { return i.inner.Counts(ctx) })
 }
 
 // InstrumentedGroups decorates a GroupRepository with per-call observation.
@@ -102,8 +102,8 @@ func (i *InstrumentedGroups) Get(ctx context.Context, id GroupID) (*Group, error
 	return observe1(i.observer, "device.Group.Get", func() (*Group, error) { return i.inner.Get(ctx, id) })
 }
 
-func (i *InstrumentedGroups) List(ctx context.Context, ownerID uuid.UUID) ([]*Group, error) {
-	return observe1(i.observer, "device.Group.List", func() ([]*Group, error) { return i.inner.List(ctx, ownerID) })
+func (i *InstrumentedGroups) List(ctx context.Context) ([]*Group, error) {
+	return observe1(i.observer, "device.Group.List", func() ([]*Group, error) { return i.inner.List(ctx) })
 }
 
 func (i *InstrumentedGroups) Delete(ctx context.Context, id GroupID) error {

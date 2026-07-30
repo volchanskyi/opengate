@@ -27,8 +27,7 @@ type amtFixture struct {
 // fixture's own device too, so cases needing two clones call it again.
 func (f amtFixture) seedSibling(t *testing.T) device.DeviceID {
 	t.Helper()
-	owner := testutil.SeedUser(t, f.ctx, f.store)
-	group := testutil.SeedGroup(t, f.ctx, f.store, owner.ID)
+	group := testutil.SeedGroup(t, f.ctx, f.store)
 	return testutil.SeedDevice(t, f.ctx, f.store, group.ID).ID
 }
 

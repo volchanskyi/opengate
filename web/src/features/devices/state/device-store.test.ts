@@ -58,7 +58,7 @@ describe('device store', () => {
     // createGroup, deleteGroup, deleteDevice, updateDeviceGroup, restartAgent,
     // fetchHardware, upgradeAgent, refreshDevice — all pass `loading: false`.
     // Any mutant flipping that to `true` would briefly set isLoading=true.
-    mockPost.mockResolvedValue({ data: { id: 'g2', name: 'g', owner_id: 'u1', created_at: '', updated_at: '' }, error: undefined });
+    mockPost.mockResolvedValue({ data: { id: 'g2', name: 'g', created_at: '', updated_at: '' }, error: undefined });
     mockDelete.mockResolvedValue({ error: undefined });
     mockPatch.mockResolvedValue({ data: { id: 'd1' }, error: undefined });
     mockGet.mockResolvedValue({ data: { id: 'd1' }, error: undefined });
@@ -197,9 +197,9 @@ describe('device store', () => {
   });
 
   it('createGroup appends to list and sends body name', async () => {
-    useDeviceStore.setState({ groups: [{ id: 'g1', name: 'Existing', owner_id: 'u1', created_at: '', updated_at: '' }] });
+    useDeviceStore.setState({ groups: [{ id: 'g1', name: 'Existing', created_at: '', updated_at: '' }] });
     mockPost.mockResolvedValueOnce({
-      data: { id: 'g2', name: 'New Group', owner_id: 'u1', created_at: '', updated_at: '' },
+      data: { id: 'g2', name: 'New Group', created_at: '', updated_at: '' },
       error: undefined,
     });
 
@@ -211,7 +211,7 @@ describe('device store', () => {
   });
 
   it('createGroup does NOT mutate list on error', async () => {
-    useDeviceStore.setState({ groups: [{ id: 'g1', name: 'Existing', owner_id: 'u1', created_at: '', updated_at: '' }] });
+    useDeviceStore.setState({ groups: [{ id: 'g1', name: 'Existing', created_at: '', updated_at: '' }] });
     mockPost.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
 
     await useDeviceStore.getState().createGroup('New Group');
@@ -223,8 +223,8 @@ describe('device store', () => {
   it('deleteGroup removes from list and clears selection if active', async () => {
     useDeviceStore.setState({
       groups: [
-        { id: 'g1', name: 'A', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'B', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'A', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'B', created_at: '', updated_at: '' },
       ],
       selectedGroupId: 'g1',
     });
@@ -243,8 +243,8 @@ describe('device store', () => {
   it('deleteGroup keeps selection when removing a different group', async () => {
     useDeviceStore.setState({
       groups: [
-        { id: 'g1', name: 'A', owner_id: 'u1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'B', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'A', created_at: '', updated_at: '' },
+        { id: 'g2', name: 'B', created_at: '', updated_at: '' },
       ],
       selectedGroupId: 'g2',
     });
@@ -259,7 +259,7 @@ describe('device store', () => {
   it('deleteGroup leaves list and selection alone on error', async () => {
     useDeviceStore.setState({
       groups: [
-        { id: 'g1', name: 'A', owner_id: 'u1', created_at: '', updated_at: '' },
+        { id: 'g1', name: 'A', created_at: '', updated_at: '' },
       ],
       selectedGroupId: 'g1',
     });
@@ -700,23 +700,32 @@ describe('device store', () => {
     expect(peak).toBe(false);
   });
 
-  it('fetchMaintenanceSummary sets the fleet in-maintenance count', async () => {
-    mockGet.mockResolvedValueOnce({ data: { count: 4 }, error: undefined });
+  it('fetchSummary stores the fleet rollup from one request', async () => {
+    const summary = {
+      total: 9, online: 5, offline: 4, maintenance: 2,
+      health: { anomalous: 1, watch: 2, healthy: 3, unknown: 3 },
+    };
+    mockGet.mockResolvedValueOnce({ data: summary, error: undefined });
 
-    await useDeviceStore.getState().fetchMaintenanceSummary();
+    await useDeviceStore.getState().fetchSummary();
 
-    expect(mockGet).toHaveBeenCalledWith('/api/v1/devices/maintenance-summary');
-    expect(useDeviceStore.getState().maintenanceCount).toBe(4);
+    expect(mockGet).toHaveBeenCalledWith('/api/v1/devices/summary');
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(useDeviceStore.getState().summary).toEqual(summary);
   });
 
-  it('fetchMaintenanceSummary leaves the count unchanged on error', async () => {
-    useDeviceStore.setState({ maintenanceCount: 2 });
+  it('fetchSummary leaves the last rollup in place on error', async () => {
+    const summary = {
+      total: 3, online: 3, offline: 0, maintenance: 0,
+      health: { anomalous: 0, watch: 0, healthy: 3, unknown: 0 },
+    };
+    useDeviceStore.setState({ summary });
     mockGet.mockResolvedValueOnce({ data: undefined, error: { error: 'unauthorized' } });
 
-    await useDeviceStore.getState().fetchMaintenanceSummary();
+    await useDeviceStore.getState().fetchSummary();
 
-    // Kills `if (res.ok)` → `if (true)` mutant (would set count to undefined→NaN).
-    expect(useDeviceStore.getState().maintenanceCount).toBe(2);
+    // Kills `if (res.ok)` → `if (true)` mutant (would blank the tiles).
+    expect(useDeviceStore.getState().summary).toEqual(summary);
   });
 
   it('fetchLogs records which device a pane holds', async () => {

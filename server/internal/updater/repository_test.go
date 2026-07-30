@@ -101,8 +101,7 @@ func TestPostgresDeviceUpdates_CRUD(t *testing.T) {
 	repo := testutil.NewTestDeviceUpdates(t, store)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 
-	user := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, user.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	device := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	t.Run("create populates ID and persists", func(t *testing.T) {
@@ -146,10 +145,8 @@ func TestPostgresDeviceUpdates_TenantDeny(t *testing.T) {
 	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
 	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
 
-	userA := testutil.SeedUser(t, ctxA, store)
-	userB := testutil.SeedUser(t, ctxB, store)
-	groupA := testutil.SeedGroup(t, ctxA, store, userA.ID)
-	groupB := testutil.SeedGroup(t, ctxB, store, userB.ID)
+	groupA := testutil.SeedGroup(t, ctxA, store)
+	groupB := testutil.SeedGroup(t, ctxB, store)
 	deviceA := testutil.SeedDevice(t, ctxA, store, groupA.ID)
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 	require.NoError(t, repo.Create(ctxA, &updater.DeviceUpdate{DeviceID: deviceA.ID, Version: "tenant-deny", Status: updater.StatusPending}))

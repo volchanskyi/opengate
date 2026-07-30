@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/url"
@@ -208,4 +209,57 @@ func assertAMTDeviceLinkDownReversal(t *testing.T, ctx context.Context, db *sql.
 	assert.Zero(t, amtLinkColumnCount(t, ctx, db), "AMT hardware columns should be gone after 008 down rollback")
 	assert.Equal(t, []string{"firmware", "hostname", "model"}, amtDeviceColumnNames(t, ctx, db),
 		"the 008 down rollback should restore the original amt_devices columns")
+}
+
+// groupOwnerNullability reports whether groups_.owner_id exists and, when it
+// does, whether the column accepts NULL.
+func groupOwnerNullability(t *testing.T, ctx context.Context, db *sql.DB) (bool, bool) {
+	t.Helper()
+	var nullable sql.NullString
+	err := db.QueryRowContext(ctx, `
+		SELECT is_nullable FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'groups_' AND column_name = 'owner_id'`).Scan(&nullable)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false
+	}
+	require.NoError(t, err)
+	return true, nullable.String == "YES"
+}
+
+// groupOwnerIndexCount reports how many indexes cover the dropped
+// (org_id, owner_id) pair.
+func groupOwnerIndexCount(t *testing.T, ctx context.Context, db *sql.DB) int {
+	t.Helper()
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM pg_indexes
+		WHERE schemaname = 'public' AND indexname = 'idx_groups_org_id_owner_id'`).Scan(&count))
+	return count
+}
+
+// assertGroupOwnerDropped confirms migration 009 removed the group-ownership
+// column and the index built on it. Organization is the visibility boundary, so
+// nothing reads a group owner any more.
+func assertGroupOwnerDropped(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	exists, _ := groupOwnerNullability(t, ctx, db)
+	assert.False(t, exists, "groups_.owner_id should be gone after migration 009")
+	assert.Zero(t, groupOwnerIndexCount(t, ctx, db), "the owner index should be gone after migration 009")
+
+	// The surviving rows keep their organization, which is what scopes them now.
+	var orphaned int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM groups_ WHERE org_id IS NULL`).Scan(&orphaned))
+	assert.Zero(t, orphaned, "every group should still carry its organization")
+}
+
+// assertGroupOwnerDownReversal confirms the 009 down rollback re-adds owner_id.
+// Dropping a column is lossy, so the restored column is nullable — the original
+// NOT NULL cannot be recreated without the data it held.
+func assertGroupOwnerDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	exists, nullable := groupOwnerNullability(t, ctx, db)
+	assert.True(t, exists, "groups_.owner_id should be back after the 009 down rollback")
+	assert.True(t, nullable, "the restored owner_id is nullable — the dropped values cannot be recovered")
+	assert.Equal(t, 1, groupOwnerIndexCount(t, ctx, db), "the owner index should be back after the 009 down rollback")
 }

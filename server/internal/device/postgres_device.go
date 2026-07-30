@@ -45,11 +45,8 @@ const (
 		`WHERE d.org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean
 		 ORDER BY d.hostname`
 
-	listDevicesForOwnerQuery = deviceSelect +
-		`LEFT JOIN groups_ g ON d.group_id = g.id
-		 WHERE d.org_id = current_setting('app.current_org')::uuid
-		   AND (g.owner_id = $1 OR d.group_id IS NULL)
-		 ORDER BY d.hostname`
+	getDeviceByAMTUUIDQuery = deviceSelect +
+		`WHERE d.org_id = current_setting('app.current_org')::uuid AND a.uuid = $1`
 )
 
 func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
@@ -157,14 +154,17 @@ func (p *PostgresDevices) ListAll(ctx context.Context) ([]*Device, error) {
 	return devices, err
 }
 
-func (p *PostgresDevices) ListForOwner(ctx context.Context, ownerID uuid.UUID) ([]*Device, error) {
-	var devices []*Device
+func (p *PostgresDevices) GetByAMTUUID(ctx context.Context, amtUUID uuid.UUID) (*Device, error) {
+	var d *Device
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		var err error
-		devices, err = queryDevices(ctx, tx, listDevicesForOwnerQuery, ownerID)
+		d, err = scanDevice(tx.QueryRowContext(ctx, getDeviceByAMTUUIDQuery, amtUUID))
 		return err
 	})
-	return devices, err
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrDeviceNotFound
+	}
+	return d, err
 }
 
 type queryer interface {

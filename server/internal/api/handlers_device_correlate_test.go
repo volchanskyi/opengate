@@ -34,10 +34,10 @@ func (f *fakeCorrelator) Correlate(_ context.Context, orgID uuid.UUID, req corre
 
 func TestCorrelateDeviceHandler(t *testing.T) {
 	srv, cfg := newTestServer(t)
-	user, token := seedTestUser(t, srv, cfg, "corr@example.com", false)
+	_, token := seedTestUser(t, srv, cfg, "corr@example.com", false)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "corr-group", OwnerID: user.ID}
+	group := &device.Group{ID: uuid.New(), Name: "corr-group"}
 	require.NoError(t, srv.groups.Create(ctx, group))
 	dev := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "corr-host", OS: "linux", Status: db.StatusOnline}
 	require.NoError(t, srv.devices.Upsert(ctx, dev))

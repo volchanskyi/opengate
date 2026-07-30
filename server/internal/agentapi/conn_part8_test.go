@@ -54,8 +54,7 @@ func TestAgentConn_KnownMessageDispatchesAfterUnknownMessage(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	user := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, user.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	d := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	ac, buf := newTestAgentConn(t, d.ID, store)

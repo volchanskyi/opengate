@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useDeviceStore } from './state/device-store';
+import { useAuthStore } from '../../state/auth-store';
 import { useSessionStore } from '../session';
 import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
@@ -14,7 +15,11 @@ import { DeviceMetrics } from './DeviceMetrics';
 import { DeviceInventory } from './DeviceInventory';
 import type { components } from '../../types/api';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { useVisibleInterval } from '../../lib/use-visible-interval';
 import { PlayIcon, RestartIcon, SpinnerIcon, CheckIcon, TrashIcon } from '../../components/icons';
+
+/** How often the detail page re-reads the device and its sessions while visible. */
+const DEVICE_DETAIL_POLL_MS = 30_000;
 
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 type DeviceAMT = components['schemas']['DeviceAMT'];
@@ -84,6 +89,10 @@ export function DeviceDetail() {
   const sendPowerAction = useDeviceStore((s) => s.sendPowerAction);
   const addToast = useToastStore((s) => s.addToast);
   const groups = useDeviceStore((s) => s.groups);
+  // Deleting a device and moving it between groups are configuration changes:
+  // the server refuses them for a non-admin, so the controls are absent rather
+  // than present-and-failing.
+  const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const fetchGroups = useDeviceStore((s) => s.fetchGroups);
   const updateDeviceGroup = useDeviceStore((s) => s.updateDeviceGroup);
   const restartAgent = useDeviceStore((s) => s.restartAgent);
@@ -120,14 +129,11 @@ export function DeviceDetail() {
   // re-read the session list on the same beat so a session that ended anywhere
   // — tab closed, agent restarted, relay torn down — leaves the card.
   // Uses refreshDevice (not fetchDevice) to preserve hardware/logs state.
-  useEffect(() => {
+  useVisibleInterval(() => {
     if (!id) return;
-    const interval = setInterval(() => {
-      fireAndForget(refreshDevice(id));
-      fireAndForget(fetchSessions(id));
-    }, 30_000);
-    return () => clearInterval(interval);
-  }, [id, refreshDevice, fetchSessions]);
+    fireAndForget(refreshDevice(id));
+    fireAndForget(fetchSessions(id));
+  }, DEVICE_DETAIL_POLL_MS);
 
   // Pull the hardware inventory once whenever the agent first appears online and
   // on each offline→online transition (a reboot refreshes it) — but never on a
@@ -307,20 +313,22 @@ export function DeviceDetail() {
                 <CheckIcon />
               </span>
             )}
-            {confirmDelete && (
+            {isAdmin && confirmDelete && (
               <span role="alert" className="px-2 py-1.5 text-xs text-red-300">
                 Irreversible: permanently erases all of this device&apos;s telemetry and deprovisions its agent.
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => { fireAndForget(handleDelete()); }}
-              aria-label={confirmDelete ? 'Confirm Delete' : 'Delete Device'}
-              title={confirmDelete ? 'Confirm Delete' : 'Delete Device'}
-              className={`px-2.5 py-1.5 rounded text-xs font-medium inline-flex items-center ${confirmDelete ? 'bg-red-500 ring-2 ring-red-300' : 'bg-red-600 hover:bg-red-700'}`}
-            >
-              <TrashIcon />
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => { fireAndForget(handleDelete()); }}
+                aria-label={confirmDelete ? 'Confirm Delete' : 'Delete Device'}
+                title={confirmDelete ? 'Confirm Delete' : 'Delete Device'}
+                className={`px-2.5 py-1.5 rounded text-xs font-medium inline-flex items-center ${confirmDelete ? 'bg-red-500 ring-2 ring-red-300' : 'bg-red-600 hover:bg-red-700'}`}
+              >
+                <TrashIcon />
+              </button>
+            )}
           </div>
         </div>
 
@@ -351,7 +359,7 @@ export function DeviceDetail() {
 
         <MaintenancePanel device={device} onToggle={handleToggleMaintenance} />
 
-        {groups.length > 1 && (
+        {isAdmin && groups.length > 1 && (
           <div>
             <h3 className="text-sm font-semibold text-gray-300 mb-2">Move to Group</h3>
             <div className="flex gap-2">

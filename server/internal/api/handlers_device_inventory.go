@@ -11,16 +11,11 @@ import (
 
 // GetDeviceHardware implements StrictServerInterface.
 func (s *Server) GetDeviceHardware(ctx context.Context, request GetDeviceHardwareRequestObject) (GetDeviceHardwareResponseObject, error) {
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return GetDeviceHardware404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return GetDeviceHardware403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	hw, err := s.hardware.Get(ctx, request.Id)
@@ -49,22 +44,18 @@ func (s *Server) requestHardwareFromAgent(ctx context.Context, id device.DeviceI
 
 // GetDeviceInventory implements StrictServerInterface. It returns the device's
 // current auto-discovered footprint (ports, services, DB engines, containers,
-// packages) from the tenant-scoped inventory store. Read access is any device
-// viewer in the organization — group ownership, not the elevated admin gate.
+// packages) from the tenant-scoped inventory store. Read access is any member of
+// the organization — a fleet read, not the elevated admin gate.
 func (s *Server) GetDeviceInventory(ctx context.Context, request GetDeviceInventoryRequestObject) (GetDeviceInventoryResponseObject, error) {
 	if s.inventory == nil {
 		return GetDeviceInventory503JSONResponse{Error: "inventory not available"}, nil
 	}
 
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return GetDeviceInventory404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return GetDeviceInventory403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	components, err := s.inventory.ListForDevice(ctx, request.Id, 0)
@@ -88,7 +79,7 @@ func (s *Server) GetDeviceLogs(ctx context.Context, request GetDeviceLogsRequest
 		return resp, nil
 	}
 
-	if _, err := s.devices.Get(ctx, request.Id); err != nil {
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return GetDeviceLogs404JSONResponse{Error: msgDeviceNotFound}, nil
 		}

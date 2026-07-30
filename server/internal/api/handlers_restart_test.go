@@ -42,7 +42,7 @@ func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 	ctx := dbtx.WithDefaultTenant(t.Context(), true)
 
 	user := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, user.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	device := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))

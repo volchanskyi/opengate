@@ -9,13 +9,15 @@ test.describe("Device list", () => {
     await expect(authedPage.getByText(/no groups|no devices|create.*group/i)).toBeVisible();
   });
 
+  // Creating a group is admin-only; seeing it is not. Both tests seed with the
+  // admin token and then assert against an ordinary member's page.
   test("created group appears in sidebar", async ({
     authedPage,
-    testUser,
+    adminUser,
     request,
   }) => {
     const groupName = `e2e-group-${Date.now()}`;
-    await createGroup(request, testUser.token, groupName);
+    await createGroup(request, adminUser.token, groupName);
 
     await authedPage.goto("/devices");
     await authedPage.reload();
@@ -25,11 +27,11 @@ test.describe("Device list", () => {
 
   test("selected group shows empty device list", async ({
     authedPage,
-    testUser,
+    adminUser,
     request,
   }) => {
     const groupName = `e2e-empty-${Date.now()}`;
-    await createGroup(request, testUser.token, groupName);
+    await createGroup(request, adminUser.token, groupName);
 
     await authedPage.goto("/devices");
     await authedPage.reload();

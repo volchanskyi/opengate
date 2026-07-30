@@ -2,68 +2,49 @@ package api
 
 import (
 	"context"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/dbtx"
-	"github.com/volchanskyi/opengate/server/internal/device"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/volchanskyi/opengate/server/internal/auth"
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
-func TestIsGroupOwner(t *testing.T) {
+// TestDenyIfNotAdmin covers the mutation boundary helper every configuration
+// handler shares: admins pass through, everyone else gets the caller's
+// forbidden response.
+func TestDenyIfNotAdmin(t *testing.T) {
 	t.Parallel()
-	srv, cfg := newTestServer(t)
-	owner, ownerToken := seedTestUser(t, srv, cfg, "owner@example.com", false)
-	_ = ownerToken
 
-	// Create a group owned by the user.
-	groupID := uuid.New()
-	err := srv.groups.Create(testTenantContext(t), &device.Group{
-		ID:      groupID,
-		Name:    "test-group",
-		OwnerID: owner.ID,
-	})
-	require.NoError(t, err)
-
-	// Helper to build a context with claims for a specific user.
-	ctxWithUser := func(userID uuid.UUID, admin bool) context.Context {
+	ctxWithUser := func(admin bool) context.Context {
 		claims := &auth.Claims{
-			UserID:  userID,
+			UserID:  uuid.New(),
 			Email:   "test@test.com",
 			IsAdmin: admin,
 			OrgID:   dbtx.DefaultOrgID,
 		}
-		ctx := context.WithValue(t.Context(), claimsKey, claims)
-		return dbtx.WithDefaultTenant(ctx, admin)
+		return context.WithValue(t.Context(), claimsKey, claims)
 	}
 
-	t.Run("admin always returns true", func(t *testing.T) {
-		ctx := ctxWithUser(uuid.New(), true)
-		assert.True(t, srv.isGroupOwner(ctx, groupID))
-		assert.True(t, srv.isGroupOwner(ctx, uuid.Nil))
+	forbidden := DeleteDevice403JSONResponse{Error: msgAdminRequired}
+
+	t.Run("admin passes", func(t *testing.T) {
+		resp, denied := denyIfNotAdmin(ctxWithUser(true), forbidden)
+		assert.False(t, denied)
+		assert.Zero(t, resp)
 	})
 
-	t.Run("owner of group returns true", func(t *testing.T) {
-		ctx := ctxWithUser(owner.ID, false)
-		assert.True(t, srv.isGroupOwner(ctx, groupID))
+	t.Run("non-admin denied", func(t *testing.T) {
+		resp, denied := denyIfNotAdmin(ctxWithUser(false), forbidden)
+		assert.True(t, denied)
+		assert.Equal(t, forbidden, resp)
 	})
 
-	t.Run("non-owner of group returns false", func(t *testing.T) {
-		ctx := ctxWithUser(uuid.New(), false)
-		assert.False(t, srv.isGroupOwner(ctx, groupID))
-	})
-
-	t.Run("nil group ID returns true for any authenticated user", func(t *testing.T) {
-		ctx := ctxWithUser(uuid.New(), false)
-		assert.True(t, srv.isGroupOwner(ctx, uuid.Nil), "ungrouped devices should be accessible to all authenticated users")
-	})
-
-	t.Run("non-existent group returns false", func(t *testing.T) {
-		ctx := ctxWithUser(uuid.New(), false)
-		assert.False(t, srv.isGroupOwner(ctx, uuid.New()))
+	t.Run("unauthenticated denied", func(t *testing.T) {
+		_, denied := denyIfNotAdmin(t.Context(), forbidden)
+		assert.True(t, denied)
 	})
 }
 

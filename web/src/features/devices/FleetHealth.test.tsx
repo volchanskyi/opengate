@@ -4,33 +4,15 @@ import { MemoryRouter } from 'react-router';
 import type { components } from '../../types/api';
 import { FleetHealth } from './FleetHealth';
 
-type Device = components['schemas']['Device'];
+type FleetHealthCounts = components['schemas']['FleetHealthCounts'];
 
-function renderFleetHealth(devices: Device[]) {
-  return render(<MemoryRouter><FleetHealth devices={devices} /></MemoryRouter>);
-}
-
-function device(id: string, anomalyRate?: number): Device {
-  return {
-    id,
-    group_id: 'g1',
-    hostname: id,
-    os: 'linux',
-    agent_version: '1.0.0',
-    status: 'online',
-    capabilities: [],
-    last_seen: '',
-    created_at: '',
-    updated_at: '',
-    ...(anomalyRate === undefined ? {} : { anomaly_rate: anomalyRate }),
-  };
+function renderFleetHealth(counts: FleetHealthCounts) {
+  return render(<MemoryRouter><FleetHealth counts={counts} /></MemoryRouter>);
 }
 
 describe('FleetHealth', () => {
-  it('counts devices into health bands', () => {
-    renderFleetHealth([
-      device('a', 0.8), device('b', 0.9), device('c', 0.15), device('d', 0.01), device('e'),
-    ]);
+  it('renders the server-counted bands', () => {
+    renderFleetHealth({ anomalous: 2, watch: 1, healthy: 1, unknown: 1 });
     expect(screen.getByText('Anomalous').closest('a')).toHaveTextContent('2');
     expect(screen.getByText('Watch').closest('a')).toHaveTextContent('1');
     expect(screen.getByText('Healthy').closest('a')).toHaveTextContent('1');
@@ -43,7 +25,7 @@ describe('FleetHealth', () => {
   });
 
   it('each band card deep-links to the matching device-list health filter', () => {
-    renderFleetHealth([device('a', 0.8), device('c', 0.15), device('d', 0.01), device('e')]);
+    renderFleetHealth({ anomalous: 1, watch: 1, healthy: 1, unknown: 1 });
     expect(screen.getByText('Anomalous').closest('a')).toHaveAttribute('href', '/devices?health=anomalous');
     expect(screen.getByText('Watch').closest('a')).toHaveAttribute('href', '/devices?health=watch');
     expect(screen.getByText('Healthy').closest('a')).toHaveAttribute('href', '/devices?health=healthy');
@@ -51,7 +33,7 @@ describe('FleetHealth', () => {
   });
 
   it('renders a distribution bar when at least one device is monitored', () => {
-    renderFleetHealth([device('a', 0.8)]);
+    renderFleetHealth({ anomalous: 1, watch: 0, healthy: 0, unknown: 0 });
     const figure = screen.getByLabelText('Fleet health distribution');
     expect(figure).toBeInTheDocument();
     expect(figure.children[0]).toHaveStyle({ width: '100%' });
@@ -59,8 +41,13 @@ describe('FleetHealth', () => {
   });
 
   it('shows an empty message when no device has telemetry', () => {
-    renderFleetHealth([device('a'), device('b')]);
+    renderFleetHealth({ anomalous: 0, watch: 0, healthy: 0, unknown: 2 });
     expect(screen.getByText(/no edge telemetry yet/i)).toBeInTheDocument();
     expect(screen.queryByLabelText('Fleet health distribution')).toBeNull();
+  });
+
+  it('renders zeroes for an empty fleet without a distribution bar', () => {
+    renderFleetHealth({ anomalous: 0, watch: 0, healthy: 0, unknown: 0 });
+    expect(screen.getByText(/no edge telemetry yet/i)).toBeInTheDocument();
   });
 });

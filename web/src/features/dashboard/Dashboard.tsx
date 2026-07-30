@@ -2,6 +2,12 @@ import { useEffect } from 'react';
 import { Link } from 'react-router';
 import { useDeviceStore, FleetHealth } from '../devices';
 import { fireAndForget } from '../../lib/fire-and-forget';
+import { useVisibleInterval } from '../../lib/use-visible-interval';
+
+/** How often the dashboard refreshes its rollup while the tab is visible. */
+const POLL_MS = 15_000;
+
+const EMPTY_HEALTH = { anomalous: 0, watch: 0, healthy: 0, unknown: 0 };
 
 interface StatCardProps {
   readonly label: string;
@@ -30,43 +36,34 @@ function StatCard({ label, value, to, colorClasses = '' }: StatCardProps) {
 }
 
 export function Dashboard() {
-  const devices = useDeviceStore((s) => s.devices);
-  const maintenanceCount = useDeviceStore((s) => s.maintenanceCount);
-  const fetchDevices = useDeviceStore((s) => s.fetchDevices);
-  const fetchMaintenanceSummary = useDeviceStore((s) => s.fetchMaintenanceSummary);
+  const summary = useDeviceStore((s) => s.summary);
+  const fetchSummary = useDeviceStore((s) => s.fetchSummary);
 
   useEffect(() => {
-    fireAndForget(fetchDevices());
-    fireAndForget(fetchMaintenanceSummary());
-  }, [fetchDevices, fetchMaintenanceSummary]);
+    fireAndForget(fetchSummary());
+  }, [fetchSummary]);
 
-  // Poll device status and the maintenance count so the tiles stay current.
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fireAndForget(fetchDevices());
-      fireAndForget(fetchMaintenanceSummary());
-    }, 15_000);
-    return () => clearInterval(interval);
-  }, [fetchDevices, fetchMaintenanceSummary]);
-
-  const onlineCount = devices.filter((d) => d.status === 'online').length;
+  // Every tile reads one fixed-size response, so a refresh costs the same
+  // whatever the fleet size. A hidden tab polls nothing and catches up on
+  // re-show.
+  useVisibleInterval(() => { fireAndForget(fetchSummary()); }, POLL_MS);
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <h2 className="text-xl font-bold">Dashboard</h2>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Devices" value={devices.length} to="/devices"
+        <StatCard label="Total Devices" value={summary?.total ?? 0} to="/devices"
           colorClasses="border-l-4 border-l-blue-500 bg-blue-900/10" />
-        <StatCard label="Online" value={onlineCount} to="/devices?status=online"
+        <StatCard label="Online" value={summary?.online ?? 0} to="/devices?status=online"
           colorClasses="border-l-4 border-l-green-500 bg-green-900/10" />
-        <StatCard label="Offline" value={devices.length - onlineCount} to="/devices?status=offline"
+        <StatCard label="Offline" value={summary?.offline ?? 0} to="/devices?status=offline"
           colorClasses="border-l-4 border-l-amber-500 bg-amber-900/10" />
-        <StatCard label="In Maintenance" value={maintenanceCount} to="/devices?maintenance=true"
+        <StatCard label="In Maintenance" value={summary?.maintenance ?? 0} to="/devices?maintenance=true"
           colorClasses="border-l-4 border-l-sky-500 bg-sky-900/10" />
       </div>
 
-      <FleetHealth devices={devices} />
+      <FleetHealth counts={summary?.health ?? EMPTY_HEALTH} />
     </div>
   );
 }

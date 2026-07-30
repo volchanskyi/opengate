@@ -21,7 +21,7 @@ func TestPostgres_SessionCRUD(t *testing.T) {
 	repo := testutil.NewTestSessions(t, store)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store, owner.ID)
+	group := testutil.SeedGroup(t, ctx, store)
 	dev := testutil.SeedDevice(t, ctx, store, group.ID)
 
 	t.Run("create and get", func(t *testing.T) {
@@ -82,8 +82,8 @@ func TestPostgresSessions_TenantDeny(t *testing.T) {
 
 	userA := testutil.SeedUser(t, ctxA, store)
 	userB := testutil.SeedUser(t, ctxB, store)
-	groupA := testutil.SeedGroup(t, ctxA, store, userA.ID)
-	groupB := testutil.SeedGroup(t, ctxB, store, userB.ID)
+	groupA := testutil.SeedGroup(t, ctxA, store)
+	groupB := testutil.SeedGroup(t, ctxB, store)
 	deviceA := testutil.SeedDevice(t, ctxA, store, groupA.ID)
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 	sessionA := testutil.SeedAgentSession(t, ctxA, store, deviceA.ID, userA.ID)

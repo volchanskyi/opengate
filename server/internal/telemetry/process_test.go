@@ -23,12 +23,10 @@ func TestPostgresProcessRepositoryTenantDeny(t *testing.T) {
 	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
 	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
 
-	ownerA := testutil.SeedUser(t, ctxA, store)
-	groupA := testutil.SeedGroup(t, ctxA, store, ownerA.ID)
+	groupA := testutil.SeedGroup(t, ctxA, store)
 	deviceA := testutil.SeedDevice(t, ctxA, store, groupA.ID)
 
-	ownerB := testutil.SeedUser(t, ctxB, store)
-	groupB := testutil.SeedGroup(t, ctxB, store, ownerB.ID)
+	groupB := testutil.SeedGroup(t, ctxB, store)
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 
 	ts := time.Now().UTC().Truncate(time.Second)

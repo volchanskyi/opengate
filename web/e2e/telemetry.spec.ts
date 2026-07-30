@@ -51,7 +51,7 @@ test.describe("Device telemetry UI", () => {
   test.beforeEach(async ({ authedPage }) => {
     await authedPage.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => ok(route, fakeDevice()));
     await authedPage.route("**/api/v1/groups", (route: Route) =>
-      ok(route, [{ id: GROUP_ID, name: "default", owner_id: "x", created_at: "", updated_at: "" }]),
+      ok(route, [{ id: GROUP_ID, name: "default", created_at: "", updated_at: "" }]),
     );
     await authedPage.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) => ok(route, []));
     await authedPage.route("**/api/v1/amt/devices", (route: Route) => ok(route, []));

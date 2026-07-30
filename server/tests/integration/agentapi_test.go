@@ -282,8 +282,7 @@ func TestAgentConnect_FastPath_ValidHashRegisters(t *testing.T) {
 	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 
 	stream, deviceID := env.connectAgentFastPath(t, group.ID, env.caCertHash())
 	sendAgentRegister(t, stream)
@@ -298,8 +297,7 @@ func TestAgentConnect_FastPath_StaleHashRejected(t *testing.T) {
 	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
-	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store, user.ID)
+	group := testutil.SeedGroup(t, ctx, env.store)
 
 	var staleHash [48]byte // all zeros — never the real CA hash
 	stream, deviceID := env.connectAgentFastPath(t, group.ID, staleHash)

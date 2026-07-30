@@ -23,18 +23,14 @@ const (
 // single dimension from the connected agent's local store — the deep history that
 // central VictoriaMetrics (avg-only) does not keep. It is single-host and
 // server-mediated (no browser-to-agent access, no fan-out), bounded by the window
-// and the max_points cap. Access is device-scoped: a caller who does not own the
-// device's group is denied, so a history pull can never cross tenants.
+// and the max_points cap. Access is organization-scoped: the device lookup runs
+// in the caller's tenant scope, so a history pull can never cross tenants.
 func (s *Server) GetDeviceHistory(ctx context.Context, request GetDeviceHistoryRequestObject) (GetDeviceHistoryResponseObject, error) {
-	d, err := s.devices.Get(ctx, request.Id)
-	if err != nil {
+	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return GetDeviceHistory404JSONResponse{Error: msgDeviceNotFound}, nil
 		}
 		return nil, err
-	}
-	if !s.isGroupOwner(ctx, d.GroupID) {
-		return GetDeviceHistory403JSONResponse{Error: msgForbidden}, nil
 	}
 
 	dim := request.Params.Dim
