@@ -39,10 +39,23 @@ Use logical multi-tenancy in the shared PostgreSQL database:
   clusters are repaired/verified in
   [`cd.yml`](../../.github/workflows/cd.yml). The original Postgres role remains
   available for maintenance and full backups.
+- Run migrations on a dedicated, single-connection pool that carries
+  `app.is_admin` and `app.current_org` as startup options
+  ([`postgres.go`](../../server/internal/db/postgres.go)). That role is
+  `NOBYPASSRLS` and owns tables under forced RLS, so a migration that reads or
+  writes rows is subject to the tenant policy; because the policy resolves
+  `app.current_org` without a `missing_ok` fallback, an unscoped migration
+  connection aborts rather than silently matching no rows. The pool serving
+  application traffic never carries that scope.
 - Test the boundary with per-repository cross-tenant deny coverage, a static
   tenant-table SQL scoped-helper gate, and an automated migration rehearsal that
   proves backfill, RLS deny/admin bypass, `pg_dump`/restore, and `.down.sql`
   rollback in a dedicated Postgres container.
+- Exercise the migration chain against the deployed privilege model in
+  [`migrations_rls_test.go`](../../server/internal/db/migrations_rls_test.go):
+  the test container's default role is a superuser and bypasses RLS entirely, so
+  the test drops into a `NOSUPERUSER`/`NOBYPASSRLS` role that owns the schema.
+  It also asserts the application pool does not inherit the migration scope.
 
 Pre-tenant paths, such as login lookup and enrollment-token validation, opt into
 the default tenant explicitly. They are not hidden unscoped database reads.

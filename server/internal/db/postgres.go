@@ -11,9 +11,22 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	migratepgx "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-
-	_ "github.com/jackc/pgx/v5/stdlib" // register pgx driver with database/sql
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib" // also registers the pgx driver with database/sql
 )
+
+// migrationTenantScope gives the migration connection the cross-tenant reach
+// its statements need. Application tables carry FORCE ROW LEVEL SECURITY and
+// the deployed database role is NOBYPASSRLS, so a migration that reads or
+// writes rows is subject to the tenant policy just like a request is. That
+// policy reads app.current_org with no missing_ok fallback, so an absent GUC
+// aborts the migration instead of merely filtering it. Both values are set
+// because either side of the policy's OR may be evaluated first.
+//
+// The scope lives only on the short-lived migration pool below. The pool that
+// serves application traffic never carries it, so tenant isolation is
+// unchanged.
+const migrationTenantScope = "-c app.is_admin=true -c app.current_org=00000000-0000-0000-0000-000000000000"
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
@@ -64,7 +77,7 @@ func NewPostgresStoreWithOptions(ctx context.Context, databaseURL string, opts P
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	if err := runPostgresMigrations(db); err != nil {
+	if err := runPostgresMigrations(databaseURL); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrations: %w", err)
 	}
@@ -72,12 +85,36 @@ func NewPostgresStoreWithOptions(ctx context.Context, databaseURL string, opts P
 	return &PostgresStore{db: db}, nil
 }
 
-func runPostgresMigrations(db *sql.DB) error {
+// openMigrationDB returns a single-connection pool dedicated to migrations,
+// every connection of which carries migrationTenantScope. Any options the
+// caller already supplied are kept — the scope is appended, not substituted.
+func openMigrationDB(databaseURL string) (*sql.DB, error) {
+	cfg, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse database url: %w", err)
+	}
+	if existing := cfg.RuntimeParams["options"]; existing != "" {
+		cfg.RuntimeParams["options"] = existing + " " + migrationTenantScope
+	} else {
+		cfg.RuntimeParams["options"] = migrationTenantScope
+	}
+	migrationDB := stdlib.OpenDB(*cfg)
+	migrationDB.SetMaxOpenConns(1)
+	return migrationDB, nil
+}
+
+func runPostgresMigrations(databaseURL string) error {
+	migrationDB, err := openMigrationDB(databaseURL)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = migrationDB.Close() }()
+
 	sourceDriver, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
 		return fmt.Errorf("migration source: %w", err)
 	}
-	dbDriver, err := migratepgx.WithInstance(db, &migratepgx.Config{})
+	dbDriver, err := migratepgx.WithInstance(migrationDB, &migratepgx.Config{})
 	if err != nil {
 		return fmt.Errorf("migration db driver: %w", err)
 	}
