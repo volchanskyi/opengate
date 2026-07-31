@@ -427,15 +427,22 @@ Uses fake SDP strings — the relay is message-agnostic and just forwards binary
 
 ### k6 HTTP/WS Scenarios
 
-Three k6 scenarios in `load/k6/scenarios/`:
+Three k6 scenarios in [`load/k6/scenarios/`](../load/k6/scenarios/), each declaring
+its own VU ramp and thresholds in its `options` block:
 
-| Scenario | VUs | Duration | Thresholds |
-|----------|-----|----------|------------|
-| `api-baseline.js` | 50 | 2 min | p95 < 200ms, errors < 0.1% |
-| `relay-throughput.js` | 20 | 1 min | p95 relay latency < 50ms |
-| `concurrent-agents.js` | 100 | 2 min | p99 < 500ms, errors < 0.1% |
+| Scenario | Exercises |
+|----------|-----------|
+| [`api-baseline.js`](../load/k6/scenarios/api-baseline.js) | Health, current user, groups, and the device list under a steady ramp |
+| [`relay-throughput.js`](../load/k6/scenarios/relay-throughput.js) | Relay latency alongside constant health and group reads |
+| [`concurrent-agents.js`](../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's groups |
 
-Each scenario registers a test user in `setup()`, then exercises API endpoints (health, groups, devices, sessions) under load.
+`setup()` registers a throwaway member of the staging organization through
+[`load/k6/lib/session.js`](../load/k6/lib/session.js) and reads the groups that
+member can see. The scenarios drive read paths only: organization is the visibility
+boundary, so a member reads the whole fleet, while creating a group is administrator
+work the server refuses. A scenario that stood up its own fixtures would measure the
+403 path instead. `setup()` throws on an unexpected status, so a broken precondition
+names itself rather than turning every request in the run red.
 
 ### Go QUIC Load Harness
 

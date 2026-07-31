@@ -1,5 +1,6 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
+import { authHeaders, registerMember, visibleGroupIds, devicesUrl } from "../lib/session.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
@@ -16,50 +17,21 @@ export const options = {
 };
 
 export function setup() {
-  // Register a shared user for all VUs
-  const email = `agent-load-${Date.now()}@test.local`;
-  const regResp = http.post(
-    `${BASE_URL}/api/v1/auth/register`,
-    JSON.stringify({ email, password: "AgentLoadPass123!" }),
-    { headers: { "Content-Type": "application/json" } }
-  );
-  const token = regResp.json("token");
-
-  // Create multiple groups to distribute load
-  const groupIds = [];
-  for (let i = 0; i < 10; i++) {
-    const resp = http.post(
-      `${BASE_URL}/api/v1/groups`,
-      JSON.stringify({ name: `load-group-${Date.now()}-${i}` }),
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
-    groupIds.push(resp.json("id"));
-  }
-
-  return { token, groupIds };
+  // One shared member for every VU, reading the groups the organization has.
+  const token = registerMember(BASE_URL, "agent-load");
+  return { token, groupIds: visibleGroupIds(BASE_URL, token) };
 }
 
 export default function (data) {
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${data.token}`,
-  };
+  const headers = authHeaders(data.token);
 
   // Simulate agent-like HTTP operations at scale
   const health = http.get(`${BASE_URL}/api/v1/health`);
   check(health, { "health ok": (r) => r.status === 200 });
 
-  // Random group device listing
+  // Spread the device reads across the groups in the fleet
   const idx = Math.floor(Math.random() * data.groupIds.length);
-  const devices = http.get(
-    `${BASE_URL}/api/v1/devices?group_id=${data.groupIds[idx]}`,
-    { headers }
-  );
+  const devices = http.get(devicesUrl(BASE_URL, data.groupIds[idx]), { headers });
   check(devices, { "devices ok": (r) => r.status === 200 });
 
   // List sessions (even if empty)
