@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import type { components } from '../../types/api';
-import { HEALTH_META, type HealthBand } from './health';
+import { HEALTH_META, type HealthBand, type HealthMeta } from './health';
 
 type FleetHealthCounts = components['schemas']['FleetHealthCounts'];
 
@@ -12,7 +12,7 @@ type FleetHealthCounts = components['schemas']['FleetHealthCounts'];
 export function FleetHealth({ counts }: { readonly counts: FleetHealthCounts }) {
   // Display order (worst first, "no data" last). Every band is read through a
   // literal property access, never a computed key.
-  const cards: { band: HealthBand; meta: typeof HEALTH_META.healthy; count: number }[] = [
+  const cards: { band: HealthBand; meta: HealthMeta; count: number }[] = [
     { band: 'anomalous', meta: HEALTH_META.anomalous, count: counts.anomalous },
     { band: 'watch', meta: HEALTH_META.watch, count: counts.watch },
     { band: 'healthy', meta: HEALTH_META.healthy, count: counts.healthy },

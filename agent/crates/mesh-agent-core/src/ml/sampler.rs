@@ -290,6 +290,19 @@ mod tests {
         );
     }
 
+    /// An idle interface is a measurement, not a gap. Unchanged counters mean
+    /// zero bytes moved in the interval, so the rate is `Some(0.0)` — reporting
+    /// `None` instead would make a quiet link indistinguishable from a link
+    /// whose rate could not be computed, and would break the "silent host"
+    /// signal that a flat zero line gives an investigator.
+    #[test]
+    fn idle_interface_reports_zero_not_unknown() {
+        assert_eq!(
+            byte_rate(Some(("eth0", 9_000)), ("eth0", 9_000), 5.0),
+            Some(0.0)
+        );
+    }
+
     #[test]
     fn counter_reset_or_wrap_yields_no_rate() {
         // cur < prev (reboot / counter wrap) must never produce a negative or

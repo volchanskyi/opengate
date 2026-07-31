@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures";
+import { stubEmptyFleet } from "./helpers/fleet-stub";
 
 // Visual regression baselines (Chromium only). Cross-browser baselines
 // would explode the diff matrix and are intentionally out of scope for
@@ -44,11 +45,16 @@ test.describe("Visual regression (Chromium baselines)", () => {
     await expect(page).toHaveScreenshot("register.png", screenshotOptions);
   });
 
+  // The baseline is the empty device page, so the page must BE empty. Groups
+  // and devices are visible to the whole organization and every e2e user shares
+  // one, so reading the live backend here would snapshot whatever the specs
+  // that ran earlier happened to leave in the fleet — a different sidebar, and
+  // a different image, on every run. The stub makes the emptiness the test's
+  // own precondition.
   test("device list (empty)", async ({ authedPage }) => {
+    await stubEmptyFleet(authedPage);
     await authedPage.goto("/devices");
-    await expect(
-      authedPage.getByText(/no groups|no devices|create.*group/i),
-    ).toBeVisible();
+    await expect(authedPage.getByText("No groups yet")).toBeVisible();
     await expect(authedPage).toHaveScreenshot("device-list-empty.png", screenshotOptions);
   });
 

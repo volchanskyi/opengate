@@ -107,19 +107,29 @@ test.describe("Security Permissions", () => {
   });
 
   test("cannot remove last admin via API", async ({ request, adminUser }) => {
-    // List current admin group members and remove all except adminUser
+    // Reaching the "last admin" state means emptying the Administrators group
+    // down to one member, which strips the bootstrap admin that global-setup
+    // and every adminUser fixture depend on. Membership is server-side state
+    // shared by the whole suite, so it has to go back exactly as it was —
+    // otherwise the next run against this database cannot start.
     const group = await getSecurityGroup(request, adminUser.token, ADMIN_GROUP_ID);
-    for (const member of group.members) {
-      if (member.id !== adminUser.id) {
+    const displaced = group.members.filter((m) => m.id !== adminUser.id);
+
+    try {
+      for (const member of displaced) {
         await removeGroupMember(request, adminUser.token, ADMIN_GROUP_ID, member.id);
       }
-    }
 
-    // Now adminUser is the only admin — removing should fail
-    const resp = await request.delete(
-      `/api/v1/security-groups/${ADMIN_GROUP_ID}/members/${adminUser.id}`,
-      { headers: { Authorization: `Bearer ${adminUser.token}` } }
-    );
-    expect(resp.status()).toBe(409);
+      // Now adminUser is the only admin — removing should fail
+      const resp = await request.delete(
+        `/api/v1/security-groups/${ADMIN_GROUP_ID}/members/${adminUser.id}`,
+        { headers: { Authorization: `Bearer ${adminUser.token}` } }
+      );
+      expect(resp.status()).toBe(409);
+    } finally {
+      for (const member of displaced) {
+        await addGroupMember(request, adminUser.token, ADMIN_GROUP_ID, member.id);
+      }
+    }
   });
 });

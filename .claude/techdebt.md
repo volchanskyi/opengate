@@ -96,6 +96,17 @@ cost for unpredictable cross-test flake. The per-test navigation cost has been
 halved in the meantime (the token is seeded via `addInitScript`, so an
 authenticated page is reached in one navigation instead of two).
 
+Two pieces of that audit are now enforced rather than pending. The
+`globalTeardown` in [`global-teardown.ts`](../web/e2e/global-teardown.ts) fails
+any run that leaves a group behind, and
+[`fleet-stub.ts`](../web/e2e/helpers/fleet-stub.ts) gives the specs that assert
+an empty fleet a way to supply that emptiness instead of reading shared state.
+Both narrow the audit to specs that seed devices or users, and both hold at any
+worker count. Since the organization — not the creating user — is the visibility
+boundary, per-worker identities would not isolate fleet writes on their own; the
+remaining audit has to cover that, or the worker count needs a per-worker
+organization.
+
 **Pay-down trigger:** E2E wall time becomes a merge-latency problem, making the
 per-test mutation audit worth its cost.
 

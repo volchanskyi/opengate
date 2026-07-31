@@ -169,13 +169,39 @@ mod tests {
         assert_eq!(services[2].state, "exited");
     }
 
-    /// Windows status codes map to normalized labels.
+    /// Windows status codes map to normalized labels. Every code in the
+    /// `ServiceControllerStatus` enum is pinned: the pending states are what a
+    /// technician looks at to tell "this service is coming up" from "this
+    /// service is wedged", so collapsing any of them into `unknown` would be a
+    /// silent loss of that distinction.
     #[test]
     fn windows_status_codes_map_to_labels() {
-        assert_eq!(windows_status_to_state(4), "running");
         assert_eq!(windows_status_to_state(1), "stopped");
+        assert_eq!(windows_status_to_state(2), "start_pending");
+        assert_eq!(windows_status_to_state(3), "stop_pending");
+        assert_eq!(windows_status_to_state(4), "running");
+        assert_eq!(windows_status_to_state(5), "continue_pending");
+        assert_eq!(windows_status_to_state(6), "pause_pending");
         assert_eq!(windows_status_to_state(7), "paused");
+        assert_eq!(windows_status_to_state(0), "unknown");
+        assert_eq!(windows_status_to_state(8), "unknown");
         assert_eq!(windows_status_to_state(99), "unknown");
+    }
+
+    /// Four whitespace-separated fields is the minimum a row needs: UNIT LOAD
+    /// ACTIVE SUB, with DESCRIPTION optional. A four-field row is complete and
+    /// must be kept; a three-field row has no SUB column to read a state from
+    /// and must be dropped.
+    #[test]
+    fn parse_systemctl_keeps_the_shortest_complete_row() {
+        let out = concat!(
+            "dbus.service loaded active running\n",
+            "cups.service loaded active\n",
+        );
+        let services = parse_systemctl(out);
+        assert_eq!(services.len(), 1, "the three-field row has no SUB column");
+        assert_eq!(services[0].name, "dbus.service");
+        assert_eq!(services[0].state, "running");
     }
 
     /// A `Get-Service` JSON array parses each record; the status is accepted as

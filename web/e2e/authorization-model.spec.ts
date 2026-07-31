@@ -16,7 +16,38 @@ async function groupIds(request: APIRequestContext, token: string): Promise<stri
   return groups.map((g) => g.id);
 }
 
+// A group is visible to the whole organization, so one left behind here would
+// surface in another spec's "empty device list" assertion and its screenshot
+// baseline. Track what each test creates and remove it afterwards, pass or fail.
+const createdGroupIds: string[] = [];
+
+async function seedGroup(
+  request: APIRequestContext,
+  adminToken: string,
+  name: string,
+): Promise<string> {
+  const resp = await request.post("/api/v1/groups", { ...auth(adminToken), data: { name } });
+  expect(resp.status()).toBe(201);
+  const group: { id: string } = await resp.json();
+  createdGroupIds.push(group.id);
+  return group.id;
+}
+
+/** Drops an id a test already deleted itself, so the hook does not re-delete it. */
+function forgetGroup(id: string): void {
+  const at = createdGroupIds.indexOf(id);
+  if (at !== -1) {
+    createdGroupIds.splice(at, 1);
+  }
+}
+
 test.describe("Authorization model", () => {
+  test.afterEach(async ({ request, adminUser }) => {
+    for (const id of createdGroupIds.splice(0)) {
+      await request.delete(`/api/v1/groups/${id}`, auth(adminUser.token));
+    }
+  });
+
   test("fleet reads are open to every member of the organization", async ({
     request,
     testUser,
@@ -37,21 +68,13 @@ test.describe("Authorization model", () => {
     testUser,
     adminUser,
   }) => {
-    const name = `e2e-authz-${Date.now().toString()}`;
-    const created = await request.post("/api/v1/groups", {
-      ...auth(adminUser.token),
-      data: { name },
-    });
-    expect(created.status()).toBe(201);
-    const group: { id: string } = await created.json();
+    const id = await seedGroup(request, adminUser.token, `e2e-authz-${Date.now().toString()}`);
 
-    expect(await groupIds(request, testUser.token)).toContain(group.id);
+    expect(await groupIds(request, testUser.token)).toContain(id);
 
     // And the detail read is open too.
-    const detail = await request.get(`/api/v1/groups/${group.id}`, auth(testUser.token));
+    const detail = await request.get(`/api/v1/groups/${id}`, auth(testUser.token));
     expect(detail.status()).toBe(200);
-
-    await request.delete(`/api/v1/groups/${group.id}`, auth(adminUser.token));
   });
 
   test("group configuration is refused to a non-admin member", async ({
@@ -65,18 +88,15 @@ test.describe("Authorization model", () => {
     });
     expect(create.status()).toBe(403);
 
-    const adminCreate = await request.post("/api/v1/groups", {
-      ...auth(adminUser.token),
-      data: { name: `e2e-authz-admin-${Date.now().toString()}` },
-    });
-    expect(adminCreate.status()).toBe(201);
-    const group: { id: string } = await adminCreate.json();
+    const id = await seedGroup(request, adminUser.token, `e2e-authz-admin-${Date.now().toString()}`);
 
-    const memberDelete = await request.delete(`/api/v1/groups/${group.id}`, auth(testUser.token));
+    const memberDelete = await request.delete(`/api/v1/groups/${id}`, auth(testUser.token));
     expect(memberDelete.status()).toBe(403);
 
-    const adminDelete = await request.delete(`/api/v1/groups/${group.id}`, auth(adminUser.token));
+    const adminDelete = await request.delete(`/api/v1/groups/${id}`, auth(adminUser.token));
     expect(adminDelete.status()).toBe(204);
+    // Already gone — drop it so the cleanup hook does not chase a dead id.
+    forgetGroup(id);
   });
 
   test("secret-bearing reads stay admin-only for a member", async ({ request, testUser }) => {
