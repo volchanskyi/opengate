@@ -829,12 +829,12 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.3
         with:
           languages: go
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/autobuild@v4.37.3
+      - uses: github/codeql-action/analyze@v4.37.3
         with:
           category: go
 
@@ -847,11 +847,11 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.3
         with:
           languages: javascript-typescript
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/analyze@v4.37.3
         with:
           category: javascript-typescript
 
@@ -865,12 +865,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: github/codeql-action/init@v4
+      - uses: github/codeql-action/init@v4.37.3
         with:
           languages: rust
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4
-      - uses: github/codeql-action/analyze@v4
+      - uses: github/codeql-action/autobuild@v4.37.3
+      - uses: github/codeql-action/analyze@v4.37.3
         with:
           category: rust
 

@@ -1,6 +1,7 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
+import { authHeaders, registerMember } from "../lib/session.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
@@ -28,22 +29,13 @@ export const options = {
 };
 
 export function setup() {
-  const email = `relay-${Date.now()}@test.local`;
-  const regResp = http.post(
-    `${BASE_URL}/api/v1/auth/register`,
-    JSON.stringify({ email, password: "RelayTestPass123!" }),
-    { headers: { "Content-Type": "application/json" } }
-  );
-  return { token: regResp.json("token") };
+  return { token: registerMember(BASE_URL, "relay") };
 }
 
 export default function (data) {
   // This scenario requires a connected agent to create sessions.
   // Without a real agent, we test the WebSocket upgrade path only.
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${data.token}`,
-  };
+  const headers = authHeaders(data.token);
 
   // Health + groups to maintain API load alongside relay
   const health = http.get(`${BASE_URL}/api/v1/health`);

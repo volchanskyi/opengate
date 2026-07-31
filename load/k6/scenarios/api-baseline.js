@@ -1,5 +1,6 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
+import { authHeaders, registerMember, visibleGroupIds, devicesUrl } from "../lib/session.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
@@ -16,34 +17,12 @@ export const options = {
 };
 
 export function setup() {
-  const email = `load-${Date.now()}@test.local`;
-  const regResp = http.post(
-    `${BASE_URL}/api/v1/auth/register`,
-    JSON.stringify({ email, password: "LoadTestPass123!" }),
-    { headers: { "Content-Type": "application/json" } }
-  );
-  const token = regResp.json("token");
-
-  const groupResp = http.post(
-    `${BASE_URL}/api/v1/groups`,
-    JSON.stringify({ name: `load-group-${Date.now()}` }),
-    {
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    }
-  );
-  const groupId = groupResp.json("id");
-
-  return { token, groupId };
+  const token = registerMember(BASE_URL, "load");
+  return { token, groupIds: visibleGroupIds(BASE_URL, token) };
 }
 
 export default function (data) {
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${data.token}`,
-  };
+  const headers = authHeaders(data.token);
 
   // Health check (no auth)
   const health = http.get(`${BASE_URL}/api/v1/health`);
@@ -57,11 +36,8 @@ export default function (data) {
   const groups = http.get(`${BASE_URL}/api/v1/groups`, { headers });
   check(groups, { "groups 200": (r) => r.status === 200 });
 
-  // List devices in group
-  const devices = http.get(
-    `${BASE_URL}/api/v1/devices?group_id=${data.groupId}`,
-    { headers }
-  );
+  // List devices, narrowed to a group when the organization has one
+  const devices = http.get(devicesUrl(BASE_URL, data.groupIds[0]), { headers });
   check(devices, { "devices 200": (r) => r.status === 200 });
 
   sleep(1);

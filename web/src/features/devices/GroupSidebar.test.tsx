@@ -87,6 +87,48 @@ describe('GroupSidebar', () => {
     expect(screen.getByText('No groups yet')).toBeInTheDocument();
   });
 
+  it('hides the empty state, and shows the drag hint, once groups exist', () => {
+    render(<GroupSidebar />);
+    expect(screen.queryByText('No groups yet')).toBeNull();
+    expect(screen.getByText(/drag a device card onto a group/i)).toBeInTheDocument();
+  });
+
+  it('offers no drop affordances to an admin with no groups', () => {
+    // With nowhere to drop a device, the Ungrouped zone and the drag hint are
+    // noise: an admin who has not created a group yet sees only the empty state.
+    useDeviceStore.setState({ groups: [] });
+    render(<GroupSidebar />);
+    expect(screen.queryByLabelText('Ungrouped')).toBeNull();
+    expect(screen.queryByText(/drag a device card onto a group/i)).toBeNull();
+  });
+
+  it('draws the Ungrouped zone as a dashed drop target', () => {
+    render(<GroupSidebar />);
+    expect(screen.getByLabelText('Ungrouped').className).toContain('border-dashed');
+  });
+
+  it('clears the pending name so a reopened create form starts empty', async () => {
+    const user = userEvent.setup();
+    useDeviceStore.setState({ createGroup: vi.fn().mockResolvedValue(undefined) });
+
+    render(<GroupSidebar />);
+    await user.click(screen.getByText('+ New'));
+    await user.type(screen.getByPlaceholderText('Group name'), 'Warehouse');
+    await user.click(screen.getByText('Add'));
+    await waitFor(() => { expect(screen.queryByPlaceholderText('Group name')).toBeNull(); });
+
+    await user.click(screen.getByText('+ New'));
+    expect(screen.getByPlaceholderText<HTMLInputElement>('Group name').value).toBe('');
+  });
+
+  it('treats a signed-out viewer as non-admin rather than as an admin', () => {
+    // `?? false` is the safe default: an absent user must never unlock the
+    // configuration controls.
+    useAuthStore.setState({ user: null });
+    render(<GroupSidebar />);
+    expect(screen.queryByText('+ New')).toBeNull();
+  });
+
   it('calls createGroup with trimmed name on form submit, then clears input and hides form', async () => {
     const user = userEvent.setup();
     const createGroupFn = vi.fn().mockResolvedValue(undefined);
@@ -165,7 +207,7 @@ describe('GroupSidebar', () => {
     await user.click(deleteButtons[0]!);
     expect(screen.getByText('Confirm?')).toBeInTheDocument();
     await user.click(screen.getByText('x'));
-    expect(screen.getAllByText('Confirm?').length).toBe(1);
+    expect(screen.getAllByText('Confirm?')).toHaveLength(1);
   });
 
   it('+ New button toggles label to Cancel when the form is open', async () => {
@@ -262,6 +304,57 @@ describe('GroupSidebar', () => {
       await waitFor(() => { expect(updateDeviceGroup).not.toHaveBeenCalled(); });
     });
 
+    it('moves the dragged device, not the first one in the list', async () => {
+      // Two devices, and the dragged one is not devices[0]: the lookup must
+      // match on id or a drag moves someone else's machine.
+      const other = { ...device, id: 'd0', group_id: 'g2', hostname: 'db-01' };
+      const updateDeviceGroup = vi.fn().mockResolvedValue(true);
+      const addToast = vi.fn();
+      useToastStore.setState({ addToast });
+      useDeviceStore.setState({ devices: [other, device], updateDeviceGroup, fetchDevices: vi.fn() });
+      render(<GroupSidebar />);
+
+      fireEvent.drop(dropZone('Group B'), { dataTransfer: deviceTransfer('d1') });
+
+      await waitFor(() => { expect(updateDeviceGroup).toHaveBeenCalledWith('d1', 'g2'); });
+      expect(addToast).toHaveBeenCalledWith('Moved web-01 to Group B', 'success');
+    });
+
+    // A device is "ungrouped" whether the server reports an empty group, a
+    // whitespace one, or the all-zeros placeholder. Each of those dropped back
+    // onto the Ungrouped zone is a move to where it already is.
+    it.each([
+      ['an empty group_id', ''],
+      ['a whitespace group_id', '   '],
+      ['the placeholder group_id', UNGROUPED_GROUP_ID],
+    ])('dropping a device with %s onto Ungrouped is a no-op', async (_label, groupId) => {
+      const updateDeviceGroup = vi.fn();
+      useDeviceStore.setState({
+        devices: [{ ...device, group_id: groupId }],
+        updateDeviceGroup,
+        fetchDevices: vi.fn(),
+      });
+      render(<GroupSidebar />);
+
+      fireEvent.drop(dropZone('Ungrouped'), { dataTransfer: deviceTransfer() });
+
+      await waitFor(() => { expect(updateDeviceGroup).not.toHaveBeenCalled(); });
+    });
+
+    it('leaving one zone does not clear the highlight on the zone now hovered', () => {
+      useDeviceStore.setState({ updateDeviceGroup: vi.fn(), fetchDevices: vi.fn() });
+      render(<GroupSidebar />);
+
+      // The pointer crosses A on its way to B; A's late dragleave must not
+      // steal the highlight from B.
+      fireEvent.dragOver(dropZone('Group A'), { dataTransfer: deviceTransfer() });
+      fireEvent.dragOver(dropZone('Group B'), { dataTransfer: deviceTransfer() });
+      fireEvent.dragLeave(dropZone('Group A'));
+
+      expect(dropZone('Group B')).toHaveClass('ring-2');
+      expect(dropZone('Group A')).not.toHaveClass('ring-2');
+    });
+
     it('ignores a drop that carries no device', async () => {
       const updateDeviceGroup = vi.fn();
       useDeviceStore.setState({ updateDeviceGroup, fetchDevices: vi.fn() });
@@ -318,6 +411,14 @@ describe('GroupSidebar', () => {
       render(<GroupSidebar />);
       expect(screen.queryByText(/drag a device card onto a group/i)).toBeNull();
       expect(screen.queryByLabelText('Ungrouped')).toBeNull();
+    });
+
+    it('still exposes each group as a labelled list item', () => {
+      // Losing the drag handlers must not cost the read-only sidebar its
+      // structure: the rows stay a labelled list for assistive technology.
+      render(<GroupSidebar />);
+      expect(screen.getByRole('listitem', { name: 'Group A' })).toBeInTheDocument();
+      expect(screen.getByRole('listitem', { name: 'Group B' })).toBeInTheDocument();
     });
 
     it('still lists and selects groups', async () => {
