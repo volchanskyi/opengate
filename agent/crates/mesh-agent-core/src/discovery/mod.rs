@@ -246,15 +246,19 @@ mod tests {
     /// over-cap category standing in for all five.
     #[test]
     fn each_category_over_cap_flags_truncated() {
-        let cases: [(
-            &str,
-            fn(&mut DiscoveryProfile),
-            fn(&DiscoveryProfile) -> usize,
-            usize,
-        ); 5] = [
-            (
-                "ports",
-                |p| {
+        struct CapCase {
+            label: &'static str,
+            /// Fills exactly one category past its cap.
+            overflow: fn(&mut DiscoveryProfile),
+            /// Reads back that category's length.
+            len_of: fn(&DiscoveryProfile) -> usize,
+            cap: usize,
+        }
+
+        let cases = [
+            CapCase {
+                label: "ports",
+                overflow: |p| {
                     p.ports = (0..MAX_PORTS + 1)
                         .map(|i| DiscoveredPort {
                             proto: "tcp".into(),
@@ -263,12 +267,12 @@ mod tests {
                         })
                         .collect();
                 },
-                |p| p.ports.len(),
-                MAX_PORTS,
-            ),
-            (
-                "services",
-                |p| {
+                len_of: |p| p.ports.len(),
+                cap: MAX_PORTS,
+            },
+            CapCase {
+                label: "services",
+                overflow: |p| {
                     p.services = (0..MAX_SERVICES + 1)
                         .map(|i| DiscoveredService {
                             name: format!("s{i}.service"),
@@ -276,12 +280,12 @@ mod tests {
                         })
                         .collect();
                 },
-                |p| p.services.len(),
-                MAX_SERVICES,
-            ),
-            (
-                "db_engines",
-                |p| {
+                len_of: |p| p.services.len(),
+                cap: MAX_SERVICES,
+            },
+            CapCase {
+                label: "db_engines",
+                overflow: |p| {
                     p.db_engines = (0..MAX_DB_ENGINES + 1)
                         .map(|_| DiscoveredDbEngine {
                             engine: "postgres".into(),
@@ -290,12 +294,12 @@ mod tests {
                         })
                         .collect();
                 },
-                |p| p.db_engines.len(),
-                MAX_DB_ENGINES,
-            ),
-            (
-                "containers",
-                |p| {
+                len_of: |p| p.db_engines.len(),
+                cap: MAX_DB_ENGINES,
+            },
+            CapCase {
+                label: "containers",
+                overflow: |p| {
                     p.containers = (0..MAX_CONTAINERS + 1)
                         .map(|i| DiscoveredContainer {
                             runtime: "docker".into(),
@@ -305,12 +309,12 @@ mod tests {
                         })
                         .collect();
                 },
-                |p| p.containers.len(),
-                MAX_CONTAINERS,
-            ),
-            (
-                "packages",
-                |p| {
+                len_of: |p| p.containers.len(),
+                cap: MAX_CONTAINERS,
+            },
+            CapCase {
+                label: "packages",
+                overflow: |p| {
                     p.packages = (0..MAX_PACKAGES + 1)
                         .map(|i| DiscoveredPackage {
                             name: format!("pkg{i}"),
@@ -318,16 +322,21 @@ mod tests {
                         })
                         .collect();
                 },
-                |p| p.packages.len(),
-                MAX_PACKAGES,
-            ),
+                len_of: |p| p.packages.len(),
+                cap: MAX_PACKAGES,
+            },
         ];
 
-        for (label, overflow, len_of, cap_value) in cases {
+        for case in cases {
             let mut profile = DiscoveryProfile::default();
-            overflow(&mut profile);
+            (case.overflow)(&mut profile);
             profile.apply_caps();
-            assert_eq!(len_of(&profile), cap_value, "{label} truncated to its cap");
+            let label = case.label;
+            assert_eq!(
+                (case.len_of)(&profile),
+                case.cap,
+                "{label} truncated to its cap"
+            );
             assert!(profile.truncated, "{label} over cap sets truncated");
         }
     }
