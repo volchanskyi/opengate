@@ -159,18 +159,26 @@ func (v *VMClient) CountAnomalyBands(ctx context.Context, orgID uuid.UUID, watch
 	}
 	window := fmt.Sprintf("last_over_time(%s[%ds])", scoped, int64(lookback.Seconds()))
 
+	// One table drives both halves — it builds the query and it reads the answer
+	// back — so each band name is written once and the label the query stamps
+	// cannot drift from the field the count lands in.
+	var counts BandCounts
 	bands := []struct {
 		name      string
 		predicate string
+		into      *int
 	}{
-		{"anomalous", fmt.Sprintf(">= %s", formatThreshold(anomalous))},
-		{"watch", fmt.Sprintf(">= %s < %s", formatThreshold(watch), formatThreshold(anomalous))},
-		{"healthy", fmt.Sprintf("< %s", formatThreshold(watch))},
+		{"anomalous", fmt.Sprintf(">= %s", formatThreshold(anomalous)), &counts.Anomalous},
+		{"watch", fmt.Sprintf(">= %s < %s", formatThreshold(watch), formatThreshold(anomalous)), &counts.Watch},
+		{"healthy", fmt.Sprintf("< %s", formatThreshold(watch)), &counts.Healthy},
 	}
+
 	parts := make([]string, 0, len(bands))
+	fields := make(map[string]*int, len(bands))
 	for _, b := range bands {
 		parts = append(parts, fmt.Sprintf(`label_replace(count(%s %s), %q, %q, "", "")`,
 			window, b.predicate, bandLabel, b.name))
+		fields[b.name] = b.into
 	}
 
 	vals, err := v.instantQuery(ctx, strings.Join(parts, " or "), at)
@@ -178,15 +186,11 @@ func (v *VMClient) CountAnomalyBands(ctx context.Context, orgID uuid.UUID, watch
 		return BandCounts{}, err
 	}
 
-	var counts BandCounts
+	// A band the query returned no sample for keeps its zero, which is the whole
+	// point: count() over an empty set yields nothing rather than a zero.
 	for _, val := range vals {
-		switch val.Labels[bandLabel] {
-		case "anomalous":
-			counts.Anomalous = int(val.Value)
-		case "watch":
-			counts.Watch = int(val.Value)
-		case "healthy":
-			counts.Healthy = int(val.Value)
+		if field, ok := fields[val.Labels[bandLabel]]; ok {
+			*field = int(val.Value)
 		}
 	}
 	return counts, nil

@@ -1,16 +1,32 @@
 use mesh_agent_core::ml::{ensemble::EdgeMlEnsemble, window::AnomalyRateWindow};
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::cell::Cell;
 
 struct CountingAllocator;
 
-static COUNT_ALLOCATIONS: AtomicBool = AtomicBool::new(false);
-static ALLOCATION_COUNT: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    /// Set only while this thread is inside the measured region.
+    static COUNTING: Cell<bool> = const { Cell::new(false) };
+    /// Allocations this thread made while `COUNTING` was set.
+    static COUNT: Cell<usize> = const { Cell::new(0) };
+}
 
+// Counting is per-thread on purpose. A global allocator sees every thread in
+// the process, and the claim under test is about one loop on one thread — so a
+// process-wide counter also charges it for the test harness's own bookkeeping
+// and for whatever the coverage runtime does on its own schedule. Those are
+// timing-dependent: they show up when the machine is loaded enough for another
+// thread to be scheduled mid-loop, which makes the assertion pass or fail on
+// core count rather than on the code it is describing.
+//
+// Both thread-locals are `const`-initialized, so registering them cannot itself
+// allocate — an allocating initializer would re-enter this allocator. They also
+// hold `Copy` types with no drop glue, so no TLS destructor is registered and
+// `with` cannot panic on a thread that is shutting down.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if COUNT_ALLOCATIONS.load(Ordering::Relaxed) {
-            ALLOCATION_COUNT.fetch_add(1, Ordering::Relaxed);
+        if COUNTING.with(Cell::get) {
+            COUNT.with(|count| count.set(count.get() + 1));
         }
         unsafe { System.alloc(layout) }
     }
@@ -27,19 +43,19 @@ struct AllocationCounter;
 
 impl AllocationCounter {
     fn start() -> Self {
-        ALLOCATION_COUNT.store(0, Ordering::Relaxed);
-        COUNT_ALLOCATIONS.store(true, Ordering::Relaxed);
+        COUNT.with(|count| count.set(0));
+        COUNTING.with(|counting| counting.set(true));
         Self
     }
 
     fn count(&self) -> usize {
-        ALLOCATION_COUNT.load(Ordering::Relaxed)
+        COUNT.with(Cell::get)
     }
 }
 
 impl Drop for AllocationCounter {
     fn drop(&mut self) {
-        COUNT_ALLOCATIONS.store(false, Ordering::Relaxed);
+        COUNTING.with(|counting| counting.set(false));
     }
 }
 
@@ -67,5 +83,45 @@ fn detection_loop_is_allocation_free_after_model_load() {
         counter.count(),
         0,
         "detection vote + rolling anomaly window must not allocate after model load"
+    );
+}
+
+/// The counter has to be able to fail, or the test above proves nothing. One
+/// allocation on the measured thread is observed; the same allocation made
+/// before the measured region is not.
+#[test]
+fn counter_observes_allocations_on_the_measured_thread_only() {
+    let before = vec![1u8; 32];
+    std::hint::black_box(&before);
+
+    let counter = AllocationCounter::start();
+    let during = vec![1u8; 32];
+    std::hint::black_box(&during);
+    let observed = counter.count();
+    drop(counter);
+
+    assert_eq!(observed, 1, "an allocation inside the region is counted");
+
+    // A child thread's own allocations are not charged here, which is what
+    // keeps the harness's allocations out of the measurement above. Spawning
+    // and joining does allocate on *this* thread, so the two runs are compared
+    // against each other: the only difference between them is the work the
+    // child does, and the counts have to come out equal.
+    fn spawn_join_cost(child_allocations: usize) -> usize {
+        let counter = AllocationCounter::start();
+        std::thread::spawn(move || {
+            for _ in 0..child_allocations {
+                std::hint::black_box(vec![1u8; 32]);
+            }
+        })
+        .join()
+        .unwrap();
+        counter.count()
+    }
+
+    assert_eq!(
+        spawn_join_cost(0),
+        spawn_join_cost(10_000),
+        "another thread's allocations are not charged to this one"
     );
 }

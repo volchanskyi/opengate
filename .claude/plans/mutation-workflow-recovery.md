@@ -207,6 +207,51 @@ sources, zero unassigned, zero double-assigned.
   the tech-debt item until the *Confirm nightly reliability* criteria hold with the
   backfill fix in place.
 
+## Re-review findings (2026-07-30)
+
+### 10. Rust fell through the floor; the other two languages hold
+
+Run 30332068820 (2026-07-28) is the most recent **complete** run and the only
+recent failure that is a genuine score verdict rather than an environment
+problem. Its canonical row:
+
+- Rust `84.5%` (1510 killed, 282 survived, 35 timeout, 1827 total) — **below the
+  85.0% floor**, down from 85.2%.
+- Go `86.3%` (up from 85.2%) and Web `85.4%` (up from 84.2%) both clear it.
+
+So the floor breach is Rust-only, and it is small: at a fixed total of 1827,
+killing **9** more mutants restores 85.0%.
+
+Survivors cluster in code that needs a live host — `ml/sampler.rs` (34, mostly
+`SysinfoSampler::sample` and `compute_net_rates`), `host_logs.rs` (23, nearly all
+behind `systemctl`/`journalctl`/`wevtutil` invocations), and the `edge-tsdb`
+store internals. Those are not where the cheap repair is. The repair targets the
+**pure** functions whose survivors are boundary and exhaustiveness gaps:
+
+- `discovery/mod.rs` — `apply_caps` folded five categories into one flag but only
+  `packages` was ever over cap in a test, leaving the other four `|=` mutants
+  alive; `cap`'s `>` had no exactly-at-cap case.
+- `discovery/services.rs` — `windows_status_to_state` was asserted for 4 of its 7
+  status codes; `parse_systemctl`'s four-field minimum had no boundary row.
+- `discovery/ports.rs` — `parse_proc_net`'s ten-column minimum had no boundary row.
+- `ml/kmeans.rs` — `farthest_pair` had no direct test at all, so its tie-breaking
+  (first maximal pair wins, not last) was unpinned.
+- `ml/sampler.rs` — `byte_rate` had no idle-interface case, so `<` vs `<=` on the
+  counter-reset guard was indistinguishable.
+
+### 11. Two of the last three nightlies died on environment, not score
+
+Runs #30425705024 (Rust shard) and #30516690090 (`go-agentapi-connection-handshake`)
+failed before producing a canonical row. The latter is diagnosed: `docker run`
+for `postgres:17-alpine` got a connection reset from Docker Hub's auth endpoint.
+The Go legs already use the pull-through mirror action, but a single reset still
+sinks the shard and with it the whole run's score row. `mutation.yml` now retries
+the image pull three times with backoff, the same secondary net `ci.yml` applies
+to its compose bring-up.
+
+This does not change any score; it stops environment noise from being reported as
+a missing signal, which is what made the last three nightlies hard to read.
+
 ## Success criteria
 
 - Every expected Rust, Go, and Web shard completes within the existing 75-minute

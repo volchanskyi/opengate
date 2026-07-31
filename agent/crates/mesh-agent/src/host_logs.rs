@@ -410,6 +410,23 @@ mod tests {
         }
     }
 
+    /// The build target decides the host log source, and the browser only ever
+    /// asks for `host` — so if this resolved to `None` on a platform that has a
+    /// log source, the Logs tab would come up empty on every agent of that
+    /// platform with nothing to indicate why. Each target asserts its own
+    /// expected source; a target with neither journald nor the Windows Event
+    /// Log resolves to `None`, which is the honest answer rather than a default.
+    #[test]
+    fn host_source_matches_the_build_target() {
+        let resolved = resolve_host_source();
+        #[cfg(target_os = "linux")]
+        assert_eq!(resolved, Some(LogSource::Journald));
+        #[cfg(target_os = "windows")]
+        assert_eq!(resolved, Some(LogSource::WindowsEventLog));
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        assert_eq!(resolved, None);
+    }
+
     #[test]
     fn journald_priority_bands_map_to_levels() {
         assert_eq!(journald_priority_to_level(0), "ERROR");

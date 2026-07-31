@@ -240,6 +240,126 @@ mod tests {
         assert!(!profile.truncated);
     }
 
+    /// Every category carries the truncation flag on its own. A profile that
+    /// overflows exactly one category must still report `truncated`, so each
+    /// category's contribution is asserted separately rather than through one
+    /// over-cap category standing in for all five.
+    #[test]
+    fn each_category_over_cap_flags_truncated() {
+        struct CapCase {
+            label: &'static str,
+            /// Fills exactly one category past its cap.
+            overflow: fn(&mut DiscoveryProfile),
+            /// Reads back that category's length.
+            len_of: fn(&DiscoveryProfile) -> usize,
+            cap: usize,
+        }
+
+        let cases = [
+            CapCase {
+                label: "ports",
+                overflow: |p| {
+                    p.ports = (0..MAX_PORTS + 1)
+                        .map(|i| DiscoveredPort {
+                            proto: "tcp".into(),
+                            port: u16::try_from(i % 65_535).unwrap_or_default(),
+                            process: "p".into(),
+                        })
+                        .collect();
+                },
+                len_of: |p| p.ports.len(),
+                cap: MAX_PORTS,
+            },
+            CapCase {
+                label: "services",
+                overflow: |p| {
+                    p.services = (0..MAX_SERVICES + 1)
+                        .map(|i| DiscoveredService {
+                            name: format!("s{i}.service"),
+                            state: "running".into(),
+                        })
+                        .collect();
+                },
+                len_of: |p| p.services.len(),
+                cap: MAX_SERVICES,
+            },
+            CapCase {
+                label: "db_engines",
+                overflow: |p| {
+                    p.db_engines = (0..MAX_DB_ENGINES + 1)
+                        .map(|_| DiscoveredDbEngine {
+                            engine: "postgres".into(),
+                            version: String::new(),
+                            port: 5432,
+                        })
+                        .collect();
+                },
+                len_of: |p| p.db_engines.len(),
+                cap: MAX_DB_ENGINES,
+            },
+            CapCase {
+                label: "containers",
+                overflow: |p| {
+                    p.containers = (0..MAX_CONTAINERS + 1)
+                        .map(|i| DiscoveredContainer {
+                            runtime: "docker".into(),
+                            image: "redis:7".into(),
+                            name: format!("c{i}"),
+                            state: "running".into(),
+                        })
+                        .collect();
+                },
+                len_of: |p| p.containers.len(),
+                cap: MAX_CONTAINERS,
+            },
+            CapCase {
+                label: "packages",
+                overflow: |p| {
+                    p.packages = (0..MAX_PACKAGES + 1)
+                        .map(|i| DiscoveredPackage {
+                            name: format!("pkg{i}"),
+                            version: "1".into(),
+                        })
+                        .collect();
+                },
+                len_of: |p| p.packages.len(),
+                cap: MAX_PACKAGES,
+            },
+        ];
+
+        for case in cases {
+            let mut profile = DiscoveryProfile::default();
+            (case.overflow)(&mut profile);
+            profile.apply_caps();
+            let label = case.label;
+            assert_eq!(
+                (case.len_of)(&profile),
+                case.cap,
+                "{label} truncated to its cap"
+            );
+            assert!(profile.truncated, "{label} over cap sets truncated");
+        }
+    }
+
+    /// Exactly at the cap is within bounds: the cap is an inclusive maximum, so
+    /// a category holding precisely `max` entries keeps all of them and does not
+    /// flag the report as truncated.
+    #[test]
+    fn category_exactly_at_cap_is_not_truncated() {
+        let mut profile = DiscoveryProfile {
+            packages: (0..MAX_PACKAGES)
+                .map(|i| DiscoveredPackage {
+                    name: format!("pkg{i}"),
+                    version: "1".into(),
+                })
+                .collect(),
+            ..Default::default()
+        };
+        profile.apply_caps();
+        assert_eq!(profile.packages.len(), MAX_PACKAGES);
+        assert!(!profile.truncated, "a full-but-not-over category is intact");
+    }
+
     /// The report leaves `org_id` empty (the server assigns the tenant) and
     /// carries every category through unchanged.
     #[test]

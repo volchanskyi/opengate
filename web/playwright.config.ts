@@ -9,6 +9,9 @@ const allBrowsers = process.env.PLAYWRIGHT_ALL_BROWSERS === "1";
 
 export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
+  // Refuses a run that leaves org-visible fleet state behind — see the file for
+  // why a leaked group breaks a spec other than the one that leaked it.
+  globalTeardown: "./e2e/global-teardown.ts",
   testDir: "./e2e",
   timeout: 30_000,
   retries: allBrowsers ? 1 : 0,

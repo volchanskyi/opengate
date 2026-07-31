@@ -101,6 +101,20 @@ jobs:
       - name: Start Postgres with max_connections=400
         if: matrix.language == 'go'
         run: |
+          # The pull-through mirror above is the primary defence against Docker
+          # Hub flakes; this retry is the secondary net for a transient token or
+          # connection reset, which otherwise fails one Go shard and costs the
+          # whole nightly its canonical score row.
+          for attempt in 1 2 3; do
+            if docker pull postgres:17-alpine; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::could not pull postgres:17-alpine after 3 attempts"; exit 1
+            fi
+            echo "::warning::postgres image pull attempt $attempt/3 failed; retrying in $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
           docker run -d --rm --name pg-ci \
             -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
             -p 5432:5432 postgres:17-alpine -c max_connections=400

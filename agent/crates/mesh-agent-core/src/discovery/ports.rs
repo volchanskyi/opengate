@@ -273,6 +273,28 @@ mod tests {
         assert_eq!(entries[0].inode, 44444);
     }
 
+    /// Ten columns is the shortest usable row: the inode sits at index 9, so a
+    /// row that ends exactly there is complete and must be parsed, while nine
+    /// columns has no inode to correlate a process against and is dropped.
+    /// Kernels pad the trailing columns differently, so the boundary is real.
+    #[test]
+    fn parse_proc_net_keeps_the_shortest_complete_row() {
+        let table = concat!(
+            "header line ignored\n",
+            "   0: 00000000:1F90 00000000:0000 0A 0 0 0 0 0 12345\n",
+            "   1: 00000000:0016 00000000:0000 0A 0 0 0 0 0\n",
+        );
+        let entries = parse_proc_net(table, true);
+        assert_eq!(entries.len(), 1, "the nine-column row has no inode");
+        assert_eq!(
+            entries[0],
+            ProcNetEntry {
+                port: 8080,
+                inode: 12345
+            }
+        );
+    }
+
     /// Malformed and short rows are skipped without aborting the scan.
     #[test]
     fn parse_proc_net_skips_malformed_rows() {

@@ -273,10 +273,32 @@ Custom Playwright fixtures in `web/e2e/fixtures.ts` provide:
 - `testUser` — registers a fresh user via API before each test
 - `authedPage` — a page with auth token pre-injected into localStorage
 
+### Shared backend state
+
+Every spec runs against one backend, and every e2e user registers into the same
+organization — which is the visibility boundary for groups and devices. A group
+one spec creates is therefore visible to every spec that runs after it, so a
+spec that asserts an empty fleet is really asserting on what the whole suite has
+done so far. Two rules follow:
+
+- A spec that seeds real fleet state deletes it again, pass or fail. The
+  `globalTeardown` in `web/e2e/global-teardown.ts` fails the run if anything is
+  left behind, so a leak is attributed to the run that caused it rather than to
+  whichever later spec goes red.
+- A spec that asserts an *empty* UI state supplies that emptiness itself, via
+  `stubEmptyFleet` in `web/e2e/helpers/fleet-stub.ts`, instead of reading the
+  shared backend.
+
+The same applies to Administrators membership: a spec that empties the group to
+reach a "last admin" state restores it, or the bootstrap admin that global setup
+depends on is gone for every later run against that database.
+
 ### Configuration
 
 - **CI**: `web/playwright.config.ts` — targets `http://localhost:8080` (docker-compose)
-- **Staging**: `web/playwright.staging.config.ts` — targets `http://127.0.0.1:18080` (SSH tunnel)
+- **Staging**: `web/playwright.staging.config.ts` — derives from the CI config and
+  overrides only the target and retry policy, so the two cannot drift in how the
+  suite executes; `scripts/tests/playwright-config-parity.test.sh` enforces it
 
 ### Running locally
 
