@@ -728,6 +728,85 @@ describe('device store', () => {
     expect(useDeviceStore.getState().summary).toEqual(summary);
   });
 
+  it('fetchSummary refreshes the tiles without a full-page spinner', async () => {
+    // The dashboard polls this rollup, so raising isLoading would flash the
+    // whole page on every tick.
+    mockGet.mockResolvedValue({
+      data: {
+        total: 1, online: 1, offline: 0, maintenance: 0,
+        health: { anomalous: 0, watch: 0, healthy: 1, unknown: 0 },
+      },
+      error: undefined,
+    });
+
+    const { peak } = await captureIsLoading(() => useDeviceStore.getState().fetchSummary());
+
+    expect(peak).toBe(false);
+  });
+
+  it('the delayed hardware retry refreshes the card without a spinner', async () => {
+    // The retry fires 2s after the first pull came back empty, long after the
+    // user moved on; raising isLoading then would flash the page unprompted.
+    vi.useFakeTimers();
+    const refreshed = { ...mockHardware, cpu_cores: 32 };
+    mockGet
+      .mockResolvedValueOnce({ data: undefined, error: { error: 'accepted' } })
+      .mockResolvedValueOnce({ data: refreshed, error: undefined });
+
+    let peak = false;
+    const unsub = useDeviceStore.subscribe((s) => { if (s.isLoading) peak = true; });
+    try {
+      await useDeviceStore.getState().fetchHardware('d1');
+      await vi.runAllTimersAsync();
+    } finally {
+      unsub();
+      vi.useRealTimers();
+    }
+
+    // The retry landed (so the assertion is about a path that actually ran)…
+    expect(useDeviceStore.getState().hardware).toEqual(refreshed);
+    // …and it stayed silent.
+    expect(peak).toBe(false);
+  });
+
+  it('serializes overlapping log pulls for one device', async () => {
+    // The server brokers exactly one raw-log request per agent and answers a
+    // second with 409, so the two panes take turns.
+    const pending: ((value: unknown) => void)[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mockGet.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => pending.push(resolve));
+      inFlight -= 1;
+      return { data: { entries: [], total: 0, has_more: false }, response: { status: 200 } };
+    });
+
+    const store = useDeviceStore.getState();
+    const agentPull = store.fetchLogs('agent', 'd1');
+    const systemPull = store.fetchLogs('system', 'd1');
+
+    // Only the agent pane's request is out; the system pane waits its turn.
+    await vi.waitFor(() => { expect(pending).toHaveLength(1); });
+    pending[0]!(undefined);
+    await agentPull;
+
+    // A pull started *after* the first finished must still queue behind the
+    // second, which is only in flight now. Releasing the queue entry too eagerly
+    // when the first settles would let this third pull race it into a 409.
+    const latePull = store.fetchLogs('agent', 'd1');
+    await vi.waitFor(() => { expect(pending).toHaveLength(2); });
+    pending[1]!(undefined);
+    await systemPull;
+    await vi.waitFor(() => { expect(pending).toHaveLength(3); });
+    pending[2]!(undefined);
+    await latePull;
+
+    expect(mockGet).toHaveBeenCalledTimes(3);
+    expect(maxInFlight).toBe(1);
+  });
+
   it('fetchLogs records which device a pane holds', async () => {
     mockGet.mockResolvedValueOnce({ data: { entries: [], total: 0, has_more: false }, response: { status: 200 } });
 

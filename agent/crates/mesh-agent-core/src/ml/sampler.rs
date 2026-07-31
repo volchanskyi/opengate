@@ -53,6 +53,57 @@ pub(crate) fn byte_rate(prev: Option<(&str, u64)>, cur: (&str, u64), dt_secs: f6
     Some(((cur.1 - prev_bytes) as f64 / dt_secs).round())
 }
 
+/// Percentage of `total` that `used` occupies. A zero total means the platform
+/// reported no capacity yet, which is an absent reading rather than a full or
+/// empty resource, so it yields `0.0` instead of a NaN division.
+#[must_use]
+pub(crate) fn used_percent(used: u64, total: u64) -> f32 {
+    if total == 0 {
+        return 0.0;
+    }
+    (used as f32 / total as f32) * 100.0
+}
+
+/// Percentage of aggregate disk capacity in use, from total and free bytes.
+/// Free is saturated against total so a mount whose free space exceeds its
+/// reported size (network and virtual filesystems do report this) yields 0%
+/// rather than wrapping into a nonsense figure.
+#[must_use]
+pub(crate) fn disk_used_percent(total: u64, free: u64) -> f32 {
+    used_percent(total.saturating_sub(free), total)
+}
+
+/// Sum `(total, free)` capacity across mounted disks into one host-wide pair.
+#[must_use]
+pub(crate) fn disk_totals(disks: impl Iterator<Item = (u64, u64)>) -> (u64, u64) {
+    disks.fold((0u64, 0u64), |(total, free), (disk_total, disk_free)| {
+        (total + disk_total, free + disk_free)
+    })
+}
+
+/// Rank of the process at `index` in the CPU-sorted list. Ranks are 1-based:
+/// rank 1 is the busiest process, and rank is the series key the detector uses,
+/// so it must never be 0.
+#[must_use]
+pub(crate) fn process_rank(index: usize) -> u8 {
+    (index + 1) as u8
+}
+
+/// The process identity that leaves the host: the executable's basename from
+/// its path when the platform reports one, else the process name. Never the
+/// path and never the command line.
+#[must_use]
+pub(crate) fn basename_of(exe: Option<&std::path::Path>, name: &std::ffi::OsStr) -> String {
+    exe.and_then(std::path::Path::file_name)
+        .unwrap_or(name)
+        .to_string_lossy()
+        .to_string()
+}
+
+/// A primary-interface reading: the interface name and its cumulative
+/// received/transmitted byte counters at one point in time.
+type NetReading = (String, u64, u64);
+
 /// The previous primary-interface counter snapshot, held between samples so the
 /// next sample can difference against it into a rate.
 #[derive(Debug, Clone)]
@@ -132,21 +183,17 @@ impl SysinfoSampler {
         self
     }
 
-    /// Difference the primary interface's cumulative counters against the
-    /// previous snapshot into rx/tx byte-rates, then record the current snapshot
-    /// for the next call. Resets the snapshot (yielding `None`) when the primary
-    /// interface cannot be resolved or is no longer tracked.
-    fn compute_net_rates(&mut self, now: Instant) -> (Option<f64>, Option<f64>) {
-        let Some(iface) = resolve_primary_iface(&self.networks) else {
-            self.prev_net = None;
-            return (None, None);
-        };
-        let Some((cur_rx, cur_tx)) = self
-            .networks
-            .iter()
-            .find(|(name, _)| name.as_str() == iface)
-            .map(|(_, data)| (data.total_received(), data.total_transmitted()))
-        else {
+    /// Difference a primary-interface reading against the previous snapshot into
+    /// rx/tx byte-rates, then record it for the next call. An absent reading —
+    /// no primary interface resolves, or the resolved one is no longer tracked —
+    /// clears the snapshot, so the next reading starts a fresh pair rather than
+    /// being differenced across a gap of unknown length.
+    fn net_rates(
+        &mut self,
+        reading: Option<NetReading>,
+        now: Instant,
+    ) -> (Option<f64>, Option<f64>) {
+        let Some((iface, cur_rx, cur_tx)) = reading else {
             self.prev_net = None;
             return (None, None);
         };
@@ -188,24 +235,24 @@ impl MetricSampler for SysinfoSampler {
             .refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         self.networks.refresh(true);
 
-        let total_memory = self.system.total_memory();
-        let memory_used_percent = if total_memory == 0 {
-            0.0
-        } else {
-            (self.system.used_memory() as f32 / total_memory as f32) * 100.0
-        };
+        let memory_used_percent =
+            used_percent(self.system.used_memory(), self.system.total_memory());
 
         let disks = Disks::new_with_refreshed_list();
-        let (disk_total, disk_free) = disks.iter().fold((0u64, 0u64), |(total, free), disk| {
-            (total + disk.total_space(), free + disk.available_space())
-        });
-        let disk_used_percent = if disk_total == 0 {
-            0.0
-        } else {
-            ((disk_total - disk_free) as f32 / disk_total as f32) * 100.0
-        };
+        let (disk_total, disk_free) = disk_totals(
+            disks
+                .iter()
+                .map(|disk| (disk.total_space(), disk.available_space())),
+        );
+        let disk_used_percent = disk_used_percent(disk_total, disk_free);
 
-        let (network_rx_bps, network_tx_bps) = self.compute_net_rates(Instant::now());
+        let reading = resolve_primary_iface(&self.networks).and_then(|iface| {
+            self.networks
+                .iter()
+                .find(|(name, _)| name.as_str() == iface)
+                .map(|(_, data)| (iface, data.total_received(), data.total_transmitted()))
+        });
+        let (network_rx_bps, network_tx_bps) = self.net_rates(reading, Instant::now());
 
         let mut processes: Vec<_> = self.system.processes().values().collect();
         processes.sort_by(|left, right| right.cpu_usage().total_cmp(&left.cpu_usage()));
@@ -230,8 +277,8 @@ impl MetricSampler for SysinfoSampler {
                     None
                 };
                 ProcessSample {
-                    rank: (index + 1) as u8,
-                    basename: process_basename(process),
+                    rank: process_rank(index),
+                    basename: basename_of(process.exe(), process.name()),
                     cmdline_hash,
                 }
             })
@@ -248,18 +295,11 @@ impl MetricSampler for SysinfoSampler {
     }
 }
 
-fn process_basename(process: &sysinfo::Process) -> String {
-    if let Some(exe) = process.exe() {
-        if let Some(name) = exe.file_name() {
-            return name.to_string_lossy().to_string();
-        }
-    }
-    process.name().to_string_lossy().to_string()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::byte_rate;
+    use super::*;
+    use std::ffi::OsStr;
+    use std::path::Path;
 
     #[test]
     fn rate_is_delta_over_interval_rounded_to_whole_bytes() {
@@ -314,5 +354,228 @@ mod tests {
     fn non_positive_interval_yields_no_rate() {
         assert_eq!(byte_rate(Some(("eth0", 0)), ("eth0", 1_000), 0.0), None);
         assert_eq!(byte_rate(Some(("eth0", 0)), ("eth0", 1_000), -1.0), None);
+    }
+
+    #[test]
+    fn used_percent_is_the_used_share_of_total() {
+        assert_eq!(used_percent(2_048, 8_192), 25.0);
+        assert_eq!(used_percent(8_192, 8_192), 100.0);
+        assert_eq!(used_percent(0, 8_192), 0.0);
+    }
+
+    /// A host that reports no capacity has not been read yet. Dividing by it
+    /// would emit NaN, which serialises as a null the detector cannot band.
+    #[test]
+    fn used_percent_of_an_unreported_total_is_zero_not_nan() {
+        let pct = used_percent(0, 0);
+        assert_eq!(pct, 0.0);
+        assert!(!pct.is_nan());
+        // A nonzero "used" against a zero total is still an absent reading.
+        assert_eq!(used_percent(500, 0), 0.0);
+    }
+
+    #[test]
+    fn disk_used_percent_is_the_non_free_share() {
+        // 400 GB of a 500 GB pool free → 20% used.
+        assert_eq!(disk_used_percent(500, 400), 20.0);
+        assert_eq!(disk_used_percent(500, 0), 100.0);
+        assert_eq!(disk_used_percent(500, 500), 0.0);
+    }
+
+    /// Network and virtual mounts do report more free space than size. That is
+    /// a full-looking 0% at worst, never an underflow.
+    #[test]
+    fn disk_used_percent_clamps_free_above_total() {
+        assert_eq!(disk_used_percent(500, 900), 0.0);
+        assert_eq!(disk_used_percent(0, 100), 0.0);
+    }
+
+    #[test]
+    fn disk_totals_sums_each_mount_into_one_pair() {
+        let mounts = [(500u64, 100u64), (250, 250), (1_000, 1)];
+        assert_eq!(disk_totals(mounts.into_iter()), (1_750, 351));
+    }
+
+    #[test]
+    fn disk_totals_of_no_mounts_is_zero() {
+        let none: [(u64, u64); 0] = [];
+        assert_eq!(disk_totals(none.into_iter()), (0, 0));
+    }
+
+    /// Rank is the series key: the busiest process is rank 1, never rank 0.
+    #[test]
+    fn process_rank_is_one_based() {
+        assert_eq!(process_rank(0), 1);
+        assert_eq!(process_rank(1), 2);
+        assert_eq!(process_rank(254), 255);
+    }
+
+    #[test]
+    fn basename_prefers_the_executable_file_name() {
+        assert_eq!(
+            basename_of(
+                Some(Path::new("/usr/sbin/nginx")),
+                OsStr::new("nginx: worker")
+            ),
+            "nginx"
+        );
+    }
+
+    /// A kernel thread has no executable path, and some platforms report a
+    /// directory-only path; both fall back to the reported process name rather
+    /// than to an empty identity.
+    #[test]
+    fn basename_falls_back_to_the_process_name() {
+        assert_eq!(basename_of(None, OsStr::new("kthreadd")), "kthreadd");
+        assert_eq!(
+            basename_of(Some(Path::new("/")), OsStr::new("init")),
+            "init"
+        );
+    }
+
+    /// The full path never leaves the host — only the last component does.
+    #[test]
+    fn basename_never_returns_the_full_path() {
+        let basename = basename_of(
+            Some(Path::new("/home/ivan/secret-project/build/agent")),
+            OsStr::new("agent"),
+        );
+        assert_eq!(basename, "agent");
+        assert!(!basename.contains('/'));
+    }
+
+    /// A reading with no predecessor establishes the baseline: rates are
+    /// unknown, not zero, because nothing has been differenced yet.
+    #[test]
+    fn first_reading_establishes_the_baseline_without_rates() {
+        let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
+        let now = Instant::now();
+
+        assert_eq!(
+            sampler.net_rates(Some(("eth0".into(), 1_000, 2_000)), now),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn second_reading_differences_both_directions_over_the_interval() {
+        let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
+        let start = Instant::now();
+        sampler.net_rates(Some(("eth0".into(), 1_000, 2_000)), start);
+
+        // +2000 rx and +8000 tx over 2 s → 1000 and 4000 B/s.
+        let rates = sampler.net_rates(
+            Some(("eth0".into(), 3_000, 10_000)),
+            start + Duration::from_secs(2),
+        );
+
+        assert_eq!(rates, (Some(1_000.0), Some(4_000.0)));
+    }
+
+    /// Each reading becomes the next one's baseline, so a steady link reports a
+    /// steady rate rather than an ever-growing one.
+    #[test]
+    fn each_reading_rebaselines_for_the_next() {
+        let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
+        let start = Instant::now();
+        sampler.net_rates(Some(("eth0".into(), 0, 0)), start);
+        sampler.net_rates(
+            Some(("eth0".into(), 1_000, 1_000)),
+            start + Duration::from_secs(1),
+        );
+
+        let rates = sampler.net_rates(
+            Some(("eth0".into(), 2_000, 2_000)),
+            start + Duration::from_secs(2),
+        );
+
+        assert_eq!(rates, (Some(1_000.0), Some(1_000.0)));
+    }
+
+    /// The primary interface moving is a new measurement series. The old
+    /// counters are not comparable, so this tick reports nothing — and the new
+    /// interface becomes the baseline for the next one.
+    #[test]
+    fn a_changed_interface_reports_nothing_then_rebaselines() {
+        let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
+        let start = Instant::now();
+        sampler.net_rates(Some(("eth0".into(), 1_000, 1_000)), start);
+
+        let on_change = sampler.net_rates(
+            Some(("wlan0".into(), 50, 50)),
+            start + Duration::from_secs(1),
+        );
+        let after = sampler.net_rates(
+            Some(("wlan0".into(), 550, 1_050)),
+            start + Duration::from_secs(2),
+        );
+
+        assert_eq!(on_change, (None, None));
+        assert_eq!(after, (Some(500.0), Some(1_000.0)));
+    }
+
+    /// Losing the primary interface drops the baseline. Keeping it would
+    /// difference the next reading across a gap of unknown length and report a
+    /// rate averaged over a window that never happened.
+    #[test]
+    fn an_absent_reading_drops_the_baseline() {
+        let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
+        let start = Instant::now();
+        sampler.net_rates(Some(("eth0".into(), 1_000, 1_000)), start);
+
+        let gap = sampler.net_rates(None, start + Duration::from_secs(1));
+        let resumed = sampler.net_rates(
+            Some(("eth0".into(), 9_000, 9_000)),
+            start + Duration::from_secs(2),
+        );
+
+        assert_eq!(gap, (None, None));
+        assert_eq!(resumed, (None, None));
+    }
+
+    /// A reboot resets the kernel counters. Differencing across it would report
+    /// a huge negative-turned-nonsense rate, so the tick reports nothing.
+    #[test]
+    fn a_counter_reset_reports_nothing_then_rebaselines() {
+        let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
+        let start = Instant::now();
+        sampler.net_rates(Some(("eth0".into(), 9_000, 9_000)), start);
+
+        let on_reset = sampler.net_rates(
+            Some(("eth0".into(), 100, 100)),
+            start + Duration::from_secs(1),
+        );
+        let after = sampler.net_rates(
+            Some(("eth0".into(), 600, 1_100)),
+            start + Duration::from_secs(2),
+        );
+
+        assert_eq!(on_reset, (None, None));
+        assert_eq!(after, (Some(500.0), Some(1_000.0)));
+    }
+
+    /// An idle link is a measurement: unchanged counters mean zero bytes moved,
+    /// which must stay distinguishable from "no rate available".
+    #[test]
+    fn an_idle_link_reports_zero_in_both_directions() {
+        let mut sampler = SysinfoSampler::new(0).expect("top-N 0 is valid");
+        let start = Instant::now();
+        sampler.net_rates(Some(("eth0".into(), 4_096, 8_192)), start);
+
+        let rates = sampler.net_rates(
+            Some(("eth0".into(), 4_096, 8_192)),
+            start + Duration::from_secs(5),
+        );
+
+        assert_eq!(rates, (Some(0.0), Some(0.0)));
+    }
+
+    #[test]
+    fn top_process_count_must_fit_in_a_rank_byte() {
+        assert!(matches!(
+            SysinfoSampler::new(u8::MAX as usize + 1),
+            Err(SamplerError::TopNTooLarge)
+        ));
+        assert!(SysinfoSampler::new(u8::MAX as usize).is_ok());
     }
 }
