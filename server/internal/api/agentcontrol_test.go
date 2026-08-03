@@ -34,6 +34,9 @@ type fakeAgentControl struct {
 	restartReason string
 	restartErr    error
 
+	updateCalls int
+	updateErr   error
+
 	maintenanceCalls   int
 	maintenanceEnabled bool
 	maintenanceErr     error
@@ -51,7 +54,8 @@ func (f *fakeAgentControl) SendSessionRequest(_ context.Context, _ protocol.Sess
 }
 
 func (f *fakeAgentControl) SendAgentUpdate(_ context.Context, _, _, _, _ string) error {
-	return nil
+	f.updateCalls++
+	return f.updateErr
 }
 
 func (f *fakeAgentControl) SendRestartAgent(_ context.Context, reason string) error {

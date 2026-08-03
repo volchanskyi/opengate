@@ -8,6 +8,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -85,6 +86,71 @@ func TestRestartDevice(t *testing.T) {
 		msg, err := codec.DecodeControl(payload)
 		require.NoError(t, err)
 		assert.Equal(t, "restart requested from web UI", msg.Reason)
+	})
+
+	// A reason that bottoms out empty encodes a frame with no `reason` key,
+	// which the agent cannot decode — the device never restarts. Returning 200
+	// for that is a lie, so every such request is refused before a frame is
+	// written.
+	t.Run("empty reason is refused", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			reason string
+		}{
+			{"empty string", ""},
+			{"single space", " "},
+			{"whitespace run", "    "},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				env := setupDeviceTest(t, true)
+
+				w := doRequest(env.srv, http.MethodPost, "/api/v1/devices/"+env.device.ID.String()+"/restart", env.ownerToken, map[string]string{
+					"reason": tt.reason,
+				})
+
+				assert.Equal(t, http.StatusBadRequest, w.Code)
+				assert.Zero(t, env.agentStream.Len(), "no frame may reach the agent")
+			})
+		}
+	})
+
+	t.Run("control characters in the reason are refused", func(t *testing.T) {
+		env := setupDeviceTest(t, true)
+
+		w := doRawRequest(env.srv, http.MethodPost, "/api/v1/devices/"+env.device.ID.String()+"/restart", env.ownerToken,
+			`{"reason":"reboot\u0001now"}`)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Zero(t, env.agentStream.Len(), "no frame may reach the agent")
+	})
+
+	t.Run("over-long reason is refused", func(t *testing.T) {
+		env := setupDeviceTest(t, true)
+
+		w := doRequest(env.srv, http.MethodPost, "/api/v1/devices/"+env.device.ID.String()+"/restart", env.ownerToken, map[string]string{
+			"reason": strings.Repeat("x", maxReasonLen+1),
+		})
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Zero(t, env.agentStream.Len(), "no frame may reach the agent")
+	})
+
+	t.Run("reason at the length bound is accepted", func(t *testing.T) {
+		env := setupDeviceTest(t, true)
+		reason := strings.Repeat("x", maxReasonLen)
+
+		w := doRequest(env.srv, http.MethodPost, "/api/v1/devices/"+env.device.ID.String()+"/restart", env.ownerToken, map[string]string{
+			"reason": reason,
+		})
+
+		require.Equal(t, http.StatusOK, w.Code)
+		codec := &protocol.Codec{}
+		_, payload, err := codec.ReadFrame(env.agentStream)
+		require.NoError(t, err)
+		msg, err := codec.DecodeControl(payload)
+		require.NoError(t, err)
+		assert.Equal(t, reason, msg.Reason)
 	})
 
 	t.Run("audit log written", func(t *testing.T) {

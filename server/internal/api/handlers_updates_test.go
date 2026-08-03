@@ -2,20 +2,32 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
 
 func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
+	t.Helper()
+	return newTestServerWithUpdaterAndAgents(t, &stubAgentGetter{})
+}
+
+// newTestServerWithUpdaterAndAgents builds the updater-enabled server against a
+// caller-supplied AgentGetter, so a test can drive the push loop's send path.
+func newTestServerWithUpdaterAndAgents(t *testing.T, agents AgentGetter) (*Server, string, string) {
 	t.Helper()
 	store := testutil.NewTestStore(t)
 	cfg := testJWTConfig()
@@ -39,7 +51,7 @@ func newTestServerWithUpdater(t *testing.T) (*Server, string, string) {
 		Sessions:       testutil.NewTestSessions(t, store),
 		Users:          testutil.NewTestUsers(t, store),
 		JWT:            cfg,
-		Agents:         &stubAgentGetter{},
+		Agents:         agents,
 		AMT:            &stubAMTOperator{},
 		Relay:          relay.NewRelay(slog.Default()),
 		Notifier:       &notifications.NoopNotifier{},
@@ -158,6 +170,51 @@ func TestPushUpdate_NoConnectedAgents(t *testing.T) {
 	var resp PushUpdateResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, 0, resp.PushedCount)
+}
+
+// TestPushUpdate_UndeliverableManifest pins that a manifest the agent could not
+// decode — one missing a version, URL, or signature — surfaces as a 400 rather
+// than being counted as a successful push of zero agents. The failure is a
+// property of the manifest, so every eligible agent would reject it alike.
+func TestPushUpdate_UndeliverableManifest(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAgentControl{
+		meta:      agentapi.AgentMeta{DeviceID: uuid.New(), OS: "linux", Arch: "amd64", AgentVersion: "0.9.0"},
+		updateErr: fmt.Errorf("%w: %s.signature is empty", agentapi.ErrIncompleteControlMessage, protocol.MsgAgentUpdate),
+	}
+	agents := &stubAgentGetter{agents: map[protocol.DeviceID]AgentControl{fake.meta.DeviceID: fake}}
+	srv, adminToken, _ := newTestServerWithUpdaterAndAgents(t, agents)
+
+	publishManifest(t, srv, adminToken, "1.0.0")
+
+	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush("1.0.0"))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, 1, fake.updateCalls)
+}
+
+// A per-agent transport failure is not a manifest defect: it stays a warning and
+// the push reports how many agents it reached.
+func TestPushUpdate_PerAgentSendFailureIsSkipped(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeAgentControl{
+		meta:      agentapi.AgentMeta{DeviceID: uuid.New(), OS: "linux", Arch: "amd64", AgentVersion: "0.9.0"},
+		updateErr: errors.New("stream closed"),
+	}
+	agents := &stubAgentGetter{agents: map[protocol.DeviceID]AgentControl{fake.meta.DeviceID: fake}}
+	srv, adminToken, _ := newTestServerWithUpdaterAndAgents(t, agents)
+
+	publishManifest(t, srv, adminToken, "1.0.0")
+
+	w := doRequest(srv, http.MethodPost, "/api/v1/updates/push", adminToken, samplePush("1.0.0"))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var resp PushUpdateResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, 0, resp.PushedCount)
+	assert.Equal(t, 1, fake.updateCalls)
 }
 
 func TestGetUpdateSigningKey_Admin(t *testing.T) {

@@ -21,6 +21,28 @@ function createMockCanvas(): HTMLCanvasElement {
   return canvas;
 }
 
+/** Point the canvas at a rect with the given origin, keeping the 960x540 size. */
+function placeCanvasAt(canvas: HTMLCanvasElement, left: number, top: number): void {
+  canvas.getBoundingClientRect = () => ({
+    x: left,
+    y: top,
+    width: 960,
+    height: 540,
+    top,
+    right: left + 960,
+    bottom: top + 540,
+    left,
+    toJSON: () => {},
+  });
+}
+
+/** The coordinates of the single MouseMove the handler emitted. */
+function movedTo(onMessage: ReturnType<typeof vi.fn>): { x: number; y: number } {
+  const call = onMessage.mock.calls[0]?.[0] as ControlMessage | undefined;
+  if (call?.type !== 'MouseMove') throw new Error(`expected a MouseMove, got ${String(call?.type)}`);
+  return { x: call.x, y: call.y };
+}
+
 describe('InputHandler', () => {
   it('mousemove emits MouseMove with scaled coordinates', () => {
     const onMessage = vi.fn<(msg: ControlMessage) => void>();
@@ -140,6 +162,83 @@ describe('InputHandler', () => {
     canvas.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA' }));
 
     expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it('scales coordinates relative to the canvas origin, not the viewport', () => {
+    const onMessage = vi.fn<(msg: ControlMessage) => void>();
+    const canvas = createMockCanvas();
+    placeCanvasAt(canvas, 100, 50);
+    const handler = new InputHandler(canvas, onMessage);
+
+    // 100px right and 50px below the canvas origin → (200, 100) after the 2x
+    // scale. Adding the origin instead of subtracting it would land elsewhere.
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 200, clientY: 100 }));
+
+    expect(movedTo(onMessage)).toEqual({ x: 200, y: 100 });
+
+    handler.destroy();
+  });
+
+  it('re-reads the canvas rect after a window resize', () => {
+    const onMessage = vi.fn<(msg: ControlMessage) => void>();
+    const canvas = createMockCanvas();
+    const handler = new InputHandler(canvas, onMessage);
+
+    // Prime the cache against the original rect.
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 480, clientY: 270 }));
+    expect(movedTo(onMessage)).toEqual({ x: 960, y: 540 });
+
+    // The canvas moves; without invalidation the stale rect keeps producing the
+    // old coordinates.
+    onMessage.mockClear();
+    placeCanvasAt(canvas, 480, 270);
+    globalThis.dispatchEvent(new Event('resize'));
+
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 480, clientY: 270 }));
+    expect(movedTo(onMessage)).toEqual({ x: 0, y: 0 });
+
+    handler.destroy();
+  });
+
+  it('re-reads the canvas rect after a scroll', () => {
+    const onMessage = vi.fn<(msg: ControlMessage) => void>();
+    const canvas = createMockCanvas();
+    const handler = new InputHandler(canvas, onMessage);
+
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 480, clientY: 270 }));
+    expect(movedTo(onMessage)).toEqual({ x: 960, y: 540 });
+
+    onMessage.mockClear();
+    placeCanvasAt(canvas, 240, 135);
+    // Scroll is captured, so it is observed even from a nested target.
+    document.body.dispatchEvent(new Event('scroll', { bubbles: false }));
+
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 480, clientY: 270 }));
+    expect(movedTo(onMessage)).toEqual({ x: 480, y: 270 });
+
+    handler.destroy();
+  });
+
+  it('destroy removes every window listener it registered', () => {
+    const onMessage = vi.fn<(msg: ControlMessage) => void>();
+    const canvas = createMockCanvas();
+    const addSpy = vi.spyOn(globalThis, 'addEventListener');
+    const removeSpy = vi.spyOn(globalThis, 'removeEventListener');
+
+    const handler = new InputHandler(canvas, onMessage);
+    // Only the window registrations matter here; the canvas keeps its own.
+    const registered = addSpy.mock.calls.map(([event, fn, capture]) => [event, fn, capture ?? false]);
+    expect(registered.map(([event]) => event)).toEqual(['resize', 'scroll']);
+
+    handler.destroy();
+
+    const released = removeSpy.mock.calls.map(([event, fn, capture]) => [event, fn, capture ?? false]);
+    // A listener is only released when the event, the function and the capture
+    // flag all match what it was registered with.
+    expect(released).toEqual(registered);
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
   });
 
   it('clamps coordinates to remote resolution bounds', () => {

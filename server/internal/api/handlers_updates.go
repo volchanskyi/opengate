@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/volchanskyi/opengate/server/internal/agentapi"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -91,10 +92,33 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 	}
 
 	eligible := s.eligibleAgents(request.Body.Os, request.Body.Arch, m.Version, targetSet)
+	pushed, err := s.pushManifestToAgents(ctx, m, eligible)
+	if err != nil {
+		// A manifest missing a version, URL, or signature is undeliverable to
+		// every agent alike, so reporting it beats counting a push of zero
+		// agents as a success.
+		return PushUpdate400JSONResponse{Error: err.Error()}, nil
+	}
+
+	s.auditLog(ctx, ContextUserID(ctx), "update.push",
+		fmt.Sprintf("%s/%s", request.Body.Os, request.Body.Arch),
+		fmt.Sprintf("version=%s pushed=%d", m.Version, pushed))
+
+	return PushUpdate200JSONResponse{PushedCount: pushed}, nil
+}
+
+// pushManifestToAgents sends the manifest to every eligible agent and records a
+// pending update for each one reached, returning how many were reached. A
+// per-agent transport failure is logged and skipped; an undeliverable manifest
+// is returned as an error, because no agent could ever decode it.
+func (s *Server) pushManifestToAgents(ctx context.Context, m *updater.Manifest, eligible []AgentControl) (int, error) {
 	pushed := 0
 	for _, agent := range eligible {
 		deviceID := agent.Meta().DeviceID
 		if err := agent.SendAgentUpdate(ctx, m.Version, m.URL, m.SHA256, m.Signature); err != nil {
+			if agentapi.IsIncompleteMessageError(err) {
+				return pushed, err
+			}
 			s.logger.Warn("push update to agent failed",
 				"device_id", deviceID,
 				"error", err)
@@ -114,12 +138,7 @@ func (s *Server) PushUpdate(ctx context.Context, request PushUpdateRequestObject
 				"error", err)
 		}
 	}
-
-	s.auditLog(ctx, ContextUserID(ctx), "update.push",
-		fmt.Sprintf("%s/%s", request.Body.Os, request.Body.Arch),
-		fmt.Sprintf("version=%s pushed=%d", m.Version, pushed))
-
-	return PushUpdate200JSONResponse{PushedCount: pushed}, nil
+	return pushed, nil
 }
 
 // eligibleAgents returns connected agents that match os/arch, are not already

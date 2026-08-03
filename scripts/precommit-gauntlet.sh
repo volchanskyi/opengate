@@ -307,9 +307,12 @@ run_check "web coverage ≥80%" -- bash -c '
     process.exit(l<80?1:0);
   "
 '
+# Ignored files have no in-process harness: main.rs (binary entry points),
+# webrtc.rs (live STUN/ICE stack), terminal.rs (PTY + shell subprocess),
+# session/relay.rs (loops driven by a live screen source), /tests/ (test files).
 run_check "rust coverage ≥80%" -- bash -c '
   cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
-    --ignore-filename-regex "(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)"
+    --ignore-filename-regex "(main\.rs|/webrtc\.rs|/terminal\.rs|/session/relay\.rs|/tests/)"
 '
 
 # Phase 5: security audits — lockfile-based; fail on any reported vuln.

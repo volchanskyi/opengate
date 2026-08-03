@@ -12,9 +12,9 @@
 #     subprocess (system integration, not unit-testable)
 #   * WebRTC peer connection (`mesh-agent-core/src/webrtc.rs`) — RTCPeerConnection
 #     / ICE agent / data-channel callback wiring; webrtc-rs only exercises this
-#     against a live STUN/network stack. This is the Rust analog of the
-#     web-side `webrtc-transport.ts`, `use-remote-desktop.ts`, and
-#     `connection-store.ts` carve-outs (see `web/stryker.config.json`).
+#     against a live STUN/network stack. The web side carves out the same class
+#     of code in `use-remote-desktop.ts` and `use-terminal.ts`, where the logic
+#     runs only against a real DOM (see `web/stryker.config.json`).
 
 #   * WebRTC handler (`mesh-agent-core/src/session/handlers/webrtc.rs`) owns the
 #     SwitchToWebRTC offer/answer + IceCandidate forwarding logic. It is the same

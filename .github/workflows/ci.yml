@@ -80,13 +80,17 @@ jobs:
       # The instrumented run is the canonical execution of the workspace suite:
       # it reports pass/fail AND produces lcov.info, so the workspace is compiled
       # and executed once rather than once bare and once under instrumentation.
+      # Ignored files have no in-process harness: main.rs (binary entry points),
+      # webrtc.rs (live STUN/ICE stack), terminal.rs (PTY + shell subprocess),
+      # session/relay.rs (loops driven by a live screen source), /tests/ (the
+      # test files themselves).
       - name: Tests & coverage
         id: coverage
         run: |
           set +e
           cargo llvm-cov nextest --workspace --no-fail-fast --color never \
             --lcov --output-path lcov.info \
-            --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)' \
+            --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/relay\.rs|/tests/)' \
             --fail-under-lines 80 > test-output.txt 2>&1
           EXIT_CODE=$?
           cat test-output.txt

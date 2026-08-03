@@ -213,3 +213,49 @@ impl SessionHandler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn permissions() -> Permissions {
+        Permissions {
+            desktop: true,
+            terminal: false,
+            file_read: true,
+            file_write: false,
+            input: true,
+        }
+    }
+
+    #[test]
+    fn new_keeps_the_token_and_permissions_and_starts_without_ice_servers() {
+        let token = SessionToken::generate();
+        let handler = SessionHandler::new(token.clone(), permissions());
+
+        assert_eq!(handler.token, token);
+        assert!(handler.permissions.desktop);
+        assert!(!handler.permissions.terminal);
+        assert!(handler.permissions.file_read);
+        assert!(!handler.permissions.file_write);
+        assert!(handler.permissions.input);
+        assert!(handler.ice_servers.is_empty());
+    }
+
+    #[test]
+    fn with_ice_servers_replaces_the_list() {
+        let handler = SessionHandler::new(SessionToken::generate(), permissions())
+            .with_ice_servers(vec![IceServerConfig {
+                urls: vec!["stun:stun.example.com:3478".to_string()],
+                username: "user".to_string(),
+                credential: "secret".to_string(),
+            }]);
+
+        assert_eq!(handler.ice_servers.len(), 1);
+        assert_eq!(handler.ice_servers[0].urls, ["stun:stun.example.com:3478"]);
+        assert_eq!(handler.ice_servers[0].username, "user");
+
+        let replaced = handler.with_ice_servers(Vec::new());
+        assert!(replaced.ice_servers.is_empty());
+    }
+}

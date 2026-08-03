@@ -360,11 +360,19 @@ pub enum ControlMessage {
     /// Server notifies agent that its device has been deleted.
     /// Agent should clean up and exit.
     AgentDeregistered {
+        /// Informational only — the agent cleans up and exits either way, so an
+        /// absent reason (the server drops zero-valued fields on encode) is a
+        /// legal message rather than a decode failure that would break the
+        /// control loop.
+        #[serde(default)]
         reason: String,
     },
 
     /// Server requests agent to restart (exit code 42, systemd auto-restarts).
     RestartAgent {
+        /// Informational only — the agent restarts either way, so an absent
+        /// reason decodes as empty instead of dropping the control stream.
+        #[serde(default)]
         reason: String,
     },
 

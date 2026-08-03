@@ -103,8 +103,13 @@ node -e "const s=require('./coverage/coverage-summary.json');const l=s.total.lin
 
 # Rust — cargo-llvm-cov with exclusions
 cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
-  --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)'
+  --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/relay\.rs|/tests/)'
 ```
+
+Each ignored Rust path lacks an in-process harness: `main.rs` (binary entry
+points), `webrtc.rs` (live STUN/ICE stack), `terminal.rs` (PTY plus a shell
+subprocess), `session/relay.rs` (loops driven by a live screen source), and
+`/tests/` (the test files themselves).
 
 ### Mutation testing
 
@@ -112,15 +117,15 @@ Coverage % asserts which lines executed; mutation score asserts which lines
 were *meaningfully* tested. Run `make mutate` to drive cargo-mutants (Rust),
 gremlins (Go), and stryker (Web).
 
-**Carve-outs** (genuinely unmutateable code, analogous to platform shims):
+**Carve-outs** (genuinely unmutateable code, analogous to platform shims). Each
+config carries a per-entry justification next to the exclusion it explains:
 - Rust: [agent/.cargo/mutants.toml](../agent/.cargo/mutants.toml) — platform
   shims, agent binary entry point, SELinux restorecon match guards.
 - Go:   [server/.gremlins.yaml](../server/.gremlins.yaml) — `openapi_gen.go`,
   `cmd/meshserver/main.go`, `tests/loadtest/main.go`, `internal/testutil/`.
 - Web:  [web/stryker.config.json](../web/stryker.config.json) — `main.tsx`,
-  `router.tsx`, `use-terminal.ts`, `use-remote-desktop.ts`,
-  `input-handler.ts`, `state/connection-store.ts` (WebRTC paths jsdom can't
-  simulate).
+  `router.tsx`, `icons.tsx`, generated `*.d.ts`, and the two hooks whose logic
+  only runs against a real DOM (`use-terminal.ts`, `use-remote-desktop.ts`).
 
 Rust runs need `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden` so golden file
 tests resolve fixtures inside cargo-mutants' temp tree. The `mutate-rust`

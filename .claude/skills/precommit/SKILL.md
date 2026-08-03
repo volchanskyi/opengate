@@ -25,7 +25,7 @@ In order, with elapsed time printed per step:
 2. **Lints** — `cargo fmt --check`, `cargo clippy -D warnings`, `go vet`, `eslint`, `actionlint`, `make taint-go`, `make taint-web`, `make dead-code`, `gitleaks protect --staged`, `make lint-deploy`.
 3. **Codegen sync** — `make verify-codegen` (`oapi-codegen` re-run + clean-diff assertion).
 4. **Tests** — Go unit + integration with `-race`, Rust workspace, Vitest with coverage.
-5. **Coverage thresholds** — Go ≥ 80% (excluding `testutil/`, `metrics/`, `amt/transport/wsman/`, `openapi_gen.go`), Web ≥ 80% lines, Rust ≥ 80% lines (excluding `main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/`).
+5. **Coverage thresholds** — Go ≥ 80% (excluding `testutil/`, `metrics/`, `amt/transport/wsman/`, `openapi_gen.go`), Web ≥ 80% lines, Rust ≥ 80% lines (excluding `main.rs`, `webrtc.rs`, `terminal.rs`, `session/relay.rs`, `tests/`).
 6. **Security audits** — `govulncheck`, `npm audit --audit-level=high`, `cargo audit`.
 7. **Benchmarks** — Go `go test -bench` and Rust `cargo bench -p mesh-protocol`. Skip with `PRECOMMIT_SKIP_BENCH=1` only for clearly non-perf-touching iterations.
 8. **PMAT TDG gate** — `pmat tdg check-quality` on each changed code file at the **B+** floor (Clean-as-You-Code; docs-only / CI-only commits pass trivially). Ordered before the slow E2E + SonarCloud phase because it is fast and frequently the failing check.

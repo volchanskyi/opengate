@@ -145,6 +145,40 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		Reason: "restart requested from web UI",
 	})
 
+	writeReverseControlFrame(t, dir, codec, "control_agent_update", &ControlMessage{
+		Type:      MsgAgentUpdate,
+		Version:   "0.15.4",
+		URL:       "https://updates.example.com/agent-0.15.4",
+		SHA256:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Signature: "3045022100deadbeef",
+	})
+
+	writeReverseControlFrame(t, dir, codec, "control_agent_deregistered", &ControlMessage{
+		Type:   MsgAgentDeregistered,
+		Reason: "device deleted",
+	})
+
+	// Minimal shapes: every field but Type is omitempty, so a zero-valued
+	// informational field leaves the wire map holding nothing but the tag. These
+	// goldens pin the smallest frame the server can emit for each variant, and
+	// the Rust verifier proves the agent still decodes it instead of dropping
+	// its control stream.
+	writeReverseControlFrame(t, dir, codec, "control_restart_agent_min", &ControlMessage{
+		Type: MsgRestartAgent,
+	})
+
+	writeReverseControlFrame(t, dir, codec, "control_agent_deregistered_min", &ControlMessage{
+		Type: MsgAgentDeregistered,
+	})
+
+	writeReverseControlFrame(t, dir, codec, "control_request_hardware_report", &ControlMessage{
+		Type: MsgRequestHardwareReport,
+	})
+
+	writeReverseControlFrame(t, dir, codec, "control_request_device_logs", &ControlMessage{
+		Type: MsgRequestDeviceLogs,
+	})
+
 	writeReverseControlFrame(t, dir, codec, "control_request_health_window", &ControlMessage{
 		Type:    MsgRequestHealthWindow,
 		SinceTS: 1_700_000_000,

@@ -28,7 +28,9 @@ export class InputHandler {
   private readonly canvas: HTMLCanvasElement;
   private readonly onMessage: (msg: ControlMessage) => void;
   private boundHandlers: Array<[string, EventListener]> = [];
-  private boundWindowHandlers: Array<[string, EventListener]> = [];
+  /** Window listeners with the capture flag they were registered under —
+   * removal only matches a listener when the flag matches too. */
+  private boundWindowHandlers: Array<[string, EventListener, boolean]> = [];
   private cachedRect: DOMRect | null = null;
 
   constructor(canvas: HTMLCanvasElement, onMessage: (msg: ControlMessage) => void) {
@@ -42,9 +44,13 @@ export class InputHandler {
     this.listen('keyup', this.handleKey);
 
     const invalidateRect = () => { this.cachedRect = null; };
-    globalThis.addEventListener('resize', invalidateRect);
-    globalThis.addEventListener('scroll', invalidateRect, true);
-    this.boundWindowHandlers = [['resize', invalidateRect], ['scroll', invalidateRect]];
+    this.boundWindowHandlers = [
+      ['resize', invalidateRect, false],
+      ['scroll', invalidateRect, true],
+    ];
+    for (const [event, handler, capture] of this.boundWindowHandlers) {
+      globalThis.addEventListener(event, handler, capture);
+    }
   }
 
   destroy(): void {
@@ -52,8 +58,8 @@ export class InputHandler {
       this.canvas.removeEventListener(event, handler);
     }
     this.boundHandlers = [];
-    for (const [event, handler] of this.boundWindowHandlers) {
-      globalThis.removeEventListener(event, handler, true);
+    for (const [event, handler, capture] of this.boundWindowHandlers) {
+      globalThis.removeEventListener(event, handler, capture);
     }
     this.boundWindowHandlers = [];
   }
