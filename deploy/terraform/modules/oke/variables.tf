@@ -1,6 +1,7 @@
 variable "compartment_id" {
   description = "OCID of the compartment that owns the OKE cluster and node pool."
   type        = string
+  sensitive   = true
 }
 
 variable "cluster_name" {

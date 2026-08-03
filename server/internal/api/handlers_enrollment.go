@@ -30,7 +30,7 @@ func (s *Server) CreateEnrollmentToken(ctx context.Context, request CreateEnroll
 
 	label := ""
 	if request.Body.Label != nil {
-		label = *request.Body.Label
+		label = sanitizeText(*request.Body.Label, maxLabelLen)
 	}
 	maxUses := 0
 	if request.Body.MaxUses != nil {

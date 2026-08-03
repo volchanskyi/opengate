@@ -7,6 +7,7 @@ variable "compartment_ocid" {
 variable "namespace" {
   description = "OCI Object Storage namespace, resolved by the root module via the oci_objectstorage_namespace data source"
   type        = string
+  sensitive   = true
 
   validation {
     condition     = length(var.namespace) > 0

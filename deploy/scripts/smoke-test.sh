@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Post-deploy smoke tests for OpenGate.
-# Runs on the VPS via SSH from the CD workflow.
+# CD runs it on the runner against a kubectl port-forward into the deployed
+# release; --domain targets the public ingress instead.
 #
 # Usage: smoke-test.sh --mode <staging|production> --domain <domain>
 #    or: smoke-test.sh --mode <staging|production> --host <host> --port <port> [--scheme <http|https>]

@@ -291,6 +291,10 @@ jobs:
           fi
           echo "Telegram alert delivered ✓"
 
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
+
   gate:
     name: Benchmark regression gate
     needs: [publish]

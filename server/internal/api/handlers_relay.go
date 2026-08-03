@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -31,26 +32,54 @@ func rejectWebSocket(w http.ResponseWriter, r *http.Request, reason string) {
 	_ = c.Close(websocket.StatusPolicyViolation, reason)
 }
 
-// ensureBrowserAuth ensures the browser side has an Authorization header,
-// falling back to the ?auth= query param (browser WebSocket API cannot set custom headers).
-func ensureBrowserAuth(r *http.Request) bool {
-	if r.Header.Get("Authorization") != "" {
-		return true
+// bearerToken extracts the credential from an "Authorization: Bearer <token>"
+// header, returning "" when the header is absent or malformed.
+func bearerToken(header string) string {
+	scheme, token, found := strings.Cut(header, " ")
+	if !found || !strings.EqualFold(scheme, "bearer") {
+		return ""
 	}
-	authParam := r.URL.Query().Get("auth")
-	if authParam == "" {
+	return strings.TrimSpace(token)
+}
+
+// authenticateBrowser verifies the browser side presents a JWT this server
+// signed, and that the session it is joining is visible in that caller's
+// tenant. The browser WebSocket API cannot set custom headers, so the token may
+// arrive in the ?auth= query parameter as well as in the Authorization header.
+//
+// The relay token in the URL establishes *which* session is being joined; this
+// establishes *who* is joining it. Without it, a relay token that leaked
+// through browser history, a referrer, or a shared link would by itself be
+// enough to attach an operator console to somebody's remote session.
+func (s *Server) authenticateBrowser(r *http.Request, sessionToken string) bool {
+	credential := bearerToken(r.Header.Get("Authorization"))
+	if credential == "" {
+		credential = r.URL.Query().Get("auth")
+	}
+	if credential == "" {
 		return false
 	}
-	r.Header.Set("Authorization", "Bearer "+authParam)
+
+	claims, err := s.jwt.ValidateToken(credential)
+	if err != nil {
+		return false
+	}
+
+	// Resolve the session under the caller's own tenant scope so a relay token
+	// cannot be used across organizations.
+	scoped := dbtx.WithTenant(r.Context(), claims.OrgID, claims.IsAdmin)
+	if _, err := s.sessions.Get(scoped, sessionToken); err != nil {
+		return false
+	}
 	return true
 }
 
 // parseSide determines the relay side from the ?side= query param.
 // Returns the side and true on success, or rejects the WebSocket and returns false.
-func parseSide(w http.ResponseWriter, r *http.Request) (relay.Side, bool) {
+func (s *Server) parseSide(w http.ResponseWriter, r *http.Request, sessionToken string) (relay.Side, bool) {
 	switch r.URL.Query().Get("side") {
 	case "browser":
-		if !ensureBrowserAuth(r) {
+		if !s.authenticateBrowser(r, sessionToken) {
 			rejectWebSocket(w, r, "browser side requires authorization")
 			return 0, false
 		}
@@ -124,7 +153,7 @@ func (s *Server) handleRelayWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	side, ok := parseSide(w, r)
+	side, ok := s.parseSide(w, r, token)
 	if !ok {
 		s.logger.Warn("relay invalid side param", "token_prefix", tp, "side_param", r.URL.Query().Get("side"))
 		return

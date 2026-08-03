@@ -64,11 +64,12 @@ func (p *PostgresWebPush) ListAll(ctx context.Context) ([]*WebPushSubscription, 
 	return subs, err
 }
 
-func (p *PostgresWebPush) Delete(ctx context.Context, endpoint string) error {
+func (p *PostgresWebPush) Delete(ctx context.Context, endpoint string, userID uuid.UUID) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`DELETE FROM web_push_subscriptions
-			 WHERE org_id = current_setting('app.current_org')::uuid AND endpoint = $1`, endpoint)
+			 WHERE org_id = current_setting('app.current_org')::uuid
+			   AND endpoint = $1 AND user_id = $2`, endpoint, userID)
 		if err != nil {
 			return err
 		}

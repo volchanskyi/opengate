@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,11 +22,18 @@ func TestLoginHandlerPerEmailLockout(t *testing.T) {
 	const victim = "victim@example.com"
 	seedTestUser(t, srv, cfg, victim, false)
 
-	// failFromIP submits a wrong-password login for email from a distinct IP.
+	// failFromIP submits a wrong-password login for email from a distinct source
+	// address. The peer address is what identifies a client, so the test varies
+	// RemoteAddr rather than a header a caller could forge.
 	failFromIP := func(email, ip string) *httptest.ResponseRecorder {
-		body := map[string]string{"email": email, "password": "wrong"}
-		return doRequestWithHeaders(srv, http.MethodPost, testPathLogin, "", body,
-			map[string]string{"X-Forwarded-For": ip})
+		body, err := json.Marshal(map[string]string{"email": email, "password": "wrong"})
+		require.NoError(t, err)
+		req := httptest.NewRequest(http.MethodPost, testPathLogin, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = net.JoinHostPort(ip, "44321")
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		return w
 	}
 
 	// Spread failures across distinct IPs — the per-IP limiter would not trip.

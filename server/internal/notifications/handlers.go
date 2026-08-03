@@ -1,6 +1,10 @@
 package notifications
 
-import "context"
+import (
+	"context"
+
+	"github.com/google/uuid"
+)
 
 // Handlers exposes the notifications module's use cases to transport-layer
 // callers. The api package's push/VAPID handlers translate HTTP requests and
@@ -23,9 +27,9 @@ func (h *Handlers) Subscribe(ctx context.Context, sub *WebPushSubscription) erro
 	return h.webPush.Upsert(ctx, sub)
 }
 
-// Unsubscribe removes a subscription by its endpoint URL.
-func (h *Handlers) Unsubscribe(ctx context.Context, endpoint string) error {
-	return h.webPush.Delete(ctx, endpoint)
+// Unsubscribe removes the calling user's subscription for this endpoint URL.
+func (h *Handlers) Unsubscribe(ctx context.Context, endpoint string, userID uuid.UUID) error {
+	return h.webPush.Delete(ctx, endpoint, userID)
 }
 
 // VAPIDPublicKey returns the server's VAPID public key for the browser to

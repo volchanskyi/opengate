@@ -27,5 +27,9 @@ type WebPushRepository interface {
 	Upsert(ctx context.Context, sub *WebPushSubscription) error
 	ListForUser(ctx context.Context, userID uuid.UUID) ([]*WebPushSubscription, error)
 	ListAll(ctx context.Context) ([]*WebPushSubscription, error)
-	Delete(ctx context.Context, endpoint string) error
+	// Delete removes the subscription with this endpoint belonging to userID.
+	// A subscription is owned by exactly one user, so the owner is part of the
+	// key: organization scope alone would let any colleague who learns an
+	// endpoint URL cancel somebody else's notifications.
+	Delete(ctx context.Context, endpoint string, userID uuid.UUID) error
 }

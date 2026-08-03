@@ -65,10 +65,10 @@ func TestRateLimiter(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
 
-	t.Run("X-Forwarded-For is used when present", func(t *testing.T) {
+	t.Run("X-Forwarded-For from a trusted proxy identifies the client", func(t *testing.T) {
 		handler := RateLimiter(1, 1)(okHandler)
 
-		// First request with XFF should pass
+		// First request through the proxy should pass
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.RemoteAddr = "127.0.0.1:1234"
 		req.Header.Set("X-Forwarded-For", "203.0.113.1, 10.0.0.1")
@@ -76,7 +76,7 @@ func TestRateLimiter(t *testing.T) {
 		handler.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusOK, rec.Code)
 
-		// Second request from same XFF should be limited
+		// Second request from the same client should be limited
 		req = httptest.NewRequest(http.MethodGet, "/", nil)
 		req.RemoteAddr = "127.0.0.1:1234"
 		req.Header.Set("X-Forwarded-For", "203.0.113.1, 10.0.0.1")
@@ -84,6 +84,36 @@ func TestRateLimiter(t *testing.T) {
 		handler.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusTooManyRequests, rec.Code)
 	})
+
+	// A client able to mint a fresh bucket per request by varying a header it
+	// controls would have no rate limit at all, so a varying X-Forwarded-For
+	// must never move the client's identity — whether the peer is an untrusted
+	// public address or the trusted ingress whose appended entry the attacker
+	// prepends to.
+	bypass := []struct {
+		name        string
+		remoteAddr  string
+		first, next string
+	}{
+		{"untrusted peer", "203.0.113.50:44321", "198.51.100.1", "198.51.100.2"},
+		{"prepended to the ingress entry", "10.0.0.1:1234", "198.51.100.1, 203.0.113.7", "198.51.100.2, 203.0.113.7"},
+	}
+	for _, tt := range bypass {
+		t.Run("varying X-Forwarded-For cannot mint fresh buckets: "+tt.name, func(t *testing.T) {
+			handler := RateLimiter(1, 1)(okHandler)
+			send := func(xff string) int {
+				req := httptest.NewRequest(http.MethodGet, "/", nil)
+				req.RemoteAddr = tt.remoteAddr
+				req.Header.Set("X-Forwarded-For", xff)
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+				return rec.Code
+			}
+			assert.Equal(t, http.StatusOK, send(tt.first))
+			assert.Equal(t, http.StatusTooManyRequests, send(tt.next),
+				"a different X-Forwarded-For must not reset the limit")
+		})
+	}
 }
 
 func TestExtractIP(t *testing.T) {
@@ -96,9 +126,18 @@ func TestExtractIP(t *testing.T) {
 	}{
 		{"remote addr with port", "1.2.3.4:5678", "", "1.2.3.4"},
 		{"remote addr without port", "1.2.3.4", "", "1.2.3.4"},
-		{"xff single", "127.0.0.1:80", "203.0.113.1", "203.0.113.1"},
-		{"xff multiple", "127.0.0.1:80", "203.0.113.1, 10.0.0.1", "203.0.113.1"},
-		{"xff with spaces", "127.0.0.1:80", " 203.0.113.2 , 10.0.0.1", "203.0.113.2"},
+		// Loopback and private peers are our own reverse proxy: the entry it
+		// appended — the last one — is the client it actually observed.
+		{"xff single from loopback proxy", "127.0.0.1:80", "203.0.113.1", "203.0.113.1"},
+		{"xff from loopback proxy uses last hop", "127.0.0.1:80", "203.0.113.1, 198.51.100.9", "198.51.100.9"},
+		{"xff with spaces", "127.0.0.1:80", " 203.0.113.2 , 198.51.100.8 ", "198.51.100.8"},
+		{"xff from private proxy", "10.0.0.1:8080", "203.0.113.1, 198.51.100.7", "198.51.100.7"},
+		// A public peer is not our proxy, so nothing it claims is trusted.
+		{"xff ignored from public peer", "203.0.113.50:44321", "198.51.100.1", "203.0.113.50"},
+		{"xff ignored from public peer with chain", "203.0.113.50:44321", "1.1.1.1, 2.2.2.2", "203.0.113.50"},
+		// A malformed trailing entry must not become the identity.
+		{"non-ip xff entry falls back to peer", "127.0.0.1:80", "not-an-ip", "127.0.0.1"},
+		{"empty xff falls back to peer", "127.0.0.1:80", "   ", "127.0.0.1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -25,7 +25,7 @@ func (s *Server) SubscribePush(ctx context.Context, request SubscribePushRequest
 
 // UnsubscribePush implements StrictServerInterface.
 func (s *Server) UnsubscribePush(ctx context.Context, request UnsubscribePushRequestObject) (UnsubscribePushResponseObject, error) {
-	if err := s.notifHandlers.Unsubscribe(ctx, request.Body.Endpoint); err != nil {
+	if err := s.notifHandlers.Unsubscribe(ctx, request.Body.Endpoint, ContextUserID(ctx)); err != nil {
 		return nil, err
 	}
 

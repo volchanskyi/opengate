@@ -20,6 +20,9 @@ func (s *Server) CreateGroup(ctx context.Context, request CreateGroupRequestObje
 	if request.Body.Name == "" {
 		return CreateGroup400JSONResponse{Error: "name is required"}, nil
 	}
+	if msg := invalidText("name", request.Body.Name, maxGroupNameLen); msg != "" {
+		return CreateGroup400JSONResponse{Error: msg}, nil
+	}
 
 	group := &device.Group{
 		ID:   uuid.New(),

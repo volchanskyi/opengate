@@ -24,7 +24,7 @@ func (s *Server) SetDeviceMaintenance(ctx context.Context, request SetDeviceMain
 	enabled := request.Body.Enabled
 	reason := ""
 	if request.Body.Reason != nil {
-		reason = *request.Body.Reason
+		reason = sanitizeText(*request.Body.Reason, maxReasonLen)
 	}
 	userID := ContextUserID(ctx)
 

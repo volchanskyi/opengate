@@ -1,7 +1,6 @@
 name: Mutation Testing
 
 # Mutation testing as observability, not as a CI gate.
-# Recovery plan: .claude/plans/mutation-workflow-recovery.md
 #
 # Runs nightly. Does NOT block merges or deploys.
 # On regression (drop >2pp from previous successful run OR absolute score <85%):
@@ -515,6 +514,10 @@ jobs:
             exit 0
           fi
           echo "Telegram alert delivered ✓"
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
 
   # Separate from publish so a Telegram outage cannot suppress the failure
   # signal, and so the score verdict is not recorded against the observability

@@ -48,9 +48,9 @@ func (i *InstrumentedWebPush) ListAll(ctx context.Context) ([]*WebPushSubscripti
 	return subs, err
 }
 
-func (i *InstrumentedWebPush) Delete(ctx context.Context, endpoint string) error {
+func (i *InstrumentedWebPush) Delete(ctx context.Context, endpoint string, userID uuid.UUID) error {
 	start := time.Now()
-	err := i.inner.Delete(ctx, endpoint)
+	err := i.inner.Delete(ctx, endpoint, userID)
 	i.observer.Observe("notifications.WebPush.Delete", time.Since(start), err == nil)
 	return err
 }

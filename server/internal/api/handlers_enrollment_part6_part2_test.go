@@ -16,7 +16,7 @@ func TestGetInstallScriptUsesBaseURL(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER="https://staging.example.com"`)
+	assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER='https://staging.example.com'`)
 	assert.NotContains(t, w.Body.String(), "127.0.0.1")
 }
 
@@ -30,5 +30,5 @@ func TestGetInstallScriptUsesForwardedHeaders(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER="https://opengate.cloudisland.net"`)
+	assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER='https://opengate.cloudisland.net'`)
 }

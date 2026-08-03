@@ -86,7 +86,7 @@ func (minimalWebPush) ListForUser(context.Context, uuid.UUID) ([]*notifications.
 func (minimalWebPush) ListAll(context.Context) ([]*notifications.WebPushSubscription, error) {
 	return nil, nil
 }
-func (minimalWebPush) Delete(context.Context, string) error { return nil }
+func (minimalWebPush) Delete(context.Context, string, uuid.UUID) error { return nil }
 
 type minimalNotifier struct{}
 

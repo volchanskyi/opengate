@@ -37,7 +37,7 @@ mutation_go_global_excludes() {
 mutation_go_shard_units() {
   case "$1" in
     go-api-runtime)
-      echo "file:internal/api/api.go file:internal/api/converters.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/log_redact.go file:internal/api/metrics_assemble.go file:internal/api/ratelimit.go"
+      echo "file:internal/api/api.go file:internal/api/converters.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/log_redact.go file:internal/api/metrics_assemble.go file:internal/api/ratelimit.go file:internal/api/validate.go"
       ;;
     go-api-identity-admin)
       echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_groups.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go file:internal/api/handlers_push.go"

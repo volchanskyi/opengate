@@ -3,6 +3,7 @@ package api
 import (
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -160,15 +161,60 @@ func (l *emailLimiter) cleanup() {
 	}
 }
 
-func extractIP(r *http.Request) string {
-	// Trust X-Forwarded-For when behind the ingress reverse proxy.
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		first, _, _ := strings.Cut(xff, ",")
-		return strings.TrimSpace(first)
-	}
+// trustedProxyPeer reports whether the immediate peer is infrastructure we
+// operate: loopback, or a private or link-local address, which in this
+// deployment is the in-cluster ingress controller. Only such a peer's
+// X-Forwarded-For is believed.
+func trustedProxyPeer(addr netip.Addr) bool {
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
+}
+
+// peerIP returns the IP portion of the request's immediate peer address.
+func peerIP(r *http.Request) string {
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return ip
+}
+
+// extractIP identifies the client a rate-limit bucket belongs to.
+//
+// X-Forwarded-For is consulted only when the request reached us from a trusted
+// proxy, and then only its *last* entry is used: the reverse proxy appends the
+// peer it actually observed, while every earlier entry was supplied by the
+// caller. Honouring a caller-supplied entry would let any client mint a fresh
+// bucket per request just by varying a header, which is no rate limit at all.
+// Anything unusable falls back to the peer address, which a client cannot
+// choose.
+func extractIP(r *http.Request) string {
+	peer := peerIP(r)
+	addr, err := netip.ParseAddr(peer)
+	if err != nil || !trustedProxyPeer(addr) {
+		return peer
+	}
+
+	xff := r.Header.Get("X-Forwarded-For")
+	if _, last, found := strings.Cut(xff, ","); found {
+		xff = lastHop(last)
+	}
+	client := strings.TrimSpace(xff)
+	if client == "" {
+		return peer
+	}
+	if _, err := netip.ParseAddr(client); err != nil {
+		return peer
+	}
+	return client
+}
+
+// lastHop returns the final comma-separated element of s.
+func lastHop(s string) string {
+	for {
+		_, rest, found := strings.Cut(s, ",")
+		if !found {
+			return s
+		}
+		s = rest
+	}
 }
