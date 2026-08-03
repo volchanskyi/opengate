@@ -7,35 +7,29 @@ Status: Accepted
 
 [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) adopted full hexagonal architecture across OpenGate. The Rust agent is already a 5-crate workspace (`mesh-agent-core`, `mesh-agent`, `mesh-protocol`, `platform-linux`, `platform-windows`) with mature trait-based platform abstraction. The only structural pinch-point identified is inside `mesh-agent-core`'s session-handling.
 
-**Corrected location** (the original plan misidentified the file — corrected here):
+Two locations were in play (the original plan misidentified the file):
 
-- [`agent/crates/mesh-agent-core/src/session/mod.rs::receive_loop`](../../agent/crates/mesh-agent-core/src/session/mod.rs) is the WebSocket message loop, **not** the dispatch.
-- The actual frame-type dispatch lives at [`agent/crates/mesh-agent-core/src/session/handler.rs:17-46`](../../agent/crates/mesh-agent-core/src/session/handler.rs#L17-L46) — 30 lines, 4 outer branches (`Frame::Control`, `Frame::Terminal`, `Frame::Ping`, wildcard).
-- The complexity lives in the **inner** `handle_control` fan-out: ~10 methods on `SessionHandler` — `handle_mouse_move`, `handle_mouse_click`, `handle_key_press`, `handle_file_list`, `handle_file_download`, `handle_ice_candidate`, `handle_switch_ack`, `handle_webrtc_offer`, etc.
+- [`session/mod.rs::receive_loop`](../../agent/crates/mesh-agent-core/src/session/mod.rs) is the WebSocket message loop, **not** the dispatch.
+- The frame-type dispatch is `handle_frame` in [`session/handler.rs`](../../agent/crates/mesh-agent-core/src/session/handler.rs) — 4 outer branches (`Frame::Control`, `Frame::Terminal`, `Frame::Ping`, wildcard).
+- The complexity was in the **inner** `handle_control` fan-out: ~10 methods on `SessionHandler` (`handle_mouse_move`, `handle_mouse_click`, `handle_key_press`, `handle_file_list`, `handle_file_download`, `handle_ice_candidate`, `handle_switch_ack`, `handle_webrtc_offer`, …), implemented as a flat `match` calling methods directly on `SessionHandler`, with no per-control-message trait.
 
-No per-control-message trait exists today. The fan-out is implemented as a flat `match` on `ControlMessage` variants calling methods directly on `SessionHandler`.
-
-Mutation score on `mesh-agent-core` is **89.5%** per [`.github/workflows/mutation.yml`](../../.github/workflows/mutation.yml). The 85% floor must be preserved through the carve-up.
+The carve-up had to preserve the crate's mutation score. The regression floor and allowed drop are the `REGRESSION_FLOOR_PCT` / `REGRESSION_DROP_PP` constants in [`mutation-summarize.sh`](../../scripts/mutation-summarize.sh); the nightly run is [`mutation.yml`](../../.github/workflows/mutation.yml).
 
 ## Decision
 
 ### `ControlMessageHandler` trait around the inner fan-out
 
-Introduce a `ControlMessageHandler` trait that owns the ~10 control-message methods. Each `ControlMessage` variant routes through the trait. Implementations can be grouped by domain:
+Group the ~10 control-message methods into per-domain handlers, each a documented participant in a `ControlMessageHandler` trait, living in [`session/handlers/`](../../agent/crates/mesh-agent-core/src/session/handlers/).
+
+The trait is a **marker** — it carries no methods:
 
 ```rust
-pub(crate) trait ControlMessageHandler: Send + Sync {
-    async fn handle(
-        &self,
-        msg: ControlMessage,
-        ctx: &mut HandlerContext<'_>,
-    ) -> Result<(), SessionError>;
-}
+pub trait ControlMessageHandler {}
 ```
 
-`HandlerContext` carries the per-frame dependencies (`InputInjector`, `FrameSender`, `FileOpsHandler`, `Option<&TerminalHandle>`, `Arc<Mutex<Option<Arc<AgentPeerConnection>>>>`). It is constructed once per `handle_frame` call and passed to whichever handler the dispatcher selects.
+Dispatch stays a `match` in `handle_control` calling each handler's associated functions directly, rather than routing through a trait method over a shared `HandlerContext`. A method-carrying trait would have bought dynamic dispatch nobody needs — every variant's owner is known statically — at the cost of a context struct threading five per-frame dependencies through an object-safe signature. The marker keeps the value that was actually wanted: each group is a separate module, separately testable, and discoverable via `cargo doc`.
 
-Initial grouped impls (subject to refinement during implementation):
+Grouped impls:
 
 | Impl | Covers |
 |---|---|
@@ -46,27 +40,19 @@ Initial grouped impls (subject to refinement during implementation):
 | `SwitchHandler` | `SwitchAck` (and any future channel-switch messages) |
 | `TerminalControlHandler` | terminal-control variants not handled by the `Frame::Terminal` branch |
 
-The dispatcher in `handle_control` becomes a single `match` selecting which handler to invoke. Methods that today live as `SessionHandler::handle_*` move into the trait implementations.
+The `SessionHandler::handle_*` methods live in the handler modules; `handle_control` selects the owning handler per variant.
 
 ### Outer frame dispatch stays a thin multiplexer
 
-The 4-branch outer `handle_frame` ([`handler.rs:17-46`](../../agent/crates/mesh-agent-core/src/session/handler.rs#L17-L46)) stays as-is. Three of its four branches are 1-3 lines (Terminal forwarding, Ping/Pong, wildcard log). The fourth fans into `ControlMessageHandler`. **The outer dispatch does not become a trait** — earned-port rule from [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) is not satisfied at the outer layer (insufficient implementations, no isolation need).
+The 4-branch outer `handle_frame` in [`handler.rs`](../../agent/crates/mesh-agent-core/src/session/handler.rs) is unchanged. Three of its four branches are 1-3 lines (Terminal forwarding, Ping/Pong, wildcard log). The fourth fans into the grouped handlers. **The outer dispatch is not a trait** — the earned-port rule from [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) is not satisfied at the outer layer (insufficient implementations, no isolation need).
 
 ### Mutation-score preservation gate
 
-The carve-up is staged through tests:
+Turning a match arm into a one-liner delegate moves logic out from under the tests that covered it, so the carve-up was staged: cover every `ControlMessage` variant first, extract one impl group at a time, and re-check `cargo mutants --workspace --package mesh-agent-core` on each step against the previous score, not just the floor. Each handler carries direct unit tests in its own file plus an integration test under `tests/`.
 
-1. **Before any method moves**: add tests covering every `ControlMessage` variant if not already present (some are sparse today — `WebRTCAnswer`, `FileUpload`). Verify the current 89.5% baseline holds.
-2. **Per-impl extraction**: move one impl group at a time. Re-run `cargo mutants --workspace --package mesh-agent-core` on each PR; the score may NOT drop below 89.5%. CI gate already enforces the 85% floor; the per-PR review enforces the no-regression rule against the current baseline.
-3. **Final integration**: once all ~10 methods live behind the trait, `cargo mutants` runs on the full `mesh-agent-core` crate. Score must equal or exceed 89.5%.
+The TDD gate ([`.claude/hooks/pretooluse-tdd-gate.sh`](../../.claude/hooks/pretooluse-tdd-gate.sh)) backs this up by requiring a test change before any source-file edit on the branch.
 
-If a mid-extraction score drops, the offending PR rebuilds tests before merging. The TDD gate ([`.claude/hooks/pretooluse-tdd-gate.sh`](../../.claude/hooks/pretooluse-tdd-gate.sh)) backs this up by requiring a test change before any source-file edit on the branch.
-
-### Migration trigger
-
-Per plan §9: the next session-protocol change is the first carve-up trigger. The user's intuition is that `MouseHandler` is the largest natural group and should land first to validate the pattern. Subsequent impls follow as protocol changes touch their methods.
-
-`cargo-deny` ([ADR-020](ADR-020-modular-monolith-full-hexagonal.md)) gates that the new trait module does not introduce external HTTP / network crates — control-message handlers operate on local platform APIs only.
+`cargo-deny` ([ADR-020](ADR-020-modular-monolith-full-hexagonal.md)) gates that the handler modules do not introduce external HTTP / network crates — control-message handlers operate on local platform APIs only.
 
 `cargo-modules` snapshot at `agent/crates/mesh-agent-core/tests/module-graph.snap` will record the new `session::control` submodule when introduced. CI fails on unreviewed snapshot diffs.
 
@@ -89,14 +75,14 @@ Per plan §9: the next session-protocol change is the first carve-up trigger. Th
 
 **Accepted trade-offs.**
 
-- `HandlerContext` is a new struct with five fields. Its lifetime threading needs care — owned `&mut` reference passed for the duration of the call.
-- Initial PR pays for ~10 test additions plus a working baseline of `cargo mutants` against the new code. Heavier than a typical session-protocol change.
-- Trait dispatch adds a vtable call per control message. Hot path is mouse-move at desktop frame rate — measured before/after; the PR rejects the change if the benchmark regresses > 5%.
+- Each per-frame dependency (`InputInjector`, frame sender, `FileOpsHandler`, `Option<&TerminalHandle>`, the WebRTC peer-connection handle) is threaded through the handler call signatures rather than bundled in one context struct — more parameters at each call site, in exchange for no lifetime-threading of a shared `&mut` context.
+- The carve-up paid for ~10 test additions plus a fresh `cargo mutants` baseline against the new code. Heavier than a typical session-protocol change.
+- Grouping by domain means a variant that straddles two groups (a file transfer that also drives terminal output, say) has no obvious owner and needs a judgement call at review time.
 
 ## References
 
-- Plan: [`.claude/plans/modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) §4.2 (corrected hotspot location), §6 (mutation-score guard pitfall)
+- Plan: [`modular-monolith-evaluation.md`](../../.claude/plans/archive/modular-monolith-evaluation.md) §4.2 (corrected hotspot location), §6 (mutation-score guard pitfall)
 - Upstream: [ADR-020](ADR-020-modular-monolith-full-hexagonal.md) — earned-port rule, module-level CI gates
-- Critical files: [`agent/crates/mesh-agent-core/src/session/handler.rs`](../../agent/crates/mesh-agent-core/src/session/handler.rs), [`agent/crates/mesh-agent-core/src/session/mod.rs`](../../agent/crates/mesh-agent-core/src/session/mod.rs)
-- Mutation-score history: [`.github/workflows/mutation.yml`](../../.github/workflows/mutation.yml)
+- Critical files: [`session/handler.rs`](../../agent/crates/mesh-agent-core/src/session/handler.rs), [`session/handlers/`](../../agent/crates/mesh-agent-core/src/session/handlers/), [`session/mod.rs`](../../agent/crates/mesh-agent-core/src/session/mod.rs)
+- Mutation-score history: VictoriaMetrics + Grafana per [ADR-038](ADR-038-victoriametrics-ci-trend-store.md); the run itself is [`mutation.yml`](../../.github/workflows/mutation.yml)
 - TDD enforcement: [`.claude/hooks/pretooluse-tdd-gate.sh`](../../.claude/hooks/pretooluse-tdd-gate.sh)

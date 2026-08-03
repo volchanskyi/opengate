@@ -162,10 +162,10 @@ An incomplete run fails as incomplete after publishing its completion status. It
 does not emit a canonical language score from whichever shards happened to finish.
 
 **Regression alert rules** — fired when any language regresses on either
-condition:
-- absolute score drops below **85%**, or
-- score drops more than **2 percentage points** from the previous successful
-  run.
+condition: its absolute score crosses below the floor, or it drops by more than
+the allowed margin from the previous successful run. Both values are the
+`REGRESSION_FLOOR_PCT` / `REGRESSION_DROP_PP` constants in
+[`mutation-summarize.sh`](../scripts/mutation-summarize.sh).
 
 The `no_coverage` field is reported as `—` for Rust: cargo-mutants does not
 distinguish "missed" from "not covered" — every untested mutant lands in
@@ -354,11 +354,11 @@ The codebase audit added targeted tests for security hardening:
 |-----------|----------|
 | `server/internal/api/ratelimit_test.go` | Under/over limit behavior, per-IP independence, `X-Forwarded-For` parsing |
 | `server/internal/api/middleware_test.go` | `RequestTimeout` middleware, HSTS header assertion in `SecurityHeaders` |
-| `server/internal/api/handlers_auth_test.go` | Email validation (invalid formats rejected, valid formats accepted) |
+| [`server/internal/api/auth_handlers_test.go`](../server/internal/api/auth_handlers_test.go) | Email validation (invalid formats rejected, valid formats accepted) |
 | `web/src/components/ErrorBoundary.test.tsx` | Error boundary renders fallback UI on child component crash |
 | `server/tests/integration/middleware_ws_test.go` | Full middleware stack preserves `http.Hijacker` for WS upgrades, relay route bypasses 30s `RequestTimeout` |
 
-The existing 22 Playwright E2E tests continue to pass with the auth rate limiter active, confirming no regressions from the new middleware.
+The Playwright E2E suite in [`web/e2e/`](../web/e2e/) passes with the auth rate limiter active, confirming no regressions from the middleware.
 
 ## Cross-Component Integration Tests
 
@@ -366,7 +366,7 @@ These tests exercise multi-component interaction paths that unit tests cannot co
 
 ### Agent SessionHandler (Rust)
 
-`agent/crates/mesh-agent-core/src/session/handler.rs` — 8 unit tests covering frame dispatch, permission enforcement, and error paths:
+[`agent/crates/mesh-agent-core/src/session/handler.rs`](../agent/crates/mesh-agent-core/src/session/handler.rs) covers frame dispatch, permission enforcement, and error paths. A representative slice:
 
 | Test | What It Verifies |
 |------|-----------------|
@@ -398,7 +398,7 @@ Sends properly encoded `[type][4-byte BE length][payload]` frames through the fu
 
 ### WebRTC Signaling via Relay (Go)
 
-`server/tests/integration/signaling_relay_test.go` — 2 tests:
+[`server/tests/integration/signaling_relay_test.go`](../server/tests/integration/signaling_relay_test.go):
 
 | Test | What It Verifies |
 |------|-----------------|
@@ -409,7 +409,7 @@ Uses fake SDP strings — the relay is message-agnostic and just forwards binary
 
 ### OTA Update Pipeline (Go + Rust)
 
-**Go** (`server/tests/integration/update_test.go`) — 3 tests:
+**Go** (the `update*_test.go` files under [`server/tests/integration/`](../server/tests/integration/)):
 
 | Test | What It Verifies |
 |------|-----------------|
@@ -417,7 +417,7 @@ Uses fake SDP strings — the relay is message-agnostic and just forwards binary
 | `TestUpdatePushSkipsCurrentVersion` | Agent already on target version → `pushed_count=0` |
 | `TestUpdatePushNoMatchingOS` | Manifest for windows/amd64, agent is linux/amd64 → not pushed |
 
-**Rust** (`agent/crates/mesh-agent-core/src/update.rs`) — 1 integration test:
+**Rust** ([`agent/crates/mesh-agent-core/src/update.rs`](../agent/crates/mesh-agent-core/src/update.rs)):
 
 | Test | What It Verifies |
 |------|-----------------|

@@ -276,7 +276,7 @@ The React web client (`web/`) provides management and session features:
 | **Messenger** | Chat tab | Real-time chat over relay control messages |
 | **Profile** | `/profile` | Self-service display name editing |
 
-All features use the binary frame protocol (`web/src/lib/protocol/`) and share a single WebSocket connection managed by a Zustand store (`web/src/state/connection-store.ts`).
+All features use the binary frame protocol ([`web/src/lib/protocol/`](../web/src/lib/protocol/)) and share a single WebSocket connection managed by a Zustand store ([`connection-store.ts`](../web/src/features/session/state/connection-store.ts)).
 
 **Capability-based tab visibility**: The Session View dynamically shows/hides tabs based on the device's reported capabilities. Linux agents report Terminal + FileManager only; Windows/Mac agents additionally report RemoteDesktop. The web client receives capabilities via the Device API and passes them to Session View via React Router state. Devices without the `RemoteDesktop` capability will only show Terminal and Files tabs; Desktop and Chat tabs require it.
 

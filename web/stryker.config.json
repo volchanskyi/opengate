@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "_comment": "Mutation testing config for the web client. Threshold gate is deferred until PR 9.",
+  "_comment": "Mutation testing config for the web client. Enforcement lives in the nightly mutation workflow's score-regression gate, so there is no local break threshold.",
   "packageManager": "npm",
   "testRunner": "vitest",
   "checkers": ["typescript"],

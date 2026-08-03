@@ -45,10 +45,9 @@ sequenceDiagram
   Note over Agent,Server: framed MessagePack begins after handshake
 ```
 
-Active handshake type bytes are `0x10` (`ServerHello`), `0x11`
-(`AgentHello`), `0x14` (`SkipAuth`), and `0x15` (`ExpectHash`). The former
-proof-message reservations `0x12` and `0x13` are retired and rejected by both
-decoders. The canonical constants live in
+The handshake type bytes are `0x10` (`ServerHello`), `0x11`
+(`AgentHello`), `0x14` (`SkipAuth`), and `0x15` (`ExpectHash`). Both decoders
+reject `0x12` and `0x13`. The canonical constants live in
 [`server/internal/protocol/types.go`](../server/internal/protocol/types.go) and
 [`agent/crates/mesh-protocol/src/types/handshake.rs`](../agent/crates/mesh-protocol/src/types/handshake.rs).
 
