@@ -62,7 +62,7 @@ func (m *notifMockRepo) ListAll(_ context.Context) ([]*WebPushSubscription, erro
 	return m.subs, nil
 }
 
-func (m *notifMockRepo) Delete(_ context.Context, endpoint string) error {
+func (m *notifMockRepo) Delete(_ context.Context, endpoint string, _ uuid.UUID) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.deletedEPs = append(m.deletedEPs, endpoint)

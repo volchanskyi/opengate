@@ -205,69 +205,25 @@ jobs:
         env:
           POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_STAGING_POSTGRES_APP_PASSWORD || secrets.DEPLOY_STAGING_POSTGRES_PASSWORD }}
         run: |
+          set -euo pipefail
           if ! kubectl -n "$NAMESPACE" get statefulset "${RELEASE}-postgres" >/dev/null 2>&1; then
             echo "Postgres StatefulSet not present yet; zz-app-role.sh will create opengate_app on first bootstrap."
             exit 0
           fi
-          kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
-            psql -U opengate -d opengate -v ON_ERROR_STOP=1 \
-              --set=app_password="$POSTGRES_APP_PASSWORD" <<'SQL'
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'opengate_app') THEN
-              CREATE ROLE opengate_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
-            END IF;
-          END
-          $$;
-
-          ALTER ROLE opengate_app WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'app_password';
-          GRANT CONNECT ON DATABASE opengate TO opengate_app;
-          GRANT USAGE, CREATE ON SCHEMA public TO opengate_app;
-          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO opengate_app;
-          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO opengate_app;
-
-          DO $$
-          DECLARE
-            obj record;
-          BEGIN
-            FOR obj IN
-              SELECT quote_ident(schemaname) || '.' || quote_ident(tablename) AS name
-              FROM pg_tables
-              WHERE schemaname = 'public'
-            LOOP
-              EXECUTE format('ALTER TABLE %s OWNER TO opengate_app', obj.name);
-            END LOOP;
-
-            FOR obj IN
-              SELECT quote_ident(sequence_schema) || '.' || quote_ident(sequence_name) AS name
-              FROM information_schema.sequences
-              WHERE sequence_schema = 'public'
-            LOOP
-              EXECUTE format('ALTER SEQUENCE %s OWNER TO opengate_app', obj.name);
-            END LOOP;
-          END
-          $$;
-
-          DO $$
-          BEGIN
-            IF EXISTS (
-              SELECT 1
-              FROM pg_roles
-              WHERE rolname = 'opengate_app'
-                AND (rolsuper OR rolbypassrls)
-            ) THEN
-              RAISE EXCEPTION 'database role opengate_app must be NOSUPERUSER and NOBYPASSRLS';
-            END IF;
-          END
-          $$;
-          SQL
+          # The password reaches psql over stdin: a --set flag would land in the
+          # pod's process list and in the API server's exec audit record.
+          deploy/scripts/pg-app-role-sql.sh \
+            | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
+                psql -U opengate -d opengate -v ON_ERROR_STOP=1
 
       - name: Helm upgrade
+        env:
+          DOMAIN: ${{ secrets.DEPLOY_STAGING_DOMAIN }}
         run: |
           helm upgrade --install "$RELEASE" deploy/helm/opengate -n "$NAMESPACE" \
             -f deploy/helm/opengate/values-staging.yaml \
             --set image.tag="${IMAGE_TAG}" \
-            --set domain="${{ secrets.DEPLOY_STAGING_DOMAIN }}" \
+            --set domain="$DOMAIN" \
             --set certManager.create=false \
             --wait --timeout 5m
           kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
@@ -325,6 +281,10 @@ jobs:
       - name: Stop port-forward
         if: always()
         run: kill "$(cat /tmp/pf.pid)" 2>/dev/null || true
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
 
   # Deployed fault-tolerance drills, run against staging after E2E. Activation
   # is config-only: skipped unless the STAGING_FAULT_TESTS repo variable is
@@ -399,71 +359,28 @@ jobs:
         env:
           POSTGRES_APP_PASSWORD: ${{ secrets.DEPLOY_POSTGRES_APP_PASSWORD || secrets.DEPLOY_POSTGRES_PASSWORD }}
         run: |
+          set -euo pipefail
           if ! kubectl -n "$NAMESPACE" get statefulset "${RELEASE}-postgres" >/dev/null 2>&1; then
             echo "Postgres StatefulSet not present yet; zz-app-role.sh will create opengate_app on first bootstrap."
             exit 0
           fi
-          kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
-            psql -U opengate -d opengate -v ON_ERROR_STOP=1 \
-              --set=app_password="$POSTGRES_APP_PASSWORD" <<'SQL'
-          DO $$
-          BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'opengate_app') THEN
-              CREATE ROLE opengate_app LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
-            END IF;
-          END
-          $$;
-
-          ALTER ROLE opengate_app WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'app_password';
-          GRANT CONNECT ON DATABASE opengate TO opengate_app;
-          GRANT USAGE, CREATE ON SCHEMA public TO opengate_app;
-          GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO opengate_app;
-          GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO opengate_app;
-
-          DO $$
-          DECLARE
-            obj record;
-          BEGIN
-            FOR obj IN
-              SELECT quote_ident(schemaname) || '.' || quote_ident(tablename) AS name
-              FROM pg_tables
-              WHERE schemaname = 'public'
-            LOOP
-              EXECUTE format('ALTER TABLE %s OWNER TO opengate_app', obj.name);
-            END LOOP;
-
-            FOR obj IN
-              SELECT quote_ident(sequence_schema) || '.' || quote_ident(sequence_name) AS name
-              FROM information_schema.sequences
-              WHERE sequence_schema = 'public'
-            LOOP
-              EXECUTE format('ALTER SEQUENCE %s OWNER TO opengate_app', obj.name);
-            END LOOP;
-          END
-          $$;
-
-          DO $$
-          BEGIN
-            IF EXISTS (
-              SELECT 1
-              FROM pg_roles
-              WHERE rolname = 'opengate_app'
-                AND (rolsuper OR rolbypassrls)
-            ) THEN
-              RAISE EXCEPTION 'database role opengate_app must be NOSUPERUSER and NOBYPASSRLS';
-            END IF;
-          END
-          $$;
-          SQL
+          # The password reaches psql over stdin: a --set flag would land in the
+          # pod's process list and in the API server's exec audit record.
+          deploy/scripts/pg-app-role-sql.sh \
+            | kubectl -n "$NAMESPACE" exec -i "statefulset/${RELEASE}-postgres" -- \
+                psql -U opengate -d opengate -v ON_ERROR_STOP=1
 
       - name: Helm upgrade
+        env:
+          DOMAIN: ${{ secrets.DEPLOY_DOMAIN }}
+          ACME_EMAIL: ${{ secrets.DEPLOY_ACME_EMAIL }}
         run: |
           helm upgrade --install "$RELEASE" deploy/helm/opengate -n "$NAMESPACE" \
             -f deploy/helm/opengate/values-production.yaml \
             --set image.tag="${IMAGE_TAG}" \
             --set server.replicas=1 \
-            --set domain="${{ secrets.DEPLOY_DOMAIN }}" \
-            --set certManager.email="${{ secrets.DEPLOY_ACME_EMAIL }}" \
+            --set domain="$DOMAIN" \
+            --set certManager.email="$ACME_EMAIL" \
             --wait --timeout 5m
           kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=300s
 
@@ -479,6 +396,10 @@ jobs:
           done
           bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 18080 --mode production --scheme http
           kill "$PF_PID" 2>/dev/null || true
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
 
   notify-failure:
     name: Create failure issue

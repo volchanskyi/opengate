@@ -67,7 +67,7 @@ func TestPostgres_WebPushCRUD(t *testing.T) {
 		endpoint := "https://push.example.com/del-" + uuid.New().String()[:8]
 		sub := &notifications.WebPushSubscription{Endpoint: endpoint, UserID: owner.ID}
 		require.NoError(t, repo.Upsert(ctx, sub))
-		require.NoError(t, repo.Delete(ctx, endpoint))
+		require.NoError(t, repo.Delete(ctx, endpoint, owner.ID))
 
 		subs, err := repo.ListForUser(ctx, owner.ID)
 		require.NoError(t, err)
@@ -77,8 +77,28 @@ func TestPostgres_WebPushCRUD(t *testing.T) {
 	})
 
 	t.Run("delete not found", func(t *testing.T) {
-		err := repo.Delete(ctx, "https://push.example.com/nope")
+		err := repo.Delete(ctx, "https://push.example.com/nope", owner.ID)
 		assert.True(t, errors.Is(err, notifications.ErrSubscriptionNotFound))
+	})
+
+	// Organization scope alone would let any colleague cancel another user's
+	// notifications given only the endpoint URL; the subscription belongs to
+	// one user, so the delete is bound to that user too.
+	t.Run("delete is bound to the owning user", func(t *testing.T) {
+		other := testutil.SeedUser(t, ctx, store)
+		endpoint := "https://push.example.com/own-" + uuid.New().String()[:8]
+		sub := &notifications.WebPushSubscription{Endpoint: endpoint, UserID: owner.ID}
+		require.NoError(t, repo.Upsert(ctx, sub))
+
+		err := repo.Delete(ctx, endpoint, other.ID)
+		assert.ErrorIs(t, err, notifications.ErrSubscriptionNotFound,
+			"a different user in the same org must not delete this subscription")
+
+		subs, err := repo.ListForUser(ctx, owner.ID)
+		require.NoError(t, err)
+		assert.Contains(t, endpointsOf(subs), endpoint, "subscription must survive")
+
+		require.NoError(t, repo.Delete(ctx, endpoint, owner.ID), "owner may delete it")
 	})
 
 	t.Run("list all across users", func(t *testing.T) {
@@ -125,7 +145,7 @@ func TestPostgresWebPush_TenantDeny(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 	assert.Equal(t, subA.Endpoint, all[0].Endpoint)
-	err = repo.Delete(ctxA, subB.Endpoint)
+	err = repo.Delete(ctxA, subB.Endpoint, userB.ID)
 	assert.ErrorIs(t, err, notifications.ErrSubscriptionNotFound)
 
 	_, err = repo.ListAll(context.Background())
@@ -177,7 +197,7 @@ func (m *memWebPushRepo) ListAll(_ context.Context) ([]*notifications.WebPushSub
 	return m.subs, nil
 }
 
-func (m *memWebPushRepo) Delete(_ context.Context, _ string) error {
+func (m *memWebPushRepo) Delete(_ context.Context, _ string, _ uuid.UUID) error {
 	return nil
 }
 
@@ -226,8 +246,17 @@ func TestInstrumented_ObservesDelete(t *testing.T) {
 	obs := &fakeObserver{}
 	repo := notifications.NewInstrumentedWebPush(&memWebPushRepo{}, obs)
 
-	require.NoError(t, repo.Delete(context.Background(), "https://example.com/a"))
+	require.NoError(t, repo.Delete(context.Background(), "https://example.com/a", uuid.New()))
 
 	require.Len(t, obs.calls, 1)
 	assert.Equal(t, "notifications.WebPush.Delete", obs.calls[0].op)
+}
+
+// endpointsOf projects subscription endpoints for membership assertions.
+func endpointsOf(subs []*notifications.WebPushSubscription) []string {
+	out := make([]string, 0, len(subs))
+	for _, s := range subs {
+		out = append(out, s.Endpoint)
+	}
+	return out
 }

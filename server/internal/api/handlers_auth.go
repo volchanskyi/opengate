@@ -10,33 +10,53 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
+// validateRegistration checks the registration payload and returns the accepted
+// display name, or the 400 response describing the first problem found. Nothing
+// validates the OpenAPI schema's constraints at runtime, so this is where a
+// registration request is actually bounded.
+func validateRegistration(body *RegisterJSONRequestBody) (string, RegisterResponseObject) {
+	email := string(body.Email)
+	if email == "" || body.Password == "" {
+		return "", Register400JSONResponse{Error: "email and password are required"}
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return "", Register400JSONResponse{Error: "invalid email format"}
+	}
+	if len(email) > maxEmailLen {
+		return "", Register400JSONResponse{Error: "invalid email format"}
+	}
+	// bcrypt silently truncates beyond 72 bytes, so the upper bound is a
+	// correctness requirement, not just a size cap.
+	if len(body.Password) < 8 {
+		return "", Register400JSONResponse{Error: "password must be at least 8 characters"}
+	}
+	if len(body.Password) > 72 {
+		return "", Register400JSONResponse{Error: "password must be at most 72 characters"}
+	}
+
+	displayName := ""
+	if body.DisplayName != nil {
+		displayName = *body.DisplayName
+	}
+	if msg := invalidText("display_name", displayName, maxDisplayNameLen); msg != "" {
+		return "", Register400JSONResponse{Error: msg}
+	}
+	return displayName, nil
+}
+
 // Register implements StrictServerInterface.
 func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (RegisterResponseObject, error) {
 	ctx = dbtx.WithDefaultTenant(ctx, false)
 	email := string(request.Body.Email)
-	if email == "" || request.Body.Password == "" {
-		return Register400JSONResponse{Error: "email and password are required"}, nil
-	}
 
-	if _, err := mail.ParseAddress(email); err != nil {
-		return Register400JSONResponse{Error: "invalid email format"}, nil
-	}
-
-	if len(request.Body.Password) < 8 {
-		return Register400JSONResponse{Error: "password must be at least 8 characters"}, nil
-	}
-	if len(request.Body.Password) > 72 {
-		return Register400JSONResponse{Error: "password must be at most 72 characters"}, nil
+	displayName, invalid := validateRegistration(request.Body)
+	if invalid != nil {
+		return invalid, nil
 	}
 
 	hash, err := auth.HashPassword(request.Body.Password)
 	if err != nil {
 		return nil, err
-	}
-
-	displayName := ""
-	if request.Body.DisplayName != nil {
-		displayName = *request.Body.DisplayName
 	}
 
 	user := &auth.User{

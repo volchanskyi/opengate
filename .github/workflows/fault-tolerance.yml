@@ -124,3 +124,7 @@ jobs:
           path: ${{ env.EVIDENCE_DIR }}
           if-no-files-found: warn
           retention-days: 30
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown

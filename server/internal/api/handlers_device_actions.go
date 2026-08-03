@@ -27,6 +27,7 @@ func (s *Server) RestartDevice(ctx context.Context, request RestartDeviceRequest
 	if request.Body != nil && request.Body.Reason != nil {
 		reason = *request.Body.Reason
 	}
+	reason = sanitizeText(reason, maxReasonLen)
 
 	if err := ac.SendRestartAgent(ctx, reason); err != nil {
 		return nil, err

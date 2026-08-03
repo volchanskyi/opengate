@@ -72,6 +72,20 @@ else
   pass "staging reset preserves the migration-seeded default organization"
 fi
 
+# The app-role password must reach psql over stdin. A --set flag would put it in
+# the Postgres pod's process list and in the API server's exec audit record.
+if grep -qF -- '--set=app_password' "$WORKFLOW"; then
+  fail "app-role password never rides the psql command line"
+else
+  pass "app-role password never rides the psql command line"
+fi
+
+if [ "$(grep -cF -- 'deploy/scripts/pg-app-role-sql.sh' "$WORKFLOW")" -eq 2 ]; then
+  pass "both staging and production pipe the role SQL from the emitter"
+else
+  fail "both staging and production pipe the role SQL from the emitter"
+fi
+
 echo
 echo "Summary: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then

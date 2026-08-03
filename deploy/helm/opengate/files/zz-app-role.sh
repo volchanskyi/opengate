@@ -9,12 +9,14 @@ set -euo pipefail
 : "${POSTGRES_DB:?POSTGRES_DB is required}"
 : "${POSTGRES_APP_PASSWORD:?POSTGRES_APP_PASSWORD is required}"
 
+# \getenv reads the password from psql's own environment, so it never appears
+# on a command line that other processes in this pod can read.
 psql \
   -v ON_ERROR_STOP=1 \
   --username "$POSTGRES_USER" \
   --dbname "$POSTGRES_DB" \
-  --set=app_password="$POSTGRES_APP_PASSWORD" \
   --set=db_name="$POSTGRES_DB" <<'SQL'
+\getenv app_password POSTGRES_APP_PASSWORD
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'opengate_app') THEN

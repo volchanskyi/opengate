@@ -64,6 +64,28 @@ resuming (`DidResume`).
 
 ## Severity: Low
 
+### OpenAPI request constraints are documentation, not runtime validation
+
+[`api/openapi.yaml`](../api/openapi.yaml) carries `maxLength` on some request
+fields, but no request-validating middleware runs: `kin-openapi` is pulled in
+only so [`openapi_gen.go`](../server/internal/api/openapi_gen.go) can embed the
+spec, and the generated strict handler enforces types and required-ness, not
+string bounds. Every schema constraint is therefore advisory, and a field is
+only bounded where a handler says so.
+
+Free-text request fields are bounded in
+[`validate.go`](../server/internal/api/validate.go) instead: `invalidText`
+rejects with a 400 where the contract has one (register, create-group) and
+`sanitizeText` strips control characters and truncates where it does not
+(update-user display name, restart/maintenance reason, enrollment label). Both
+bound by rune count.
+
+**Pay-down trigger:** if a future endpoint needs a constraint the handler cannot
+express, mount `OapiRequestValidator` from `oapi-codegen/nethttp-middleware` on
+the API group and let the spec become enforcing — then add the missing `400`
+responses to the restart, maintenance, and enrollment operations so those
+handlers can reject rather than sanitize.
+
 ### Per-test migration replay is real cost but not on the wall-clock critical path
 
 [`NewTestStore`](../server/internal/testutil/testutil.go) creates a schema and
@@ -223,4 +245,4 @@ the baseline in `server/.gremlins.yaml`.
 **Pay-down trigger:** after score repair clears the existing floor, confirm three
 consecutive scheduled runs with every shard complete, at least ten minutes of
 per-shard headroom, and Rust/Go/Web score plus completion series present in
-VictoriaMetrics. Only then close the recovery plan.
+VictoriaMetrics. Only then close this item.

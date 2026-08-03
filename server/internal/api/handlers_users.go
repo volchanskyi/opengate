@@ -96,7 +96,7 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 		}
 	}
 	if request.Body.DisplayName != nil {
-		user.DisplayName = *request.Body.DisplayName
+		user.DisplayName = sanitizeText(*request.Body.DisplayName, maxDisplayNameLen)
 	}
 
 	if err := s.users.Upsert(ctx, user); err != nil {

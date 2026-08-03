@@ -1,0 +1,13 @@
+name: OCI + kubeconfig Teardown
+description: >-
+  Remove the OCI API private key, OCI config, and OKE kubeconfig that
+  oci-kube-setup wrote to the runner's home directory. Pair it with every
+  oci-kube-setup use and run it with `if: always()` so the credentials do not
+  outlive the steps that need them.
+
+runs:
+  using: composite
+  steps:
+    - name: Remove OCI credentials and kubeconfig
+      shell: bash
+      run: $GITHUB_ACTION_PATH/oci-kube-teardown.sh

@@ -65,6 +65,11 @@ TTL_HEADROOM_SECONDS=300
 SESSION_TTL_REQUEST=10800
 
 mkdir -p "$CACHE_DIR"
+# The cache holds the session OCID and the log records both OCIDs plus the
+# worker node's private IP, so neither is readable by other local accounts.
+chmod 700 "$CACHE_DIR"
+[[ -f "$LOG_FILE" ]] || : >"$LOG_FILE"
+chmod 600 "$LOG_FILE"
 
 # ──────────────────────────────────────────────────────────────────────────
 # Logging and error handling

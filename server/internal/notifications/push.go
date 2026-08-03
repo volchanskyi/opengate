@@ -76,7 +76,7 @@ func (p *PushNotifier) Notify(ctx context.Context, event Event) error {
 		// 410 Gone means the subscription is stale — remove it.
 		if resp.StatusCode == http.StatusGone {
 			p.logger.Info("removing stale push subscription", "endpoint", sub.Endpoint)
-			if delErr := p.repo.Delete(ctx, sub.Endpoint); delErr != nil {
+			if delErr := p.repo.Delete(ctx, sub.Endpoint, sub.UserID); delErr != nil {
 				p.logger.Warn("delete stale subscription", "endpoint", sub.Endpoint, "error", delErr)
 			}
 		}

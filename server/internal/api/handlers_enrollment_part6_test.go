@@ -24,5 +24,5 @@ func TestGetInstallScriptUsesHostHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER="https://opengate.example.com"`)
+	assert.Contains(t, w.Body.String(), `export OPENGATE_SERVER='https://opengate.example.com'`)
 }

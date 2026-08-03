@@ -339,11 +339,11 @@ func (s *Server) routes() {
 
 	strictHandler := NewStrictHandlerWithOptions(s, []StrictMiddlewareFunc{requestContextMiddleware}, StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			s.logger.Warn("request validation error", "error", err, "path", r.URL.Path)
+			s.logHTTPIssue(slog.LevelWarn, "request validation error", r, err)
 			writeError(w, http.StatusBadRequest, "invalid request")
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			s.logger.Error("response error", "error", err, "path", r.URL.Path)
+			s.logHTTPIssue(slog.LevelError, "response error", r, err)
 			writeError(w, http.StatusInternalServerError, "internal error")
 		},
 	})
@@ -361,7 +361,7 @@ func (s *Server) routes() {
 				AuthRateLimiter(10, 20),
 			},
 			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-				s.logger.Warn("request error", "error", err, "path", r.URL.Path)
+				s.logHTTPIssue(slog.LevelWarn, "request error", r, err)
 				writeError(w, http.StatusBadRequest, "invalid request")
 			},
 		})
@@ -370,58 +370,86 @@ func (s *Server) routes() {
 	// WebSocket relay — token in URL acts as auth (no timeout middleware)
 	r.Get("/ws/relay/{token}", s.handleRelayWebSocket)
 
-	// SPA static file serving with index.html fallback. Uses os.OpenRoot (Go
-	// 1.24+) which rejects any path that tries to escape s.webDir via "..",
-	// absolute paths, or symlinks resolving outside the root — taint-safe per
-	// CodeQL's go/path-injection detector. Lifetime of *os.Root matches the
-	// server's process.
-	//
-	// Three outcomes for a path that's not /api/ or /ws/:
-	//   1. webRoot.Open succeeds → serve the static file.
-	//   2. webRoot.Open returns fs.ErrNotExist → SPA fallback (index.html) so
-	//      client-side routing handles deep links like /devices/123.
-	//   3. Any other error (traversal attempt, permission, symlink escape) →
-	//      explicit 404, NOT a silent SPA fallback.
-	if s.webDir != "" {
-		webRoot, err := os.OpenRoot(s.webDir)
-		if err != nil {
-			s.logger.Warn("SPA serving disabled — failed to open webDir", "error", err, "dir", s.webDir)
-		} else {
-			fileServer := http.FileServer(http.Dir(s.webDir))
-			r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-				path := r.URL.Path
-				if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/ws/") {
-					http.NotFound(w, r)
-					return
-				}
-				relPath := strings.TrimPrefix(path, "/")
-				if relPath != "" {
-					f, err := webRoot.Open(relPath)
-					switch {
-					case err == nil:
-						_ = f.Close()
-						fileServer.ServeHTTP(w, r)
-						return
-					case errors.Is(err, fs.ErrNotExist) && !strings.Contains(relPath, ".."):
-						// Legitimate miss inside webDir → SPA fallback below.
-						// Note: os.Root.Open evaluates path components left-to-right
-						// and returns ErrNotExist on the FIRST missing component,
-						// before it would detect a downstream escape. The `..` check
-						// here covers that case (e.g. "static/../../../etc/passwd"
-						// returns ErrNotExist because "static" doesn't exist in the
-						// root, not because of the escape) so we reject visibly
-						// instead of silently SPA-falling-back.
-					default:
-						// Traversal / permission / symlink escape — reject visibly.
-						http.NotFound(w, r)
-						return
-					}
-				}
-				// SPA client-side routing fallback.
-				r.URL.Path = "/"
-				fileServer.ServeHTTP(w, r)
-			})
+	s.registerSPA(r)
+}
+
+// logHTTPIssue logs a request-scoped problem with the path redacted and the
+// request's correlation ID attached, so the entry can be tied to the access-log
+// line for the same request in Loki.
+func (s *Server) logHTTPIssue(level slog.Level, msg string, r *http.Request, err error) {
+	s.logger.Log(r.Context(), level, msg, append([]any{
+		"error", err,
+		"path", redactLogPath(r.URL.Path),
+	}, correlationAttrs(r)...)...)
+}
+
+// registerSPA installs static file serving with an index.html fallback. It uses
+// os.OpenRoot, which rejects any path that tries to escape s.webDir via "..",
+// absolute paths, or symlinks resolving outside the root — taint-safe per
+// CodeQL's go/path-injection detector. Lifetime of *os.Root matches the
+// server's process.
+func (s *Server) registerSPA(r chi.Router) {
+	if s.webDir == "" {
+		return
+	}
+	webRoot, err := os.OpenRoot(s.webDir)
+	if err != nil {
+		s.logger.Warn("SPA serving disabled — failed to open webDir", "error", err, "dir", s.webDir)
+		return
+	}
+	fileServer := http.FileServer(http.Dir(s.webDir))
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
+			http.NotFound(w, r)
+			return
 		}
+		if served, ok := serveStaticFile(w, r, webRoot, fileServer); ok {
+			if !served {
+				http.NotFound(w, r)
+			}
+			return
+		}
+		// SPA client-side routing fallback.
+		r.URL.Path = "/"
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
+// serveStaticFile resolves the request path inside webRoot. It reports handled
+// = false when the caller should fall back to the SPA index; when handled is
+// true, served says whether the file was written or the request must be
+// rejected outright.
+//
+// Three outcomes for a path that's not /api/ or /ws/:
+//  1. webRoot.Open succeeds → serve the static file.
+//  2. webRoot.Open returns fs.ErrNotExist → SPA fallback so client-side routing
+//     handles deep links like /devices/123.
+//  3. Any other error (traversal attempt, permission, symlink escape) →
+//     explicit 404, NOT a silent SPA fallback.
+func serveStaticFile(w http.ResponseWriter, r *http.Request, webRoot *os.Root, fileServer http.Handler) (served, handled bool) {
+	relPath := strings.TrimPrefix(r.URL.Path, "/")
+	if relPath == "" {
+		return false, false
+	}
+	f, err := webRoot.Open(relPath)
+	switch {
+	case err == nil:
+		_ = f.Close()
+		fileServer.ServeHTTP(w, r)
+		return true, true
+	case errors.Is(err, fs.ErrNotExist) && !strings.Contains(relPath, ".."):
+		// Legitimate miss inside webDir → SPA fallback.
+		//
+		// os.Root.Open evaluates path components left-to-right and returns
+		// ErrNotExist on the FIRST missing component, before it would detect a
+		// downstream escape. The ".." check covers that case (e.g.
+		// "static/../../../etc/passwd" returns ErrNotExist because "static"
+		// doesn't exist in the root, not because of the escape) so such a path
+		// is rejected visibly instead of silently SPA-falling-back.
+		return false, false
+	default:
+		// Traversal / permission / symlink escape — reject visibly.
+		return false, true
 	}
 }
 

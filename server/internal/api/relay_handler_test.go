@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/auth"
@@ -111,6 +112,51 @@ func seedRelaySession(t *testing.T, ctx context.Context, srv *Server, cfg *auth.
 	return sess.Token, jwt
 }
 
+// forgedJWT returns a structurally valid token signed with a secret the server
+// does not know, so accepting it would prove the signature is never verified.
+func forgedJWT(t *testing.T) string {
+	t.Helper()
+	attacker := &auth.JWTConfig{
+		Secret:   "an-attacker-controlled-secret-key-32b",
+		Issuer:   "opengate",
+		Duration: time.Hour,
+	}
+	token, err := attacker.GenerateToken(uuid.New(), "attacker@example.com", true, uuid.New())
+	require.NoError(t, err)
+	return token
+}
+
+// assertBrowserRejected dials the browser side of a freshly seeded relay
+// session with the given query and optional bearer header, and asserts the
+// server closed it with an explicit policy violation.
+//
+// The close status is the assertion, not "Read returned an error": a connection
+// that was accepted and merely idled out waiting for a peer also fails to read,
+// so only the status tells the two apart.
+func assertBrowserRejected(t *testing.T, query string, bearer ...string) {
+	t.Helper()
+	ts, srv, cfg := newRelayTestServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	token, _ := seedRelaySession(t, ctx, srv, cfg)
+
+	var headers http.Header
+	if len(bearer) > 0 {
+		headers = http.Header{"Authorization": bearer}
+	}
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + testPathWSRelay + token + query
+	conn, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: headers})
+	if err != nil {
+		return // rejected at handshake
+	}
+	defer conn.Close(websocket.StatusPolicyViolation, "")
+
+	_, _, err = conn.Read(ctx)
+	assert.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err),
+		"browser side without a valid JWT must be closed with a policy violation, got %v", err)
+}
+
 func TestRelayWebSocket(t *testing.T) {
 	t.Parallel()
 	t.Run("token_not_in_db", func(t *testing.T) {
@@ -207,6 +253,29 @@ func TestRelayWebSocket(t *testing.T) {
 		defer readCancel()
 		_, _, err := browserConn.Read(readCtx)
 		assert.Error(t, err)
+	})
+
+	// The browser side must present a *valid* JWT, not merely some credential
+	// shaped value. A relay token can leak through browser history, a referrer,
+	// or a shared link; on its own it must not be enough to attach as the
+	// operator side of somebody's remote session.
+	t.Run("browser_rejects_unverifiable_credentials", func(t *testing.T) {
+		forged := forgedJWT(t)
+		cases := map[string]string{
+			"no credential":  "",
+			"garbage":        "not-a-jwt",
+			"forged jwt":     forged,
+			"expired-format": "a.b.c",
+		}
+		for name, credential := range cases {
+			t.Run(name, func(t *testing.T) {
+				assertBrowserRejected(t, "?side=browser&auth="+credential)
+			})
+		}
+		// The header transport must be judged identically to the query param.
+		t.Run("forged bearer header", func(t *testing.T) {
+			assertBrowserRejected(t, testSideBrowser, testBearerPrefix+forged)
+		})
 	})
 
 	t.Run("browser_auth_via_query_param", func(t *testing.T) {

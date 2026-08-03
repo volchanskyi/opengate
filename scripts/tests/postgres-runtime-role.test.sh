@@ -15,6 +15,9 @@ HELM_APP_ROLE="$REPO_ROOT/deploy/helm/opengate/files/zz-app-role.sh"
 POSTGRES_STATEFULSET="$REPO_ROOT/deploy/helm/opengate/templates/postgres-statefulset.yaml"
 SERVER_DEPLOYMENT="$REPO_ROOT/deploy/helm/opengate/templates/server-deployment.yaml"
 CD_WORKFLOW="$REPO_ROOT/.github/workflows/cd.yml"
+# CD pipes this emitter's output into psql in the Postgres pod, so the role
+# contract CD enforces is asserted against the emitter.
+ROLE_SQL="$REPO_ROOT/deploy/scripts/pg-app-role-sql.sh"
 
 PASS=0
 FAIL=0
@@ -54,6 +57,17 @@ assert_file_contains \
   "Postgres pod exposes app-role password to bootstrap" \
   "$POSTGRES_STATEFULSET" \
   "POSTGRES_APP_PASSWORD"
+# \getenv reads the password from psql's environment. A --set flag would expose
+# it to every process sharing the pod's PID namespace.
+assert_file_contains \
+  "Helm bootstrap keeps the app-role password off the psql command line" \
+  "$HELM_APP_ROLE" \
+  '\getenv app_password POSTGRES_APP_PASSWORD'
+if grep -qF -- "--set=app_password" "$HELM_APP_ROLE"; then
+  fail "Helm bootstrap passes no app_password flag"
+else
+  pass "Helm bootstrap passes no app_password flag"
+fi
 assert_file_contains \
   "Postgres init shell runs as standalone script" \
   "$POSTGRES_STATEFULSET" \
@@ -72,15 +86,15 @@ fi
 
 assert_file_contains \
   "CD guard verifies app role superuser and BYPASSRLS are off" \
-  "$CD_WORKFLOW" \
+  "$ROLE_SQL" \
   "rolsuper OR rolbypassrls"
 assert_file_contains \
   "CD guard can demote existing over-privileged app role" \
-  "$CD_WORKFLOW" \
+  "$ROLE_SQL" \
   "ALTER ROLE opengate_app WITH LOGIN $role_flags"
 assert_file_contains \
   "CD guard lets the app role own migrated tables" \
-  "$CD_WORKFLOW" \
+  "$ROLE_SQL" \
   "ALTER TABLE %s OWNER TO opengate_app"
 assert_file_contains \
   "CD sync writes app-role password into the Kubernetes Secret" \
@@ -89,6 +103,7 @@ assert_file_contains \
 
 if grep -R -qF "ALTER ROLE opengate NOSUPERUSER" \
   "$REPO_ROOT/deploy/helm/opengate/files" \
+  "$ROLE_SQL" \
   "$CD_WORKFLOW"; then
   fail "deployment keeps opengate as the maintenance/backup role"
 else

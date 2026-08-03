@@ -226,3 +226,7 @@ jobs:
         run: |
           echo "Drift detected — see Telegram alert and uploaded artifacts."
           exit 1
+
+      - name: Remove OCI credentials
+        if: always()
+        uses: ./.github/actions/oci-kube-teardown
