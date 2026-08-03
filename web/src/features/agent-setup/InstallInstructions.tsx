@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { components } from '../../types/api';
+import { safeExternalUrl } from '../../lib/safe-url';
 
 type AgentManifest = components['schemas']['AgentManifest'];
 
@@ -15,6 +16,7 @@ export function InstallInstructions({ manifests }: InstallInstructionsProps) {
 
   const [os, arch] = platform.split('/');
   const manifest = manifests.find((m) => m.os === os && m.arch === arch);
+  const downloadUrl = safeExternalUrl(manifest?.url);
 
   return (
     <>
@@ -42,14 +44,22 @@ export function InstallInstructions({ manifests }: InstallInstructionsProps) {
             <p>
               Version: <span className="text-white">{manifest.version}</span>
             </p>
-            <a
-              href={manifest.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-400 hover:text-blue-300 underline"
-            >
-              Download binary
-            </a>
+            {downloadUrl ? (
+              <a
+                href={downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-400 hover:text-blue-300 underline"
+              >
+                Download binary
+              </a>
+            ) : (
+              <p className="text-amber-400">
+                This platform&apos;s published download link is not a usable web
+                address, so it is not shown. Re-publish the manifest with an
+                http(s) URL.
+              </p>
+            )}
           </div>
         ) : (
           <p className="mt-3 text-sm text-gray-500">

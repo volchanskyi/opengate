@@ -62,18 +62,50 @@ describe('reportClientError', () => {
     expect(text).not.toContain('Bearer');
   });
 
-  it('prefers an explicit url over the current location', async () => {
+  it('prefers an explicit url over the current location, reduced to its path', async () => {
     vi.stubEnv('PROD', true);
     reportClientError({ message: 'boom', url: 'https://app.example/explicit' });
     const parsed = JSON.parse(await (beacon.mock.calls[0]![1] as Blob).text());
-    expect(parsed.url).toBe('https://app.example/explicit');
+    expect(parsed.url).toBe('/explicit');
   });
 
   it('falls back to the current location when no url is supplied', async () => {
     vi.stubEnv('PROD', true);
     reportClientError({ message: 'boom' });
     const parsed = JSON.parse(await (beacon.mock.calls[0]![1] as Blob).text());
-    expect(parsed.url).toBe(globalThis.location.href);
+    expect(parsed.url).toBe(globalThis.location.pathname);
+  });
+
+  // The session route carries the relay token as a path segment. This payload
+  // is written to the server log and shipped to Loki, so an un-redacted URL
+  // would put a live bearer credential in the log store — the very thing the
+  // server's request-log redaction exists to prevent.
+  it('redacts a credential-bearing path segment', async () => {
+    vi.stubEnv('PROD', true);
+    const token = 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90';
+    reportClientError({ message: 'boom', url: `https://app.example/sessions/${token}` });
+    const text = await (beacon.mock.calls[0]![1] as Blob).text();
+    expect(text).not.toContain(token);
+    expect(JSON.parse(text).url).toBe('/sessions/a1b2c3d4...');
+  });
+
+  it('drops the query string and fragment, which can carry credentials', async () => {
+    vi.stubEnv('PROD', true);
+    reportClientError({
+      message: 'boom',
+      url: 'https://app.example/devices?auth=supersecrettoken#access_token=alsosecret',
+    });
+    const text = await (beacon.mock.calls[0]![1] as Blob).text();
+    expect(text).not.toContain('supersecrettoken');
+    expect(text).not.toContain('alsosecret');
+    expect(JSON.parse(text).url).toBe('/devices');
+  });
+
+  it('keeps ordinary paths intact', async () => {
+    vi.stubEnv('PROD', true);
+    reportClientError({ message: 'boom', url: 'https://app.example/devices/abc' });
+    const parsed = JSON.parse(await (beacon.mock.calls[0]![1] as Blob).text());
+    expect(parsed.url).toBe('/devices/abc');
   });
 
   it('omits the url without throwing when location is unavailable', () => {

@@ -38,6 +38,7 @@ export function LoginPage() {
             <input
               id="email"
               type="email"
+              autoComplete="username"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white"
@@ -49,6 +50,7 @@ export function LoginPage() {
             <input
               id="password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white"
