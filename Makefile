@@ -260,10 +260,16 @@ load-test:
 load-test-quic:
 	cd server && go run ./tests/loadtest/ -agents=100 -addr=127.0.0.1:9090
 
+# The Rust ignore regex carves out code with no in-process harness:
+#   main.rs        — binary entry points: process/runtime wiring, covered by E2E
+#   webrtc.rs      — RTCPeerConnection/ICE callbacks, need a live STUN stack
+#   terminal.rs    — PTY + shell subprocess owned by the host
+#   session/relay.rs — capture/writer loops driven by a live screen source
+#   /tests/        — the test files themselves
 sonar-coverage:
 	cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
 	cd agent && cargo llvm-cov nextest --workspace --lcov --output-path lcov.info \
-		--ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)'
+		--ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/relay\.rs|/tests/)'
 	cd web && npx vitest run --coverage
 
 sonar: sonar-coverage

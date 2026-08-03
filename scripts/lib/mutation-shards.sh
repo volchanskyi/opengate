@@ -49,7 +49,7 @@ mutation_go_shard_units() {
       echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
       ;;
     go-agentapi-connection-handshake)
-      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/errors.go file:internal/agentapi/handshaker.go file:internal/agentapi/deregister.go"
+      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/errors.go file:internal/agentapi/handshaker.go file:internal/agentapi/deregister.go"
       ;;
     go-agentapi-backfill)
       echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/conn_backfill.go"

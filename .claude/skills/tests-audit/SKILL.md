@@ -130,11 +130,11 @@ A package with three surviving mutants in different functions is a stronger find
 
 Some mutants survive because the line genuinely cannot be tested without restructuring (FFI shims, platform glue, `unsafe` blocks, log-only branches, infrastructure error paths). These are not test gaps — they are tool false positives. Document them in the per-language carve-out file rather than chasing them:
 
-- **Rust:** `agent/cargo-mutants.toml` — `exclude_globs` and `exclude_re`
+- **Rust:** `agent/.cargo/mutants.toml` — `exclude_globs` and `exclude_re`
 - **Go:** `server/.gremlins.yaml` — `exclude` rules
-- **Web:** `web/stryker.config.json` — `mutate` exclusions
+- **Web:** `web/stryker.config.json` — `mutate` exclusions, justified per entry in `_mutate_justifications`
 
-A carve-out is acceptable only with a one-line justification next to the entry. "Platform shim, no test harness" is fine; an empty `exclude` is not.
+A carve-out is acceptable only with a one-line justification next to the entry. "Platform shim, no test harness" is fine; an empty `exclude` is not. A file that *has* passing unit tests is not a carve-out candidate — excluding it hides the quality of those tests rather than admitting there is no harness.
 
 ### 0.5d. Write a mutant-killing test, not a coverage-chasing test
 

@@ -139,6 +139,102 @@ fn reverse_golden_restart_agent() {
 }
 
 #[test]
+fn reverse_golden_agent_update() {
+    let frame = decode_frame("go_control_agent_update.bin");
+    match frame {
+        Frame::Control(ControlMessage::AgentUpdate {
+            version,
+            url,
+            sha256,
+            signature,
+        }) => {
+            assert_eq!(version, "0.15.4");
+            assert_eq!(url, "https://updates.example.com/agent-0.15.4");
+            assert_eq!(
+                sha256,
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            );
+            assert_eq!(signature, "3045022100deadbeef");
+        }
+        other => panic!("expected AgentUpdate, got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_golden_agent_deregistered() {
+    let frame = decode_frame("go_control_agent_deregistered.bin");
+    match frame {
+        Frame::Control(ControlMessage::AgentDeregistered { reason }) => {
+            assert_eq!(reason, "device deleted");
+        }
+        other => panic!("expected AgentDeregistered, got {:?}", other),
+    }
+}
+
+// The `_min` goldens are the smallest frame the server can emit for a variant:
+// every field but the type tag is dropped on encode when it holds its zero
+// value. Decoding them proves an informational field going empty does not break
+// the agent's control stream.
+
+#[test]
+fn reverse_golden_restart_agent_min() {
+    let frame = decode_frame("go_control_restart_agent_min.bin");
+    match frame {
+        Frame::Control(ControlMessage::RestartAgent { reason }) => {
+            assert_eq!(reason, "");
+        }
+        other => panic!("expected RestartAgent, got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_golden_agent_deregistered_min() {
+    let frame = decode_frame("go_control_agent_deregistered_min.bin");
+    match frame {
+        Frame::Control(ControlMessage::AgentDeregistered { reason }) => {
+            assert_eq!(reason, "");
+        }
+        other => panic!("expected AgentDeregistered, got {:?}", other),
+    }
+}
+
+#[test]
+fn reverse_golden_request_hardware_report() {
+    let frame = decode_frame("go_control_request_hardware_report.bin");
+    assert!(matches!(
+        frame,
+        Frame::Control(ControlMessage::RequestHardwareReport)
+    ));
+}
+
+#[test]
+fn reverse_golden_request_device_logs() {
+    let frame = decode_frame("go_control_request_device_logs.bin");
+    match frame {
+        Frame::Control(ControlMessage::RequestDeviceLogs {
+            log_level,
+            time_from,
+            time_to,
+            search,
+            log_offset,
+            log_limit,
+            source,
+            unit,
+        }) => {
+            assert_eq!(log_level, "");
+            assert_eq!(time_from, "");
+            assert_eq!(time_to, "");
+            assert_eq!(search, "");
+            assert_eq!(log_offset, 0);
+            assert_eq!(log_limit, 0);
+            assert_eq!(source, "");
+            assert_eq!(unit, "");
+        }
+        other => panic!("expected RequestDeviceLogs, got {:?}", other),
+    }
+}
+
+#[test]
 fn reverse_golden_request_health_window() {
     let frame = decode_frame("go_control_request_health_window.bin");
     match frame {

@@ -3,10 +3,16 @@ package api
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/volchanskyi/opengate/server/internal/device"
 )
+
+// defaultRestartReason is recorded when a caller restarts a device without
+// stating one. It is non-empty so the frame the agent receives always carries a
+// decodable reason.
+const defaultRestartReason = "restart requested from web UI"
 
 // RestartDevice implements StrictServerInterface. Restarting an agent is a
 // device command, open to every member of the device's organization.
@@ -23,11 +29,20 @@ func (s *Server) RestartDevice(ctx context.Context, request RestartDeviceRequest
 		return RestartDevice409JSONResponse{Error: "agent not connected"}, nil
 	}
 
-	reason := "restart requested from web UI"
+	// A reason that carries no printable text encodes a frame the agent cannot
+	// decode — the device would not restart and the caller would still see a
+	// 200. Refuse it here instead. An omitted reason keeps the server default,
+	// which always reaches the agent intact.
+	reason := defaultRestartReason
 	if request.Body != nil && request.Body.Reason != nil {
 		reason = *request.Body.Reason
 	}
-	reason = sanitizeText(reason, maxReasonLen)
+	if strings.TrimSpace(reason) == "" {
+		return RestartDevice400JSONResponse{Error: "reason must not be empty"}, nil
+	}
+	if msg := invalidText("reason", reason, maxReasonLen); msg != "" {
+		return RestartDevice400JSONResponse{Error: msg}, nil
+	}
 
 	if err := ac.SendRestartAgent(ctx, reason); err != nil {
 		return nil, err

@@ -216,8 +216,16 @@ func (a *AgentConn) writeFrame(frameType byte, payload []byte) error {
 	return a.codec.WriteFrame(a.stream, frameType, payload)
 }
 
-// SendSessionRequest sends a SessionRequest control message to the agent.
+// SendSessionRequest sends a SessionRequest control message to the agent. An
+// empty token or relay URL is refused: a session the agent cannot join is not
+// worth a frame, and the agent requires both at decode.
 func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.SessionToken, relayURL string, perms protocol.Permissions) error {
+	if err := requireNonEmptyFields(protocol.MsgSessionRequest,
+		controlField{"token", string(token)},
+		controlField{"relay_url", relayURL},
+	); err != nil {
+		return err
+	}
 	return a.sendControl(&protocol.ControlMessage{
 		Type:        protocol.MsgSessionRequest,
 		Token:       token,
@@ -226,8 +234,18 @@ func (a *AgentConn) SendSessionRequest(ctx context.Context, token protocol.Sessi
 	})
 }
 
-// SendAgentUpdate sends an AgentUpdate control message to the agent.
+// SendAgentUpdate sends an AgentUpdate control message to the agent. An
+// unversioned, unreachable or unsigned update is refused; sha256 is exempt
+// because the updater verifies it against the downloaded artifact, so an absent
+// value fails closed at install time.
 func (a *AgentConn) SendAgentUpdate(ctx context.Context, version, url, sha256, signature string) error {
+	if err := requireNonEmptyFields(protocol.MsgAgentUpdate,
+		controlField{"version", version},
+		controlField{"url", url},
+		controlField{"signature", signature},
+	); err != nil {
+		return err
+	}
 	return a.sendControl(&protocol.ControlMessage{
 		Type:      protocol.MsgAgentUpdate,
 		Version:   version,

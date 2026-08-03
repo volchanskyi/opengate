@@ -70,23 +70,27 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@065d6a08a14e61e89fb0a4c10eecdbdef39c7d8e # v2
+      - uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2
         with:
           tool: cargo-nextest
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@065d6a08a14e61e89fb0a4c10eecdbdef39c7d8e # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@6a1bd70eaac3c8bdf093356838d7ee09fda951cf # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov
       # The instrumented run is the canonical execution of the workspace suite:
       # it reports pass/fail AND produces lcov.info, so the workspace is compiled
       # and executed once rather than once bare and once under instrumentation.
+      # Ignored files have no in-process harness: main.rs (binary entry points),
+      # webrtc.rs (live STUN/ICE stack), terminal.rs (PTY + shell subprocess),
+      # session/relay.rs (loops driven by a live screen source), /tests/ (the
+      # test files themselves).
       - name: Tests & coverage
         id: coverage
         run: |
           set +e
           cargo llvm-cov nextest --workspace --no-fail-fast --color never \
             --lcov --output-path lcov.info \
-            --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/mod\.rs|/session/relay\.rs|/tests/)' \
+            --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/relay\.rs|/tests/)' \
             --fail-under-lines 80 > test-output.txt 2>&1
           EXIT_CODE=$?
           cat test-output.txt
@@ -829,12 +833,12 @@ jobs:
         with:
           go-version: '1.26'
           cache-dependency-path: server/go.sum
-      - uses: github/codeql-action/init@v4.37.3
+      - uses: github/codeql-action/init@v4.37.4
         with:
           languages: go
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.37.3
-      - uses: github/codeql-action/analyze@v4.37.3
+      - uses: github/codeql-action/autobuild@v4.37.4
+      - uses: github/codeql-action/analyze@v4.37.4
         with:
           category: go
 
@@ -847,11 +851,11 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v7
-      - uses: github/codeql-action/init@v4.37.3
+      - uses: github/codeql-action/init@v4.37.4
         with:
           languages: javascript-typescript
           queries: security-and-quality
-      - uses: github/codeql-action/analyze@v4.37.3
+      - uses: github/codeql-action/analyze@v4.37.4
         with:
           category: javascript-typescript
 
@@ -865,12 +869,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: github/codeql-action/init@v4.37.3
+      - uses: github/codeql-action/init@v4.37.4
         with:
           languages: rust
           queries: security-and-quality
-      - uses: github/codeql-action/autobuild@v4.37.3
-      - uses: github/codeql-action/analyze@v4.37.3
+      - uses: github/codeql-action/autobuild@v4.37.4
+      - uses: github/codeql-action/analyze@v4.37.4
         with:
           category: rust
 

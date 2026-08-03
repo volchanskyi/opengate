@@ -10,6 +10,12 @@ var (
 	// ErrCapabilityNotAdvertised indicates the server tried to send a control
 	// variant the connected agent did not advertise support for.
 	ErrCapabilityNotAdvertised = errors.New("agent capability not advertised")
+	// ErrIncompleteControlMessage indicates the server tried to send a control
+	// variant with a load-bearing field left empty. The encoder drops a
+	// zero-valued field from the wire map and the agent's decoder requires it,
+	// so the frame would break the agent's control stream; the send is refused
+	// instead of putting an undecodable frame on the wire.
+	ErrIncompleteControlMessage = errors.New("incomplete control message")
 	// ErrConnectionClosed indicates the agent connection was closed.
 	ErrConnectionClosed = errors.New("agent connection closed")
 	// ErrLogsBusy indicates a raw-log pull is already in flight for the

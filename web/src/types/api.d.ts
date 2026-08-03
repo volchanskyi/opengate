@@ -892,6 +892,7 @@ export interface components {
             completed_at?: string;
         };
         RestartDeviceRequest: {
+            /** @description Why the agent is being restarted, recorded in the audit trail and forwarded to the agent. Omit the field to use the server default; a supplied reason must carry at least one non-whitespace character. */
             reason?: string;
         };
         CorrelateDeviceRequest: {
@@ -1909,6 +1910,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Invalid restart reason */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
             /** @description Unauthorized */
             401: {
                 headers: {
@@ -2853,6 +2863,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PushUpdateResponse"];
+                };
+            };
+            /** @description Manifest cannot be delivered to an agent */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
             /** @description Unauthorized */

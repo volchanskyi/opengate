@@ -296,6 +296,12 @@ components:
       properties:
         reason:
           type: string
+          minLength: 1
+          maxLength: 512
+          description: >-
+            Why the agent is being restarted, recorded in the audit trail and
+            forwarded to the agent. Omit the field to use the server default; a
+            supplied reason must carry at least one non-whitespace character.
 
     CorrelateDeviceRequest:
       type: object
@@ -1485,6 +1491,12 @@ paths:
       responses:
         "200":
           description: Restart command sent
+        "400":
+          description: Invalid restart reason
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "401":
           description: Unauthorized
           content:
@@ -2341,6 +2353,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/PushUpdateResponse"
+        "400":
+          description: Manifest cannot be delivered to an agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
         "401":
           description: Unauthorized
           content:
