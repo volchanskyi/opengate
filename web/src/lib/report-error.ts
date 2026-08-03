@@ -5,7 +5,8 @@
  * Constraints (see audit-frontend-security-perf.md):
  *  - PROD only: never beacons from dev/test builds.
  *  - PII-free: only message/source/stack/url/userAgent are sent — never tokens,
- *    credentials, or user identifiers.
+ *    credentials, or user identifiers. The URL is reduced to a path with the
+ *    query, fragment, and any credential-bearing segment stripped.
  *  - Bounded: stack truncated to 500 chars, message to 1000.
  *  - Rate-limited: at most MAX_REPORTS_PER_WINDOW within RATE_WINDOW_MS.
  *  - Self-hosted: uses navigator.sendBeacon to our own endpoint, no SaaS tracker.
@@ -50,6 +51,50 @@ function clamp(value: string | undefined, max: number): string | undefined {
 }
 
 /**
+ * Route prefixes whose next path segment is itself a bearer credential:
+ * possession of the segment authenticates the holder. Mirrors the server's
+ * request-log redaction, because this payload lands in the same log store.
+ */
+const CREDENTIAL_PATH_PREFIXES = ['/sessions/', '/ws/relay/', '/api/v1/enroll/'];
+
+/** Matches the server's RedactToken: first 8 characters, or *** if shorter. */
+function redactToken(token: string): string {
+  return token.length <= 8 ? '***' : `${token.slice(0, 8)}...`;
+}
+
+/**
+ * Reduce a URL to a log-safe path.
+ *
+ * The query string and fragment are dropped wholesale — they are the usual
+ * carriers of tokens — and any credential-bearing path segment is truncated.
+ * A relative or unparseable value is treated as a path directly, so a caller
+ * can never widen what gets reported by passing something unusual.
+ */
+export function sanitizeReportedUrl(raw: string | undefined): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  let path: string;
+  try {
+    path = new URL(raw, globalThis.location?.origin ?? 'http://localhost').pathname;
+  } catch {
+    path = raw.split(/[?#]/)[0] ?? raw;
+  }
+
+  for (const prefix of CREDENTIAL_PATH_PREFIXES) {
+    if (!path.startsWith(prefix)) {
+      continue;
+    }
+    const segment = path.slice(prefix.length);
+    if (segment === '' || segment.includes('/')) {
+      return path;
+    }
+    return prefix + redactToken(segment);
+  }
+  return path;
+}
+
+/**
  * Report a client error. No-op outside production, when sendBeacon is
  * unavailable, or when the client-side rate limit is exceeded. Returns true
  * when a beacon was queued.
@@ -76,7 +121,7 @@ export function reportClientError(input: ClientErrorInput): boolean {
   if (stack) {
     payload.stack = stack;
   }
-  const url = clamp(input.url ?? globalThis.location?.href, MAX_FIELD);
+  const url = clamp(sanitizeReportedUrl(input.url ?? globalThis.location?.href), MAX_FIELD);
   if (url) {
     payload.url = url;
   }
