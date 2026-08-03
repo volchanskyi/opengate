@@ -120,7 +120,7 @@ cosign verify-attestation \
 
 ### Trivy Vulnerability Scan
 
-After signing, the workflow runs a Trivy container image scan (`aquasecurity/trivy-action@0.35.0`) targeting CRITICAL and HIGH severity vulnerabilities. The scan blocks the workflow on any findings.
+After signing, the workflow runs a Trivy container image scan targeting CRITICAL and HIGH severity vulnerabilities. The scan blocks the workflow on any findings. The pinned action and its severity list are the `aquasecurity/trivy-action` step in [`build-image.yml`](../.github/workflows/build-image.yml).
 
 ### Caching
 

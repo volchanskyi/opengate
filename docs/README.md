@@ -182,27 +182,17 @@ diagram (and its pin) updated in the same change.
 ```
 docs/
 ├── README.md                           This file
-├── Home.md                             Chapter index
-├── Architecture.md                     System overview
-├── API-Reference.md                    REST API tour
-├── Wire-Protocol.md                    Frame format, MessagePack, golden files
-├── Platform-Abstraction.md             Agent platform traits
-├── Database.md                         PostgreSQL schema, migrations, backups
-├── Testing.md                          Test layers, tooling
-├── Shell-Quality.md                    Bash policy, gates, behavioral tests
-├── CI-Pipeline.md                      GitHub Actions pipeline
-├── Continuous-Deployment.md            CD flow and rollback
-├── Container-Images.md                 GHCR image build and signing
-├── Monitoring.md                       VictoriaMetrics / Grafana / Loki
-├── Infrastructure.md                   Terraform, OKE networking, bastion, secrets
-├── Agent-Updates.md                    OTA update pipeline
-├── Security-and-Dependencies.md        Vulnerability scanning, Dependabot
-├── Architecture-Decision-Records.md    Historical ADR log (ADR-001 … ADR-012)
-├── adr/                                Per-file mutable ADRs (ADR-013+)
+├── Home.md                             Chapter index — the authoritative list of chapters
+├── *.md                                One chapter per topic, all linked from Home.md
+├── Architecture-Decision-Records.md    ADR log (ADR-001 … ADR-012)
+├── adr/                                Per-file ADRs (ADR-013+)
 │   └── ADR-NNN-title.md
 └── api/                                Generated Scalar OpenAPI reference
     └── index.html
 ```
+
+[Home.md](./Home.md) enumerates the chapters; adding a chapter means adding its
+row there, not maintaining a second list here.
 
 ---
 

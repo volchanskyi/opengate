@@ -12,10 +12,10 @@ supersedes: ADR-005 (rationale only)
 
 Accepted.
 
-This ADR supersedes the **rationale** in frozen [ADR-005](../Architecture-Decision-Records.md)
+This ADR supersedes the **rationale** in [ADR-005](../Architecture-Decision-Records.md)
 that treated server-opened QUIC control streams as a quic-go mTLS workaround.
-The ADR-001 through ADR-012 combined log remains frozen; this per-file ADR is
-the current-state correction required by
+This per-file ADR carries the full model; ADR-005 records the transport choice
+and points here, per
 [ADR-036](ADR-036-mutable-adrs-current-state-doctrine.md).
 
 ## Context

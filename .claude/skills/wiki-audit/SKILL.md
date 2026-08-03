@@ -16,11 +16,11 @@ to the file where the fact actually lives). This skill systematically hunts
 for drift and either fixes it or rewrites the passage to use a link, per the
 convention in [`docs/README.md`](../../../docs/README.md).
 
-**Scope.** `docs/**/*.md` and the root `README.md`. Per-file ADRs in
-`docs/adr/*.md` (013+) are **mutable** — a stale link or moved path is fixed in
-place, like any other doc. Reserve a new superseding ADR for a genuine decision
-*change*. The combined historical log `docs/Architecture-Decision-Records.md`
-(001–012) stays **frozen** — flag, never edit.
+**Scope.** `docs/**/*.md` and the root `README.md`. **All** ADRs are **mutable**
+— a stale link, moved path, or fact the code has since reversed is fixed in
+place, like any other doc. This covers both the per-file ADRs in `docs/adr/*.md`
+(013+) and the combined log `docs/Architecture-Decision-Records.md` (001–012).
+Reserve a new superseding ADR for a genuine decision *change*.
 
 **Reference:** [`docs/README.md`](../../../docs/README.md) — link-over-paraphrase rule.
 
@@ -175,16 +175,20 @@ done
 
 ## 2. ADR currency check
 
-Per-file ADRs in `docs/adr/` (013+) are mutable: fix stale links and moved
-paths in place, like any other doc. Reserve a new superseding ADR for a genuine
-decision *change* (a reversal or replacement), with `supersedes:` frontmatter
-set. When purging chronological/logistical noise from an ADR body, **rewrite to
-preserve the fact and the why — never delete substantive rationale** — and keep
-the `date:`/`status:`/`supersedes:` frontmatter.
-
-The combined historical log at
+ADRs are mutable: fix stale links, moved paths, and facts the code has since
+reversed in place, like any other doc. This applies to the per-file ADRs in
+`docs/adr/` (013+) **and** to the combined log at
 [`docs/Architecture-Decision-Records.md`](../../../docs/Architecture-Decision-Records.md)
-is **frozen** — do not edit or append to it; flag drift there, never fix it.
+(001–012). Reserve a new superseding ADR for a genuine decision *change* (a
+reversal or replacement), with `supersedes:` frontmatter set. When purging
+chronological/logistical noise from an ADR body, **rewrite to preserve the fact
+and the why — never delete substantive rationale** — and keep the
+`date:`/`status:`/`supersedes:` frontmatter.
+
+Watch for the highest-value ADR drift: a Context or Decision section written in
+the present tense that the implementation has since overtaken ("no such trait
+exists today" when it shipped a year ago). Verify load-bearing claims against
+the code, not just the links.
 
 ---
 
@@ -210,15 +214,14 @@ After running each check, produce a table:
 +-----+-----------------------------+-----------------+------------------------------+
 | 1   | "70% coverage threshold"    | CI-Pipeline.md  | Replaced with link to        |
 |     |                             |   :157          | ci.yml `fail-under-lines`    |
-| 2   | "SARIF upload" (removed)    | Architecture-   | Deleted section; noted       |
-|     |                             |   Decision-...  | removal in commit 9236826    |
+| 2   | "server opens the control  | Architecture-   | Rewrote to the agent-opens   |
+|     |   stream" (reversed)        |   Decision-...  | model; linked ADR-037        |
 +-----+-----------------------------+-----------------+------------------------------+
 ```
 
 Status values: **FIXED** (edited in place with the link-over-paraphrase
-refactor — includes per-file ADRs 013+), **FLAGGED** (ambiguous — requires
-human decision), **FROZEN** (drift in the 001–012 historical log — cannot edit;
-record only).
+refactor — includes every ADR), **FLAGGED** (ambiguous — requires human
+decision).
 
 ---
 
@@ -232,8 +235,8 @@ Only auto-fix in categories where the correct action is unambiguous:
 | Version pins             | Replace with link to pin file.              |
 | File paths               | Convert backticks to markdown links.        |
 | Broken links             | Flag only — do not guess target.            |
-| ADR drift (013+ files)   | Fix in place; keep the why + frontmatter.   |
-| ADR drift (001–012 log)  | Flag only — the historical log is frozen.   |
+| ADR drift (any ADR)      | Fix in place; keep the why + frontmatter.   |
+| ADR numbering collisions | Flag only — renumbering is a human call.    |
 | Phase/techdebt drift     | Flag only — requires human judgement.       |
 | Env var drift            | Replace with link to the binary that reads. |
 
@@ -244,6 +247,4 @@ When unsure, **flag**. An unverified "fix" is drift in the opposite direction.
 ## 6. Gate criteria
 
 The audit **PASSES** if there are zero FLAGGED findings after one pass of
-auto-fixes. FIXED counts as passing (the drift is resolved). FROZEN findings
-(drift in the 001–012 historical log) are recorded but do not block the gate —
-that log is frozen by design and cannot be edited.
+auto-fixes. FIXED counts as passing (the drift is resolved).

@@ -54,15 +54,15 @@ This page contains the full text of all Architecture Decision Records (ADRs) for
 
 ---
 
-## ADR-005: QUIC mTLS via quic-go (Server Opens Control Stream — Workaround)
+## ADR-005: QUIC mTLS via quic-go
 
-**Status**: Accepted (workaround in place) | **Phase**: 4
+**Status**: Accepted; stream-ownership rationale superseded by [ADR-037](adr/ADR-037-client-first-fast-path-reconnect.md) | **Phase**: 4
 
-**Decision**: `quic-go v0.59` for agent transport. Due to a quic-go bug where `AcceptStream` doesn't work with mTLS client certs, the **server opens the control stream** instead of the agent.
+**Decision**: `quic-go` for agent transport, at the version pinned in [`server/go.mod`](../server/go.mod), with mTLS client certificates. The **agent** opens the bidirectional control stream and writes first; the server accepts it in [`agentapi/server.go`](../server/internal/agentapi/server.go).
 
-**Why**: QUIC gives multiplexed, low-latency transport with no head-of-line blocking.
+**Why**: QUIC gives multiplexed, low-latency transport with no head-of-line blocking. The opening endpoint must write before the peer can accept and read the stream, and the reconnect fast path needs the agent to send the first handshake byte — so the agent owns stream creation.
 
-**Consequences**: Workaround holds up to ~20k agents. Must revert when quic-go fixes mTLS `AcceptStream`. See `techdebt.md` and `plans/quic-stream-ownership-fix.md`.
+**Consequences**: The agent-initiated stream is what makes the `0x14` `SkipAuth` fast path possible; [ADR-037](adr/ADR-037-client-first-fast-path-reconnect.md) records that model in full.
 
 ---
 
@@ -172,7 +172,7 @@ Each `LogEntry` contains: `timestamp`, `level`, `target`, `message`.
 
 **Status**: Accepted | **Phase**: —
 
-**Decision**: Run SonarCloud analysis as a required CI job gating `merge-to-main`. The `sonarcloud` job aggregates coverage artifacts from all three language test jobs (Go, Rust, Web) and runs `SonarSource/sonarqube-scan-action@v7` against the full codebase with `-Dsonar.qualitygate.wait=true`, so the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. Findings live in the SonarCloud.io console — there is no SARIF export into GitHub Code Scanning (a SARIF upload step existed briefly and was removed in commit 9236826 because dismissed-fingerprint matching kept new alerts invisible). Quality gate thresholds are configured in the SonarCloud UI on a Clean-as-You-Code model (all conditions apply to *new code* only):
+**Decision**: Run SonarCloud analysis as a required CI job gating `merge-to-main`. The `sonarcloud` job aggregates coverage artifacts from all three language test jobs (Go, Rust, Web) and runs the pinned `SonarSource/sonarqube-scan-action` (see the `sonarcloud` job in [`ci.yml`](../.github/workflows/ci.yml)) against the full codebase with `-Dsonar.qualitygate.wait=true`, so the job polls SonarCloud until the gate resolves and fails the step if any condition is breached. Findings live in the SonarCloud.io console rather than GitHub Code Scanning, because SARIF fingerprint matching treated dismissed findings as already-seen and kept new alerts invisible. Quality gate thresholds are configured in the SonarCloud UI on a Clean-as-You-Code model (all conditions apply to *new code* only):
 
 - Coverage on new code ≥ 80%
 - Reliability / Security / Maintainability rating A on new code (implicitly forbids new bugs, vulnerabilities, and code smells — any such issue flips the rating)

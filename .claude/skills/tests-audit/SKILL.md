@@ -154,12 +154,13 @@ A line with high coverage but low mutation score is the **most common shape of a
 
 Coverage % becomes a sanity check: any package with <60% line coverage AND any survivors is automatically **HIGH** regardless of where the survivors land — the test base is too thin to trust the mutation report at all.
 
-### 0.5g. CI gating timeline
+### 0.5g. Where mutation is enforced
 
-- **Today (pre-PR 9 of structural-testing rollout):** `make mutate` is advisory. Findings appear in this audit's report; they do not block CI.
-- **From PR 9 onwards:** `mutation-testing` job is a hard gate on `merge-to-main.needs[]`. New survivors block the merge.
+Mutation testing runs **nightly** in [`mutation.yml`](../../../.github/workflows/mutation.yml) (`cron: 0 3 * * *`). It is far too slow for the merge path and stays nightly — its `gate` job is deliberately absent from `merge-to-main.needs[]`, and no finding should propose moving it there.
 
-While advisory, this audit's job is to surface every survivor and propose a kill. Once the gate flips, this section becomes a regression-prevention check (compare current survivor list to the previous baseline).
+Enforcement is the nightly `gate` job, which fails the workflow red when the merged score regresses against the stored baseline. A new survivor therefore does not block the merge that introduced it; it turns the next nightly run red.
+
+This audit's job is to surface every survivor and propose a kill, and to check the current survivor list against the previous baseline.
 
 ---
 

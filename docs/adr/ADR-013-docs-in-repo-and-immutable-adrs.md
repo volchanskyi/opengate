@@ -1,7 +1,7 @@
 ---
 adr: 013
 title: Docs live in-repo; wiki deprecated; ADRs are immutable
-status: Accepted
+status: Accepted; clause 3 (ADR immutability) superseded by ADR-036
 date: 2026-04-11
 supersedes: none
 ---
@@ -69,6 +69,12 @@ source must be adjacent so a reader can verify it in one click.
 
 ### 3. ADRs are immutable
 
+> **Superseded by [ADR-036](ADR-036-mutable-adrs-current-state-doctrine.md).**
+> All ADRs — including the combined 001–012 log — are now edited in place to
+> keep them accurate, with supersession reserved for genuine decision changes.
+> Decisions #1 and #2 above remain in force. The reasoning that motivated this
+> clause is kept below.
+
 Once an ADR is accepted, it is never edited in place. If a decision changes:
 
 1. A new ADR is created with the next available number.
@@ -92,7 +98,8 @@ Two defences run continuously:
   greps the docs for drift-prone patterns (percentages, version pins, paths,
   config flags, port numbers, SonarCloud/SARIF claims) and verifies each hit
   against the source of truth. Auto-fixes the unambiguous cases; flags the
-  rest. ADR content drift is *flagged*, never auto-fixed (ADRs are immutable).
+  rest. ADR content drift is fixed in place too, per
+  [ADR-036](ADR-036-mutable-adrs-current-state-doctrine.md).
 
 - **Documentation conventions are part of `CLAUDE.md`** so every session picks
   them up without re-reading this ADR.

@@ -2,10 +2,10 @@
 
 <!-- Last updated: 2026-07-02 -->
 <!-- Compact index. Full ADR text lives in /docs: -->
-<!--   - ADR-001 through ADR-012: docs/Architecture-Decision-Records.md (frozen historical log) -->
-<!--   - ADR-013 onward:          docs/adr/ADR-NNN-title.md (one mutable file per decision) -->
-<!-- Per-file ADRs (013+) are mutable — edit in place to keep them current (ADR-036). -->
-<!-- Supersede with a new ADR only for a genuine decision change. The 001–012 log stays frozen. -->
+<!--   - ADR-001 through ADR-012: docs/Architecture-Decision-Records.md (combined log) -->
+<!--   - ADR-013 onward:          docs/adr/ADR-NNN-title.md (one file per decision) -->
+<!-- All ADRs are mutable — edit in place to keep them current (ADR-036), including the 001–012 log. -->
+<!-- Supersede with a new ADR only for a genuine decision change. -->
 <!-- Consolidated (ADR-036): former amendment ADRs folded into their parents' Amendments sections — -->
 <!--   ADR-028 + ADR-032 → ADR-019; ADR-026 → ADR-020; ADR-031 + ADR-033 → ADR-023. -->
 <!-- See docs/README.md for the full convention. -->
@@ -16,7 +16,7 @@
 | 002 | Golden file tests — Rust generates, Go verifies | 1 | Accepted |
 | 003 | SQLite WAL via `modernc.org/sqlite` (pure Go, no CGo), `MaxOpenConns(1)` | 2 | Superseded by ADR-014 |
 | 004 | ECDSA P-256 self-signed CA, CSR enrollment via `/api/v1/enroll/{token}`, TLS 1.3 | 2 | Accepted |
-| 005 | QUIC mTLS via quic-go — server opens control stream (workaround) | 4 | Accepted; rationale superseded by ADR-037 |
+| 005 | QUIC mTLS via quic-go — agent opens the control stream and writes first | 4 | Accepted; stream-ownership rationale superseded by ADR-037 |
 | 006 | Platform traits with null impls for headless/CI environments | 5 | Accepted |
 | 007 | VAPID Web Push, keypair persisted to `{dataDir}/vapid.json` | 10 | Accepted |
 | 008 | `aarch64-unknown-linux-musl` cross-compilation via `cross` | CD-C | Accepted |
@@ -42,7 +42,7 @@
 | 030 | Kubernetes adoption — OKE BASIC with the [`deploy/helm/opengate`](../deploy/helm/opengate/) chart; ingress-nginx + cert-manager HTTP edge; in-cluster PostgreSQL; direct node `hostPort` exposure for QUIC/MPS; external Secret; rendered-manifest validation through `make lint-k8s`. Multi-node L4 templates and distributed relay dependencies are not part of the current chart | 13b | Accepted |
 | 034 | Shared server keys via the existing Kubernetes Secret — production mounts the enrollment CA, VAPID, and update-signing files read-only into an `emptyDir` `/data`, skips the server-data PVC, and preserves identity across redeploys. The KEDA `ScaledObject` and PodDisruptionBudget portions are reverted and removed; session-aware autoscaling remains a rebuild requirement in [`docs/Multiscale-Readiness.md`](../docs/Multiscale-Readiness.md) | 13b | Accepted; autoscaling/PDB reverted |
 | 035 | OKE free-tier block-volume remediation (450→200 GB, at the cap) — count, not size, is the lever (50 GB OCI minimum). **Keep 3 block PVCs:** prod Postgres + VictoriaMetrics + Loki. **Drop 5:** (1) `uptime-kuma` removed entirely → external uptime SaaS (also catches whole-node outages), monitoring chart now exposes no ingress; (2) Grafana `/var/lib/grafana` → `emptyDir` (all config provisioned from ConfigMaps, only annotations/alert-history lost); (3+4) staging Postgres + server `/data` → `emptyDir` via new `postgres.storage.persistent` / `server.dataVolume.persistent` flags (default true; staging false, **production unchanged**); (5) backups → OCI Object Storage via a **write-only PAR** (`BACKUP_PAR_URL` Secret), CronJob split into a `pg_dump` init container + a `curlimages/curl` PUT container sharing an emptyDir (postgres image has no curl), retention via an OS lifecycle policy. Prod data/storage untouched; off-cluster backups survive cluster loss. Manual follow-ups (SaaS monitors, bucket/PAR/lifecycle, delete 5 freed PVCs, Cloudflare `status.*`) in chart NOTES.txt. Working plan: `.claude/plans/archive/oke-block-volume-free-tier.md` | 13b | Accepted |
-| 036 | Per-file ADRs (013+) are mutable current-state records; frozen ADR-001–012 log remains immutable; supersede only for decision changes; ADRs may link archived plans but not active plans | — | Accepted (supersedes ADR-013 immutability clause) |
+| 036 | All ADRs are mutable current-state records — per-file (013+) and the combined 001–012 log alike; supersede only for decision changes; ADRs may link archived plans but not active plans | — | Accepted (supersedes ADR-013 immutability clause) |
 | 037 | Client-first QUIC handshake + fast-path reconnect: agent opens and writes first, auth is mTLS-only, `0x14` saves a round-trip, 1-RTT session resumption adopted while 0-RTT is deferred; ADR-005's server-opens rationale is superseded | 4 | Accepted |
 | 038 | VictoriaMetrics is the canonical numeric CI-trend store through the shared kubectl transport; Loki is logs-only; branch-hosted benchmark/browser-performance history and Loki trend pushes are retired; global VM retention applies | — | Accepted (supersedes ADR-017/019 trend-store clauses) |
 | 039 | Diagrams as Code Part 2 (extends DD-E): native Mermaid **C4** (`C4Context`/`C4Container` in Architecture.md) gated by a **mandatory GitHub render-verification** with a documented `flowchart`/`sequenceDiagram` fallback; **CI-only** Mermaid syntax validation via the official parser pinned in `tools/mermaid-validate/` (`docs-validate.yml`, path-filtered, isolated from `web/` + the local gauntlet); **drift-guard hardening** — `docs-diagrams.test.sh` pins every diagram-bearing doc + a total-fence floor, plus a CODEOWNERS/PR-template nudge; a **diagram coverage standard** in README + new deploy/CI-CD/session-lifecycle diagrams. Working plans: `diagrams-as-code-part-2.md` + `diagrams-d1..d5.md` | — | Accepted (extends DD-E) |

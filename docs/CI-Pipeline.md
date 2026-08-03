@@ -118,17 +118,20 @@ All three language test jobs enforce a minimum line-coverage threshold — the b
 |----------|------|-----------|------------|--------|----------|
 | Go | `go test -coverprofile` | 80% line | `testutil/`, `metrics/`, `openapi_gen.go` | `server/coverage.out` | `go-coverage` |
 | Rust | `cargo-llvm-cov` | 80% line | `main.rs`, `webrtc.rs`, `terminal.rs`, `session/mod.rs`, `session/relay.rs`, `tests/` | `agent/lcov.info` | `rust-coverage` |
-| TypeScript | `@vitest/coverage-v8` | 80% line | — | `web/coverage/lcov.info` | `web-coverage` |
+| TypeScript | `@vitest/coverage-v8` | 80% line | `coverage.exclude` in [`vitest.config.ts`](../web/vitest.config.ts) | `web/coverage/lcov.info` | `web-coverage` |
 
 ### Coverage Badges
 
 The `merge-to-main` job updates three coverage badges on every successful `dev` push using `schneegans/dynamic-badges-action`. Each badge writes a JSON endpoint to a GitHub Gist, which `shields.io` renders as a dynamic badge in the README:
 
-| Badge | Gist Filename | Color Range |
-|-------|---------------|-------------|
-| Go Server Coverage | `opengate-coverage.json` | 50–90% (red → green) |
-| Rust Agent Coverage | `opengate-rust-coverage.json` | 50–90% (red → green) |
-| Web Client Coverage | `opengate-web-coverage.json` | 50–90% (red → green) |
+| Badge | Gist Filename |
+|-------|---------------|
+| Go Server Coverage | `opengate-coverage.json` |
+| Rust Agent Coverage | `opengate-rust-coverage.json` |
+| Web Client Coverage | `opengate-web-coverage.json` |
+
+All three shade red → green across the `minColorRange` / `maxColorRange` span set
+on the badge steps in [`ci.yml`](../.github/workflows/ci.yml).
 
 Each CI job posts a native Markdown summary (pass/fail counts, failed test names) to the GitHub Actions job summary tab for quick triage without digging into logs.
 
