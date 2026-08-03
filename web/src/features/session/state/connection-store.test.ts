@@ -29,6 +29,9 @@ class MockWebRTCTransport {
   }
 }
 
+// The factory runs while the mocked module is imported — before this file's
+// class declaration has been evaluated — so it hands back a shim that defers the
+// reference to construction time and returns the real double from there.
 vi.mock('../../../lib/transport/webrtc-transport', () => ({
   WebRTCTransport: class {
     constructor(events: Record<string, (...args: unknown[]) => void>) {

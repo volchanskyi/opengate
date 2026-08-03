@@ -18,12 +18,10 @@ import (
 // variant whose wire shape the agent's decoder rejects ships unnoticed — the
 // forward goldens only cover Rust-encode → Go-decode, the opposite direction.
 //
-// This guard reflects over *AgentConn's exported Send* methods and refuses any
-// that this table does not name, so adding a server → agent write forces a
-// golden alongside it. The three variants written inline from response handlers
-// rather than through a Send* method are listed too, so the file-existence half
-// covers the whole write surface.
-var reverseGoldenByWrite = map[string][]string{
+// reverseGoldenBySendMethod is what the reflection guard checks: a Send* method
+// this table does not name fails the test, so adding a server → agent write
+// forces a golden alongside it.
+var reverseGoldenBySendMethod = map[string][]string{
 	"SendSessionRequest": {"go_control_session_request.bin"},
 	"SendAgentUpdate":    {"go_control_agent_update.bin"},
 	// Both informational-reason variants carry a _min fixture: the reason field
@@ -36,9 +34,13 @@ var reverseGoldenByWrite = map[string][]string{
 	"SendRequestLocalHistory":   {"go_control_request_local_history.bin"},
 	"SendRequestDeviceLogs":     {"go_control_request_device_logs.bin"},
 	"SendSetMaintenanceMode":    {"go_control_set_maintenance_mode.bin"},
+}
 
-	// Written inline by the backfill response handlers, so reflection does not
-	// reach them; named here to keep their goldens under the same guard.
+// reverseGoldenByInlineWrite covers the variants the backfill response handlers
+// write through sendControl directly rather than through a Send* method, so
+// reflection does not reach them. They are named here to keep their goldens
+// under the same file-existence guard.
+var reverseGoldenByInlineWrite = map[string][]string{
 	"handleMetricBackfillBatch/ack": {"go_control_metric_backfill_ack.bin"},
 	"handleRequestBackfillSlot/grant": {
 		"go_control_grant_backfill.bin",
@@ -67,23 +69,25 @@ func TestEveryAgentWriteHasReverseGolden(t *testing.T) {
 	require.NotEmpty(t, sends, "reflection found no Send* methods on *AgentConn")
 
 	for _, name := range sends {
-		assert.Contains(t, reverseGoldenByWrite, name,
+		assert.Contains(t, reverseGoldenBySendMethod, name,
 			"%s writes to the agent with no reverse golden: add one in "+
 				"TestGenerateReverseGoldens and verify it in reverse_golden_test.rs", name)
 	}
 }
 
-// TestReverseGoldenTableResolvesToFiles fails when a golden the table names has
-// been renamed or deleted, so the table cannot silently point at nothing.
+// TestReverseGoldenTableResolvesToFiles fails when a golden either table names
+// has been renamed or deleted, so neither can silently point at nothing.
 func TestReverseGoldenTableResolvesToFiles(t *testing.T) {
 	t.Parallel()
 
-	for write, goldens := range reverseGoldenByWrite {
-		require.NotEmpty(t, goldens, "%s: table entry names no golden", write)
-		for _, golden := range goldens {
-			info, err := os.Stat(filepath.Join(goldenDir(), golden))
-			require.NoError(t, err, "%s: golden %s is missing", write, golden)
-			assert.NotZero(t, info.Size(), "%s: golden %s is empty", write, golden)
+	for _, table := range []map[string][]string{reverseGoldenBySendMethod, reverseGoldenByInlineWrite} {
+		for write, goldens := range table {
+			require.NotEmpty(t, goldens, "%s: table entry names no golden", write)
+			for _, golden := range goldens {
+				info, err := os.Stat(filepath.Join(goldenDir(), golden))
+				require.NoError(t, err, "%s: golden %s is missing", write, golden)
+				assert.NotZero(t, info.Size(), "%s: golden %s is empty", write, golden)
+			}
 		}
 	}
 }

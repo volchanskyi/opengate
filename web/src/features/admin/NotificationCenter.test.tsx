@@ -156,8 +156,8 @@ describe('NotificationCenter', () => {
     usePushStore.setState({ vapidKey: null });
     const pushSubscribe = vi.fn();
     const ready = vi.fn();
-    installServiceWorker({ subscribe: pushSubscribe });
-    // Observe that the handler got as far as the registration and then stopped.
+    // A recording `ready` getter shows the handler reached the registration and
+    // then stopped, rather than never having run at all.
     Object.defineProperty(navigator, 'serviceWorker', {
       value: { get ready() { ready(); return Promise.resolve({ pushManager: { subscribe: pushSubscribe } }); } },
       configurable: true,
