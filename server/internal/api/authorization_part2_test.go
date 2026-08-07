@@ -32,12 +32,12 @@ func TestGroupReadsAreTenantWide(t *testing.T) {
 		"admin":    adminToken,
 	} {
 		t.Run("get site "+name, func(t *testing.T) {
-			w := doRequest(srv, http.MethodGet, testPathGroupsS+site.ID.String(), token, nil)
+			w := doRequest(srv, http.MethodGet, testPathSiteID+site.ID.String(), token, nil)
 			assert.Equal(t, http.StatusOK, w.Code)
 		})
 
 		t.Run("list sites "+name, func(t *testing.T) {
-			w := doRequest(srv, http.MethodGet, testPathGroups, token, nil)
+			w := doRequest(srv, http.MethodGet, testPathSites, token, nil)
 			require.Equal(t, http.StatusOK, w.Code)
 			var sites []Site
 			require.NoError(t, json.NewDecoder(w.Body).Decode(&sites))
@@ -59,24 +59,24 @@ func TestGroupWritesAreAdminOnly(t *testing.T) {
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
 	t.Run("create site member forbidden", func(t *testing.T) {
-		w := doRequest(srv, http.MethodPost, testPathGroups, memberToken, map[string]string{"name": "denied"})
+		w := doRequest(srv, http.MethodPost, testPathSites, memberToken, map[string]string{"name": "denied"})
 		assert.Equal(t, http.StatusForbidden, w.Code)
 	})
 
 	t.Run("create site admin succeeds", func(t *testing.T) {
-		w := doRequest(srv, http.MethodPost, testPathGroups, adminToken, map[string]string{"name": "allowed"})
+		w := doRequest(srv, http.MethodPost, testPathSites, adminToken, map[string]string{"name": "allowed"})
 		assert.Equal(t, http.StatusCreated, w.Code)
 	})
 
 	t.Run("delete site member forbidden", func(t *testing.T) {
 		g := testutil.SeedSite(t, ctx, srv.store)
-		w := doRequest(srv, http.MethodDelete, testPathGroupsS+g.ID.String(), memberToken, nil)
+		w := doRequest(srv, http.MethodDelete, testPathSiteID+g.ID.String(), memberToken, nil)
 		assert.Equal(t, http.StatusForbidden, w.Code)
 	})
 
 	t.Run("delete site admin succeeds", func(t *testing.T) {
 		g := testutil.SeedSite(t, ctx, srv.store)
-		w := doRequest(srv, http.MethodDelete, testPathGroupsS+g.ID.String(), adminToken, nil)
+		w := doRequest(srv, http.MethodDelete, testPathSiteID+g.ID.String(), adminToken, nil)
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 }

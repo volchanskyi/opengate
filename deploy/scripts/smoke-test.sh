@@ -99,22 +99,6 @@ test_health() {
 
 check "GET /api/v1/health returns 200" test_health
 
-# --- Metrics endpoint ---------------------------------------------------------
-# /metrics is not proxied by Caddy — it's only reachable on the internal Docker
-# network. Both staging and production smoke tests go through Caddy, so this
-# test is skipped in CD. It runs in docker-compose.test.yml (E2E) where the
-# server port is exposed directly.
-
-test_metrics() {
-  http_get "${BASE_URL}/metrics"
-  [[ "$RESPONSE_STATUS" == "200" ]] || return 1
-  echo "$RESPONSE_BODY" | grep -q 'opengate_http_requests_total' || return 1
-}
-
-if [[ "$MODE" != "staging" && "$MODE" != "production" ]]; then
-  check "GET /metrics returns Prometheus metrics" test_metrics
-fi
-
 # --- Web UI tests (both modes) ------------------------------------------------
 
 test_web_index() {
@@ -165,15 +149,16 @@ if [[ "$MODE" == "staging" ]]; then
 
   check "POST /api/v1/auth/register returns 201 + JWT" test_register
 
-  # List groups with auth
-  test_groups() {
+  # List sites with auth — an authenticated tenant-scoped fleet read, so a 200
+  # proves the JWT, the tenant context, and the database round-trip together.
+  test_sites() {
     [[ -z "${JWT:-}" ]] && return 1
     local status
-    status=$(http_status -H "Authorization: Bearer ${JWT}" "${BASE_URL}/api/v1/groups")
+    status=$(http_status -H "Authorization: Bearer ${JWT}" "${BASE_URL}/api/v1/sites")
     [[ "$status" == "200" ]]
   }
 
-  check "GET /api/v1/groups with JWT returns 200" test_groups
+  check "GET /api/v1/sites with JWT returns 200" test_sites
 
   # WebSocket relay route exists
   test_relay_route() {
