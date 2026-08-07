@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.72.6] - 2026-08-07
+
+### Fixed
+- **deps:** take rkyv 0.8.17 for the archive-validation advisories
+
+### Changed
+- **tenancy:** name the outer ring the tenant
+- **agent:** fold the journalctl invocation into one runner
+- **agent:** implement Linux only, keep the platform extension points
+
 ## [v0.72.5] - 2026-08-03
 
 ### Fixed
