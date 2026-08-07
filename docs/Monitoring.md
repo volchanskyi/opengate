@@ -133,8 +133,8 @@ its filters stay live either way, and the caret collapses the returned lines
 alone. The response is cached for the browser session, so returning to a device
 page renders the lines it already has and every later pull is an explicit
 control — a window button, a unit or severity filter, or a search.
-The host log source is read through first-party CLIs (`journalctl -o json`,
-PowerShell `Get-WinEvent`) rather than a GPL journal library, per
+The host log source is read through its first-party CLI (`journalctl -o json`)
+rather than a GPL journal library, per
 [ADR-050](adr/ADR-050-edge-sentinel-log-reader-sourcing.md).
 
 Raw log lines are never centralized — they are brokered on demand, redacted, and

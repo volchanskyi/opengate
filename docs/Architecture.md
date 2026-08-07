@@ -6,7 +6,7 @@ OpenGate is a three-component platform for remote device management:
 
 | Component | Language | Role |
 |-----------|----------|------|
-| **Agent** | Rust | Runs on managed devices (Windows/Linux) |
+| **Agent** | Rust | Runs on managed Linux devices |
 | **Server** | Go | Central hub — QUIC + WebSocket + REST API |
 | **Web** | React/TypeScript | Browser-based management UI |
 
@@ -132,7 +132,7 @@ The `mesh-agent` binary (`agent/crates/mesh-agent/src/main.rs`) is the entry poi
 - **Control loop**: Dispatches `SessionRequest` (spawns session handler), capability-gated hardware/log requests, `AgentUpdate` (semver check, apply, ack, exit code 42 for systemd restart), and pings
 - **Edge Sentinel sampler**: A background sampler on every agent reads bounded local host/process metrics, trains a pure-Rust k=2 anomaly ensemble on a warm-up window, and scores each sample, with local allocation/RSS guards and a Criterion footprint bench.
 - **Edge Sentinel local store**: On every agent, the local store persists each sampled dimension with its inline anomaly bit into the agent-local multi-tier TSDB (`edge-tsdb::store::LocalTsdb`) under the data dir — the sovereign copy of min/max/last + 1 s raw that central `avg`-only VictoriaMetrics does not keep, read back on demand by later backfill. It is built on `redb`: T0 1 s raw + T1 60 s + T2 3600 s rollups in three tables written per commit as one atomic transaction, a fixed-point-per-metric compact codec, a coarsest-first disk cap that never fills the host disk, format-version migration, MVCC snapshot reads, optional cold-tier DEFLATE (pure-Rust, no `zstd`), and a deprovision purge. See [ADR-052](adr/ADR-052-edge-sentinel-local-tsdb-build.md).
-- **Edge Sentinel auto-discovery**: A background task on every agent profiles the host non-intrusively — listening ports (`/proc/net` on Linux, `netstat` on Windows, with the owning process basename), systemd/Windows services, database engines inferred from listening ports, containers via a read-only docker/podman CLI, and installed packages (dpkg/rpm / Windows uninstall registry) — into a bounded, secret-free `DiscoveryReport` (`mesh-agent-core::discovery`). No WMI, no network scanning; each category is capped, and the task profiles on a long interval and ships a report over a bounded channel **only when the profile changed**. Advertises the `Discovery` capability.
+- **Edge Sentinel auto-discovery**: A background task on every agent profiles the host non-intrusively — listening ports (`/proc/net`, with the owning process basename), systemd services, database engines inferred from listening ports, containers via a read-only docker/podman CLI, and installed packages (dpkg/rpm) — into a bounded, secret-free `DiscoveryReport` (`mesh-agent-core::discovery`). No network scanning; each category is capped, and the task profiles on a long interval and ships a report over a bounded channel **only when the profile changed**. Advertises the `Discovery` capability.
 - **Auto-update**: Downloads binary, verifies SHA-256 + Ed25519 signature, atomic replace with `.prev` backup, rollback watchdog on restart. See [Agent Updates](Agent-Updates.md)
 - **Deregistration**: On receiving `AgentDeregistered`, removes local identity files (certs, keys, device ID) and exits cleanly. The server maintains an in-memory tombstone set to reject reconnection attempts from deleted devices
 - **Reconnection**: Exponential backoff (1s→30s cap, 10 max attempts) via `reconnect_with_backoff`
@@ -278,7 +278,7 @@ The React web client (`web/`) provides management and session features:
 
 All features use the binary frame protocol ([`web/src/lib/protocol/`](../web/src/lib/protocol/)) and share a single WebSocket connection managed by a Zustand store ([`connection-store.ts`](../web/src/features/session/state/connection-store.ts)).
 
-**Capability-based tab visibility**: The Session View dynamically shows/hides tabs based on the device's reported capabilities. Linux agents report Terminal + FileManager only; Windows/Mac agents additionally report RemoteDesktop. The web client receives capabilities via the Device API and passes them to Session View via React Router state. Devices without the `RemoteDesktop` capability will only show Terminal and Files tabs; Desktop and Chat tabs require it.
+**Capability-based tab visibility**: The Session View dynamically shows/hides tabs based on the device's reported capabilities. Linux agents report Terminal + FileManager only; an agent whose platform crate provides desktop capture and input injection additionally reports RemoteDesktop. The web client receives capabilities via the Device API and passes them to Session View via React Router state. Devices without the `RemoteDesktop` capability will only show Terminal and Files tabs; Desktop and Chat tabs require it.
 
 ### UI Infrastructure
 

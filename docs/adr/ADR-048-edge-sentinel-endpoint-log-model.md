@@ -13,8 +13,8 @@ Accepted.
 
 ## Context
 
-Endpoint logs (journald / syslog, the Windows Event Log, and the agent's own
-files) are a core RMM signal, but they are voluminous and secret-dense. The
+Endpoint logs (journald / syslog and the agent's own files) are a core RMM
+signal, but they are voluminous and secret-dense. The
 question is where they live and how the server sees them, under OpenGate's
 constraints: agents are outbound-only behind NAT, the control plane runs on one
 free-tier OKE node, and cluster block storage is at the 200 GB cap
@@ -30,9 +30,11 @@ already retains and can time-query.
 Adopt an **edge-first, server-proxied** endpoint-log model. Raw log lines are the
 signal; they are never bulk-ingested centrally.
 
-- **Raw lines stay at the edge.** The host log source (journald, the Windows
-  Event Log, the agent's rotated files) is the durable, time-queryable store of
-  record. The server never bulk-ingests raw lines.
+- **Raw lines stay at the edge.** The host log source (journald and the agent's
+  rotated files) is the durable, time-queryable store of record. The server never
+  bulk-ingests raw lines. The `source` vocabulary on the wire is the extension
+  point for a further platform's reader; an agent asked for a source it has no
+  reader for answers by naming it, never with an empty page.
 - **Access is server-proxied and on-demand.** An operator pulls a bounded,
   redacted, audited window through the transient broker in
   [ADR-046](ADR-046-edge-sentinel-raw-log-broker.md); nothing raw is persisted

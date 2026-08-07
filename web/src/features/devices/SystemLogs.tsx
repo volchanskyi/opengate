@@ -12,9 +12,8 @@ interface SystemLogsProps {
 }
 
 /**
- * System Logs pane: the platform host log (`source=host` → journald on Linux,
- * Windows Event Log on Windows), with an auto-detected unit dropdown and a
- * clickable `target` column.
+ * System Logs pane: the platform host log (`source=host` → journald on Linux),
+ * with an auto-detected unit dropdown and a clickable `target` column.
  *
  * The pane starts closed and pulls once, on its first open per device: a host
  * log pull is a live round trip to the agent, so it happens when an operator

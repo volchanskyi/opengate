@@ -74,7 +74,7 @@ This page contains the full text of all Architecture Decision Records (ADRs) for
 
 **Why**: Agent must not panic on missing display/input hardware.
 
-**Consequences**: `async_trait` adds a small per-call allocation for screen capture (acceptable at ~30fps). Windows platform is currently all stubs (see `techdebt.md`).
+**Consequences**: `async_trait` adds a small per-call allocation for screen capture (acceptable at ~30fps). The agent implements Linux; every trait a platform crate does not implement resolves to its null implementation, which is what headless hosts, containers, and CI runs use.
 
 ---
 

@@ -148,10 +148,10 @@ type LogFilter struct {
 	Offset int
 	Limit  int
 	// Source selects the host log source: "self"/"" for the agent's own files,
-	// "host" to auto-resolve journald (Linux) / Windows Event Log (Windows).
+	// "host" to auto-resolve the platform system log (journald on Linux).
 	Source string
-	// Unit narrows host logs to one emitting unit (systemd unit / Windows
-	// provider); empty matches every unit.
+	// Unit narrows host logs to one emitting unit (systemd unit); empty matches
+	// every unit.
 	Unit string
 }
 

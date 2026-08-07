@@ -164,6 +164,6 @@ stores them), on 24 h × 40 series:
 - The fault-injection harness and gate tests are the regression guard for WS-14b:
   crash-recovery, corruption-quarantine, disk-full-cap, and clock-jump behaviour
   are asserted, always-run, on every commit.
-- Real ARM64 + Windows integration passes (Windows file-locking, `F_FULLFSYNC`)
+- Real ARM64 integration passes
   remain a WS-14b release gate; the CI harness here runs the simulated-fault pass
   cross-platform-agnostically.

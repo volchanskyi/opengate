@@ -150,8 +150,12 @@ Agents report platform information using native identifiers (e.g. `Ubuntu 22.04.
 |--------------|---------------|
 | `Ubuntu 22.04 LTS`, `Debian GNU/Linux 12`, `Fedora Linux 40`, `CentOS Stream 9`, `Alpine Linux`, `Arch Linux`, `Red Hat Enterprise Linux` | `linux` |
 | `Windows 11 Pro` | `windows` |
-| `macOS 14.4` | `darwin` |
+| any other OS name | the name, lowercased |
 | `x86_64` | `amd64` |
 | `aarch64` | `arm64` |
+
+Per-OS targeting is the extension point for a further platform: a manifest
+published for an OS the table does not fold matches agents whose reported name
+lowercases to exactly that value, so no server change is needed to ship to one.
 
 This normalization is applied in `eligibleAgents()` in `handlers_updates.go`.

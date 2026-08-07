@@ -3,9 +3,9 @@
 //! On Linux the collector reads `/proc/net/{tcp,tcp6,udp,udp6}` — listening TCP
 //! sockets (state `0A`) and unconnected bound UDP sockets — and resolves each
 //! socket's owning process basename by walking `/proc/[pid]/fd` for the matching
-//! `socket:[inode]`. On Windows it parses `netstat -ano`. Both are read-only,
-//! localhost-only introspection: no network scanning, no bound address ever
-//! leaves the device — only the transport, port number, and process basename.
+//! `socket:[inode]`. This is read-only, localhost-only introspection: no network
+//! scanning, no bound address ever leaves the device — only the transport, port
+//! number, and process basename.
 
 use std::collections::{HashMap, HashSet};
 
@@ -99,11 +99,7 @@ pub fn collect_ports() -> Vec<DiscoveredPort> {
     {
         collect_ports_linux()
     }
-    #[cfg(target_os = "windows")]
-    {
-        collect_ports_windows()
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    #[cfg(not(target_os = "linux"))]
     {
         Vec::new()
     }
@@ -165,63 +161,6 @@ fn build_inode_proc_map(wanted: &HashSet<u64>) -> HashMap<u64, String> {
         }
     }
     map
-}
-
-/// Runs `netstat -ano` and parses listening TCP + bound UDP ports. Empty on any
-/// failure path (missing binary, non-zero exit).
-#[cfg(target_os = "windows")]
-fn collect_ports_windows() -> Vec<DiscoveredPort> {
-    let output = std::process::Command::new("netstat")
-        .args(["-ano"])
-        .output();
-    match output {
-        Ok(output) if output.status.success() => {
-            parse_netstat(&String::from_utf8_lossy(&output.stdout))
-        }
-        _ => Vec::new(),
-    }
-}
-
-/// Parses `netstat -ano` output into listening TCP and bound UDP ports. The
-/// process column is a PID, which is not a basename, so `process` is left empty
-/// (the port itself is the discovery signal). Exposed for tests on all
-/// platforms.
-#[cfg(any(target_os = "windows", test))]
-pub(crate) fn parse_netstat(content: &str) -> Vec<DiscoveredPort> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
-    for line in content.lines() {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() < 4 {
-            continue;
-        }
-        let proto = fields[0].to_ascii_lowercase();
-        let is_tcp = proto == "tcp";
-        let is_udp = proto == "udp";
-        if !is_tcp && !is_udp {
-            continue;
-        }
-        // TCP listeners carry a LISTENING state in the 4th column; UDP rows have
-        // no state and a `*:*` foreign address.
-        if is_tcp && !fields.iter().any(|f| f.eq_ignore_ascii_case("LISTENING")) {
-            continue;
-        }
-        let Some(port) = fields[1]
-            .rsplit_once(':')
-            .and_then(|(_, p)| p.parse::<u16>().ok())
-        else {
-            continue;
-        };
-        if !seen.insert((is_tcp, port)) {
-            continue;
-        }
-        out.push(DiscoveredPort {
-            proto: if is_tcp { "tcp" } else { "udp" }.to_string(),
-            port,
-            process: String::new(),
-        });
-    }
-    out
 }
 
 #[cfg(test)]
@@ -341,24 +280,31 @@ mod tests {
         );
     }
 
-    /// `netstat -ano` parsing keeps listening TCP and bound UDP ports and
-    /// de-duplicates per transport; established/foreign rows are dropped.
+    /// The collector reads this platform's own socket tables: on Linux every row
+    /// it reports is a TCP or UDP listener, unique per transport and port, and a
+    /// host without `/proc` mounted contributes nothing. On a platform with no
+    /// socket table to read there is nothing to report at all. No bound address
+    /// ever appears in the result — only the transport, port, and owning process
+    /// basename.
     #[test]
-    fn parse_netstat_keeps_listeners_and_udp() {
-        let out = concat!(
-            "\n  Proto  Local Address          Foreign Address        State           PID\n",
-            "  TCP    0.0.0.0:445            0.0.0.0:0              LISTENING       4\n",
-            "  TCP    10.0.0.5:52000         93.184.216.34:443     ESTABLISHED     1200\n",
-            "  UDP    0.0.0.0:53             *:*                                   900\n",
-            "  TCP    0.0.0.0:445            0.0.0.0:0              LISTENING       4\n",
-        );
-        let ports = parse_netstat(out);
-        assert_eq!(ports.len(), 2, "one TCP listener (deduped) + one UDP");
-        assert_eq!(ports[0].proto, "tcp");
-        assert_eq!(ports[0].port, 445);
-        assert!(ports[0].process.is_empty());
-        assert_eq!(ports[1].proto, "udp");
-        assert_eq!(ports[1].port, 53);
+    fn collect_ports_reads_the_platform_or_reports_nothing() {
+        let ports = collect_ports();
+        #[cfg(not(target_os = "linux"))]
+        assert!(ports.is_empty(), "no socket table to read");
+        let mut seen = HashSet::new();
+        for port in &ports {
+            assert!(
+                port.proto == "tcp" || port.proto == "udp",
+                "unexpected transport {}",
+                port.proto
+            );
+            assert!(
+                seen.insert((port.proto.clone(), port.port)),
+                "{}:{} reported twice",
+                port.proto,
+                port.port
+            );
+        }
     }
 
     #[cfg(target_os = "linux")]

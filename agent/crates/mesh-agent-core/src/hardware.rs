@@ -7,7 +7,6 @@
 
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 use uuid::Uuid;
 
 /// Where Linux exposes the SMBIOS system UUID. Readable by root only, which is
@@ -19,8 +18,6 @@ const LINUX_PRODUCT_UUID: &str = "/sys/class/dmi/id/product_uuid";
 pub fn system_uuid() -> String {
     if cfg!(target_os = "linux") {
         system_uuid_from(LINUX_PRODUCT_UUID)
-    } else if cfg!(target_os = "windows") {
-        parse_system_uuid(&windows_product_uuid())
     } else {
         String::new()
     }
@@ -34,7 +31,7 @@ pub fn system_uuid_from(path: impl AsRef<Path>) -> String {
     }
 }
 
-/// Normalizes a raw DMI or WMI reading into a lowercase hyphenated UUID.
+/// Normalizes a raw DMI reading into a lowercase hyphenated UUID.
 ///
 /// Returns an empty string for anything unusable — malformed text, or the
 /// all-zero / all-ones sentinels hypervisors and unconfigured firmware hand out.
@@ -50,19 +47,22 @@ pub fn parse_system_uuid(raw: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Asks Windows for the SMBIOS system UUID. Returns empty output on any
-/// failure, which `parse_system_uuid` turns into "no identity".
-fn windows_product_uuid() -> String {
-    let output = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "(Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID",
-        ])
-        .output();
-    match output {
-        Ok(out) => String::from_utf8_lossy(&out.stdout).to_string(),
-        Err(_) => String::new(),
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// On Linux the identity comes from the DMI sysfs file and from nowhere
+    /// else, so [`system_uuid`] and [`system_uuid_from`] over that path are the
+    /// same reading. Anywhere else the platform exposes no SMBIOS UUID and the
+    /// answer is empty — an unrelated host must never be handed an identity
+    /// that would link it to another machine's AMT connection.
+    #[test]
+    fn system_uuid_reads_the_platform_source() {
+        if cfg!(target_os = "linux") {
+            assert_eq!(LINUX_PRODUCT_UUID, "/sys/class/dmi/id/product_uuid");
+            assert_eq!(system_uuid(), system_uuid_from(LINUX_PRODUCT_UUID));
+        } else {
+            assert_eq!(system_uuid(), "");
+        }
     }
 }

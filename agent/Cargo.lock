@@ -2616,19 +2616,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "platform-windows"
-version = "0.15.4"
-dependencies = [
- "async-trait",
- "mesh-agent-core",
- "mesh-protocol",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "windows",
-]
-
-[[package]]
 name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -180,11 +180,7 @@ fn default_shell() -> String {
     {
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
     }
-    #[cfg(windows)]
-    {
-        std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
-    }
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(unix))]
     {
         "sh".to_string()
     }
@@ -198,6 +194,23 @@ mod tests {
     fn test_default_shell_is_not_empty() {
         let shell = default_shell();
         assert!(!shell.is_empty());
+    }
+
+    /// On a unix host the terminal opens the shell the environment names, and
+    /// `/bin/sh` when it names none — an agent running as a system service has
+    /// no login environment, so the fallback is the common case in production,
+    /// not an edge case. A platform that is not unix has no `SHELL` convention
+    /// to read and gets the bare `sh` name.
+    #[test]
+    fn default_shell_follows_the_environment_on_unix() {
+        let shell = default_shell();
+        #[cfg(unix)]
+        match std::env::var("SHELL") {
+            Ok(configured) => assert_eq!(shell, configured),
+            Err(_) => assert_eq!(shell, "/bin/sh"),
+        }
+        #[cfg(not(unix))]
+        assert_eq!(shell, "sh");
     }
 
     #[test]

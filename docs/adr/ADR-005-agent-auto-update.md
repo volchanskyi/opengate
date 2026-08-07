@@ -98,7 +98,9 @@ files, signs the hashes, and stores manifests for each OS/arch binary found.
 ## Explicitly Deferred
 
 - Agent-initiated pull model (polling for updates).
-- Windows/macOS agent support.
+- An agent for any platform beyond Linux. Per-OS/arch manifest targeting is the
+  extension point and already carries one: publishing for a new OS value needs no
+  server change.
 - Canary/staged rollout.
 - Manifest storage migration to SQLite.
 - Ed25519 key rotation mechanism.

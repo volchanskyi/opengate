@@ -139,14 +139,17 @@ primary-interface throughput in bytes/second (rounded to whole bytes so they
 stay on the lossless integer path). The 10 s averaging matches reconnect-
 backfill's roll-up exactly, so a live point and a later gap-filled point for the
 same `(dim, ts)` land in one series. On the on-demand log query, `RequestDeviceLogs.source` selects the log
-source (`host` resolves journald / the Windows Event Log; empty or `self` reads
-the agent's own files) and `unit` narrows host logs to one emitting unit;
-`DeviceLogsResponse.available_units` enumerates the source's distinct units for
-the UI unit dropdown.
+source (`host` resolves the platform system log, journald on Linux; empty or
+`self` reads the agent's own files) and `unit` narrows host logs to one emitting
+unit; `DeviceLogsResponse.available_units` enumerates the source's distinct units
+for the UI unit dropdown. The `source` vocabulary is the extension point for a
+further platform's log reader and is wider than any one agent implements — an
+agent that names a source it has no reader for gets `DeviceLogsError` naming that
+source, never an empty page and never another source's records.
 
 `DiscoveryReport` carries a non-intrusive, read-only host profile: listening
-ports (transport, port, owning process basename), host services (systemd unit /
-Windows service name + run state), database engines inferred from listening
+ports (transport, port, owning process basename), host services (systemd unit
+name + run state), database engines inferred from listening
 ports (engine family + port, no probe), containers from a local runtime
 (runtime, image, name, state), and installed packages (name, version). Each
 category is per-device bounded on the agent, and `truncated` is set when any hit
