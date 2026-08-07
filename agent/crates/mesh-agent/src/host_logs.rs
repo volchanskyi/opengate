@@ -300,28 +300,33 @@ fn units_from_exit(success: bool, stdout: &[u8]) -> Vec<String> {
     normalize_unit_list(text.lines().map(str::to_owned))
 }
 
+/// Runs `journalctl` with `args` and hands the completed invocation to `parse`.
+/// A command that could not be launched at all — no `journalctl` on a minimal
+/// container — yields the same nothing a failed one does, so no caller needs a
+/// platform branch.
+fn run_journalctl<T>(
+    args: impl IntoIterator<Item = String>,
+    parse: fn(bool, &[u8]) -> Vec<T>,
+) -> Vec<T> {
+    match std::process::Command::new("journalctl").args(args).output() {
+        Ok(output) => parse(output.status.success(), &output.stdout),
+        Err(_) => Vec::new(),
+    }
+}
+
 /// Runs `journalctl` for the most recent records under the pushed-down filter.
 /// Empty on any failure path (missing binary, non-zero exit).
 fn collect_journald(filter: &LogFilter, unit: &str) -> Vec<LogEntry> {
-    match std::process::Command::new("journalctl")
-        .args(build_journald_args(filter, unit))
-        .output()
-    {
-        Ok(output) => entries_from_exit(output.status.success(), &output.stdout),
-        Err(_) => Vec::new(),
-    }
+    run_journalctl(build_journald_args(filter, unit), entries_from_exit)
 }
 
 /// Enumerates distinct systemd units via `journalctl -F _SYSTEMD_UNIT` (an
 /// indexed field enumeration — cheap). Empty on any failure path.
 fn list_journald_units() -> Vec<String> {
-    match std::process::Command::new("journalctl")
-        .args(["-F", "_SYSTEMD_UNIT", "--no-pager"])
-        .output()
-    {
-        Ok(output) => units_from_exit(output.status.success(), &output.stdout),
-        Err(_) => Vec::new(),
-    }
+    run_journalctl(
+        ["-F", "_SYSTEMD_UNIT", "--no-pager"].map(String::from),
+        units_from_exit,
+    )
 }
 
 /// Redacts secret material from each entry's message in place before a raw-log
@@ -558,6 +563,31 @@ mod tests {
         let _ = collect_host_logs(source, &filter(None, None, None), "");
         let _ = list_units(source);
         let _ = collect_host_logs(source, &filter(None, None, None), "$(evil)");
+    }
+
+    /// A `journalctl` that cannot be launched at all — the binary is absent on a
+    /// minimal container — is the same nothing as one that ran and failed. The
+    /// runner reaches that answer without the caller testing for it, which is
+    /// what lets every call site skip a platform branch.
+    #[test]
+    fn an_unlaunchable_tool_yields_the_same_nothing_as_a_failed_one() {
+        let absent: Vec<String> = run_journalctl(
+            ["--a-flag-journalctl-does-not-have".to_string()],
+            units_from_exit,
+        );
+        assert!(
+            absent.is_empty(),
+            "a rejected invocation contributes no units"
+        );
+
+        let entries: Vec<LogEntry> = run_journalctl(
+            ["--a-flag-journalctl-does-not-have".to_string()],
+            entries_from_exit,
+        );
+        assert!(
+            entries.is_empty(),
+            "a rejected invocation contributes no records"
+        );
     }
 
     #[test]
