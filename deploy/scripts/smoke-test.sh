@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Post-deploy smoke tests for OpenGate.
-# CD runs it on the runner against a kubectl port-forward into the deployed
-# release; --domain targets the public ingress instead.
+# Smoke tests for OpenGate: the handful of requests that prove a running server
+# actually serves its API, its SPA and its relay route.
 #
-# Usage: smoke-test.sh --mode <staging|production> --domain <domain>
-#    or: smoke-test.sh --mode <staging|production> --host <host> --port <port> [--scheme <http|https>]
+# `make e2e` runs it in --mode local against the compose stack, so a broken
+# surface fails in the precommit gauntlet rather than in a deployment. CD runs it
+# in --mode staging and --mode production against a kubectl port-forward into the
+# deployed release; --domain targets the public ingress instead.
+#
+# Usage: smoke-test.sh --mode <local|staging|production> --domain <domain>
+#    or: smoke-test.sh --mode <local|staging|production> --host <host> --port <port> [--scheme <http|https>]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -99,7 +103,23 @@ test_health() {
 
 check "GET /api/v1/health returns 200" test_health
 
-# --- Web UI tests (both modes) ------------------------------------------------
+# --- Metrics endpoint ---------------------------------------------------------
+# /metrics is served on the same listener as the API but is not routed by the
+# ingress, so it is reachable exactly when this run talks to the server port
+# directly — the compose published port, or a port-forward into the Service.
+# A --domain run goes through the ingress and cannot see it.
+
+test_metrics() {
+  http_get "${BASE_URL}/metrics"
+  [[ "$RESPONSE_STATUS" == "200" ]] || return 1
+  echo "$RESPONSE_BODY" | grep -q 'opengate_http_requests_total' || return 1
+}
+
+if [[ -z "$DOMAIN" ]]; then
+  check "GET /metrics returns Prometheus metrics" test_metrics
+fi
+
+# --- Web UI tests (all modes) -------------------------------------------------
 
 test_web_index() {
   http_get "${BASE_URL}/"
@@ -125,9 +145,12 @@ test_web_static_asset() {
 
 check "GET /vite.svg returns 200 (static file)" test_web_static_asset
 
-# --- Staging-only tests -------------------------------------------------------
+# --- Authenticated tests ------------------------------------------------------
+# These create a throwaway account, so they run everywhere that is disposable —
+# the local compose stack and staging — and never against production, where the
+# account would be a real one nobody asked for.
 
-if [[ "$MODE" == "staging" ]]; then
+if [[ "$MODE" == "local" || "$MODE" == "staging" ]]; then
 
   # Register a test user
   TIMESTAMP=$(date +%s)

@@ -56,6 +56,9 @@ type Metrics struct {
 	EdgeBackfillDecisionsTotal     *prometheus.CounterVec
 	EdgeBackfillActiveSlots        prometheus.Gauge
 	EdgeBackfillGrantRate          prometheus.Gauge
+
+	// Chart read path
+	MetricsGridMisalignedTotal prometheus.Counter
 }
 
 // namespace prefixes every series this package exposes.
@@ -79,6 +82,14 @@ func histogramVec(name, help string, buckets []float64, labels ...string) *prome
 		Help:      help,
 		Buckets:   buckets,
 	}, labels)
+}
+
+func counter(name, help string) prometheus.Counter {
+	return prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      name,
+		Help:      help,
+	})
 }
 
 func gauge(name, help string) prometheus.Gauge {
@@ -153,6 +164,9 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 
 		EdgeBackfillGrantRate: gauge("edge_backfill_grant_rate_samples_per_second",
 			"Per-slot ingest rate (samples/sec) of the most recent backfill grant."),
+
+		MetricsGridMisalignedTotal: counter("metrics_grid_misalignment_total",
+			"Total chart samples the time-series store returned outside the request-derived grid of the query it answered. The read is issued at the grid's own instants, so any non-zero value is a defect."),
 	}
 
 	reg.MustRegister(
@@ -173,6 +187,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.EdgeBackfillDecisionsTotal,
 		m.EdgeBackfillActiveSlots,
 		m.EdgeBackfillGrantRate,
+		m.MetricsGridMisalignedTotal,
 	)
 
 	return m
@@ -218,6 +233,16 @@ func (m *Metrics) ObserveBackfillDecision(granted bool, rate uint32, active int)
 		m.EdgeBackfillDecisionsTotal.WithLabelValues("defer").Inc()
 	}
 	m.EdgeBackfillActiveSlots.Set(float64(active))
+}
+
+// ObserveMetricsGridMisalignment counts n chart samples that arrived outside
+// the request-derived grid of the range query they answered. The read path
+// issues that query at the grid's own instants, so this counter should stay at
+// zero; a rising value means the store's evaluation instants and the axis the
+// API publishes have diverged, which would shift every charted value into the
+// wrong bucket.
+func (m *Metrics) ObserveMetricsGridMisalignment(n int) {
+	m.MetricsGridMisalignedTotal.Add(float64(n))
 }
 
 // ObserveDeviceLogPull records one on-demand raw-log broker pull against the

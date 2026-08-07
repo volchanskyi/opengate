@@ -156,6 +156,81 @@ describe('buildFamilyChart', () => {
     expect(chart.bands).toHaveLength(0);
     expect(chart.series).toHaveLength(2);
   });
+
+  it('renders a wide sparse window as gaps across its full span, never a line over the hole', () => {
+    // What the server now returns for 7 d over a device with ~20 min of data:
+    // the full request-derived grid, two buckets carrying a value, the rest null.
+    const BUCKETS = 1008;
+    const t = Array.from({ length: BUCKETS }, (_, i) => 1_000_000 + i * 600);
+    const avg: (number | null)[] = Array.from({ length: BUCKETS }, () => null);
+    avg[500] = 42;
+    avg[501] = 44;
+
+    const chart = buildFamilyChart(t, [series({ name: 'cpu.util', avg })]);
+
+    // The x axis spans the whole requested window, not just the answered part.
+    expect(chart.data[0]).toHaveLength(BUCKETS);
+    expect(chart.data[0]![0]).toBe(1_000_000);
+    expect(chart.data[0]![BUCKETS - 1]).toBe(1_000_000 + (BUCKETS - 1) * 600);
+
+    // Every unanswered bucket is NaN. uPlot skips NaN, so the canvas breaks the
+    // line there instead of interpolating a value the device never reported.
+    const column = chart.data[1]!;
+    expect(column).toHaveLength(BUCKETS);
+    expect(column[499]).toBeNaN();
+    expect(column[500]).toBe(42);
+    expect(column[501]).toBe(44);
+    expect(column[502]).toBeNaN();
+    expect([...column].filter((v) => !Number.isNaN(v))).toEqual([42, 44]);
+
+    // spanGaps is asserted rather than assumed: flipping it true would bridge
+    // three days of device downtime with a straight line.
+    expect(chart.series[1]!.spanGaps).toBe(false);
+    // The gaps must not poison the scale either.
+    expect(chart.scaleRange).toEqual([41.9, 44.1]);
+  });
+
+  it('never bridges a gap on the band edges either', () => {
+    const chart = buildFamilyChart([1000, 1010, 1020], [
+      series({
+        name: 'cpu.util',
+        avg: [10, null, 30], min: [5, null, 25], max: [15, null, 35],
+        min_max_source: 'avg_of_10s',
+      }),
+    ]);
+    // A band whose edges spanned the hole would fill a region the avg line
+    // leaves empty — a shape with no measurement behind it.
+    expect(chart.series[2]!.spanGaps).toBe(false);
+    expect(chart.series[3]!.spanGaps).toBe(false);
+    expect(Number.isNaN(chart.data[2]![1]!)).toBe(true);
+    expect(Number.isNaN(chart.data[3]![1]!)).toBe(true);
+  });
+
+  it('pads a short column to the grid rather than misaligning it against the axis', () => {
+    // uPlot reads column i against x[i]. A column shorter than the axis would
+    // silently shift every later reading left, so it is padded with gaps.
+    const chart = buildFamilyChart([1000, 1010, 1020, 1030], [
+      series({ name: 'cpu.util', avg: [10, 20], min: [5], max: [15], min_max_source: 'avg_of_10s' }),
+    ]);
+    for (const column of chart.data) {
+      expect(column).toHaveLength(4);
+    }
+    expect(chart.data[1]![0]).toBe(10);
+    expect(chart.data[1]![1]).toBe(20);
+    expect(Number.isNaN(chart.data[1]![2]!)).toBe(true);
+    expect(Number.isNaN(chart.data[1]![3]!)).toBe(true);
+  });
+
+  it('truncates an over-long column to the grid so no reading lands off the axis', () => {
+    const chart = buildFamilyChart([1000, 1010], [
+      series({ name: 'cpu.util', avg: [10, 20, 30, 40] }),
+    ]);
+    expect(chart.data[0]).toHaveLength(2);
+    expect(chart.data[1]).toHaveLength(2);
+    expect([...chart.data[1]!]).toEqual([10, 20]);
+    // The dropped readings must not stretch the scale of a window they are not in.
+    expect(chart.scaleRange).toEqual([9.5, 20.5]);
+  });
 });
 
 describe('familyCurrentLabel', () => {

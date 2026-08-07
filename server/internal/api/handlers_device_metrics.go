@@ -109,34 +109,61 @@ type metricRangeQuery struct {
 }
 
 // buildMetricRange fetches the avg line (and optional avg_of_10s band) for the
-// device's numeric dimensions and aligns every series onto one timestamp grid so
-// the payload maps 1:1 to a client charting engine's aligned data.
+// device's numeric dimensions and projects every series onto the grid the
+// request implies, so the payload maps 1:1 to a client charting engine's
+// aligned data and covers the window that was asked for however much of it the
+// device recorded.
+//
+// One grid drives both halves: the range reads are issued at its first and last
+// bucket, and the response publishes it as the time axis. That is what keeps
+// the query and the axis from drifting apart.
 func (s *Server) buildMetricRange(ctx context.Context, tenantID, deviceID uuid.UUID, q metricRangeQuery) (MetricRangeResponse, error) {
+	grid := buildMetricGrid(q.from, q.to, q.step)
 	matchers := map[string]string{"device_id": deviceID.String()}
-	avg, err := s.telemetryReader.QueryRange(ctx, tenantID, telemetry.RangeQuery{
-		Metric: metricAvgName, Matchers: matchers, Agg: telemetry.RangeAvg,
-		Start: q.from, End: q.to, Step: q.step,
-	})
+	read := func(agg telemetry.RangeAgg) ([]telemetry.RangeSeries, error) {
+		return s.telemetryReader.QueryRange(ctx, tenantID, telemetry.RangeQuery{
+			Metric: metricAvgName, Matchers: matchers, Agg: agg,
+			Start: grid.queryStart(), End: grid.queryEnd(), Step: q.step,
+		})
+	}
+
+	avg, err := read(telemetry.RangeAvg)
 	if err != nil {
 		return MetricRangeResponse{}, err
 	}
 
 	var mins, maxs []telemetry.RangeSeries
 	if q.wantBand {
-		if mins, err = s.telemetryReader.QueryRange(ctx, tenantID, telemetry.RangeQuery{
-			Metric: metricAvgName, Matchers: matchers, Agg: telemetry.RangeMin,
-			Start: q.from, End: q.to, Step: q.step,
-		}); err != nil {
+		if mins, err = read(telemetry.RangeMin); err != nil {
 			return MetricRangeResponse{}, err
 		}
-		if maxs, err = s.telemetryReader.QueryRange(ctx, tenantID, telemetry.RangeQuery{
-			Metric: metricAvgName, Matchers: matchers, Agg: telemetry.RangeMax,
-			Start: q.from, End: q.to, Step: q.step,
-		}); err != nil {
+		if maxs, err = read(telemetry.RangeMax); err != nil {
 			return MetricRangeResponse{}, err
 		}
 	}
 
-	stepSecs := int(q.step.Seconds())
-	return assembleMetricRange(avg, mins, maxs, dimFilter(q.dims), q.wantBand, stepSecs), nil
+	resp, off := assembleMetricRange(avg, mins, maxs, dimFilter(q.dims), q.wantBand, grid)
+	s.reportGridMisalignment(ctx, deviceID, grid, off)
+	return resp, nil
+}
+
+// reportGridMisalignment surfaces samples that arrived outside the grid their
+// own query was issued on. They cannot be placed without misreporting when they
+// were measured, so they are counted and logged with enough detail to find the
+// cause — never discarded in silence.
+func (s *Server) reportGridMisalignment(ctx context.Context, deviceID uuid.UUID, grid metricGrid, off offGridPoints) {
+	if off.count == 0 {
+		return
+	}
+	if s.metrics != nil {
+		s.metrics.ObserveMetricsGridMisalignment(off.count)
+	}
+	s.logger.WarnContext(ctx, "telemetry samples fell outside the request grid",
+		"device_id", deviceID,
+		"points", off.count,
+		"dim", off.dim,
+		"first_off_grid_ts", off.ts,
+		"grid_start", grid.ts[0],
+		"grid_buckets", len(grid.ts),
+		"step_s", grid.step)
 }
