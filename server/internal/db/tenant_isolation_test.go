@@ -17,10 +17,11 @@ import (
 type tenantFixture struct {
 	tenantID     uuid.UUID
 	userID       uuid.UUID
-	groupID      uuid.UUID
+	siteID       uuid.UUID
 	deviceID     uuid.UUID
 	secGroupID   uuid.UUID
 	enrollID     uuid.UUID
+	orgID        uuid.UUID
 	sessionTok   string
 	pushEndpoint string
 	label        string
@@ -30,10 +31,11 @@ func newTenantFixture(label string) tenantFixture {
 	return tenantFixture{
 		tenantID:     uuid.New(),
 		userID:       uuid.New(),
-		groupID:      uuid.New(),
+		siteID:       uuid.New(),
 		deviceID:     uuid.New(),
 		secGroupID:   uuid.New(),
 		enrollID:     uuid.New(),
+		orgID:        uuid.New(),
 		sessionTok:   "session-" + uuid.NewString(),
 		pushEndpoint: "https://push.example.com/" + uuid.NewString(),
 		label:        label,
@@ -76,6 +78,59 @@ func TestTenantIsolationCoversEveryTenantTable(t *testing.T) {
 	}
 }
 
+// tenantTablesOutsideTheContract are the tenant-scoped tables deliberately left
+// unprobed. Both are erasure bookkeeping — the deny-list and the progress log —
+// which must outlive the rows they describe, so they carry the scope column
+// without a policy that would hide them from the process doing the erasing.
+var tenantTablesOutsideTheContract = []string{"deleted_ids", "purge_jobs"}
+
+// TestEveryTenantTableIsProbed keeps the contract above honest. The probe list
+// is written by hand, one static query per table, so this reads the live schema
+// and insists the two agree: a table added later with a tenant_id column and no
+// probe fails here rather than going unproven, and a probe left behind by a
+// dropped table fails too.
+func TestEveryTenantTableIsProbed(t *testing.T) {
+	s := newPostgresTestStore(t)
+	ctx := context.Background()
+
+	inSchema := tenantScopedTableNames(t, ctx, s.db)
+	require.NotEmpty(t, inSchema, "the schema query found no tenant tables — the contract has drifted")
+
+	probed := make([]string, 0, len(tenantIsolationProbes()))
+	for _, probe := range tenantIsolationProbes() {
+		probed = append(probed, probe.table)
+	}
+
+	assert.ElementsMatch(t, inSchema, append(probed, tenantTablesOutsideTheContract...),
+		"every table carrying tenant_id must either be probed by the isolation contract "+
+			"or be named in tenantTablesOutsideTheContract with a reason")
+}
+
+// tenantScopedTableNames lists the tables in the live schema that carry a
+// tenant_id column.
+func tenantScopedTableNames(t *testing.T, ctx context.Context, db *sql.DB) []string {
+	t.Helper()
+	rows, err := db.QueryContext(ctx, `
+		SELECT c.table_name
+		  FROM information_schema.columns c
+		  JOIN information_schema.tables t
+		    ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+		 WHERE c.table_schema = current_schema()
+		   AND c.column_name = 'tenant_id'
+		   AND t.table_type = 'BASE TABLE'`)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+
+	var names []string
+	for rows.Next() {
+		var table string
+		require.NoError(t, rows.Scan(&table))
+		names = append(names, table)
+	}
+	require.NoError(t, rows.Err())
+	return names
+}
+
 // tenantIsolationProbe reads one tenant table two ways: everything the caller's
 // scope admits, and everything belonging to a named other tenant. Both queries
 // are static literals so no table name is ever interpolated into SQL.
@@ -87,12 +142,15 @@ type tenantIsolationProbe struct {
 
 func tenantIsolationProbes() []tenantIsolationProbe {
 	return []tenantIsolationProbe{
+		{"organizations",
+			`SELECT COUNT(*) FROM organizations`,
+			`SELECT COUNT(*) FROM organizations WHERE tenant_id = $1`},
 		{"users",
 			`SELECT COUNT(*) FROM users`,
 			`SELECT COUNT(*) FROM users WHERE tenant_id = $1`},
-		{"groups_",
-			`SELECT COUNT(*) FROM groups_`,
-			`SELECT COUNT(*) FROM groups_ WHERE tenant_id = $1`},
+		{"sites",
+			`SELECT COUNT(*) FROM sites`,
+			`SELECT COUNT(*) FROM sites WHERE tenant_id = $1`},
 		{"devices",
 			`SELECT COUNT(*) FROM devices`,
 			`SELECT COUNT(*) FROM devices WHERE tenant_id = $1`},
@@ -196,10 +254,12 @@ func seedTenantRows(t *testing.T, ctx context.Context, db *sql.DB, f tenantFixtu
 
 	exec(`INSERT INTO users (id, tenant_id, email, password_hash) VALUES ($1, $2, $3, 'hash')`,
 		f.userID, f.tenantID, "isolation-"+f.userID.String()+"@example.com")
-	exec(`INSERT INTO groups_ (id, tenant_id, name) VALUES ($1, $2, 'isolation group')`,
-		f.groupID, f.tenantID)
-	exec(`INSERT INTO devices (id, tenant_id, group_id, hostname) VALUES ($1, $2, $3, $4)`,
-		f.deviceID, f.tenantID, f.groupID, "host-"+f.label)
+	exec(`INSERT INTO organizations (id, tenant_id, name) VALUES ($1, $2, $3)`,
+		f.orgID, f.tenantID, "Customer "+f.orgID.String())
+	exec(`INSERT INTO sites (id, tenant_id, organization_id, name) VALUES ($1, $2, $3, 'isolation site')`,
+		f.siteID, f.tenantID, f.orgID)
+	exec(`INSERT INTO devices (id, tenant_id, organization_id, site_id, hostname) VALUES ($1, $2, $3, $4, $5)`,
+		f.deviceID, f.tenantID, f.orgID, f.siteID, "host-"+f.label)
 	exec(`INSERT INTO agent_sessions (token, tenant_id, device_id, user_id) VALUES ($1, $2, $3, $4)`,
 		f.sessionTok, f.tenantID, f.deviceID, f.userID)
 	exec(`INSERT INTO web_push_subscriptions (endpoint, tenant_id, user_id) VALUES ($1, $2, $3)`,

@@ -25,7 +25,7 @@ func TestProperty_DevicesToAPI_PreservesOrderAndLength(t *testing.T) {
 		for i := range ds {
 			ds[i] = &device.Device{
 				ID:       uuid.New(),
-				GroupID:  uuid.New(),
+				SiteID:   uuid.New(),
 				Hostname: rapid.String().Draw(t, "hostname"),
 				OS:       rapid.String().Draw(t, "os"),
 			}
@@ -48,7 +48,7 @@ func TestProperty_DeviceToAPI_OsDisplayPointer(t *testing.T) {
 	t.Parallel()
 	rapid.Check(t, func(t *rapid.T) {
 		osDisplay := rapid.String().Draw(t, "osDisplay")
-		d := &device.Device{ID: uuid.New(), GroupID: uuid.New(), OsDisplay: osDisplay}
+		d := &device.Device{ID: uuid.New(), SiteID: uuid.New(), OsDisplay: osDisplay}
 
 		out := deviceToAPI(d)
 		if osDisplay == "" {

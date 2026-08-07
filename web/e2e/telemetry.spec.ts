@@ -15,7 +15,7 @@ function fakeDevice() {
   const now = new Date().toISOString();
   return {
     id: DEVICE_ID,
-    group_id: GROUP_ID,
+    site_id: GROUP_ID,
     hostname: "e2e-metrics-host",
     os: "linux",
     os_display: "Linux",
@@ -50,7 +50,7 @@ function ok(route: Route, body: unknown) {
 test.describe("Device telemetry UI", () => {
   test.beforeEach(async ({ authedPage }) => {
     await authedPage.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => ok(route, fakeDevice()));
-    await authedPage.route("**/api/v1/groups", (route: Route) =>
+    await authedPage.route("**/api/v1/sites", (route: Route) =>
       ok(route, [{ id: GROUP_ID, name: "default", created_at: "", updated_at: "" }]),
     );
     await authedPage.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) => ok(route, []));

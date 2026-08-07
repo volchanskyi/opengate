@@ -186,7 +186,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List devices, optionally filtered by group */
+        /**
+         * List devices, optionally narrowed by customer and site
+         * @description Returns the caller's tenant. organization_id narrows to one customer; site_id narrows to one location inside it. Both narrow together, and omitting both returns the whole tenant.
+         */
         get: operations["listDevices"];
         put?: never;
         post?: never;
@@ -241,7 +244,7 @@ export interface paths {
         };
         /**
          * Fleet rollup for the dashboard
-         * @description Returns a fixed-size count of the caller's tenant — status tiles plus edge-health bands — in one aggregate row and one instant telemetry query. The response size does not grow with the fleet.
+         * @description Returns a fixed-size count of the caller's tenant — status tiles plus edge-health bands — in one aggregate row and one instant telemetry query. The response size does not grow with the fleet. organization_id narrows the rollup to one customer, so the tiles and the device list always describe the same set.
          */
         get: operations["getDeviceSummary"];
         put?: never;
@@ -263,7 +266,7 @@ export interface paths {
         put?: never;
         /**
          * Enter or exit maintenance mode for a device
-         * @description Sets the server-authoritative maintenance state for a device. The state is persisted and pushed to the agent over the control channel; because maintenance is a desired state rather than a live command, this succeeds even when the agent is offline and reconciles on its next connect. Every change is audited. Restricted to the device's group owner.
+         * @description Sets the server-authoritative maintenance state for a device. The state is persisted and pushed to the agent over the control channel; because maintenance is a desired state rather than a live command, this succeeds even when the agent is offline and reconciles on its next connect. Every change is audited. Requires administrator access.
          */
         post: operations["setDeviceMaintenance"];
         delete?: never;
@@ -389,43 +392,109 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/groups": {
+    "/api/v1/organizations": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List the tenant's device groups */
-        get: operations["listGroups"];
-        put?: never;
         /**
-         * Create a device group
-         * @description Requires administrator access.
+         * List the tenant's customers
+         * @description Every member of a tenant sees every customer in it — the organization is a targeting level, not an access boundary. Retired customers are omitted unless include_archived is set.
          */
-        post: operations["createGroup"];
+        get: operations["listOrganizations"];
+        put?: never;
+        /** Add a customer (admin only) */
+        post: operations["createOrganization"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/groups/{id}": {
+    "/api/v1/organizations/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get group details */
-        get: operations["getGroup"];
+        /** Get one customer */
+        get: operations["getOrganization"];
         put?: never;
         post?: never;
         /**
-         * Delete group
+         * Delete a customer and everything under it (admin only)
+         * @description Deleting a customer deletes its devices, and with them their telemetry, inventory, hardware and update rows. A tenant's last customer cannot be deleted — a device must always have somewhere to belong.
+         */
+        delete: operations["deleteOrganization"];
+        options?: never;
+        head?: never;
+        /** Rename, archive or restore a customer (admin only) */
+        patch: operations["updateOrganization"];
+        trace?: never;
+    };
+    "/api/v1/devices/{id}/organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Move a device to another customer (admin only)
+         * @description The device keeps its identity, its history and everything keyed to it — only which customer it answers under changes. The target customer must be in the caller's tenant.
+         */
+        put: operations["moveDeviceOrganization"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the tenant's sites, optionally narrowed by customer
+         * @description Returns every site in the caller's tenant. organization_id narrows to one customer; omitting it returns the whole tenant.
+         */
+        get: operations["listSites"];
+        put?: never;
+        /**
+         * Create a site
          * @description Requires administrator access.
          */
-        delete: operations["deleteGroup"];
+        post: operations["createSite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sites/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get site details */
+        get: operations["getSite"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a site
+         * @description Requires administrator access.
+         */
+        delete: operations["deleteSite"];
         options?: never;
         head?: never;
         patch?: never;
@@ -788,11 +857,43 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** @description One customer inside a tenant. The tenant is the boundary the database enforces; an organization is who the work is for, and every device belongs to exactly one. Names are unique within a tenant. */
+        Organization: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /**
+             * Format: date-time
+             * @description Set when the customer is retired. An archived organization keeps its devices and its history and is simply out of the working set.
+             */
+            archived_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        CreateOrganizationRequest: {
+            name: string;
+        };
+        /** @description A rename, an archive/restore, or both. An omitted field is left alone. */
+        UpdateOrganizationRequest: {
+            name?: string;
+            archived?: boolean;
+        };
+        MoveDeviceOrganizationRequest: {
+            /** Format: uuid */
+            organization_id: string;
+        };
         Device: {
             /** Format: uuid */
             id: string;
+            /**
+             * Format: uuid
+             * @description The customer this device belongs to. Never absent: a device written without one named takes its tenant's own organization.
+             */
+            organization_id: string;
             /** Format: uuid */
-            group_id: string;
+            site_id: string;
             hostname: string;
             os: string;
             os_display?: string;
@@ -1055,17 +1156,24 @@ export interface components {
         UpdateDeviceRequest: {
             /**
              * Format: uuid
-             * @description Destination group for the device. The all-zeros UUID takes the device out of its group and leaves it ungrouped.
+             * @description Destination site for the device, which must belong to the device's own customer. The all-zeros UUID unfiles the device, leaving it in its customer with no site.
              */
-            group_id?: string | null;
+            site_id?: string | null;
         };
-        CreateGroupRequest: {
+        CreateSiteRequest: {
             name: string;
+            /**
+             * Format: uuid
+             * @description The customer this site belongs to. Omitted, the site goes under the tenant's own customer — the same no-orphan rule a device write follows.
+             */
+            organization_id?: string;
         };
-        /** @description A named collection of devices within one tenant. A group is a filing label, not an access boundary — every member of a tenant sees every group in it. */
-        Group: {
+        /** @description A location or department inside one customer — the narrowest level above the machine itself. A site is a targeting level, not an access boundary: the tenant scopes visibility, so every member of a tenant sees every site in it. */
+        Site: {
             /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            organization_id: string;
             name: string;
             /** Format: date-time */
             created_at: string;
@@ -1702,7 +1810,9 @@ export interface operations {
     listDevices: {
         parameters: {
             query?: {
-                group_id?: string;
+                site_id?: string;
+                /** @description Narrow the list to one customer. */
+                organization_id?: string;
             };
             header?: never;
             path?: never;
@@ -1950,7 +2060,10 @@ export interface operations {
     };
     getDeviceSummary: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrow the rollup to one customer. */
+                organization_id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2425,22 +2538,24 @@ export interface operations {
             };
         };
     };
-    listGroups: {
+    listOrganizations: {
         parameters: {
-            query?: never;
+            query?: {
+                include_archived?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description List of groups */
+            /** @description List of customers */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Group"][];
+                    "application/json": components["schemas"]["Organization"][];
                 };
             };
             /** @description Unauthorized */
@@ -2454,7 +2569,7 @@ export interface operations {
             };
         };
     };
-    createGroup: {
+    createOrganization: {
         parameters: {
             query?: never;
             header?: never;
@@ -2463,17 +2578,338 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateGroupRequest"];
+                "application/json": components["schemas"]["CreateOrganizationRequest"];
             };
         };
         responses: {
-            /** @description Group created */
+            /** @description Customer created */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Group"];
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Administrator required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A customer of that name already exists in this tenant */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    getOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The customer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found (also the cross-tenant deny) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    deleteOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Administrator required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found (also the cross-tenant deny) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description This is the tenant's last customer */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    updateOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateOrganizationRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated customer */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Administrator required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Not found (also the cross-tenant deny) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description A customer of that name already exists in this tenant */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    moveDeviceOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveDeviceOrganizationRequest"];
+            };
+        };
+        responses: {
+            /** @description The moved device */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Device"];
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Administrator required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device or customer not found (also the cross-tenant deny) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    listSites: {
+        parameters: {
+            query?: {
+                /** @description Narrow the list to one customer. */
+                organization_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List of sites */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    createSite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSiteRequest"];
+            };
+        };
+        responses: {
+            /** @description Site created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Site"];
                 };
             };
             /** @description Invalid request */
@@ -2505,7 +2941,7 @@ export interface operations {
             };
         };
     };
-    getGroup: {
+    getSite: {
         parameters: {
             query?: never;
             header?: never;
@@ -2516,13 +2952,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Group details */
+            /** @description Site details */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Group"];
+                    "application/json": components["schemas"]["Site"];
                 };
             };
             /** @description Unauthorized */
@@ -2534,7 +2970,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Group not found */
+            /** @description Site not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2545,7 +2981,7 @@ export interface operations {
             };
         };
     };
-    deleteGroup: {
+    deleteSite: {
         parameters: {
             query?: never;
             header?: never;
@@ -2556,7 +2992,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Group deleted */
+            /** @description Site deleted */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -2581,7 +3017,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Group not found */
+            /** @description Site not found */
             404: {
                 headers: {
                     [name: string]: unknown;

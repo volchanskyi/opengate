@@ -4,15 +4,17 @@ The project follows a strict test-first approach. All logic is covered before sh
 
 ### Database Tests
 
-`db.Store` contract tests run against a real PostgreSQL 17 service container. The shared tests in [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) use a factory pattern and `storeFactories` table. Integration and handler tests obtain stores through [`server/internal/testutil/testutil.go`](../server/internal/testutil/testutil.go)'s `NewTestStore(t)`, which creates a fresh PostgreSQL schema (`ogt_<uuid>`) per test, runs migrations on it, and drops it on cleanup — so tests may safely call `t.Parallel()`. Each test pool caps at 3 connections and a process-wide semaphore limits concurrent live stores; with the default Postgres `max_connections=100` the working set can saturate when many parallel tests overlap, so the project's Makefile (`make postgres-test-up`) and CI launch Postgres with `-c max_connections=400`. Tests are skipped when `POSTGRES_TEST_URL` is unset (so `go test ./internal/db/...` without a local Postgres exits cleanly).
+`db.Store` contract tests run against a real PostgreSQL 17 service container. The shared tests in [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) use a factory pattern and `storeFactories` table. Integration and handler tests obtain stores through [`server/internal/testutil/testutil.go`](../server/internal/testutil/testutil.go)'s `NewTestStore(t)`, which creates a fresh PostgreSQL schema (`ogt_<uuid>`) per test, runs migrations on it, and drops it on cleanup — so tests may safely call `t.Parallel()`. Each test pool caps at 3 connections and a process-wide semaphore limits concurrent live stores; with the default Postgres `max_connections=100` the working set can saturate when many parallel tests overlap, so the project's Makefile (`make postgres-test-up`) and CI launch Postgres with `-c max_connections=400`. When `POSTGRES_TEST_URL` is unset, [`server/internal/testpg`](../server/internal/testpg/testpg.go) starts a throwaway container with the same setting and fails loudly if it cannot — a database-backed test always runs.
 
 To run the DB tests locally:
 
 ```bash
-# Start a test Postgres with the required max_connections
-make postgres-test-up
+# Auto-provisions its own Postgres
+go test -race -timeout 5m ./internal/db/...
 
-# Run with the Postgres URL set
+# Or point the suite at one you already have, which is faster across
+# several packages and lighter on a memory-tight machine
+make postgres-test-up
 POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable" \
   go test -race -timeout 5m ./internal/db/...
 ```
@@ -364,6 +366,17 @@ The codebase audit added targeted tests for security hardening:
 | `server/tests/integration/middleware_ws_test.go` | Full middleware stack preserves `http.Hijacker` for WS upgrades, relay route bypasses 30s `RequestTimeout` |
 
 The Playwright E2E suite in [`web/e2e/`](../web/e2e/) passes with the auth rate limiter active, confirming no regressions from the middleware.
+
+### Tenancy contracts
+
+Two tests enforce the tenancy rules across the whole surface rather than one
+endpoint at a time, so a table or an endpoint added later cannot quietly opt out:
+
+| Test | What it enforces |
+|---|---|
+| [`TestTenantIsolationCoversEveryTenantTable`](../server/internal/db/tenant_isolation_test.go) | For every tenant table: the caller sees its own row and not the other tenant's, in both directions, and an unscoped read fails closed rather than reading as an empty tenant |
+| [`TestEveryTenantTableIsProbed`](../server/internal/db/tenant_isolation_test.go) | That the contract above covers the whole schema. The probes are hand-written static SQL, so this reads back the tables carrying `tenant_id` and insists the two lists agree — a table added later with no probe fails here instead of going unproven |
+| [`TestFleetReadsOfferTheOrganizationFilter`](../server/internal/api/organization_filter_contract_test.go) | Every operation in [`api/openapi.yaml`](../api/openapi.yaml) whose 200 response is a set of devices, or a rollup over one, declares the `organization_id` query parameter. Derived from the response shape, so a fleet read added without the filter fails rather than showing a technician every customer at once |
 
 ## Cross-Component Integration Tests
 

@@ -134,18 +134,18 @@ export async function removeGroupMember(
   }
 }
 
-export async function createGroup(
+export async function createSite(
   request: APIRequestContext,
   token: string,
   name: string
-): Promise<{ id: string; name: string }> {
-  const resp = await request.post(`${BASE}/groups`, {
+): Promise<{ id: string; organization_id: string; name: string }> {
+  const resp = await request.post(`${BASE}/sites`, {
     data: { name },
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!resp.ok()) {
     throw new Error(
-      `createGroup failed: ${resp.status()} ${await resp.text()}`
+      `createSite failed: ${resp.status()} ${await resp.text()}`
     );
   }
   return resp.json();

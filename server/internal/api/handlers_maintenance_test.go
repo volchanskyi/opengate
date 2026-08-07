@@ -27,7 +27,7 @@ type maintEnv struct {
 	cfg   *auth.JWTConfig
 	store *db.PostgresStore
 	owner *auth.User
-	group *device.Group
+	site  *device.Site
 	dev   *device.Device
 	fake  *fakeAgentControl
 	token string
@@ -43,8 +43,8 @@ func setupMaintenanceEnv(t *testing.T, connected bool) *maintEnv {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(t.Context(), true)
 	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store)
-	dev := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	dev := testutil.SeedDevice(t, ctx, store, site.ID)
 
 	fake := &fakeAgentControl{}
 	agents := map[protocol.DeviceID]AgentControl{}
@@ -55,7 +55,7 @@ func setupMaintenanceEnv(t *testing.T, connected bool) *maintEnv {
 	token, err := cfg.GenerateToken(owner.ID, owner.Email, owner.IsAdmin, owner.TenantID)
 	require.NoError(t, err)
 
-	return &maintEnv{srv: srv, cfg: cfg, store: store, owner: owner, group: group, dev: dev, fake: fake, token: token, ctx: ctx}
+	return &maintEnv{srv: srv, cfg: cfg, store: store, owner: owner, site: site, dev: dev, fake: fake, token: token, ctx: ctx}
 }
 
 func maintenancePath(id uuid.UUID) string {

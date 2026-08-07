@@ -4,9 +4,10 @@ import { apiAction } from '../../../state/api-action';
 import { useToastStore } from '../../../lib/feedback/toast-store';
 import type { components } from '../../../types/api';
 import { fireAndForget } from '../../../lib/fire-and-forget';
+import { selectedOrganizationQuery } from '../../organizations';
 
 type Device = components['schemas']['Device'];
-type Group = components['schemas']['Group'];
+type Site = components['schemas']['Site'];
 type DeviceHardware = components['schemas']['DeviceHardware'];
 type DeviceLogsResponse = components['schemas']['DeviceLogsResponse'];
 type MetricRangeResponse = components['schemas']['MetricRangeResponse'];
@@ -52,8 +53,8 @@ export interface CorrelateParams {
 
 interface DeviceState {
   devices: Device[];
-  groups: Group[];
-  selectedGroupId: string | null;
+  sites: Site[];
+  selectedSiteId: string | null;
   selectedDevice: Device | null;
   hardware: DeviceHardware | null;
   /** Per-pane log responses, keyed by source so the two panes stay independent. */
@@ -71,15 +72,17 @@ interface DeviceState {
   summary: DeviceSummary | null;
   isLoading: boolean;
   error: string | null;
-  fetchGroups: () => Promise<void>;
-  fetchDevices: (groupId?: string) => Promise<void>;
+  fetchSites: () => Promise<void>;
+  fetchDevices: (siteId?: string) => Promise<void>;
+  /** Move a device to another customer. Returns whether the move landed. */
+  moveDeviceOrganization: (id: string, organizationId: string) => Promise<boolean>;
   fetchDevice: (id: string) => Promise<void>;
   refreshDevice: (id: string) => Promise<void>;
-  selectGroup: (id: string | null) => void;
-  createGroup: (name: string) => Promise<void>;
-  deleteGroup: (id: string) => Promise<void>;
+  selectSite: (id: string | null) => void;
+  createSite: (name: string) => Promise<void>;
+  deleteSite: (id: string) => Promise<void>;
   deleteDevice: (id: string) => Promise<void>;
-  updateDeviceGroup: (id: string, groupId: string) => Promise<boolean>;
+  updateDeviceSite: (id: string, siteId: string) => Promise<boolean>;
   restartAgent: (id: string) => Promise<boolean>;
   /** Sends an out-of-band power command over the device's Intel AMT connection.
    *  Addressed by the AMT uuid the device payload carries, not the device id. */
@@ -170,8 +173,8 @@ async function pullLogs(
 
 export const useDeviceStore = create<DeviceState>((set, get) => ({
   devices: [],
-  groups: [],
-  selectedGroupId: null,
+  sites: [],
+  selectedSiteId: null,
   selectedDevice: null,
   hardware: null,
   logs: { agent: null, system: null },
@@ -185,13 +188,25 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   isLoading: false,
   error: null,
 
-  fetchGroups: async () => {
-    const res = await apiAction(set, () => api.GET('/api/v1/groups'));
-    if (res.ok) set({ groups: res.data });
+  fetchSites: async () => {
+    // The sidebar describes the picked customer's locations, so a technician
+    // looking at Contoso never sees Fabrikam's offices in the filter.
+    const organizationId = selectedOrganizationQuery();
+    const res = await apiAction(set, () =>
+      api.GET('/api/v1/sites', {
+        params: { query: organizationId ? { organization_id: organizationId } : {} },
+      }),
+    );
+    if (res.ok) set({ sites: res.data });
   },
 
-  fetchDevices: async (groupId?) => {
-    const query = groupId ? { group_id: groupId } : {};
+  fetchDevices: async (siteId?) => {
+    // Both narrowings travel together: the picked customer scopes the fleet, the
+    // site narrows within it, and an absent value simply does not narrow.
+    const query = {
+      ...(siteId ? { site_id: siteId } : {}),
+      ...(selectedOrganizationQuery() ? { organization_id: selectedOrganizationQuery() } : {}),
+    };
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices', { params: { query } }),
     );
@@ -231,26 +246,31 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     if (res.ok) set({ selectedDevice: res.data });
   },
 
-  selectGroup: (id) => {
-    set({ selectedGroupId: id });
+  selectSite: (id) => {
+    set({ selectedSiteId: id });
     fireAndForget(get().fetchDevices(id ?? undefined));
   },
 
-  createGroup: async (name) => {
+  createSite: async (name) => {
+    // A new site belongs to the customer being looked at; with none picked the
+    // server files it under the tenant's own.
+    const organizationId = selectedOrganizationQuery();
     const res = await apiAction(set, () =>
-      api.POST('/api/v1/groups', { body: { name } }), false,
+      api.POST('/api/v1/sites', {
+        body: organizationId ? { name, organization_id: organizationId } : { name },
+      }), false,
     );
-    if (res.ok) set((state) => ({ groups: [...state.groups, res.data] }));
+    if (res.ok) set((state) => ({ sites: [...state.sites, res.data] }));
   },
 
-  deleteGroup: async (id) => {
+  deleteSite: async (id) => {
     const res = await apiAction(set, () =>
-      api.DELETE('/api/v1/groups/{id}', { params: { path: { id } } }), false,
+      api.DELETE('/api/v1/sites/{id}', { params: { path: { id } } }), false,
     );
     if (res.ok) {
       set((state) => ({
-        groups: state.groups.filter((g) => g.id !== id),
-        selectedGroupId: state.selectedGroupId === id ? null : state.selectedGroupId,
+        sites: state.sites.filter((g) => g.id !== id),
+        selectedSiteId: state.selectedSiteId === id ? null : state.selectedSiteId,
       }));
     }
   },
@@ -266,11 +286,27 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     }
   },
 
-  updateDeviceGroup: async (id, groupId) => {
+  moveDeviceOrganization: async (id, organizationId) => {
+    const res = await apiAction(set, () =>
+      api.PUT('/api/v1/devices/{id}/organization', {
+        params: { path: { id } },
+        body: { organization_id: organizationId },
+      }), false,
+    );
+    if (res.ok) {
+      set((state) => ({
+        selectedDevice: state.selectedDevice?.id === id ? res.data : state.selectedDevice,
+        devices: state.devices.map((d) => (d.id === id ? res.data : d)),
+      }));
+    }
+    return res.ok;
+  },
+
+  updateDeviceSite: async (id, siteId) => {
     const res = await apiAction(set, () =>
       api.PATCH('/api/v1/devices/{id}', {
         params: { path: { id } },
-        body: { group_id: groupId },
+        body: { site_id: siteId },
       }), false,
     );
     if (res.ok) {
@@ -399,8 +435,13 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   fetchSummary: async () => {
     // One fixed-size request drives every dashboard tile, so the dashboard
     // never downloads the device list to count it.
+    // The rollup narrows to the same customer as the list, so the tiles and the
+    // fleet below them always describe one set.
+    const organizationId = selectedOrganizationQuery();
     const res = await apiAction(set, () =>
-      api.GET('/api/v1/devices/summary'), false,
+      api.GET('/api/v1/devices/summary', {
+        params: { query: organizationId ? { organization_id: organizationId } : {} },
+      }), false,
     );
     if (res.ok) set({ summary: res.data });
   },

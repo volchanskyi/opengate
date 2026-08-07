@@ -13,8 +13,8 @@ import (
 // DeviceID uniquely identifies a device/agent.
 type DeviceID = uuid.UUID
 
-// GroupID uniquely identifies a device group.
-type GroupID = uuid.UUID
+// SiteID uniquely identifies a device site.
+type SiteID = uuid.UUID
 
 // SessionToken is a 32-byte random hex string used for relay session routing.
 type SessionToken string

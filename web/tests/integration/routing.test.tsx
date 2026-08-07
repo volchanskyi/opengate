@@ -65,12 +65,12 @@ describe('Routing (integration)', () => {
     });
     useDeviceStore.setState({
       devices: [],
-      groups: [],
-      selectedGroupId: null,
+      sites: [],
+      selectedSiteId: null,
       selectedDevice: null,
       isLoading: false,
       error: null,
-      fetchGroups: vi.fn(),
+      fetchSites: vi.fn(),
       fetchDevices: vi.fn(),
     });
     useSessionStore.setState({

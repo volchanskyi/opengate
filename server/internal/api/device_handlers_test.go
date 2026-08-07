@@ -27,12 +27,12 @@ func TestDeviceHandlers(t *testing.T) {
 	_, adminToken := seedTestUser(t, srv, cfg, "dev-admin@example.com", true)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "test-group"}
-	require.NoError(t, srv.groups.Create(ctx, group))
+	site := &device.Site{ID: uuid.New(), Name: "test-site"}
+	require.NoError(t, srv.sites.Create(ctx, site))
 
 	dev := &device.Device{
 		ID:       uuid.New(),
-		GroupID:  group.ID,
+		SiteID:   site.ID,
 		Hostname: "test-host",
 		OS:       "linux",
 		Status:   db.StatusOnline,
@@ -40,7 +40,7 @@ func TestDeviceHandlers(t *testing.T) {
 	require.NoError(t, srv.devices.Upsert(ctx, dev))
 
 	t.Run("list devices", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, testPathDevices+"?group_id="+group.ID.String(), token, nil)
+		w := doRequest(srv, http.MethodGet, testPathDevices+"?site_id="+site.ID.String(), token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var devices []*device.Device
@@ -49,7 +49,7 @@ func TestDeviceHandlers(t *testing.T) {
 		assert.Equal(t, dev.ID, devices[0].ID)
 	})
 
-	t.Run("list all devices without group_id", func(t *testing.T) {
+	t.Run("list all devices without site_id", func(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathDevices, token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
 
@@ -72,44 +72,44 @@ func TestDeviceHandlers(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
-	t.Run("update device group", func(t *testing.T) {
-		newGroup := &device.Group{ID: uuid.New(), Name: "new-group"}
-		require.NoError(t, srv.groups.Create(ctx, newGroup))
+	t.Run("update device site", func(t *testing.T) {
+		newSite := &device.Site{ID: uuid.New(), Name: "new-site"}
+		require.NoError(t, srv.sites.Create(ctx, newSite))
 
-		body := map[string]interface{}{"group_id": newGroup.ID.String()}
+		body := map[string]interface{}{"site_id": newSite.ID.String()}
 		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), adminToken, body)
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var d Device
 		json.NewDecoder(w.Body).Decode(&d)
-		assert.Equal(t, newGroup.ID, d.GroupId)
+		assert.Equal(t, newSite.ID, d.SiteId)
 	})
 
-	t.Run("update device group not found", func(t *testing.T) {
-		body := map[string]interface{}{"group_id": uuid.New().String()}
+	t.Run("update device site not found", func(t *testing.T) {
+		body := map[string]interface{}{"site_id": uuid.New().String()}
 		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), adminToken, body)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("update device group to the nil uuid ungroups the device", func(t *testing.T) {
-		body := map[string]interface{}{"group_id": uuid.Nil.String()}
+	t.Run("update device site to the nil uuid ungroups the device", func(t *testing.T) {
+		body := map[string]interface{}{"site_id": uuid.Nil.String()}
 		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), adminToken, body)
 		require.Equal(t, http.StatusOK, w.Code)
 
 		var d Device
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&d))
-		assert.Equal(t, uuid.Nil, d.GroupId)
+		assert.Equal(t, uuid.Nil, d.SiteId)
 
 		// The device stays reachable and re-groupable once ungrouped.
-		regroup := map[string]interface{}{"group_id": group.ID.String()}
+		regroup := map[string]interface{}{"site_id": site.ID.String()}
 		w = doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), adminToken, regroup)
 		require.Equal(t, http.StatusOK, w.Code)
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&d))
-		assert.Equal(t, group.ID, d.GroupId)
+		assert.Equal(t, site.ID, d.SiteId)
 	})
 
 	t.Run("update device not found", func(t *testing.T) {
-		body := map[string]interface{}{"group_id": uuid.New().String()}
+		body := map[string]interface{}{"site_id": uuid.New().String()}
 		w := doRequest(srv, http.MethodPatch, testPathDevicesS+uuid.New().String(), adminToken, body)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
@@ -119,8 +119,8 @@ func TestDeviceHandlers(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, w.Code)
 	})
 
-	t.Run("list devices invalid group_id", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, testPathDevices+"?group_id=not-a-uuid", token, nil)
+	t.Run("list devices invalid site_id", func(t *testing.T) {
+		w := doRequest(srv, http.MethodGet, testPathDevices+"?site_id=not-a-uuid", token, nil)
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
@@ -135,7 +135,7 @@ func TestDeviceHandlers(t *testing.T) {
 	})
 
 	t.Run("requires auth", func(t *testing.T) {
-		w := doRequest(srv, http.MethodGet, testPathDevices+"?group_id="+group.ID.String(), "", nil)
+		w := doRequest(srv, http.MethodGet, testPathDevices+"?site_id="+site.ID.String(), "", nil)
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 }
@@ -149,11 +149,11 @@ func TestDeviceAMTProperty(t *testing.T) {
 	_, token := seedTestUser(t, srv, cfg, "amt-device@example.com", false)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "amt-group"}
-	require.NoError(t, srv.groups.Create(ctx, group))
+	site := &device.Site{ID: uuid.New(), Name: "amt-site"}
+	require.NoError(t, srv.sites.Create(ctx, site))
 
 	seed := func(hostname string) *device.Device {
-		d := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: hostname, OS: "linux", Status: db.StatusOnline}
+		d := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: hostname, OS: "linux", Status: db.StatusOnline}
 		require.NoError(t, srv.devices.Upsert(ctx, d))
 		return d
 	}
@@ -214,9 +214,9 @@ func TestDeviceResponseNeverLeaksSystemUUID(t *testing.T) {
 	_, token := seedTestUser(t, srv, cfg, "amt-leak@example.com", false)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "leak-group"}
-	require.NoError(t, srv.groups.Create(ctx, group))
-	d := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "leak-host", OS: "linux", Status: db.StatusOnline}
+	site := &device.Site{ID: uuid.New(), Name: "leak-site"}
+	require.NoError(t, srv.sites.Create(ctx, site))
+	d := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: "leak-host", OS: "linux", Status: db.StatusOnline}
 	require.NoError(t, srv.devices.Upsert(ctx, d))
 
 	systemUUID := uuid.New()

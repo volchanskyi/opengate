@@ -12,51 +12,51 @@ import (
 
 func TestPostgresGroups_CRUD(t *testing.T) {
 	t.Parallel()
-	_, groups, _, _ := newRepos(t)
+	_, sites, _, _ := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 
-	g := &device.Group{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
-	require.NoError(t, groups.Create(ctx, g))
+	g := &device.Site{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
+	require.NoError(t, sites.Create(ctx, g))
 
 	t.Run("get", func(t *testing.T) {
-		got, err := groups.Get(ctx, g.ID)
+		got, err := sites.Get(ctx, g.ID)
 		require.NoError(t, err)
 		assert.Equal(t, g.Name, got.Name)
 	})
 
 	t.Run("get missing", func(t *testing.T) {
-		_, err := groups.Get(ctx, uuid.New())
-		assert.ErrorIs(t, err, device.ErrGroupNotFound)
+		_, err := sites.Get(ctx, uuid.New())
+		assert.ErrorIs(t, err, device.ErrSiteNotFound)
 	})
 
-	t.Run("list returns the tenant's groups", func(t *testing.T) {
-		gs, err := groups.List(ctx)
+	t.Run("list returns the tenant's sites", func(t *testing.T) {
+		gs, err := sites.List(ctx, uuid.Nil)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(gs), 1)
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		g2 := &device.Group{ID: uuid.New(), Name: "del-" + uuid.New().String()[:8]}
-		require.NoError(t, groups.Create(ctx, g2))
-		require.NoError(t, groups.Delete(ctx, g2.ID))
-		_, err := groups.Get(ctx, g2.ID)
-		assert.ErrorIs(t, err, device.ErrGroupNotFound)
+		g2 := &device.Site{ID: uuid.New(), Name: "del-" + uuid.New().String()[:8]}
+		require.NoError(t, sites.Create(ctx, g2))
+		require.NoError(t, sites.Delete(ctx, g2.ID))
+		_, err := sites.Get(ctx, g2.ID)
+		assert.ErrorIs(t, err, device.ErrSiteNotFound)
 	})
 
 	t.Run("delete missing", func(t *testing.T) {
-		err := groups.Delete(ctx, uuid.New())
-		assert.ErrorIs(t, err, device.ErrGroupNotFound)
+		err := sites.Delete(ctx, uuid.New())
+		assert.ErrorIs(t, err, device.ErrSiteNotFound)
 	})
 }
 
 func TestPostgresHardware_UpsertAndGet(t *testing.T) {
 	t.Parallel()
-	devices, groups, hardware, _ := newRepos(t)
+	devices, sites, hardware, _ := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 
-	g := &device.Group{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
-	require.NoError(t, groups.Create(ctx, g))
-	d := &device.Device{ID: uuid.New(), GroupID: g.ID, Hostname: "hw", OS: "linux", Status: device.StatusOffline}
+	g := &device.Site{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
+	require.NoError(t, sites.Create(ctx, g))
+	d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "hw", OS: "linux", Status: device.StatusOffline}
 	require.NoError(t, devices.Upsert(ctx, d))
 
 	hw := &device.Hardware{

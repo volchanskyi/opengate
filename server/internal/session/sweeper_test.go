@@ -25,8 +25,8 @@ func TestPostgres_DeleteStale(t *testing.T) {
 	repo := testutil.NewTestSessions(t, store)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store)
-	dev := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	dev := testutil.SeedDevice(t, ctx, store, site.ID)
 
 	create := func(prefix string) string {
 		s := &session.Session{Token: prefix + uuid.New().String(), DeviceID: dev.ID, UserID: owner.ID}
@@ -71,7 +71,7 @@ func TestPostgres_DeleteStale_CrossTenant(t *testing.T) {
 	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 
 	userB := testutil.SeedUser(t, ctxB, store)
-	groupB := testutil.SeedGroup(t, ctxB, store)
+	groupB := testutil.SeedSite(t, ctxB, store)
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 	sessionB := testutil.SeedAgentSession(t, ctxB, store, deviceB.ID, userB.ID)
 

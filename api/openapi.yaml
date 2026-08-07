@@ -98,14 +98,71 @@ components:
           type: string
           format: date-time
 
-    Device:
+    Organization:
       type: object
-      required: [id, group_id, hostname, os, agent_version, capabilities, status, last_seen, created_at, updated_at]
+      required: [id, name, created_at, updated_at]
+      description: >-
+        One customer inside a tenant. The tenant is the boundary the database
+        enforces; an organization is who the work is for, and every device
+        belongs to exactly one. Names are unique within a tenant.
       properties:
         id:
           type: string
           format: uuid
-        group_id:
+        name:
+          type: string
+        archived_at:
+          type: string
+          format: date-time
+          description: >-
+            Set when the customer is retired. An archived organization keeps its
+            devices and its history and is simply out of the working set.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateOrganizationRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+
+    UpdateOrganizationRequest:
+      type: object
+      description: >-
+        A rename, an archive/restore, or both. An omitted field is left alone.
+      properties:
+        name:
+          type: string
+        archived:
+          type: boolean
+
+    MoveDeviceOrganizationRequest:
+      type: object
+      required: [organization_id]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+
+    Device:
+      type: object
+      required: [id, organization_id, site_id, hostname, os, agent_version, capabilities, status, last_seen, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: >-
+            The customer this device belongs to. Never absent: a device written
+            without one named takes its tenant's own organization.
+        site_id:
           type: string
           format: uuid
         hostname:
@@ -597,31 +654,43 @@ components:
     UpdateDeviceRequest:
       type: object
       properties:
-        group_id:
+        site_id:
           type: string
           format: uuid
           nullable: true
           description: >-
-            Destination group for the device. The all-zeros UUID takes the
-            device out of its group and leaves it ungrouped.
+            Destination site for the device, which must belong to the device's
+            own customer. The all-zeros UUID unfiles the device, leaving it in
+            its customer with no site.
 
-    CreateGroupRequest:
+    CreateSiteRequest:
       type: object
       required: [name]
       properties:
         name:
           type: string
           minLength: 1
+        organization_id:
+          type: string
+          format: uuid
+          description: >-
+            The customer this site belongs to. Omitted, the site goes under the
+            tenant's own customer — the same no-orphan rule a device write
+            follows.
 
-    Group:
+    Site:
       type: object
       description: >-
-        A named collection of devices within one tenant. A group is a
-        filing label, not an access boundary — every member of a tenant
-        sees every group in it.
-      required: [id, name, created_at, updated_at]
+        A location or department inside one customer — the narrowest level
+        above the machine itself. A site is a targeting level, not an access
+        boundary: the tenant scopes visibility, so every member of a tenant
+        sees every site in it.
+      required: [id, organization_id, name, created_at, updated_at]
       properties:
         id:
+          type: string
+          format: uuid
+        organization_id:
           type: string
           format: uuid
         name:
@@ -1322,13 +1391,24 @@ paths:
   /api/v1/devices:
     get:
       operationId: listDevices
-      summary: List devices, optionally filtered by group
+      summary: List devices, optionally narrowed by customer and site
+      description: >-
+        Returns the caller's tenant. organization_id narrows to one customer;
+        site_id narrows to one location inside it. Both narrow together, and
+        omitting both returns the whole tenant.
       security:
         - bearerAuth: []
       parameters:
-        - name: group_id
+        - name: site_id
           in: query
           required: false
+          schema:
+            type: string
+            format: uuid
+        - name: organization_id
+          in: query
+          required: false
+          description: Narrow the list to one customer.
           schema:
             type: string
             format: uuid
@@ -1523,9 +1603,19 @@ paths:
       description: >-
         Returns a fixed-size count of the caller's tenant — status tiles
         plus edge-health bands — in one aggregate row and one instant telemetry
-        query. The response size does not grow with the fleet.
+        query. The response size does not grow with the fleet. organization_id
+        narrows the rollup to one customer, so the tiles and the device list
+        always describe the same set.
       security:
         - bearerAuth: []
+      parameters:
+        - name: organization_id
+          in: query
+          required: false
+          description: Narrow the rollup to one customer.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: Fleet summary
@@ -1549,7 +1639,7 @@ paths:
         is persisted and pushed to the agent over the control channel; because
         maintenance is a desired state rather than a live command, this succeeds
         even when the agent is offline and reconciles on its next connect. Every
-        change is audited. Restricted to the device's group owner.
+        change is audited. Requires administrator access.
       security:
         - bearerAuth: []
       parameters:
@@ -2013,10 +2103,270 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
-  /api/v1/groups:
+  /api/v1/organizations:
+    get:
+      operationId: listOrganizations
+      summary: List the tenant's customers
+      description: >-
+        Every member of a tenant sees every customer in it — the organization is
+        a targeting level, not an access boundary. Retired customers are omitted
+        unless include_archived is set.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: include_archived
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of customers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Organization"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
     post:
-      operationId: createGroup
-      summary: Create a device group
+      operationId: createOrganization
+      summary: Add a customer (admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationRequest"
+      responses:
+        "201":
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Administrator required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: A customer of that name already exists in this tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/organizations/{id}:
+    get:
+      operationId: getOrganization
+      summary: Get one customer
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The customer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found (also the cross-tenant deny)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    patch:
+      operationId: updateOrganization
+      summary: Rename, archive or restore a customer (admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrganizationRequest"
+      responses:
+        "200":
+          description: The updated customer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Administrator required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found (also the cross-tenant deny)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: A customer of that name already exists in this tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    delete:
+      operationId: deleteOrganization
+      summary: Delete a customer and everything under it (admin only)
+      description: >-
+        Deleting a customer deletes its devices, and with them their telemetry,
+        inventory, hardware and update rows. A tenant's last customer cannot be
+        deleted — a device must always have somewhere to belong.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Administrator required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Not found (also the cross-tenant deny)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: This is the tenant's last customer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/devices/{id}/organization:
+    put:
+      operationId: moveDeviceOrganization
+      summary: Move a device to another customer (admin only)
+      description: >-
+        The device keeps its identity, its history and everything keyed to it —
+        only which customer it answers under changes. The target customer must be
+        in the caller's tenant.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MoveDeviceOrganizationRequest"
+      responses:
+        "200":
+          description: The moved device
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Administrator required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Device or customer not found (also the cross-tenant deny)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/v1/sites:
+    post:
+      operationId: createSite
+      summary: Create a site
       description: Requires administrator access.
       security:
         - bearerAuth: []
@@ -2025,14 +2375,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateGroupRequest"
+              $ref: "#/components/schemas/CreateSiteRequest"
       responses:
         "201":
-          description: Group created
+          description: Site created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Group"
+                $ref: "#/components/schemas/Site"
         "400":
           description: Invalid request
           content:
@@ -2052,19 +2402,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
     get:
-      operationId: listGroups
-      summary: List the tenant's device groups
+      operationId: listSites
+      summary: List the tenant's sites, optionally narrowed by customer
+      description: >-
+        Returns every site in the caller's tenant. organization_id narrows to
+        one customer; omitting it returns the whole tenant.
       security:
         - bearerAuth: []
+      parameters:
+        - name: organization_id
+          in: query
+          required: false
+          description: Narrow the list to one customer.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
-          description: List of groups
+          description: List of sites
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Group"
+                  $ref: "#/components/schemas/Site"
         "401":
           description: Unauthorized
           content:
@@ -2072,10 +2433,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
-  /api/v1/groups/{id}:
+  /api/v1/sites/{id}:
     get:
-      operationId: getGroup
-      summary: Get group details
+      operationId: getSite
+      summary: Get site details
       security:
         - bearerAuth: []
       parameters:
@@ -2087,11 +2448,11 @@ paths:
             format: uuid
       responses:
         "200":
-          description: Group details
+          description: Site details
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Group"
+                $ref: "#/components/schemas/Site"
         "401":
           description: Unauthorized
           content:
@@ -2099,14 +2460,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "404":
-          description: Group not found
+          description: Site not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
     delete:
-      operationId: deleteGroup
-      summary: Delete group
+      operationId: deleteSite
+      summary: Delete a site
       description: Requires administrator access.
       security:
         - bearerAuth: []
@@ -2119,7 +2480,7 @@ paths:
             format: uuid
       responses:
         "204":
-          description: Group deleted
+          description: Site deleted
         "401":
           description: Unauthorized
           content:
@@ -2133,7 +2494,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "404":
-          description: Group not found
+          description: Site not found
           content:
             application/json:
               schema:

@@ -21,13 +21,13 @@ func TestUpdatePublishAndPush(t *testing.T) {
 	ctx := context.Background()
 
 	admin, _ := testutil.SeedAdminUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store)
+	site := testutil.SeedSite(t, ctx, env.store)
 
 	adminJWT, err := env.jwt.GenerateToken(admin.ID, admin.Email, admin.IsAdmin)
 	require.NoError(t, err)
 
 	// Connect an agent that reports as linux/amd64 version 0.13.0
-	stream, deviceID := env.connectAgent(t, group.ID)
+	stream, deviceID := env.connectAgent(t, site.ID)
 
 	require.Eventually(t, func() bool {
 		d, err := env.devices.Get(defaultTenantContext(), deviceID)

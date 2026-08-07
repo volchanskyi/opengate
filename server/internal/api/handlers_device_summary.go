@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
+	"github.com/volchanskyi/opengate/server/internal/device"
 )
 
 // Edge-health band boundaries on a device's latest anomaly rate, in [0,1]. A
@@ -26,8 +27,12 @@ const (
 // dashboard describes the caller's own tenant, so the tiles and the bands
 // always cover one device set and unknown is exact. Admin cross-tenant
 // reads stay available everywhere else.
-func (s *Server) GetDeviceSummary(ctx context.Context, _ GetDeviceSummaryRequestObject) (GetDeviceSummaryResponseObject, error) {
-	counts, err := s.devices.Counts(ctx)
+func (s *Server) GetDeviceSummary(ctx context.Context, request GetDeviceSummaryRequestObject) (GetDeviceSummaryResponseObject, error) {
+	var organizationID device.OrganizationID
+	if request.Params.OrganizationId != nil {
+		organizationID = *request.Params.OrganizationId
+	}
+	counts, err := s.devices.Counts(ctx, organizationID)
 	if err != nil {
 		return nil, err
 	}

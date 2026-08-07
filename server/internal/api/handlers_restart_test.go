@@ -32,7 +32,7 @@ type deviceTestEnv struct {
 	generateToken func(userID uuid.UUID, email string, isAdmin bool) (string, error)
 }
 
-// setupDeviceTest creates a user, group, device, and test server. When online
+// setupDeviceTest creates a user, site, device, and test server. When online
 // is true an AgentConn backed by agentStream is registered.
 func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 	t.Helper()
@@ -42,14 +42,14 @@ func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 	ctx := dbtx.WithDefaultTenant(t.Context(), true)
 
 	user := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store)
-	device := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	device := testutil.SeedDevice(t, ctx, store, site.ID)
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 	lookup := &stubAgentGetter{}
 	if online {
-		ac := agentapi.NewAgentConn(agentapi.AgentConnConfig{DeviceID: device.ID, GroupID: group.ID, Stream: &agentStream, Devices: testutil.NewTestDevices(t, store), Hardware: testutil.NewTestHardware(t, store), DeviceUpdates: testutil.NewTestDeviceUpdates(t, store), Logger: logger})
+		ac := agentapi.NewAgentConn(agentapi.AgentConnConfig{DeviceID: device.ID, SiteID: site.ID, Stream: &agentStream, Devices: testutil.NewTestDevices(t, store), Hardware: testutil.NewTestHardware(t, store), DeviceUpdates: testutil.NewTestDeviceUpdates(t, store), Logger: logger})
 		ac.Capabilities = []protocol.AgentCapability{protocol.CapHardwareInventory, protocol.CapDeviceLogs}
 		lookup = &stubAgentGetter{
 			agents: map[protocol.DeviceID]AgentControl{device.ID: ac},

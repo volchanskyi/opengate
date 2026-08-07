@@ -39,9 +39,9 @@ func TestGetDeviceInventoryHandler(t *testing.T) {
 	_, token := seedTestUser(t, srv, cfg, "inv@example.com", false)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "inv-group"}
-	require.NoError(t, srv.groups.Create(ctx, group))
-	dev := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "inv-host", OS: "linux", Status: db.StatusOnline}
+	site := &device.Site{ID: uuid.New(), Name: "inv-site"}
+	require.NoError(t, srv.sites.Create(ctx, site))
+	dev := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: "inv-host", OS: "linux", Status: db.StatusOnline}
 	require.NoError(t, srv.devices.Upsert(ctx, dev))
 
 	path := "/api/v1/devices/" + dev.ID.String() + "/inventory"
@@ -87,15 +87,15 @@ func TestGetDeviceInventoryHandler(t *testing.T) {
 	})
 
 	t.Run("200 for any device in the caller's tenant", func(t *testing.T) {
-		peerGroup := &device.Group{ID: uuid.New(), Name: "inv-peer-group"}
-		require.NoError(t, srv.groups.Create(ctx, peerGroup))
-		peerDev := &device.Device{ID: uuid.New(), GroupID: peerGroup.ID, Hostname: "peer-host", OS: "linux", Status: db.StatusOnline}
+		peerGroup := &device.Site{ID: uuid.New(), Name: "inv-peer-site"}
+		require.NoError(t, srv.sites.Create(ctx, peerGroup))
+		peerDev := &device.Device{ID: uuid.New(), SiteID: peerGroup.ID, Hostname: "peer-host", OS: "linux", Status: db.StatusOnline}
 		require.NoError(t, srv.devices.Upsert(ctx, peerDev))
 
 		fake := &fakeInventoryRepo{}
 		srv.inventory = fake
 		w := doRequest(srv, http.MethodGet, "/api/v1/devices/"+peerDev.ID.String()+"/inventory", token, nil)
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Equal(t, peerDev.ID, fake.gotDevice, "a group the caller never created is still in scope")
+		assert.Equal(t, peerDev.ID, fake.gotDevice, "a site the caller never created is still in scope")
 	})
 }

@@ -37,7 +37,7 @@ describe('Dashboard', () => {
     setVisibility('visible');
     useDeviceStore.setState({
       devices: [],
-      groups: [{ id: 'g1', name: 'Group A', created_at: '', updated_at: '' }],
+      sites: [{ id: 'g1', organization_id: 'org-1', name: 'Site A', created_at: '', updated_at: '' }],
       isLoading: false,
       error: null,
       summary: {
@@ -45,7 +45,7 @@ describe('Dashboard', () => {
         health: { anomalous: 0, watch: 0, healthy: 0, unknown: 2 },
       },
       fetchDevices: vi.fn(),
-      fetchGroups: vi.fn(),
+      fetchSites: vi.fn(),
       fetchSummary: vi.fn(),
     });
   });

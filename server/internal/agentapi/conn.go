@@ -17,6 +17,7 @@ import (
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -25,8 +26,8 @@ import (
 type AgentConn struct {
 	// DeviceID is the agent's unique device identifier.
 	DeviceID protocol.DeviceID
-	// GroupID is the group this agent belongs to (set during registration).
-	GroupID uuid.UUID
+	// SiteID is the site this agent belongs to (set during registration).
+	SiteID uuid.UUID
 	// TenantID is the authoritative tenant resolved by the server.
 	TenantID uuid.UUID
 
@@ -61,6 +62,7 @@ type AgentConn struct {
 	inventory      inventory.Repository
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
+	settings       settings.Reader
 	metrics        *appmetrics.Metrics
 	logger         *slog.Logger
 	telemetryLast  map[protocol.ControlMessageType]int64
@@ -145,7 +147,7 @@ func (a *AgentConn) setMeta(osName, arch, version string, caps []protocol.AgentC
 type AgentConnConfig struct {
 	DeviceID      protocol.DeviceID
 	TenantID      uuid.UUID
-	GroupID       uuid.UUID
+	SiteID        uuid.UUID
 	Stream        io.ReadWriter
 	Devices       device.Repository
 	Hardware      device.HardwareRepository
@@ -155,8 +157,11 @@ type AgentConnConfig struct {
 	Inventory     inventory.Repository
 	Scheduler     *BackfillScheduler
 	AlertRules    AlertRuleProvider
-	Metrics       *appmetrics.Metrics
-	Logger        *slog.Logger
+	// Settings reads a machine's place in the tenancy ladder. Optional: nil
+	// leaves the connection with the rungs it already knows for itself.
+	Settings settings.Reader
+	Metrics  *appmetrics.Metrics
+	Logger   *slog.Logger
 }
 
 // NewAgentConn creates an AgentConn for testing or programmatic use.
@@ -164,7 +169,7 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 	return &AgentConn{
 		DeviceID:      cfg.DeviceID,
 		TenantID:      cfg.TenantID,
-		GroupID:       cfg.GroupID,
+		SiteID:        cfg.SiteID,
 		stream:        cfg.Stream,
 		codec:         &protocol.Codec{},
 		devices:       cfg.Devices,
@@ -175,6 +180,7 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		inventory:     cfg.Inventory,
 		scheduler:     cfg.Scheduler,
 		alertRules:    cfg.AlertRules,
+		settings:      cfg.Settings,
 		metrics:       cfg.Metrics,
 		logger:        cfg.Logger,
 	}
@@ -303,17 +309,6 @@ func (a *AgentConn) SendPushAlertRules(ctx context.Context, rules []protocol.Thr
 		Type:       protocol.MsgPushAlertRules,
 		AlertRules: rules,
 	})
-}
-
-// pushAlertRules delivers the connecting agent's tenant-scoped threshold-alert
-// ruleset, selected by its authoritative tenant so one tenant's rules never reach
-// another. A nil provider is a no-op; a missing capability surfaces as a
-// capability error the caller can ignore.
-func (a *AgentConn) pushAlertRules(ctx context.Context) error {
-	if a.alertRules == nil {
-		return nil
-	}
-	return a.SendPushAlertRules(ctx, a.alertRules.RulesFor(a.TenantID))
 }
 
 // SendRequestLocalHistory asks the agent for a bounded, full-resolution slice of
@@ -516,7 +511,7 @@ func (a *AgentConn) handleRegister(ctx context.Context, msg *protocol.ControlMes
 
 	d := &device.Device{
 		ID:           a.DeviceID,
-		GroupID:      a.GroupID,
+		SiteID:       a.SiteID,
 		Hostname:     msg.Hostname,
 		OS:           osName,
 		OsDisplay:    msg.OS,

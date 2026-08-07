@@ -26,11 +26,11 @@ func TestDeviceLogsBroker_RoundTripRedactedAndAudited(t *testing.T) {
 	ctx := context.Background()
 
 	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store)
+	site := testutil.SeedSite(t, ctx, env.store)
 	adminToken, err := env.jwt.GenerateToken(user.ID, user.Email, true)
 	require.NoError(t, err)
 
-	stream, deviceID := env.connectAgent(t, group.ID)
+	stream, deviceID := env.connectAgent(t, site.ID)
 	require.Eventually(t, func() bool {
 		d, err := env.devices.Get(defaultTenantContext(), deviceID)
 		return err == nil && d.Status == db.StatusOnline
@@ -111,11 +111,11 @@ func TestDeviceLogsBroker_NonAdminForbidden(t *testing.T) {
 	ctx := context.Background()
 
 	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store)
+	site := testutil.SeedSite(t, ctx, env.store)
 	viewerToken, err := env.jwt.GenerateToken(user.ID, user.Email, false)
 	require.NoError(t, err)
 
-	_, deviceID := env.connectAgent(t, group.ID)
+	_, deviceID := env.connectAgent(t, site.ID)
 
 	req, err := http.NewRequest(http.MethodGet, env.httpSrv.URL+"/api/v1/devices/"+deviceID.String()+"/logs", nil)
 	require.NoError(t, err)

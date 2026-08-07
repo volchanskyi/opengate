@@ -56,7 +56,7 @@ func newRelayTestServerWithPeerTimeout(t *testing.T, r *relay.Relay, peerTimeout
 		Audit:          testutil.NewTestAudit(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
-		Groups:         testutil.NewTestGroups(t, store),
+		Sites:          testutil.NewTestSites(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
 		WebPush:        testutil.NewTestWebPush(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
@@ -97,15 +97,15 @@ func waitForRelayWired(t *testing.T, ctx context.Context, srv *Server, token pro
 	}, 3*time.Second, 25*time.Millisecond, "relay should wire both sides of session %s", token)
 }
 
-// seedRelaySession seeds a user → group → device → agent session and returns the
+// seedRelaySession seeds a user → site → device → agent session and returns the
 // session token plus a browser JWT for that user — the common fixture for the
 // relay WebSocket subtests.
 func seedRelaySession(t *testing.T, ctx context.Context, srv *Server, cfg *auth.JWTConfig) (token, jwtToken string) {
 	t.Helper()
 	ctx = dbtx.WithDefaultTenant(ctx, true)
 	user := testutil.SeedUser(t, ctx, srv.store)
-	group := testutil.SeedGroup(t, ctx, srv.store)
-	device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	site := testutil.SeedSite(t, ctx, srv.store)
+	device := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 	sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 	jwt, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.TenantID)
 	require.NoError(t, err)
@@ -309,8 +309,8 @@ func TestRelayWebSocket(t *testing.T) {
 		tenantCtx := dbtx.WithDefaultTenant(context.Background(), true)
 
 		user := testutil.SeedUser(t, tenantCtx, srv.store)
-		group := testutil.SeedGroup(t, tenantCtx, srv.store)
-		device := testutil.SeedDevice(t, tenantCtx, srv.store, group.ID)
+		site := testutil.SeedSite(t, tenantCtx, srv.store)
+		device := testutil.SeedDevice(t, tenantCtx, srv.store, site.ID)
 
 		token := protocol.GenerateSessionToken()
 		require.NoError(t, srv.sessions.Create(tenantCtx, &session.Session{

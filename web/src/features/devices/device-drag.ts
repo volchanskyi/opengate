@@ -1,5 +1,5 @@
 /**
- * Payload contract for dragging a device card onto a group in the sidebar.
+ * Payload contract for dragging a device card onto a site in the sidebar.
  *
  * The id travels under a private MIME type rather than `text/plain` so a drop
  * zone can tell a device drag from arbitrary text (a selection dragged in from
@@ -9,10 +9,10 @@
 export const DEVICE_DRAG_MIME = 'application/x-opengate-device';
 
 /**
- * The placeholder group id meaning "no group". `PATCH /devices/{id}` clears the
- * device's group when it receives this, and the detail pane renders it as N/A.
+ * The placeholder site id meaning "no site". `PATCH /devices/{id}` clears the
+ * device's site when it receives this, and the detail pane renders it as N/A.
  */
-export const UNGROUPED_GROUP_ID = '00000000-0000-0000-0000-000000000000';
+export const UNFILED_SITE_ID = '00000000-0000-0000-0000-000000000000';
 
 /** Publish a dragged device: the id for drop zones, the hostname as the label. */
 export function startDeviceDrag(transfer: DataTransfer, device: { id: string; hostname: string }): void {

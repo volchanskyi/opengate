@@ -54,8 +54,8 @@ func TestAgentConn_KnownMessageDispatchesAfterUnknownMessage(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
-	d := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	d := testutil.SeedDevice(t, ctx, store, site.ID)
 
 	ac, buf := newTestAgentConn(t, d.ID, store)
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{

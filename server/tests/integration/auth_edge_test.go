@@ -34,8 +34,8 @@ func TestAuthExpiredJWTAllEndpoints(t *testing.T) {
 		path   string
 	}{
 		{http.MethodGet, "/api/v1/users/me"},
-		{http.MethodGet, "/api/v1/groups"},
-		{http.MethodGet, "/api/v1/devices?group_id=" + uuid.New().String()},
+		{http.MethodGet, "/api/v1/sites"},
+		{http.MethodGet, "/api/v1/devices?site_id=" + uuid.New().String()},
 		{http.MethodGet, "/api/v1/sessions?device_id=" + uuid.New().String()},
 		{http.MethodGet, "/api/v1/users"},
 		{http.MethodGet, "/api/v1/audit"},

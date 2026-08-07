@@ -34,7 +34,7 @@ func (r *recordingDevices) Get(ctx context.Context, _ device.DeviceID) (*device.
 	return &device.Device{}, nil
 }
 
-func (r *recordingDevices) List(context.Context, device.GroupID) ([]*device.Device, error) {
+func (r *recordingDevices) List(context.Context, device.Filter) ([]*device.Device, error) {
 	r.listCalls++
 	return nil, nil
 }
@@ -89,12 +89,12 @@ func TestFaultDevicesListFaultsAndDelegates(t *testing.T) {
 	fd := WrapDevices(real)
 
 	fd.Arm("List", Spec{Action: ActionError})
-	_, err := fd.List(context.Background(), device.GroupID(uuid.New()))
+	_, err := fd.List(context.Background(), device.Filter{SiteID: uuid.New()})
 	assert.ErrorIs(t, err, ErrInjected)
 	assert.Equal(t, 0, real.listCalls)
 
 	fd.Clear("List")
-	_, err = fd.List(context.Background(), device.GroupID(uuid.New()))
+	_, err = fd.List(context.Background(), device.Filter{SiteID: uuid.New()})
 	require.NoError(t, err)
 	assert.Equal(t, 1, real.listCalls)
 }

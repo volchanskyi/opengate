@@ -79,9 +79,9 @@ func (f *fakeMetricsReader) CountAnomalyBands(_ context.Context, tenantID uuid.U
 func seedOwnedDevice(t *testing.T, srv *Server) *device.Device {
 	t.Helper()
 	ctx := testTenantContext(t)
-	group := &device.Group{ID: uuid.New(), Name: "metrics-group"}
-	require.NoError(t, srv.groups.Create(ctx, group))
-	dev := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "metrics-host", OS: "linux", Status: db.StatusOnline}
+	site := &device.Site{ID: uuid.New(), Name: "metrics-site"}
+	require.NoError(t, srv.sites.Create(ctx, site))
+	dev := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: "metrics-host", OS: "linux", Status: db.StatusOnline}
 	require.NoError(t, srv.devices.Upsert(ctx, dev))
 	return dev
 }

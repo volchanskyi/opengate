@@ -23,7 +23,7 @@ func TestPostgres_DeleteRelaySession_CrossTenant(t *testing.T) {
 	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 
 	userB := testutil.SeedUser(t, ctxB, store)
-	groupB := testutil.SeedGroup(t, ctxB, store)
+	groupB := testutil.SeedSite(t, ctxB, store)
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 	sessionB := testutil.SeedAgentSession(t, ctxB, store, deviceB.ID, userB.ID)
 

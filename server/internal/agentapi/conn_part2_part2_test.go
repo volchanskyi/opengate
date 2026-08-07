@@ -17,8 +17,8 @@ func TestAgentConn_HandleHeartbeat(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
-	d := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	d := testutil.SeedDevice(t, ctx, store, site.ID)
 
 	codec := &protocol.Codec{}
 
@@ -36,7 +36,7 @@ func TestAgentConn_HandleHeartbeat(t *testing.T) {
 
 	ac := &AgentConn{
 		DeviceID: d.ID,
-		GroupID:  group.ID,
+		SiteID:   site.ID,
 		stream:   &frameBuf,
 		codec:    codec,
 		devices:  testutil.NewTestDevices(t, store),

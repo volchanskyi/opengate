@@ -21,8 +21,8 @@ func TestPostgres_SessionCRUD(t *testing.T) {
 	repo := testutil.NewTestSessions(t, store)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := testutil.SeedUser(t, ctx, store)
-	group := testutil.SeedGroup(t, ctx, store)
-	dev := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	dev := testutil.SeedDevice(t, ctx, store, site.ID)
 
 	t.Run("create and get", func(t *testing.T) {
 		s := &session.Session{
@@ -46,7 +46,7 @@ func TestPostgres_SessionCRUD(t *testing.T) {
 	})
 
 	t.Run("list active for device", func(t *testing.T) {
-		device2 := testutil.SeedDevice(t, ctx, store, group.ID)
+		device2 := testutil.SeedDevice(t, ctx, store, site.ID)
 		s1 := &session.Session{Token: "s1-" + uuid.New().String()[:8], DeviceID: device2.ID, UserID: owner.ID}
 		s2 := &session.Session{Token: "s2-" + uuid.New().String()[:8], DeviceID: device2.ID, UserID: owner.ID}
 		require.NoError(t, repo.Create(ctx, s1))
@@ -82,8 +82,8 @@ func TestPostgresSessions_TenantDeny(t *testing.T) {
 
 	userA := testutil.SeedUser(t, ctxA, store)
 	userB := testutil.SeedUser(t, ctxB, store)
-	groupA := testutil.SeedGroup(t, ctxA, store)
-	groupB := testutil.SeedGroup(t, ctxB, store)
+	groupA := testutil.SeedSite(t, ctxA, store)
+	groupB := testutil.SeedSite(t, ctxB, store)
 	deviceA := testutil.SeedDevice(t, ctxA, store, groupA.ID)
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 	sessionA := testutil.SeedAgentSession(t, ctxA, store, deviceA.ID, userA.ID)

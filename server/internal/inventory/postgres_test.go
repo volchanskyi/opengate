@@ -13,12 +13,12 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// seedInventoryDevice seeds a user, group, and device in the given tenant and
+// seedInventoryDevice seeds a user, site, and device in the given tenant and
 // returns the device id, so tests can persist inventory against a real device.
 func seedInventoryDevice(t *testing.T, ctx context.Context, store *db.PostgresStore) uuid.UUID {
 	t.Helper()
-	group := testutil.SeedGroup(t, ctx, store)
-	return testutil.SeedDevice(t, ctx, store, group.ID).ID
+	site := testutil.SeedSite(t, ctx, store)
+	return testutil.SeedDevice(t, ctx, store, site.ID).ID
 }
 
 // newInventoryFixture builds a repository plus a default-tenant device, the

@@ -25,7 +25,7 @@ func NewPostgresDevices(db *sql.DB) *PostgresDevices {
 // carry the device's Intel AMT property: capability from the hardware row, live
 // connection state from the AMT row when one is linked. Both join by primary key
 // and serve the badge straight from the device payload, with no second request.
-const deviceSelect = `SELECT d.id, d.group_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
+const deviceSelect = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
 	        h.amt_available, a.status, a.uuid
 	 FROM devices d
@@ -38,11 +38,25 @@ const (
 	getDeviceQuery = deviceSelect +
 		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.id = $1`
 
-	listDevicesByGroupQuery = deviceSelect +
-		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.group_id = $1`
+	// The four list statements are the four shapes of Filter, each a fixed
+	// statement rather than a predicate assembled at call time. A zero field
+	// drops out of the WHERE clause by choosing a different statement, so
+	// nothing here is built from runtime input.
+	listDevicesQuery = deviceSelect +
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid
+		 ORDER BY d.hostname`
 
-	listAllDevicesQuery = deviceSelect +
-		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid OR current_setting('app.is_admin', true)::boolean
+	listDevicesBySiteQuery = deviceSelect +
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.site_id = $1
+		 ORDER BY d.hostname`
+
+	listDevicesByOrganizationQuery = deviceSelect +
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.organization_id = $1
+		 ORDER BY d.hostname`
+
+	listDevicesBySiteAndOrganizationQuery = deviceSelect +
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid
+		   AND d.site_id = $1 AND d.organization_id = $2
 		 ORDER BY d.hostname`
 
 	getDeviceByAMTUUIDQuery = deviceSelect +
@@ -51,20 +65,20 @@ const (
 
 func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
 	var d Device
-	var groupID uuid.NullUUID
+	var siteID uuid.NullUUID
 	var capsJSON []byte
 	var maintSince sql.NullTime
 	var maintBy uuid.NullUUID
 	var amtAvailable sql.NullBool
 	var amtStatus sql.NullString
 	var amtUUID uuid.NullUUID
-	if err := sc.Scan(&d.ID, &groupID, &d.Hostname, &d.OS, &d.OsDisplay, &d.AgentVersion, &capsJSON, &d.Status, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt,
+	if err := sc.Scan(&d.ID, &d.OrganizationID, &siteID, &d.Hostname, &d.OS, &d.OsDisplay, &d.AgentVersion, &capsJSON, &d.Status, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt,
 		&d.MaintenanceOn, &maintSince, &maintBy, &d.MaintenanceReason,
 		&amtAvailable, &amtStatus, &amtUUID); err != nil {
 		return nil, err
 	}
-	if groupID.Valid {
-		d.GroupID = groupID.UUID
+	if siteID.Valid {
+		d.SiteID = siteID.UUID
 	}
 	if maintSince.Valid {
 		d.MaintenanceSince = &maintSince.Time
@@ -134,24 +148,34 @@ func (p *PostgresDevices) TenantForDevice(ctx context.Context, id DeviceID) (uui
 	return tenantID, err
 }
 
-func (p *PostgresDevices) List(ctx context.Context, groupID GroupID) ([]*Device, error) {
+// List implements Repository. The tenant is the wall, so it is in every one of
+// the four statements; the filter fields narrow inside it.
+func (p *PostgresDevices) List(ctx context.Context, filter Filter) ([]*Device, error) {
+	query, args := listStatementFor(filter)
 	var devices []*Device
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		var err error
-		devices, err = queryDevices(ctx, tx, listDevicesByGroupQuery, groupID)
+		devices, err = queryDevices(ctx, tx, query, args...)
 		return err
 	})
 	return devices, err
 }
 
-func (p *PostgresDevices) ListAll(ctx context.Context) ([]*Device, error) {
-	var devices []*Device
-	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		var err error
-		devices, err = queryDevices(ctx, tx, listAllDevicesQuery)
-		return err
-	})
-	return devices, err
+// listStatementFor picks the fixed statement matching which filter fields are
+// set, and the arguments that go with it.
+func listStatementFor(filter Filter) (string, []any) {
+	hasSite := filter.SiteID != uuid.Nil
+	hasOrganization := filter.OrganizationID != uuid.Nil
+	switch {
+	case hasSite && hasOrganization:
+		return listDevicesBySiteAndOrganizationQuery, []any{filter.SiteID, filter.OrganizationID}
+	case hasSite:
+		return listDevicesBySiteQuery, []any{filter.SiteID}
+	case hasOrganization:
+		return listDevicesByOrganizationQuery, []any{filter.OrganizationID}
+	default:
+		return listDevicesQuery, nil
+	}
 }
 
 func (p *PostgresDevices) GetByAMTUUID(ctx context.Context, amtUUID uuid.UUID) (*Device, error) {

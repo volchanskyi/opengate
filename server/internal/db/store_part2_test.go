@@ -9,7 +9,7 @@ import (
 )
 
 // truncatePostgresTestDB wipes every table and re-seeds the built-in
-// Administrators group. One static TRUNCATE ... CASCADE touches all tables;
+// Administrators site. One static TRUNCATE ... CASCADE touches all tables;
 // no dynamic identifiers.
 func truncatePostgresTestDB(ctx context.Context, s *PostgresStore) error {
 	if _, err := s.db.ExecContext(ctx, `
@@ -23,7 +23,7 @@ func truncatePostgresTestDB(ctx context.Context, s *PostgresStore) error {
 			web_push_subscriptions,
 			agent_sessions,
 			devices,
-			groups_,
+			sites,
 			security_groups,
 			users,
 			tenants
@@ -35,11 +35,11 @@ func truncatePostgresTestDB(ctx context.Context, s *PostgresStore) error {
 		VALUES ('00000000-0000-0000-0000-000000000002', 'Default Tenant')`); err != nil {
 		return fmt.Errorf("seed default tenant: %w", err)
 	}
-	// Re-seed the Administrators group normally inserted by migration 005.
+	// Re-seed the Administrators site normally inserted by migration 005.
 	if _, err := s.db.ExecContext(ctx, `
 		INSERT INTO security_groups (id, tenant_id, name, description, is_system)
 		VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Administrators', 'Full system access', TRUE)`); err != nil {
-		return fmt.Errorf("seed administrators group: %w", err)
+		return fmt.Errorf("seed administrators site: %w", err)
 	}
 	return nil
 }

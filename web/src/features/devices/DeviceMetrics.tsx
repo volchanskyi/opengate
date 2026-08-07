@@ -240,7 +240,7 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
               View logs for this window
             </button>
           )}
-          <div className="flex gap-1" role="group" aria-label="Metrics window">
+          <div className="flex gap-1" role="site" aria-label="Metrics window">
             {PRESETS.map((p) => (
               <button
                 key={p.key}

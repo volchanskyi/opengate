@@ -6,11 +6,12 @@ import { useDeviceStore } from './state/device-store';
 import { useUpdateStore } from './state/update-store';
 import { useInventoryStore } from './state/inventory-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
-import { GroupSidebar } from './GroupSidebar';
+import { SiteSidebar } from './SiteSidebar';
 import { DeviceCard } from './DeviceCard';
 import { DeviceSearchBar } from './DeviceSearchBar';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
+import { useOrganizationStore } from '../organizations';
 
 /** How often the grid refreshes device status while the tab is visible. */
 const DEVICE_LIST_POLL_MS = 15_000;
@@ -48,10 +49,13 @@ function useColumnCount(ref: RefObject<HTMLElement | null>): number {
 
 export function DeviceList() {
   const devices = useDeviceStore((s) => s.devices);
-  const selectedGroupId = useDeviceStore((s) => s.selectedGroupId);
+  const selectedSiteId = useDeviceStore((s) => s.selectedSiteId);
   const isLoading = useDeviceStore((s) => s.isLoading);
-  const fetchGroups = useDeviceStore((s) => s.fetchGroups);
+  const fetchSites = useDeviceStore((s) => s.fetchSites);
   const fetchDevices = useDeviceStore((s) => s.fetchDevices);
+  // The picked customer is a narrowing of this list, so a change to it re-reads
+  // exactly like a change to the site filter does.
+  const selectedOrganizationId = useOrganizationStore((s) => s.selectedOrganizationId);
   const upgradeAgent = useDeviceStore((s) => s.upgradeAgent);
   const manifests = useUpdateStore((s) => s.manifests);
   const fetchManifests = useUpdateStore((s) => s.fetchManifests);
@@ -72,15 +76,15 @@ export function DeviceList() {
   }, [setSearchParams]);
 
   useEffect(() => {
-    fireAndForget(fetchGroups());
+    fireAndForget(fetchSites());
     fireAndForget(fetchDevices());
     fireAndForget(fetchManifests());
-  }, [fetchGroups, fetchDevices, fetchManifests]);
+  }, [fetchSites, fetchDevices, fetchManifests, selectedOrganizationId]);
 
   // Poll device status so online/offline stays current. A hidden tab issues
   // nothing and catches up the moment it is shown again.
   useVisibleInterval(() => {
-    fireAndForget(fetchDevices(selectedGroupId ?? undefined));
+    fireAndForget(fetchDevices(selectedSiteId ?? undefined));
   }, DEVICE_LIST_POLL_MS);
 
   const scrollParentRef = useRef<HTMLDivElement>(null);
@@ -166,7 +170,7 @@ export function DeviceList() {
 
   return (
     <div className="flex h-[calc(100vh-57px)]">
-      <GroupSidebar />
+      <SiteSidebar />
       <div className="flex-1 p-6 flex flex-col gap-4 min-h-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -226,8 +230,8 @@ export function DeviceList() {
                   ? 'No devices match your search'
                   : filterLabel
                     ? `No devices match the "${filterLabel}" filter`
-                    : selectedGroupId
-                      ? 'No devices in this group'
+                    : selectedSiteId
+                      ? 'No devices in this site'
                       : 'Welcome to OpenGate'}
               </h3>
               <p className="text-gray-500 mb-4">
@@ -235,9 +239,9 @@ export function DeviceList() {
                   ? 'Try a different search term.'
                   : filterLabel
                     ? 'Clear the filter to see all devices.'
-                    : selectedGroupId
+                    : selectedSiteId
                       ? 'Download and install the agent to add devices.'
-                      : 'Select a group to filter devices, or add a new device to get started.'}
+                      : 'Select a site to filter devices, or add a new device to get started.'}
               </p>
             </div>
           )}

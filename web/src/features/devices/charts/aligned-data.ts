@@ -50,14 +50,14 @@ function familyOf(name: string): string {
  * charts. Insertion order of first-seen families is preserved.
  */
 export function groupByFamily(series: readonly MetricSeries[]): Map<string, MetricSeries[]> {
-  const groups = new Map<string, MetricSeries[]>();
+  const sites = new Map<string, MetricSeries[]>();
   for (const s of series) {
     const key = familyOf(s.name);
-    const bucket = groups.get(key);
+    const bucket = sites.get(key);
     if (bucket) bucket.push(s);
-    else groups.set(key, [s]);
+    else sites.set(key, [s]);
   }
-  return groups;
+  return sites;
 }
 
 function accumulateFinite(values: readonly (number | null)[], lo: number, hi: number): [number, number] {

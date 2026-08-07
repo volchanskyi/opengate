@@ -16,7 +16,7 @@ function fakeDevice() {
   const now = new Date().toISOString();
   return {
     id: DEVICE_ID,
-    group_id: GROUP_ID,
+    site_id: GROUP_ID,
     hostname: "e2e-log-host",
     os: "linux",
     os_display: "Linux",
@@ -58,7 +58,7 @@ test.describe("Device logs UI", () => {
     await authedPage.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) =>
       ok(route, fakeDevice()),
     );
-    await authedPage.route("**/api/v1/groups", (route: Route) =>
+    await authedPage.route("**/api/v1/sites", (route: Route) =>
       ok(route, [
         { id: GROUP_ID, name: "default", created_at: "", updated_at: "" },
       ]),

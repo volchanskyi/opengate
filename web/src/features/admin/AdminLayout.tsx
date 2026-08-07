@@ -4,6 +4,7 @@ const navSections = [
   {
     label: 'Management',
     items: [
+      { to: '/settings/customers', label: 'Customers' },
       { to: '/settings/users', label: 'Users' },
       { to: '/settings/audit', label: 'Audit Log' },
       { to: '/settings/updates', label: 'Agent Settings' },

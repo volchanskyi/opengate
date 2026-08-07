@@ -40,7 +40,7 @@ func (s *stubAMT) ConnectedDeviceCount() int { return 0 }
 
 const (
 	pathUsersMe = "/api/v1/users/me"
-	pathGroups  = "/api/v1/groups"
+	pathSites   = "/api/v1/sites"
 	aliceEmail  = "alice@example.com"
 	webServer01 = "web-server-01"
 )
@@ -63,7 +63,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	store := testutil.NewTestStore(t)
 	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
 	devicesRepo := testutil.NewTestDevices(t, store)
-	groupsRepo := testutil.NewTestGroups(t, store)
+	groupsRepo := testutil.NewTestSites(t, store)
 	hardwareRepo := testutil.NewTestHardware(t, store)
 
 	jwtCfg := &auth.JWTConfig{
@@ -79,7 +79,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Enrollment:     testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        devicesRepo,
-		Groups:         groupsRepo,
+		Sites:          groupsRepo,
 		Hardware:       hardwareRepo,
 		WebPush:        testutil.NewTestWebPush(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),

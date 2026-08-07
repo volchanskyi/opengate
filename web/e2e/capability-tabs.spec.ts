@@ -20,7 +20,7 @@ function fakeDevice(id: string, capabilities: string[]) {
   const now = new Date().toISOString();
   return {
     id,
-    group_id: GROUP_ID,
+    site_id: GROUP_ID,
     hostname: `e2e-caps-${capabilities.join("-").toLowerCase() || "none"}`,
     os: "linux",
     os_display: "Linux",
@@ -49,7 +49,7 @@ async function stubDeviceRoutes(
   await authedPage.route(`**/api/v1/devices/${id}`, (route: Route) =>
     ok(route, fakeDevice(id, capabilities)),
   );
-  await authedPage.route("**/api/v1/groups", (route: Route) =>
+  await authedPage.route("**/api/v1/sites", (route: Route) =>
     ok(route, [
       { id: GROUP_ID, name: "default", created_at: "", updated_at: "" },
     ]),

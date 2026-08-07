@@ -76,13 +76,13 @@ func TestClampInt64_Boundaries(t *testing.T) {
 func TestNewAgentConn(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	deviceID := uuid.New()
-	groupID := uuid.New()
+	siteID := uuid.New()
 	var buf bytes.Buffer
 	logger := testLogger()
 
 	ac := NewAgentConn(AgentConnConfig{
 		DeviceID:      deviceID,
-		GroupID:       groupID,
+		SiteID:        siteID,
 		Stream:        &buf,
 		Devices:       testutil.NewTestDevices(t, store),
 		Hardware:      testutil.NewTestHardware(t, store),
@@ -90,7 +90,7 @@ func TestNewAgentConn(t *testing.T) {
 		Logger:        logger,
 	})
 	assert.Equal(t, deviceID, ac.DeviceID)
-	assert.Equal(t, groupID, ac.GroupID)
+	assert.Equal(t, siteID, ac.SiteID)
 	assert.NotNil(t, ac.codec)
 	assert.NotNil(t, ac.stream)
 }

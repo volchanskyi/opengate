@@ -11,7 +11,7 @@ const daysAgo = (n: number) => new Date(Date.now() - n * DAY).toISOString();
 
 function device(over: Partial<Device> = {}): Device {
   return {
-    id: 'd1', group_id: 'g1', hostname: 'host1', os: 'linux', agent_version: '1.0.0',
+    id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'host1', os: 'linux', agent_version: '1.0.0',
     capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '', ...over,
   };
 }

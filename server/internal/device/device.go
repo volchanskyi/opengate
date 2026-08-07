@@ -1,7 +1,7 @@
-// Package device owns the device aggregate: managed devices and
-// their groupings, plus the hardware-inventory read model that hangs off the
+// Package device owns the device aggregate: managed devices and the sites they
+// are filed into, plus the hardware-inventory read model that hangs off the
 // same aggregate root. The outbound persistence ports (Repository /
-// GroupRepository / HardwareRepository) live here; their Postgres adapters live
+// SiteRepository / HardwareRepository) live here; their Postgres adapters live
 // alongside in postgres.go and the Instrumented decorators in instrumented.go.
 package device
 
@@ -13,12 +13,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// DeviceID and GroupID alias uuid.UUID so callers passing a uuid.UUID get the
+// DeviceID and SiteID alias uuid.UUID so callers passing a uuid.UUID get the
 // right name in the type system without an extra conversion.
 type DeviceID = uuid.UUID
 
-// GroupID uniquely identifies a device group.
-type GroupID = uuid.UUID
+// SiteID uniquely identifies a site.
+type SiteID = uuid.UUID
+
+// OrganizationID uniquely identifies the customer a device belongs to.
+type OrganizationID = uuid.UUID
 
 // DeviceStatus is the wire-protocol connection state of a managed device.
 type DeviceStatus string
@@ -33,25 +36,53 @@ const (
 // ErrDeviceNotFound is returned by Repository ops on an unknown device id.
 var ErrDeviceNotFound = errors.New("device not found")
 
-// ErrGroupNotFound is returned by GroupRepository ops on an unknown group id.
-var ErrGroupNotFound = errors.New("group not found")
+// ErrSiteNotFound is returned by SiteRepository ops on an unknown site id.
+var ErrSiteNotFound = errors.New("site not found")
+
+// ErrSiteNameTaken is returned when a customer already has a site by that name.
+// "Head Office" names a different building for each customer, so the name is
+// unique within the customer rather than across the tenant.
+var ErrSiteNameTaken = errors.New("site name already used by this customer")
+
+// ErrSiteNotInOrganization is returned when a device is filed into a site
+// belonging to a different customer. The two levels are a pair, so a mismatch
+// is refused rather than stored.
+var ErrSiteNotInOrganization = errors.New("site does not belong to the device's organization")
 
 // ErrHardwareNotFound is returned when no hardware inventory exists for a device.
 var ErrHardwareNotFound = errors.New("device hardware not found")
 
+// ErrOrganizationNotFound is returned when a move names a customer that does not
+// exist in the device's tenant. Foreign-key checks run past row-level security,
+// so this is the check that keeps a device from being pushed into another
+// tenant's customer.
+var ErrOrganizationNotFound = errors.New("organization not found in this tenant")
+
+// Filter narrows a device list. A zero value in a field does not narrow on it,
+// so an empty Filter is the whole tenant. Fields narrow together.
+type Filter struct {
+	// SiteID limits the list to one location inside a customer.
+	SiteID SiteID
+	// OrganizationID limits the list to one customer.
+	OrganizationID OrganizationID
+}
+
 // Device is a managed agent installation.
 type Device struct {
-	ID           DeviceID     `json:"id"`
-	GroupID      GroupID      `json:"group_id"`
-	Hostname     string       `json:"hostname"`
-	OS           string       `json:"os"`
-	OsDisplay    string       `json:"os_display"`
-	AgentVersion string       `json:"agent_version"`
-	Capabilities []string     `json:"capabilities"`
-	Status       DeviceStatus `json:"status"`
-	LastSeen     time.Time    `json:"last_seen"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
+	ID DeviceID `json:"id"`
+	// OrganizationID is the customer this device belongs to. It is never zero on
+	// a stored device: a write that names none takes the tenant's own.
+	OrganizationID OrganizationID `json:"organization_id"`
+	SiteID         SiteID         `json:"site_id"`
+	Hostname       string         `json:"hostname"`
+	OS             string         `json:"os"`
+	OsDisplay      string         `json:"os_display"`
+	AgentVersion   string         `json:"agent_version"`
+	Capabilities   []string       `json:"capabilities"`
+	Status         DeviceStatus   `json:"status"`
+	LastSeen       time.Time      `json:"last_seen"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 
 	// Maintenance mode: the server-authoritative desired suppression state an
 	// administrator toggles. MaintenanceOn defaults to false (Active). When set,
@@ -67,14 +98,18 @@ type Device struct {
 	AMT *AMT `json:"amt,omitempty"`
 }
 
-// Group is a named collection of devices within one tenant. It is a
-// filing label, not an access boundary: the tenant is what scopes
-// visibility, so every member of a tenant sees every group in it.
-type Group struct {
-	ID        GroupID   `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+// Site is a location or department inside one customer — the narrowest level
+// above the machine itself. It is a targeting level, not an access boundary:
+// the tenant is what scopes visibility, so every member of a tenant sees every
+// site in it.
+type Site struct {
+	ID SiteID `json:"id"`
+	// OrganizationID is the customer this site belongs to. A device may only be
+	// filed into a site inside its own customer.
+	OrganizationID OrganizationID `json:"organization_id"`
+	Name           string         `json:"name"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 }
 
 // NetworkInterfaceInfo is a single NIC reported by the agent's inventory.
@@ -166,10 +201,21 @@ type Repository interface {
 	// ErrDeviceNotFound when no device in scope owns the UUID.
 	GetByAMTUUID(ctx context.Context, amtUUID uuid.UUID) (*Device, error)
 	TenantForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error)
-	List(ctx context.Context, groupID GroupID) ([]*Device, error)
-	ListAll(ctx context.Context) ([]*Device, error)
+	// List returns the devices in the caller's tenant that match filter. An
+	// empty filter is the whole tenant.
+	List(ctx context.Context, filter Filter) ([]*Device, error)
 	Delete(ctx context.Context, id DeviceID) error
-	UpdateGroup(ctx context.Context, id DeviceID, groupID GroupID) error
+	// UpdateSite files a device into a site, or unfiles it when siteID is the
+	// zero value. Returns ErrSiteNotInOrganization when the site belongs to a
+	// customer other than the device's own — the two levels are a pair, so a
+	// mismatch is refused rather than stored.
+	UpdateSite(ctx context.Context, id DeviceID, siteID SiteID) error
+	// UpdateOrganization moves a device to another customer inside the same
+	// tenant, unfiling it on the way: a site belongs to one customer, so the
+	// narrower level cannot survive the level above it changing. Returns
+	// ErrDeviceNotFound when the device is not in scope and
+	// ErrOrganizationNotFound when the customer is not.
+	UpdateOrganization(ctx context.Context, id DeviceID, organizationID OrganizationID) error
 	SetStatus(ctx context.Context, id DeviceID, status DeviceStatus) error
 	ResetAllStatuses(ctx context.Context) error
 	// SetMaintenance toggles a device's maintenance state. Enabling stamps the
@@ -177,9 +223,10 @@ type Repository interface {
 	// the reason; disabling clears all three. Returns ErrDeviceNotFound when no
 	// device in the current tenant scope matches id.
 	SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error
-	// Counts returns the fleet status rollup for the current tenant scope in one
-	// aggregate row, so the dashboard never reads device rows to count them.
-	Counts(ctx context.Context) (Counts, error)
+	// Counts returns the fleet status rollup in one aggregate row, so the
+	// dashboard never reads device rows to count them. A zero organizationID
+	// counts the whole tenant; a named one counts that customer.
+	Counts(ctx context.Context, organizationID OrganizationID) (Counts, error)
 }
 
 // Counts is the fleet status rollup behind the dashboard tiles: three integers
@@ -194,12 +241,17 @@ type Counts struct {
 	Maintenance int
 }
 
-// GroupRepository is the outbound persistence port for device groups.
-type GroupRepository interface {
-	Create(ctx context.Context, g *Group) error
-	Get(ctx context.Context, id GroupID) (*Group, error)
-	List(ctx context.Context) ([]*Group, error)
-	Delete(ctx context.Context, id GroupID) error
+// SiteRepository is the outbound persistence port for sites.
+type SiteRepository interface {
+	// Create stores a new site under the customer it names. Returns
+	// ErrOrganizationNotFound when that customer is not in the caller's tenant
+	// and ErrSiteNameTaken when the customer already has one by that name.
+	Create(ctx context.Context, s *Site) error
+	Get(ctx context.Context, id SiteID) (*Site, error)
+	// List returns the caller's sites. A named customer narrows to that
+	// customer; the zero value returns every site in the tenant.
+	List(ctx context.Context, organizationID OrganizationID) ([]*Site, error)
+	Delete(ctx context.Context, id SiteID) error
 }
 
 // HardwareRepository is the outbound persistence port for the per-device

@@ -88,7 +88,7 @@ func (s *Server) UpdateUser(ctx context.Context, request UpdateUserRequestObject
 				if errors.Is(err, auth.ErrLastAdmin) {
 					return UpdateUser403JSONResponse{Error: "cannot remove last administrator"}, nil
 				}
-				// ErrMemberNotFound is fine — user may not have been in the group.
+				// ErrMemberNotFound is fine — user may not have been in the site.
 				if !errors.Is(err, auth.ErrMemberNotFound) {
 					return nil, err
 				}

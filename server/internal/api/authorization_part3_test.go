@@ -22,8 +22,8 @@ func TestAMTPowerActionIsOpenToTenantMembers(t *testing.T) {
 	admin, _ := srv.users.GetByEmail(ctx, "amt-admin@example.com")
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
-	group := testutil.SeedGroup(t, ctx, srv.store)
-	dev := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	site := testutil.SeedSite(t, ctx, srv.store)
+	dev := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 	amtDevice := testutil.SeedAMTDevice(t, ctx, srv.store, dev.ID)
 
 	// The device has no live CIRA tunnel, so the operator refuses with 409 —

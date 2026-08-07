@@ -29,8 +29,8 @@ func TestDeleteSession(t *testing.T) {
 		user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 		ctx := testTenantContext(t)
 
-		group := testutil.SeedGroup(t, ctx, srv.store)
-		device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+		site := testutil.SeedSite(t, ctx, srv.store)
+		device := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 
 		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 
@@ -47,8 +47,8 @@ func TestDeleteSession(t *testing.T) {
 		user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 		ctx := testTenantContext(t)
 
-		group := testutil.SeedGroup(t, ctx, srv.store)
-		device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+		site := testutil.SeedSite(t, ctx, srv.store)
+		device := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 
 		sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 

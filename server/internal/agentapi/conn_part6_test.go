@@ -16,7 +16,7 @@ func TestAgentConn_HandleRegister_NormalizesOS(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 
 	deviceID := uuid.New()
 	codec := &protocol.Codec{}
@@ -37,7 +37,7 @@ func TestAgentConn_HandleRegister_NormalizesOS(t *testing.T) {
 
 	ac := &AgentConn{
 		DeviceID: deviceID,
-		GroupID:  group.ID,
+		SiteID:   site.ID,
 		stream:   &frameBuf,
 		codec:    codec,
 		devices:  testutil.NewTestDevices(t, store),

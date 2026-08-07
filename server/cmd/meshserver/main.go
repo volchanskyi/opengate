@@ -27,9 +27,11 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/organization"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/session"
+	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
@@ -109,7 +111,8 @@ func main() {
 	enrollmentRepo := updater.NewInstrumentedEnrollment(updater.NewPostgresEnrollment(store.DB()), appMetrics)
 	securityGroupsRepo := auth.NewInstrumentedSecurityGroups(auth.NewPostgresSecurityGroups(store.DB()), appMetrics)
 	devicesRepo := device.NewInstrumentedDevices(device.NewPostgresDevices(store.DB()), appMetrics)
-	groupsRepo := device.NewInstrumentedGroups(device.NewPostgresGroups(store.DB()), appMetrics)
+	groupsRepo := device.NewInstrumentedSites(device.NewPostgresSites(store.DB()), appMetrics)
+	organizationsRepo := organization.NewInstrumented(organization.NewPostgresOrganizations(store.DB()), appMetrics)
 	hardwareRepo := device.NewInstrumentedHardware(device.NewPostgresHardware(store.DB()), appMetrics)
 	webPushRepo := notifications.NewInstrumentedWebPush(notifications.NewPostgresWebPush(store.DB()), appMetrics)
 	amtRepo := amt.NewInstrumented(amt.NewPostgresAMTDevices(store.DB()), appMetrics)
@@ -209,6 +212,7 @@ func main() {
 		Metrics:       appMetrics,
 		QuicHost:      quicHost,
 		Tombstones:    tombstoneStore,
+		Settings:      settings.NewPostgresReader(store.DB()),
 		Logger:        logger,
 	})
 
@@ -253,7 +257,8 @@ func main() {
 		Enrollment:            enrollmentRepo,
 		SecurityGroups:        securityGroupsRepo,
 		Devices:               devicesRepo,
-		Groups:                groupsRepo,
+		Sites:                 groupsRepo,
+		Organizations:         organizationsRepo,
 		Hardware:              hardwareRepo,
 		Inventory:             inventoryRepo,
 		WebPush:               webPushRepo,
@@ -383,7 +388,7 @@ func (g agentControlGetter) DeregisterAgent(ctx context.Context, deviceID db.Dev
 	g.srv.DeregisterAgent(ctx, deviceID)
 }
 
-// purgeDeps groups the dependencies buildPurgeOrchestrator wires, keeping the
+// purgeDeps gathers the dependencies buildPurgeOrchestrator wires, keeping the
 // call site in main readable.
 type purgeDeps struct {
 	agentSrv        *agentapi.AgentServer

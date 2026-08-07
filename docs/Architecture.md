@@ -156,7 +156,7 @@ Standard HTTP with JWT bearer-token authentication. Passwords are bcrypt-hashed 
 ```
 
 - **AgentAPI** handles QUIC connections: handshake, registration, heartbeat, disconnect
-- **REST API** serves device/group/user management and authentication endpoints
+- **REST API** serves device/site/customer/user management and authentication endpoints
 - **PostgreSQL 17** (via `pgx/v5` stdlib adapter) is the shared persistence layer — see [Database](Database.md) and [ADR-014](adr/ADR-014-postgres-migration.md)
 ## WebSocket Relay
 
@@ -266,9 +266,9 @@ The React web client (`web/`) provides management and session features:
 
 | Feature | Path | Description |
 |---------|------|-------------|
-| **Dashboard** | `/` | Landing page — overview of devices and groups |
-| **Device List** | `/devices` | Device listing with search/filter, group sidebar, per-card discovered-footprint hint (service/container counts) |
-| **Device Detail** | `/devices/:id` | Device info, AMT power actions, group reassignment, hardware inventory, discovered footprint (sortable ports/services/DB engines/containers/packages), on-demand device logs, agent restart |
+| **Dashboard** | `/` | Landing page — overview of the fleet for the selected customer |
+| **Device List** | `/devices` | Device listing with search/filter, site sidebar, per-card discovered-footprint hint (service/container counts) |
+| **Device Detail** | `/devices/:id` | Device info, AMT power actions, filing into a site, move to another customer, hardware inventory, discovered footprint (sortable ports/services/DB engines/containers/packages), on-demand device logs, agent restart |
 | **Session View** | `/sessions/:token` | Tab container with toolbar and connection status |
 | **Remote Desktop** | Desktop tab | Canvas-based screen viewer with mouse/keyboard input forwarding |
 | **Terminal** | Terminal tab | xterm.js terminal connected to relay |
@@ -287,6 +287,7 @@ All features use the binary frame protocol ([`web/src/lib/protocol/`](../web/src
 - **Breadcrumbs**: Context-aware breadcrumb navigation rendered on every page via `<Breadcrumbs />`
 - **Toast notifications**: Global toast system (`useToast` hook + `<ToastContainer />`) for success/error feedback. Toast IDs use `crypto.randomUUID()` for uniqueness. The toast container has `aria-live` for screen reader accessibility
 - **Device search/filter**: Inline search on the device list page to filter devices by hostname
+- **Customer picker**: A navbar control that narrows every fleet view to one customer, or to the whole tenant. It publishes the choice and nothing else — the dashboard tiles and the device list re-read on a change, so the two never describe different sets — and remembers it across a reload, since a technician works one customer at a time for stretches. A customer that is deleted or retired away stops being the selection rather than leaving the fleet looking empty
 
 ## Agent Session Handler
 
@@ -419,6 +420,7 @@ The web client includes a settings section (`/settings`) protected by `AdminGuar
 
 | Route | Component | Description |
 |-------|-----------|-------------|
+| `/settings/customers` | `OrganizationManagement` | Add, rename, retire and delete the tenant's customers |
 | `/settings/users` | `UserManagement` | List, toggle admin, delete users |
 | `/settings/audit` | `AuditLog` | Searchable, paginated audit event viewer |
 | `/settings/updates` | `AgentUpdates` | Agent update manifests, push updates, enrollment tokens, signing key display |

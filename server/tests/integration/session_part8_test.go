@@ -17,8 +17,8 @@ func TestSessionLifecycleSessionForOfflineDevice(t *testing.T) {
 	ctx := context.Background()
 
 	user := testutil.SeedUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store)
-	dev := testutil.SeedDevice(t, ctx, env.store, group.ID) // offline, no agent
+	site := testutil.SeedSite(t, ctx, env.store)
+	dev := testutil.SeedDevice(t, ctx, env.store, site.ID) // offline, no agent
 
 	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	require.NoError(t, err)

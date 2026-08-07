@@ -52,7 +52,7 @@ func (s *Server) RestartDevice(ctx context.Context, request RestartDeviceRequest
 	return RestartDevice200Response{}, nil
 }
 
-// UpdateDevice implements StrictServerInterface. Moving a device between groups
+// UpdateDevice implements StrictServerInterface. Moving a device between sites
 // is a configuration change, so the whole endpoint sits behind the admin gate.
 func (s *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, UpdateDevice403JSONResponse{Error: msgAdminRequired}); denied {
@@ -66,7 +66,7 @@ func (s *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestOb
 		return nil, err
 	}
 
-	if request.Body.GroupId != nil {
+	if request.Body.SiteId != nil {
 		if resp, err := s.moveDeviceToGroup(ctx, request); resp != nil || err != nil {
 			return resp, err
 		}
@@ -80,20 +80,20 @@ func (s *Server) UpdateDevice(ctx context.Context, request UpdateDeviceRequestOb
 }
 
 func (s *Server) moveDeviceToGroup(ctx context.Context, request UpdateDeviceRequestObject) (UpdateDeviceResponseObject, error) {
-	newGroupID := *request.Body.GroupId
-	// The nil UUID is the "no group" destination: it takes the device out of
-	// its group instead of moving it into another one, so there is no target
-	// group to look up. A named destination must exist in the caller's
+	newGroupID := *request.Body.SiteId
+	// The nil UUID is the "no site" destination: it takes the device out of
+	// its site instead of moving it into another one, so there is no target
+	// site to look up. A named destination must exist in the caller's
 	// tenant, which the tenant-scoped lookup establishes.
 	if newGroupID != uuid.Nil {
-		if _, err := s.groups.Get(ctx, newGroupID); err != nil {
-			if errors.Is(err, device.ErrGroupNotFound) {
-				return UpdateDevice400JSONResponse{Error: "target group not found"}, nil
+		if _, err := s.sites.Get(ctx, newGroupID); err != nil {
+			if errors.Is(err, device.ErrSiteNotFound) {
+				return UpdateDevice400JSONResponse{Error: "target site not found"}, nil
 			}
 			return nil, err
 		}
 	}
-	if err := s.devices.UpdateGroup(ctx, request.Id, newGroupID); err != nil {
+	if err := s.devices.UpdateSite(ctx, request.Id, newGroupID); err != nil {
 		return nil, err
 	}
 	return nil, nil

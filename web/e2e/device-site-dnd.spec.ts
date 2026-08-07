@@ -1,7 +1,7 @@
 import { test, expect } from "./fixtures";
 import type { Route } from "@playwright/test";
 
-// Dragging a device card onto a group in the sidebar re-groups it. Devices only
+// Dragging a device card onto a site in the sidebar re-sites it. Devices only
 // exist after an agent enrolls, and there is no public API to seed one, so the
 // device list and the PATCH that moves it are stubbed with Playwright and the
 // assertions target the request the UI actually issues.
@@ -19,11 +19,11 @@ function ok(route: Route, body: unknown) {
   });
 }
 
-function fakeDevice(groupId: string) {
+function fakeDevice(siteId: string) {
   const now = new Date().toISOString();
   return {
     id: DEVICE_ID,
-    group_id: groupId,
+    site_id: siteId,
     hostname: "e2e-dnd-host",
     os: "linux",
     os_display: "Linux",
@@ -36,24 +36,24 @@ function fakeDevice(groupId: string) {
   };
 }
 
-/** Stub the device list, groups and the PATCH; returns the captured move bodies. */
+/** Stub the device list, sites and the PATCH; returns the captured move bodies. */
 async function stubList(page: import("@playwright/test").Page) {
-  const moves: { id: string; group_id: string }[] = [];
+  const moves: { id: string; site_id: string }[] = [];
   let currentGroup = GROUP_A;
 
-  await page.route("**/api/v1/groups", (route: Route) =>
+  await page.route("**/api/v1/sites", (route: Route) =>
     ok(route, [
-      { id: GROUP_A, name: "Group A", created_at: "", updated_at: "" },
-      { id: GROUP_B, name: "Group B", created_at: "", updated_at: "" },
+      { id: GROUP_A, name: "Site A", created_at: "", updated_at: "" },
+      { id: GROUP_B, name: "Site B", created_at: "", updated_at: "" },
     ]),
   );
   await page.route("**/api/v1/updates/manifests*", (route: Route) => ok(route, []));
   await page.route(`**/api/v1/devices/${DEVICE_ID}/inventory*`, (route: Route) => ok(route, []));
   await page.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => {
     if (route.request().method() === "PATCH") {
-      const body = route.request().postDataJSON() as { group_id: string };
-      moves.push({ id: DEVICE_ID, group_id: body.group_id });
-      currentGroup = body.group_id;
+      const body = route.request().postDataJSON() as { site_id: string };
+      moves.push({ id: DEVICE_ID, site_id: body.site_id });
+      currentGroup = body.site_id;
       return ok(route, fakeDevice(currentGroup));
     }
     return ok(route, fakeDevice(currentGroup));
@@ -64,30 +64,30 @@ async function stubList(page: import("@playwright/test").Page) {
   return moves;
 }
 
-test.describe("Device group drag and drop", () => {
-  test("dropping a device card on a group moves it there", async ({ adminPage }) => {
+test.describe("Device site drag and drop", () => {
+  test("dropping a device card on a site moves it there", async ({ adminPage }) => {
     const moves = await stubList(adminPage);
     await adminPage.goto("/devices");
 
     const card = adminPage.getByRole("button", { name: /e2e-dnd-host/ });
     await expect(card).toBeVisible();
 
-    await card.dragTo(adminPage.getByRole("listitem", { name: "Group B" }));
+    await card.dragTo(adminPage.getByRole("listitem", { name: "Site B" }));
 
-    await expect(adminPage.getByText(/Moved e2e-dnd-host to Group B/)).toBeVisible();
-    expect(moves).toEqual([{ id: DEVICE_ID, group_id: GROUP_B }]);
+    await expect(adminPage.getByText(/Moved e2e-dnd-host to Site B/)).toBeVisible();
+    expect(moves).toEqual([{ id: DEVICE_ID, site_id: GROUP_B }]);
   });
 
-  test("dropping a device on the Ungrouped zone clears its group", async ({ adminPage }) => {
+  test("dropping a device on the Unfiled zone clears its site", async ({ adminPage }) => {
     const moves = await stubList(adminPage);
     await adminPage.goto("/devices");
 
     const card = adminPage.getByRole("button", { name: /e2e-dnd-host/ });
     await expect(card).toBeVisible();
 
-    await card.dragTo(adminPage.getByRole("listitem", { name: "Ungrouped" }));
+    await card.dragTo(adminPage.getByRole("listitem", { name: "Unfiled" }));
 
-    await expect(adminPage.getByText(/Moved e2e-dnd-host to Ungrouped/)).toBeVisible();
-    expect(moves).toEqual([{ id: DEVICE_ID, group_id: UNGROUPED }]);
+    await expect(adminPage.getByText(/Moved e2e-dnd-host to Unfiled/)).toBeVisible();
+    expect(moves).toEqual([{ id: DEVICE_ID, site_id: UNGROUPED }]);
   });
 });

@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-// TestGroupLifecycle exercises the group surface end to end under the current
-// authorization model: creating a group is a configuration change behind the
-// admin gate, and the resulting groups are visible to every member of the
+// TestGroupLifecycle exercises the site surface end to end under the current
+// authorization model: creating a site is a configuration change behind the
+// admin gate, and the resulting sites are visible to every member of the
 // tenant — including the member who created none of them.
 func TestGroupLifecycle(t *testing.T) {
 	t.Parallel()
@@ -23,47 +23,47 @@ func TestGroupLifecycle(t *testing.T) {
 	adminToken := env.login(t, adminUser.Email, adminPass)
 	memberToken := env.register(t, "member@example.com", "pass4567")
 
-	for _, name := range []string{"group-a", "group-b", "group-c"} {
-		resp := env.doJSON(t, http.MethodPost, pathGroups, adminToken, map[string]string{"name": name})
+	for _, name := range []string{"site-a", "site-b", "site-c"} {
+		resp := env.doJSON(t, http.MethodPost, pathSites, adminToken, map[string]string{"name": name})
 		require.Equal(t, http.StatusCreated, resp.StatusCode)
 		resp.Body.Close()
 	}
 
-	t.Run("a member cannot create a group", func(t *testing.T) {
-		resp := env.doJSON(t, http.MethodPost, pathGroups, memberToken, map[string]string{"name": "group-denied"})
+	t.Run("a member cannot create a site", func(t *testing.T) {
+		resp := env.doJSON(t, http.MethodPost, pathSites, memberToken, map[string]string{"name": "site-denied"})
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	})
 
 	names := func(t *testing.T, token string) []string {
 		t.Helper()
-		resp := env.doJSON(t, http.MethodGet, pathGroups, token, nil)
+		resp := env.doJSON(t, http.MethodGet, pathSites, token, nil)
 		defer resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 
-		var groups []*device.Group
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&groups))
-		out := make([]string, 0, len(groups))
-		for _, g := range groups {
+		var sites []*device.Site
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&sites))
+		out := make([]string, 0, len(sites))
+		for _, g := range sites {
 			out = append(out, g.Name)
 		}
 		return out
 	}
 
-	t.Run("every member sees every group in the tenant", func(t *testing.T) {
-		want := []string{"group-a", "group-b", "group-c"}
+	t.Run("every member sees every site in the tenant", func(t *testing.T) {
+		want := []string{"site-a", "site-b", "site-c"}
 		assert.Equal(t, want, names(t, adminToken))
 		assert.Equal(t, want, names(t, memberToken), "the member created none of these and still sees them all")
 	})
 
-	t.Run("a member cannot delete a group", func(t *testing.T) {
-		resp := env.doJSON(t, http.MethodGet, pathGroups, adminToken, nil)
-		var groups []*device.Group
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&groups))
+	t.Run("a member cannot delete a site", func(t *testing.T) {
+		resp := env.doJSON(t, http.MethodGet, pathSites, adminToken, nil)
+		var sites []*device.Site
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&sites))
 		resp.Body.Close()
-		require.NotEmpty(t, groups)
+		require.NotEmpty(t, sites)
 
-		denied := env.doJSON(t, http.MethodDelete, pathGroups+"/"+groups[0].ID.String(), memberToken, nil)
+		denied := env.doJSON(t, http.MethodDelete, pathSites+"/"+sites[0].ID.String(), memberToken, nil)
 		defer denied.Body.Close()
 		assert.Equal(t, http.StatusForbidden, denied.StatusCode)
 	})

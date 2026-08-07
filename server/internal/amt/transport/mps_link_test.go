@@ -73,8 +73,8 @@ func newLinkEnv(t *testing.T) *linkEnv {
 // row reports systemUUID — the state a registered agent leaves behind.
 func seedDeviceWithSystemUUID(t *testing.T, tenantCtx context.Context, env *linkEnv, systemUUID uuid.UUID) *device.Device {
 	t.Helper()
-	group := testutil.SeedGroup(t, tenantCtx, env.store)
-	dev := testutil.SeedDevice(t, tenantCtx, env.store, group.ID)
+	site := testutil.SeedSite(t, tenantCtx, env.store)
+	dev := testutil.SeedDevice(t, tenantCtx, env.store, site.ID)
 	available := true
 	require.NoError(t, env.hardware.Upsert(tenantCtx, &device.Hardware{
 		DeviceID:     dev.ID,
@@ -240,7 +240,7 @@ func apfUint32(v uint32) []byte {
 }
 
 // intelGUID renders a UUID in the mixed-endian layout AMT puts on the wire: the
-// first three groups little-endian, the rest as-is.
+// first three sites little-endian, the rest as-is.
 func intelGUID(u uuid.UUID) []byte {
 	return []byte{
 		u[3], u[2], u[1], u[0],

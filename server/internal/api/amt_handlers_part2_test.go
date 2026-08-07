@@ -16,8 +16,8 @@ func TestAmtPowerActionNotConnected(t *testing.T) {
 	_, token := seedTestUser(t, srv, cfg, testAMTEmail, true)
 	ctx := testTenantContext(t)
 
-	group := testutil.SeedGroup(t, ctx, srv.store)
-	dev := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	site := testutil.SeedSite(t, ctx, srv.store)
+	dev := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 	amtDevice := testutil.SeedAMTDevice(t, ctx, srv.store, dev.ID)
 
 	body := AMTPowerRequest{Action: HardReset}
@@ -51,8 +51,8 @@ func TestAmtPowerActionRejectsOtherTenant(t *testing.T) {
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)
 
-	group := testutil.SeedGroup(t, ctx, srv.store)
-	dev := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	site := testutil.SeedSite(t, ctx, srv.store)
+	dev := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 	amtDevice := testutil.SeedAMTDevice(t, ctx, srv.store, dev.ID)
 
 	outsider, _ := seedTestUser(t, srv, cfg, "amt-outsider@example.com", false)

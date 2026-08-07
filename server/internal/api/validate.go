@@ -13,7 +13,7 @@ import (
 // enforcement point.
 const (
 	maxDisplayNameLen = 128
-	maxGroupNameLen   = 128
+	maxSiteNameLen    = 128
 	maxReasonLen      = 512
 	maxLabelLen       = 128
 	// maxEmailLen is the RFC 5321 maximum length of a forward path.

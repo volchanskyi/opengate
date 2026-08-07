@@ -50,7 +50,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 		Audit:          audit.NewPostgres(store.DB()),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
-		Groups:         testutil.NewTestGroups(t, store),
+		Sites:          testutil.NewTestSites(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
 		WebPush:        testutil.NewTestWebPush(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),
@@ -64,7 +64,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 	})
 	store.Close() // force all subsequent store calls to fail
 
-	groupID := uuid.New()
+	siteID := uuid.New()
 	deviceID := uuid.New()
 
 	tests := []struct {
@@ -76,13 +76,13 @@ func TestHandlerStoreFailures(t *testing.T) {
 	}{
 		{"register store error", http.MethodPost, testPathRegister, map[string]string{"email": "x@x.com", "password": "password1"}, http.StatusInternalServerError},
 		{"login store error", http.MethodPost, testPathLogin, map[string]string{"email": email, "password": "password123"}, http.StatusInternalServerError},
-		{"list devices store error", http.MethodGet, testPathDevices + "?group_id=" + groupID.String(), nil, http.StatusInternalServerError},
+		{"list devices store error", http.MethodGet, testPathDevices + "?site_id=" + siteID.String(), nil, http.StatusInternalServerError},
 		{"get device store error", http.MethodGet, testPathDevicesS + deviceID.String(), nil, http.StatusInternalServerError},
 		{"delete device store error", http.MethodDelete, testPathDevicesS + deviceID.String(), nil, http.StatusInternalServerError},
-		{"create group store error", http.MethodPost, testPathGroups, map[string]string{"name": "g"}, http.StatusInternalServerError},
-		{"list groups store error", http.MethodGet, testPathGroups, nil, http.StatusInternalServerError},
-		{"get group store error", http.MethodGet, testPathGroupsS + groupID.String(), nil, http.StatusInternalServerError},
-		{"delete group store error", http.MethodDelete, testPathGroupsS + groupID.String(), nil, http.StatusInternalServerError},
+		{"create site store error", http.MethodPost, testPathGroups, map[string]string{"name": "g"}, http.StatusInternalServerError},
+		{"list sites store error", http.MethodGet, testPathGroups, nil, http.StatusInternalServerError},
+		{"get site store error", http.MethodGet, testPathGroupsS + siteID.String(), nil, http.StatusInternalServerError},
+		{"delete site store error", http.MethodDelete, testPathGroupsS + siteID.String(), nil, http.StatusInternalServerError},
 		{"list users store error", http.MethodGet, "/api/v1/users", nil, http.StatusInternalServerError},
 		{"get me store error", http.MethodGet, "/api/v1/users/me", nil, http.StatusInternalServerError},
 		{"delete user store error", http.MethodDelete, "/api/v1/users/" + userID.String(), nil, http.StatusInternalServerError},

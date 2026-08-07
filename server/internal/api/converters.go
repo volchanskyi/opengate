@@ -6,6 +6,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
+	"github.com/volchanskyi/opengate/server/internal/organization"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
@@ -23,16 +24,17 @@ func mapSlice[S, D any](items []S, fn func(S) D) []D {
 
 func deviceToAPI(d *device.Device) Device {
 	dev := Device{
-		Id:           d.ID,
-		GroupId:      d.GroupID,
-		Hostname:     d.Hostname,
-		Os:           d.OS,
-		AgentVersion: d.AgentVersion,
-		Capabilities: d.Capabilities,
-		Status:       DeviceStatus(d.Status),
-		LastSeen:     d.LastSeen,
-		CreatedAt:    d.CreatedAt,
-		UpdatedAt:    d.UpdatedAt,
+		Id:             d.ID,
+		OrganizationId: d.OrganizationID,
+		SiteId:         d.SiteID,
+		Hostname:       d.Hostname,
+		Os:             d.OS,
+		AgentVersion:   d.AgentVersion,
+		Capabilities:   d.Capabilities,
+		Status:         DeviceStatus(d.Status),
+		LastSeen:       d.LastSeen,
+		CreatedAt:      d.CreatedAt,
+		UpdatedAt:      d.UpdatedAt,
 	}
 	if d.OsDisplay != "" {
 		dev.OsDisplay = &d.OsDisplay
@@ -71,17 +73,32 @@ func devicesToAPI(ds []*device.Device) []Device {
 	return mapSlice(ds, deviceToAPI)
 }
 
-func groupToAPI(g *device.Group) Group {
-	return Group{
-		Id:        g.ID,
-		Name:      g.Name,
-		CreatedAt: g.CreatedAt,
-		UpdatedAt: g.UpdatedAt,
+func siteToAPI(s *device.Site) Site {
+	return Site{
+		Id:             s.ID,
+		OrganizationId: s.OrganizationID,
+		Name:           s.Name,
+		CreatedAt:      s.CreatedAt,
+		UpdatedAt:      s.UpdatedAt,
 	}
 }
 
-func groupsToAPI(gs []*device.Group) []Group {
-	return mapSlice(gs, groupToAPI)
+func sitesToAPI(ss []*device.Site) []Site {
+	return mapSlice(ss, siteToAPI)
+}
+
+func organizationToAPI(o *organization.Organization) Organization {
+	return Organization{
+		Id:         o.ID,
+		Name:       o.Name,
+		ArchivedAt: o.ArchivedAt,
+		CreatedAt:  o.CreatedAt,
+		UpdatedAt:  o.UpdatedAt,
+	}
+}
+
+func organizationsToAPI(os []*organization.Organization) []Organization {
+	return mapSlice(os, organizationToAPI)
 }
 
 func userToAPI(u *db.User) User {

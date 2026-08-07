@@ -24,7 +24,7 @@ function timeAgo(dateStr: string): string {
 export function DeviceCard({ device }: Readonly<{ device: Device }>) {
   const navigate = useNavigate();
   const inventory = useInventoryStore((s) => s.byDevice.get(device.id));
-  // Dragging a card onto a group moves the device, which is admin-only. A
+  // Dragging a card onto a site moves the device, which is admin-only. A
   // non-admin gets a plain, non-draggable card.
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
 
@@ -38,7 +38,7 @@ export function DeviceCard({ device }: Readonly<{ device: Device }>) {
       onClick={() => { fireAndForget(navigate(`/devices/${device.id}`)); }}
       draggable={isAdmin}
       onDragStart={(e) => { startDeviceDrag(e.dataTransfer, device); }}
-      title={isAdmin ? `Open ${device.hostname} — or drag onto a group to move it` : `Open ${device.hostname}`}
+      title={isAdmin ? `Open ${device.hostname} — or drag onto a site to move it` : `Open ${device.hostname}`}
       className={`w-full text-left bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-gray-500 transition-colors ${isAdmin ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
     >
       <div className="flex items-center justify-between mb-2 gap-2">

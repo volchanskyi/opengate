@@ -227,6 +227,10 @@ fmt:
 verify-codegen:
 	@command -v oapi-codegen >/dev/null 2>&1 || { echo "ERROR: oapi-codegen not found in PATH. Install with: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.6.0"; exit 1; }
 	cd server && oapi-codegen -config oapi-codegen.yaml ../api/openapi.yaml > internal/api/openapi_gen.go && git diff --exit-code internal/api/openapi_gen.go
+	# The web client generates from the same spec. Without this the TypeScript
+	# types drift silently until the Docker web build type-checks them, which is
+	# ten minutes into the gauntlet rather than one second in.
+	cd web && npm run --silent generate:api && git diff --exit-code src/types/api.d.ts
 
 golden:
 	# Forward goldens: Rust encodes, Go verifies. Generates testdata/golden/*.bin.
