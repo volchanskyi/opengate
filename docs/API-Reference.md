@@ -86,7 +86,7 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/sessions` | POST | JWT | Create a remote session |
 | `/api/v1/sessions` | GET | JWT | List sessions (requires `device_id` query param) |
 | `/api/v1/sessions/{token}` | DELETE | JWT | Delete a session |
-| `/api/v1/amt/devices/{uuid}/power` | POST | JWT | Send AMT power command (on/cycle/soft-off/hard-reset) to the AMT connection identified by `uuid`, which must belong to a device in the caller's organization |
+| `/api/v1/amt/devices/{uuid}/power` | POST | JWT | Send AMT power command (on/cycle/soft-off/hard-reset) to the AMT connection identified by `uuid`, which must belong to a device in the caller's tenant |
 | `/api/v1/enroll/{token}` | POST | No | Enroll agent (CSR signing, returns CA + cert) |
 | `/api/v1/server/ca` | GET | No | Get server CA certificate PEM |
 | `/api/v1/enrollment-tokens` | POST | JWT (admin) | Create enrollment token |
@@ -97,7 +97,7 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/updates/status/{version}` | GET | JWT | Get update status for a version |
 | `/api/v1/updates/signing-key` | GET | JWT | Get Ed25519 update signing public key |
 | `/api/v1/server/install.sh` | GET | No | Get agent install script |
-| `/api/v1/orgs/{orgId}/purge` | POST | JWT (admin) | Purge a whole tenant's telemetry (async, tenant-scoped; [Data Lifecycle](Data-Lifecycle.md)) |
+| `/api/v1/tenants/{tenantId}/purge` | POST | JWT (admin) | Purge a whole tenant's telemetry (async, tenant-scoped; [Data Lifecycle](Data-Lifecycle.md)) |
 | `/api/v1/purge-jobs/{jobId}` | GET | JWT | Get purge job status |
 | `/ws/relay/{token}` | GET | Token | WebSocket relay (bidirectional agent↔browser pipe) |
 
@@ -151,7 +151,7 @@ pattern" during an incident window. The engine
 ([`server/internal/correlate`](../server/internal/correlate)) fetches the
 device's numeric telemetry from VictoriaMetrics through the tenant-scoped read
 client ([`server/internal/telemetry/vm.go`](../server/internal/telemetry/vm.go),
-which injects the `org_id` label matcher) and computes the ranking server-side
+which injects the `tenant_id` label matcher) and computes the ranking server-side
 in Go — VictoriaMetrics' MetricsQL has no native KS test or join.
 
 Each `{focus_start, focus_end}` window is compared against a baseline window
@@ -171,7 +171,7 @@ and points.
 | `400` | Invalid window (e.g. `focus_end` not after `focus_start`) |
 | `401` | Unauthorized |
 | `403` | Forbidden (the request carries no tenant scope) |
-| `404` | Device not found (also the cross-organization deny — a device in another org is not visible) |
+| `404` | Device not found (also the cross-tenant deny — a device in another tenant is not visible) |
 | `503` | Correlation not configured (no VictoriaMetrics URL) or the engine is at capacity |
 
 ### Device Inventory
@@ -183,7 +183,7 @@ containers, and installed packages — as a flat list of items each carrying a
 [`device_inventory`](Database.md) RLS table, populated from the agent's
 [`DiscoveryReport`](Wire-Protocol.md); each report replaces the device's
 footprint. It is descriptive attack-surface data only (never a credential or
-connection string) and is visible to every member of the organization, not just
+connection string) and is visible to every member of the tenant, not just
 administrators.
 
 **Response Codes**
@@ -192,7 +192,7 @@ administrators.
 |------|---------|
 | `200` | The device's inventory (`device_id`, `items`) |
 | `401` | Unauthorized |
-| `404` | Device not found (also the cross-organization deny — a device in another org is not visible) |
+| `404` | Device not found (also the cross-tenant deny — a device in another tenant is not visible) |
 | `503` | Inventory not configured |
 
 ### Maintenance Mode
@@ -209,7 +209,7 @@ check), and every enter/exit is written to the audit log. Entry stamps
 `SetMaintenanceMode` to a connected agent; exit clears them and pushes the resume.
 
 Toggling maintenance is a device command, open to every member of the device's
-organization. The count of devices currently in maintenance is one field of the
+tenant. The count of devices currently in maintenance is one field of the
 fleet summary below. The four maintenance fields
 (`maintenance_on`/`_since`/`_by`/`_reason`) are present on the device DTO only
 while a device is in maintenance. The canonical request/response shapes are in
@@ -218,14 +218,14 @@ while a device is in maintenance. The canonical request/response shapes are in
 ### Fleet Summary
 
 `GET /api/v1/devices/summary` answers the dashboard with a fixed-size rollup of
-the caller's organization: `total`, `online`, `offline`, `maintenance`, and a
+the caller's tenant: `total`, `online`, `offline`, `maintenance`, and a
 `health` object counting devices per edge-health band
 (`anomalous`/`watch`/`healthy`/`unknown`). It costs one aggregate row in
 Postgres and one instant query in VictoriaMetrics, so both the work and the
 payload are the same for a fleet of one and a fleet of ten thousand — the
 dashboard never downloads the device table to count it.
 
-It is organization-scoped for every caller, administrators included, so the
+It is tenant-scoped for every caller, administrators included, so the
 tiles and the health bands always describe one device set and `unknown` is
 exact. With telemetry unconfigured or its query failing, the status counts are
 still returned and every device lands in `unknown`; the endpoint does not fail.
@@ -240,7 +240,7 @@ therefore all the UI needs — there is no AMT list to join against.
 
 The join key is the host's SMBIOS system UUID, which the AMT firmware presents
 as its CIRA identity. The server stores it on the hardware row to resolve which
-device — and which organization — a CIRA connection belongs to, and never
+device — and which tenant — a CIRA connection belongs to, and never
 returns it in any response. AMT hardware attributes (`amt_available`,
 `amt_version`, `amt_model`, `amt_firmware`) live on the
 `GET /api/v1/devices/{id}/hardware` payload. See
@@ -265,7 +265,7 @@ Protected endpoints require a JWT bearer token in the `Authorization` header:
 Authorization: Bearer <token>
 ```
 
-Tokens are obtained via `/api/v1/auth/login` or `/api/v1/auth/register`. JWT claims include `uid` (user ID), `email`, `admin` (boolean), and `org` (active organization ID). The server uses `org` to scope repository transactions and RLS policies.
+Tokens are obtained via `/api/v1/auth/login` or `/api/v1/auth/register`. JWT claims include `uid` (user ID), `email`, `admin` (boolean), and `tenant` (active tenant ID). The server uses `tenant` to scope repository transactions and RLS policies.
 
 ## Error Format
 

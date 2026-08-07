@@ -52,7 +52,7 @@ func setupMaintenanceEnv(t *testing.T, connected bool) *maintEnv {
 		agents[dev.ID] = fake
 	}
 	srv, cfg := newTestServerWithStoreAndAgents(t, store, &stubAgentGetter{agents: agents}, relay.NewRelay(slog.Default()))
-	token, err := cfg.GenerateToken(owner.ID, owner.Email, owner.IsAdmin, owner.OrgID)
+	token, err := cfg.GenerateToken(owner.ID, owner.Email, owner.IsAdmin, owner.TenantID)
 	require.NoError(t, err)
 
 	return &maintEnv{srv: srv, cfg: cfg, store: store, owner: owner, group: group, dev: dev, fake: fake, token: token, ctx: ctx}
@@ -147,9 +147,9 @@ func TestSetDeviceMaintenance_PushFailureIsNonFatal(t *testing.T) {
 	assert.Equal(t, 1, env.fake.maintenanceCalls)
 }
 
-// TestSetDeviceMaintenance_OpenToOrgMembers pins the command boundary: toggling
-// maintenance is a device command, so any member of the organization may do it.
-func TestSetDeviceMaintenance_OpenToOrgMembers(t *testing.T) {
+// TestSetDeviceMaintenance_OpenToTenantMembers pins the command boundary: toggling
+// maintenance is a device command, so any member of the tenant may do it.
+func TestSetDeviceMaintenance_OpenToTenantMembers(t *testing.T) {
 	t.Parallel()
 	env := setupMaintenanceEnv(t, true)
 	_, peerToken := seedTestUser(t, env.srv, env.cfg, "maintenance-peer@example.com", false)

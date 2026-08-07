@@ -85,10 +85,10 @@ func TestPostgresAudit_TenantDeny(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestAudit(t, store)
-	orgB := uuid.New()
+	tenantB := uuid.New()
 	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
-	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
-	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
+	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 	userA := uuid.New()
 	userB := uuid.New()
 

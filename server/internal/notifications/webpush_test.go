@@ -81,7 +81,7 @@ func TestPostgres_WebPushCRUD(t *testing.T) {
 		assert.True(t, errors.Is(err, notifications.ErrSubscriptionNotFound))
 	})
 
-	// Organization scope alone would let any colleague cancel another user's
+	// Tenant scope alone would let any colleague cancel another user's
 	// notifications given only the endpoint URL; the subscription belongs to
 	// one user, so the delete is bound to that user too.
 	t.Run("delete is bound to the owning user", func(t *testing.T) {
@@ -92,7 +92,7 @@ func TestPostgres_WebPushCRUD(t *testing.T) {
 
 		err := repo.Delete(ctx, endpoint, other.ID)
 		assert.ErrorIs(t, err, notifications.ErrSubscriptionNotFound,
-			"a different user in the same org must not delete this subscription")
+			"a different user in the same tenant must not delete this subscription")
 
 		subs, err := repo.ListForUser(ctx, owner.ID)
 		require.NoError(t, err)
@@ -126,10 +126,10 @@ func TestPostgresWebPush_TenantDeny(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestWebPush(t, store)
-	orgB := uuid.New()
+	tenantB := uuid.New()
 	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
-	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
-	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
+	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 
 	userA := testutil.SeedUser(t, ctxA, store)
 	userB := testutil.SeedUser(t, ctxB, store)

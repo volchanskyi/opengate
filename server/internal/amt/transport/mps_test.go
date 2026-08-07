@@ -24,7 +24,7 @@ import (
 
 // The tests in this file exercise the APF protocol machinery, so they run
 // against in-memory ports. The persistence path — resolving a CIRA connection to
-// its device and writing that device's organization — is covered end to end in
+// its device and writing that device's tenant — is covered end to end in
 // mps_link_test.go, which drives the real amt.PostgresAMTDevices and
 // device.PostgresHardware from an external test package (importing amt from
 // package transport would be a build cycle).
@@ -69,12 +69,12 @@ func (m *memAMTState) status(id uuid.UUID) (db.DeviceStatus, bool) {
 type memLinker struct {
 	mu       sync.Mutex
 	deviceID uuid.UUID
-	orgID    uuid.UUID
+	tenantID uuid.UUID
 	armed    bool
 }
 
 func newMemLinker(armed bool) *memLinker {
-	return &memLinker{deviceID: uuid.New(), orgID: dbtx.DefaultOrgID, armed: armed}
+	return &memLinker{deviceID: uuid.New(), tenantID: dbtx.DefaultTenantID, armed: armed}
 }
 
 func (m *memLinker) ResolveBySystemUUID(_ context.Context, _ uuid.UUID) (uuid.UUID, uuid.UUID, error) {
@@ -83,7 +83,7 @@ func (m *memLinker) ResolveBySystemUUID(_ context.Context, _ uuid.UUID) (uuid.UU
 	if !m.armed {
 		return uuid.Nil, uuid.Nil, errors.New("no device reports this system uuid")
 	}
-	return m.deviceID, m.orgID, nil
+	return m.deviceID, m.tenantID, nil
 }
 
 func (m *memLinker) SetAMTDetail(_ context.Context, _ uuid.UUID, _, _ string) error { return nil }

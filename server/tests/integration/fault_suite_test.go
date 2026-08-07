@@ -64,9 +64,9 @@ func newFaultEnv(t *testing.T) *faultEnv {
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 
-	// An admin token scoped to the seeded default org, so the real repository
+	// An admin token scoped to the seeded default tenant, so the real repository
 	// returns a clean not-found (404) for an unknown device on the healthy path.
-	token, err := jwtCfg.GenerateToken(uuid.New(), "fault-admin@example.com", true, dbtx.DefaultOrgID)
+	token, err := jwtCfg.GenerateToken(uuid.New(), "fault-admin@example.com", true, dbtx.DefaultTenantID)
 	require.NoError(t, err)
 
 	return &faultEnv{server: ts, devices: devices, token: token}

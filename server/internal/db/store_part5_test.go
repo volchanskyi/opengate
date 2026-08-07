@@ -13,18 +13,25 @@ import (
 	"time"
 )
 
-func beginTenantTxAsRole(t *testing.T, ctx context.Context, db *sql.DB, roleName string, orgID uuid.UUID, isAdmin bool) *sql.Tx {
+func beginTenantTxAsRole(t *testing.T, ctx context.Context, db *sql.DB, roleName string, tenantID uuid.UUID, isAdmin bool) *sql.Tx {
 	t.Helper()
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	_, err = tx.ExecContext(ctx, `SET LOCAL ROLE `+sqlIdent(roleName))
 	require.NoError(t, err)
-	_, err = tx.ExecContext(ctx,
-		`SELECT set_config('app.current_org', $1, true), set_config('app.is_admin', $2, true)`,
-		orgID.String(), strconv.FormatBool(isAdmin))
+	_, err = tx.ExecContext(ctx, setRehearsalTenantScopeSQL,
+		tenantID.String(), strconv.FormatBool(isAdmin))
 	require.NoError(t, err)
 	return tx
 }
+
+// setRehearsalTenantScopeSQL sets both tenant scope settings the migration chain
+// uses: the policies read app.current_org through the early steps and
+// app.current_tenant from the tenancy rename onward, and the rehearsal probes
+// the same schema on both sides of that step.
+const setRehearsalTenantScopeSQL = `SELECT set_config('app.current_org', $1, true),
+	                                       set_config('app.current_tenant', $1, true),
+	                                       set_config('app.is_admin', $2, true)`
 
 func openRehearsalDB(t *testing.T, ctx context.Context, dbURL string) *sql.DB {
 	t.Helper()

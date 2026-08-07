@@ -79,10 +79,10 @@ func NewOrchestrator(cfg OrchestratorConfig) *Orchestrator {
 // PurgeDevice records a device tombstone, deregisters the connected agent, and
 // creates a purge job. It does not run the fan-out — the caller runs it
 // synchronously (device delete) or in the background (returned job).
-func (o *Orchestrator) PurgeDevice(ctx context.Context, orgID, deviceID uuid.UUID, by *uuid.UUID) (*PurgeJob, error) {
+func (o *Orchestrator) PurgeDevice(ctx context.Context, tenantID, deviceID uuid.UUID, by *uuid.UUID) (*PurgeJob, error) {
 	job := &PurgeJob{
 		ID:          uuid.New(),
-		OrgID:       orgID,
+		TenantID:    tenantID,
 		DeviceID:    &deviceID,
 		Scope:       ScopeDevice,
 		State:       StateRequested,
@@ -97,13 +97,13 @@ func (o *Orchestrator) PurgeDevice(ctx context.Context, orgID, deviceID uuid.UUI
 	return job, nil
 }
 
-// PurgeOrg records an org-wide tombstone, deregisters every connected agent in
-// the org, and creates an org-scoped purge job.
-func (o *Orchestrator) PurgeOrg(ctx context.Context, orgID uuid.UUID, by *uuid.UUID) (*PurgeJob, error) {
+// PurgeTenant records a tenant-wide tombstone, deregisters every connected agent in
+// the tenant, and creates a tenant-scoped purge job.
+func (o *Orchestrator) PurgeTenant(ctx context.Context, tenantID uuid.UUID, by *uuid.UUID) (*PurgeJob, error) {
 	job := &PurgeJob{
 		ID:          uuid.New(),
-		OrgID:       orgID,
-		Scope:       ScopeOrg,
+		TenantID:    tenantID,
+		Scope:       ScopeTenant,
 		State:       StateRequested,
 		RequestedBy: by,
 	}
@@ -120,10 +120,10 @@ func (o *Orchestrator) PurgeOrg(ctx context.Context, orgID uuid.UUID, by *uuid.U
 // no live stream, in-flight backfill, or reconnecting agent can re-create the
 // subject's data. Idempotent, so a resumed job re-applies it safely.
 func (o *Orchestrator) applyTombstone(ctx context.Context, job *PurgeJob) error {
-	if job.Scope == ScopeOrg {
-		return o.applyOrgTombstone(ctx, job)
+	if job.Scope == ScopeTenant {
+		return o.applyTenantTombstone(ctx, job)
 	}
-	if err := o.tombstones.TombstoneDevice(ctx, job.OrgID, *job.DeviceID, job.RequestedBy); err != nil {
+	if err := o.tombstones.TombstoneDevice(ctx, job.TenantID, *job.DeviceID, job.RequestedBy); err != nil {
 		return err
 	}
 	if o.edge != nil {
@@ -132,27 +132,27 @@ func (o *Orchestrator) applyTombstone(ctx context.Context, job *PurgeJob) error 
 	return nil
 }
 
-// applyOrgTombstone tombstones the org and every device in it. Recording a
-// per-device deny-list entry (not only the org one) means a device that was
+// applyTenantTombstone tombstones the tenant and every device in it. Recording a
+// per-device deny-list entry (not only the tenant one) means a device that was
 // offline during the purge is still rejected by its own id when it reconnects,
-// after its Postgres row — and thus its org linkage — is gone. Best-effort
+// after its Postgres row — and thus its tenant linkage — is gone. Best-effort
 // enumeration: once the device rows are deleted a resumed job simply finds none,
 // having already persisted their tombstones on the first pass.
-func (o *Orchestrator) applyOrgTombstone(ctx context.Context, job *PurgeJob) error {
-	if err := o.tombstones.TombstoneOrg(ctx, job.OrgID, job.RequestedBy); err != nil {
+func (o *Orchestrator) applyTenantTombstone(ctx context.Context, job *PurgeJob) error {
+	if err := o.tombstones.TombstoneTenant(ctx, job.TenantID, job.RequestedBy); err != nil {
 		return err
 	}
-	ids, err := o.pg.ListOrgDeviceIDs(ctx, job.OrgID)
+	ids, err := o.pg.ListTenantDeviceIDs(ctx, job.TenantID)
 	if err != nil {
 		return err
 	}
 	for _, id := range ids {
-		if err := o.tombstones.TombstoneDevice(ctx, job.OrgID, id, job.RequestedBy); err != nil {
+		if err := o.tombstones.TombstoneDevice(ctx, job.TenantID, id, job.RequestedBy); err != nil {
 			return err
 		}
 	}
 	if o.edge != nil {
-		o.edge.DeregisterOrg(ctx, job.OrgID)
+		o.edge.DeregisterTenant(ctx, job.TenantID)
 	}
 	return nil
 }
@@ -180,7 +180,7 @@ func (o *Orchestrator) stageVMDelete(ctx context.Context, job *PurgeJob) error {
 	if job.VMDeleted {
 		return nil
 	}
-	if err := o.series.DeleteSeries(ctx, job.OrgID, job.DeviceID); err != nil {
+	if err := o.series.DeleteSeries(ctx, job.TenantID, job.DeviceID); err != nil {
 		return o.fail(ctx, job, "vm-delete", err)
 	}
 	job.VMDeleted = true
@@ -198,7 +198,7 @@ func (o *Orchestrator) stageObjectDelete(ctx context.Context, job *PurgeJob) err
 	if o.objects != nil {
 		job.State = StateObjectDeletePending
 		_ = o.jobs.UpdateProgress(ctx, job)
-		if err := o.objects.DeletePrefix(ctx, job.OrgID, job.DeviceID); err != nil {
+		if err := o.objects.DeletePrefix(ctx, job.TenantID, job.DeviceID); err != nil {
 			return o.fail(ctx, job, "object-delete", err)
 		}
 	}
@@ -206,7 +206,7 @@ func (o *Orchestrator) stageObjectDelete(ctx context.Context, job *PurgeJob) err
 	return o.jobs.UpdateProgress(ctx, job)
 }
 
-// stagePostgresDelete removes the device/org descriptive rows last, cascading
+// stagePostgresDelete removes the device/tenant descriptive rows last, cascading
 // their telemetry.
 func (o *Orchestrator) stagePostgresDelete(ctx context.Context, job *PurgeJob) error {
 	if job.PGDeleted {
@@ -246,7 +246,7 @@ func (o *Orchestrator) RunInBackground(job *PurgeJob) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		if err := o.Run(ctx, job); err != nil {
-			o.logger.Error("background purge failed", "job_id", job.ID, "org_id", job.OrgID, "error", err)
+			o.logger.Error("background purge failed", "job_id", job.ID, "tenant_id", job.TenantID, "error", err)
 		}
 	}()
 }
@@ -271,11 +271,11 @@ func (o *Orchestrator) Resume(ctx context.Context) error {
 }
 
 func (o *Orchestrator) deletePostgres(ctx context.Context, job *PurgeJob) error {
-	if job.Scope == ScopeOrg {
-		_, err := o.pg.DeleteOrgDevices(ctx, job.OrgID)
+	if job.Scope == ScopeTenant {
+		_, err := o.pg.DeleteTenantDevices(ctx, job.TenantID)
 		return err
 	}
-	return o.pg.DeleteDevice(ctx, job.OrgID, *job.DeviceID)
+	return o.pg.DeleteDevice(ctx, job.TenantID, *job.DeviceID)
 }
 
 // verifyEmpty polls VictoriaMetrics until no series match the subject or the
@@ -283,7 +283,7 @@ func (o *Orchestrator) deletePostgres(ctx context.Context, job *PurgeJob) error 
 func (o *Orchestrator) verifyEmpty(ctx context.Context, job *PurgeJob) (bool, error) {
 	attempts := max(o.verify.MaxAttempts, 1)
 	for i := range attempts {
-		n, err := o.series.CountSeries(ctx, job.OrgID, job.DeviceID)
+		n, err := o.series.CountSeries(ctx, job.TenantID, job.DeviceID)
 		if err != nil {
 			return false, err
 		}

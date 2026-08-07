@@ -26,7 +26,7 @@ func TestBackfillImportLandsInHistoricalBuckets(t *testing.T) {
 	client := NewVMClient(base, nil)
 	ctx := context.Background()
 
-	org := uuid.New()
+	tenant := uuid.New()
 	device := uuid.New()
 	now := time.Now().UTC().Truncate(time.Hour)
 
@@ -41,14 +41,14 @@ func TestBackfillImportLandsInHistoricalBuckets(t *testing.T) {
 		{8 * time.Hour, 33},
 	}
 	for _, b := range backfilled {
-		require.NoError(t, client.WriteSamples(ctx, org, device, []Sample{{
+		require.NoError(t, client.WriteSamples(ctx, tenant, device, []Sample{{
 			Name: "opengate_edge_metric_avg", Value: b.val, TS: now.Add(-b.age),
 			Labels: map[string]string{"dim": "cpu.total"},
 		}}))
 	}
 	require.NoError(t, client.Flush(ctx))
 
-	series, err := client.QueryRange(ctx, org, RangeQuery{
+	series, err := client.QueryRange(ctx, tenant, RangeQuery{
 		Metric:   "opengate_edge_metric_avg",
 		Matchers: map[string]string{"device_id": device.String(), "dim": "cpu.total"},
 		Agg:      RangeAvg,

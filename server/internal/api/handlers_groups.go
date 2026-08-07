@@ -10,8 +10,8 @@ import (
 
 const msgGroupNotFound = "group not found"
 
-// CreateGroup implements StrictServerInterface. Adding a group reshapes the
-// fleet's organization, so it sits behind the admin gate.
+// CreateGroup implements StrictServerInterface. Adding a group reshapes how the
+// fleet is filed, so it sits behind the admin gate.
 func (s *Server) CreateGroup(ctx context.Context, request CreateGroupRequestObject) (CreateGroupResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, CreateGroup403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil
@@ -37,7 +37,7 @@ func (s *Server) CreateGroup(ctx context.Context, request CreateGroupRequestObje
 }
 
 // ListGroups implements StrictServerInterface. Groups are a fleet read: every
-// member of the organization sees every group in it.
+// member of the tenant sees every group in it.
 func (s *Server) ListGroups(ctx context.Context, _ ListGroupsRequestObject) (ListGroupsResponseObject, error) {
 	groups, err := s.groups.List(ctx)
 	if err != nil {
@@ -60,8 +60,8 @@ func (s *Server) GetGroup(ctx context.Context, request GetGroupRequestObject) (G
 	return GetGroup200JSONResponse(groupToAPI(group)), nil
 }
 
-// DeleteGroup implements StrictServerInterface. Removing a group reshapes the
-// fleet's organization, so it sits behind the admin gate.
+// DeleteGroup implements StrictServerInterface. Removing a group reshapes how
+// the fleet is filed, so it sits behind the admin gate.
 func (s *Server) DeleteGroup(ctx context.Context, request DeleteGroupRequestObject) (DeleteGroupResponseObject, error) {
 	if resp, denied := denyIfNotAdmin(ctx, DeleteGroup403JSONResponse{Error: msgAdminRequired}); denied {
 		return resp, nil

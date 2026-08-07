@@ -22,7 +22,7 @@ const (
 // TestMigrationsApplyUnderForcedRowLevelSecurity runs the whole migration chain
 // under the privilege model the deployed environments use: the migrating role
 // is NOSUPERUSER and NOBYPASSRLS, and it owns tables that carry FORCE ROW LEVEL
-// SECURITY. The tenant policies read app.current_org with no missing_ok
+// SECURITY. The tenant policies read app.current_tenant with no missing_ok
 // fallback, so any migration statement that touches rows aborts the migration
 // unless the connection carries cross-tenant scope.
 //
@@ -49,12 +49,17 @@ func TestMigrationsApplyUnderForcedRowLevelSecurity(t *testing.T) {
 	// The cross-tenant scope belongs to the migration connection alone. If it
 	// ever reached the pool that serves requests, every tenant policy in the
 	// schema would evaluate true and row-level isolation would be gone.
-	var isAdmin, currentOrg string
+	// The migration connection carries both scope settings the chain needs —
+	// app.current_org through the early steps and app.current_tenant from the
+	// tenancy rename onward — and neither may reach the request pool.
+	var isAdmin, currentTenant, currentOrg string
 	require.NoError(t, store.DB().QueryRowContext(ctx,
 		`SELECT coalesce(current_setting('app.is_admin', true), ''),
+		        coalesce(current_setting('app.current_tenant', true), ''),
 		        coalesce(current_setting('app.current_org', true), '')`,
-	).Scan(&isAdmin, &currentOrg))
+	).Scan(&isAdmin, &currentTenant, &currentOrg))
 	require.NotEqual(t, "true", isAdmin, "application pool must not inherit the migration admin scope")
+	require.Empty(t, currentTenant, "application pool must not inherit a migration tenant scope")
 	require.Empty(t, currentOrg, "application pool must not inherit a migration tenant scope")
 }
 

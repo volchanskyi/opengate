@@ -20,9 +20,9 @@ func newTombstoneFixture(t *testing.T) (*TombstoneStore, context.Context) {
 
 // denied reports whether a device is on the deny-list, failing the test on a
 // query error so every call site is a single boolean assertion.
-func denied(t *testing.T, ts *TombstoneStore, ctx context.Context, org, device uuid.UUID) bool {
+func denied(t *testing.T, ts *TombstoneStore, ctx context.Context, tenant, device uuid.UUID) bool {
 	t.Helper()
-	got, err := ts.IsDeviceTombstoned(ctx, org, device)
+	got, err := ts.IsDeviceTombstoned(ctx, tenant, device)
 	require.NoError(t, err)
 	return got
 }
@@ -31,30 +31,30 @@ func TestTombstoneDeviceIsRejectedAfterRecording(t *testing.T) {
 	t.Parallel()
 	ts, ctx := newTombstoneFixture(t)
 
-	org := uuid.New()
+	tenant := uuid.New()
 	device := uuid.New()
 
 	// Before any tombstone the id is live.
-	assert.False(t, denied(t, ts, ctx, org, device), "untombstoned device must be live")
+	assert.False(t, denied(t, ts, ctx, tenant, device), "untombstoned device must be live")
 
-	require.NoError(t, ts.TombstoneDevice(ctx, org, device, nil))
-	assert.True(t, denied(t, ts, ctx, org, device), "tombstoned device must be rejected")
+	require.NoError(t, ts.TombstoneDevice(ctx, tenant, device, nil))
+	assert.True(t, denied(t, ts, ctx, tenant, device), "tombstoned device must be rejected")
 
-	// A different device in the same org stays live.
-	assert.False(t, denied(t, ts, ctx, org, uuid.New()), "sibling device must stay live")
+	// A different device in the same tenant stays live.
+	assert.False(t, denied(t, ts, ctx, tenant, uuid.New()), "sibling device must stay live")
 }
 
 func TestTombstoneDeviceIsIdempotent(t *testing.T) {
 	t.Parallel()
 	ts, ctx := newTombstoneFixture(t)
 
-	org := uuid.New()
+	tenant := uuid.New()
 	device := uuid.New()
 	by := uuid.New()
 
-	require.NoError(t, ts.TombstoneDevice(ctx, org, device, &by))
+	require.NoError(t, ts.TombstoneDevice(ctx, tenant, device, &by))
 	// Re-recording the same tombstone (e.g. a resumed purge) must not error.
-	require.NoError(t, ts.TombstoneDevice(ctx, org, device, &by))
+	require.NoError(t, ts.TombstoneDevice(ctx, tenant, device, &by))
 
 	all, err := ts.ListAll(ctx)
 	require.NoError(t, err)
@@ -67,41 +67,41 @@ func TestTombstoneDeviceIsIdempotent(t *testing.T) {
 	assert.Equal(t, 1, count, "idempotent tombstone must not duplicate rows")
 }
 
-func TestTombstoneOrgSupersedesDevices(t *testing.T) {
+func TestTombstoneTenantSupersedesDevices(t *testing.T) {
 	t.Parallel()
 	ts, ctx := newTombstoneFixture(t)
 
-	org := uuid.New()
+	tenant := uuid.New()
 	device := uuid.New()
 
-	require.NoError(t, ts.TombstoneOrg(ctx, org, nil))
+	require.NoError(t, ts.TombstoneTenant(ctx, tenant, nil))
 
-	// The org tombstone rejects every device in the org, even ones never
+	// The tenant tombstone rejects every device in the tenant, even ones never
 	// individually tombstoned.
-	orgTombstoned, err := ts.IsOrgTombstoned(ctx, org)
+	tenantTombstoned, err := ts.IsTenantTombstoned(ctx, tenant)
 	require.NoError(t, err)
-	assert.True(t, orgTombstoned)
-	assert.True(t, denied(t, ts, ctx, org, device), "org tombstone must supersede for its devices")
+	assert.True(t, tenantTombstoned)
+	assert.True(t, denied(t, ts, ctx, tenant, device), "tenant tombstone must supersede for its devices")
 
-	// Another org is untouched.
-	assert.False(t, denied(t, ts, ctx, uuid.New(), device), "org tombstone must not leak across tenants")
+	// Another tenant is untouched.
+	assert.False(t, denied(t, ts, ctx, uuid.New(), device), "tenant tombstone must not leak across tenants")
 }
 
 func TestTombstoneListAllRoundTrips(t *testing.T) {
 	t.Parallel()
 	ts, ctx := newTombstoneFixture(t)
 
-	org := uuid.New()
+	tenant := uuid.New()
 	device := uuid.New()
-	require.NoError(t, ts.TombstoneDevice(ctx, org, device, nil))
-	require.NoError(t, ts.TombstoneOrg(ctx, org, nil))
+	require.NoError(t, ts.TombstoneDevice(ctx, tenant, device, nil))
+	require.NoError(t, ts.TombstoneTenant(ctx, tenant, nil))
 
 	all, err := ts.ListAll(ctx)
 	require.NoError(t, err)
 
-	var sawDevice, sawOrg bool
+	var sawDevice, sawTenant bool
 	for _, tomb := range all {
-		if tomb.OrgID != org {
+		if tomb.TenantID != tenant {
 			continue
 		}
 		switch tomb.Scope {
@@ -109,11 +109,11 @@ func TestTombstoneListAllRoundTrips(t *testing.T) {
 			if tomb.DeviceID != nil && *tomb.DeviceID == device {
 				sawDevice = true
 			}
-		case ScopeOrg:
-			sawOrg = true
-			assert.Nil(t, tomb.DeviceID, "org tombstone carries no device id")
+		case ScopeTenant:
+			sawTenant = true
+			assert.Nil(t, tomb.DeviceID, "tenant tombstone carries no device id")
 		}
 	}
 	assert.True(t, sawDevice, "device tombstone must round-trip through ListAll")
-	assert.True(t, sawOrg, "org tombstone must round-trip through ListAll")
+	assert.True(t, sawTenant, "tenant tombstone must round-trip through ListAll")
 }

@@ -20,10 +20,10 @@ func TestDenyIfNotAdmin(t *testing.T) {
 
 	ctxWithUser := func(admin bool) context.Context {
 		claims := &auth.Claims{
-			UserID:  uuid.New(),
-			Email:   "test@test.com",
-			IsAdmin: admin,
-			OrgID:   dbtx.DefaultOrgID,
+			UserID:   uuid.New(),
+			Email:    "test@test.com",
+			IsAdmin:  admin,
+			TenantID: dbtx.DefaultTenantID,
 		}
 		return context.WithValue(t.Context(), claimsKey, claims)
 	}

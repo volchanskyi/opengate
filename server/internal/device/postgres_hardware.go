@@ -37,11 +37,11 @@ func (p *PostgresHardware) Upsert(ctx context.Context, hw *Hardware) error {
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err = tx.ExecContext(ctx,
-			`INSERT INTO device_hardware (device_id, org_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces,
+			`INSERT INTO device_hardware (device_id, tenant_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces,
 			                              system_uuid, amt_available, amt_version, updated_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, FALSE), $11, NOW())
 			 ON CONFLICT (device_id) DO UPDATE SET
-			   org_id = EXCLUDED.org_id,
+			   tenant_id = EXCLUDED.tenant_id,
 			   cpu_model = EXCLUDED.cpu_model,
 			   cpu_cores = EXCLUDED.cpu_cores,
 			   ram_total_mb = EXCLUDED.ram_total_mb,
@@ -52,7 +52,7 @@ func (p *PostgresHardware) Upsert(ctx context.Context, hw *Hardware) error {
 			   amt_available = CASE WHEN $10::boolean IS NULL THEN device_hardware.amt_available ELSE $10::boolean END,
 			   amt_version = CASE WHEN EXCLUDED.amt_version = '' THEN device_hardware.amt_version ELSE EXCLUDED.amt_version END,
 			   updated_at = NOW()`,
-			hw.DeviceID, tenant.OrgID, hw.CPUModel, hw.CPUCores,
+			hw.DeviceID, tenant.TenantID, hw.CPUModel, hw.CPUCores,
 			hw.RAMTotalMB, hw.DiskTotalMB, hw.DiskFreeMB, niJSON,
 			hw.SystemUUID, hw.AMTAvailable, hw.AMTVersion)
 		return err
@@ -70,7 +70,7 @@ func (p *PostgresHardware) Get(ctx context.Context, deviceID DeviceID) (*Hardwar
 			`SELECT device_id, cpu_model, cpu_cores, ram_total_mb, disk_total_mb, disk_free_mb, network_interfaces, updated_at,
 			        amt_available, amt_version, amt_model, amt_firmware
 			 FROM device_hardware
-			 WHERE org_id = current_setting('app.current_org')::uuid AND device_id = $1`, deviceID).
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND device_id = $1`, deviceID).
 			Scan(&hw.DeviceID, &hw.CPUModel, &hw.CPUCores,
 				&hw.RAMTotalMB, &hw.DiskTotalMB, &hw.DiskFreeMB,
 				&niJSON, &hw.UpdatedAt,
@@ -94,19 +94,19 @@ func (p *PostgresHardware) Get(ctx context.Context, deviceID DeviceID) (*Hardwar
 
 // ResolveBySystemUUID implements [HardwareRepository]. A CIRA connection has no
 // request tenant to inherit, so this supplies an admin scope and identifies the
-// device by the globally unique SMBIOS UUID across organizations.
+// device by the globally unique SMBIOS UUID across tenants.
 func (p *PostgresHardware) ResolveBySystemUUID(ctx context.Context, systemUUID uuid.UUID) (DeviceID, uuid.UUID, error) {
 	ctx = dbtx.WithDefaultTenant(ctx, true)
 
 	// Exactly one row is an identity; none or several is not. LIMIT 2 is all it
 	// takes to tell those apart — cloned disk images share a system UUID, and
 	// counting past the second adds nothing.
-	type match struct{ deviceID, orgID uuid.UUID }
+	type match struct{ deviceID, tenantID uuid.UUID }
 	var matches []match
 
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx,
-			`SELECT device_id, org_id FROM device_hardware WHERE system_uuid = $1 LIMIT 2`, systemUUID)
+			`SELECT device_id, tenant_id FROM device_hardware WHERE system_uuid = $1 LIMIT 2`, systemUUID)
 		if err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func (p *PostgresHardware) ResolveBySystemUUID(ctx context.Context, systemUUID u
 
 		for rows.Next() {
 			var m match
-			if err := rows.Scan(&m.deviceID, &m.orgID); err != nil {
+			if err := rows.Scan(&m.deviceID, &m.tenantID); err != nil {
 				return err
 			}
 			matches = append(matches, m)
@@ -127,7 +127,7 @@ func (p *PostgresHardware) ResolveBySystemUUID(ctx context.Context, systemUUID u
 	if len(matches) != 1 {
 		return uuid.Nil, uuid.Nil, ErrHardwareNotFound
 	}
-	return matches[0].deviceID, matches[0].orgID, nil
+	return matches[0].deviceID, matches[0].tenantID, nil
 }
 
 // SetAMTDetail implements [HardwareRepository]. It writes only the two columns
@@ -142,7 +142,7 @@ func (p *PostgresHardware) SetAMTDetail(ctx context.Context, deviceID DeviceID, 
 			    SET amt_model = CASE WHEN $1 = '' THEN amt_model ELSE $1 END,
 			        amt_firmware = CASE WHEN $2 = '' THEN amt_firmware ELSE $2 END,
 			        updated_at = NOW()
-			  WHERE org_id = current_setting('app.current_org')::uuid AND device_id = $3`,
+			  WHERE tenant_id = current_setting('app.current_tenant')::uuid AND device_id = $3`,
 			model, firmware, deviceID)
 		if err != nil {
 			return err

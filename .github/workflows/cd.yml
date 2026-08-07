@@ -253,7 +253,7 @@ jobs:
               enrollment_tokens, amt_devices, audit_events, web_push_subscriptions,
               agent_sessions, devices, groups_, security_groups, users
             RESTART IDENTITY CASCADE;
-            INSERT INTO security_groups (id, org_id, name, description, is_system)
+            INSERT INTO security_groups (id, tenant_id, name, description, is_system)
             VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Administrators', 'Full system access', TRUE)
             ON CONFLICT (id) DO NOTHING;"
 

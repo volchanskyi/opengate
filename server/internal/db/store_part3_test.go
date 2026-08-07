@@ -12,8 +12,8 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 	s := newPostgresTestStore(t)
 	ctx := context.Background()
 
-	orgA := uuid.New()
-	orgB := uuid.New()
+	tenantA := uuid.New()
+	tenantB := uuid.New()
 	userA := uuid.New()
 	userB := uuid.New()
 	groupA := uuid.New()
@@ -24,30 +24,30 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 	ensureRLSRole(t, ctx, s.db)
 
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO organizations (id, name) VALUES ($1, $2), ($3, $4)`,
-		orgA, "Tenant A", orgB, "Tenant B")
+		`INSERT INTO tenants (id, name) VALUES ($1, $2), ($3, $4)`,
+		tenantA, "Tenant A", tenantB, "Tenant B")
 	require.NoError(t, err)
 
-	insertTenantFixture := func(orgID, userID, groupID, deviceID uuid.UUID, email string) {
+	insertTenantFixture := func(tenantID, userID, groupID, deviceID uuid.UUID, email string) {
 		t.Helper()
-		tx := beginTenantTx(t, ctx, s.db, orgID, false)
+		tx := beginTenantTx(t, ctx, s.db, tenantID, false)
 		defer tx.Rollback() //nolint:errcheck // harmless after Commit
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO users (id, org_id, email, password_hash) VALUES ($1, $2, $3, 'hash')`,
-			userID, orgID, email)
+			`INSERT INTO users (id, tenant_id, email, password_hash) VALUES ($1, $2, $3, 'hash')`,
+			userID, tenantID, email)
 		require.NoError(t, err)
 		_, err = tx.ExecContext(ctx,
-			`INSERT INTO groups_ (id, org_id, name) VALUES ($1, $2, $3)`,
-			groupID, orgID, "owned")
+			`INSERT INTO groups_ (id, tenant_id, name) VALUES ($1, $2, $3)`,
+			groupID, tenantID, "owned")
 		require.NoError(t, err)
 		_, err = tx.ExecContext(ctx,
-			`INSERT INTO devices (id, org_id, group_id, hostname) VALUES ($1, $2, $3, $4)`,
-			deviceID, orgID, groupID, "host-"+email)
+			`INSERT INTO devices (id, tenant_id, group_id, hostname) VALUES ($1, $2, $3, $4)`,
+			deviceID, tenantID, groupID, "host-"+email)
 		require.NoError(t, err)
 		require.NoError(t, tx.Commit())
 	}
-	insertTenantFixture(orgA, userA, groupA, deviceA, "a@example.com")
-	insertTenantFixture(orgB, userB, groupB, deviceB, "b@example.com")
+	insertTenantFixture(tenantA, userA, groupA, deviceA, "a@example.com")
+	insertTenantFixture(tenantB, userB, groupB, deviceB, "b@example.com")
 
 	unscopedTx, err := s.db.BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -56,18 +56,18 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 	require.NoError(t, err)
 	var unscopedCount int
 	err = unscopedTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices`).Scan(&unscopedCount)
-	require.Error(t, err, "tenant tables must fail closed without app.current_org")
+	require.Error(t, err, "tenant tables must fail closed without app.current_tenant")
 
-	txA := beginTenantTx(t, ctx, s.db, orgA, false)
+	txA := beginTenantTx(t, ctx, s.db, tenantA, false)
 	defer txA.Rollback() //nolint:errcheck // harmless after Commit
 	var visibleToA int
 	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices`).Scan(&visibleToA))
 	assert.Equal(t, 1, visibleToA)
-	var orgBVisibleToA int
-	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices WHERE id = $1`, deviceB).Scan(&orgBVisibleToA))
-	assert.Zero(t, orgBVisibleToA)
+	var tenantBVisibleToA int
+	require.NoError(t, txA.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices WHERE id = $1`, deviceB).Scan(&tenantBVisibleToA))
+	assert.Zero(t, tenantBVisibleToA)
 
-	adminTx := beginTenantTx(t, ctx, s.db, orgA, true)
+	adminTx := beginTenantTx(t, ctx, s.db, tenantA, true)
 	defer adminTx.Rollback() //nolint:errcheck // harmless after Commit
 	var visibleToAdmin int
 	require.NoError(t, adminTx.QueryRowContext(ctx, `SELECT COUNT(*) FROM devices`).Scan(&visibleToAdmin))

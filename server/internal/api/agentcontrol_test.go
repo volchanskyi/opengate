@@ -106,9 +106,9 @@ func setupControlTest(t *testing.T, fake *fakeAgentControl) *controlTestEnv {
 	lookup := &stubAgentGetter{agents: map[protocol.DeviceID]AgentControl{dev.ID: fake}}
 	srv, cfg := newTestServerWithStoreAndAgents(t, store, lookup, relay.NewRelay(slog.Default()))
 
-	ownerToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
+	ownerToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.TenantID)
 	require.NoError(t, err)
-	adminToken, err := cfg.GenerateToken(user.ID, user.Email, true, user.OrgID)
+	adminToken, err := cfg.GenerateToken(user.ID, user.Email, true, user.TenantID)
 	require.NoError(t, err)
 
 	return &controlTestEnv{srv: srv, deviceID: dev.ID, fake: fake, ownerToken: ownerToken, adminToken: adminToken}

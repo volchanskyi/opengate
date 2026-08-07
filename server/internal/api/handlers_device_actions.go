@@ -15,7 +15,7 @@ import (
 const defaultRestartReason = "restart requested from web UI"
 
 // RestartDevice implements StrictServerInterface. Restarting an agent is a
-// device command, open to every member of the device's organization.
+// device command, open to every member of the device's tenant.
 func (s *Server) RestartDevice(ctx context.Context, request RestartDeviceRequestObject) (RestartDeviceResponseObject, error) {
 	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
@@ -84,7 +84,7 @@ func (s *Server) moveDeviceToGroup(ctx context.Context, request UpdateDeviceRequ
 	// The nil UUID is the "no group" destination: it takes the device out of
 	// its group instead of moving it into another one, so there is no target
 	// group to look up. A named destination must exist in the caller's
-	// organization, which the tenant-scoped lookup establishes.
+	// tenant, which the tenant-scoped lookup establishes.
 	if newGroupID != uuid.Nil {
 		if _, err := s.groups.Get(ctx, newGroupID); err != nil {
 			if errors.Is(err, device.ErrGroupNotFound) {
@@ -139,7 +139,7 @@ func (s *Server) purgeDeletedDevice(ctx context.Context, deviceID uuid.UUID) err
 		return errors.New("missing tenant claims")
 	}
 	userID := ContextUserID(ctx)
-	job, err := s.purger.PurgeDevice(ctx, claims.OrgID, deviceID, &userID)
+	job, err := s.purger.PurgeDevice(ctx, claims.TenantID, deviceID, &userID)
 	if err != nil {
 		return err
 	}

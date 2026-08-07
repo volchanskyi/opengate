@@ -44,17 +44,17 @@ anomaly detector.
   (falling-edge flap suppression). An unrecognized metric or comparator fails
   safe (never fires).
 - **Delivery of rules is tenant-scoped and capability-gated.** On registration
-  the server pushes the connecting agent's authoritative-org ruleset over a new
+  the server pushes the connecting agent's authoritative-tenant ruleset over a new
   server → agent `PushAlertRules` control message, gated by the new
   `ThresholdAlerts` capability
   ([`alert_rules.go`](../../server/internal/agentapi/alert_rules.go)). The lookup
-  key is the resolved org, so one org's rules never reach another; an org without
+  key is the resolved tenant, so one tenant's rules never reach another; a tenant without
   a custom set receives a minimal built-in default. Rules are server
   configuration, not a tenant Postgres table — no migration, no new API surface.
 - **Breach state reuses `AgentHealthSummary`.** A firing breach rides additively
   in the existing summary (`breaches`), avoiding a new message or QUIC stream and
   respecting the WS-3 payload caps. The server ingests each breach as
-  `opengate_edge_alert_breach` scoped to the resolved org, with the `metric`
+  `opengate_edge_alert_breach` scoped to the resolved tenant, with the `metric`
   label bounded to the known vocabulary and the agent-echoed `rule` id sanitized,
   so a rogue agent cannot drive unbounded label cardinality.
 - **Emission is throttled and breach-driven.** The agent emits a breach-carrying
@@ -69,7 +69,7 @@ anomaly detector.
 - Delivery is **investigation-aid only** — breaches are signals charted on the
   Edge-Sentinel Soak dashboard, not notifications. Auto-notify waits for the
   false-positive-rate soak, consistent with the master-plan posture.
-- Because rules live in server configuration keyed by org, per-tenant rule
+- Because rules live in server configuration keyed by tenant, per-tenant rule
   management (a UI, a Postgres-backed ruleset, per-user overrides) is an additive
   follow-up: the wire contract, the capability gate, and the tenant-scoped push
   do not change when the rule *source* becomes a table.

@@ -17,7 +17,7 @@ type fakeFetcher struct {
 	err    error
 
 	mu          sync.Mutex
-	gotOrg      uuid.UUID
+	gotTenant   uuid.UUID
 	gotDevice   uuid.UUID
 	gotStart    time.Time
 	gotEnd      time.Time
@@ -26,9 +26,9 @@ type fakeFetcher struct {
 	respectsCtx bool          // if true, Fetch returns ctx.Err() when ctx cancels
 }
 
-func (f *fakeFetcher) Fetch(ctx context.Context, orgID, deviceID uuid.UUID, start, end time.Time) ([]Series, error) {
+func (f *fakeFetcher) Fetch(ctx context.Context, tenantID, deviceID uuid.UUID, start, end time.Time) ([]Series, error) {
 	f.mu.Lock()
-	f.gotOrg, f.gotDevice, f.gotStart, f.gotEnd = orgID, deviceID, start, end
+	f.gotTenant, f.gotDevice, f.gotStart, f.gotEnd = tenantID, deviceID, start, end
 	f.calls++
 	f.mu.Unlock()
 	if f.block != nil {

@@ -10,14 +10,14 @@ import (
 )
 
 // buildExtraMetricWindow produces an AgentMetricWindow over the host-metric dims
-// with an empty org (the server assigns the authoritative org from the
+// with an empty tenant (the server assigns the authoritative tenant from the
 // connection), mirroring the agent's live host-metric emission.
 func TestBuildExtraMetricWindow(t *testing.T) {
 	msg := buildExtraMetricWindow(1_700_000_000)
 
 	assert.Equal(t, protocol.MsgAgentMetricWindow, msg.Type)
 	assert.EqualValues(t, 1_700_000_000, msg.TS)
-	assert.Empty(t, msg.OrgID, "agent must not assert an org; the server assigns it")
+	assert.Empty(t, msg.TenantID, "agent must not assert a tenant; the server assigns it")
 	require.Len(t, msg.Dims, len(defaultMetricDimNames))
 	for i, dim := range msg.Dims {
 		assert.Equal(t, defaultMetricDimNames[i], dim.Name,

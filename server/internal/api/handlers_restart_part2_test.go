@@ -26,8 +26,8 @@ func TestRestartDevice(t *testing.T) {
 		{"agent not connected", false, true, true, http.StatusConflict},
 		{"device not found", false, false, true, http.StatusNotFound},
 		// Restarting an agent is a device command: any member of the
-		// organization may issue it, not only the device's original operator.
-		{"peer in the same organization", true, true, false, http.StatusOK},
+		// tenant may issue it, not only the device's original operator.
+		{"peer in the same tenant", true, true, false, http.StatusOK},
 	}
 
 	for _, tt := range tests {

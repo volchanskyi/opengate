@@ -99,45 +99,45 @@ See [[Container-Images#supply-chain-security]] for verification commands.
 
 ### Access Control
 
-**Organization is the visibility boundary. `is_admin` is the mutation
-boundary.** Every member of an organization sees the same fleet and may act on
+**Tenant is the visibility boundary. `is_admin` is the mutation
+boundary.** Every member of a tenant sees the same fleet and may act on
 any device in it; only configuration and secret-bearing reads are gated on
-admin. See [ADR-062](adr/ADR-062-org-scoped-reads-and-fleet-summary.md).
+admin. See [ADR-062](adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md).
 
 | Class | Authorization rule | Endpoints |
 |---|---|---|
-| Fleet reads | Organization membership | Device list/detail/summary, metrics, correlate, history, inventory, hardware, group list/detail, session list |
-| Device commands | Organization membership | Session create/delete, restart, maintenance, AMT power |
-| Configuration | Admin | Device delete, device group move, group create/delete, enrollment tokens, updates, users, security groups, organization purge |
+| Fleet reads | Tenant membership | Device list/detail/summary, metrics, correlate, history, inventory, hardware, group list/detail, session list |
+| Device commands | Tenant membership | Session create/delete, restart, maintenance, AMT power |
+| Configuration | Admin | Device delete, device group move, group create/delete, enrollment tokens, updates, users, security groups, tenant purge |
 | Secret-bearing reads | Admin | Device logs, enrollment tokens, update signing key, audit log, user list |
 
 Visibility is enforced in the repository, not in a handler branch: every read
-runs inside a transaction that sets `app.current_org`, so a resource in another
-organization resolves to "not found" rather than to a forbidden response. The
+runs inside a transaction that sets `app.current_tenant`, so a resource in another
+tenant resolves to "not found" rather than to a forbidden response. The
 mutation boundary is the `denyIfNotAdmin` helper, applied at the top of each
 configuration handler.
 
 An Intel AMT power command is the one case where the underlying resource has no
 tenant of its own — the CIRA connection map is keyed by AMT UUID alone. The
 handler therefore resolves the managed device behind that UUID through the
-tenant-scoped repository first, so a UUID outside the caller's organization is
+tenant-scoped repository first, so a UUID outside the caller's tenant is
 refused before any command is dispatched.
 
-Admins keep cross-organization reads. The dashboard summary is the one
-deliberate exception: it always describes the caller's own organization, so its
+Admins keep cross-tenant reads. The dashboard summary is the one
+deliberate exception: it always describes the caller's own tenant, so its
 tiles and health bands cover a single device set.
 
 ### Tenant Isolation
 
 PostgreSQL Row-Level Security is enabled and forced on tenant-owned tables. JWT
-tokens carry the active `org` claim; authenticated middleware stores it in
+tokens carry the active `tenant` claim; authenticated middleware stores it in
 context, and repository methods execute inside transactions that set
-`app.current_org` and `app.is_admin` with `SET LOCAL`. Policies permit only rows
-for the current org, with an admin policy bypass controlled by `app.is_admin`.
+`app.current_tenant` and `app.is_admin` with `SET LOCAL`. Policies permit only rows
+for the current tenant, with an admin policy bypass controlled by `app.is_admin`.
 The Helm runtime role is created by
 [`zz-app-role.sh`](../deploy/helm/opengate/files/zz-app-role.sh) and checked by
 [`cd.yml`](../.github/workflows/cd.yml) as non-superuser and non-`BYPASSRLS`, so
-missing tenant context fails closed instead of leaking rows across organizations.
+missing tenant context fails closed instead of leaking rows across tenants.
 
 ### Rate Limiting
 

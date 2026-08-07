@@ -30,15 +30,15 @@ Use a split telemetry store:
 - Numeric Edge Sentinel samples are written by the server to VictoriaMetrics
   through `server/internal/telemetry`. Agents never receive VM credentials.
 - VictoriaMetrics reads go through the same package, which injects the
-  authoritative `org_id` matcher and rejects caller-supplied `org_id` matchers.
+  authoritative `tenant_id` matcher and rejects caller-supplied `tenant_id` matchers.
   This is application-level label scoping for the current single-node VM, not a
   hard isolation boundary for mutually distrusting tenants.
 - Process snapshots are stored in the Postgres `device_processes` table created
-  by `003_telemetry`; the table carries `org_id`, is forced through RLS, and
+  by `003_telemetry`; the table carries `tenant_id`, is forced through RLS, and
   cascades with `devices`.
-- The agent control path resolves the enrolled device's actual organization
-  after handshake and scopes all agent-originated writes to that org. Payload
-  `org_id` fields are ignored for authorization.
+- The agent control path resolves the enrolled device's actual tenant
+  after handshake and scopes all agent-originated writes to that tenant. Payload
+  `tenant_id` fields are ignored for authorization.
 - Telemetry dispatch has a small payload cap, interval floor, bounded
   non-blocking persistence slots, and drop accounting so telemetry cannot
   backpressure heartbeat, restart, session, or other control messages.

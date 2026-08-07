@@ -56,13 +56,13 @@ progress.
 **2. Tenantless relay-end deletion.** `OnSessionEnd` runs after the originating
 request contexts are gone, so it calls
 [`DeleteRelaySession`](../../server/internal/session/postgres.go), whose admin
-scope and globally unique token lookup work across organizations. Request-driven
+scope and globally unique token lookup work across tenants. Request-driven
 deletion keeps the tenant-scoped `Delete` path. The callback tolerates
 `ErrSessionNotFound` because the stale sweep may win the cleanup race.
 
 **3. A relay-keyed sweep, for what the process cannot see.** A periodic job deletes every row
 older than a grace period whose token the relay does not currently hold, running
-cross-org outside any request tenant. The relay's live token set is the liveness
+cross-tenant outside any request tenant. The relay's live token set is the liveness
 oracle: a session mid-flight is named by it and spared however long it runs,
 while a token abandoned seconds after issue is collected on the next tick. A
 process holds no relay sessions at boot, so rows left by its predecessor are
@@ -109,7 +109,7 @@ terminal or desktop frames before the pipe starts.
 - `session.Repository` has two explicit background paths:
   `DeleteRelaySession(ctx, token)` for immediate relay teardown and
   `DeleteStale(ctx, cutoff, keep)` for reconciliation. Both carry their own
-  admin tenant scope, and RLS widens that scope across organizations.
+  admin tenant scope, and RLS widens that scope across tenants.
 - `Relay` gains `ActiveTokens` and `Unregister`. `ActiveTokens` is the liveness
   oracle above; `Unregister` is safe to defer unconditionally, being inert for
   unknown, already-released, and piping tokens.

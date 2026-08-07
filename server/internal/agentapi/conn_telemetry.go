@@ -178,7 +178,7 @@ func (a *AgentConn) flushTelemetry(ctx context.Context) {
 	batch := a.telemetryBuf
 	a.telemetryBuf = nil
 	a.persistTelemetry(ctx, func(jobCtx context.Context, tenant dbtx.Tenant) error {
-		return a.telemetry.WriteSamples(jobCtx, tenant.OrgID, a.DeviceID, batch)
+		return a.telemetry.WriteSamples(jobCtx, tenant.TenantID, a.DeviceID, batch)
 	})
 }
 

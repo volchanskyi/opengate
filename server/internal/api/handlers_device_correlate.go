@@ -11,7 +11,7 @@ import (
 
 // CorrelateDevice implements StrictServerInterface. It ranks the device's
 // anomalous metric dimensions for a focus window versus a baseline, reading
-// telemetry only through the tenant-scoped VM client (org derived from the
+// telemetry only through the tenant-scoped VM client (tenant derived from the
 // authenticated context, never the request body).
 func (s *Server) CorrelateDevice(ctx context.Context, request CorrelateDeviceRequestObject) (CorrelateDeviceResponseObject, error) {
 	if s.correlate == nil {
@@ -48,7 +48,7 @@ func (s *Server) CorrelateDevice(ctx context.Context, request CorrelateDeviceReq
 		req.TopN = *request.Body.TopN
 	}
 
-	res, err := s.correlate.Correlate(ctx, tenant.OrgID, req)
+	res, err := s.correlate.Correlate(ctx, tenant.TenantID, req)
 	switch {
 	case err == nil:
 		return CorrelateDevice200JSONResponse(correlationResultToAPI(res)), nil

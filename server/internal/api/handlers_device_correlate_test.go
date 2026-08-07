@@ -18,15 +18,15 @@ import (
 // fakeCorrelator records how the handler invoked the engine and returns a
 // canned outcome.
 type fakeCorrelator struct {
-	gotOrg uuid.UUID
-	gotReq correlate.Request
-	called int
-	result correlate.Result
-	err    error
+	gotTenant uuid.UUID
+	gotReq    correlate.Request
+	called    int
+	result    correlate.Result
+	err       error
 }
 
-func (f *fakeCorrelator) Correlate(_ context.Context, orgID uuid.UUID, req correlate.Request) (correlate.Result, error) {
-	f.gotOrg = orgID
+func (f *fakeCorrelator) Correlate(_ context.Context, tenantID uuid.UUID, req correlate.Request) (correlate.Result, error) {
+	f.gotTenant = tenantID
 	f.gotReq = req
 	f.called++
 	return f.result, f.err
@@ -54,7 +54,7 @@ func TestCorrelateDeviceHandler(t *testing.T) {
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 	})
 
-	t.Run("200 maps result and scopes to the token org, not the body", func(t *testing.T) {
+	t.Run("200 maps result and scopes to the token tenant, not the body", func(t *testing.T) {
 		fake := &fakeCorrelator{result: correlate.Result{
 			Ranked: []correlate.Ranked{{
 				Metric: "mem_pct", Score: 0.9, KSStatistic: 1, AnomalyRate: 1, ShiftMagnitude: 1,
@@ -76,9 +76,9 @@ func TestCorrelateDeviceHandler(t *testing.T) {
 		require.NotNil(t, resp.Ranked[0].Labels)
 		assert.Equal(t, "0", (*resp.Ranked[0].Labels)["core"])
 
-		// The engine is scoped by the authenticated tenant org and the path device.
+		// The engine is scoped by the authenticated tenant tenant and the path device.
 		assert.Equal(t, 1, fake.called)
-		assert.Equal(t, dbtx.DefaultOrgID, fake.gotOrg)
+		assert.Equal(t, dbtx.DefaultTenantID, fake.gotTenant)
 		assert.Equal(t, dev.ID, fake.gotReq.DeviceID)
 	})
 

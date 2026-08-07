@@ -18,15 +18,21 @@ import (
 // migrationTenantScope gives the migration connection the cross-tenant reach
 // its statements need. Application tables carry FORCE ROW LEVEL SECURITY and
 // the deployed database role is NOBYPASSRLS, so a migration that reads or
-// writes rows is subject to the tenant policy just like a request is. That
-// policy reads app.current_org with no missing_ok fallback, so an absent GUC
-// aborts the migration instead of merely filtering it. Both values are set
-// because either side of the policy's OR may be evaluated first.
+// writes rows is subject to the tenant policy just like a request is. Those
+// policies read their scope setting with no missing_ok fallback, so an absent
+// GUC aborts the migration instead of merely filtering it. app.is_admin is set
+// alongside because either side of the policy's OR may be evaluated first.
+//
+// A fresh database walks the whole chain on this one connection, so both scope
+// settings are carried: the policies read app.current_org up to the tenancy
+// rename and app.current_tenant from it onward.
 //
 // The scope lives only on the short-lived migration pool below. The pool that
 // serves application traffic never carries it, so tenant isolation is
 // unchanged.
-const migrationTenantScope = "-c app.is_admin=true -c app.current_org=00000000-0000-0000-0000-000000000000"
+const migrationTenantScope = "-c app.is_admin=true" +
+	" -c app.current_org=00000000-0000-0000-0000-000000000000" +
+	" -c app.current_tenant=00000000-0000-0000-0000-000000000000"
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS

@@ -26,18 +26,18 @@ func truncatePostgresTestDB(ctx context.Context, s *PostgresStore) error {
 			groups_,
 			security_groups,
 			users,
-			organizations
+			tenants
 		RESTART IDENTITY CASCADE`); err != nil {
 		return fmt.Errorf("truncate tables: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO organizations (id, name)
-		VALUES ('00000000-0000-0000-0000-000000000002', 'Default Organization')`); err != nil {
-		return fmt.Errorf("seed default organization: %w", err)
+		INSERT INTO tenants (id, name)
+		VALUES ('00000000-0000-0000-0000-000000000002', 'Default Tenant')`); err != nil {
+		return fmt.Errorf("seed default tenant: %w", err)
 	}
 	// Re-seed the Administrators group normally inserted by migration 005.
 	if _, err := s.db.ExecContext(ctx, `
-		INSERT INTO security_groups (id, org_id, name, description, is_system)
+		INSERT INTO security_groups (id, tenant_id, name, description, is_system)
 		VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Administrators', 'Full system access', TRUE)`); err != nil {
 		return fmt.Errorf("seed administrators group: %w", err)
 	}

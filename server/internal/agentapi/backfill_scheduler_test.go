@@ -33,7 +33,7 @@ func TestScheduler_GrantsWithinCapsThenDefersGlobal(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
 
-	// Four distinct orgs each take one slot — up to the global cap of 4.
+	// Four distinct tenants each take one slot — up to the global cap of 4.
 	for i := range 4 {
 		d := s.RequestSlot(uuid.New(), uuid.New(), SlotRequest{PendingSamples: 100})
 		require.True(t, d.Grant, "slot %d should be granted", i)
@@ -48,16 +48,16 @@ func TestScheduler_GrantsWithinCapsThenDefersGlobal(t *testing.T) {
 	assert.Equal(t, 4, s.ActiveCount())
 }
 
-func TestScheduler_PerTenantCapDefersThirdAgentOfOneOrg(t *testing.T) {
+func TestScheduler_PerTenantCapDefersThirdAgentOfOneTenant(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
-	org := uuid.New()
+	tenant := uuid.New()
 
-	require.True(t, s.RequestSlot(uuid.New(), org, SlotRequest{}).Grant)
-	require.True(t, s.RequestSlot(uuid.New(), org, SlotRequest{}).Grant)
-	// Third agent of the same org: per-tenant cap (2) reached even though the
-	// global cap (4) has room — one org cannot monopolize the node.
-	d := s.RequestSlot(uuid.New(), org, SlotRequest{})
+	require.True(t, s.RequestSlot(uuid.New(), tenant, SlotRequest{}).Grant)
+	require.True(t, s.RequestSlot(uuid.New(), tenant, SlotRequest{}).Grant)
+	// Third agent of the same tenant: per-tenant cap (2) reached even though the
+	// global cap (4) has room — one tenant cannot monopolize the node.
+	d := s.RequestSlot(uuid.New(), tenant, SlotRequest{})
 	assert.False(t, d.Grant, "per-tenant cap reached → defer")
 	assert.Positive(t, d.RetryAfter)
 }
@@ -79,21 +79,21 @@ func TestScheduler_BudgetShrinksUnderLiveLoad(t *testing.T) {
 	assert.Less(t, low.Rate, full.Rate, "lower headroom yields a lower granted rate")
 }
 
-func TestScheduler_FairShareCapsAnyOneOrg(t *testing.T) {
+func TestScheduler_FairShareCapsAnyOneTenant(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
-	orgA, orgB := uuid.New(), uuid.New()
+	tenantA, tenantB := uuid.New(), uuid.New()
 
 	// Weighted max-min fair-share is enforced by the per-tenant concurrency cap:
-	// org A holds at most PerTenantMax (2) of the 4 global slots and cannot grab
+	// tenant A holds at most PerTenantMax (2) of the 4 global slots and cannot grab
 	// them all to starve other tenants.
-	require.True(t, s.RequestSlot(uuid.New(), orgA, SlotRequest{}).Grant)
-	require.True(t, s.RequestSlot(uuid.New(), orgA, SlotRequest{}).Grant)
-	assert.False(t, s.RequestSlot(uuid.New(), orgA, SlotRequest{}).Grant, "A is capped at PerTenantMax")
+	require.True(t, s.RequestSlot(uuid.New(), tenantA, SlotRequest{}).Grant)
+	require.True(t, s.RequestSlot(uuid.New(), tenantA, SlotRequest{}).Grant)
+	assert.False(t, s.RequestSlot(uuid.New(), tenantA, SlotRequest{}).Grant, "A is capped at PerTenantMax")
 
-	// The two slots A cannot take stay available to org B — B is never starved.
-	require.True(t, s.RequestSlot(uuid.New(), orgB, SlotRequest{}).Grant)
-	require.True(t, s.RequestSlot(uuid.New(), orgB, SlotRequest{}).Grant)
+	// The two slots A cannot take stay available to tenant B — B is never starved.
+	require.True(t, s.RequestSlot(uuid.New(), tenantB, SlotRequest{}).Grant)
+	require.True(t, s.RequestSlot(uuid.New(), tenantB, SlotRequest{}).Grant)
 	assert.Equal(t, 4, s.ActiveCount(), "the global cap is shared across tenants, not monopolized")
 
 	// Every granted rate is an equal load-adaptive slice within bounds.
@@ -139,13 +139,13 @@ func TestScheduler_ExpiredGrantFreesASlot(t *testing.T) {
 func TestScheduler_RenewIsIdempotentWithinTTL(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
-	agent, org := uuid.New(), uuid.New()
+	agent, tenant := uuid.New(), uuid.New()
 
-	first := s.RequestSlot(agent, org, SlotRequest{})
+	first := s.RequestSlot(agent, tenant, SlotRequest{})
 	require.True(t, first.Grant)
 	// Re-requesting the same agent's slot within the TTL renews it in place — it
 	// does not consume a second slot.
-	again := s.RequestSlot(agent, org, SlotRequest{})
+	again := s.RequestSlot(agent, tenant, SlotRequest{})
 	require.True(t, again.Grant)
 	assert.Equal(t, 1, s.ActiveCount(), "renew must not double-book a slot")
 }
@@ -166,20 +166,20 @@ func TestScheduler_ReleaseFreesTheSlot(t *testing.T) {
 	assert.NotPanics(t, func() { nilSched.Release(uuid.New()) })
 }
 
-func TestScheduler_ReleaseDecrementsSharedOrgCount(t *testing.T) {
+func TestScheduler_ReleaseDecrementsSharedTenantCount(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
-	org := uuid.New()
+	tenant := uuid.New()
 	a1, a2 := uuid.New(), uuid.New()
-	require.True(t, s.RequestSlot(a1, org, SlotRequest{}).Grant)
-	require.True(t, s.RequestSlot(a2, org, SlotRequest{}).Grant)
+	require.True(t, s.RequestSlot(a1, tenant, SlotRequest{}).Grant)
+	require.True(t, s.RequestSlot(a2, tenant, SlotRequest{}).Grant)
 
-	// Releasing one of two same-org grants decrements the org count without
-	// dropping it, so the org still holds a slot and can be released again.
+	// Releasing one of two same-tenant grants decrements the tenant count without
+	// dropping it, so the tenant still holds a slot and can be released again.
 	s.Release(a1)
 	assert.Equal(t, 1, s.ActiveCount())
-	// A third same-org agent is now admissible (org count is back below the cap).
-	require.True(t, s.RequestSlot(uuid.New(), org, SlotRequest{}).Grant)
+	// A third same-tenant agent is now admissible (tenant count is back below the cap).
+	require.True(t, s.RequestSlot(uuid.New(), tenant, SlotRequest{}).Grant)
 	assert.Equal(t, 2, s.ActiveCount())
 }
 
@@ -189,16 +189,16 @@ func TestDefaultBackfillSchedulerConfigPinsDurations(t *testing.T) {
 	assert.Equal(t, 30*time.Second, cfg.DeferBackoff)
 }
 
-func TestScheduler_ReleaseLastGrantRemovesOrgCounter(t *testing.T) {
+func TestScheduler_ReleaseLastGrantRemovesTenantCounter(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
-	org := uuid.New()
+	tenant := uuid.New()
 	agent := uuid.New()
-	require.True(t, s.RequestSlot(agent, org, SlotRequest{}).Grant)
-	require.Equal(t, 1, s.orgCount[org])
+	require.True(t, s.RequestSlot(agent, tenant, SlotRequest{}).Grant)
+	require.Equal(t, 1, s.tenantCount[tenant])
 
 	s.Release(agent)
 
-	_, exists := s.orgCount[org]
+	_, exists := s.tenantCount[tenant]
 	assert.False(t, exists)
 }

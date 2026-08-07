@@ -17,9 +17,9 @@ import (
 // TestTelemetryIngestIsCounted verifies an accepted metric window increments the
 // per-type ingest counter that feeds the WS-15b soak dashboard.
 func TestTelemetryIngestIsCounted(t *testing.T) {
-	org := uuid.New()
+	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, _ := ingestConn(t, org, writer, true)
+	ac, _ := ingestConn(t, tenant, writer, true)
 	m := appmetrics.NewMetrics(prometheus.NewRegistry())
 	ac.metrics = m
 
@@ -28,8 +28,8 @@ func TestTelemetryIngestIsCounted(t *testing.T) {
 		TS:   time.Now().Unix(),
 		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 12.5}},
 	}
-	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(org), msg, 256))
-	ac.flushTelemetry(tenantCtx(org))
+	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(tenant), msg, 256))
+	ac.flushTelemetry(tenantCtx(tenant))
 
 	<-writer.calls
 	assert.InDelta(t, 1,
@@ -39,9 +39,9 @@ func TestTelemetryIngestIsCounted(t *testing.T) {
 // TestTelemetryDropIsCounted verifies an oversized payload increments the
 // per-reason drop counter (and never touches the writer).
 func TestTelemetryDropIsCounted(t *testing.T) {
-	org := uuid.New()
+	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, _ := ingestConn(t, org, writer, true)
+	ac, _ := ingestConn(t, tenant, writer, true)
 	m := appmetrics.NewMetrics(prometheus.NewRegistry())
 	ac.metrics = m
 
@@ -50,7 +50,7 @@ func TestTelemetryDropIsCounted(t *testing.T) {
 		TS:   time.Now().Unix(),
 		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 1}},
 	}
-	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(org), msg, maxTelemetryPayloadBytes+1))
+	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(tenant), msg, maxTelemetryPayloadBytes+1))
 
 	assert.Empty(t, writer.calls)
 	assert.InDelta(t, 1,
@@ -79,9 +79,9 @@ func TestBackfillDecisionIsObserved(t *testing.T) {
 // TestNilMetricsIsSafe verifies the telemetry and backfill paths never panic
 // when no metrics sink is wired (the default for programmatic AgentConns).
 func TestNilMetricsIsSafe(t *testing.T) {
-	org := uuid.New()
+	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, _ := ingestConn(t, org, writer, true)
+	ac, _ := ingestConn(t, tenant, writer, true)
 	require.Nil(t, ac.metrics)
 
 	msg := &protocol.ControlMessage{
@@ -89,7 +89,7 @@ func TestNilMetricsIsSafe(t *testing.T) {
 		TS:   time.Now().Unix(),
 		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 1}},
 	}
-	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(org), msg, 256))
-	ac.flushTelemetry(tenantCtx(org))
+	require.NoError(t, ac.handleAgentMetricWindow(tenantCtx(tenant), msg, 256))
+	ac.flushTelemetry(tenantCtx(tenant))
 	<-writer.calls
 }

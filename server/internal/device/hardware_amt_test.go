@@ -20,7 +20,7 @@ type amtFixture struct {
 	store    *db.PostgresStore
 	ctx      context.Context
 	deviceID device.DeviceID
-	orgID    uuid.UUID
+	tenantID uuid.UUID
 }
 
 // seedSibling adds another device to the fixture's tenant. It seeds the
@@ -31,21 +31,21 @@ func (f amtFixture) seedSibling(t *testing.T) device.DeviceID {
 	return testutil.SeedDevice(t, f.ctx, f.store, group.ID).ID
 }
 
-// newAMTFixture seeds a device in orgID's tenant, or the default tenant when
-// orgID is uuid.Nil.
-func newAMTFixture(t *testing.T, orgID uuid.UUID) amtFixture {
+// newAMTFixture seeds a device in tenantID's tenant, or the default tenant when
+// tenantID is uuid.Nil.
+func newAMTFixture(t *testing.T, tenantID uuid.UUID) amtFixture {
 	t.Helper()
 	_, _, hardware, store := newRepos(t)
 
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	if orgID != uuid.Nil {
-		testutil.EnsureOrganization(t, context.Background(), store, orgID, "Tenant "+orgID.String()[:8])
-		ctx = dbtx.WithTenant(context.Background(), orgID, false)
+	if tenantID != uuid.Nil {
+		testutil.EnsureTenant(t, context.Background(), store, tenantID, "Tenant "+tenantID.String()[:8])
+		ctx = dbtx.WithTenant(context.Background(), tenantID, false)
 	} else {
-		orgID = dbtx.DefaultOrgID
+		tenantID = dbtx.DefaultTenantID
 	}
 
-	f := amtFixture{hardware: hardware, store: store, ctx: ctx, orgID: orgID}
+	f := amtFixture{hardware: hardware, store: store, ctx: ctx, tenantID: tenantID}
 	f.deviceID = f.seedSibling(t)
 	return f
 }
@@ -148,19 +148,19 @@ func TestHardwareUpsertAMTPresenceSkew(t *testing.T) {
 	}
 }
 
-// TestResolveBySystemUUIDCrossesOrganizations proves the CIRA lookup works from
+// TestResolveBySystemUUIDCrossesTenants proves the CIRA lookup works from
 // outside any request tenant — the whole point of the join key.
-func TestResolveBySystemUUIDCrossesOrganizations(t *testing.T) {
+func TestResolveBySystemUUIDCrossesTenants(t *testing.T) {
 	t.Parallel()
 	f := newAMTFixture(t, uuid.New())
 	systemUUID := uuid.New()
 	require.NoError(t, f.hardware.Upsert(f.ctx, report(f.deviceID, &systemUUID, "Intel Core i5-1145G7")))
 
 	// No tenant on the context at all — exactly what an MPS connection has.
-	gotDevice, gotOrg, err := f.hardware.ResolveBySystemUUID(context.Background(), systemUUID)
+	gotDevice, gotTenant, err := f.hardware.ResolveBySystemUUID(context.Background(), systemUUID)
 	require.NoError(t, err)
 	assert.Equal(t, f.deviceID, gotDevice)
-	assert.Equal(t, f.orgID, gotOrg, "the resolved organization is what scopes every later write")
+	assert.Equal(t, f.tenantID, gotTenant, "the resolved tenant is what scopes every later write")
 }
 
 func TestResolveBySystemUUIDUnknownKey(t *testing.T) {
@@ -201,7 +201,7 @@ func TestSetAMTDetailRefusesOutOfScope(t *testing.T) {
 	f := newAMTFixture(t, uuid.Nil)
 	require.NoError(t, f.hardware.Upsert(f.ctx, report(f.deviceID, nil, "Intel Core i7-12700K")))
 
-	otherOrg := dbtx.WithTenant(context.Background(), uuid.New(), false)
+	otherTenant := dbtx.WithTenant(context.Background(), uuid.New(), false)
 
 	tests := []struct {
 		name     string
@@ -211,7 +211,7 @@ func TestSetAMTDetailRefusesOutOfScope(t *testing.T) {
 	}{
 		{"unknown device", f.ctx, uuid.New(), device.ErrHardwareNotFound},
 		{"no tenant on the context", context.Background(), f.deviceID, dbtx.ErrTenantRequired},
-		{"another tenant's device", otherOrg, f.deviceID, device.ErrHardwareNotFound},
+		{"another tenant's device", otherTenant, f.deviceID, device.ErrHardwareNotFound},
 	}
 
 	for _, tt := range tests {

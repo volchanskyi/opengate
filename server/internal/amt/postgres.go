@@ -23,7 +23,7 @@ func NewPostgresAMTDevices(d *sql.DB) *PostgresAMTDevices {
 }
 
 // Upsert records the connection state of one AMT device. The caller resolves the
-// device and its organization from the CIRA system UUID first and supplies both
+// device and its tenant from the CIRA system UUID first and supplies both
 // on ctx, so this write always lands in the tenant that owns the machine.
 func (p *PostgresAMTDevices) Upsert(ctx context.Context, d *db.AMTDevice) error {
 	tenant, ok := dbtx.TenantFromContext(ctx)
@@ -32,14 +32,14 @@ func (p *PostgresAMTDevices) Upsert(ctx context.Context, d *db.AMTDevice) error 
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO amt_devices (uuid, org_id, device_id, status, last_seen)
+			`INSERT INTO amt_devices (uuid, tenant_id, device_id, status, last_seen)
 			 VALUES ($1, $2, $3, $4, NOW())
 			 ON CONFLICT (uuid) DO UPDATE SET
-			   org_id    = EXCLUDED.org_id,
+			   tenant_id    = EXCLUDED.tenant_id,
 			   device_id = EXCLUDED.device_id,
 			   status    = EXCLUDED.status,
 			   last_seen = NOW()`,
-			d.UUID, tenant.OrgID, d.DeviceID, string(d.Status))
+			d.UUID, tenant.TenantID, d.DeviceID, string(d.Status))
 		return err
 	})
 }
@@ -48,7 +48,7 @@ func (p *PostgresAMTDevices) SetStatus(ctx context.Context, id uuid.UUID, status
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`UPDATE amt_devices SET status = $1, last_seen = NOW()
-			 WHERE org_id = current_setting('app.current_org')::uuid AND uuid = $2`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND uuid = $2`,
 			string(status), id)
 		if err != nil {
 			return err

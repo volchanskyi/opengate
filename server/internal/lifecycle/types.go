@@ -14,15 +14,15 @@ import (
 	"github.com/google/uuid"
 )
 
-// Scope distinguishes a single-device purge from a whole-org (tenant/fleet)
+// Scope distinguishes a single-device purge from a whole-tenant (tenant/fleet)
 // purge.
 type Scope string
 
 const (
 	// ScopeDevice purges one device's telemetry.
 	ScopeDevice Scope = "device"
-	// ScopeOrg purges every device in an organization.
-	ScopeOrg Scope = "org"
+	// ScopeTenant purges every device in a tenant.
+	ScopeTenant Scope = "tenant"
 )
 
 // PurgeState is the operator-visible deletion state machine. "Logical" completion
@@ -55,8 +55,8 @@ const (
 
 // Tombstone is one entry in the persisted deny-list.
 type Tombstone struct {
-	OrgID     uuid.UUID
-	DeviceID  *uuid.UUID // nil for an org-wide tombstone
+	TenantID  uuid.UUID
+	DeviceID  *uuid.UUID // nil for a tenant-wide tombstone
 	Scope     Scope
 	DeletedAt time.Time
 }
@@ -65,8 +65,8 @@ type Tombstone struct {
 // progress.
 type PurgeJob struct {
 	ID            uuid.UUID
-	OrgID         uuid.UUID
-	DeviceID      *uuid.UUID // nil for an org-wide purge
+	TenantID      uuid.UUID
+	DeviceID      *uuid.UUID // nil for a tenant-wide purge
 	Scope         Scope
 	State         PurgeState
 	VMDeleted     bool
@@ -81,21 +81,21 @@ type PurgeJob struct {
 }
 
 // SeriesPurger deletes and counts VictoriaMetrics series for a subject. The
-// implementation always scopes the selector to org_id server-side.
+// implementation always scopes the selector to tenant_id server-side.
 type SeriesPurger interface {
-	// DeleteSeries issues an async delete-series for the org (and device, when
+	// DeleteSeries issues an async delete-series for the tenant (and device, when
 	// non-nil). It returns once VM has accepted the request.
-	DeleteSeries(ctx context.Context, orgID uuid.UUID, deviceID *uuid.UUID) error
+	DeleteSeries(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) error
 	// CountSeries returns how many series still match the subject selector, used
 	// to verify emptiness before a job may complete.
-	CountSeries(ctx context.Context, orgID uuid.UUID, deviceID *uuid.UUID) (int, error)
+	CountSeries(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) (int, error)
 }
 
 // ObjectPurger deletes cold-tier object prefixes. It is optional: a deployment
 // without a cold tier wires nil and the orchestrator skips the object stage.
 type ObjectPurger interface {
 	// DeletePrefix removes every object under the subject's prefix.
-	DeletePrefix(ctx context.Context, orgID uuid.UUID, deviceID *uuid.UUID) error
+	DeletePrefix(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) error
 }
 
 // EdgeDeregistrar tombstones a subject in the agent server's in-memory deny-list
@@ -105,6 +105,6 @@ type ObjectPurger interface {
 type EdgeDeregistrar interface {
 	// DeregisterAgent tombstones one device and deregisters it if connected.
 	DeregisterAgent(ctx context.Context, deviceID uuid.UUID)
-	// DeregisterOrg tombstones an org and deregisters every connected agent in it.
-	DeregisterOrg(ctx context.Context, orgID uuid.UUID)
+	// DeregisterTenant tombstones a tenant and deregisters every connected agent in it.
+	DeregisterTenant(ctx context.Context, tenantID uuid.UUID)
 }

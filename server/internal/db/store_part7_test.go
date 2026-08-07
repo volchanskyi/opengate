@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net/url"
@@ -14,11 +15,11 @@ import (
 
 func assertMultitenancyDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
-	var organizations sql.NullString
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.organizations')`).Scan(&organizations))
-	assert.False(t, organizations.Valid)
+	var tenants sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.organizations')`).Scan(&tenants))
+	assert.False(t, tenants.Valid)
 
-	var orgIDColumns int
+	var tenantIDColumns int
 	require.NoError(t, db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM information_schema.columns
 		WHERE table_schema = 'public'
@@ -26,8 +27,91 @@ func assertMultitenancyDownReversal(t *testing.T, ctx context.Context, db *sql.D
 		  AND table_name IN (
 		    'users', 'groups_', 'devices', 'agent_sessions', 'web_push_subscriptions',
 		    'audit_events', 'amt_devices', 'enrollment_tokens', 'security_groups',
-		    'security_group_members', 'device_updates', 'device_hardware', 'device_logs')`).Scan(&orgIDColumns))
-	assert.Zero(t, orgIDColumns)
+		    'security_group_members', 'device_updates', 'device_hardware', 'device_logs')`).Scan(&tenantIDColumns))
+	assert.Zero(t, tenantIDColumns)
+}
+
+// tenantScopedTables lists every table carrying the tenant scope column at head.
+// deleted_ids and purge_jobs carry it without a policy: they are the erasure
+// deny-list and progress log, which must outlive the rows they describe.
+var tenantScopedTables = []string{
+	"users", "groups_", "devices", "agent_sessions", "web_push_subscriptions",
+	"audit_events", "amt_devices", "enrollment_tokens", "security_groups",
+	"security_group_members", "device_updates", "device_hardware",
+	"device_processes", "device_inventory", "deleted_ids", "purge_jobs",
+}
+
+const (
+	tenantScopeSettingBefore = "app.current_org"
+	tenantScopeSettingAfter  = "app.current_tenant"
+)
+
+// tenantScopeColumnCount counts how many of tenantScopedTables carry a column of
+// the given name.
+func tenantScopeColumnCount(t *testing.T, ctx context.Context, db *sql.DB, column string) int {
+	t.Helper()
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND column_name = $1 AND table_name = ANY($2)`,
+		column, tenantScopedTables).Scan(&count))
+	return count
+}
+
+// policiesReadingSetting counts the tenant policies whose USING or WITH CHECK
+// expression reads the given scope setting.
+func policiesReadingSetting(t *testing.T, ctx context.Context, db *sql.DB, setting string) int {
+	t.Helper()
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM pg_policies
+		WHERE schemaname = 'public' AND policyname LIKE 'tenant_isolation_%'
+		  AND coalesce(qual, '') LIKE '%' || $1 || '%'
+		  AND coalesce(with_check, '') LIKE '%' || $1 || '%'`, setting).Scan(&count))
+	return count
+}
+
+// assertTenancyRenamed confirms the rename migration moved the scope table, the
+// scope column on every table that carries it, and the setting every tenant
+// policy reads — and that nothing keeps the introduced names.
+func assertTenancyRenamed(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	var tenants, organizations sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.tenants')`).Scan(&tenants))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.organizations')`).Scan(&organizations))
+	assert.True(t, tenants.Valid, "the tenants table should exist after the rename")
+	assert.False(t, organizations.Valid, "the tenants table should not be reachable under its introduced name")
+
+	assert.Equal(t, len(tenantScopedTables), tenantScopeColumnCount(t, ctx, db, "tenant_id"),
+		"every tenant-scoped table should carry tenant_id")
+	assert.Zero(t, tenantScopeColumnCount(t, ctx, db, "org_id"),
+		"no table should keep the introduced scope column name")
+
+	assert.Positive(t, policiesReadingSetting(t, ctx, db, tenantScopeSettingAfter),
+		"tenant policies should read app.current_tenant")
+	assert.Zero(t, policiesReadingSetting(t, ctx, db, tenantScopeSettingBefore),
+		"no tenant policy should still read app.current_org")
+
+	var defaultName string
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT name FROM tenants WHERE id = '00000000-0000-0000-0000-000000000002'`).Scan(&defaultName))
+	assert.Equal(t, "Default Tenant", defaultName)
+}
+
+// assertTenancyRenameDownReversal confirms the rename rollback put every name
+// back, so the migrations below it keep operating on the schema they expect.
+func assertTenancyRenameDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	var tenants, organizations sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.tenants')`).Scan(&tenants))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.organizations')`).Scan(&organizations))
+	assert.False(t, tenants.Valid, "the rename rollback should remove the tenants name")
+	assert.True(t, organizations.Valid, "the rename rollback should restore the organizations name")
+
+	assert.Equal(t, len(tenantScopedTables), tenantScopeColumnCount(t, ctx, db, "org_id"))
+	assert.Zero(t, tenantScopeColumnCount(t, ctx, db, "tenant_id"))
+	assert.Positive(t, policiesReadingSetting(t, ctx, db, tenantScopeSettingBefore))
+	assert.Zero(t, policiesReadingSetting(t, ctx, db, tenantScopeSettingAfter))
 }
 
 func assertTelemetryDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
@@ -181,7 +265,7 @@ func amtDeviceColumnNames(t *testing.T, ctx context.Context, db *sql.DB) []strin
 // assertAMTDeviceLink confirms migration 008 moved the AMT attributes onto the
 // hardware row, reduced amt_devices to connection state keyed by device, and
 // discarded the seeded AMT row that matches no managed device — an AMT
-// connection with no device has no organization to live in.
+// connection with no device has no tenant to live in.
 func assertAMTDeviceLink(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	assert.Equal(t, 5, amtLinkColumnCount(t, ctx, db), "all five AMT hardware columns should exist after migration 008")
@@ -191,7 +275,7 @@ func assertAMTDeviceLink(t *testing.T, ctx context.Context, db *sql.DB) {
 	var linked string
 	require.NoError(t, db.QueryRowContext(ctx,
 		`SELECT device_id::text FROM amt_devices`).Scan(&linked),
-		"exactly the linkable AMT row should survive — the orphan has no organization to live in")
+		"exactly the linkable AMT row should survive — the orphan has no tenant to live in")
 	assert.Equal(t, "00000000-0000-0000-0000-000000000103", linked,
 		"the surviving row should point at the device that shares its hostname")
 
@@ -227,7 +311,7 @@ func groupOwnerNullability(t *testing.T, ctx context.Context, db *sql.DB) (bool,
 }
 
 // groupOwnerIndexCount reports how many indexes cover the dropped
-// (org_id, owner_id) pair.
+// (tenant_id, owner_id) pair.
 func groupOwnerIndexCount(t *testing.T, ctx context.Context, db *sql.DB) int {
 	t.Helper()
 	var count int
@@ -238,19 +322,22 @@ func groupOwnerIndexCount(t *testing.T, ctx context.Context, db *sql.DB) int {
 }
 
 // assertGroupOwnerDropped confirms migration 009 removed the group-ownership
-// column and the index built on it. Organization is the visibility boundary, so
+// column and the index built on it. Tenant is the visibility boundary, so
 // nothing reads a group owner any more.
-func assertGroupOwnerDropped(t *testing.T, ctx context.Context, db *sql.DB) {
+//
+// tenantColumn names the group's tenant scope column, which the rename
+// migration moves — the caller passes whichever name the schema is on.
+func assertGroupOwnerDropped(t *testing.T, ctx context.Context, db *sql.DB, tenantColumn string) {
 	t.Helper()
 	exists, _ := groupOwnerNullability(t, ctx, db)
 	assert.False(t, exists, "groups_.owner_id should be gone after migration 009")
 	assert.Zero(t, groupOwnerIndexCount(t, ctx, db), "the owner index should be gone after migration 009")
 
-	// The surviving rows keep their organization, which is what scopes them now.
+	// The surviving rows keep their tenant, which is what scopes them now.
 	var orphaned int
-	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM groups_ WHERE org_id IS NULL`).Scan(&orphaned))
-	assert.Zero(t, orphaned, "every group should still carry its organization")
+	require.NoError(t, db.QueryRowContext(ctx, fmt.Sprintf(
+		`SELECT COUNT(*) FROM groups_ WHERE %s IS NULL`, sqlIdent(tenantColumn))).Scan(&orphaned))
+	assert.Zero(t, orphaned, "every group should still carry its tenant")
 }
 
 // assertGroupOwnerDownReversal confirms the 009 down rollback re-adds owner_id.

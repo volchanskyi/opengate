@@ -23,8 +23,12 @@ fn sample(cpu: f32, mem: f32, disk: f32, rx: u64, tx: u64) -> MetricSample {
 /// Pull the (name, avg) dim pairs out of an emitted window, in order.
 fn window_dims(msg: &ControlMessage) -> (i64, Vec<(String, f64)>) {
     match msg {
-        ControlMessage::AgentMetricWindow { ts, org_id, dims } => {
-            assert!(org_id.is_empty(), "the agent never asserts an org");
+        ControlMessage::AgentMetricWindow {
+            ts,
+            tenant_id,
+            dims,
+        } => {
+            assert!(tenant_id.is_empty(), "the agent never asserts a tenant");
             (*ts, dims.iter().map(|d| (d.name.clone(), d.avg)).collect())
         }
         other => panic!("expected AgentMetricWindow, got {other:?}"),

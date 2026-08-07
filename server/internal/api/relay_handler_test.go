@@ -107,7 +107,7 @@ func seedRelaySession(t *testing.T, ctx context.Context, srv *Server, cfg *auth.
 	group := testutil.SeedGroup(t, ctx, srv.store)
 	device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
 	sess := testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
-	jwt, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
+	jwt, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.TenantID)
 	require.NoError(t, err)
 	return sess.Token, jwt
 }
@@ -319,7 +319,7 @@ func TestRelayWebSocket(t *testing.T) {
 			UserID:   user.ID,
 		}))
 
-		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
+		jwtToken, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.TenantID)
 		require.NoError(t, err)
 
 		// Browser connects — should block waiting for peer

@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// TestAMTPowerActionIsOpenToOrgMembers verifies that an out-of-band power
-// command is a device command: organization membership is the whole gate.
-func TestAMTPowerActionIsOpenToOrgMembers(t *testing.T) {
+// TestAMTPowerActionIsOpenToTenantMembers verifies that an out-of-band power
+// command is a device command: tenant membership is the whole gate.
+func TestAMTPowerActionIsOpenToTenantMembers(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)

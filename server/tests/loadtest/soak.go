@@ -51,7 +51,7 @@ type soakStream interface {
 }
 
 // buildExtraMetricWindow builds an AgentMetricWindow over the host-metric dims
-// with an empty org (the server assigns the authoritative org from the
+// with an empty tenant (the server assigns the authoritative tenant from the
 // connection). It drives extra WS-4 avg-series ingest load under multi-tenant
 // stress, on top of the default telemetry shape.
 func buildExtraMetricWindow(ts int64) *protocol.ControlMessage {

@@ -69,18 +69,18 @@ func TestFaultDevicesPreservesTenantContext(t *testing.T) {
 	real := &recordingDevices{}
 	fd := WrapDevices(real)
 
-	orgA := uuid.New()
-	ctxA := dbtx.WithTenant(context.Background(), orgA, false)
+	tenantA := uuid.New()
+	ctxA := dbtx.WithTenant(context.Background(), tenantA, false)
 	_, err := fd.Get(ctxA, device.DeviceID(uuid.New()))
 	require.NoError(t, err)
-	assert.Equal(t, orgA, real.gotTenant.OrgID, "org A context must reach the repository unchanged")
+	assert.Equal(t, tenantA, real.gotTenant.TenantID, "tenant A context must reach the repository unchanged")
 
-	orgB := uuid.New()
-	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
+	tenantB := uuid.New()
+	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
 	fd.Arm("Get", Spec{Action: ActionDelay, Delay: 0})
 	_, err = fd.Get(ctxB, device.DeviceID(uuid.New()))
 	require.NoError(t, err)
-	assert.Equal(t, orgB, real.gotTenant.OrgID, "a fault must not cross org context — org B must not observe org A")
+	assert.Equal(t, tenantB, real.gotTenant.TenantID, "a fault must not cross tenant context — tenant B must not observe tenant A")
 }
 
 func TestFaultDevicesListFaultsAndDelegates(t *testing.T) {

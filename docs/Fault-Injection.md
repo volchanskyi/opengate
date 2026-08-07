@@ -179,11 +179,11 @@ promotion from its first run.
 ## Tenancy / RLS safety
 
 Tenancy is cross-cutting: every repository call runs in a tenant-scoped
-transaction whose org comes from the request context (`dbtx`, JWT `org` claim,
-per-tx `SET LOCAL app.current_org` — see [Database](./Database.md) and
+transaction whose tenant comes from the request context (`dbtx`, JWT `tenant` claim,
+per-tx `SET LOCAL app.current_tenant` — see [Database](./Database.md) and
 [ADR-041](./adr/ADR-041-postgres-rls-multitenancy.md)). Every harness fault
 decorator **threads the request `context.Context` through unchanged**, so the
-tenant GUC still propagates and a fault can never drop or cross an organization
+tenant GUC still propagates and a fault can never drop or cross a tenant
 context. The fault suite proves this with a cross-tenant-leak assertion around a
 substituted decorator.
 

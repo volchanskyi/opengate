@@ -74,7 +74,7 @@ fn golden_control_frame_heartbeat() {
 fn golden_control_frame_agent_health_summary() {
     let msg = ControlMessage::AgentHealthSummary {
         ts: 1700000100,
-        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
         node_anomaly_rate: 0.125,
         per_family_rates: vec![
             FamilyAnomalyRate {
@@ -104,7 +104,7 @@ fn golden_control_frame_agent_health_summary() {
 fn golden_control_frame_agent_metric_window() {
     let msg = ControlMessage::AgentMetricWindow {
         ts: 1700000160,
-        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
         dims: vec![
             MetricDim {
                 name: "cpu.total".to_string(),
@@ -125,7 +125,7 @@ fn golden_control_frame_agent_metric_window() {
 fn golden_control_frame_process_report() {
     let msg = ControlMessage::ProcessReport {
         ts: 1700000220,
-        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
         top_n: vec![ProcessReportEntry {
             rank: 1,
             basename: "postgres".to_string(),
@@ -156,7 +156,7 @@ fn golden_control_frame_health_window_response() {
     let msg = ControlMessage::HealthWindowResponse {
         summaries: vec![HealthSummary {
             ts: 1700000100,
-            org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
             node_anomaly_rate: 0.125,
             per_family_rates: vec![FamilyAnomalyRate {
                 family: "cpu".to_string(),
@@ -370,7 +370,7 @@ fn golden_control_frame_agent_metric_window_host_metrics() {
     // the server.
     let msg = ControlMessage::AgentMetricWindow {
         ts: 1700000260,
-        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
         dims: vec![
             MetricDim {
                 name: "cpu.total".to_string(),
@@ -545,7 +545,7 @@ fn golden_control_frame_local_history_response() {
 fn golden_control_frame_discovery_report() {
     let msg = ControlMessage::DiscoveryReport {
         ts: 1700000000,
-        org_id: String::new(),
+        tenant_id: String::new(),
         ports: vec![
             DiscoveredPort {
                 proto: "tcp".to_string(),

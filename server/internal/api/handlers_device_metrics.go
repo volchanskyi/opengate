@@ -43,7 +43,7 @@ func (s *Server) enrichAnomalyRates(ctx context.Context, devices []Device) {
 	if !ok {
 		return
 	}
-	vals, err := s.telemetryReader.QueryInstantLookback(ctx, tenant.OrgID, metricNodeAnomalyRate, nil, time.Now(), anomalyBadgeLookback)
+	vals, err := s.telemetryReader.QueryInstantLookback(ctx, tenant.TenantID, metricNodeAnomalyRate, nil, time.Now(), anomalyBadgeLookback)
 	if err != nil {
 		s.logger.WarnContext(ctx, "anomaly-rate badge query failed", "error", err)
 		return
@@ -92,7 +92,7 @@ func (s *Server) GetDeviceMetrics(ctx context.Context, request GetDeviceMetricsR
 	step := chooseStep(from, to, maxPoints)
 	wantBand := bandFromParam(request.Params.Band)
 
-	resp, err := s.buildMetricRange(ctx, tenant.OrgID, request.Id, metricRangeQuery{
+	resp, err := s.buildMetricRange(ctx, tenant.TenantID, request.Id, metricRangeQuery{
 		from: from, to: to, step: step, dims: request.Params.Dims, wantBand: wantBand,
 	})
 	if err != nil {
@@ -111,9 +111,9 @@ type metricRangeQuery struct {
 // buildMetricRange fetches the avg line (and optional avg_of_10s band) for the
 // device's numeric dimensions and aligns every series onto one timestamp grid so
 // the payload maps 1:1 to a client charting engine's aligned data.
-func (s *Server) buildMetricRange(ctx context.Context, orgID, deviceID uuid.UUID, q metricRangeQuery) (MetricRangeResponse, error) {
+func (s *Server) buildMetricRange(ctx context.Context, tenantID, deviceID uuid.UUID, q metricRangeQuery) (MetricRangeResponse, error) {
 	matchers := map[string]string{"device_id": deviceID.String()}
-	avg, err := s.telemetryReader.QueryRange(ctx, orgID, telemetry.RangeQuery{
+	avg, err := s.telemetryReader.QueryRange(ctx, tenantID, telemetry.RangeQuery{
 		Metric: metricAvgName, Matchers: matchers, Agg: telemetry.RangeAvg,
 		Start: q.from, End: q.to, Step: q.step,
 	})
@@ -123,13 +123,13 @@ func (s *Server) buildMetricRange(ctx context.Context, orgID, deviceID uuid.UUID
 
 	var mins, maxs []telemetry.RangeSeries
 	if q.wantBand {
-		if mins, err = s.telemetryReader.QueryRange(ctx, orgID, telemetry.RangeQuery{
+		if mins, err = s.telemetryReader.QueryRange(ctx, tenantID, telemetry.RangeQuery{
 			Metric: metricAvgName, Matchers: matchers, Agg: telemetry.RangeMin,
 			Start: q.from, End: q.to, Step: q.step,
 		}); err != nil {
 			return MetricRangeResponse{}, err
 		}
-		if maxs, err = s.telemetryReader.QueryRange(ctx, orgID, telemetry.RangeQuery{
+		if maxs, err = s.telemetryReader.QueryRange(ctx, tenantID, telemetry.RangeQuery{
 			Metric: metricAvgName, Matchers: matchers, Agg: telemetry.RangeMax,
 			Start: q.from, End: q.to, Step: q.step,
 		}); err != nil {

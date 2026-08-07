@@ -13,38 +13,38 @@ import (
 type stubExporter struct {
 	series      []telemetry.ExportedSeries
 	err         error
-	gotOrg      uuid.UUID
+	gotTenant   uuid.UUID
 	gotSelector string
 }
 
-func (s *stubExporter) Export(_ context.Context, orgID uuid.UUID, selector string, _, _ time.Time) ([]telemetry.ExportedSeries, error) {
-	s.gotOrg = orgID
+func (s *stubExporter) Export(_ context.Context, tenantID uuid.UUID, selector string, _, _ time.Time) ([]telemetry.ExportedSeries, error) {
+	s.gotTenant = tenantID
 	s.gotSelector = selector
 	return s.series, s.err
 }
 
 func TestVMFetcherScopesByDeviceAndMapsPoints(t *testing.T) {
 	t.Parallel()
-	org := uuid.New()
+	tenant := uuid.New()
 	dev := uuid.New()
 	tsMs := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC).UnixMilli()
 	stub := &stubExporter{series: []telemetry.ExportedSeries{
 		{
-			Metric:     map[string]string{"__name__": "cpu_pct", "org_id": org.String(), "device_id": dev.String(), "core": "0"},
+			Metric:     map[string]string{"__name__": "cpu_pct", "tenant_id": tenant.String(), "device_id": dev.String(), "core": "0"},
 			Values:     []float64{10, 20},
 			Timestamps: []int64{tsMs, tsMs + 60000},
 		},
 	}}
 	f := NewVMFetcher(stub)
 
-	got, err := f.Fetch(context.Background(), org, dev, time.UnixMilli(tsMs), time.UnixMilli(tsMs+120000))
+	got, err := f.Fetch(context.Background(), tenant, dev, time.UnixMilli(tsMs), time.UnixMilli(tsMs+120000))
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	// The fetcher must pass a device-scoped selector without org_id; the VM client
-	// injects the org matcher itself.
-	if stub.gotOrg != org {
-		t.Errorf("exporter org = %v, want %v", stub.gotOrg, org)
+	// The fetcher must pass a device-scoped selector without tenant_id; the VM client
+	// injects the tenant matcher itself.
+	if stub.gotTenant != tenant {
+		t.Errorf("exporter tenant = %v, want %v", stub.gotTenant, tenant)
 	}
 	wantSelector := `{device_id="` + dev.String() + `"}`
 	if stub.gotSelector != wantSelector {
@@ -57,8 +57,8 @@ func TestVMFetcherScopesByDeviceAndMapsPoints(t *testing.T) {
 		t.Errorf("metric = %q, want cpu_pct", got[0].Metric)
 	}
 	// Reserved scoping labels must be stripped from the identifying labels.
-	if _, ok := got[0].Labels["org_id"]; ok {
-		t.Error("org_id label leaked into dimension labels")
+	if _, ok := got[0].Labels["tenant_id"]; ok {
+		t.Error("tenant_id label leaked into dimension labels")
 	}
 	if _, ok := got[0].Labels["device_id"]; ok {
 		t.Error("device_id label leaked into dimension labels")

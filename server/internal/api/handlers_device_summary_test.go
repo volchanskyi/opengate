@@ -72,7 +72,7 @@ func TestGetDeviceSummary(t *testing.T) {
 	})
 
 	t.Run("unknown never goes negative", func(t *testing.T) {
-		// More banded devices than the org holds (a sample that outlived its
+		// More banded devices than the tenant holds (a sample that outlived its
 		// device) must not push unknown below zero.
 		srv.telemetryReader = &fakeMetricsReader{bands: telemetry.BandCounts{Anomalous: 9, Watch: 9, Healthy: 9}}
 		got := fetchSummary(t, srv, token)
@@ -107,10 +107,10 @@ func TestGetDeviceSummary(t *testing.T) {
 	})
 }
 
-// TestGetDeviceSummaryIsOrgScoped proves the deliberate scope choice: the
-// summary always describes the caller's own organization, so its tiles and its
+// TestGetDeviceSummaryIsTenantScoped proves the deliberate scope choice: the
+// summary always describes the caller's own tenant, so its tiles and its
 // health bands cover one device set.
-func TestGetDeviceSummaryIsOrgScoped(t *testing.T) {
+func TestGetDeviceSummaryIsTenantScoped(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	seedSummaryDevice(t, srv, db.StatusOnline, false)
@@ -121,7 +121,7 @@ func TestGetDeviceSummaryIsOrgScoped(t *testing.T) {
 
 	srv.telemetryReader = &fakeMetricsReader{}
 	got := fetchSummary(t, srv, outsiderToken)
-	assert.Equal(t, DeviceSummary{}, got, "another organization's fleet is invisible")
+	assert.Equal(t, DeviceSummary{}, got, "another tenant's fleet is invisible")
 }
 
 // TestGetDeviceSummaryIsConstantSize proves the payload does not grow with the

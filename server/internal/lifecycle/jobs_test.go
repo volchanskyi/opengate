@@ -26,7 +26,7 @@ func TestJobStoreCreateGetRoundTrips(t *testing.T) {
 	by := uuid.New()
 	job := &PurgeJob{
 		ID:          uuid.New(),
-		OrgID:       uuid.New(),
+		TenantID:    uuid.New(),
 		DeviceID:    &device,
 		Scope:       ScopeDevice,
 		State:       StateRequested,
@@ -36,7 +36,7 @@ func TestJobStoreCreateGetRoundTrips(t *testing.T) {
 
 	got, err := js.GetJob(ctx, job.ID)
 	require.NoError(t, err)
-	assert.Equal(t, job.OrgID, got.OrgID)
+	assert.Equal(t, job.TenantID, got.TenantID)
 	require.NotNil(t, got.DeviceID)
 	assert.Equal(t, device, *got.DeviceID)
 	assert.Equal(t, ScopeDevice, got.Scope)
@@ -50,7 +50,7 @@ func TestJobStoreUpdatePersistsProgress(t *testing.T) {
 	t.Parallel()
 	js, ctx := newJobFixture(t)
 
-	job := &PurgeJob{ID: uuid.New(), OrgID: uuid.New(), Scope: ScopeOrg, State: StateRequested}
+	job := &PurgeJob{ID: uuid.New(), TenantID: uuid.New(), Scope: ScopeTenant, State: StateRequested}
 	require.NoError(t, js.CreateJob(ctx, job))
 
 	job.State = StateComplete
@@ -72,9 +72,9 @@ func TestJobStoreListIncompleteExcludesCompleted(t *testing.T) {
 	t.Parallel()
 	js, ctx := newJobFixture(t)
 
-	org := uuid.New()
-	done := &PurgeJob{ID: uuid.New(), OrgID: org, Scope: ScopeOrg, State: StateRequested}
-	pending := &PurgeJob{ID: uuid.New(), OrgID: org, Scope: ScopeOrg, State: StateRequested}
+	tenant := uuid.New()
+	done := &PurgeJob{ID: uuid.New(), TenantID: tenant, Scope: ScopeTenant, State: StateRequested}
+	pending := &PurgeJob{ID: uuid.New(), TenantID: tenant, Scope: ScopeTenant, State: StateRequested}
 	require.NoError(t, js.CreateJob(ctx, done))
 	require.NoError(t, js.CreateJob(ctx, pending))
 	require.NoError(t, js.MarkComplete(ctx, done))
@@ -94,7 +94,7 @@ func TestJobStoreUpdateProgressPersistsError(t *testing.T) {
 	t.Parallel()
 	js, ctx := newJobFixture(t)
 
-	job := &PurgeJob{ID: uuid.New(), OrgID: uuid.New(), Scope: ScopeDevice, State: StateRequested}
+	job := &PurgeJob{ID: uuid.New(), TenantID: uuid.New(), Scope: ScopeDevice, State: StateRequested}
 	require.NoError(t, js.CreateJob(ctx, job))
 
 	job.State = StateCentralPhysicalPending
@@ -114,18 +114,18 @@ func TestJobStoreLatestForSubject(t *testing.T) {
 	t.Parallel()
 	js, ctx := newJobFixture(t)
 
-	org := uuid.New()
+	tenant := uuid.New()
 	device := uuid.New()
-	job := &PurgeJob{ID: uuid.New(), OrgID: org, DeviceID: &device, Scope: ScopeDevice, State: StateRequested}
+	job := &PurgeJob{ID: uuid.New(), TenantID: tenant, DeviceID: &device, Scope: ScopeDevice, State: StateRequested}
 	require.NoError(t, js.CreateJob(ctx, job))
 
-	got, err := js.LatestForOrg(ctx, org)
+	got, err := js.LatestForTenant(ctx, tenant)
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, job.ID, got.ID)
 
-	// An org with no purge job returns nil, not an error.
-	none, err := js.LatestForOrg(ctx, uuid.New())
+	// A tenant with no purge job returns nil, not an error.
+	none, err := js.LatestForTenant(ctx, uuid.New())
 	require.NoError(t, err)
 	assert.Nil(t, none)
 }

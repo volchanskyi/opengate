@@ -39,7 +39,7 @@ const (
 // only on success: a failed write leaves the batch un-acked, so the agent keeps
 // its durable data and re-sends from the un-advanced cursor on its next grant
 // (idempotent — VM dedups by timestamp). Samples are clamped to retention and
-// bounded against wild clocks, and the org is taken from the authenticated
+// bounded against wild clocks, and the tenant is taken from the authenticated
 // connection, never the agent's message.
 func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
 	if a.telemetry == nil {
@@ -78,7 +78,7 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 	if len(samples) > 0 {
 		jobCtx, cancel := context.WithTimeout(ctx, backfillPersistTimeout)
 		defer cancel()
-		if err := a.telemetry.WriteSamples(jobCtx, tenant.OrgID, a.DeviceID, samples); err != nil {
+		if err := a.telemetry.WriteSamples(jobCtx, tenant.TenantID, a.DeviceID, samples); err != nil {
 			a.logger.Warn("backfill persist failed; not acking (agent will retry)",
 				"device_id", a.DeviceID, "error", err)
 			return nil
@@ -98,7 +98,7 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 // the server-coordinated scheduler and replies to the agent with the decision
 // (GrantBackfill with a rate + deadline, or DeferBackfill with a retry-after).
 //
-// The org is taken from the authenticated connection, never from the agent's
+// The tenant is taken from the authenticated connection, never from the agent's
 // message, so backfill admission is always scoped to the right tenant. A
 // connection without a scheduler (test/programmatic) or an agent that never
 // advertised the Backfill capability is a silent no-op — the agent falls back
@@ -112,7 +112,7 @@ func (a *AgentConn) handleRequestBackfillSlot(msg *protocol.ControlMessage) erro
 		return nil
 	}
 
-	decision := a.scheduler.RequestSlot(a.DeviceID, a.OrgID, SlotRequest{
+	decision := a.scheduler.RequestSlot(a.DeviceID, a.TenantID, SlotRequest{
 		PendingSamples: msg.PendingSamples,
 		OldestTS:       msg.OldestTS,
 	})

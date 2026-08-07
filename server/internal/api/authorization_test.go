@@ -12,10 +12,10 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestDeviceFleetReadsAreOrgWide verifies that organization membership alone
-// grants the fleet read surface: two ordinary members of the same organization
+// TestDeviceFleetReadsAreTenantWide verifies that tenant membership alone
+// grants the fleet read surface: two ordinary members of the same tenant
 // see the same devices, whichever group holds them.
-func TestDeviceFleetReadsAreOrgWide(t *testing.T) {
+func TestDeviceFleetReadsAreTenantWide(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)
@@ -97,11 +97,11 @@ func TestDeviceConfigurationIsAdminOnly(t *testing.T) {
 	})
 }
 
-// TestDeviceCommandsAreOpenToOrgMembers verifies that acting on a device —
-// restarting the agent, toggling maintenance — needs organization membership
+// TestDeviceCommandsAreOpenToTenantMembers verifies that acting on a device —
+// restarting the agent, toggling maintenance — needs tenant membership
 // only. A 409 proves the request cleared authorization and reached the agent
 // broker, which has no connected agent in this server.
-func TestDeviceCommandsAreOpenToOrgMembers(t *testing.T) {
+func TestDeviceCommandsAreOpenToTenantMembers(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)
@@ -133,10 +133,10 @@ func TestDeviceCommandsAreOpenToOrgMembers(t *testing.T) {
 	})
 }
 
-// TestDeviceReadsRejectOtherOrganizations verifies the visibility boundary still
-// stops at the organization: a member of another organization gets a 404 from
+// TestDeviceReadsRejectOtherTenants verifies the visibility boundary still
+// stops at the tenant: a member of another tenant gets a 404 from
 // the tenant-scoped lookup rather than the device.
-func TestDeviceReadsRejectOtherOrganizations(t *testing.T) {
+func TestDeviceReadsRejectOtherTenants(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)
@@ -148,12 +148,12 @@ func TestDeviceReadsRejectOtherOrganizations(t *testing.T) {
 	outsiderToken, err := cfg.GenerateToken(outsider.ID, outsider.Email, false, uuid.New())
 	require.NoError(t, err)
 
-	t.Run("get device other org not found", func(t *testing.T) {
+	t.Run("get device other tenant not found", func(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathDevicesS+dev.ID.String(), outsiderToken, nil)
 		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
-	t.Run("list devices other org is empty", func(t *testing.T) {
+	t.Run("list devices other tenant is empty", func(t *testing.T) {
 		w := doRequest(srv, http.MethodGet, testPathDevices, outsiderToken, nil)
 		require.Equal(t, http.StatusOK, w.Code)
 		var devices []Device

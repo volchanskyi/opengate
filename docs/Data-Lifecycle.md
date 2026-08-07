@@ -13,15 +13,15 @@ and [`handlers_device_actions.go`](../server/internal/api/handlers_device_action
 
 ## What is erased
 
-| Store | Device delete | Tenant/org purge |
+| Store | Device delete | Tenant/tenant purge |
 |-------|---------------|------------------|
-| VictoriaMetrics series (numeric host metrics, inline anomaly scores) | scoped delete-series `{org_id,device_id}` | `{org_id}` |
-| Postgres `device_processes`, `device_inventory` (+ the `devices` row) | FK `ON DELETE CASCADE` | every device in the org |
-| Cold-tier objects (optional) | device prefix | org prefix |
-| Agent local store | deprovision → wiped on next reconnect | every agent in the org |
+| VictoriaMetrics series (numeric host metrics, inline anomaly scores) | scoped delete-series `{tenant_id,device_id}` | `{tenant_id}` |
+| Postgres `device_processes`, `device_inventory` (+ the `devices` row) | FK `ON DELETE CASCADE` | every device in the tenant |
+| Cold-tier objects (optional) | device prefix | tenant prefix |
+| Agent local store | deprovision → wiped on next reconnect | every agent in the tenant |
 | Audit events | **retained** — the erasure proof | retained |
 
-The organization row itself is retained for a tenant purge: it anchors the
+The tenant row itself is retained for a tenant purge: it anchors the
 retained audit trail and the deny-list, and enforcing referential integrity
 against retained audit events would otherwise block the delete.
 
@@ -36,10 +36,10 @@ in-flight backfill, or misbehaving agent can re-create purged data:
   rejects a tombstoned device on connect and on every write-path control message
   ([`conn.go`](../server/internal/agentapi/conn.go)).
 - A connected agent is deregistered immediately; an offline one is denied by its
-  own id on the next reconnect (an org purge records a per-device tombstone for
+  own id on the next reconnect (a tenant purge records a per-device tombstone for
   each device it finds, so the check needs only the device id).
 
-An org tombstone supersedes its device tombstones, and `deleted_ids` carries ids
+A tenant tombstone supersedes its device tombstones, and `deleted_ids` carries ids
 and purge scope only — never telemetry — so it is retained indefinitely.
 
 ## Deletion state machine
@@ -79,7 +79,7 @@ ingest, so a series with no row is genuinely orphaned.
 
 - `DELETE /devices/{id}` runs a synchronous device purge (bounded emptiness
   verify; a slow VM compaction falls through to the sweep).
-- `POST /orgs/{orgId}/purge` starts an admin-only, tenant-scoped asynchronous
+- `POST /tenants/{tenantId}/purge` starts an admin-only, tenant-scoped asynchronous
   purge and returns the job.
 - `GET /purge-jobs/{jobId}` reports progress.
 

@@ -63,9 +63,9 @@ type DeleteSessionInput struct {
 }
 
 // Delete removes a session and emits an audit log + push event. Ending a remote
-// session is a device command, so organization membership is the whole gate: the
+// session is a device command, so tenant membership is the whole gate: the
 // lookup runs in the caller's tenant scope and any member may end any session on
-// a device in that organization. Returns ErrSessionNotFound if the token is
+// a device in that tenant. Returns ErrSessionNotFound if the token is
 // unknown in scope, or the underlying Repository error on persistence failure.
 func (s *SessionService) Delete(ctx context.Context, in DeleteSessionInput) error {
 	if _, err := s.sessions.Get(ctx, in.Token); err != nil {

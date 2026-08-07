@@ -17,7 +17,7 @@ import (
 )
 
 type telemetryWriteCall struct {
-	orgID    uuid.UUID
+	tenantID uuid.UUID
 	deviceID uuid.UUID
 	samples  []telemetry.Sample
 }
@@ -28,12 +28,12 @@ type recordingTelemetryWriter struct {
 	count atomic.Int64
 }
 
-func (r *recordingTelemetryWriter) WriteSamples(_ context.Context, orgID uuid.UUID, deviceID uuid.UUID, samples []telemetry.Sample) error {
+func (r *recordingTelemetryWriter) WriteSamples(_ context.Context, tenantID uuid.UUID, deviceID uuid.UUID, samples []telemetry.Sample) error {
 	r.count.Add(1)
 	if r.block != nil {
 		<-r.block
 	}
-	r.calls <- telemetryWriteCall{orgID: orgID, deviceID: deviceID, samples: samples}
+	r.calls <- telemetryWriteCall{tenantID: tenantID, deviceID: deviceID, samples: samples}
 	return nil
 }
 
@@ -64,7 +64,7 @@ func TestAgentConn_HandleAgentHealthSummaryUsesAuthoritativeTenant(t *testing.T)
 	msg := &protocol.ControlMessage{
 		Type:            protocol.MsgAgentHealthSummary,
 		TS:              time.Now().Unix(),
-		OrgID:           uuid.New().String(),
+		TenantID:        uuid.New().String(),
 		NodeAnomalyRate: 0.25,
 		PerFamilyRates:  []protocol.FamilyAnomalyRate{{Family: "cpu", Rate: 0.5}},
 	}
@@ -75,7 +75,7 @@ func TestAgentConn_HandleAgentHealthSummaryUsesAuthoritativeTenant(t *testing.T)
 	ac.flushTelemetry(ctx)
 
 	call := receiveTelemetryCall(t, writer.calls)
-	assert.Equal(t, dbtx.DefaultOrgID, call.orgID)
+	assert.Equal(t, dbtx.DefaultTenantID, call.tenantID)
 	assert.Equal(t, deviceID, call.deviceID)
 	require.Len(t, call.samples, 2)
 	assert.Equal(t, "opengate_edge_node_anomaly_rate", call.samples[0].Name)
@@ -93,9 +93,9 @@ func TestAgentConn_HandleProcessReportStoresRowsAndRankOnlyMetrics(t *testing.T)
 
 	hash := "deadbeef"
 	msg := &protocol.ControlMessage{
-		Type:  protocol.MsgProcessReport,
-		TS:    time.Now().Unix(),
-		OrgID: uuid.New().String(),
+		Type:     protocol.MsgProcessReport,
+		TS:       time.Now().Unix(),
+		TenantID: uuid.New().String(),
 		TopN: []protocol.ProcessReportEntry{{
 			Rank: 1, Basename: "postgres", CmdlineHash: &hash, PID: 222, CPU: 12.5, Mem: 3.25,
 		}},

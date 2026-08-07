@@ -131,9 +131,9 @@ func (i *InstrumentedHardware) Get(ctx context.Context, deviceID DeviceID) (*Har
 
 func (i *InstrumentedHardware) ResolveBySystemUUID(ctx context.Context, systemUUID uuid.UUID) (DeviceID, uuid.UUID, error) {
 	start := time.Now()
-	deviceID, orgID, err := i.inner.ResolveBySystemUUID(ctx, systemUUID)
+	deviceID, tenantID, err := i.inner.ResolveBySystemUUID(ctx, systemUUID)
 	i.observer.Observe("device.Hardware.ResolveBySystemUUID", time.Since(start), err == nil)
-	return deviceID, orgID, err
+	return deviceID, tenantID, err
 }
 
 func (i *InstrumentedHardware) SetAMTDetail(ctx context.Context, deviceID DeviceID, model, firmware string) error {

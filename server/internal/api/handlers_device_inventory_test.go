@@ -86,7 +86,7 @@ func TestGetDeviceInventoryHandler(t *testing.T) {
 		assert.Equal(t, 0, fake.called)
 	})
 
-	t.Run("200 for any device in the caller's organization", func(t *testing.T) {
+	t.Run("200 for any device in the caller's tenant", func(t *testing.T) {
 		peerGroup := &device.Group{ID: uuid.New(), Name: "inv-peer-group"}
 		require.NoError(t, srv.groups.Create(ctx, peerGroup))
 		peerDev := &device.Device{ID: uuid.New(), GroupID: peerGroup.ID, Hostname: "peer-host", OS: "linux", Status: db.StatusOnline}

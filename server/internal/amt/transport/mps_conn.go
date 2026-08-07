@@ -32,28 +32,28 @@ type Conn struct {
 	mu         sync.RWMutex
 	logger     *slog.Logger
 
-	// deviceID and orgID identify the managed device this connection was
+	// deviceID and tenantID identify the managed device this connection was
 	// resolved to, and are zero until one reports the same SMBIOS system UUID.
 	// The keepalive retries the lookup, so a machine whose agent registers after
 	// the AMT firmware dialled in is adopted without reconnecting.
 	deviceID uuid.UUID
-	orgID    uuid.UUID
+	tenantID uuid.UUID
 }
 
-// link records the device and organization this connection resolved to.
-func (c *Conn) link(deviceID, orgID uuid.UUID) {
+// link records the device and tenant this connection resolved to.
+func (c *Conn) link(deviceID, tenantID uuid.UUID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.deviceID = deviceID
-	c.orgID = orgID
+	c.tenantID = tenantID
 }
 
-// linked returns the resolved device and organization, and whether this
+// linked returns the resolved device and tenant, and whether this
 // connection has been linked at all.
 func (c *Conn) linked() (uuid.UUID, uuid.UUID, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.deviceID, c.orgID, c.deviceID != uuid.Nil
+	return c.deviceID, c.tenantID, c.deviceID != uuid.Nil
 }
 
 // NetConn returns the underlying network connection.

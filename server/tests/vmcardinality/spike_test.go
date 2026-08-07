@@ -210,44 +210,44 @@ func generate(runID string, p hostProfile, start, end int) (string, int) {
 	ts := time.Now().UnixMilli()
 	var b strings.Builder
 	count := 0
-	emit := func(name, device, org, extraKey, extraVal string) {
+	emit := func(name, device, tenant, extraKey, extraVal string) {
 		if extraKey == "" {
-			fmt.Fprintf(&b, "%s{run_id=%q,org_id=%q,device_id=%q} 1 %d\n", name, runID, org, device, ts)
+			fmt.Fprintf(&b, "%s{run_id=%q,tenant_id=%q,device_id=%q} 1 %d\n", name, runID, tenant, device, ts)
 		} else {
-			fmt.Fprintf(&b, "%s{run_id=%q,org_id=%q,device_id=%q,%s=%q} 1 %d\n", name, runID, org, device, extraKey, extraVal, ts)
+			fmt.Fprintf(&b, "%s{run_id=%q,tenant_id=%q,device_id=%q,%s=%q} 1 %d\n", name, runID, tenant, device, extraKey, extraVal, ts)
 		}
 		count++
 	}
 	for a := start; a < end; a++ {
 		device := fmt.Sprintf("dev-%d", a)
-		org := fmt.Sprintf("org-%d", a%tenants)
+		tenant := fmt.Sprintf("tenant-%d", a%tenants)
 
-		emit("es_node_anomaly_rate", device, org, "", "")
+		emit("es_node_anomaly_rate", device, tenant, "", "")
 		for _, fam := range []string{"cpu", "mem", "disk", "net", "proc"} {
-			emit("es_family_anomaly_rate", device, org, "family", fam)
+			emit("es_family_anomaly_rate", device, tenant, "family", fam)
 		}
 		for _, name := range []string{"es_cpu_usage_avg", "es_cpu_user_avg", "es_cpu_system_avg", "es_cpu_iowait_avg"} {
-			emit(name, device, org, "", "")
+			emit(name, device, tenant, "", "")
 		}
 		for c := range p.cores {
-			emit("es_cpu_core_usage_avg", device, org, "core", fmt.Sprintf("%d", c))
+			emit("es_cpu_core_usage_avg", device, tenant, "core", fmt.Sprintf("%d", c))
 		}
 		for _, name := range []string{"es_mem_used_avg", "es_mem_available_avg", "es_mem_cached_avg", "es_mem_buffers_avg", "es_mem_swap_used_avg"} {
-			emit(name, device, org, "", "")
+			emit(name, device, tenant, "", "")
 		}
 		for d := range p.disks {
 			dev := fmt.Sprintf("disk%d", d)
 			for _, name := range []string{"es_disk_read_bytes_avg", "es_disk_write_bytes_avg", "es_disk_io_util_avg"} {
-				emit(name, device, org, "block_device", dev)
+				emit(name, device, tenant, "block_device", dev)
 			}
 		}
 		for f := range p.filesystems {
-			emit("es_fs_used_pct_avg", device, org, "mount", fmt.Sprintf("mnt%d", f))
+			emit("es_fs_used_pct_avg", device, tenant, "mount", fmt.Sprintf("mnt%d", f))
 		}
 		for i := range p.interfaces {
 			iface := fmt.Sprintf("eth%d", i)
 			for _, name := range []string{"es_net_rx_bytes_avg", "es_net_tx_bytes_avg", "es_net_rx_errors_avg", "es_net_tx_errors_avg"} {
-				emit(name, device, org, "iface", iface)
+				emit(name, device, tenant, "iface", iface)
 			}
 		}
 	}

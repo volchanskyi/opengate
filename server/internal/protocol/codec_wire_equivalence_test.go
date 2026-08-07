@@ -136,7 +136,7 @@ func TestEncodeControlMatchesReflectionRoundTrip(t *testing.T) {
 			msg: &ControlMessage{
 				Type:            MsgAgentHealthSummary,
 				TS:              1700000001,
-				OrgID:           "org-1",
+				TenantID:        "tenant-1",
 				NodeAnomalyRate: 0.25,
 				PerFamilyRates:  []FamilyAnomalyRate{{Family: "cpu", Rate: 0.5}},
 				RecentBitmask:   []byte{0x01, 0x02},

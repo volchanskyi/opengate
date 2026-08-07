@@ -27,10 +27,10 @@ func TestGetDeviceHistory(t *testing.T) {
 		wantStatus int
 	}{
 		{"device not found", false, false, true, "dim=cpu.total&" + window, http.StatusNotFound},
-		// A history pull is a fleet read: a peer in the same organization clears
+		// A history pull is a fleet read: a peer in the same tenant clears
 		// authorization and reaches the broker, which refuses because this agent
 		// never advertised the capability.
-		{"peer in the same organization", true, true, false, "dim=cpu.total&" + window, http.StatusNotFound},
+		{"peer in the same tenant", true, true, false, "dim=cpu.total&" + window, http.StatusNotFound},
 		{"offline", false, true, true, "dim=cpu.total&" + window, http.StatusNotFound},
 		{"empty dim", true, true, true, "dim=&" + window, http.StatusBadRequest},
 		{"window not increasing", true, true, true, "dim=cpu.total&from=2026-01-01T02:00:00Z&to=2026-01-01T01:00:00Z", http.StatusBadRequest},

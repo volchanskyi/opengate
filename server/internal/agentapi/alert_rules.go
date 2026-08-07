@@ -7,47 +7,47 @@ import (
 )
 
 // AlertRuleProvider returns the WS-19 threshold-alert ruleset for one
-// organization. The server pushes only the connecting agent's authoritative
-// org's rules (see AgentConn.pushAlertRules), so the lookup key is the trust
-// boundary — one org's rules never reach another.
+// tenant. The server pushes only the connecting agent's authoritative
+// tenant's rules (see AgentConn.pushAlertRules), so the lookup key is the trust
+// boundary — one tenant's rules never reach another.
 type AlertRuleProvider interface {
-	// RulesFor returns the rules to push to an agent enrolled in orgID.
-	RulesFor(orgID uuid.UUID) []protocol.ThresholdRule
+	// RulesFor returns the rules to push to an agent enrolled in tenantID.
+	RulesFor(tenantID uuid.UUID) []protocol.ThresholdRule
 }
 
-// StaticAlertRuleProvider serves a minimal default ruleset to every org, with
-// optional per-org overrides. It is the in-memory delivery mechanism for WS-19:
+// StaticAlertRuleProvider serves a minimal default ruleset to every tenant, with
+// optional per-tenant overrides. It is the in-memory delivery mechanism for WS-19:
 // rules are server configuration rather than a tenant Postgres table, and the
-// per-org keying makes cross-tenant leakage structurally impossible.
+// per-tenant keying makes cross-tenant leakage structurally impossible.
 type StaticAlertRuleProvider struct {
 	defaultRules []protocol.ThresholdRule
-	byOrg        map[uuid.UUID][]protocol.ThresholdRule
+	byTenant     map[uuid.UUID][]protocol.ThresholdRule
 }
 
 // NewStaticAlertRuleProvider builds a provider that returns defaultRules for any
-// org absent from byOrg. Both arguments are copied defensively.
-func NewStaticAlertRuleProvider(defaultRules []protocol.ThresholdRule, byOrg map[uuid.UUID][]protocol.ThresholdRule) *StaticAlertRuleProvider {
+// tenant absent from byTenant. Both arguments are copied defensively.
+func NewStaticAlertRuleProvider(defaultRules []protocol.ThresholdRule, byTenant map[uuid.UUID][]protocol.ThresholdRule) *StaticAlertRuleProvider {
 	p := &StaticAlertRuleProvider{
 		defaultRules: cloneRules(defaultRules),
-		byOrg:        make(map[uuid.UUID][]protocol.ThresholdRule, len(byOrg)),
+		byTenant:     make(map[uuid.UUID][]protocol.ThresholdRule, len(byTenant)),
 	}
-	for org, rules := range byOrg {
-		p.byOrg[org] = cloneRules(rules)
+	for tenant, rules := range byTenant {
+		p.byTenant[tenant] = cloneRules(rules)
 	}
 	return p
 }
 
-// RulesFor returns a defensive copy of orgID's ruleset, or the default set when
-// the org has no override.
-func (p *StaticAlertRuleProvider) RulesFor(orgID uuid.UUID) []protocol.ThresholdRule {
-	if rules, ok := p.byOrg[orgID]; ok {
+// RulesFor returns a defensive copy of tenantID's ruleset, or the default set when
+// the tenant has no override.
+func (p *StaticAlertRuleProvider) RulesFor(tenantID uuid.UUID) []protocol.ThresholdRule {
+	if rules, ok := p.byTenant[tenantID]; ok {
 		return cloneRules(rules)
 	}
 	return cloneRules(p.defaultRules)
 }
 
 // resolveAlertRuleProvider returns provider unchanged, or a default static
-// provider (minimal ruleset for every org) when the caller supplied none.
+// provider (minimal ruleset for every tenant) when the caller supplied none.
 func resolveAlertRuleProvider(provider AlertRuleProvider) AlertRuleProvider {
 	if provider != nil {
 		return provider
@@ -55,7 +55,7 @@ func resolveAlertRuleProvider(provider AlertRuleProvider) AlertRuleProvider {
 	return NewStaticAlertRuleProvider(DefaultAlertRules(), nil)
 }
 
-// DefaultAlertRules is the minimal built-in ruleset shipped to every org that
+// DefaultAlertRules is the minimal built-in ruleset shipped to every tenant that
 // has no custom configuration: sustained resource-saturation alerts with
 // hysteresis, tuned conservatively because delivery is investigation-aid only.
 func DefaultAlertRules() []protocol.ThresholdRule {

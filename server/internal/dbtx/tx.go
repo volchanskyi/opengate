@@ -38,8 +38,8 @@ func Scoped(ctx context.Context, db *sql.DB, fn func(*sql.Tx) error) error {
 // SetLocal sets tenant GUCs for the lifetime of tx.
 func SetLocal(ctx context.Context, tx *sql.Tx, tenant Tenant) error {
 	if _, err := tx.ExecContext(ctx,
-		`SELECT set_config('app.current_org', $1, true), set_config('app.is_admin', $2, true)`,
-		tenant.OrgID.String(), strconv.FormatBool(tenant.IsAdmin)); err != nil {
+		`SELECT set_config('app.current_tenant', $1, true), set_config('app.is_admin', $2, true)`,
+		tenant.TenantID.String(), strconv.FormatBool(tenant.IsAdmin)); err != nil {
 		return fmt.Errorf("set tenant scope: %w", err)
 	}
 	return nil

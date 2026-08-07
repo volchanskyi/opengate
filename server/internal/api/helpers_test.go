@@ -156,7 +156,7 @@ func seedTestUser(t *testing.T, srv *Server, cfg *auth.JWTConfig, email string, 
 	err = srv.users.Upsert(ctx, user)
 	require.NoError(t, err)
 
-	token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
+	token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.TenantID)
 	require.NoError(t, err)
 
 	return user, token

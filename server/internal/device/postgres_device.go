@@ -36,17 +36,17 @@ const deviceSelect = `SELECT d.id, d.group_id, d.hostname, d.os, d.os_display, d
 // deviceSelect; nothing here is assembled from runtime input.
 const (
 	getDeviceQuery = deviceSelect +
-		`WHERE d.org_id = current_setting('app.current_org')::uuid AND d.id = $1`
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.id = $1`
 
 	listDevicesByGroupQuery = deviceSelect +
-		`WHERE d.org_id = current_setting('app.current_org')::uuid AND d.group_id = $1`
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.group_id = $1`
 
 	listAllDevicesQuery = deviceSelect +
-		`WHERE d.org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid OR current_setting('app.is_admin', true)::boolean
 		 ORDER BY d.hostname`
 
 	getDeviceByAMTUUIDQuery = deviceSelect +
-		`WHERE d.org_id = current_setting('app.current_org')::uuid AND a.uuid = $1`
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND a.uuid = $1`
 )
 
 func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
@@ -115,23 +115,23 @@ func (p *PostgresDevices) Get(ctx context.Context, id DeviceID) (*Device, error)
 	return d, err
 }
 
-// OrgForDevice resolves the owning organization for a device id in the current
+// TenantForDevice resolves the owning tenant for a device id in the current
 // tenant scope. Internal agent-ingest code calls this with an admin-scoped
-// tenant so the subsequent control loop can run as the device's actual org.
-func (p *PostgresDevices) OrgForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error) {
-	var orgID uuid.UUID
+// tenant so the subsequent control loop can run as the device's actual tenant.
+func (p *PostgresDevices) TenantForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error) {
+	var tenantID uuid.UUID
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx,
-			`SELECT org_id
+			`SELECT tenant_id
 			 FROM devices
 			 WHERE id = $1
-			   AND (org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean)`,
-			id).Scan(&orgID)
+			   AND (tenant_id = current_setting('app.current_tenant')::uuid OR current_setting('app.is_admin', true)::boolean)`,
+			id).Scan(&tenantID)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return uuid.Nil, ErrDeviceNotFound
 	}
-	return orgID, err
+	return tenantID, err
 }
 
 func (p *PostgresDevices) List(ctx context.Context, groupID GroupID) ([]*Device, error) {

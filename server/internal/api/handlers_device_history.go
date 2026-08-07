@@ -23,7 +23,7 @@ const (
 // single dimension from the connected agent's local store — the deep history that
 // central VictoriaMetrics (avg-only) does not keep. It is single-host and
 // server-mediated (no browser-to-agent access, no fan-out), bounded by the window
-// and the max_points cap. Access is organization-scoped: the device lookup runs
+// and the max_points cap. Access is tenant-scoped: the device lookup runs
 // in the caller's tenant scope, so a history pull can never cross tenants.
 func (s *Server) GetDeviceHistory(ctx context.Context, request GetDeviceHistoryRequestObject) (GetDeviceHistoryResponseObject, error) {
 	if err := s.requireDeviceInScope(ctx, request.Id); err != nil {

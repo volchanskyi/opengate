@@ -15,7 +15,7 @@ fn test_control_message_roundtrip_msgpack() {
         },
         ControlMessage::AgentHealthSummary {
             ts: 1700000100,
-            org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
             node_anomaly_rate: 0.125,
             per_family_rates: vec![
                 FamilyAnomalyRate {
@@ -38,7 +38,7 @@ fn test_control_message_roundtrip_msgpack() {
         },
         ControlMessage::AgentMetricWindow {
             ts: 1700000160,
-            org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
             dims: vec![
                 MetricDim {
                     name: "cpu.total".to_string(),
@@ -52,7 +52,7 @@ fn test_control_message_roundtrip_msgpack() {
         },
         ControlMessage::ProcessReport {
             ts: 1700000220,
-            org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+            tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
             top_n: vec![ProcessReportEntry {
                 rank: 1,
                 basename: "postgres".to_string(),
@@ -69,7 +69,7 @@ fn test_control_message_roundtrip_msgpack() {
         ControlMessage::HealthWindowResponse {
             summaries: vec![HealthSummary {
                 ts: 1700000100,
-                org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+                tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
                 node_anomaly_rate: 0.125,
                 per_family_rates: vec![FamilyAnomalyRate {
                     family: "cpu".to_string(),
@@ -539,7 +539,7 @@ fn test_edge_sentinel_agent_reports_tolerate_go_omitempty_zero_fields() {
         decode_type_only("AgentHealthSummary"),
         ControlMessage::AgentHealthSummary {
             ts: 0,
-            org_id: String::new(),
+            tenant_id: String::new(),
             node_anomaly_rate: 0.0,
             per_family_rates: Vec::new(),
             recent_bitmask: Vec::new(),
@@ -552,7 +552,7 @@ fn test_edge_sentinel_agent_reports_tolerate_go_omitempty_zero_fields() {
         decode_type_only("AgentMetricWindow"),
         ControlMessage::AgentMetricWindow {
             ts: 0,
-            org_id: String::new(),
+            tenant_id: String::new(),
             dims: Vec::new(),
         }
     );
@@ -560,7 +560,7 @@ fn test_edge_sentinel_agent_reports_tolerate_go_omitempty_zero_fields() {
         decode_type_only("ProcessReport"),
         ControlMessage::ProcessReport {
             ts: 0,
-            org_id: String::new(),
+            tenant_id: String::new(),
             top_n: Vec::new(),
         }
     );
@@ -570,7 +570,7 @@ fn test_edge_sentinel_agent_reports_tolerate_go_omitempty_zero_fields() {
 fn test_agent_health_summary_recent_bitmask_roundtrip() {
     let msg = ControlMessage::AgentHealthSummary {
         ts: 1700000100,
-        org_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
         node_anomaly_rate: 0.125,
         per_family_rates: vec![FamilyAnomalyRate {
             family: "cpu".to_string(),

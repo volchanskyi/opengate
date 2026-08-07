@@ -18,24 +18,24 @@ import (
 // fakeMetricsReader records how the handler invoked the scoped VM reader and
 // returns canned series keyed by aggregation.
 type fakeMetricsReader struct {
-	rangeOrg    uuid.UUID
-	rangeCalls  []telemetry.RangeQuery
-	rangeByAgg  map[telemetry.RangeAgg][]telemetry.RangeSeries
-	rangeErr    error
-	instantOrg  uuid.UUID
-	instant     []telemetry.InstantValue
-	instantErr  error
-	instantSeen int
-	bands       telemetry.BandCounts
-	bandsOrg    uuid.UUID
-	bandsWatch  float64
-	bandsAnom   float64
-	bandsErr    error
-	bandsSeen   int
+	rangeTenant   uuid.UUID
+	rangeCalls    []telemetry.RangeQuery
+	rangeByAgg    map[telemetry.RangeAgg][]telemetry.RangeSeries
+	rangeErr      error
+	instantTenant uuid.UUID
+	instant       []telemetry.InstantValue
+	instantErr    error
+	instantSeen   int
+	bands         telemetry.BandCounts
+	bandsTenant   uuid.UUID
+	bandsWatch    float64
+	bandsAnom     float64
+	bandsErr      error
+	bandsSeen     int
 }
 
-func (f *fakeMetricsReader) QueryRange(_ context.Context, orgID uuid.UUID, rq telemetry.RangeQuery) ([]telemetry.RangeSeries, error) {
-	f.rangeOrg = orgID
+func (f *fakeMetricsReader) QueryRange(_ context.Context, tenantID uuid.UUID, rq telemetry.RangeQuery) ([]telemetry.RangeSeries, error) {
+	f.rangeTenant = tenantID
 	f.rangeCalls = append(f.rangeCalls, rq)
 	if f.rangeErr != nil {
 		return nil, f.rangeErr
@@ -43,8 +43,8 @@ func (f *fakeMetricsReader) QueryRange(_ context.Context, orgID uuid.UUID, rq te
 	return f.rangeByAgg[rq.Agg], nil
 }
 
-func (f *fakeMetricsReader) QueryInstant(_ context.Context, orgID uuid.UUID, _ string, _ map[string]string, _ time.Time) ([]telemetry.InstantValue, error) {
-	f.instantOrg = orgID
+func (f *fakeMetricsReader) QueryInstant(_ context.Context, tenantID uuid.UUID, _ string, _ map[string]string, _ time.Time) ([]telemetry.InstantValue, error) {
+	f.instantTenant = tenantID
 	f.instantSeen++
 	if f.instantErr != nil {
 		return nil, f.instantErr
@@ -54,8 +54,8 @@ func (f *fakeMetricsReader) QueryInstant(_ context.Context, orgID uuid.UUID, _ s
 
 // QueryInstantLookback mirrors QueryInstant for the fake: the badge path uses the
 // lookback variant, so it shares the same recorded state and canned result.
-func (f *fakeMetricsReader) QueryInstantLookback(_ context.Context, orgID uuid.UUID, _ string, _ map[string]string, _ time.Time, _ time.Duration) ([]telemetry.InstantValue, error) {
-	f.instantOrg = orgID
+func (f *fakeMetricsReader) QueryInstantLookback(_ context.Context, tenantID uuid.UUID, _ string, _ map[string]string, _ time.Time, _ time.Duration) ([]telemetry.InstantValue, error) {
+	f.instantTenant = tenantID
 	f.instantSeen++
 	if f.instantErr != nil {
 		return nil, f.instantErr
@@ -65,8 +65,8 @@ func (f *fakeMetricsReader) QueryInstantLookback(_ context.Context, orgID uuid.U
 
 // CountAnomalyBands records the thresholds the summary handler passed and
 // returns the canned band rollup.
-func (f *fakeMetricsReader) CountAnomalyBands(_ context.Context, orgID uuid.UUID, watch, anomalous float64, _ time.Time, _ time.Duration) (telemetry.BandCounts, error) {
-	f.bandsOrg = orgID
+func (f *fakeMetricsReader) CountAnomalyBands(_ context.Context, tenantID uuid.UUID, watch, anomalous float64, _ time.Time, _ time.Duration) (telemetry.BandCounts, error) {
+	f.bandsTenant = tenantID
 	f.bandsWatch = watch
 	f.bandsAnom = anomalous
 	f.bandsSeen++
@@ -105,7 +105,7 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("200 for another member of the same organization", func(t *testing.T) {
+	t.Run("200 for another member of the same tenant", func(t *testing.T) {
 		_, peerToken := seedTestUser(t, srv, cfg, "other-metrics@example.com", false)
 		srv.telemetryReader = &fakeMetricsReader{}
 		w := doRequest(srv, http.MethodGet, path, peerToken, nil)
@@ -137,8 +137,8 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 		require.Len(t, fake.rangeCalls, 3)
 		for _, c := range fake.rangeCalls {
 			assert.Equal(t, dev.ID.String(), c.Matchers["device_id"])
-			_, hasOrg := c.Matchers["org_id"]
-			assert.False(t, hasOrg, "handler must never inject org_id itself")
+			_, hasTenant := c.Matchers["tenant_id"]
+			assert.False(t, hasTenant, "handler must never inject tenant_id itself")
 		}
 	})
 

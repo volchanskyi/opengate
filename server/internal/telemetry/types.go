@@ -19,7 +19,7 @@ type Sample struct {
 
 // NumericWriter persists numeric telemetry points.
 type NumericWriter interface {
-	WriteSamples(ctx context.Context, orgID uuid.UUID, deviceID uuid.UUID, samples []Sample) error
+	WriteSamples(ctx context.Context, tenantID uuid.UUID, deviceID uuid.UUID, samples []Sample) error
 }
 
 // ProcessSample is one sanitized process row from an Edge Sentinel report.

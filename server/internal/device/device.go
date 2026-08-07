@@ -67,9 +67,9 @@ type Device struct {
 	AMT *AMT `json:"amt,omitempty"`
 }
 
-// Group is a named collection of devices within one organization. It is a
-// filing label, not an access boundary: the organization is what scopes
-// visibility, so every member of an organization sees every group in it.
+// Group is a named collection of devices within one tenant. It is a
+// filing label, not an access boundary: the tenant is what scopes
+// visibility, so every member of a tenant sees every group in it.
 type Group struct {
 	ID        GroupID   `json:"id"`
 	Name      string    `json:"name"`
@@ -162,10 +162,10 @@ type Repository interface {
 	// GetByAMTUUID resolves the managed device behind an Intel AMT CIRA
 	// identity. The connection map that serves power commands is keyed by that
 	// UUID alone and carries no tenant, so this tenant-scoped lookup is what
-	// keeps an AMT command inside the caller's organization. Returns
+	// keeps an AMT command inside the caller's tenant. Returns
 	// ErrDeviceNotFound when no device in scope owns the UUID.
 	GetByAMTUUID(ctx context.Context, amtUUID uuid.UUID) (*Device, error)
-	OrgForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error)
+	TenantForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error)
 	List(ctx context.Context, groupID GroupID) ([]*Device, error)
 	ListAll(ctx context.Context) ([]*Device, error)
 	Delete(ctx context.Context, id DeviceID) error
@@ -185,7 +185,7 @@ type Repository interface {
 // Counts is the fleet status rollup behind the dashboard tiles: three integers
 // from one aggregate row, whatever the fleet size.
 type Counts struct {
-	// Total is every device in the organization.
+	// Total is every device in the tenant.
 	Total int
 	// Online is the devices with a live agent connection. A connecting device
 	// is not online, which matches how the tiles present it.
@@ -208,9 +208,9 @@ type HardwareRepository interface {
 	Upsert(ctx context.Context, hw *Hardware) error
 	Get(ctx context.Context, deviceID DeviceID) (*Hardware, error)
 	// ResolveBySystemUUID maps an SMBIOS system UUID to the device that reported
-	// it and that device's organization. An Intel AMT CIRA connection arrives
+	// it and that device's tenant. An Intel AMT CIRA connection arrives
 	// with no request tenant, so this lookup supplies its own admin scope and
-	// searches across organizations; the organization it returns is what scopes
+	// searches across tenants; the tenant it returns is what scopes
 	// every write that follows. Returns ErrHardwareNotFound when no device
 	// matches, and likewise when several do — a UUID shared by cloned disk
 	// images is not an identity.

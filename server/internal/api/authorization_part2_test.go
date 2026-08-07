@@ -11,9 +11,9 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestGroupReadsAreOrgWide verifies that the group list and group detail are
-// fleet reads: every member of the organization sees every group in it.
-func TestGroupReadsAreOrgWide(t *testing.T) {
+// TestGroupReadsAreTenantWide verifies that the group list and group detail are
+// fleet reads: every member of the tenant sees every group in it.
+func TestGroupReadsAreTenantWide(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)
@@ -81,10 +81,10 @@ func TestGroupWritesAreAdminOnly(t *testing.T) {
 	})
 }
 
-// TestSessionCommandsAreOrgWide verifies that ending a session is a device
-// command: any member of the organization may end any session on a device in
-// that organization, and the session list is a plain fleet read.
-func TestSessionCommandsAreOrgWide(t *testing.T) {
+// TestSessionCommandsAreTenantWide verifies that ending a session is a device
+// command: any member of the tenant may end any session on a device in
+// that tenant, and the session list is a plain fleet read.
+func TestSessionCommandsAreTenantWide(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)

@@ -39,8 +39,8 @@ func (s *sequenceSeriesPurger) CountSeries(context.Context, uuid.UUID, *uuid.UUI
 
 // recordingEdgeDeregistrar captures edge erasure requests for exact assertions.
 type recordingEdgeDeregistrar struct {
-	agents []uuid.UUID
-	orgs   []uuid.UUID
+	agents  []uuid.UUID
+	tenants []uuid.UUID
 }
 
 // DeregisterAgent records an agent erasure request.
@@ -48,9 +48,9 @@ func (r *recordingEdgeDeregistrar) DeregisterAgent(_ context.Context, deviceID u
 	r.agents = append(r.agents, deviceID)
 }
 
-// DeregisterOrg records an organization erasure request.
-func (r *recordingEdgeDeregistrar) DeregisterOrg(_ context.Context, orgID uuid.UUID) {
-	r.orgs = append(r.orgs, orgID)
+// DeregisterTenant records a tenant erasure request.
+func (r *recordingEdgeDeregistrar) DeregisterTenant(_ context.Context, tenantID uuid.UUID) {
+	r.tenants = append(r.tenants, tenantID)
 }
 
 // TestOrchestratorDefaultsAndOverrides pins the public constructor defaults and overrides.
@@ -72,7 +72,7 @@ func TestOrchestratorDefaultsAndOverrides(t *testing.T) {
 
 // TestOrchestratorVerifyEmptyPinsAttemptBoundaries checks success, exhaustion, and cancellation.
 func TestOrchestratorVerifyEmptyPinsAttemptBoundaries(t *testing.T) {
-	job := &PurgeJob{OrgID: uuid.New()}
+	job := &PurgeJob{TenantID: uuid.New()}
 
 	t.Run("stops when a later count reaches zero", func(t *testing.T) {
 		series := &sequenceSeriesPurger{counts: []int{2, 1, 0}}
@@ -114,34 +114,34 @@ func TestOrchestratorVerifyEmptyPinsAttemptBoundaries(t *testing.T) {
 	})
 }
 
-// TestOrchestratorPurgeRequestsDeregisterEdgeSubjects pins device and organization erasure calls.
+// TestOrchestratorPurgeRequestsDeregisterEdgeSubjects pins device and tenant erasure calls.
 func TestOrchestratorPurgeRequestsDeregisterEdgeSubjects(t *testing.T) {
 	t.Run("device", func(t *testing.T) {
-		f, ctx, org, device := newSeededPurge(t)
+		f, ctx, tenant, device := newSeededPurge(t)
 		edge := &recordingEdgeDeregistrar{}
 		f.orch.edge = edge
 
-		_, err := f.orch.PurgeDevice(ctx, org, device, nil)
+		_, err := f.orch.PurgeDevice(ctx, tenant, device, nil)
 		require.NoError(t, err)
 		assert.Equal(t, []uuid.UUID{device}, edge.agents)
 	})
 
-	t.Run("organization and every device", func(t *testing.T) {
+	t.Run("tenant and every device", func(t *testing.T) {
 		f := newOrchestratorFixture(t)
 		ctx := context.Background()
-		org := uuid.New()
+		tenant := uuid.New()
 		devices := []uuid.UUID{
-			seedDeviceWithTelemetry(t, f, org),
-			seedDeviceWithTelemetry(t, f, org),
+			seedDeviceWithTelemetry(t, f, tenant),
+			seedDeviceWithTelemetry(t, f, tenant),
 		}
 		edge := &recordingEdgeDeregistrar{}
 		f.orch.edge = edge
 
-		_, err := f.orch.PurgeOrg(ctx, org, nil)
+		_, err := f.orch.PurgeTenant(ctx, tenant, nil)
 		require.NoError(t, err)
-		assert.Equal(t, []uuid.UUID{org}, edge.orgs)
+		assert.Equal(t, []uuid.UUID{tenant}, edge.tenants)
 		for _, device := range devices {
-			tombstoned, tombErr := f.tombstone.IsDeviceTombstoned(ctx, org, device)
+			tombstoned, tombErr := f.tombstone.IsDeviceTombstoned(ctx, tenant, device)
 			require.NoError(t, tombErr)
 			assert.True(t, tombstoned)
 		}

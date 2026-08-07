@@ -25,19 +25,19 @@ func (p *PostgresUsers) Upsert(ctx context.Context, u *User) error {
 	if !ok {
 		return dbtx.ErrTenantRequired
 	}
-	u.OrgID = tenant.OrgID
+	u.TenantID = tenant.TenantID
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO users (id, org_id, email, password_hash, display_name, is_admin, created_at, updated_at)
+			`INSERT INTO users (id, tenant_id, email, password_hash, display_name, is_admin, created_at, updated_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 			 ON CONFLICT (id) DO UPDATE SET
-			   org_id = EXCLUDED.org_id,
+			   tenant_id = EXCLUDED.tenant_id,
 			   email = EXCLUDED.email,
 			   password_hash = EXCLUDED.password_hash,
 			   display_name = EXCLUDED.display_name,
 			   is_admin = EXCLUDED.is_admin,
 			   updated_at = NOW()`,
-			u.ID, tenant.OrgID, u.Email, u.PasswordHash, u.DisplayName, u.IsAdmin)
+			u.ID, tenant.TenantID, u.Email, u.PasswordHash, u.DisplayName, u.IsAdmin)
 		return err
 	})
 }
@@ -47,9 +47,9 @@ func (p *PostgresUsers) Get(ctx context.Context, id UserID) (*User, error) {
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		var err error
 		user, err = scanOneUser(tx.QueryRowContext(ctx,
-			`SELECT id, org_id, email, password_hash, display_name, is_admin, created_at, updated_at
+			`SELECT id, tenant_id, email, password_hash, display_name, is_admin, created_at, updated_at
 			 FROM users
-			 WHERE org_id = current_setting('app.current_org')::uuid AND id = $1`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`,
 			id))
 		return err
 	})
@@ -66,9 +66,9 @@ func (p *PostgresUsers) GetByEmail(ctx context.Context, email string) (*User, er
 	err := dbtx.Scoped(scopeCtx, p.db, func(tx *sql.Tx) error {
 		var err error
 		user, err = scanOneUser(tx.QueryRowContext(scopeCtx,
-			`SELECT id, org_id, email, password_hash, display_name, is_admin, created_at, updated_at
+			`SELECT id, tenant_id, email, password_hash, display_name, is_admin, created_at, updated_at
 			 FROM users
-			 WHERE (org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean)
+			 WHERE (tenant_id = current_setting('app.current_tenant')::uuid OR current_setting('app.is_admin', true)::boolean)
 			   AND email = $1`,
 			email))
 		return err
@@ -80,9 +80,9 @@ func (p *PostgresUsers) List(ctx context.Context) ([]*User, error) {
 	var users []*User
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx,
-			`SELECT id, org_id, email, password_hash, display_name, is_admin, created_at, updated_at
+			`SELECT id, tenant_id, email, password_hash, display_name, is_admin, created_at, updated_at
 			 FROM users
-			 WHERE org_id = current_setting('app.current_org')::uuid`)
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid`)
 		if err != nil {
 			return err
 		}
@@ -90,7 +90,7 @@ func (p *PostgresUsers) List(ctx context.Context) ([]*User, error) {
 
 		for rows.Next() {
 			var u User
-			if err := rows.Scan(&u.ID, &u.OrgID, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			if err := rows.Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt); err != nil {
 				return err
 			}
 			users = append(users, &u)
@@ -103,7 +103,7 @@ func (p *PostgresUsers) List(ctx context.Context) ([]*User, error) {
 func (p *PostgresUsers) Delete(ctx context.Context, id UserID) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`DELETE FROM users WHERE org_id = current_setting('app.current_org')::uuid AND id = $1`, id)
+			`DELETE FROM users WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`, id)
 		if err != nil {
 			return err
 		}
@@ -120,7 +120,7 @@ func (p *PostgresUsers) Delete(ctx context.Context, id UserID) error {
 
 func scanOneUser(row *sql.Row) (*User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.OrgID, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt)
+	err := row.Scan(&u.ID, &u.TenantID, &u.Email, &u.PasswordHash, &u.DisplayName, &u.IsAdmin, &u.CreatedAt, &u.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}

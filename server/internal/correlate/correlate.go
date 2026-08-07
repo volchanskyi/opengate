@@ -66,10 +66,10 @@ type Series struct {
 }
 
 // SeriesFetcher fetches all candidate numeric series for a device over a window.
-// Implementations MUST inject the tenant org_id label matcher and never trust a
+// Implementations MUST inject the tenant tenant_id label matcher and never trust a
 // caller-supplied scope — it is the isolation boundary for numeric telemetry.
 type SeriesFetcher interface {
-	Fetch(ctx context.Context, orgID, deviceID uuid.UUID, start, end time.Time) ([]Series, error)
+	Fetch(ctx context.Context, tenantID, deviceID uuid.UUID, start, end time.Time) ([]Series, error)
 }
 
 // Request is one correlation query.
@@ -146,9 +146,9 @@ func NewEngine(cfg Config) (*Engine, error) {
 
 // Correlate ranks the device's dimensions for the request window under the given
 // tenant. It acquires a concurrency slot (returning ErrBusy if saturated) and
-// runs under a per-request timeout. orgID scopes every VM read; it is taken from
+// runs under a per-request timeout. tenantID scopes every VM read; it is taken from
 // the authenticated tenant context, never from the request body.
-func (e *Engine) Correlate(ctx context.Context, orgID uuid.UUID, req Request) (Result, error) {
+func (e *Engine) Correlate(ctx context.Context, tenantID uuid.UUID, req Request) (Result, error) {
 	req, err := normalizeRequest(req)
 	if err != nil {
 		return Result{}, err
@@ -167,7 +167,7 @@ func (e *Engine) Correlate(ctx context.Context, orgID uuid.UUID, req Request) (R
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
 	defer cancel()
 
-	series, err := e.fetcher.Fetch(ctx, orgID, req.DeviceID, req.BaselineStart, req.FocusEnd)
+	series, err := e.fetcher.Fetch(ctx, tenantID, req.DeviceID, req.BaselineStart, req.FocusEnd)
 	if err != nil {
 		return Result{}, err
 	}

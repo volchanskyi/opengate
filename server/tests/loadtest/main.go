@@ -37,7 +37,7 @@ func main() {
 	agents := flag.Int("agents", 100, "number of concurrent agents")
 	addr := flag.String("addr", "127.0.0.1:9090", "QUIC server address")
 	dataDir := flag.String("data-dir", "", "cert manager data directory (temp if empty)")
-	orgs := flag.Int("orgs", 1, "number of tenant cohorts to spread agents across")
+	tenantFlag := flag.Int("tenants", 1, "number of tenant cohorts to spread agents across")
 	defaultTelemetry := flag.Bool("default-telemetry", false, "emit the default telemetry shape (health summary + host metric window + process report) per agent")
 	telemetryCycles := flag.Int("telemetry-cycles", 1, "default-telemetry emission cycles per agent")
 	metricWindows := flag.Int("metric-windows", 0, "extra host-metric windows each agent emits after register")
@@ -55,7 +55,7 @@ func main() {
 		backfillSamplesPerBatch: *backfillSamples,
 	}
 
-	tenants := max(*orgs, 1)
+	tenants := max(*tenantFlag, 1)
 	agentPlan := planAgents(*agents, tenants)
 
 	dir := *dataDir
@@ -156,16 +156,16 @@ func printErrorSamples(results []agentResult) {
 }
 
 // planAgents lays out n agents across tenants cohorts deterministically, so a
-// soak run is reproducible: org index cycles round-robin and each hostname
+// soak run is reproducible: tenant index cycles round-robin and each hostname
 // carries its tenant + agent index.
 func planAgents(n, tenants int) []tenantAgent {
 	plan := make([]tenantAgent, n)
 	for i := 0; i < n; i++ {
-		org := i % tenants
+		tenant := i % tenants
 		plan[i] = tenantAgent{
-			orgIndex:   org,
-			agentIndex: i,
-			hostname:   fmt.Sprintf("soak-t%d-a%d", org, i),
+			tenantIndex: tenant,
+			agentIndex:  i,
+			hostname:    fmt.Sprintf("soak-t%d-a%d", tenant, i),
 		}
 	}
 	return plan

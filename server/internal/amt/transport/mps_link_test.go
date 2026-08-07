@@ -69,14 +69,14 @@ func newLinkEnv(t *testing.T) *linkEnv {
 	}
 }
 
-// seedDeviceWithSystemUUID creates a device in orgCtx's tenant whose hardware
+// seedDeviceWithSystemUUID creates a device in tenantCtx's tenant whose hardware
 // row reports systemUUID — the state a registered agent leaves behind.
-func seedDeviceWithSystemUUID(t *testing.T, orgCtx context.Context, env *linkEnv, systemUUID uuid.UUID) *device.Device {
+func seedDeviceWithSystemUUID(t *testing.T, tenantCtx context.Context, env *linkEnv, systemUUID uuid.UUID) *device.Device {
 	t.Helper()
-	group := testutil.SeedGroup(t, orgCtx, env.store)
-	dev := testutil.SeedDevice(t, orgCtx, env.store, group.ID)
+	group := testutil.SeedGroup(t, tenantCtx, env.store)
+	dev := testutil.SeedDevice(t, tenantCtx, env.store, group.ID)
 	available := true
-	require.NoError(t, env.hardware.Upsert(orgCtx, &device.Hardware{
+	require.NoError(t, env.hardware.Upsert(tenantCtx, &device.Hardware{
 		DeviceID:     dev.ID,
 		CPUModel:     "Intel Core i7-12700K",
 		SystemUUID:   &systemUUID,
@@ -86,34 +86,34 @@ func seedDeviceWithSystemUUID(t *testing.T, orgCtx context.Context, env *linkEnv
 	return dev
 }
 
-// amtRow reads the persisted connection state for amtUUID inside orgCtx's
+// amtRow reads the persisted connection state for amtUUID inside tenantCtx's
 // tenant, or nil when no row exists there.
-func amtRow(t *testing.T, orgCtx context.Context, env *linkEnv, amtUUID uuid.UUID) *db.AMTDevice {
+func amtRow(t *testing.T, tenantCtx context.Context, env *linkEnv, amtUUID uuid.UUID) *db.AMTDevice {
 	t.Helper()
-	tenant, ok := dbtx.TenantFromContext(orgCtx)
+	tenant, ok := dbtx.TenantFromContext(tenantCtx)
 	require.True(t, ok, "the reader needs a tenant to scope by")
 
 	var row db.AMTDevice
-	err := env.store.DB().QueryRowContext(orgCtx,
-		`SELECT uuid, device_id, status FROM amt_devices WHERE org_id = $1 AND uuid = $2`,
-		tenant.OrgID, amtUUID).Scan(&row.UUID, &row.DeviceID, &row.Status)
+	err := env.store.DB().QueryRowContext(tenantCtx,
+		`SELECT uuid, device_id, status FROM amt_devices WHERE tenant_id = $1 AND uuid = $2`,
+		tenant.TenantID, amtUUID).Scan(&row.UUID, &row.DeviceID, &row.Status)
 	if err != nil {
 		return nil
 	}
 	return &row
 }
 
-// TestCIRAConnectPersistsUnderTheDeviceOrg is the repair this change exists for:
+// TestCIRAConnectPersistsUnderTheDeviceTenant is the repair this change exists for:
 // a CIRA connect whose system UUID matches a managed device must write a row
-// carrying that device's organization, through the real repository.
-func TestCIRAConnectPersistsUnderTheDeviceOrg(t *testing.T) {
+// carrying that device's tenant, through the real repository.
+func TestCIRAConnectPersistsUnderTheDeviceTenant(t *testing.T) {
 	env := newLinkEnv(t)
-	orgB := uuid.New()
-	testutil.EnsureOrganization(t, context.Background(), env.store, orgB, "Tenant "+orgB.String()[:8])
-	orgCtx := dbtx.WithTenant(context.Background(), orgB, false)
+	tenantB := uuid.New()
+	testutil.EnsureTenant(t, context.Background(), env.store, tenantB, "Tenant "+tenantB.String()[:8])
+	tenantCtx := dbtx.WithTenant(context.Background(), tenantB, false)
 
 	amtUUID := uuid.New()
-	dev := seedDeviceWithSystemUUID(t, orgCtx, env, amtUUID)
+	dev := seedDeviceWithSystemUUID(t, tenantCtx, env, amtUUID)
 
 	conn := dialCIRA(t, env, amtUUID)
 	t.Cleanup(func() { _ = conn.Close() })
@@ -121,28 +121,28 @@ func TestCIRAConnectPersistsUnderTheDeviceOrg(t *testing.T) {
 	require.Eventually(t, func() bool { return env.srv.GetConn(amtUUID) != nil },
 		5*time.Second, 10*time.Millisecond, "server should register the CIRA connection")
 	require.Eventually(t, func() bool {
-		row := amtRow(t, orgCtx, env, amtUUID)
+		row := amtRow(t, tenantCtx, env, amtUUID)
 		return row != nil && row.Status == db.StatusOnline
-	}, 5*time.Second, 10*time.Millisecond, "the AMT row should be persisted online in the device's org")
+	}, 5*time.Second, 10*time.Millisecond, "the AMT row should be persisted online in the device's tenant")
 
-	row := amtRow(t, orgCtx, env, amtUUID)
+	row := amtRow(t, tenantCtx, env, amtUUID)
 	require.NotNil(t, row)
 	assert.Equal(t, dev.ID, row.DeviceID, "the row should point at the device that reported this system UUID")
 
 	// Disconnect marks it offline — which also needs the resolved tenant.
 	require.NoError(t, conn.Close())
 	require.Eventually(t, func() bool {
-		row := amtRow(t, orgCtx, env, amtUUID)
+		row := amtRow(t, tenantCtx, env, amtUUID)
 		return row != nil && row.Status == db.StatusOffline
-	}, 5*time.Second, 10*time.Millisecond, "disconnect should mark the row offline in the device's org")
+	}, 5*time.Second, 10*time.Millisecond, "disconnect should mark the row offline in the device's tenant")
 }
 
 // TestCIRAConnectWithNoDevicePersistsNothing covers the locked decision: an AMT
-// box with no managed device has no organization to live in, so the connection
+// box with no managed device has no tenant to live in, so the connection
 // is held in memory and nothing is written.
 func TestCIRAConnectWithNoDevicePersistsNothing(t *testing.T) {
 	env := newLinkEnv(t)
-	orgCtx := dbtx.WithDefaultTenant(context.Background(), true)
+	tenantCtx := dbtx.WithDefaultTenant(context.Background(), true)
 	amtUUID := uuid.New()
 
 	conn := dialCIRA(t, env, amtUUID)
@@ -152,7 +152,7 @@ func TestCIRAConnectWithNoDevicePersistsNothing(t *testing.T) {
 		5*time.Second, 10*time.Millisecond, "the unmatched connection should still be held in memory")
 
 	// Give registration room to have written something it should not have.
-	assert.Never(t, func() bool { return amtRow(t, orgCtx, env, amtUUID) != nil },
+	assert.Never(t, func() bool { return amtRow(t, tenantCtx, env, amtUUID) != nil },
 		time.Second, 50*time.Millisecond, "an unmatched CIRA connection must persist nothing")
 	assert.Equal(t, 1, env.srv.ConnectedDeviceCount(), "the connection stays live for a later keepalive to adopt")
 }

@@ -60,15 +60,15 @@ func TestPostgres_DeleteStale(t *testing.T) {
 	assert.Equal(t, 0, deleted)
 }
 
-// TestPostgres_DeleteStale_CrossOrg pins the sweep as fleet-wide: it runs
-// without a request tenant, so it must reach every organization's rows.
-func TestPostgres_DeleteStale_CrossOrg(t *testing.T) {
+// TestPostgres_DeleteStale_CrossTenant pins the sweep as fleet-wide: it runs
+// without a request tenant, so it must reach every tenant's rows.
+func TestPostgres_DeleteStale_CrossTenant(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestSessions(t, store)
-	orgB := uuid.New()
-	ctxB := dbtx.WithTenant(context.Background(), orgB, true)
-	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	tenantB := uuid.New()
+	ctxB := dbtx.WithTenant(context.Background(), tenantB, true)
+	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 
 	userB := testutil.SeedUser(t, ctxB, store)
 	groupB := testutil.SeedGroup(t, ctxB, store)

@@ -8,28 +8,28 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
-// tenantAgent is one deterministic (org, agent) slot in an N-tenant × M-agent
-// soak plan: a stable org index and a tenant-tagged hostname.
+// tenantAgent is one deterministic (tenant, agent) slot in an N-tenant × M-agent
+// soak plan: a stable tenant index and a tenant-tagged hostname.
 type tenantAgent struct {
-	orgIndex   int
-	agentIndex int
-	hostname   string
+	tenantIndex int
+	agentIndex  int
+	hostname    string
 }
 
 // buildTenantAgents partitions tenants × perTenant agents deterministically so a
 // soak run is reproducible. Agents are laid out tenant-major (all of tenant 0,
 // then tenant 1, …); each hostname carries its tenant and agent index so cohorts
-// are distinguishable in server logs and audit events. Server-side the org is
-// assigned from the enrolled device, so a live multi-org run seeds one
+// are distinguishable in server logs and audit events. Server-side the tenant is
+// assigned from the enrolled device, so a live multi-tenant run seeds one
 // enrollment identity per tenant; the harness models the fan-out and load.
 func buildTenantAgents(tenants, perTenant int) []tenantAgent {
 	agents := make([]tenantAgent, 0, tenants*perTenant)
-	for org := 0; org < tenants; org++ {
+	for tenant := 0; tenant < tenants; tenant++ {
 		for a := 0; a < perTenant; a++ {
 			agents = append(agents, tenantAgent{
-				orgIndex:   org,
-				agentIndex: a,
-				hostname:   fmt.Sprintf("soak-t%d-a%d", org, a),
+				tenantIndex: tenant,
+				agentIndex:  a,
+				hostname:    fmt.Sprintf("soak-t%d-a%d", tenant, a),
 			})
 		}
 	}
@@ -83,7 +83,7 @@ func buildProcessReport(ts int64) *protocol.ControlMessage {
 
 // defaultTelemetryFrames returns the full default telemetry shape one agent
 // emits each cycle, in emission order: health summary, host metric window, and
-// process report. No frame asserts an org — the server assigns it.
+// process report. No frame asserts a tenant — the server assigns it.
 func defaultTelemetryFrames(ts int64) []*protocol.ControlMessage {
 	return []*protocol.ControlMessage{
 		buildHealthSummary(ts),

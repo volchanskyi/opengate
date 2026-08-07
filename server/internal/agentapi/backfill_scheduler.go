@@ -13,7 +13,7 @@ import (
 //
 //   - a global concurrency cap so backfill never stampedes the single node;
 //   - a per-tenant concurrency cap that is the weighted max-min fair-share lever
-//     — no org can grab more than its share of the global slots and starve
+//     — no tenant can grab more than its share of the global slots and starve
 //     another tenant;
 //   - a load-adaptive ingest budget (base samples/sec scaled by live headroom)
 //     spread as an equal rate slice per admitted slot, so the sum of granted
@@ -30,12 +30,12 @@ import (
 //
 // All methods are safe for concurrent use.
 type BackfillScheduler struct {
-	mu       sync.Mutex
-	cfg      BackfillSchedulerConfig
-	now      func() time.Time
-	headroom func() float64
-	grants   map[uuid.UUID]backfillGrant
-	orgCount map[uuid.UUID]int
+	mu          sync.Mutex
+	cfg         BackfillSchedulerConfig
+	now         func() time.Time
+	headroom    func() float64
+	grants      map[uuid.UUID]backfillGrant
+	tenantCount map[uuid.UUID]int
 	// firstReq records when a currently-deferred agent first asked, so aging can
 	// shorten its backoff. Cleared when the agent is granted or released.
 	firstReq map[uuid.UUID]time.Time
@@ -45,7 +45,7 @@ type BackfillScheduler struct {
 type BackfillSchedulerConfig struct {
 	// MaxConcurrent is the global cap on simultaneously-draining agents.
 	MaxConcurrent int
-	// PerTenantMax caps simultaneously-draining agents within one org.
+	// PerTenantMax caps simultaneously-draining agents within one tenant.
 	PerTenantMax int
 	// BaseBudgetSamplesPerSec is the total ingest budget at full headroom.
 	BaseBudgetSamplesPerSec int
@@ -61,7 +61,7 @@ type BackfillSchedulerConfig struct {
 }
 
 type backfillGrant struct {
-	org      uuid.UUID
+	tenant   uuid.UUID
 	deadline time.Time
 }
 
@@ -87,7 +87,7 @@ const minRetryAfter = time.Second
 
 // DefaultBackfillSchedulerConfig returns the single-node production defaults:
 // a bounded number of concurrent drains, a per-tenant cap well below the global
-// cap so one org cannot monopolize the node, and a conservative ingest budget.
+// cap so one tenant cannot monopolize the node, and a conservative ingest budget.
 // Backfill has no urgency (local data is durable), so the scheduler can be
 // stingy. The live-headroom signal that shrinks the budget under load is wired
 // separately; until then it runs at full headroom.
@@ -114,18 +114,18 @@ func NewBackfillScheduler(cfg BackfillSchedulerConfig, now func() time.Time, hea
 		headroom = func() float64 { return 1.0 }
 	}
 	return &BackfillScheduler{
-		cfg:      cfg,
-		now:      now,
-		headroom: headroom,
-		grants:   make(map[uuid.UUID]backfillGrant),
-		orgCount: make(map[uuid.UUID]int),
-		firstReq: make(map[uuid.UUID]time.Time),
+		cfg:         cfg,
+		now:         now,
+		headroom:    headroom,
+		grants:      make(map[uuid.UUID]backfillGrant),
+		tenantCount: make(map[uuid.UUID]int),
+		firstReq:    make(map[uuid.UUID]time.Time),
 	}
 }
 
-// RequestSlot admits or defers a backfill drain for agentID in org. A re-request
+// RequestSlot admits or defers a backfill drain for agentID in tenant. A re-request
 // from an agent that already holds a live grant renews it in place.
-func (s *BackfillScheduler) RequestSlot(agentID, org uuid.UUID, _ SlotRequest) BackfillDecision {
+func (s *BackfillScheduler) RequestSlot(agentID, tenant uuid.UUID, _ SlotRequest) BackfillDecision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -140,12 +140,12 @@ func (s *BackfillScheduler) RequestSlot(agentID, org uuid.UUID, _ SlotRequest) B
 		return s.grant(now)
 	}
 
-	if len(s.grants) >= s.cfg.MaxConcurrent || s.orgCount[org] >= s.cfg.PerTenantMax {
+	if len(s.grants) >= s.cfg.MaxConcurrent || s.tenantCount[tenant] >= s.cfg.PerTenantMax {
 		return s.deferSlot(agentID, now)
 	}
 
-	s.grants[agentID] = backfillGrant{org: org, deadline: now.Add(s.cfg.GrantTTL)}
-	s.orgCount[org]++
+	s.grants[agentID] = backfillGrant{tenant: tenant, deadline: now.Add(s.cfg.GrantTTL)}
+	s.tenantCount[tenant]++
 	delete(s.firstReq, agentID)
 	return s.grant(now)
 }
@@ -218,9 +218,9 @@ func (s *BackfillScheduler) release(agentID uuid.UUID) {
 		return
 	}
 	delete(s.grants, agentID)
-	if s.orgCount[g.org] <= 1 {
-		delete(s.orgCount, g.org)
+	if s.tenantCount[g.tenant] <= 1 {
+		delete(s.tenantCount, g.tenant)
 	} else {
-		s.orgCount[g.org]--
+		s.tenantCount[g.tenant]--
 	}
 }

@@ -12,15 +12,15 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
-// TestPostgres_DeleteRelaySession_CrossOrg covers relay teardown, which runs
+// TestPostgres_DeleteRelaySession_CrossTenant covers relay teardown, which runs
 // after both request contexts are gone and therefore has no request tenant.
-func TestPostgres_DeleteRelaySession_CrossOrg(t *testing.T) {
+func TestPostgres_DeleteRelaySession_CrossTenant(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestSessions(t, store)
-	orgB := uuid.New()
-	ctxB := dbtx.WithTenant(context.Background(), orgB, true)
-	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	tenantB := uuid.New()
+	ctxB := dbtx.WithTenant(context.Background(), tenantB, true)
+	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 
 	userB := testutil.SeedUser(t, ctxB, store)
 	groupB := testutil.SeedGroup(t, ctxB, store)

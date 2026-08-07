@@ -88,11 +88,11 @@ func TestAgentServer_ListConnectedAgents(t *testing.T) {
 	assert.Len(t, agents, 2)
 }
 
-func TestAgentServer_ScopeForDeviceUsesStoredOrganization(t *testing.T) {
+func TestAgentServer_ScopeForDeviceUsesStoredTenant(t *testing.T) {
 	store := testutil.NewTestStore(t)
-	orgB := uuid.New()
-	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
-	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	tenantB := uuid.New()
+	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
+	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 	group := testutil.SeedGroup(t, ctxB, store)
 	d := testutil.SeedDevice(t, ctxB, store, group.ID)
 	srv := AgentServer{
@@ -104,7 +104,7 @@ func TestAgentServer_ScopeForDeviceUsesStoredOrganization(t *testing.T) {
 
 	tenant, ok := dbtx.TenantFromContext(scoped)
 	require.True(t, ok)
-	assert.Equal(t, orgB, tenant.OrgID)
+	assert.Equal(t, tenantB, tenant.TenantID)
 	assert.False(t, tenant.IsAdmin)
 }
 

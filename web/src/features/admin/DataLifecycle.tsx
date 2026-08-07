@@ -29,7 +29,7 @@ function StoreFlag({ label, done }: { readonly label: string; readonly done: boo
 }
 
 export function DataLifecycle() {
-  const orgId = useAuthStore((s) => s.orgId);
+  const tenantId = useAuthStore((s) => s.tenantId);
   const addToast = useToastStore((s) => s.addToast);
 
   const [confirm, setConfirm] = useState(false);
@@ -49,13 +49,13 @@ export function DataLifecycle() {
   }, [job, pollJob]);
 
   const handlePurge = async () => {
-    if (!orgId) return;
+    if (!tenantId) return;
     if (!confirm) {
       setConfirm(true);
       return;
     }
     setBusy(true);
-    const res = await api.POST('/api/v1/orgs/{orgId}/purge', { params: { path: { orgId } } });
+    const res = await api.POST('/api/v1/tenants/{tenantId}/purge', { params: { path: { tenantId } } });
     setBusy(false);
     setConfirm(false);
     if (res.error || !res.data) {
@@ -76,7 +76,7 @@ export function DataLifecycle() {
     <div className="max-w-2xl">
       <h2 className="text-lg font-semibold text-gray-100 mb-2">Data Lifecycle</h2>
       <p className="text-sm text-gray-400 mb-4">
-        Permanently erase every device&apos;s centralized telemetry for this organization and
+        Permanently erase every device&apos;s centralized telemetry for this tenant and
         deprovision its agents. This is irreversible — there is no undo, no grace window, and no
         export. Agents are denied re-enrollment; offline agents wipe their local store on next
         reconnect.
@@ -85,7 +85,7 @@ export function DataLifecycle() {
       <div className="rounded border border-red-800 bg-red-950/30 p-4">
         <button
           type="button"
-          disabled={busy || inFlight || !orgId}
+          disabled={busy || inFlight || !tenantId}
           onClick={() => { fireAndForget(handlePurge()); }}
           className="px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded text-xs font-medium"
         >

@@ -51,7 +51,7 @@ func TestImportPreservesOriginalTimestamps(t *testing.T) {
 
 	var b strings.Builder
 	for i, ts := range wantTS {
-		fmt.Fprintf(&b, "es_backfill_preserve{org_id=%q} %g %d\n", "org-1", wantVal[i], ts)
+		fmt.Fprintf(&b, "es_backfill_preserve{tenant_id=%q} %g %d\n", "tenant-1", wantVal[i], ts)
 	}
 	importAndFlush(t, base, b.String())
 
@@ -70,8 +70,8 @@ func TestBackfillNotArrivalBucketed(t *testing.T) {
 
 	oldest := now.Add(-30 * 24 * time.Hour).UnixMilli()
 	mid := now.Add(-10 * 24 * time.Hour).UnixMilli()
-	body := fmt.Sprintf("es_backfill_arrival{org_id=%q} 1 %d\nes_backfill_arrival{org_id=%q} 2 %d\n",
-		"org-1", oldest, "org-1", mid)
+	body := fmt.Sprintf("es_backfill_arrival{tenant_id=%q} 1 %d\nes_backfill_arrival{tenant_id=%q} 2 %d\n",
+		"tenant-1", oldest, "tenant-1", mid)
 	importAndFlush(t, base, body)
 
 	got := exportSeries(t, base, "es_backfill_arrival", now.Add(-60*24*time.Hour), now)

@@ -58,7 +58,7 @@ func setupDeviceTest(t *testing.T, online bool) *deviceTestEnv {
 
 	srv, cfg := newTestServerWithStoreAndAgents(t, store, lookup, relay.NewRelay(slog.Default()))
 
-	token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.OrgID)
+	token, err := cfg.GenerateToken(user.ID, user.Email, user.IsAdmin, user.TenantID)
 	require.NoError(t, err)
 
 	return &deviceTestEnv{

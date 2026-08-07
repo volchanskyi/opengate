@@ -115,12 +115,12 @@ impl DiscoveryProfile {
     }
 
     /// Serializes the profile into a `DiscoveryReport` control message stamped
-    /// with `ts`. The server assigns the authoritative org, so `org_id` is left
+    /// with `ts`. The server assigns the authoritative tenant, so `tenant_id` is left
     /// empty (the agent never asserts a tenant).
     pub fn into_report(self, ts: i64) -> ControlMessage {
         ControlMessage::DiscoveryReport {
             ts,
-            org_id: String::new(),
+            tenant_id: String::new(),
             ports: self.ports,
             services: self.services,
             db_engines: self.db_engines,
@@ -360,15 +360,15 @@ mod tests {
         assert!(!profile.truncated, "a full-but-not-over category is intact");
     }
 
-    /// The report leaves `org_id` empty (the server assigns the tenant) and
+    /// The report leaves `tenant_id` empty (the server assigns the tenant) and
     /// carries every category through unchanged.
     #[test]
-    fn into_report_leaves_org_empty_and_preserves_categories() {
+    fn into_report_leaves_tenant_empty_and_preserves_categories() {
         let report = sample_profile().into_report(1_700_000_000);
         match report {
             ControlMessage::DiscoveryReport {
                 ts,
-                org_id,
+                tenant_id,
                 ports,
                 services,
                 db_engines,
@@ -377,7 +377,7 @@ mod tests {
                 truncated,
             } => {
                 assert_eq!(ts, 1_700_000_000);
-                assert!(org_id.is_empty(), "agent must not assert an org");
+                assert!(tenant_id.is_empty(), "agent must not assert a tenant");
                 assert_eq!(ports.len(), 1);
                 assert_eq!(services.len(), 1);
                 assert_eq!(db_engines.len(), 1);

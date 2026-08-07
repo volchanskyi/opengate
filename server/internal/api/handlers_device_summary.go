@@ -22,9 +22,9 @@ const (
 // either boundary, so the work and the payload are the same for a fleet of one
 // and a fleet of ten thousand.
 //
-// The rollup is org-scoped for every caller, administrators included: the
-// dashboard describes the caller's own organization, so the tiles and the bands
-// always cover one device set and unknown is exact. Admin cross-organization
+// The rollup is tenant-scoped for every caller, administrators included: the
+// dashboard describes the caller's own tenant, so the tiles and the bands
+// always cover one device set and unknown is exact. Admin cross-tenant
 // reads stay available everywhere else.
 func (s *Server) GetDeviceSummary(ctx context.Context, _ GetDeviceSummaryRequestObject) (GetDeviceSummaryResponseObject, error) {
 	counts, err := s.devices.Counts(ctx)
@@ -42,7 +42,7 @@ func (s *Server) GetDeviceSummary(ctx context.Context, _ GetDeviceSummaryRequest
 	}), nil
 }
 
-// countHealthBands classifies the organization's devices into edge-health bands
+// countHealthBands classifies the tenant's devices into edge-health bands
 // and derives unknown as the remainder — the devices that reported no anomaly
 // rate inside the badge lookback window.
 //
@@ -60,7 +60,7 @@ func (s *Server) countHealthBands(ctx context.Context, total int) FleetHealthCou
 	}
 
 	bands, err := s.telemetryReader.CountAnomalyBands(
-		ctx, tenant.OrgID, watchThreshold, anomalousThreshold, time.Now(), anomalyBadgeLookback)
+		ctx, tenant.TenantID, watchThreshold, anomalousThreshold, time.Now(), anomalyBadgeLookback)
 	if err != nil {
 		s.logger.WarnContext(ctx, "fleet health band query failed", "error", err)
 		return unknown

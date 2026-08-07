@@ -102,7 +102,7 @@ func AuthMiddleware(jwtCfg *auth.JWTConfig) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), claimsKey, claims)
-			ctx = dbtx.WithTenant(ctx, claims.OrgID, claims.IsAdmin)
+			ctx = dbtx.WithTenant(ctx, claims.TenantID, claims.IsAdmin)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -145,9 +145,9 @@ func denyIfNotAdmin[T any](ctx context.Context, forbidden T) (T, bool) {
 }
 
 // requireDeviceInScope asserts that a device exists inside the caller's
-// organization. Organization is the visibility boundary, so this lookup is the
+// tenant. Tenant is the visibility boundary, so this lookup is the
 // authorization step for every device-addressed endpoint: the repository runs
-// it under the request tenant, and a device in another organization resolves to
+// it under the request tenant, and a device in another tenant resolves to
 // [device.ErrDeviceNotFound] rather than to a forbidden response. Callers map
 // that error onto their own typed 404.
 func (s *Server) requireDeviceInScope(ctx context.Context, id device.DeviceID) error {
@@ -156,18 +156,18 @@ func (s *Server) requireDeviceInScope(ctx context.Context, id device.DeviceID) e
 }
 
 // requireAMTDeviceInScope asserts that an Intel AMT identity belongs to a
-// managed device inside the caller's organization. The CIRA connection map that
+// managed device inside the caller's tenant. The CIRA connection map that
 // serves power commands is keyed by AMT UUID alone and carries no tenant, so
-// this tenant-scoped lookup is what keeps a command inside its organization.
+// this tenant-scoped lookup is what keeps a command inside its tenant.
 func (s *Server) requireAMTDeviceInScope(ctx context.Context, amtUUID uuid.UUID) error {
 	_, err := s.devices.GetByAMTUUID(ctx, amtUUID)
 	return err
 }
 
 // requireSessionInScope asserts that a session token names a session inside the
-// caller's organization. Ending a session is a device command, so membership is
+// caller's tenant. Ending a session is a device command, so membership is
 // the whole gate; the repository read is tenant-scoped, so a token from another
-// organization resolves to [session.ErrSessionNotFound].
+// tenant resolves to [session.ErrSessionNotFound].
 func (s *Server) requireSessionInScope(ctx context.Context, token string) error {
 	_, err := s.sessions.Get(ctx, token)
 	return err

@@ -13,12 +13,15 @@ import (
 	"testing"
 )
 
-func assertAllRowsBackfilledToDefaultOrg(t *testing.T, ctx context.Context, db *sql.DB) {
+// assertAllRowsBackfilledToDefaultTenant runs immediately after the migration
+// that introduces tenancy, where the scope table and column still carry their
+// introduced names — the rename step is several migrations further along.
+func assertAllRowsBackfilledToDefaultTenant(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
-	var orgCount int
+	var tenantCount int
 	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM organizations WHERE id = '00000000-0000-0000-0000-000000000002'`).Scan(&orgCount))
-	assert.Equal(t, 1, orgCount)
+		`SELECT COUNT(*) FROM organizations WHERE id = '00000000-0000-0000-0000-000000000002'`).Scan(&tenantCount))
+	assert.Equal(t, 1, tenantCount)
 
 	for tableName, expectedRows := range map[string]int{
 		"users":                  1,
@@ -40,7 +43,7 @@ func assertAllRowsBackfilledToDefaultOrg(t *testing.T, ctx context.Context, db *
 		require.NoError(t, db.QueryRowContext(ctx, query).Scan(&total, &defaultScoped))
 		assert.Equal(t, expectedRows, total, tableName)
 		assert.Equal(t, total, defaultScoped, tableName)
-		t.Logf("rehearsal: %s rows=%d default_org_rows=%d", tableName, total, defaultScoped)
+		t.Logf("rehearsal: %s rows=%d default_tenant_rows=%d", tableName, total, defaultScoped)
 	}
 }
 
@@ -56,17 +59,24 @@ func insertSecondTenantRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	require.NoError(t, tx.Commit())
 }
 
-func assertTelemetryProcessRLS(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+// seedTelemetryProcessRows gives each rehearsal tenant one process row. It runs
+// at the migration that creates the table, where the scope column still carries
+// its introduced name; the rows survive into every later step, so the assertion
+// that reads them never names the column.
+func seedTelemetryProcessRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
-	const roleName = "opengate_rls_rehearsal"
-	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
-
 	rehearsalExecNoTx(t, ctx, db,
 		`INSERT INTO device_processes (org_id, device_id, ts, rank, basename, pid, cpu, mem)
 		 VALUES
 		   ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000103', '2026-07-02T00:00:00Z', 1, 'tenant-a', 100, 1, 2),
 		   ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000204', '2026-07-02T00:00:00Z', 1, 'tenant-b', 200, 3, 4)
 		 ON CONFLICT DO NOTHING`)
+}
+
+func assertTelemetryProcessRLS(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+	t.Helper()
+	const roleName = "opengate_rls_rehearsal"
+	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
 
 	txA := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), false)
 	defer txA.Rollback() //nolint:errcheck // harmless after assertions
@@ -81,17 +91,22 @@ func assertTelemetryProcessRLS(t *testing.T, ctx context.Context, db *sql.DB, sc
 	assert.Equal(t, 2, visibleToAdmin)
 }
 
-func assertInventoryRLS(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+// seedInventoryRows is the discovery-inventory counterpart of
+// seedTelemetryProcessRows and runs at the migration that creates the table.
+func seedInventoryRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
-	const roleName = "opengate_rls_rehearsal"
-	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
-
 	rehearsalExecNoTx(t, ctx, db,
 		`INSERT INTO device_inventory (org_id, device_id, kind, name, port, first_seen, last_seen)
 		 VALUES
 		   ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000103', 'port', 'tenant-a', 5432, '2026-07-02T00:00:00Z', '2026-07-02T00:00:00Z'),
 		   ('00000000-0000-0000-0000-000000000202', '00000000-0000-0000-0000-000000000204', 'port', 'tenant-b', 6379, '2026-07-02T00:00:00Z', '2026-07-02T00:00:00Z')
 		 ON CONFLICT DO NOTHING`)
+}
+
+func assertInventoryRLS(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+	t.Helper()
+	const roleName = "opengate_rls_rehearsal"
+	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
 
 	txA := beginTenantTxAsRole(t, ctx, db, roleName, uuid.MustParse("00000000-0000-0000-0000-000000000002"), false)
 	defer txA.Rollback() //nolint:errcheck // harmless after assertions

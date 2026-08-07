@@ -281,7 +281,7 @@ Custom Playwright fixtures in `web/e2e/fixtures.ts` provide:
 ### Shared backend state
 
 Every spec runs against one backend, and every e2e user registers into the same
-organization — which is the visibility boundary for groups and devices. A group
+tenant — which is the visibility boundary for groups and devices. A group
 one spec creates is therefore visible to every spec that runs after it, so a
 spec that asserts an empty fleet is really asserting on what the whole suite has
 done so far. Two rules follow:
@@ -441,9 +441,9 @@ its own VU ramp and thresholds in its `options` block:
 | [`relay-throughput.js`](../load/k6/scenarios/relay-throughput.js) | Relay latency alongside constant health and group reads |
 | [`concurrent-agents.js`](../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's groups |
 
-`setup()` registers a throwaway member of the staging organization through
+`setup()` registers a throwaway member of the staging tenant through
 [`load/k6/lib/session.js`](../load/k6/lib/session.js) and reads the groups that
-member can see. The scenarios drive read paths only: organization is the visibility
+member can see. The scenarios drive read paths only: tenant is the visibility
 boundary, so a member reads the whole fleet, while creating a group is administrator
 work the server refuses. A scenario that stood up its own fixtures would measure the
 403 path instead. `setup()` throws on an unexpected status, so a broken precondition

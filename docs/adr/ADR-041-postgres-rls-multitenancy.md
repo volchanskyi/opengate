@@ -21,17 +21,17 @@ before adding high-volume time-series and historical data paths.
 
 Use logical multi-tenancy in the shared PostgreSQL database:
 
-- Add an `organizations` table and `org_id UUID NOT NULL` to tenant-owned tables.
-- Seed existing rows into the default organization
+- Add an `tenants` table and `tenant_id UUID NOT NULL` to tenant-owned tables.
+- Seed existing rows into the default tenant
   `00000000-0000-0000-0000-000000000002`.
 - Enable and force Postgres Row-Level Security on tenant tables.
-- Thread tenant scope from JWT claim `org` through API middleware into request
+- Thread tenant scope from JWT claim `tenant` through API middleware into request
   context.
 - Execute repository methods inside transactions that set
-  `app.current_org` and `app.is_admin` with `SET LOCAL`.
-- Keep explicit `WHERE org_id = current_setting('app.current_org')::uuid`
-  predicates and `org_id`-leading indexes on tenant lookup/list paths.
-- Permit administrator cross-org reads through RLS policy checks on
+  `app.current_tenant` and `app.is_admin` with `SET LOCAL`.
+- Keep explicit `WHERE tenant_id = current_setting('app.current_tenant')::uuid`
+  predicates and `tenant_id`-leading indexes on tenant lookup/list paths.
+- Permit administrator cross-tenant reads through RLS policy checks on
   `app.is_admin`, not through a `BYPASSRLS` application role.
 - Run Helm application traffic through the dedicated non-superuser runtime role
   created by
@@ -40,11 +40,11 @@ Use logical multi-tenancy in the shared PostgreSQL database:
   [`cd.yml`](../../.github/workflows/cd.yml). The original Postgres role remains
   available for maintenance and full backups.
 - Run migrations on a dedicated, single-connection pool that carries
-  `app.is_admin` and `app.current_org` as startup options
+  `app.is_admin` and `app.current_tenant` as startup options
   ([`postgres.go`](../../server/internal/db/postgres.go)). That role is
   `NOBYPASSRLS` and owns tables under forced RLS, so a migration that reads or
   writes rows is subject to the tenant policy; because the policy resolves
-  `app.current_org` without a `missing_ok` fallback, an unscoped migration
+  `app.current_tenant` without a `missing_ok` fallback, an unscoped migration
   connection aborts rather than silently matching no rows. The pool serving
   application traffic never carries that scope.
 - Test the boundary with per-repository cross-tenant deny coverage, a static
@@ -69,5 +69,5 @@ the default tenant explicitly. They are not hidden unscoped database reads.
   transaction.
 - Repositories have more boilerplate, but the security boundary is close to the
   data and testable with real Postgres.
-- A future multi-org UI needs an org-membership/switching API; the current web
-  client carries the active org from the JWT.
+- A future multi-tenant UI needs a tenant-membership/switching API; the current web
+  client carries the active tenant from the JWT.
