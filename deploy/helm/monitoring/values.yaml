@@ -23,7 +23,11 @@ storageClass: oci-bv
 
 victoriametrics:
   image: docker.io/victoriametrics/victoria-metrics:v1.114.0
-  retention: 90d
+  # Single global retention: OSS VictoriaMetrics has no per-series window, so raw
+  # samples and the avg rollups share this one. It is the only input to the
+  # rendered -retentionPeriod argument, pinned by
+  # scripts/tests/monitoring-retention.test.sh.
+  retention: 30d
   storage: 50Gi
   resources:
     requests:

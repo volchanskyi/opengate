@@ -293,6 +293,16 @@ arrays, so a polling refresh never reconciles thousands of points. The adapter
 the only module importing uPlot and is code-split into a dedicated `charts`
 chunk with its own budget in [`.size-limit.json`](../web/.size-limit.json).
 
+Charts draw the window that was asked for. The device metrics endpoint returns a
+bucket grid derived from the request rather than from the samples the store
+holds ([API Reference](API-Reference.md)), so a wide window over a sparsely
+reporting device arrives as that whole window with `null` in the buckets nobody
+reported. [`aligned-data.ts`](../web/src/features/devices/charts/aligned-data.ts)
+projects each column onto that grid — padding or trimming so a reading can never
+land against the wrong instant — maps `null` to `NaN`, and keeps `spanGaps` off
+on every drawn series including the band edges. The hole stays a hole: a line
+across a device-offline stretch would assert measurements nobody took.
+
 The device-detail panel
 ([`DeviceMetrics`](../web/src/features/devices/DeviceMetrics.tsx)) shows the
 current edge-health anomaly rate, per-family metric timelines (avg line plus a

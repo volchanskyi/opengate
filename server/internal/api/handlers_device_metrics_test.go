@@ -92,6 +92,13 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 	dev := seedOwnedDevice(t, srv)
 	path := "/api/v1/devices/" + dev.ID.String() + "/metrics?from=2026-07-02T00:00:00Z&to=2026-07-02T01:00:00Z"
 
+	// The handler's own grid for that window: one hour at the 10 s raw cadence
+	// under the default 1000-point cap, so 360 buckets. The fake answers on it,
+	// the way a real store answers the query the grid is issued on.
+	handlerFrom := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
+	handlerGrid := buildMetricGrid(handlerFrom, handlerFrom.Add(time.Hour), chooseStep(handlerFrom, handlerFrom.Add(time.Hour), defaultMaxPoints))
+	require.Len(t, handlerGrid.ts, 360)
+
 	t.Run("503 when telemetry not configured", func(t *testing.T) {
 		srv.telemetryReader = nil
 		w := doRequest(srv, http.MethodGet, path, token, nil)
@@ -113,10 +120,11 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 	})
 
 	t.Run("200 maps avg + avg_of_10s band, scopes to device, defaults band on", func(t *testing.T) {
+		answered := []int64{handlerGrid.ts[0], handlerGrid.ts[6]}
 		fake := &fakeMetricsReader{rangeByAgg: map[telemetry.RangeAgg][]telemetry.RangeSeries{
-			telemetry.RangeAvg: {{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: []int64{100, 160}, Values: []float64{10, 20}}},
-			telemetry.RangeMin: {{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: []int64{100, 160}, Values: []float64{5, 15}}},
-			telemetry.RangeMax: {{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: []int64{100, 160}, Values: []float64{15, 25}}},
+			telemetry.RangeAvg: {{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: answered, Values: []float64{10, 20}}},
+			telemetry.RangeMin: {{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: answered, Values: []float64{5, 15}}},
+			telemetry.RangeMax: {{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: answered, Values: []float64{15, 25}}},
 		}}
 		srv.telemetryReader = fake
 		w := doRequest(srv, http.MethodGet, path, token, nil)
@@ -124,27 +132,33 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 
 		var resp MetricRangeResponse
 		require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-		assert.Equal(t, []int64{100, 160}, resp.T)
+		// The axis is the requested hour, not the two buckets that carried data.
+		assert.Equal(t, handlerGrid.ts, resp.T)
+		assert.Equal(t, minRangeStepSecs, resp.BucketS)
 		require.Len(t, resp.Series, 1)
 		assert.Equal(t, "cpu.util", resp.Series[0].Name)
 		assert.Equal(t, MetricSeriesMinMaxSourceAvgOf10s, resp.Series[0].MinMaxSource)
 		require.NotNil(t, resp.Series[0].Min)
 		require.NotNil(t, resp.Series[0].Max)
-		require.Len(t, resp.Series[0].Avg, 2)
-		assert.InDelta(t, 20.0, *resp.Series[0].Avg[1], 1e-9)
+		require.Len(t, resp.Series[0].Avg, 360)
+		assert.Equal(t, []int{0, 6}, nonNullSlots(resp.Series[0].Avg))
+		assert.InDelta(t, 20.0, *resp.Series[0].Avg[6], 1e-9)
 
-		// avg + min + max = 3 scoped queries, all filtered to the path device only.
+		// avg + min + max = 3 scoped queries, all filtered to the path device only
+		// and all issued on the grid's own edges.
 		require.Len(t, fake.rangeCalls, 3)
 		for _, c := range fake.rangeCalls {
 			assert.Equal(t, dev.ID.String(), c.Matchers["device_id"])
 			_, hasTenant := c.Matchers["tenant_id"]
 			assert.False(t, hasTenant, "handler must never inject tenant_id itself")
+			assert.Equal(t, handlerGrid.ts[0], c.Start.Unix())
+			assert.Equal(t, handlerGrid.ts[359], c.End.Unix())
 		}
 	})
 
 	t.Run("band=none returns avg line only, one query", func(t *testing.T) {
 		fake := &fakeMetricsReader{rangeByAgg: map[telemetry.RangeAgg][]telemetry.RangeSeries{
-			telemetry.RangeAvg: {{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: []int64{100}, Values: []float64{10}}},
+			telemetry.RangeAvg: {{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: []int64{handlerGrid.ts[0]}, Values: []float64{10}}},
 		}}
 		srv.telemetryReader = fake
 		w := doRequest(srv, http.MethodGet, path+"&band=none", token, nil)
@@ -212,13 +226,15 @@ func TestAssembleMetricRangeAlignsGridAndGaps(t *testing.T) {
 	t.Parallel()
 	// mem.used is missing the middle bucket → that slot must be null, and series
 	// come back sorted by name regardless of input order.
+	grid := buildMetricGrid(time.Unix(100, 0), time.Unix(130, 0), 10*time.Second)
 	avg := []telemetry.RangeSeries{
-		{Labels: map[string]string{"dim": "mem.used"}, Timestamps: []int64{100, 300}, Values: []float64{1, 3}},
-		{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: []int64{100, 200, 300}, Values: []float64{10, 20, 30}},
+		{Labels: map[string]string{"dim": "mem.used"}, Timestamps: []int64{100, 120}, Values: []float64{1, 3}},
+		{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: []int64{100, 110, 120}, Values: []float64{10, 20, 30}},
 	}
-	got := assembleMetricRange(avg, nil, nil, nil, false, 10)
+	got, off := assembleMetricRange(avg, nil, nil, nil, false, grid)
 
-	assert.Equal(t, []int64{100, 200, 300}, got.T)
+	assert.Zero(t, off.count)
+	assert.Equal(t, []int64{100, 110, 120}, got.T)
 	assert.Equal(t, 10, got.BucketS)
 	assert.False(t, got.Downsampled)
 	require.Len(t, got.Series, 2)
@@ -234,11 +250,13 @@ func TestAssembleMetricRangeAlignsGridAndGaps(t *testing.T) {
 
 func TestAssembleMetricRangeDimFilterAndDownsampled(t *testing.T) {
 	t.Parallel()
+	grid := buildMetricGrid(time.Unix(60, 0), time.Unix(120, 0), 60*time.Second)
 	avg := []telemetry.RangeSeries{
-		{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: []int64{100}, Values: []float64{10}},
-		{Labels: map[string]string{"dim": "mem.used"}, Timestamps: []int64{100}, Values: []float64{5}},
+		{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: []int64{60}, Values: []float64{10}},
+		{Labels: map[string]string{"dim": "mem.used"}, Timestamps: []int64{60}, Values: []float64{5}},
 	}
-	got := assembleMetricRange(avg, nil, nil, map[string]bool{"cpu.util": true}, false, 60)
+	got, off := assembleMetricRange(avg, nil, nil, map[string]bool{"cpu.util": true}, false, grid)
+	assert.Zero(t, off.count)
 	require.Len(t, got.Series, 1)
 	assert.Equal(t, "cpu.util", got.Series[0].Name)
 	assert.True(t, got.Downsampled, "60s bucket is coarser than the 10s raw cadence")

@@ -341,7 +341,7 @@ export interface paths {
         };
         /**
          * Downsampled numeric telemetry for a device window
-         * @description Returns column-oriented numeric telemetry for the device over the window, read tenant-scoped from VictoriaMetrics. The server picks a bucket width so the point count stays within max_points regardless of window span, mapping 1:1 to a client charting engine's aligned data. Charts numeric dimensions only; process basenames and cmdlines are never returned here.
+         * @description Returns column-oriented numeric telemetry for the device over the window, read tenant-scoped from VictoriaMetrics. The server picks a bucket width so the point count stays within max_points regardless of window span, then answers on the grid that width implies — every bucket of the requested window is present, and one the device did not report is null, mapping 1:1 to a client charting engine's aligned data. Charts numeric dimensions only; process basenames and cmdlines are never returned here.
          */
         get: operations["getDeviceMetrics"];
         put?: never;
@@ -1061,7 +1061,7 @@ export interface components {
             min_max_source: "local" | "avg_of_10s" | "none";
         };
         MetricRangeResponse: {
-            /** @description Bucket timestamps in unix seconds, ascending. Aligns 1:1 with each series. */
+            /** @description Bucket timestamps in unix seconds, ascending, evenly spaced by bucket_s. Aligns 1:1 with each series. The axis comes from the requested window, not from what the store holds: it always carries (to - from) / bucket_s buckets, so a window over a device with little data renders that window with nulls rather than collapsing to the few buckets that had a value. The end instant is exclusive. */
             t: number[];
             series: components["schemas"]["MetricSeries"][];
             /** @description True when the server collapsed raw samples into buckets to honor max_points. */

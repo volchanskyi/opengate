@@ -251,10 +251,16 @@ ci: lint test build
 # Sole owner of the Compose lifecycle: bring the stack up, run Playwright, then
 # tear down in the same recipe line so the teardown also runs when the suite
 # fails, while the suite's exit code still propagates to make.
+# Smoke tests run AFTER Playwright, not before: registering the first user on a
+# fresh database auto-promotes it to administrator, and Playwright's global
+# setup asserts that its own bootstrap account got that promotion. A smoke run
+# that went first would take the slot and fail every E2E run. Both share one
+# compose lifecycle, and either failing fails the target.
 e2e:
 	cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml up -d --build --wait
-	@cd web && npx playwright test; rc=$$?; \
-		cd ../deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml down -v; \
+	@(cd web && npx playwright test); rc=$$?; \
+		bash deploy/scripts/smoke-test.sh --host 127.0.0.1 --port 8080 --mode local --scheme http || rc=1; \
+		cd deploy && DOCKER_CONFIG="$$(../scripts/docker-credstore-guard.sh)" docker compose -f docker-compose.test.yml down -v; \
 		exit $$rc
 
 load-test:

@@ -7,44 +7,44 @@
 
 ## Context — verified
 
-**The grid defect.** [`assembleMetricRange`](../../server/internal/api/metrics_assemble.go#L14)
+**The grid defect.** [`assembleMetricRange`](../../../server/internal/api/metrics_assemble.go#L14)
 builds its time axis from `unionGrid(avg)`
-([:62](../../server/internal/api/metrics_assemble.go#L62)) — the sorted union of timestamps
+([:62](../../../server/internal/api/metrics_assemble.go#L62)) — the sorted union of timestamps
 **VictoriaMetrics happened to return**. So a 7 d request over a device with 20 min of data renders
 two points, indistinguishable from a 1 h request, and the window selector reads as a dead control
 (measurement M1: 1 h→111 pts, 6 h→51, 24 h→14, 7 d→2, all from the same instant).
 
 The step is already chosen from the request, not the data:
-[`chooseStep`](../../server/internal/api/handlers_device_metrics.go#L139) picks the smallest whole
+[`chooseStep`](../../../server/internal/api/handlers_device_metrics.go#L139) picks the smallest whole
 second bucket ≥ `minRangeStepSecs` that keeps the count within `maxPoints`
 (`defaultMaxPoints = 1000`, `maxMaxPointsBound = 2000`,
-[handlers_device_metrics.go:22-25](../../server/internal/api/handlers_device_metrics.go#L22-L25)),
+[handlers_device_metrics.go:22-25](../../../server/internal/api/handlers_device_metrics.go#L22-L25)),
 and the response already carries it as `BucketS`. **No new response field is needed** — only the
 axis must come from the same place the step does.
 
-**The retention drift.** [values.yaml:26](../../deploy/helm/monitoring/values.yaml#L26) declares
+**The retention drift.** [values.yaml:26](../../../deploy/helm/monitoring/values.yaml#L26) declares
 `retention: 90d`; the live statefulset runs `-retentionPeriod=30d`. The chart is the only input to
 the rendered argument
-([victoriametrics.yaml:98](../../deploy/helm/monitoring/templates/victoriametrics.yaml#L98)), so
+([victoriametrics.yaml:98](../../../deploy/helm/monitoring/templates/victoriametrics.yaml#L98)), so
 the chart is simply wrong, and nothing catches it.
 
 ## File inventory
 
-- **Modify:** [metrics_assemble.go](../../server/internal/api/metrics_assemble.go) — replace
+- **Modify:** [metrics_assemble.go](../../../server/internal/api/metrics_assemble.go) — replace
   `unionGrid` with a request-derived grid builder; project VM's answer onto it.
-- **Modify:** [handlers_device_metrics.go](../../server/internal/api/handlers_device_metrics.go) —
+- **Modify:** [handlers_device_metrics.go](../../../server/internal/api/handlers_device_metrics.go) —
   pass `from`/`to`/`step` into assembly.
-- **Modify:** [handlers_device_metrics_test.go](../../server/internal/api/handlers_device_metrics_test.go).
+- **Modify:** [handlers_device_metrics_test.go](../../../server/internal/api/handlers_device_metrics_test.go).
 - **Create:** a `testvm`-backed alignment test (real VictoriaMetrics via
-  [testvm](../../server/internal/testvm/testvm.go)) — see step 1.
-- **Modify:** [values.yaml](../../deploy/helm/monitoring/values.yaml) — `retention: 30d`.
+  [testvm](../../../server/internal/testvm/testvm.go)) — see step 1.
+- **Modify:** [values.yaml](../../../deploy/helm/monitoring/values.yaml) — `retention: 30d`.
 - **Create:** `scripts/tests/monitoring-retention.test.sh` — offline drift test, modelled on
-  [monitoring-scrape.test.sh](../../scripts/tests/monitoring-scrape.test.sh). **`chmod +x` (100755)
+  [monitoring-scrape.test.sh](../../../scripts/tests/monitoring-scrape.test.sh). **`chmod +x` (100755)
   or the gauntlet's shell-tests step fails.**
-- **Modify:** [DeviceMetrics.tsx](../../web/src/features/devices/DeviceMetrics.tsx) /
-  [TimeSeriesChart.tsx](../../web/src/features/devices/charts/TimeSeriesChart.tsx) — grid-length
+- **Modify:** [DeviceMetrics.tsx](../../../web/src/features/devices/DeviceMetrics.tsx) /
+  [TimeSeriesChart.tsx](../../../web/src/features/devices/charts/TimeSeriesChart.tsx) — grid-length
   tolerance and no interpolation across nulls.
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md), [API-Reference.md](../../docs/API-Reference.md).
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md), [API-Reference.md](../../../docs/API-Reference.md).
 
 ## Steps (TDD-first)
 
@@ -78,7 +78,7 @@ the chart is simply wrong, and nothing catches it.
 - `Downsampled: stepSecs > minRangeStepSecs` keeps its meaning only while `minRangeStepSecs` matches
   the real ingest cadence. **EF-B2 changes that constant to 60** — do not touch it here, and do not
   hard-code `10` anywhere new, or the two plans will collide.
-- The band path (`attachBand`, [:47](../../server/internal/api/metrics_assemble.go#L47)) aligns
+- The band path (`attachBand`, [:47](../../../server/internal/api/metrics_assemble.go#L47)) aligns
   min/max onto the same grid — it must be re-pointed at the new grid, not left on `unionGrid`.
 - A 30 d window at a 2 000-point cap means ~21 min buckets; that is correct and intended. Do not
   "fix" it by raising `maxMaxPointsBound` — response size is bounded on purpose.

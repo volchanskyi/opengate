@@ -33,9 +33,18 @@ export interface FamilyChart {
  * NaN. Canvas `lineTo(x, NaN)` is a no-op, so a NaN renders as a break in the
  * line rather than a spurious zero — the typed array keeps the render path off
  * the React reconciler.
+ *
+ * `length`, when given, fixes the output to the grid: a short column is padded
+ * with gaps and a long one is cut. uPlot reads column i against x[i], so a
+ * length that disagrees with the axis would not fail — it would quietly plot
+ * every later reading at the wrong time.
  */
-export function toFloat32(values: readonly (number | null)[]): Float32Array {
-  return Float32Array.from(values, (v) => (typeof v === 'number' ? v : Number.NaN));
+export function toFloat32(values: readonly (number | null)[], length = values.length): Float32Array {
+  // Padding first, then overwrite the head with however much the column has:
+  // a fresh Float32Array is zero-filled, and a zero is a reading, not a gap.
+  const out = new Float32Array(length).fill(Number.NaN);
+  out.set(Float32Array.from(values.slice(0, length), (v) => (typeof v === 'number' ? v : Number.NaN)));
+  return out;
 }
 
 /** Family key: the token before the first dot, or "other" for un-dotted names. */
@@ -60,11 +69,14 @@ export function groupByFamily(series: readonly MetricSeries[]): Map<string, Metr
   return sites;
 }
 
-function accumulateFinite(values: readonly (number | null)[], lo: number, hi: number): [number, number] {
+/** Widen [lo, hi] over a column's finite samples. It reads the projected
+ *  column, not the raw one, so a reading trimmed off the grid cannot stretch the
+ *  scale of a window it is not drawn in. */
+function accumulateFinite(values: Float32Array, lo: number, hi: number): [number, number] {
   let nextLo = lo;
   let nextHi = hi;
   for (const v of values) {
-    if (v === null || !Number.isFinite(v)) continue;
+    if (!Number.isFinite(v)) continue;
     if (v < nextLo) nextLo = v;
     if (v > nextHi) nextHi = v;
   }
@@ -92,20 +104,28 @@ export function buildFamilyChart(
 
   metrics.forEach((metric, i) => {
     const color = palette[i % palette.length];
-    data.push(toFloat32(metric.avg));
+    const avg = toFloat32(metric.avg, t.length);
+    data.push(avg);
     series.push({ label: metric.name, stroke: color, width: 1.5, scale: 'y', spanGaps: false });
-    [lo, hi] = accumulateFinite(metric.avg, lo, hi);
+    [lo, hi] = accumulateFinite(avg, lo, hi);
 
     const { min, max } = metric;
     if (metric.min_max_source !== 'none' && min != null && max != null) {
-      data.push(toFloat32(min), toFloat32(max));
+      const minCol = toFloat32(min, t.length);
+      const maxCol = toFloat32(max, t.length);
+      data.push(minCol, maxCol);
       const minIdx = data.length - 2;
       const maxIdx = data.length - 1;
-      const faint = { label: `${metric.name} band`, stroke: color, width: 0, scale: 'y', points: { show: false } };
+      // spanGaps stays off on the edges too: a band that bridged a hole would
+      // fill a region the avg line inside it leaves empty.
+      const faint = {
+        label: `${metric.name} band`, stroke: color, width: 0, scale: 'y',
+        spanGaps: false, points: { show: false },
+      };
       series.push({ ...faint }, { ...faint });
       bands.push({ series: [maxIdx, minIdx], fill: `${color}22` });
-      [lo, hi] = accumulateFinite(min, lo, hi);
-      [lo, hi] = accumulateFinite(max, lo, hi);
+      [lo, hi] = accumulateFinite(minCol, lo, hi);
+      [lo, hi] = accumulateFinite(maxCol, lo, hi);
     }
   });
 

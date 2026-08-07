@@ -81,6 +81,7 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/devices/{id}/restart` | POST | JWT | Restart agent on device (optional `reason` field) |
 | `/api/v1/devices/{id}/hardware` | GET | JWT | Get hardware inventory for device (200 cached / 202 requested from agent) |
 | `/api/v1/devices/{id}/logs` | GET | JWT (admin) | Get device log entries (on-demand via agent) |
+| `/api/v1/devices/{id}/metrics` | GET | JWT | Downsampled numeric telemetry for a device window, on a request-derived bucket grid |
 | `/api/v1/devices/{id}/correlate` | POST | JWT | Rank anomalous metric dimensions for a window (on-demand, server-side over VictoriaMetrics) |
 | `/api/v1/devices/{id}/inventory` | GET | JWT | Get the device's auto-discovered footprint (ports, services, DB engines, containers, packages) |
 | `/api/v1/sessions` | POST | JWT | Create a remote session |
@@ -149,6 +150,46 @@ const { data, error } = await api.GET('/api/v1/sites');
   "has_more": true
 }
 ```
+
+### Device Metrics
+
+`GET /api/v1/devices/{id}/metrics` returns column-oriented numeric telemetry for
+a device window, read tenant-scoped from VictoriaMetrics
+([`handlers_device_metrics.go`](../server/internal/api/handlers_device_metrics.go)).
+
+The time axis is derived from the request, not from what the store happens to
+hold. `chooseStep` picks the smallest whole-second bucket that keeps the point
+count within `max_points`, and
+[`buildMetricGrid`](../server/internal/api/metrics_assemble.go) lays out exactly
+`(to - from) / bucket_s` evenly spaced buckets from it. So the window selector
+means something: a seven-day request over a device with twenty minutes of
+telemetry returns seven days of buckets with one short run of values and `null`
+everywhere else, rather than collapsing to the two points the store answered
+with. `bucket_s` reports the width and the end instant is exclusive.
+
+Both edges of the grid sit on a whole multiple of the step, and the range read
+is issued at those two instants. That matters because VictoriaMetrics rounds an
+unaligned start down to a step multiple once a query has enough points, so a
+grid built independently of the query could disagree by one bucket and shift
+every value. Issuing the read on the grid's own instants makes the rounding a
+no-op; a sample that still arrives off the grid is counted on
+`opengate_metrics_grid_misalignment_total` and logged, never dropped in silence.
+
+Clients must render `null` as a gap and never interpolate across one — a
+straight line over a device-offline window is a reading nobody took. The uPlot
+adapter does this with `spanGaps: false` on every drawn series
+([`aligned-data.ts`](../web/src/features/devices/charts/aligned-data.ts)).
+
+**Response Codes**
+
+| Code | Meaning |
+|------|---------|
+| `200` | Telemetry window (`t`, `series`, `downsampled`, `bucket_s`) |
+| `400` | Invalid window (`to` not after `from`) |
+| `401` | Unauthorized |
+| `403` | Forbidden (the request carries no tenant scope) |
+| `404` | Device not found (also the cross-tenant deny) |
+| `503` | Telemetry not configured (no VictoriaMetrics URL) or the range query failed |
 
 ### Metric Correlation
 
