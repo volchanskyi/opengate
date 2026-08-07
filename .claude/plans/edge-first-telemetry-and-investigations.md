@@ -1361,7 +1361,7 @@ W1–W6 and §14's close-out folds them back.
 
 | Micro-plan | Steps | Criteria | Depends on |
 |---|---|---|---|
-| `edge-first-a1-telemetry-accounting.md` | 1, 3 | A1, A2, A4 | — |
+| `archive/edge-first-a1-telemetry-accounting.md` | 1, 3 | A1, A2, A4 | — |
 | `edge-first-a2-honest-grids-and-retention.md` | 2, 4 | A3, A5 | — |
 | `edge-first-b1-disk-worst-mount-reduction.md` | 5 | B3 | — |
 | `edge-first-b2-vitals-contract-and-cadence.md` | 6 (code) | B1, B4 | B1 |

@@ -77,6 +77,11 @@ type AgentConn struct {
 	// heartbeat, a size cap, and connection teardown.
 	telemetryBuf []telemetry.Sample
 
+	// telemetryBufMsgs counts the ingested messages whose samples sit in
+	// telemetryBuf, so a batch that fails to persist reports one drop per message
+	// and the ingest ledger (ingested = persisted + drops) stays balanced.
+	telemetryBufMsgs int
+
 	// maintenanceApplied records the last maintenance state the agent reported
 	// applying (via MaintenanceApplied). The server's desired state lives in
 	// Postgres; this is the confirmation signal that the agent reconciled, read

@@ -240,13 +240,14 @@ func TestAgentConn_PersistTelemetryDropsWhenTenantMissing(t *testing.T) {
 	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 
 	called := false
-	// A context without a tenant must never reach the persistence closure.
-	ac.persistTelemetry(context.Background(), func(context.Context, dbtx.Tenant) error {
+	// A context without a tenant must never reach the persistence closure, and
+	// every message the write carried is counted, not just the write.
+	ac.persistTelemetry(context.Background(), 3, func(context.Context, dbtx.Tenant) error {
 		called = true
 		return nil
 	})
 
-	assert.Equal(t, uint64(1), ac.DroppedTelemetryCount())
+	assert.Equal(t, uint64(3), ac.DroppedTelemetryCount())
 	assert.False(t, called)
 }
 
@@ -294,11 +295,19 @@ func TestAcceptTelemetryPinsPayloadAndTimestampBoundaries(t *testing.T) {
 
 func TestTelemetryTimestamp(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, time.Unix(1_700_000_000, 0).UTC(), telemetryTimestamp(1_700_000_000))
+	ac, _ := newTestAgentConn(t, uuid.New(), nil)
 
-	got := telemetryTimestamp(0)
+	inWindow := time.Now().Add(-time.Hour).Unix()
+	assert.Equal(t, time.Unix(inWindow, 0).UTC(), ac.telemetryTimestamp(inWindow))
+
+	got := ac.telemetryTimestamp(0)
 	assert.WithinDuration(t, time.Now().UTC(), got, 5*time.Second)
 	assert.Equal(t, time.UTC, got.Location())
+
+	// A stamp outside the accepted window is corrected, and a nil metrics sink
+	// (the default for a programmatic conn) must not panic doing it.
+	assert.WithinDuration(t, time.Now().UTC().Add(-maxTelemetryBacklog),
+		ac.telemetryTimestamp(time.Now().Add(-30*24*time.Hour).Unix()), 5*time.Second)
 }
 
 // telemetryConn wires an AgentConn to a recording telemetry writer with a

@@ -10,17 +10,17 @@ this lands, because the pipeline currently loses data without saying so.
 ## Context — the defect, verified in the tree
 
 `acceptTelemetry` increments the ingest counter
-([conn_telemetry.go:185](../../server/internal/agentapi/conn_telemetry.go#L185) →
-`acceptedTelemetry` [:206](../../server/internal/agentapi/conn_telemetry.go#L206)) **before** any
+([conn_telemetry.go:185](../../../server/internal/agentapi/conn_telemetry.go#L185) →
+`acceptedTelemetry` [:206](../../../server/internal/agentapi/conn_telemetry.go#L206)) **before** any
 handler decides whether it has anything to persist. Two discard paths then return without touching
 a counter:
 
 | Path | Line | Silent because |
 |---|---|---|
-| `handleAgentHealthSummary` | [:55](../../server/internal/agentapi/conn_telemetry.go#L55) | `if len(samples) == 0 { return nil }` |
-| `bufferTelemetry` | [:161](../../server/internal/agentapi/conn_telemetry.go#L161) | `len(samples) == 0` guard — reached from **all four** telemetry handlers |
+| `handleAgentHealthSummary` | [:55](../../../server/internal/agentapi/conn_telemetry.go#L55) | `if len(samples) == 0 { return nil }` |
+| `bufferTelemetry` | [:161](../../../server/internal/agentapi/conn_telemetry.go#L161) | `len(samples) == 0` guard — reached from **all four** telemetry handlers |
 
-`handleAgentMetricWindow` ([:62](../../server/internal/agentapi/conn_telemetry.go#L62)) builds
+`handleAgentMetricWindow` ([:62](../../../server/internal/agentapi/conn_telemetry.go#L62)) builds
 `samples` from `msg.Dims`; an empty `Dims` yields an empty slice that dies in `bufferTelemetry`.
 That is the live loss the master plan measures (M5 + M6 + M7 + M9): ~2 250 windows received,
 counted, never written, never dropped.
@@ -28,34 +28,34 @@ counted, never written, never dropped.
 Two more silent paths exist in the same package and are in scope here (the fix is worthless if the
 next variant is just as invisible):
 
-- `handleProcessReport` ([:80](../../server/internal/agentapi/conn_telemetry.go#L80)) — an empty
+- `handleProcessReport` ([:80](../../../server/internal/agentapi/conn_telemetry.go#L80)) — an empty
   `TopN` reaches `bufferTelemetry` with nothing and persists nothing.
-- `handleHealthWindowResponse` ([:126](../../server/internal/agentapi/conn_telemetry.go#L126)) — an
+- `handleHealthWindowResponse` ([:126](../../../server/internal/agentapi/conn_telemetry.go#L126)) — an
   empty `Summaries` does the same.
-- `handleMetricBackfillBatch` ([conn_backfill.go:67](../../server/internal/agentapi/conn_backfill.go#L67))
+- `handleMetricBackfillBatch` ([conn_backfill.go:67](../../../server/internal/agentapi/conn_backfill.go#L67))
   `continue`s every sample outside `[now-90 d, now+1 h]` with **no counter at all**.
 
 Existing machinery to reuse — do not invent a parallel one: `dropTelemetry(reason, args…)`
-([:237](../../server/internal/agentapi/conn_telemetry.go#L237)) already feeds
-`EdgeTelemetryDropsTotal` in [metrics.go](../../server/internal/metrics/metrics.go) (namespace
+([:237](../../../server/internal/agentapi/conn_telemetry.go#L237)) already feeds
+`EdgeTelemetryDropsTotal` in [metrics.go](../../../server/internal/metrics/metrics.go) (namespace
 `opengate`, so the series is `opengate_edge_telemetry_drops_total{reason}`). Reasons in use today:
 `payload_too_large`, `interval_floor`, `tenant_missing`, `persist_failed`, `persist_slots_full`,
 `tombstoned`, `discovery_payload_too_large`, `discovery_interval_floor`.
 
-`telemetryTimestamp` ([:247](../../server/internal/agentapi/conn_telemetry.go#L247)) trusts the
+`telemetryTimestamp` ([:247](../../../server/internal/agentapi/conn_telemetry.go#L247)) trusts the
 agent's clock completely — M10 measured a **+7 h** host-clock jump on the reference machine.
 
 ## File inventory
 
-- **Modify:** [conn_telemetry.go](../../server/internal/agentapi/conn_telemetry.go) — typed drops in
+- **Modify:** [conn_telemetry.go](../../../server/internal/agentapi/conn_telemetry.go) — typed drops in
   all four handlers, clamping + named bounds in `telemetryTimestamp`.
-- **Modify:** [conn_backfill.go](../../server/internal/agentapi/conn_backfill.go) — count the
+- **Modify:** [conn_backfill.go](../../../server/internal/agentapi/conn_backfill.go) — count the
   out-of-retention sample skip.
-- **Modify:** [metrics.go](../../server/internal/metrics/metrics.go) — one **new counter** for clock
+- **Modify:** [metrics.go](../../../server/internal/metrics/metrics.go) — one **new counter** for clock
   clamping (see the trap below); no change to the ingest/drop counters.
 - **Create:** `server/internal/agentapi/conn_accounting_test.go` — the I1 structural test.
 - **Modify:** existing `conn_part*_test.go` where a handler's behaviour changes.
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md) — the new drop reasons and the clamp counter.
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md) — the new drop reasons and the clamp counter.
 
 ## Steps (TDD-first)
 
@@ -86,7 +86,7 @@ agent's clock completely — M10 measured a **+7 h** host-clock jump on the refe
 4. **Test first:** the clamp counter increments with a `direction` label (`future` / `past`) and the
    message is **still persisted** → then add
    `opengate_edge_telemetry_clock_clamped_total{direction}` to `metrics.go`.
-5. Docs: [Monitoring.md](../../docs/Monitoring.md) gains the new reasons and the clamp counter.
+5. Docs: [Monitoring.md](../../../docs/Monitoring.md) gains the new reasons and the clamp counter.
 
 ## Traps
 
@@ -96,7 +96,7 @@ agent's clock completely — M10 measured a **+7 h** host-clock jump on the refe
   disagrees, the invariant test is the arbiter, not preference.
 - **Do not apply `telemetryTimestamp`'s clamp to `handleMetricBackfillBatch`.** That path has its own
   `backfillRetentionSecs = 90 * 24 * 3600` floor
-  ([conn_backfill.go](../../server/internal/agentapi/conn_backfill.go)); routing it through a 7 d
+  ([conn_backfill.go](../../../server/internal/agentapi/conn_backfill.go)); routing it through a 7 d
   clamp would silently truncate 90 d of reconnect backfill — the same class of defect this plan
   exists to remove. Two paths, two bounds, both explicit.
 - Clamping is monotone, so ordering survives by construction; ties after clamping must keep input

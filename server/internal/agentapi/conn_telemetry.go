@@ -27,7 +27,10 @@ func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.
 	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgAgentHealthSummary, msg.TS, payloadLen) {
 		return nil
 	}
-	ts := telemetryTimestamp(msg.TS)
+	// Whether this summary holds anything worth storing is known only after the
+	// breach vocabulary filter runs, so the clock correction is counted on the
+	// far side of that test: a discarded message is reported once, as a drop.
+	ts, clamped := clampTelemetryTimestamp(msg.TS, time.Now().UTC())
 	var samples []telemetry.Sample
 	// A WS-19 breach-only summary carries no sampler computation; writing a zero
 	// anomaly-rate sample for it would be misleading, so the anomaly series is
@@ -53,8 +56,10 @@ func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.
 	}
 	samples = append(samples, alertBreachSamples(msg.Breaches, ts)...)
 	if len(samples) == 0 {
+		a.dropTelemetry("empty_summary", "type", protocol.MsgAgentHealthSummary)
 		return nil
 	}
+	a.observeClockClamp(clamped)
 	a.bufferTelemetry(ctx, samples)
 	return nil
 }
@@ -63,7 +68,11 @@ func (a *AgentConn) handleAgentMetricWindow(ctx context.Context, msg *protocol.C
 	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgAgentMetricWindow, msg.TS, payloadLen) {
 		return nil
 	}
-	ts := telemetryTimestamp(msg.TS)
+	if len(msg.Dims) == 0 {
+		a.dropTelemetry("empty_dims", "type", protocol.MsgAgentMetricWindow)
+		return nil
+	}
+	ts := a.telemetryTimestamp(msg.TS)
 	samples := make([]telemetry.Sample, 0, len(msg.Dims))
 	for _, dim := range msg.Dims {
 		samples = append(samples, telemetry.Sample{
@@ -81,7 +90,11 @@ func (a *AgentConn) handleProcessReport(ctx context.Context, msg *protocol.Contr
 	if (a.telemetry == nil && a.processes == nil) || !a.acceptTelemetry(protocol.MsgProcessReport, msg.TS, payloadLen) {
 		return nil
 	}
-	ts := telemetryTimestamp(msg.TS)
+	if len(msg.TopN) == 0 {
+		a.dropTelemetry("empty_processes", "type", protocol.MsgProcessReport)
+		return nil
+	}
+	ts := a.telemetryTimestamp(msg.TS)
 	processSamples := make([]telemetry.ProcessSample, 0, len(msg.TopN))
 	numericSamples := make([]telemetry.Sample, 0, len(msg.TopN)*2)
 	for _, entry := range msg.TopN {
@@ -112,8 +125,15 @@ func (a *AgentConn) handleProcessReport(ctx context.Context, msg *protocol.Contr
 	// The process report's rows land in their own RLS table via UpsertReport,
 	// which keeps its own persist slot; only the rank-numeric samples join the
 	// coalescing buffer so they flush with the rest of the heartbeat's telemetry.
+	// One report is one ingested message, so exactly one of the two writes owns
+	// its accounting: the buffered numerics when they exist, the row write
+	// otherwise. Charging both would double-count the report on a failed flush.
 	if a.processes != nil {
-		a.persistTelemetry(ctx, func(jobCtx context.Context, _ dbtx.Tenant) error {
+		owned := 0
+		if a.telemetry == nil {
+			owned = 1
+		}
+		a.persistTelemetry(ctx, owned, func(jobCtx context.Context, _ dbtx.Tenant) error {
 			return a.processes.UpsertReport(jobCtx, a.DeviceID, ts, processSamples)
 		})
 	}
@@ -127,9 +147,13 @@ func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protoco
 	if a.telemetry == nil || !a.acceptTelemetry(protocol.MsgHealthWindowResponse, msg.TS, payloadLen) {
 		return nil
 	}
+	if len(msg.Summaries) == 0 {
+		a.dropTelemetry("empty_summaries", "type", protocol.MsgHealthWindowResponse)
+		return nil
+	}
 	var samples []telemetry.Sample
 	for _, summary := range msg.Summaries {
-		ts := telemetryTimestamp(summary.TS)
+		ts := a.telemetryTimestamp(summary.TS)
 		samples = append(samples, telemetry.Sample{
 			Name:  "opengate_edge_node_anomaly_rate",
 			Value: summary.NodeAnomalyRate,
@@ -156,12 +180,15 @@ func (a *AgentConn) handleHealthWindowResponse(ctx context.Context, msg *protoco
 // bufferTelemetry appends samples to the per-connection coalescing buffer. It
 // runs only on the single read-loop goroutine, so the buffer needs no lock. When
 // the buffer reaches the size cap it flushes immediately; the common path leaves
-// it for the next heartbeat or connection teardown to flush.
+// it for the next heartbeat or connection teardown to flush. Each call carrying
+// samples also books one message against the buffer, so a batch that later fails
+// to persist reports a drop per message rather than one drop for the batch.
 func (a *AgentConn) bufferTelemetry(ctx context.Context, samples []telemetry.Sample) {
 	if a.telemetry == nil || len(samples) == 0 {
 		return
 	}
 	a.telemetryBuf = append(a.telemetryBuf, samples...)
+	a.telemetryBufMsgs++
 	if len(a.telemetryBuf) >= telemetryFlushMaxSamples {
 		a.flushTelemetry(ctx)
 	}
@@ -176,79 +203,12 @@ func (a *AgentConn) flushTelemetry(ctx context.Context) {
 		return
 	}
 	batch := a.telemetryBuf
+	msgs := a.telemetryBufMsgs
 	a.telemetryBuf = nil
-	a.persistTelemetry(ctx, func(jobCtx context.Context, tenant dbtx.Tenant) error {
+	a.telemetryBufMsgs = 0
+	a.persistTelemetry(ctx, msgs, func(jobCtx context.Context, tenant dbtx.Tenant) error {
 		return a.telemetry.WriteSamples(jobCtx, tenant.TenantID, a.DeviceID, batch)
 	})
-}
-
-func (a *AgentConn) acceptTelemetry(msgType protocol.ControlMessageType, ts int64, payloadLen int) bool {
-	if payloadLen > maxTelemetryPayloadBytes {
-		a.dropTelemetry("payload_too_large", "type", msgType, "bytes", payloadLen)
-		return false
-	}
-	if ts <= 0 {
-		return a.acceptedTelemetry(msgType)
-	}
-	if a.telemetryLast == nil {
-		a.telemetryLast = make(map[protocol.ControlMessageType]int64)
-	}
-	if last, ok := a.telemetryLast[msgType]; ok && ts-last < minTelemetryIntervalSeconds {
-		a.dropTelemetry("interval_floor", "type", msgType, "ts", ts, "last_ts", last)
-		return false
-	}
-	a.telemetryLast[msgType] = ts
-	return a.acceptedTelemetry(msgType)
-}
-
-// acceptedTelemetry records one accepted telemetry message against the ingest
-// counter and returns true, so callers can `return a.acceptedTelemetry(...)`.
-func (a *AgentConn) acceptedTelemetry(msgType protocol.ControlMessageType) bool {
-	if a.metrics != nil {
-		a.metrics.ObserveEdgeTelemetryIngest(string(msgType))
-	}
-	return true
-}
-
-func (a *AgentConn) persistTelemetry(ctx context.Context, fn func(context.Context, dbtx.Tenant) error) {
-	tenant, ok := dbtx.TenantFromContext(ctx)
-	if !ok {
-		a.dropTelemetry("tenant_missing")
-		return
-	}
-	if a.telemetrySlots == nil {
-		a.telemetrySlots = make(chan struct{}, telemetryConcurrentWrites)
-	}
-	select {
-	case a.telemetrySlots <- struct{}{}:
-		go func() {
-			defer func() { <-a.telemetrySlots }()
-			jobCtx, cancel := context.WithTimeout(ctx, telemetryPersistTimeout)
-			defer cancel()
-			if err := fn(jobCtx, tenant); err != nil {
-				a.dropTelemetry("persist_failed", "error", err)
-			}
-		}()
-	default:
-		a.dropTelemetry("persist_slots_full")
-	}
-}
-
-func (a *AgentConn) dropTelemetry(reason string, args ...any) {
-	a.telemetryDrops.Add(1)
-	if a.metrics != nil {
-		a.metrics.ObserveEdgeTelemetryDrop(reason)
-	}
-	if a.logger != nil {
-		a.logger.Debug("dropping edge sentinel telemetry", append([]any{"device_id", a.DeviceID, "reason", reason}, args...)...)
-	}
-}
-
-func telemetryTimestamp(ts int64) time.Time {
-	if ts <= 0 {
-		return time.Now().UTC()
-	}
-	return time.Unix(ts, 0).UTC()
 }
 
 func sanitizeProcessBasename(name string) string {

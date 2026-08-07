@@ -50,114 +50,109 @@ type Metrics struct {
 
 	// Edge Sentinel telemetry ingest path (WS-4) + reconnect-backfill scheduler
 	// (WS-15). These drive the WS-15b sustained-soak / default-on dashboard.
-	EdgeTelemetryIngestedTotal *prometheus.CounterVec
-	EdgeTelemetryDropsTotal    *prometheus.CounterVec
-	EdgeBackfillDecisionsTotal *prometheus.CounterVec
-	EdgeBackfillActiveSlots    prometheus.Gauge
-	EdgeBackfillGrantRate      prometheus.Gauge
+	EdgeTelemetryIngestedTotal     *prometheus.CounterVec
+	EdgeTelemetryDropsTotal        *prometheus.CounterVec
+	EdgeTelemetryClockClampedTotal *prometheus.CounterVec
+	EdgeBackfillDecisionsTotal     *prometheus.CounterVec
+	EdgeBackfillActiveSlots        prometheus.Gauge
+	EdgeBackfillGrantRate          prometheus.Gauge
+}
+
+// namespace prefixes every series this package exposes.
+const namespace = "opengate"
+
+// counterVec, histogramVec, and gauge build a namespaced collector, so each
+// metric below reads as its name, help text, and labels instead of repeating an
+// options literal.
+func counterVec(name, help string, labels ...string) *prometheus.CounterVec {
+	return prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      name,
+		Help:      help,
+	}, labels)
+}
+
+func histogramVec(name, help string, buckets []float64, labels ...string) *prometheus.HistogramVec {
+	return prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: namespace,
+		Name:      name,
+		Help:      help,
+		Buckets:   buckets,
+	}, labels)
+}
+
+func gauge(name, help string) prometheus.Gauge {
+	return prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      name,
+		Help:      help,
+	})
 }
 
 // NewMetrics creates and registers all metrics on the given registry.
 func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
-		HTTPRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "opengate",
-			Name:      "http_requests_total",
-			Help:      "Total number of HTTP requests.",
-		}, []string{"method", "route", "status_code"}),
+		HTTPRequestsTotal: counterVec("http_requests_total",
+			"Total number of HTTP requests.",
+			"method", "route", "status_code"),
 
-		HTTPRequestDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: "opengate",
-			Name:      "http_request_duration_seconds",
-			Help:      "HTTP request duration in seconds.",
-			Buckets:   prometheus.DefBuckets,
-		}, []string{"method", "route"}),
+		HTTPRequestDuration: histogramVec("http_request_duration_seconds",
+			"HTTP request duration in seconds.",
+			prometheus.DefBuckets, "method", "route"),
 
-		RelayActiveSessions: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: "opengate",
-			Name:      "relay_active_sessions",
-			Help:      "Number of active relay sessions.",
-		}),
+		RelayActiveSessions: gauge("relay_active_sessions",
+			"Number of active relay sessions."),
 
-		AgentsConnected: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: "opengate",
-			Name:      "agents_connected",
-			Help:      "Number of currently connected agents.",
-		}),
+		AgentsConnected: gauge("agents_connected",
+			"Number of currently connected agents."),
 
-		MPSConnectedDevices: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: "opengate",
-			Name:      "mps_connected_devices",
-			Help:      "Number of connected MPS (Intel AMT) devices.",
-		}),
+		MPSConnectedDevices: gauge("mps_connected_devices",
+			"Number of connected MPS (Intel AMT) devices."),
 
-		SignalingUpgradesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "opengate",
-			Name:      "signaling_upgrades_total",
-			Help:      "Total number of WebRTC signaling upgrades.",
-		}, []string{"result"}),
+		SignalingUpgradesTotal: counterVec("signaling_upgrades_total",
+			"Total number of WebRTC signaling upgrades.",
+			"result"),
 
-		DBQueryDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: "opengate",
-			Name:      "db_query_duration_seconds",
-			Help:      "Database query duration in seconds.",
-			Buckets:   []float64{0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1},
-		}, []string{"operation"}),
+		DBQueryDuration: histogramVec("db_query_duration_seconds",
+			"Database query duration in seconds.",
+			[]float64{0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1}, "operation"),
 
-		DBQueriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "opengate",
-			Name:      "db_queries_total",
-			Help:      "Total number of database queries.",
-		}, []string{"operation", "status"}),
+		DBQueriesTotal: counterVec("db_queries_total",
+			"Total number of database queries.",
+			"operation", "status"),
 
-		DBSizeBytes: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: "opengate",
-			Name:      "db_size_bytes",
-			Help:      "Database size in bytes (pg_database_size).",
-		}),
+		DBSizeBytes: gauge("db_size_bytes",
+			"Database size in bytes (pg_database_size)."),
 
-		DeviceLogPullsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "opengate",
-			Name:      "device_log_pulls_total",
-			Help:      "Total on-demand raw-log broker pulls by outcome. The ok series is the audited pull count.",
-		}, []string{"result"}),
+		DeviceLogPullsTotal: counterVec("device_log_pulls_total",
+			"Total on-demand raw-log broker pulls by outcome. The ok series is the audited pull count.",
+			"result"),
 
-		DeviceLogPullDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: "opengate",
-			Name:      "device_log_pull_duration_seconds",
-			Help:      "On-demand raw-log broker pull duration in seconds by outcome.",
-			Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15},
-		}, []string{"result"}),
+		DeviceLogPullDuration: histogramVec("device_log_pull_duration_seconds",
+			"On-demand raw-log broker pull duration in seconds by outcome.",
+			[]float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15}, "result"),
 
-		EdgeTelemetryIngestedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "opengate",
-			Name:      "edge_telemetry_ingested_total",
-			Help:      "Total Edge-Sentinel telemetry control messages accepted for ingest, by control type.",
-		}, []string{"type"}),
+		EdgeTelemetryIngestedTotal: counterVec("edge_telemetry_ingested_total",
+			"Total Edge-Sentinel telemetry control messages accepted for ingest, by control type.",
+			"type"),
 
-		EdgeTelemetryDropsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "opengate",
-			Name:      "edge_telemetry_drops_total",
-			Help:      "Total Edge-Sentinel telemetry messages dropped by server-side bounds, by reason.",
-		}, []string{"reason"}),
+		EdgeTelemetryDropsTotal: counterVec("edge_telemetry_drops_total",
+			"Total Edge-Sentinel telemetry messages dropped by server-side bounds, by reason.",
+			"reason"),
 
-		EdgeBackfillDecisionsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "opengate",
-			Name:      "edge_backfill_decisions_total",
-			Help:      "Total reconnect-backfill admission decisions, by decision (grant, defer).",
-		}, []string{"decision"}),
+		EdgeTelemetryClockClampedTotal: counterVec("edge_telemetry_clock_clamped_total",
+			"Total agent-stamped telemetry timestamps pulled inside the accepted clock window, by direction (future, past). A clamped message is still persisted, so this is not a drop.",
+			"direction"),
 
-		EdgeBackfillActiveSlots: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: "opengate",
-			Name:      "edge_backfill_active_slots",
-			Help:      "Number of reconnect-backfill drain slots currently granted across all agents.",
-		}),
+		EdgeBackfillDecisionsTotal: counterVec("edge_backfill_decisions_total",
+			"Total reconnect-backfill admission decisions, by decision (grant, defer).",
+			"decision"),
 
-		EdgeBackfillGrantRate: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: "opengate",
-			Name:      "edge_backfill_grant_rate_samples_per_second",
-			Help:      "Per-slot ingest rate (samples/sec) of the most recent backfill grant.",
-		}),
+		EdgeBackfillActiveSlots: gauge("edge_backfill_active_slots",
+			"Number of reconnect-backfill drain slots currently granted across all agents."),
+
+		EdgeBackfillGrantRate: gauge("edge_backfill_grant_rate_samples_per_second",
+			"Per-slot ingest rate (samples/sec) of the most recent backfill grant."),
 	}
 
 	reg.MustRegister(
@@ -174,6 +169,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.DeviceLogPullDuration,
 		m.EdgeTelemetryIngestedTotal,
 		m.EdgeTelemetryDropsTotal,
+		m.EdgeTelemetryClockClampedTotal,
 		m.EdgeBackfillDecisionsTotal,
 		m.EdgeBackfillActiveSlots,
 		m.EdgeBackfillGrantRate,
@@ -189,12 +185,25 @@ func (m *Metrics) ObserveEdgeTelemetryIngest(msgType string) {
 	m.EdgeTelemetryIngestedTotal.WithLabelValues(msgType).Inc()
 }
 
-// ObserveEdgeTelemetryDrop counts one dropped telemetry message by reason
-// (payload_too_large, interval_floor, tenant_missing, persist_failed,
-// persist_slots_full). Backfill never backpressures live paths, so a rising
-// drop rate under soak is the signal that a server-side bound is binding.
-func (m *Metrics) ObserveEdgeTelemetryDrop(reason string) {
-	m.EdgeTelemetryDropsTotal.WithLabelValues(reason).Inc()
+// ObserveEdgeTelemetryDrop counts n dropped telemetry messages under one reason
+// (an admission bound such as payload_too_large or interval_floor, an
+// empty-payload reason such as empty_dims, or a persist-path failure such as
+// tenant_missing, persist_failed, persist_slots_full). n is above 1 when one
+// coalesced batch carrying several messages is discarded, so the drop count
+// stays comparable with the ingest count. Backfill never backpressures live
+// paths, so a rising drop rate under soak is the signal that a server-side bound
+// is binding.
+func (m *Metrics) ObserveEdgeTelemetryDrop(reason string, n int) {
+	m.EdgeTelemetryDropsTotal.WithLabelValues(reason).Add(float64(n))
+}
+
+// ObserveEdgeTelemetryClockClamp counts one agent-stamped telemetry timestamp
+// pulled inside the accepted clock window: direction is future for a host clock
+// ahead of the server, past for one behind. The message is still persisted —
+// clamping corrects the timestamp rather than discarding the sample — so this
+// is deliberately its own counter and never a drop reason.
+func (m *Metrics) ObserveEdgeTelemetryClockClamp(direction string) {
+	m.EdgeTelemetryClockClampedTotal.WithLabelValues(direction).Inc()
 }
 
 // ObserveBackfillDecision records one reconnect-backfill admission decision.
