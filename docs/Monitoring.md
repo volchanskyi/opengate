@@ -232,7 +232,36 @@ the queue-saturation signal, since bounded per-connection persist slots shed
 telemetry rather than backpressuring heartbeat/session/control), and the
 reconnect-backfill scheduler state (`opengate_edge_backfill_active_slots`,
 `opengate_edge_backfill_decisions_total` by grant/defer, and
-`opengate_edge_backfill_grant_rate_samples_per_second`). The **Edge-Sentinel Soak**
+`opengate_edge_backfill_grant_rate_samples_per_second`).
+
+Those two telemetry counters form a closed ledger: every message counted as
+ingested either produces a write or files exactly one typed drop, so
+`ingested − drops` tracks what was actually persisted. The reasons cover the
+admission bounds (`payload_too_large`, `interval_floor`, and their
+`discovery_*` counterparts), a payload that carries nothing to store
+(`empty_dims`, `empty_summary`, `empty_processes`, `empty_summaries`,
+`empty_discovery`), the persist path (`tenant_missing`, `persist_failed`,
+`persist_slots_full`), a purged device (`tombstoned`), and reconnect backfill
+skipping samples older than its own retention floor
+(`backfill_out_of_retention`). A discarded coalesced batch reports every message
+it carried, so the two sides stay comparable. The invariant is pinned by
+`TestTelemetryAccountingInvariant` in
+[`conn_accounting_test.go`](../server/internal/agentapi/conn_accounting_test.go),
+which also fails when a new telemetry control type joins the dispatch switch
+without joining the ledger.
+
+Agent clocks are corrected rather than trusted: a timestamp outside the accepted
+window is pulled to the nearer bound and counted on
+`opengate_edge_telemetry_clock_clamped_total` by `direction` (`future`, `past`).
+A clamped message is still persisted — only its timestamp changes — so this is
+deliberately its own counter and never a drop reason. The bounds live next to
+the handlers in
+[`conn_telemetry.go`](../server/internal/agentapi/conn_telemetry.go); reconnect
+backfill keeps its own, far wider retention floor in
+[`conn_backfill.go`](../server/internal/agentapi/conn_backfill.go) so replaying
+months of pre-rolled history is never truncated by the live-path window.
+
+The **Edge-Sentinel Soak**
 Grafana dashboard charts these alongside anomaly rate, VM cardinality + disk
 growth, and control-plane and correlation query p99 over the VM datasource. The
 `opengate_*` series require the server `/metrics` scrape; the `vm_*` series require

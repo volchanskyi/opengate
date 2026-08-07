@@ -30,10 +30,11 @@ func (a *AgentConn) handleDiscoveryReport(ctx context.Context, msg *protocol.Con
 	}
 	components := discoveryComponents(msg)
 	if len(components) == 0 {
+		a.dropTelemetry("empty_discovery", "type", protocol.MsgDiscoveryReport)
 		return nil
 	}
-	ts := telemetryTimestamp(msg.TS)
-	a.persistTelemetry(ctx, func(jobCtx context.Context, _ dbtx.Tenant) error {
+	ts := a.telemetryTimestamp(msg.TS)
+	a.persistTelemetry(ctx, 1, func(jobCtx context.Context, _ dbtx.Tenant) error {
 		return a.inventory.Replace(jobCtx, a.DeviceID, ts, components)
 	})
 	return nil

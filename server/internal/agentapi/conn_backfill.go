@@ -63,9 +63,11 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 	floor := now - backfillRetentionSecs
 	ceil := now + backfillFutureSkewSecs
 	samples := make([]telemetry.Sample, 0, len(msg.BackfillSamples))
+	skipped := 0
 	for _, s := range msg.BackfillSamples {
 		if s.TS < floor || s.TS > ceil {
-			continue // retention clamp + wild-clock guard (defense in depth)
+			skipped++ // retention clamp + wild-clock guard (defense in depth)
+			continue
 		}
 		samples = append(samples, telemetry.Sample{
 			Name:   backfillMetric,
@@ -73,6 +75,13 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 			TS:     time.Unix(s.TS, 0).UTC(),
 			Labels: map[string]string{backfillDimLabel: s.Name},
 		})
+	}
+	// One batch is one message, so the counter moves once however many samples
+	// fell outside the window; the sample count rides the log line. Without this
+	// the skip was the pipeline's last silent discard.
+	if skipped > 0 {
+		a.dropTelemetry("backfill_out_of_retention", "type", protocol.MsgMetricBackfillBatch,
+			"tier", msg.Tier, "skipped", skipped, "batch", len(msg.BackfillSamples))
 	}
 
 	if len(samples) > 0 {

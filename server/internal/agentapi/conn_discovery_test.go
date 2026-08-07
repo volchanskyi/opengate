@@ -157,16 +157,20 @@ func TestAgentConn_HandleDiscoveryReportPayloadCapDrops(t *testing.T) {
 		promtestutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("discovery_payload_too_large")), 0)
 }
 
-// An empty discovery report is accepted but never issues a persist (the repo's
-// own empty-report guard would no-op anyway, but skipping avoids a wasted slot).
+// An empty discovery report is counted as ingested, so it must leave the ledger
+// balanced: it issues no persist and files exactly one typed drop.
 func TestAgentConn_HandleDiscoveryReportEmptyDoesNotPersist(t *testing.T) {
 	tenant := uuid.New()
 	inv := &recordingInventoryRepo{calls: make(chan inventoryReplaceCall, 1)}
 	ac, _ := discoveryConn(t, tenant, inv)
+	m := appmetrics.NewMetrics(prometheus.NewRegistry())
+	ac.metrics = m
 
 	msg := &protocol.ControlMessage{Type: protocol.MsgDiscoveryReport, TS: time.Now().Unix()}
 	require.NoError(t, ac.handleDiscoveryReport(tenantCtx(tenant), msg, 32))
 	assert.Empty(t, inv.calls)
+	assert.InDelta(t, 1,
+		promtestutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("empty_discovery")), 0)
 }
 
 // A second report inside the interval floor is dropped; one past it is accepted

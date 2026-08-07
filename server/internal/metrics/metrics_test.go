@@ -60,18 +60,38 @@ func TestObserveEdgeTelemetryIngest(t *testing.T) {
 }
 
 // TestObserveEdgeTelemetryDrop counts dropped telemetry by reason so the soak
-// dashboard can chart drop count and break it down by cause.
+// dashboard can chart drop count and break it down by cause. A discarded
+// coalesced batch reports every message it carried in one call, so the drop
+// count stays comparable with the ingest count.
 func TestObserveEdgeTelemetryDrop(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetrics(reg)
 
-	m.ObserveEdgeTelemetryDrop("interval_floor")
-	m.ObserveEdgeTelemetryDrop("interval_floor")
-	m.ObserveEdgeTelemetryDrop("persist_slots_full")
+	m.ObserveEdgeTelemetryDrop("interval_floor", 1)
+	m.ObserveEdgeTelemetryDrop("interval_floor", 1)
+	m.ObserveEdgeTelemetryDrop("persist_slots_full", 1)
+	m.ObserveEdgeTelemetryDrop("persist_failed", 6)
 
 	require.InDelta(t, 2, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("interval_floor")), 0)
 	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("persist_slots_full")), 0)
+	require.InDelta(t, 6, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("persist_failed")), 0)
 	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("payload_too_large")), 0)
+}
+
+// TestObserveEdgeTelemetryClockClamp counts corrected agent clocks by direction.
+// It is a separate counter from drops because a clamped message is still
+// persisted; folding it into drops would break the ingest ledger.
+func TestObserveEdgeTelemetryClockClamp(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetrics(reg)
+
+	m.ObserveEdgeTelemetryClockClamp("future")
+	m.ObserveEdgeTelemetryClockClamp("future")
+	m.ObserveEdgeTelemetryClockClamp("past")
+
+	require.InDelta(t, 2, testutil.ToFloat64(m.EdgeTelemetryClockClampedTotal.WithLabelValues("future")), 0)
+	require.InDelta(t, 1, testutil.ToFloat64(m.EdgeTelemetryClockClampedTotal.WithLabelValues("past")), 0)
+	require.InDelta(t, 0, testutil.ToFloat64(m.EdgeTelemetryDropsTotal.WithLabelValues("clock_skew_clamped")), 0)
 }
 
 // TestObserveBackfillDecision records the reconnect-backfill scheduler's
