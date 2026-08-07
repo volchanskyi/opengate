@@ -2,6 +2,7 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -9,19 +10,42 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/audit"
-	"github.com/volchanskyi/opengate/server/internal/auth"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 )
 
+// newAdminEnv brings up a test environment with an administrator already logged
+// in, which is the starting point every test in this file needs.
+func newAdminEnv(t *testing.T) (*testEnv, string) {
+	t.Helper()
+	env := newTestEnv(t)
+	adminUser, adminPass := testutil.SeedAdminUser(t, t.Context(), env.store)
+	return env, env.login(t, adminUser.Email, adminPass)
+}
+
+// pollAuditEvents reads the audit endpoint until accept is satisfied. Audit
+// writes are asynchronous, so a single read races the flush.
+func pollAuditEvents(t *testing.T, env *testEnv, token, query string, accept func([]audit.Event) bool) []audit.Event {
+	t.Helper()
+	var events []audit.Event
+	require.Eventuallyf(t, func() bool {
+		r := env.doJSON(t, http.MethodGet, query, token, nil)
+		defer r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
+		events = nil
+		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+			return false
+		}
+		return accept(events)
+	}, 3*time.Second, 50*time.Millisecond, "audit endpoint %s never returned an acceptable page", query)
+	return events
+}
+
 func TestAdminUserPromotion(t *testing.T) {
 	t.Parallel()
-	env := newTestEnv(t)
-	ctx := t.Context()
-
-	// Create admin user
-	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
-	adminToken := env.login(t, adminUser.Email, adminPass)
+	env, adminToken := newAdminEnv(t)
 
 	// Create regular user
 	regularToken := env.register(t, "promote-me@example.com", "pass1234")
@@ -57,11 +81,7 @@ func TestAdminUserPromotion(t *testing.T) {
 
 func TestAdminAuditLogCapturesActions(t *testing.T) {
 	t.Parallel()
-	env := newTestEnv(t)
-	ctx := t.Context()
-
-	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
-	adminToken := env.login(t, adminUser.Email, adminPass)
+	env, adminToken := newAdminEnv(t)
 
 	// Create a user to delete (triggers audit log)
 	victimToken := env.register(t, "victim@example.com", "pass1234")
@@ -75,60 +95,33 @@ func TestAdminAuditLogCapturesActions(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
-	// Audit log is written asynchronously — poll until the user.delete event for our victim appears.
-	var matched audit.Event
-	require.Eventually(t, func() bool {
-		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?action=user.delete", adminToken, nil)
-		defer r.Body.Close()
-		if r.StatusCode != http.StatusOK {
-			return false
-		}
-		var events []audit.Event
-		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
-			return false
-		}
-		for _, e := range events {
+	events := pollAuditEvents(t, env, adminToken, "/api/v1/audit?action=user.delete", func(es []audit.Event) bool {
+		for _, e := range es {
 			if e.Target == victim.ID.String() {
-				matched = e
 				return true
 			}
 		}
 		return false
-	}, 3*time.Second, 50*time.Millisecond, "audit log should contain user.delete event for victim")
-	assert.Equal(t, "user.delete", matched.Action)
+	})
+	for _, e := range events {
+		assert.Equal(t, "user.delete", e.Action)
+	}
 }
 
 func TestAdminAuditLogFiltering(t *testing.T) {
 	t.Parallel()
-	env := newTestEnv(t)
-	ctx := t.Context()
-
-	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
-	adminToken := env.login(t, adminUser.Email, adminPass)
+	env, adminToken := newAdminEnv(t)
 
 	// Create some audit events by performing actions
 	env.register(t, "audit-filter-1@example.com", "pass1234")
 	env.register(t, "audit-filter-2@example.com", "pass1234")
 
-	// Create group (triggers audit log entry)
-	resp := env.doJSON(t, http.MethodPost, pathGroups, adminToken, map[string]string{"name": "audit-test-group"})
+	// Create site (triggers audit log entry)
+	resp := env.doJSON(t, http.MethodPost, pathSites, adminToken, map[string]string{"name": "audit-test-site"})
 	resp.Body.Close()
 
-	// Filter by action — audit writes are async, so poll until the filter result is consistent.
-	var events []audit.Event
-	require.Eventually(t, func() bool {
-		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?action=user.delete", adminToken, nil)
-		defer r.Body.Close()
-		if r.StatusCode != http.StatusOK {
-			return false
-		}
-		events = nil
-		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
-			return false
-		}
-		// Any returned event must match the filter; once the endpoint returns 200 we can validate.
-		return true
-	}, 3*time.Second, 50*time.Millisecond)
+	// Every event the filter returns must match it.
+	events := pollAuditEvents(t, env, adminToken, "/api/v1/audit?action=user.delete", func([]audit.Event) bool { return true })
 	for _, e := range events {
 		assert.Equal(t, "user.delete", e.Action)
 	}
@@ -136,41 +129,18 @@ func TestAdminAuditLogFiltering(t *testing.T) {
 
 func TestAdminAuditLogPagination(t *testing.T) {
 	t.Parallel()
-	env := newTestEnv(t)
-	ctx := t.Context()
+	env, adminToken := newAdminEnv(t)
 
-	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
-	adminToken := env.login(t, adminUser.Email, adminPass)
-
-	// Create several audit events
+	// Enough audited actions to fill more than one page.
 	for i := 0; i < 5; i++ {
-		hash, err := auth.HashPassword("pass")
-		require.NoError(t, err)
-		u := &db.User{
-			ID:           testutil.SeedUser(t, ctx, env.store).ID,
-			Email:        testutil.SeedUser(t, ctx, env.store).Email,
-			PasswordHash: hash,
-		}
-		_ = u // just seeding data to generate audit events
-
-		resp := env.doJSON(t, http.MethodPost, pathGroups, adminToken, map[string]string{"name": "page-group"})
+		resp := env.doJSON(t, http.MethodPost, pathSites, adminToken,
+			map[string]string{"name": fmt.Sprintf("page-site-%d", i)})
 		resp.Body.Close()
 	}
 
-	// Audit events are flushed asynchronously — poll until limit=2 returns a valid page.
-	var events []audit.Event
-	require.Eventually(t, func() bool {
-		r := env.doJSON(t, http.MethodGet, "/api/v1/audit?limit=2", adminToken, nil)
-		defer r.Body.Close()
-		if r.StatusCode != http.StatusOK {
-			return false
-		}
-		events = nil
-		if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
-			return false
-		}
-		return len(events) > 0
-	}, 3*time.Second, 50*time.Millisecond)
+	events := pollAuditEvents(t, env, adminToken, "/api/v1/audit?limit=2", func(es []audit.Event) bool {
+		return len(es) > 0
+	})
 	assert.LessOrEqual(t, len(events), 2)
 
 	// Request with offset

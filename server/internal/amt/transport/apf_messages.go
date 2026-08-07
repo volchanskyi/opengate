@@ -185,16 +185,16 @@ func ParseKeepaliveOptions(data []byte) (KeepaliveOptions, error) {
 
 // ReorderIntelGUID applies Intel's mixed-endian byte reordering to a raw
 // 16-byte GUID from the ProtocolVersion message and returns a standard UUID.
-// Intel format: first 3 groups little-endian, last 2 groups big-endian.
+// Intel format: first 3 sites little-endian, last 2 sites big-endian.
 func ReorderIntelGUID(raw [16]byte) uuid.UUID {
 	var u uuid.UUID
-	// Group 1 (4 bytes): LE → BE
+	// Site 1 (4 bytes): LE → BE
 	u[0], u[1], u[2], u[3] = raw[3], raw[2], raw[1], raw[0]
-	// Group 2 (2 bytes): LE → BE
+	// Site 2 (2 bytes): LE → BE
 	u[4], u[5] = raw[5], raw[4]
-	// Group 3 (2 bytes): LE → BE
+	// Site 3 (2 bytes): LE → BE
 	u[6], u[7] = raw[7], raw[6]
-	// Groups 4-5 (8 bytes): already BE
+	// Sites 4-5 (8 bytes): already BE
 	copy(u[8:], raw[8:16])
 	return u
 }

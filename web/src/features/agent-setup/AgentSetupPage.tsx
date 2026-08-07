@@ -86,7 +86,7 @@ export function AgentSetupPage() {
         <h3 className="text-lg font-semibold mb-3">What happens next</h3>
         <p className="text-sm text-gray-400">
           Once the agent is installed and running, it will connect to the server via QUIC and
-          appear in your device list under the assigned group. You can then start remote sessions,
+          appear in your device list under the assigned site. You can then start remote sessions,
           manage the device, and push updates.
         </p>
       </section>

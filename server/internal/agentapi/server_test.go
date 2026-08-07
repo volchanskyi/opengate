@@ -93,8 +93,8 @@ func TestAgentServer_ScopeForDeviceUsesStoredTenant(t *testing.T) {
 	tenantB := uuid.New()
 	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
 	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
-	group := testutil.SeedGroup(t, ctxB, store)
-	d := testutil.SeedDevice(t, ctxB, store, group.ID)
+	site := testutil.SeedSite(t, ctxB, store)
+	d := testutil.SeedDevice(t, ctxB, store, site.ID)
 	srv := AgentServer{
 		devices: testutil.NewTestDevices(t, store),
 		logger:  testLogger(),

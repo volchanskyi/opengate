@@ -151,7 +151,7 @@ components:
 
     Device:
       type: object
-      required: [id, organization_id, group_id, hostname, os, agent_version, capabilities, status, last_seen, created_at, updated_at]
+      required: [id, organization_id, site_id, hostname, os, agent_version, capabilities, status, last_seen, created_at, updated_at]
       properties:
         id:
           type: string
@@ -162,7 +162,7 @@ components:
           description: >-
             The customer this device belongs to. Never absent: a device written
             without one named takes its tenant's own organization.
-        group_id:
+        site_id:
           type: string
           format: uuid
         hostname:
@@ -654,31 +654,43 @@ components:
     UpdateDeviceRequest:
       type: object
       properties:
-        group_id:
+        site_id:
           type: string
           format: uuid
           nullable: true
           description: >-
-            Destination group for the device. The all-zeros UUID takes the
-            device out of its group and leaves it ungrouped.
+            Destination site for the device, which must belong to the device's
+            own customer. The all-zeros UUID unfiles the device, leaving it in
+            its customer with no site.
 
-    CreateGroupRequest:
+    CreateSiteRequest:
       type: object
       required: [name]
       properties:
         name:
           type: string
           minLength: 1
+        organization_id:
+          type: string
+          format: uuid
+          description: >-
+            The customer this site belongs to. Omitted, the site goes under the
+            tenant's own customer — the same no-orphan rule a device write
+            follows.
 
-    Group:
+    Site:
       type: object
       description: >-
-        A named collection of devices within one tenant. A group is a
-        filing label, not an access boundary — every member of a tenant
-        sees every group in it.
-      required: [id, name, created_at, updated_at]
+        A location or department inside one customer — the narrowest level
+        above the machine itself. A site is a targeting level, not an access
+        boundary: the tenant scopes visibility, so every member of a tenant
+        sees every site in it.
+      required: [id, organization_id, name, created_at, updated_at]
       properties:
         id:
+          type: string
+          format: uuid
+        organization_id:
           type: string
           format: uuid
         name:
@@ -1379,15 +1391,15 @@ paths:
   /api/v1/devices:
     get:
       operationId: listDevices
-      summary: List devices, optionally narrowed by customer and group
+      summary: List devices, optionally narrowed by customer and site
       description: >-
         Returns the caller's tenant. organization_id narrows to one customer;
-        group_id narrows to one filing label. Both narrow together, and omitting
-        both returns the whole tenant.
+        site_id narrows to one location inside it. Both narrow together, and
+        omitting both returns the whole tenant.
       security:
         - bearerAuth: []
       parameters:
-        - name: group_id
+        - name: site_id
           in: query
           required: false
           schema:
@@ -1627,7 +1639,7 @@ paths:
         is persisted and pushed to the agent over the control channel; because
         maintenance is a desired state rather than a live command, this succeeds
         even when the agent is offline and reconciles on its next connect. Every
-        change is audited. Restricted to the device's group owner.
+        change is audited. Requires administrator access.
       security:
         - bearerAuth: []
       parameters:
@@ -2351,10 +2363,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
-  /api/v1/groups:
+  /api/v1/sites:
     post:
-      operationId: createGroup
-      summary: Create a device group
+      operationId: createSite
+      summary: Create a site
       description: Requires administrator access.
       security:
         - bearerAuth: []
@@ -2363,14 +2375,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CreateGroupRequest"
+              $ref: "#/components/schemas/CreateSiteRequest"
       responses:
         "201":
-          description: Group created
+          description: Site created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Group"
+                $ref: "#/components/schemas/Site"
         "400":
           description: Invalid request
           content:
@@ -2390,19 +2402,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
     get:
-      operationId: listGroups
-      summary: List the tenant's device groups
+      operationId: listSites
+      summary: List the tenant's sites, optionally narrowed by customer
+      description: >-
+        Returns every site in the caller's tenant. organization_id narrows to
+        one customer; omitting it returns the whole tenant.
       security:
         - bearerAuth: []
+      parameters:
+        - name: organization_id
+          in: query
+          required: false
+          description: Narrow the list to one customer.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
-          description: List of groups
+          description: List of sites
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Group"
+                  $ref: "#/components/schemas/Site"
         "401":
           description: Unauthorized
           content:
@@ -2410,10 +2433,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
-  /api/v1/groups/{id}:
+  /api/v1/sites/{id}:
     get:
-      operationId: getGroup
-      summary: Get group details
+      operationId: getSite
+      summary: Get site details
       security:
         - bearerAuth: []
       parameters:
@@ -2425,11 +2448,11 @@ paths:
             format: uuid
       responses:
         "200":
-          description: Group details
+          description: Site details
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Group"
+                $ref: "#/components/schemas/Site"
         "401":
           description: Unauthorized
           content:
@@ -2437,14 +2460,14 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "404":
-          description: Group not found
+          description: Site not found
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
     delete:
-      operationId: deleteGroup
-      summary: Delete group
+      operationId: deleteSite
+      summary: Delete a site
       description: Requires administrator access.
       security:
         - bearerAuth: []
@@ -2457,7 +2480,7 @@ paths:
             format: uuid
       responses:
         "204":
-          description: Group deleted
+          description: Site deleted
         "401":
           description: Unauthorized
           content:
@@ -2471,7 +2494,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
         "404":
-          description: Group not found
+          description: Site not found
           content:
             application/json:
               schema:

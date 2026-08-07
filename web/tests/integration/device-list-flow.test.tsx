@@ -11,7 +11,7 @@ import { DeviceList } from '../../src/features/devices/DeviceList';
 vi.mock('../../src/lib/api', () => ({
   api: {
     GET: vi.fn().mockResolvedValue({ data: [], error: undefined }),
-    POST: vi.fn().mockResolvedValue({ data: { id: 'new-g', name: 'New Group', created_at: '', updated_at: '' }, error: undefined }),
+    POST: vi.fn().mockResolvedValue({ data: { id: 'new-g', name: 'New Site', created_at: '', updated_at: '' }, error: undefined }),
     DELETE: vi.fn().mockResolvedValue({ error: undefined }),
   },
 }));
@@ -55,32 +55,32 @@ describe('Device List Flow (integration)', () => {
     useAuthStore.setState({ token: 'tok', user: mockUser, isLoading: false, error: null });
     useDeviceStore.setState({
       devices: [],
-      groups: [
-        { id: 'g1', name: 'Production', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Staging', created_at: '', updated_at: '' },
+      sites: [
+        { id: 'g1', organization_id: 'org-1', name: 'Production', created_at: '', updated_at: '' },
+        { id: 'g2', organization_id: 'org-1', name: 'Staging', created_at: '', updated_at: '' },
       ],
-      selectedGroupId: null,
+      selectedSiteId: null,
       selectedDevice: null,
       isLoading: false,
       error: null,
-      fetchGroups: vi.fn(),
+      fetchSites: vi.fn(),
       fetchDevices: vi.fn(),
     });
   });
 
-  it('shows groups in sidebar and empty state for main area', () => {
+  it('shows sites in sidebar and empty state for main area', () => {
     renderDeviceListFlow();
     expect(screen.getByText('Production')).toBeInTheDocument();
     expect(screen.getByText('Staging')).toBeInTheDocument();
     expect(screen.getByText('Welcome to OpenGate')).toBeInTheDocument();
   });
 
-  it('selects group and shows no devices message', async () => {
+  it('selects site and shows no devices message', async () => {
     const fetchDevicesFn = vi.fn();
     useDeviceStore.setState({
       fetchDevices: fetchDevicesFn,
-      selectGroup: (id: string | null) => {
-        useDeviceStore.setState({ selectedGroupId: id });
+      selectSite: (id: string | null) => {
+        useDeviceStore.setState({ selectedSiteId: id });
         if (id) fetchDevicesFn(id);
       },
     });
@@ -92,12 +92,12 @@ describe('Device List Flow (integration)', () => {
     expect(fetchDevicesFn).toHaveBeenCalledWith('g1');
   });
 
-  it('renders devices when group is selected with devices', () => {
+  it('renders devices when site is selected with devices', () => {
     useDeviceStore.setState({
-      selectedGroupId: 'g1',
+      selectedSiteId: 'g1',
       devices: [
-        { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'server-01', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
-        { id: 'd2', organization_id: 'org-1', group_id: 'g1', hostname: 'server-02', os: 'windows', agent_version: '', capabilities: [], status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'server-01', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd2', organization_id: 'org-1', site_id: 'g1', hostname: 'server-02', os: 'windows', agent_version: '', capabilities: [], status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
       ],
     });
 

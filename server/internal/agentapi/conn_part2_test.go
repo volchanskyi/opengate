@@ -17,8 +17,8 @@ func TestAgentConn_HandleRegister(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	// Create a group so the device can belong to it
-	group := testutil.SeedGroup(t, ctx, store)
+	// Create a site so the device can belong to it
+	site := testutil.SeedSite(t, ctx, store)
 
 	deviceID := uuid.New()
 	codec := &protocol.Codec{}
@@ -41,7 +41,7 @@ func TestAgentConn_HandleRegister(t *testing.T) {
 
 	ac := &AgentConn{
 		DeviceID: deviceID,
-		GroupID:  group.ID,
+		SiteID:   site.ID,
 		stream:   &frameBuf,
 		codec:    codec,
 		devices:  testutil.NewTestDevices(t, store),

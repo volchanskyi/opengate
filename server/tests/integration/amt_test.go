@@ -27,14 +27,14 @@ func TestDeviceCarriesItsAMTProperty(t *testing.T) {
 	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
-	group := testutil.SeedGroup(t, ctx, env.store)
+	site := testutil.SeedSite(t, ctx, env.store)
 	hardware := testutil.NewTestHardware(t, env.store)
 	tenantCtx := defaultTenantContext()
 
-	plain := testutil.SeedDevice(t, ctx, env.store, group.ID)
+	plain := testutil.SeedDevice(t, ctx, env.store, site.ID)
 	require.NoError(t, hardware.Upsert(tenantCtx, &device.Hardware{DeviceID: plain.ID, CPUModel: "AMD Ryzen 9 7950X"}))
 
-	capable := testutil.SeedDevice(t, ctx, env.store, group.ID)
+	capable := testutil.SeedDevice(t, ctx, env.store, site.ID)
 	available := true
 	require.NoError(t, hardware.Upsert(tenantCtx, &device.Hardware{
 		DeviceID:     capable.ID,
@@ -44,7 +44,7 @@ func TestDeviceCarriesItsAMTProperty(t *testing.T) {
 		AMTVersion:   "16.1.30.2260",
 	}))
 
-	linked := testutil.SeedDevice(t, ctx, env.store, group.ID)
+	linked := testutil.SeedDevice(t, ctx, env.store, site.ID)
 	require.NoError(t, hardware.Upsert(tenantCtx, &device.Hardware{
 		DeviceID:     linked.ID,
 		CPUModel:     "Intel Core i5-1145G7",
@@ -84,8 +84,8 @@ func TestAMTPowerActionDeviceNotConnected(t *testing.T) {
 	adminUser, adminPass := testutil.SeedAdminUser(t, ctx, env.store)
 	adminToken := env.login(t, adminUser.Email, adminPass)
 
-	group := testutil.SeedGroup(t, ctx, env.store)
-	dev := testutil.SeedDevice(t, ctx, env.store, group.ID)
+	site := testutil.SeedSite(t, ctx, env.store)
+	dev := testutil.SeedDevice(t, ctx, env.store, site.ID)
 	amtDevice := testutil.SeedAMTDevice(t, ctx, env.store, dev.ID)
 
 	resp := env.doJSON(t, http.MethodPost, "/api/v1/amt/devices/"+amtDevice.UUID.String()+"/power", adminToken, map[string]string{

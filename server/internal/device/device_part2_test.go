@@ -12,16 +12,16 @@ import (
 
 func TestPostgresDevices_CRUD(t *testing.T) {
 	t.Parallel()
-	devices, groups, _, _ := newRepos(t)
+	devices, sites, _, _ := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 
-	g := &device.Group{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
-	require.NoError(t, groups.Create(ctx, g))
+	g := &device.Site{ID: uuid.New(), Name: "g-" + uuid.New().String()[:8]}
+	require.NoError(t, sites.Create(ctx, g))
 
 	t.Run("upsert and get", func(t *testing.T) {
 		d := &device.Device{
 			ID:       uuid.New(),
-			GroupID:  g.ID,
+			SiteID:   g.ID,
 			Hostname: "h-" + uuid.New().String()[:8],
 			OS:       "linux",
 			Status:   device.StatusOffline,
@@ -40,8 +40,8 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 		assert.ErrorIs(t, err, device.ErrDeviceNotFound)
 	})
 
-	t.Run("list by group", func(t *testing.T) {
-		ds, err := devices.List(ctx, device.Filter{GroupID: g.ID})
+	t.Run("list by site", func(t *testing.T) {
+		ds, err := devices.List(ctx, device.Filter{SiteID: g.ID})
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(ds), 1)
 	})
@@ -60,21 +60,21 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 		assert.LessOrEqual(t, counts.Maintenance, counts.Total)
 	})
 
-	t.Run("update group", func(t *testing.T) {
-		d := &device.Device{ID: uuid.New(), GroupID: g.ID, Hostname: "moveme", OS: "linux", Status: device.StatusOffline}
+	t.Run("update site", func(t *testing.T) {
+		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "moveme", OS: "linux", Status: device.StatusOffline}
 		require.NoError(t, devices.Upsert(ctx, d))
 
-		g2 := &device.Group{ID: uuid.New(), Name: "g2-" + uuid.New().String()[:8]}
-		require.NoError(t, groups.Create(ctx, g2))
+		g2 := &device.Site{ID: uuid.New(), Name: "g2-" + uuid.New().String()[:8]}
+		require.NoError(t, sites.Create(ctx, g2))
 
-		require.NoError(t, devices.UpdateGroup(ctx, d.ID, g2.ID))
+		require.NoError(t, devices.UpdateSite(ctx, d.ID, g2.ID))
 		got, err := devices.Get(ctx, d.ID)
 		require.NoError(t, err)
-		assert.Equal(t, g2.ID, got.GroupID)
+		assert.Equal(t, g2.ID, got.SiteID)
 	})
 
 	t.Run("set status flips to online", func(t *testing.T) {
-		d := &device.Device{ID: uuid.New(), GroupID: g.ID, Hostname: "stat", OS: "linux", Status: device.StatusOffline}
+		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "stat", OS: "linux", Status: device.StatusOffline}
 		require.NoError(t, devices.Upsert(ctx, d))
 
 		require.NoError(t, devices.SetStatus(ctx, d.ID, device.StatusOnline))
@@ -84,7 +84,7 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 	})
 
 	t.Run("reset all statuses turns online to offline", func(t *testing.T) {
-		d := &device.Device{ID: uuid.New(), GroupID: g.ID, Hostname: "reset", OS: "linux", Status: device.StatusOnline}
+		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "reset", OS: "linux", Status: device.StatusOnline}
 		require.NoError(t, devices.Upsert(ctx, d))
 		require.NoError(t, devices.ResetAllStatuses(ctx))
 
@@ -94,7 +94,7 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 	})
 
 	t.Run("delete", func(t *testing.T) {
-		d := &device.Device{ID: uuid.New(), GroupID: g.ID, Hostname: "del", OS: "linux", Status: device.StatusOffline}
+		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: "del", OS: "linux", Status: device.StatusOffline}
 		require.NoError(t, devices.Upsert(ctx, d))
 		require.NoError(t, devices.Delete(ctx, d.ID))
 

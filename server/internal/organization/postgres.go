@@ -21,6 +21,29 @@ const tenantPredicate = `tenant_id = current_setting('app.current_tenant')::uuid
 
 const organizationSelect = `SELECT id, name, archived_at, created_at, updated_at FROM organizations `
 
+// Every statement is assembled here, at compile time, from constants only, and
+// each call site passes one identifier. Nothing is ever built from a value that
+// reached the process at runtime.
+const (
+	getByIDQuery = organizationSelect + `WHERE ` + tenantPredicate + ` AND id = $1`
+
+	listActiveQuery = organizationSelect + `WHERE ` + tenantPredicate + ` AND archived_at IS NULL ORDER BY name`
+	listAllQuery    = organizationSelect + `WHERE ` + tenantPredicate + ` ORDER BY name`
+
+	renameQuery = `UPDATE organizations SET name = $2, updated_at = NOW()
+			 WHERE ` + tenantPredicate + ` AND id = $1`
+
+	setArchivedQuery = `UPDATE organizations
+			    SET archived_at = CASE WHEN $2 THEN COALESCE(archived_at, NOW()) ELSE NULL END,
+			        updated_at = NOW()
+			  WHERE ` + tenantPredicate + ` AND id = $1`
+
+	deleteQuery = `DELETE FROM organizations WHERE ` + tenantPredicate + ` AND id = $1`
+
+	oldestQuery     = `SELECT id FROM organizations WHERE ` + tenantPredicate + ` ORDER BY created_at, id LIMIT 1`
+	findByNameQuery = `SELECT id FROM organizations WHERE ` + tenantPredicate + ` AND name = $1`
+)
+
 // PostgresOrganizations implements [Repository] against PostgreSQL.
 type PostgresOrganizations struct {
 	db *sql.DB
@@ -60,8 +83,7 @@ func (p *PostgresOrganizations) Get(ctx context.Context, id ID) (*Organization, 
 	}
 	var org Organization
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		return scanOrganization(tx.QueryRowContext(ctx,
-			organizationSelect+`WHERE `+tenantPredicate+` AND id = $1`, id), &org)
+		return scanOrganization(tx.QueryRowContext(ctx, getByIDQuery, id), &org)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -79,11 +101,9 @@ func (p *PostgresOrganizations) List(ctx context.Context, includeArchived bool) 
 	}
 	// Two fixed statements rather than one assembled from the flag, so nothing
 	// here is built from runtime input.
-	const listActive = organizationSelect + `WHERE ` + tenantPredicate + ` AND archived_at IS NULL ORDER BY name`
-	const listAll = organizationSelect + `WHERE ` + tenantPredicate + ` ORDER BY name`
-	query := listActive
+	query := listActiveQuery
 	if includeArchived {
-		query = listAll
+		query = listAllQuery
 	}
 
 	var orgs []*Organization
@@ -114,9 +134,7 @@ func (p *PostgresOrganizations) Rename(ctx context.Context, id ID, name string) 
 		return err
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx,
-			`UPDATE organizations SET name = $2, updated_at = NOW()
-			 WHERE `+tenantPredicate+` AND id = $1`, id, name)
+		res, err := tx.ExecContext(ctx, renameQuery, id, name)
 		if isUniqueViolation(err) {
 			return ErrNameTaken
 		}
@@ -130,11 +148,7 @@ func (p *PostgresOrganizations) SetArchived(ctx context.Context, id ID, archived
 		return dbtx.ErrTenantRequired
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx,
-			`UPDATE organizations
-			    SET archived_at = CASE WHEN $2 THEN COALESCE(archived_at, NOW()) ELSE NULL END,
-			        updated_at = NOW()
-			  WHERE `+tenantPredicate+` AND id = $1`, id, archived)
+		res, err := tx.ExecContext(ctx, setArchivedQuery, id, archived)
 		return checkAffected(res, err)
 	})
 }
@@ -146,8 +160,7 @@ func (p *PostgresOrganizations) Delete(ctx context.Context, id ID) error {
 		return dbtx.ErrTenantRequired
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx,
-			`DELETE FROM organizations WHERE `+tenantPredicate+` AND id = $1`, id)
+		res, err := tx.ExecContext(ctx, deleteQuery, id)
 		return checkAffected(res, err)
 	})
 }
@@ -164,9 +177,7 @@ func (p *PostgresOrganizations) EnsureDefault(ctx context.Context) (ID, error) {
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		// The tenant's oldest customer, which is the same row a device row falls
 		// back to when it is written without one named.
-		err := tx.QueryRowContext(ctx,
-			`SELECT id FROM organizations WHERE `+tenantPredicate+`
-			  ORDER BY created_at, id LIMIT 1`).Scan(&id)
+		err := tx.QueryRowContext(ctx, oldestQuery).Scan(&id)
 		if err == nil {
 			return nil
 		}
@@ -184,8 +195,7 @@ func (p *PostgresOrganizations) EnsureDefault(ctx context.Context) (ID, error) {
 		if err != nil {
 			return fmt.Errorf("create default organization: %w", err)
 		}
-		return tx.QueryRowContext(ctx,
-			`SELECT id FROM organizations WHERE `+tenantPredicate+` AND name = $1`, DefaultName).Scan(&id)
+		return tx.QueryRowContext(ctx, findByNameQuery, DefaultName).Scan(&id)
 	})
 	if err != nil {
 		return uuid.Nil, err

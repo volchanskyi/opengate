@@ -20,10 +20,10 @@ import (
 func TestAgentConn_MetaSnapshot(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 	deviceID := uuid.New()
 
-	ac := newMetaTestConn(t, store, deviceID, group.ID)
+	ac := newMetaTestConn(t, store, deviceID, site.ID)
 	require := assert.New(t)
 	require.NoError(ac.handleRegister(ctx, registerMsg()))
 
@@ -41,10 +41,10 @@ func TestAgentConn_MetaSnapshot(t *testing.T) {
 func TestAgentConn_MetaRace(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 	deviceID := uuid.New()
 
-	ac := newMetaTestConn(t, store, deviceID, group.ID)
+	ac := newMetaTestConn(t, store, deviceID, site.ID)
 	msg := registerMsg()
 
 	var wg sync.WaitGroup
@@ -83,9 +83,9 @@ func TestAgentConn_MetaRace(t *testing.T) {
 func TestAgentConn_RegisterRequestsHardwareReport(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 
-	ac := newMetaTestConn(t, store, uuid.New(), group.ID)
+	ac := newMetaTestConn(t, store, uuid.New(), site.ID)
 	buf := ac.stream.(*bytes.Buffer)
 
 	require.NoError(t, ac.handleRegister(ctx, registerMsg()))
@@ -99,9 +99,9 @@ func TestAgentConn_RegisterRequestsHardwareReport(t *testing.T) {
 func TestAgentConn_RegisterWithoutHardwareCapabilitySendsNothing(t *testing.T) {
 	store := testutil.NewTestStore(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 
-	ac := newMetaTestConn(t, store, uuid.New(), group.ID)
+	ac := newMetaTestConn(t, store, uuid.New(), site.ID)
 	buf := ac.stream.(*bytes.Buffer)
 	msg := registerMsg()
 	msg.Capabilities = []protocol.AgentCapability{protocol.CapDeviceLogs}
@@ -111,11 +111,11 @@ func TestAgentConn_RegisterWithoutHardwareCapabilitySendsNothing(t *testing.T) {
 	assert.Zero(t, buf.Len())
 }
 
-func newMetaTestConn(t *testing.T, store *db.PostgresStore, deviceID, groupID uuid.UUID) *AgentConn {
+func newMetaTestConn(t *testing.T, store *db.PostgresStore, deviceID, siteID uuid.UUID) *AgentConn {
 	t.Helper()
 	return &AgentConn{
 		DeviceID: deviceID,
-		GroupID:  groupID,
+		SiteID:   siteID,
 		stream:   &bytes.Buffer{},
 		codec:    &protocol.Codec{},
 		devices:  testutil.NewTestDevices(t, store),

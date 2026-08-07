@@ -45,7 +45,7 @@ test.describe("Visual regression (Chromium baselines)", () => {
     await expect(page).toHaveScreenshot("register.png", screenshotOptions);
   });
 
-  // The baseline is the empty device page, so the page must BE empty. Groups
+  // The baseline is the empty device page, so the page must BE empty. Sites
   // and devices are visible to the whole organization and every e2e user shares
   // one, so reading the live backend here would snapshot whatever the specs
   // that ran earlier happened to leave in the fleet — a different sidebar, and
@@ -54,7 +54,7 @@ test.describe("Visual regression (Chromium baselines)", () => {
   test("device list (empty)", async ({ authedPage }) => {
     await stubEmptyFleet(authedPage);
     await authedPage.goto("/devices");
-    await expect(authedPage.getByText("No groups yet")).toBeVisible();
+    await expect(authedPage.getByText("No sites yet")).toBeVisible();
     await expect(authedPage).toHaveScreenshot("device-list-empty.png", screenshotOptions);
   });
 

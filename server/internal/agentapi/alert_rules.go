@@ -1,18 +1,24 @@
 package agentapi
 
 import (
+	"context"
+
 	"github.com/google/uuid"
 
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/settings"
 )
 
-// AlertRuleProvider returns the WS-19 threshold-alert ruleset for one
-// tenant. The server pushes only the connecting agent's authoritative
-// tenant's rules (see AgentConn.pushAlertRules), so the lookup key is the trust
-// boundary — one tenant's rules never reach another.
+// AlertRuleProvider returns the threshold-alert ruleset for one machine. The
+// argument is the machine's whole place in the tenancy ladder — itself, the
+// site it is filed into, the customer that site belongs to, and the tenant —
+// so a provider can answer for a customer or a site without the caller having
+// to look either up. The tenant in that ladder is the connecting agent's
+// authoritative one, which is what keeps one tenant's rules from reaching
+// another.
 type AlertRuleProvider interface {
-	// RulesFor returns the rules to push to an agent enrolled in tenantID.
-	RulesFor(tenantID uuid.UUID) []protocol.ThresholdRule
+	// RulesFor returns the rules to push to the machine at scope.
+	RulesFor(scope settings.Scope) []protocol.ThresholdRule
 }
 
 // StaticAlertRuleProvider serves a minimal default ruleset to every tenant, with
@@ -37,10 +43,11 @@ func NewStaticAlertRuleProvider(defaultRules []protocol.ThresholdRule, byTenant 
 	return p
 }
 
-// RulesFor returns a defensive copy of tenantID's ruleset, or the default set when
-// the tenant has no override.
-func (p *StaticAlertRuleProvider) RulesFor(tenantID uuid.UUID) []protocol.ThresholdRule {
-	if rules, ok := p.byTenant[tenantID]; ok {
+// RulesFor returns a defensive copy of the ruleset for the scope's tenant, or
+// the default set when that tenant has no override. It reads only the tenant
+// rung; the narrower rungs are carried for the providers that resolve them.
+func (p *StaticAlertRuleProvider) RulesFor(scope settings.Scope) []protocol.ThresholdRule {
+	if rules, ok := p.byTenant[scope.TenantID]; ok {
 		return cloneRules(rules)
 	}
 	return cloneRules(p.defaultRules)
@@ -75,4 +82,35 @@ func cloneRules(rules []protocol.ThresholdRule) []protocol.ThresholdRule {
 	out := make([]protocol.ThresholdRule, len(rules))
 	copy(out, rules)
 	return out
+}
+
+// pushAlertRules delivers the connecting agent's threshold-alert ruleset,
+// resolved against the machine's own place in the tenancy ladder so a rule
+// tuned for one customer or one office reaches the machines it was tuned for.
+// The tenant in that ladder is the connection's authoritative one, so one
+// tenant's rules never reach another. A nil provider is a no-op; a missing
+// capability surfaces as a capability error the caller can ignore.
+func (a *AgentConn) pushAlertRules(ctx context.Context) error {
+	if a.alertRules == nil {
+		return nil
+	}
+	return a.SendPushAlertRules(ctx, a.alertRules.RulesFor(a.settingsScope(ctx)))
+}
+
+// settingsScope reads the machine's place in the tenancy ladder. Alerts and
+// vitals arrive on this connection and need the right customer attached, so the
+// walk happens here rather than being inferred later. A read that fails leaves
+// the rungs this connection already knows for itself, which keeps the tenant
+// boundary intact and simply loses the narrower targeting.
+func (a *AgentConn) settingsScope(ctx context.Context) settings.Scope {
+	known := settings.Scope{DeviceID: a.DeviceID, SiteID: a.SiteID, TenantID: a.TenantID}
+	if a.settings == nil {
+		return known
+	}
+	scope, err := a.settings.ScopeFor(ctx, a.DeviceID)
+	if err != nil {
+		a.logger.Warn("read device tenancy scope failed", "device_id", a.DeviceID, "error", err)
+		return known
+	}
+	return scope
 }

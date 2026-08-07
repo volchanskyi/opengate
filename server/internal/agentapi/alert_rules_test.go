@@ -12,7 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/settings"
 )
+
+// inTenant is the ladder for a machine whose only known rung is its tenant,
+// which is what a static provider reads.
+func inTenant(tenantID uuid.UUID) settings.Scope {
+	return settings.Scope{DeviceID: uuid.New(), OrganizationID: uuid.New(), TenantID: tenantID}
+}
 
 func TestStaticAlertRuleProvider_TenantScopedWithDefault(t *testing.T) {
 	tenantA := uuid.New()
@@ -22,12 +29,12 @@ func TestStaticAlertRuleProvider_TenantScopedWithDefault(t *testing.T) {
 		tenantA: {ruleA},
 	})
 
-	got := provider.RulesFor(tenantA)
+	got := provider.RulesFor(inTenant(tenantA))
 	require.Len(t, got, 1)
 	assert.Equal(t, "tenantA-only", got[0].ID)
 
 	// Tenant B has no override → the minimal default set, and never tenant A's rule.
-	def := provider.RulesFor(tenantB)
+	def := provider.RulesFor(inTenant(tenantB))
 	assert.Equal(t, DefaultAlertRules(), def)
 	for _, r := range def {
 		assert.NotEqual(t, "tenantA-only", r.ID, "tenant A's rule must never reach tenant B")
@@ -39,9 +46,9 @@ func TestStaticAlertRuleProvider_ReturnsDefensiveCopy(t *testing.T) {
 	provider := NewStaticAlertRuleProvider(DefaultAlertRules(), map[uuid.UUID][]protocol.ThresholdRule{
 		tenant: {{ID: "x", Metric: "cpu.total", Comparator: protocol.AlertComparatorGt, Threshold: 1, Clear: 0}},
 	})
-	got := provider.RulesFor(tenant)
+	got := provider.RulesFor(inTenant(tenant))
 	got[0].ID = "mutated"
-	assert.Equal(t, "x", provider.RulesFor(tenant)[0].ID, "provider must hand back a copy the caller cannot mutate")
+	assert.Equal(t, "x", provider.RulesFor(inTenant(tenant))[0].ID, "provider must hand back a copy the caller cannot mutate")
 }
 
 func TestAgentConn_PushAlertRules_ScopedToAuthoritativeTenant(t *testing.T) {

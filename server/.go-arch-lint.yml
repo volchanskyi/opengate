@@ -76,6 +76,14 @@ components:
   organization:
     in: internal/organization
 
+  # Constrained: the settings module owns the tenancy ladder a configurable
+  # value is resolved along — machine, site, customer, tenant, then what
+  # shipped — and nothing else. Where a value is stored belongs to whatever
+  # feature the value configures, so the ordering exists in one place and
+  # cannot drift between the things that depend on it.
+  settings:
+    in: internal/settings
+
   # Constrained: the notifications module owns the WebPushSubscription
   # aggregate plus the existing Notifier interface
   # and VAPID key material. Repository interface, Postgres adapter, and
@@ -188,6 +196,13 @@ deps:
     # is off for the same reason as the other aggregates — the Instrumented
     # decorator takes a duck-typed Observer that deepScan would trace back to
     # metrics.Metrics at the wiring site.
+    mayDependOn:
+      - dbtx
+    anyVendorDeps: true
+    deepScan: false
+  settings:
+    # Owns the tenancy ladder and its Postgres reader; dbtx is the only
+    # project-internal dependency for tenant-scoped RLS transactions.
     mayDependOn:
       - dbtx
     anyVendorDeps: true

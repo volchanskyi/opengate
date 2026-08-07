@@ -30,8 +30,8 @@ func TestDeviceAlwaysLandsInAnOrganization(t *testing.T) {
 	devices, _, _, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
-	d := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "unassigned", Status: device.StatusOffline}
+	site := testutil.SeedSite(t, ctx, store)
+	d := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: "unassigned", Status: device.StatusOffline}
 	require.NoError(t, devices.Upsert(ctx, d))
 
 	got, err := devices.Get(ctx, d.ID)
@@ -51,12 +51,12 @@ func TestUpsertKeepsTheDeviceOrganizationOnReconnect(t *testing.T) {
 	devices, _, _, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
-	d := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	d := testutil.SeedDevice(t, ctx, store, site.ID)
 	contoso := newCustomer(t, ctx, store, "Contoso")
 	require.NoError(t, devices.UpdateOrganization(ctx, d.ID, contoso))
 
-	reconnect := &device.Device{ID: d.ID, GroupID: group.ID, Hostname: d.Hostname, Status: device.StatusOnline}
+	reconnect := &device.Device{ID: d.ID, SiteID: site.ID, Hostname: d.Hostname, Status: device.StatusOnline}
 	require.NoError(t, devices.Upsert(ctx, reconnect))
 
 	got, err := devices.Get(ctx, d.ID)

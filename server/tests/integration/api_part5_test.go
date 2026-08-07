@@ -15,11 +15,11 @@ func TestConcurrentRequests(t *testing.T) {
 	env := newTestEnv(t)
 	token := env.register(t, "concurrent@example.com", "pass1234")
 
-	// Create a group for device listing
-	resp := env.doJSON(t, http.MethodPost, pathGroups, token, map[string]string{"name": "concurrent-group"})
+	// Create a site for device listing
+	resp := env.doJSON(t, http.MethodPost, pathSites, token, map[string]string{"name": "concurrent-site"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var group device.Group
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&group))
+	var site device.Site
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&site))
 	resp.Body.Close()
 
 	// Fire 20 concurrent requests across different endpoints
@@ -37,9 +37,9 @@ func TestConcurrentRequests(t *testing.T) {
 			case 1:
 				resp = env.doJSON(t, http.MethodGet, pathUsersMe, token, nil)
 			case 2:
-				resp = env.doJSON(t, http.MethodGet, pathGroups, token, nil)
+				resp = env.doJSON(t, http.MethodGet, pathSites, token, nil)
 			case 3:
-				resp = env.doJSON(t, http.MethodGet, "/api/v1/devices?group_id="+group.ID.String(), token, nil)
+				resp = env.doJSON(t, http.MethodGet, "/api/v1/devices?site_id="+site.ID.String(), token, nil)
 			}
 			resp.Body.Close()
 			if resp.StatusCode != http.StatusOK {

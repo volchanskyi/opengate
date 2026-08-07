@@ -25,7 +25,7 @@ func TestSessionLifecycle_ConcurrentSessions(t *testing.T) {
 	jwtToken, err := env.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	require.NoError(t, err)
 
-	// Connect 3 agents — each with its own group to eliminate shared-row
+	// Connect 3 agents — each with its own site to eliminate shared-row
 	// contention that caused the flaky FOREIGN KEY failures.
 	type agentInfo struct {
 		stream   io.ReadWriter
@@ -33,8 +33,8 @@ func TestSessionLifecycle_ConcurrentSessions(t *testing.T) {
 	}
 	agents := make([]agentInfo, 3)
 	for i := range agents {
-		group := testutil.SeedGroup(t, ctx, env.store)
-		stream, deviceID := env.connectAgent(t, group.ID)
+		site := testutil.SeedSite(t, ctx, env.store)
+		stream, deviceID := env.connectAgent(t, site.ID)
 		agents[i] = agentInfo{stream: stream, deviceID: deviceID}
 	}
 

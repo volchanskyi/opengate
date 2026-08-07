@@ -17,8 +17,8 @@ type DeviceID = uuid.UUID
 // UserID uniquely identifies a user.
 type UserID = uuid.UUID
 
-// GroupID uniquely identifies a device group.
-type GroupID = uuid.UUID
+// SiteID uniquely identifies a device site.
+type SiteID = uuid.UUID
 
 // DeviceStatus is aliased to the canonical device-aggregate type so existing
 // db.StatusOnline / db.StatusOffline / db.StatusConnecting references in
@@ -39,7 +39,7 @@ const (
 // once the matching modules own all remaining aliases.
 type (
 	Device               = device.Device
-	Group                = device.Group
+	Site                 = device.Site
 	DeviceHardware       = device.Hardware
 	DeviceLogEntry       = device.LogEntry
 	LogFilter            = device.LogFilter

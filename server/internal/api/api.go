@@ -107,7 +107,7 @@ type ServerConfig struct {
 	Enrollment            updater.EnrollmentTokenRepository
 	SecurityGroups        auth.SecurityGroupRepository
 	Devices               device.Repository
-	Groups                device.GroupRepository
+	Sites                 device.SiteRepository
 	Organizations         organization.Repository
 	Hardware              device.HardwareRepository
 	Inventory             inventory.Repository
@@ -155,7 +155,7 @@ type Server struct {
 	enrollment      updater.EnrollmentTokenRepository
 	securityGroups  auth.SecurityGroupRepository
 	devices         device.Repository
-	groups          device.GroupRepository
+	sites           device.SiteRepository
 	organizations   organization.Repository
 	hardware        device.HardwareRepository
 	inventory       inventory.Repository
@@ -259,7 +259,7 @@ func NewServer(cfg ServerConfig) *Server {
 		enrollment:      cfg.Enrollment,
 		securityGroups:  cfg.SecurityGroups,
 		devices:         cfg.Devices,
-		groups:          cfg.Groups,
+		sites:           cfg.Sites,
 		organizations:   cfg.Organizations,
 		hardware:        cfg.Hardware,
 		inventory:       cfg.Inventory,
@@ -352,7 +352,7 @@ func (s *Server) routes() {
 		},
 	})
 
-	// API routes in a group with rate limiting and request timeout.
+	// API routes in a subrouter with rate limiting and request timeout.
 	// WebSocket routes stay outside so TimeoutHandler doesn't break upgrades.
 	r.Group(func(apiRouter chi.Router) {
 		apiRouter.Use(RequestTimeout(s.requestTimeout))

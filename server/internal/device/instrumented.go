@@ -59,8 +59,8 @@ func (i *InstrumentedDevices) Delete(ctx context.Context, id DeviceID) error {
 	return observe0(i.observer, "device.Device.Delete", func() error { return i.inner.Delete(ctx, id) })
 }
 
-func (i *InstrumentedDevices) UpdateGroup(ctx context.Context, id DeviceID, groupID GroupID) error {
-	return observe0(i.observer, "device.Device.UpdateGroup", func() error { return i.inner.UpdateGroup(ctx, id, groupID) })
+func (i *InstrumentedDevices) UpdateSite(ctx context.Context, id DeviceID, siteID SiteID) error {
+	return observe0(i.observer, "device.Device.UpdateSite", func() error { return i.inner.UpdateSite(ctx, id, siteID) })
 }
 
 func (i *InstrumentedDevices) SetStatus(ctx context.Context, id DeviceID, status DeviceStatus) error {
@@ -85,31 +85,31 @@ func (i *InstrumentedDevices) UpdateOrganization(ctx context.Context, id DeviceI
 	})
 }
 
-// InstrumentedGroups decorates a GroupRepository with per-call observation.
-type InstrumentedGroups struct {
-	inner    GroupRepository
+// InstrumentedSites decorates a SiteRepository with per-call observation.
+type InstrumentedSites struct {
+	inner    SiteRepository
 	observer Observer
 }
 
-// NewInstrumentedGroups wraps inner with metric observation.
-func NewInstrumentedGroups(inner GroupRepository, observer Observer) *InstrumentedGroups {
-	return &InstrumentedGroups{inner: inner, observer: observer}
+// NewInstrumentedSites wraps inner with metric observation.
+func NewInstrumentedSites(inner SiteRepository, observer Observer) *InstrumentedSites {
+	return &InstrumentedSites{inner: inner, observer: observer}
 }
 
-func (i *InstrumentedGroups) Create(ctx context.Context, g *Group) error {
-	return observe0(i.observer, "device.Group.Create", func() error { return i.inner.Create(ctx, g) })
+func (i *InstrumentedSites) Create(ctx context.Context, s *Site) error {
+	return observe0(i.observer, "device.Site.Create", func() error { return i.inner.Create(ctx, s) })
 }
 
-func (i *InstrumentedGroups) Get(ctx context.Context, id GroupID) (*Group, error) {
-	return observe1(i.observer, "device.Group.Get", func() (*Group, error) { return i.inner.Get(ctx, id) })
+func (i *InstrumentedSites) Get(ctx context.Context, id SiteID) (*Site, error) {
+	return observe1(i.observer, "device.Site.Get", func() (*Site, error) { return i.inner.Get(ctx, id) })
 }
 
-func (i *InstrumentedGroups) List(ctx context.Context) ([]*Group, error) {
-	return observe1(i.observer, "device.Group.List", func() ([]*Group, error) { return i.inner.List(ctx) })
+func (i *InstrumentedSites) List(ctx context.Context, organizationID OrganizationID) ([]*Site, error) {
+	return observe1(i.observer, "device.Site.List", func() ([]*Site, error) { return i.inner.List(ctx, organizationID) })
 }
 
-func (i *InstrumentedGroups) Delete(ctx context.Context, id GroupID) error {
-	return observe0(i.observer, "device.Group.Delete", func() error { return i.inner.Delete(ctx, id) })
+func (i *InstrumentedSites) Delete(ctx context.Context, id SiteID) error {
+	return observe0(i.observer, "device.Site.Delete", func() error { return i.inner.Delete(ctx, id) })
 }
 
 // InstrumentedHardware decorates a HardwareRepository with per-call observation.

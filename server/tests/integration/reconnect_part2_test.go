@@ -14,10 +14,10 @@ func TestAgentReconnectNewCert(t *testing.T) {
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
 
-	group := testutil.SeedGroup(t, ctx, env.store)
+	site := testutil.SeedSite(t, ctx, env.store)
 
 	// Connect agent
-	stream, deviceID := env.connectAgent(t, group.ID)
+	stream, deviceID := env.connectAgent(t, site.ID)
 
 	require.Eventually(t, func() bool {
 		d, err := env.devices.Get(defaultTenantContext(), deviceID)

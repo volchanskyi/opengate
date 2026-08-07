@@ -44,7 +44,7 @@ Contract drift between the spec and the server becomes a compile error.
 The web client uses `openapi-fetch` with generated types for fully-typed API calls:
 
 ```typescript
-const { data, error } = await api.GET('/api/v1/groups');
+const { data, error } = await api.GET('/api/v1/sites');
 // data is typed as Group[], error is typed as ApiError
 ```
 
@@ -69,14 +69,14 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/push/subscribe` | POST | JWT | Subscribe to Web Push notifications |
 | `/api/v1/push/subscribe` | DELETE | JWT | Unsubscribe from Web Push |
 | `/api/v1/push/vapid-key` | GET | JWT | Get VAPID public key |
-| `/api/v1/groups` | POST | JWT (admin) | Create a device group |
-| `/api/v1/groups` | GET | JWT | List groups |
-| `/api/v1/groups/{id}` | GET | JWT | Get a group |
-| `/api/v1/groups/{id}` | DELETE | JWT (admin) | Delete a group |
-| `/api/v1/devices` | GET | JWT | List devices (optional `group_id` filter) |
+| `/api/v1/sites` | POST | JWT (admin) | Create a site under a customer |
+| `/api/v1/sites` | GET | JWT | List sites, optionally narrowed by customer |
+| `/api/v1/sites/{id}` | GET | JWT | Get a site |
+| `/api/v1/sites/{id}` | DELETE | JWT (admin) | Delete a site; its devices stay with the customer, unfiled |
+| `/api/v1/devices` | GET | JWT | List devices (optional `organization_id` and `site_id` filters) |
 | `/api/v1/devices/summary` | GET | JWT | Fixed-size fleet rollup for the dashboard (status tiles + edge-health bands) |
 | `/api/v1/devices/{id}` | GET | JWT | Get a device (includes `capabilities` array) |
-| `/api/v1/devices/{id}` | PATCH | JWT (admin) | Update device (reassign `group_id`; the all-zeros UUID ungroups it) |
+| `/api/v1/devices/{id}` | PATCH | JWT (admin) | Update device (file into a `site_id` in its own customer; the all-zeros UUID unfiles it) |
 | `/api/v1/devices/{id}` | DELETE | JWT (admin) | Delete a device and purge all its telemetry ([Data Lifecycle](Data-Lifecycle.md)) |
 | `/api/v1/devices/{id}/restart` | POST | JWT | Restart agent on device (optional `reason` field) |
 | `/api/v1/devices/{id}/hardware` | GET | JWT | Get hardware inventory for device (200 cached / 202 requested from agent) |
@@ -235,6 +235,17 @@ added later without it fails the suite.
 Customer names are unique within a tenant, not globally. Retiring a customer
 keeps its devices and its history and takes it out of the working set; deleting
 one takes its devices with it, and a tenant's last customer cannot be deleted.
+
+### Sites
+
+A site is a location or department inside one customer, and it is the level
+below the customer that a device is filed into. `PATCH /api/v1/devices/{id}`
+files a device into one; the all-zeros UUID unfiles it. A site must belong to the
+device's own customer — the request is refused otherwise, rather than storing a
+machine under another customer's office — and moving a device to a different
+customer unfiles it in the same operation. Deleting a site leaves its devices
+with their customer, unfiled. Site names are unique within their customer, so two
+customers may each have a "Head Office".
 
 ### Fleet Summary
 

@@ -187,8 +187,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List devices, optionally narrowed by customer and group
-         * @description Returns the caller's tenant. organization_id narrows to one customer; group_id narrows to one filing label. Both narrow together, and omitting both returns the whole tenant.
+         * List devices, optionally narrowed by customer and site
+         * @description Returns the caller's tenant. organization_id narrows to one customer; site_id narrows to one location inside it. Both narrow together, and omitting both returns the whole tenant.
          */
         get: operations["listDevices"];
         put?: never;
@@ -266,7 +266,7 @@ export interface paths {
         put?: never;
         /**
          * Enter or exit maintenance mode for a device
-         * @description Sets the server-authoritative maintenance state for a device. The state is persisted and pushed to the agent over the control channel; because maintenance is a desired state rather than a live command, this succeeds even when the agent is offline and reconciles on its next connect. Every change is audited. Restricted to the device's group owner.
+         * @description Sets the server-authoritative maintenance state for a device. The state is persisted and pushed to the agent over the control channel; because maintenance is a desired state rather than a live command, this succeeds even when the agent is offline and reconciles on its next connect. Every change is audited. Requires administrator access.
          */
         post: operations["setDeviceMaintenance"];
         delete?: never;
@@ -455,43 +455,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/groups": {
+    "/api/v1/sites": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** List the tenant's device groups */
-        get: operations["listGroups"];
+        /**
+         * List the tenant's sites, optionally narrowed by customer
+         * @description Returns every site in the caller's tenant. organization_id narrows to one customer; omitting it returns the whole tenant.
+         */
+        get: operations["listSites"];
         put?: never;
         /**
-         * Create a device group
+         * Create a site
          * @description Requires administrator access.
          */
-        post: operations["createGroup"];
+        post: operations["createSite"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/groups/{id}": {
+    "/api/v1/sites/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get group details */
-        get: operations["getGroup"];
+        /** Get site details */
+        get: operations["getSite"];
         put?: never;
         post?: never;
         /**
-         * Delete group
+         * Delete a site
          * @description Requires administrator access.
          */
-        delete: operations["deleteGroup"];
+        delete: operations["deleteSite"];
         options?: never;
         head?: never;
         patch?: never;
@@ -890,7 +893,7 @@ export interface components {
              */
             organization_id: string;
             /** Format: uuid */
-            group_id: string;
+            site_id: string;
             hostname: string;
             os: string;
             os_display?: string;
@@ -1153,17 +1156,24 @@ export interface components {
         UpdateDeviceRequest: {
             /**
              * Format: uuid
-             * @description Destination group for the device. The all-zeros UUID takes the device out of its group and leaves it ungrouped.
+             * @description Destination site for the device, which must belong to the device's own customer. The all-zeros UUID unfiles the device, leaving it in its customer with no site.
              */
-            group_id?: string | null;
+            site_id?: string | null;
         };
-        CreateGroupRequest: {
+        CreateSiteRequest: {
             name: string;
+            /**
+             * Format: uuid
+             * @description The customer this site belongs to. Omitted, the site goes under the tenant's own customer — the same no-orphan rule a device write follows.
+             */
+            organization_id?: string;
         };
-        /** @description A named collection of devices within one tenant. A group is a filing label, not an access boundary — every member of a tenant sees every group in it. */
-        Group: {
+        /** @description A location or department inside one customer — the narrowest level above the machine itself. A site is a targeting level, not an access boundary: the tenant scopes visibility, so every member of a tenant sees every site in it. */
+        Site: {
             /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            organization_id: string;
             name: string;
             /** Format: date-time */
             created_at: string;
@@ -1800,7 +1810,7 @@ export interface operations {
     listDevices: {
         parameters: {
             query?: {
-                group_id?: string;
+                site_id?: string;
                 /** @description Narrow the list to one customer. */
                 organization_id?: string;
             };
@@ -2848,22 +2858,25 @@ export interface operations {
             };
         };
     };
-    listGroups: {
+    listSites: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Narrow the list to one customer. */
+                organization_id?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description List of groups */
+            /** @description List of sites */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Group"][];
+                    "application/json": components["schemas"]["Site"][];
                 };
             };
             /** @description Unauthorized */
@@ -2877,7 +2890,7 @@ export interface operations {
             };
         };
     };
-    createGroup: {
+    createSite: {
         parameters: {
             query?: never;
             header?: never;
@@ -2886,17 +2899,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CreateGroupRequest"];
+                "application/json": components["schemas"]["CreateSiteRequest"];
             };
         };
         responses: {
-            /** @description Group created */
+            /** @description Site created */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Group"];
+                    "application/json": components["schemas"]["Site"];
                 };
             };
             /** @description Invalid request */
@@ -2928,7 +2941,7 @@ export interface operations {
             };
         };
     };
-    getGroup: {
+    getSite: {
         parameters: {
             query?: never;
             header?: never;
@@ -2939,13 +2952,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Group details */
+            /** @description Site details */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Group"];
+                    "application/json": components["schemas"]["Site"];
                 };
             };
             /** @description Unauthorized */
@@ -2957,7 +2970,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Group not found */
+            /** @description Site not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -2968,7 +2981,7 @@ export interface operations {
             };
         };
     };
-    deleteGroup: {
+    deleteSite: {
         parameters: {
             query?: never;
             header?: never;
@@ -2979,7 +2992,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Group deleted */
+            /** @description Site deleted */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -3004,7 +3017,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiError"];
                 };
             };
-            /** @description Group not found */
+            /** @description Site not found */
             404: {
                 headers: {
                     [name: string]: unknown;

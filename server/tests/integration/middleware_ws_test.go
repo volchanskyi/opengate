@@ -60,9 +60,9 @@ const apiTimeoutUnderTest = 150 * time.Millisecond
 
 // TestInjectedRequestTimeoutReachesAPIRoutes is the control for
 // TestRelayRouteBypassesRequestTimeout: it proves ServerConfig.RequestTimeout
-// actually reaches the middleware group. Without it, a mis-wired field would
+// actually reaches the middleware site. Without it, a mis-wired field would
 // leave the relay test asserting survival past a timeout that was never armed.
-// A 1ns budget cannot be met by any route that touches Postgres, so the group
+// A 1ns budget cannot be met by any route that touches Postgres, so the site
 // must answer 503 from http.TimeoutHandler.
 func TestInjectedRequestTimeoutReachesAPIRoutes(t *testing.T) {
 	t.Parallel()
@@ -75,11 +75,11 @@ func TestInjectedRequestTimeoutReachesAPIRoutes(t *testing.T) {
 	defer resp.Body.Close()
 
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode,
-		"a 1ns RequestTimeout must expire on an API route — the injected value is not reaching the middleware group")
+		"a 1ns RequestTimeout must expire on an API route — the injected value is not reaching the middleware site")
 }
 
 // TestRelayRouteBypassesRequestTimeout verifies that the WebSocket relay route
-// lives outside the RequestTimeout middleware group: a relay connection must
+// lives outside the RequestTimeout middleware site: a relay connection must
 // stay bidirectionally functional well past the API timeout. The timeout is
 // injected so the window is a multiple of a 150ms budget rather than the
 // production 30s. RequestTimeout's own expiry behavior is pinned separately by

@@ -135,12 +135,12 @@ func (e *agentTestEnv) caCertHash() [48]byte {
 }
 
 // seedDevice pre-creates an offline device row BEFORE the agent connects, so
-// the server can resolve its group during accept() without a race.
-func (e *agentTestEnv) seedDevice(t *testing.T, deviceID, groupID uuid.UUID) {
+// the server can resolve its site during accept() without a race.
+func (e *agentTestEnv) seedDevice(t *testing.T, deviceID, siteID uuid.UUID) {
 	t.Helper()
 	require.NoError(t, e.devices.Upsert(defaultTenantContext(), &device.Device{
 		ID:       deviceID,
-		GroupID:  groupID,
+		SiteID:   siteID,
 		Hostname: "pre-seed",
 		OS:       "linux",
 		Status:   db.StatusOffline,
@@ -202,10 +202,10 @@ func (e *agentTestEnv) connectAgentWithID(t *testing.T, deviceID uuid.UUID) *qui
 
 // connectAgent seeds a fresh device and connects a test agent via the full
 // handshake. Returns the stream and device ID.
-func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stream, uuid.UUID) {
+func (e *agentTestEnv) connectAgent(t *testing.T, siteID uuid.UUID) (*quic.Stream, uuid.UUID) {
 	t.Helper()
 	deviceID := uuid.New()
-	e.seedDevice(t, deviceID, groupID)
+	e.seedDevice(t, deviceID, siteID)
 	stream, agentCertDER := e.dialAgentStream(t, deviceID)
 	performClientHandshake(t, stream, agentCertDER)
 	sendAgentRegister(t, stream)
@@ -216,10 +216,10 @@ func (e *agentTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (*quic.Stre
 // connectAgentFastPath seeds a fresh device and connects via the 0x14
 // fast path, sending SkipAuth with the given cached CA hash (no full
 // handshake). Returns the stream and device ID; the caller drives registration.
-func (e *agentTestEnv) connectAgentFastPath(t *testing.T, groupID uuid.UUID, cachedCAHash [48]byte) (*quic.Stream, uuid.UUID) {
+func (e *agentTestEnv) connectAgentFastPath(t *testing.T, siteID uuid.UUID, cachedCAHash [48]byte) (*quic.Stream, uuid.UUID) {
 	t.Helper()
 	deviceID := uuid.New()
-	e.seedDevice(t, deviceID, groupID)
+	e.seedDevice(t, deviceID, siteID)
 	stream, _ := e.dialAgentStream(t, deviceID)
 	_, err := stream.Write(protocol.EncodeSkipAuth(cachedCAHash))
 	require.NoError(t, err)
@@ -282,9 +282,9 @@ func TestAgentConnect_FastPath_ValidHashRegisters(t *testing.T) {
 	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
-	group := testutil.SeedGroup(t, ctx, env.store)
+	site := testutil.SeedSite(t, ctx, env.store)
 
-	stream, deviceID := env.connectAgentFastPath(t, group.ID, env.caCertHash())
+	stream, deviceID := env.connectAgentFastPath(t, site.ID, env.caCertHash())
 	sendAgentRegister(t, stream)
 
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOnline)
@@ -297,10 +297,10 @@ func TestAgentConnect_FastPath_StaleHashRejected(t *testing.T) {
 	t.Parallel()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
-	group := testutil.SeedGroup(t, ctx, env.store)
+	site := testutil.SeedSite(t, ctx, env.store)
 
 	var staleHash [48]byte // all zeros — never the real CA hash
-	stream, deviceID := env.connectAgentFastPath(t, group.ID, staleHash)
+	stream, deviceID := env.connectAgentFastPath(t, site.ID, staleHash)
 
 	// The server rejects the stale hash and closes the connection, so a read
 	// on the agent stream fails rather than blocking.

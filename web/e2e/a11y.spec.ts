@@ -47,7 +47,7 @@ test.describe("Accessibility (WCAG 2.1 A/AA)", () => {
     await authedPage.goto("/devices");
     // Match device-list.spec.ts empty-state copy.
     await expect(
-      authedPage.getByText(/no groups|no devices|create.*group/i),
+      authedPage.getByText(/no sites|no devices|create.*site/i),
     ).toBeVisible();
 
     const results = await new AxeBuilder({ page: authedPage })

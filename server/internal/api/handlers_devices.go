@@ -9,7 +9,7 @@ import (
 
 // ListDevices implements StrictServerInterface. The repository predicate is the
 // whole gate: a caller sees its own tenant's devices. Narrowing to a customer or
-// a group is a filter, not a permission — a technician sees every customer in
+// a site is a filter, not a permission — a technician sees every customer in
 // the tenant, and the picker chooses which one to look at.
 func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error) {
 	devices, err := s.devices.List(ctx, deviceFilterFromParams(request.Params))
@@ -26,8 +26,8 @@ func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObje
 // filter. An absent parameter leaves that field zero, which does not narrow.
 func deviceFilterFromParams(params ListDevicesParams) device.Filter {
 	var filter device.Filter
-	if params.GroupId != nil {
-		filter.GroupID = *params.GroupId
+	if params.SiteId != nil {
+		filter.SiteID = *params.SiteId
 	}
 	if params.OrganizationId != nil {
 		filter.OrganizationID = *params.OrganizationId

@@ -21,6 +21,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
 )
@@ -38,6 +39,7 @@ type AgentServer struct {
 	notifier       notifications.Notifier
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
+	settings       settings.Reader
 	metrics        *appmetrics.Metrics
 	quicHost       string   // extra DNS SAN for the server certificate
 	conns          sync.Map // map[protocol.DeviceID]*AgentConn
@@ -49,7 +51,7 @@ type AgentServer struct {
 	addrOnce       sync.Once
 }
 
-// AgentServerConfig groups the AgentServer constructor's dependencies. A
+// AgentServerConfig gathers the AgentServer constructor's dependencies. A
 // struct rather than a long parameter list keeps the call sites readable now
 // that persistence ports are split across their consuming modules.
 type AgentServerConfig struct {
@@ -65,10 +67,14 @@ type AgentServerConfig struct {
 	Metrics       *appmetrics.Metrics
 	QuicHost      string
 	Logger        *slog.Logger
-	// AlertRules provides each connecting agent's tenant-scoped WS-19
-	// threshold-alert ruleset. Optional: nil falls back to DefaultAlertRules
-	// for every tenant.
+	// AlertRules provides each connecting agent's threshold-alert ruleset,
+	// resolved against the machine's place in the tenancy ladder. Optional: nil
+	// falls back to DefaultAlertRules for every tenant.
 	AlertRules AlertRuleProvider
+	// Settings reads a machine's place in the tenancy ladder, so alerts and
+	// vitals arriving on an agent connection carry the right customer. Optional:
+	// nil leaves each connection with the rungs it already knows for itself.
+	Settings settings.Reader
 	// Tombstones is the persisted deny-list used to warm the in-memory cache at
 	// startup so a purged device stays rejected across restarts. Optional: nil
 	// disables warming (live purges still update the in-memory cache).
@@ -89,6 +95,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		notifier:       cfg.Notifier,
 		scheduler:      NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
 		alertRules:     resolveAlertRuleProvider(cfg.AlertRules),
+		settings:       cfg.Settings,
 		metrics:        cfg.Metrics,
 		quicHost:       cfg.QuicHost,
 		tombstoneStore: cfg.Tombstones,
@@ -205,13 +212,13 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	}
 
 	ctx = s.scopeForDevice(ctx, result.DeviceID, logger)
-	groupID, hostname := s.lookupDeviceMeta(ctx, result.DeviceID)
+	siteID, hostname := s.lookupDeviceMeta(ctx, result.DeviceID)
 
 	deviceID := result.DeviceID
 	ac := &AgentConn{
 		DeviceID:      deviceID,
 		TenantID:      agentTenantID(ctx),
-		GroupID:       groupID,
+		SiteID:        siteID,
 		isTombstoned:  func() bool { _, ok := s.tombstones.Load(deviceID); return ok },
 		stream:        stream,
 		codec:         &protocol.Codec{},
@@ -223,6 +230,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		inventory:     s.inventory,
 		scheduler:     s.scheduler,
 		alertRules:    s.alertRules,
+		settings:      s.settings,
 		metrics:       s.metrics,
 		logger:        logger,
 	}
@@ -376,16 +384,16 @@ func (s *AgentServer) rejectIfTombstoned(stream *quic.Stream, conn *quic.Conn, d
 	return true
 }
 
-// lookupDeviceMeta resolves the group and hostname for a device, falling back
+// lookupDeviceMeta resolves the site and hostname for a device, falling back
 // to defaults if the device is not yet persisted.
 func (s *AgentServer) lookupDeviceMeta(ctx context.Context, deviceID uuid.UUID) (uuid.UUID, string) {
-	groupID := uuid.Nil
+	siteID := uuid.Nil
 	hostname := deviceID.String()[:8]
 	if existing, err := s.devices.Get(ctx, deviceID); err == nil {
-		groupID = existing.GroupID
+		siteID = existing.SiteID
 		if existing.Hostname != "" {
 			hostname = existing.Hostname
 		}
 	}
-	return groupID, hostname
+	return siteID, hostname
 }

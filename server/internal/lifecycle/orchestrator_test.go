@@ -70,8 +70,8 @@ func seedDeviceWithTelemetry(t *testing.T, f *orchestratorFixture, tenantID uuid
 	t.Helper()
 	ctx := dbtx.WithTenant(context.Background(), tenantID, false)
 	testutil.EnsureTenant(t, ctx, f.store, tenantID, "Tenant "+tenantID.String()[:8])
-	group := testutil.SeedGroup(t, ctx, f.store)
-	device := testutil.SeedDevice(t, ctx, f.store, group.ID)
+	site := testutil.SeedSite(t, ctx, f.store)
+	device := testutil.SeedDevice(t, ctx, f.store, site.ID)
 
 	ts := time.Now().UTC().Truncate(time.Second)
 	procs := telemetry.NewPostgresProcessRepository(f.store.DB())

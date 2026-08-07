@@ -101,7 +101,7 @@ func TestDeviceToAPI(t *testing.T) {
 	now := time.Now().UTC()
 	d := &device.Device{
 		ID:           uuid.New(),
-		GroupID:      uuid.New(),
+		SiteID:       uuid.New(),
 		Hostname:     "test-host",
 		OS:           "linux",
 		OsDisplay:    "Ubuntu 22.04",

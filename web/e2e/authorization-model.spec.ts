@@ -9,42 +9,42 @@ function auth(token: string) {
   return { headers: { Authorization: `Bearer ${token}` } };
 }
 
-async function groupIds(request: APIRequestContext, token: string): Promise<string[]> {
-  const resp = await request.get("/api/v1/groups", auth(token));
+async function siteIds(request: APIRequestContext, token: string): Promise<string[]> {
+  const resp = await request.get("/api/v1/sites", auth(token));
   expect(resp.status()).toBe(200);
-  const groups: { id: string }[] = await resp.json();
-  return groups.map((g) => g.id);
+  const sites: { id: string }[] = await resp.json();
+  return sites.map((s) => s.id);
 }
 
-// A group is visible to the whole organization, so one left behind here would
+// A site is visible to the whole tenant, so one left behind here would
 // surface in another spec's "empty device list" assertion and its screenshot
 // baseline. Track what each test creates and remove it afterwards, pass or fail.
-const createdGroupIds: string[] = [];
+const createdSiteIds: string[] = [];
 
-async function seedGroup(
+async function seedSite(
   request: APIRequestContext,
   adminToken: string,
   name: string,
 ): Promise<string> {
-  const resp = await request.post("/api/v1/groups", { ...auth(adminToken), data: { name } });
+  const resp = await request.post("/api/v1/sites", { ...auth(adminToken), data: { name } });
   expect(resp.status()).toBe(201);
-  const group: { id: string } = await resp.json();
-  createdGroupIds.push(group.id);
-  return group.id;
+  const site: { id: string } = await resp.json();
+  createdSiteIds.push(site.id);
+  return site.id;
 }
 
 /** Drops an id a test already deleted itself, so the hook does not re-delete it. */
-function forgetGroup(id: string): void {
-  const at = createdGroupIds.indexOf(id);
+function forgetSite(id: string): void {
+  const at = createdSiteIds.indexOf(id);
   if (at !== -1) {
-    createdGroupIds.splice(at, 1);
+    createdSiteIds.splice(at, 1);
   }
 }
 
 test.describe("Authorization model", () => {
   test.afterEach(async ({ request, adminUser }) => {
-    for (const id of createdGroupIds.splice(0)) {
-      await request.delete(`/api/v1/groups/${id}`, auth(adminUser.token));
+    for (const id of createdSiteIds.splice(0)) {
+      await request.delete(`/api/v1/sites/${id}`, auth(adminUser.token));
     }
   });
 
@@ -59,44 +59,44 @@ test.describe("Authorization model", () => {
     const adminDevices = await request.get("/api/v1/devices", auth(adminUser.token));
     expect(adminDevices.status()).toBe(200);
 
-    // Group listing is a fleet read, not an ownership query.
-    expect((await request.get("/api/v1/groups", auth(testUser.token))).status()).toBe(200);
+    // Site listing is a fleet read, not an ownership query.
+    expect((await request.get("/api/v1/sites", auth(testUser.token))).status()).toBe(200);
   });
 
-  test("a member sees every group in the organization, including one they never created", async ({
+  test("a member sees every site in the tenant, including one they never created", async ({
     request,
     testUser,
     adminUser,
   }) => {
-    const id = await seedGroup(request, adminUser.token, `e2e-authz-${Date.now().toString()}`);
+    const id = await seedSite(request, adminUser.token, `e2e-authz-${Date.now().toString()}`);
 
-    expect(await groupIds(request, testUser.token)).toContain(id);
+    expect(await siteIds(request, testUser.token)).toContain(id);
 
     // And the detail read is open too.
-    const detail = await request.get(`/api/v1/groups/${id}`, auth(testUser.token));
+    const detail = await request.get(`/api/v1/sites/${id}`, auth(testUser.token));
     expect(detail.status()).toBe(200);
   });
 
-  test("group configuration is refused to a non-admin member", async ({
+  test("site configuration is refused to a non-admin member", async ({
     request,
     testUser,
     adminUser,
   }) => {
-    const create = await request.post("/api/v1/groups", {
+    const create = await request.post("/api/v1/sites", {
       ...auth(testUser.token),
       data: { name: `e2e-authz-denied-${Date.now().toString()}` },
     });
     expect(create.status()).toBe(403);
 
-    const id = await seedGroup(request, adminUser.token, `e2e-authz-admin-${Date.now().toString()}`);
+    const id = await seedSite(request, adminUser.token, `e2e-authz-admin-${Date.now().toString()}`);
 
-    const memberDelete = await request.delete(`/api/v1/groups/${id}`, auth(testUser.token));
+    const memberDelete = await request.delete(`/api/v1/sites/${id}`, auth(testUser.token));
     expect(memberDelete.status()).toBe(403);
 
-    const adminDelete = await request.delete(`/api/v1/groups/${id}`, auth(adminUser.token));
+    const adminDelete = await request.delete(`/api/v1/sites/${id}`, auth(adminUser.token));
     expect(adminDelete.status()).toBe(204);
     // Already gone — drop it so the cleanup hook does not chase a dead id.
-    forgetGroup(id);
+    forgetSite(id);
   });
 
   test("secret-bearing reads stay admin-only for a member", async ({ request, testUser }) => {
@@ -111,14 +111,14 @@ test.describe("Authorization model", () => {
     }
   });
 
-  test("a non-admin's device list page hides the group-configuration controls", async ({
+  test("a non-admin's device list page hides the site-configuration controls", async ({
     authedPage,
   }) => {
     await authedPage.goto("/devices");
-    await expect(authedPage.getByRole("heading", { name: "Groups" })).toBeVisible();
+    await expect(authedPage.getByRole("heading", { name: "Sites" })).toBeVisible();
     // Absent from the DOM, not merely disabled.
     await expect(authedPage.getByText("+ New")).toHaveCount(0);
-    await expect(authedPage.getByText(/drag a device card onto a group/i)).toHaveCount(0);
+    await expect(authedPage.getByText(/drag a device card onto a site/i)).toHaveCount(0);
   });
 
   test("an admin's device list page shows them", async ({ adminPage }) => {

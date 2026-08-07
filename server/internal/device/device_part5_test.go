@@ -15,14 +15,14 @@ import (
 
 func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	t.Parallel()
-	devices, groups, hardware, store := newRepos(t)
+	devices, sites, hardware, store := newRepos(t)
 	tenantB := uuid.New()
 	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
 	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
 	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 
-	groupA := testutil.SeedGroup(t, ctxA, store)
-	groupB := testutil.SeedGroup(t, ctxB, store)
+	groupA := testutil.SeedSite(t, ctxA, store)
+	groupB := testutil.SeedSite(t, ctxB, store)
 	deviceA := testutil.SeedDevice(t, ctxA, store, groupA.ID)
 	deviceB := testutil.SeedDevice(t, ctxB, store, groupB.ID)
 	require.NoError(t, hardware.Upsert(ctxA, &device.Hardware{DeviceID: deviceA.ID, CPUModel: "tenant-a"}))
@@ -30,8 +30,8 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 
 	_, err := devices.Get(ctxA, deviceB.ID)
 	assert.ErrorIs(t, err, device.ErrDeviceNotFound)
-	_, err = groups.Get(ctxA, groupB.ID)
-	assert.ErrorIs(t, err, device.ErrGroupNotFound)
+	_, err = sites.Get(ctxA, groupB.ID)
+	assert.ErrorIs(t, err, device.ErrSiteNotFound)
 	_, err = hardware.Get(ctxA, deviceB.ID)
 	assert.ErrorIs(t, err, device.ErrHardwareNotFound)
 
@@ -40,13 +40,13 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	assert.Len(t, allDevices, 1)
 	assert.Equal(t, deviceA.ID, allDevices[0].ID)
 
-	devicesInBGroup, err := devices.List(ctxA, device.Filter{GroupID: groupB.ID})
+	devicesInBGroup, err := devices.List(ctxA, device.Filter{SiteID: groupB.ID})
 	require.NoError(t, err)
 	assert.Empty(t, devicesInBGroup)
-	groupsInA, err := groups.List(ctxA)
+	sitesInA, err := sites.List(ctxA, uuid.Nil)
 	require.NoError(t, err)
-	require.Len(t, groupsInA, 1, "tenant A sees its own group and nothing of tenant B's")
-	assert.Equal(t, groupA.ID, groupsInA[0].ID)
+	require.Len(t, sitesInA, 1, "tenant A sees its own site and nothing of tenant B's")
+	assert.Equal(t, groupA.ID, sitesInA[0].ID)
 
 	countsA, err := devices.Counts(ctxA, uuid.Nil)
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 
 	_, err = devices.List(context.Background(), device.Filter{})
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
-	_, err = groups.Get(context.Background(), groupA.ID)
+	_, err = sites.Get(context.Background(), groupA.ID)
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 	_, err = hardware.Get(context.Background(), deviceA.ID)
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)

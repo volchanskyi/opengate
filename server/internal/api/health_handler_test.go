@@ -42,7 +42,7 @@ func TestHealthHandler(t *testing.T) {
 			Audit:          audit.NewPostgres(store.DB()),
 			SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 			Devices:        testutil.NewTestDevices(t, store),
-			Groups:         testutil.NewTestGroups(t, store),
+			Sites:          testutil.NewTestSites(t, store),
 			Hardware:       testutil.NewTestHardware(t, store),
 			WebPush:        testutil.NewTestWebPush(t, store),
 			Sessions:       testutil.NewTestSessions(t, store),

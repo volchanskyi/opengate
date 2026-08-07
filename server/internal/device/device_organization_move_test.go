@@ -14,15 +14,15 @@ import (
 
 // TestMoveDeviceBetweenOrganizations proves a move is complete: the device
 // answers under its new customer, no longer under the old one, and everything
-// keyed to the device — hardware, group, status — comes with it rather than
+// keyed to the device — hardware, site, status — comes with it rather than
 // being left behind or rewritten.
 func TestMoveDeviceBetweenOrganizations(t *testing.T) {
 	t.Parallel()
 	devices, _, hardware, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
-	d := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	d := testutil.SeedDevice(t, ctx, store, site.ID)
 	require.NoError(t, hardware.Upsert(ctx, &device.Hardware{DeviceID: d.ID, CPUModel: "Ryzen 9 7950X"}))
 
 	from := newCustomer(t, ctx, store, "Fabrikam")
@@ -47,7 +47,7 @@ func TestMoveDeviceBetweenOrganizations(t *testing.T) {
 
 	moved, err := devices.Get(ctx, d.ID)
 	require.NoError(t, err)
-	assert.Equal(t, group.ID, moved.GroupID, "a move changes the customer and nothing else")
+	assert.Equal(t, uuid.Nil, moved.SiteID, "the office the machine left does not travel with it")
 	assert.Equal(t, d.Hostname, moved.Hostname)
 }
 
@@ -64,8 +64,8 @@ func TestMoveRefusesAnOrganizationOutsideTheTenant(t *testing.T) {
 	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
 
-	group := testutil.SeedGroup(t, ctxA, store)
-	d := testutil.SeedDevice(t, ctxA, store, group.ID)
+	site := testutil.SeedSite(t, ctxA, store)
+	d := testutil.SeedDevice(t, ctxA, store, site.ID)
 	before, err := devices.Get(ctxA, d.ID)
 	require.NoError(t, err)
 
@@ -83,8 +83,8 @@ func TestMoveMissingDeviceAndMissingOrganization(t *testing.T) {
 	devices, _, _, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
-	d := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	d := testutil.SeedDevice(t, ctx, store, site.ID)
 	customer := newCustomer(t, ctx, store, "Contoso")
 
 	assert.ErrorIs(t, devices.UpdateOrganization(ctx, uuid.New(), customer), device.ErrDeviceNotFound)

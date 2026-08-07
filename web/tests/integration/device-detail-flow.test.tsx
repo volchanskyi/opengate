@@ -29,7 +29,7 @@ const mockUser = {
 
 const mockDevice = {
   id: 'd1',
-  organization_id: 'org-1', group_id: 'g1',
+  organization_id: 'org-1', site_id: 'g1',
   hostname: 'prod-server',
   os: 'linux',
   agent_version: '1.0.0',
@@ -71,13 +71,13 @@ describe('Device Detail Flow (integration)', () => {
     useDeviceStore.setState({
       selectedDevice: mockDevice,
       devices: [],
-      groups: [],
-      selectedGroupId: null,
+      sites: [],
+      selectedSiteId: null,
       isLoading: false,
       error: null,
       fetchDevice: vi.fn(),
       deleteDevice: vi.fn(),
-      fetchGroups: vi.fn(),
+      fetchSites: vi.fn(),
       sendPowerAction: vi.fn(),
     });
     useSessionStore.setState({
@@ -104,7 +104,7 @@ describe('Device Detail Flow (integration)', () => {
   });
 
   it('navigates back to device list via breadcrumbs', async () => {
-    useDeviceStore.setState({ fetchGroups: vi.fn(), fetchDevices: vi.fn() });
+    useDeviceStore.setState({ fetchSites: vi.fn(), fetchDevices: vi.fn() });
     const user = userEvent.setup();
     renderDeviceDetailFlow();
 

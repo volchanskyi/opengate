@@ -52,8 +52,8 @@ func TestListSessions(t *testing.T) {
 		user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 		ctx := testTenantContext(t)
 
-		group := testutil.SeedGroup(t, ctx, srv.store)
-		device := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+		site := testutil.SeedSite(t, ctx, srv.store)
+		device := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 
 		testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
 		testutil.SeedAgentSession(t, ctx, srv.store, device.ID, user.ID)
@@ -71,9 +71,9 @@ func TestListSessions(t *testing.T) {
 		user, token := seedTestUser(t, srv, cfg, testEmailSess, false)
 		ctx := testTenantContext(t)
 
-		group := testutil.SeedGroup(t, ctx, srv.store)
-		device1 := testutil.SeedDevice(t, ctx, srv.store, group.ID)
-		device2 := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+		site := testutil.SeedSite(t, ctx, srv.store)
+		device1 := testutil.SeedDevice(t, ctx, srv.store, site.ID)
+		device2 := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 
 		testutil.SeedAgentSession(t, ctx, srv.store, device1.ID, user.ID)
 		testutil.SeedAgentSession(t, ctx, srv.store, device2.ID, user.ID)

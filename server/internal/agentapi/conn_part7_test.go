@@ -17,8 +17,8 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 	deviceUpdates := testutil.NewTestDeviceUpdates(t, store)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
-	d := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	d := testutil.SeedDevice(t, ctx, store, site.ID)
 
 	// Create a pending update record
 	require.NoError(t, deviceUpdates.Create(ctx, &updater.DeviceUpdate{
@@ -58,7 +58,7 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 
 		ac := &AgentConn{
 			DeviceID:      d.ID,
-			GroupID:       group.ID,
+			SiteID:        site.ID,
 			stream:        &frameBuf,
 			codec:         codec,
 			devices:       testutil.NewTestDevices(t, store),
@@ -92,7 +92,7 @@ func TestAgentConn_HandleAgentUpdateAck(t *testing.T) {
 
 		ac := &AgentConn{
 			DeviceID:      d.ID,
-			GroupID:       group.ID,
+			SiteID:        site.ID,
 			stream:        &frameBuf,
 			codec:         codec,
 			devices:       testutil.NewTestDevices(t, store),

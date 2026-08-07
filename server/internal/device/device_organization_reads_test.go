@@ -19,12 +19,12 @@ func TestListNarrowsByOrganizationAndFallsBackToTheTenant(t *testing.T) {
 	devices, _, _, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 	contoso := newCustomer(t, ctx, store, "Contoso")
 	fabrikam := newCustomer(t, ctx, store, "Fabrikam")
 
-	inContoso := testutil.SeedDevice(t, ctx, store, group.ID)
-	inFabrikam := testutil.SeedDevice(t, ctx, store, group.ID)
+	inContoso := testutil.SeedDevice(t, ctx, store, site.ID)
+	inFabrikam := testutil.SeedDevice(t, ctx, store, site.ID)
 	require.NoError(t, devices.UpdateOrganization(ctx, inContoso.ID, contoso))
 	require.NoError(t, devices.UpdateOrganization(ctx, inFabrikam.ID, fabrikam))
 
@@ -37,8 +37,13 @@ func TestListNarrowsByOrganizationAndFallsBackToTheTenant(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, whole, 2, "no customer selected returns the whole tenant")
 
-	// Group and customer narrow together rather than one replacing the other.
-	both, err := devices.List(ctx, device.Filter{GroupID: group.ID, OrganizationID: fabrikam})
+	// Site and customer narrow together rather than one replacing the other. The
+	// office has to be one of Fabrikam's own, since a move unfiles the machine.
+	fabrikamSite := &device.Site{ID: uuid.New(), OrganizationID: fabrikam, Name: "Austin"}
+	require.NoError(t, testutil.NewTestSites(t, store).Create(ctx, fabrikamSite))
+	require.NoError(t, devices.UpdateSite(ctx, inFabrikam.ID, fabrikamSite.ID))
+
+	both, err := devices.List(ctx, device.Filter{SiteID: fabrikamSite.ID, OrganizationID: fabrikam})
 	require.NoError(t, err)
 	require.Len(t, both, 1)
 	assert.Equal(t, inFabrikam.ID, both[0].ID)
@@ -52,13 +57,13 @@ func TestCountsNarrowByOrganization(t *testing.T) {
 	devices, _, _, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 	contoso := newCustomer(t, ctx, store, "Contoso")
 	fabrikam := newCustomer(t, ctx, store, "Fabrikam")
 
-	one := testutil.SeedDevice(t, ctx, store, group.ID)
-	two := testutil.SeedDevice(t, ctx, store, group.ID)
-	three := testutil.SeedDevice(t, ctx, store, group.ID)
+	one := testutil.SeedDevice(t, ctx, store, site.ID)
+	two := testutil.SeedDevice(t, ctx, store, site.ID)
+	three := testutil.SeedDevice(t, ctx, store, site.ID)
 	require.NoError(t, devices.UpdateOrganization(ctx, one.ID, contoso))
 	require.NoError(t, devices.UpdateOrganization(ctx, two.ID, contoso))
 	require.NoError(t, devices.UpdateOrganization(ctx, three.ID, fabrikam))
@@ -80,12 +85,12 @@ func TestDeletingAnOrganizationTakesItsDevices(t *testing.T) {
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)
 	orgs := testutil.NewTestOrganizations(t, store)
 
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 	doomed := newCustomer(t, ctx, store, "Doomed")
 	survivor := newCustomer(t, ctx, store, "Survivor")
 
-	inDoomed := testutil.SeedDevice(t, ctx, store, group.ID)
-	inSurvivor := testutil.SeedDevice(t, ctx, store, group.ID)
+	inDoomed := testutil.SeedDevice(t, ctx, store, site.ID)
+	inSurvivor := testutil.SeedDevice(t, ctx, store, site.ID)
 	require.NoError(t, devices.UpdateOrganization(ctx, inDoomed.ID, doomed))
 	require.NoError(t, devices.UpdateOrganization(ctx, inSurvivor.ID, survivor))
 	require.NoError(t, hardware.Upsert(ctx, &device.Hardware{DeviceID: inDoomed.ID, CPUModel: "gone"}))

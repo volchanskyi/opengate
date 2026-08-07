@@ -29,7 +29,7 @@ function fakeDevice(id: string, status: "online" | "offline") {
   const now = new Date().toISOString();
   return {
     id,
-    group_id: GROUP_ID,
+    site_id: GROUP_ID,
     hostname: `e2e-session-${status}`,
     os: "linux",
     os_display: "Linux",
@@ -56,7 +56,7 @@ async function stubCommonRoutes(page: AuthedPage, id: string, status: "online" |
   await page.route(`**/api/v1/devices/${id}`, (route: Route) =>
     ok(route, fakeDevice(id, status)),
   );
-  await page.route("**/api/v1/groups", (route: Route) =>
+  await page.route("**/api/v1/sites", (route: Route) =>
     ok(route, [
       { id: GROUP_ID, name: "default", created_at: "", updated_at: "" },
     ]),

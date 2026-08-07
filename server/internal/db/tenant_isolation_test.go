@@ -17,7 +17,7 @@ import (
 type tenantFixture struct {
 	tenantID     uuid.UUID
 	userID       uuid.UUID
-	groupID      uuid.UUID
+	siteID       uuid.UUID
 	deviceID     uuid.UUID
 	secGroupID   uuid.UUID
 	enrollID     uuid.UUID
@@ -31,7 +31,7 @@ func newTenantFixture(label string) tenantFixture {
 	return tenantFixture{
 		tenantID:     uuid.New(),
 		userID:       uuid.New(),
-		groupID:      uuid.New(),
+		siteID:       uuid.New(),
 		deviceID:     uuid.New(),
 		secGroupID:   uuid.New(),
 		enrollID:     uuid.New(),
@@ -148,9 +148,9 @@ func tenantIsolationProbes() []tenantIsolationProbe {
 		{"users",
 			`SELECT COUNT(*) FROM users`,
 			`SELECT COUNT(*) FROM users WHERE tenant_id = $1`},
-		{"groups_",
-			`SELECT COUNT(*) FROM groups_`,
-			`SELECT COUNT(*) FROM groups_ WHERE tenant_id = $1`},
+		{"sites",
+			`SELECT COUNT(*) FROM sites`,
+			`SELECT COUNT(*) FROM sites WHERE tenant_id = $1`},
 		{"devices",
 			`SELECT COUNT(*) FROM devices`,
 			`SELECT COUNT(*) FROM devices WHERE tenant_id = $1`},
@@ -254,12 +254,12 @@ func seedTenantRows(t *testing.T, ctx context.Context, db *sql.DB, f tenantFixtu
 
 	exec(`INSERT INTO users (id, tenant_id, email, password_hash) VALUES ($1, $2, $3, 'hash')`,
 		f.userID, f.tenantID, "isolation-"+f.userID.String()+"@example.com")
-	exec(`INSERT INTO groups_ (id, tenant_id, name) VALUES ($1, $2, 'isolation group')`,
-		f.groupID, f.tenantID)
 	exec(`INSERT INTO organizations (id, tenant_id, name) VALUES ($1, $2, $3)`,
 		f.orgID, f.tenantID, "Customer "+f.orgID.String())
-	exec(`INSERT INTO devices (id, tenant_id, organization_id, group_id, hostname) VALUES ($1, $2, $3, $4, $5)`,
-		f.deviceID, f.tenantID, f.orgID, f.groupID, "host-"+f.label)
+	exec(`INSERT INTO sites (id, tenant_id, organization_id, name) VALUES ($1, $2, $3, 'isolation site')`,
+		f.siteID, f.tenantID, f.orgID)
+	exec(`INSERT INTO devices (id, tenant_id, organization_id, site_id, hostname) VALUES ($1, $2, $3, $4, $5)`,
+		f.deviceID, f.tenantID, f.orgID, f.siteID, "host-"+f.label)
 	exec(`INSERT INTO agent_sessions (token, tenant_id, device_id, user_id) VALUES ($1, $2, $3, $4)`,
 		f.sessionTok, f.tenantID, f.deviceID, f.userID)
 	exec(`INSERT INTO web_push_subscriptions (endpoint, tenant_id, user_id) VALUES ($1, $2, $3)`,

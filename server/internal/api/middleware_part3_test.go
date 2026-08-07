@@ -46,13 +46,13 @@ func TestRequestTimeout(t *testing.T) {
 func TestMaxBodySize(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
-	// Group creation is admin-gated, so the body-size middleware needs an admin
+	// Site creation is admin-gated, so the body-size middleware needs an admin
 	// caller to reach the handler at all.
 	_, token := seedTestUser(t, srv, cfg, "bodysize@example.com", true)
 
 	t.Run("small body accepted", func(t *testing.T) {
-		body := map[string]string{"name": "test-group"}
-		w := doRequest(srv, http.MethodPost, "/api/v1/groups", token, body)
+		body := map[string]string{"name": "test-site"}
+		w := doRequest(srv, http.MethodPost, "/api/v1/sites", token, body)
 		assert.Equal(t, http.StatusCreated, w.Code)
 	})
 
@@ -62,7 +62,7 @@ func TestMaxBodySize(t *testing.T) {
 		for i := range huge {
 			huge[i] = 'a'
 		}
-		w := doRawRequest(srv, http.MethodPost, "/api/v1/groups", token, string(huge))
+		w := doRawRequest(srv, http.MethodPost, "/api/v1/sites", token, string(huge))
 		assert.True(t, w.Code == http.StatusBadRequest || w.Code == http.StatusRequestEntityTooLarge,
 			"expected 400 or 413, got %d", w.Code)
 	})

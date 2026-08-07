@@ -13,15 +13,15 @@ import (
 
 func TestPostgresDevices_Maintenance(t *testing.T) {
 	t.Parallel()
-	devices, groups, _, store := newRepos(t)
+	devices, sites, _, store := newRepos(t)
 	ctx := dbtx.WithDefaultTenant(context.Background(), true)
 	owner := seedOwner(t, ctx, store)
 
-	g := &device.Group{ID: uuid.New(), Name: "gm-" + uuid.New().String()[:8]}
-	require.NoError(t, groups.Create(ctx, g))
+	g := &device.Site{ID: uuid.New(), Name: "gm-" + uuid.New().String()[:8]}
+	require.NoError(t, sites.Create(ctx, g))
 
 	newDevice := func(host string) *device.Device {
-		d := &device.Device{ID: uuid.New(), GroupID: g.ID, Hostname: host, OS: "linux", Status: device.StatusOnline}
+		d := &device.Device{ID: uuid.New(), SiteID: g.ID, Hostname: host, OS: "linux", Status: device.StatusOnline}
 		require.NoError(t, devices.Upsert(ctx, d))
 		return d
 	}

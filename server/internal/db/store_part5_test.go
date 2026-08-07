@@ -80,7 +80,7 @@ func newTestMigrator(t *testing.T, db *sql.DB) *migratepkg.Migrate {
 func seedPreTenancyRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
 	defaultUserID := uuid.MustParse("00000000-0000-0000-0000-000000000101")
-	defaultGroupID := uuid.MustParse("00000000-0000-0000-0000-000000000102")
+	defaultSiteID := uuid.MustParse("00000000-0000-0000-0000-000000000102")
 	defaultDeviceID := uuid.MustParse("00000000-0000-0000-0000-000000000103")
 	securityGroupID := uuid.MustParse("00000000-0000-0000-0000-000000000104")
 	enrollmentTokenID := uuid.MustParse("00000000-0000-0000-0000-000000000105")
@@ -88,8 +88,8 @@ func seedPreTenancyRows(t *testing.T, ctx context.Context, db *sql.DB) {
 	require.NoError(t, err)
 	defer tx.Rollback() //nolint:errcheck // harmless after Commit
 	rehearsalExec(t, ctx, tx, `INSERT INTO users (id, email, password_hash) VALUES ($1, 'rehearsal-a@example.com', 'hash')`, defaultUserID)
-	rehearsalExec(t, ctx, tx, `INSERT INTO groups_ (id, name, owner_id) VALUES ($1, 'rehearsal-a', $2)`, defaultGroupID, defaultUserID)
-	rehearsalExec(t, ctx, tx, `INSERT INTO devices (id, group_id, hostname) VALUES ($1, $2, 'rehearsal-a')`, defaultDeviceID, defaultGroupID)
+	rehearsalExec(t, ctx, tx, `INSERT INTO groups_ (id, name, owner_id) VALUES ($1, 'rehearsal-a', $2)`, defaultSiteID, defaultUserID)
+	rehearsalExec(t, ctx, tx, `INSERT INTO devices (id, group_id, hostname) VALUES ($1, $2, 'rehearsal-a')`, defaultDeviceID, defaultSiteID)
 	rehearsalExec(t, ctx, tx, `INSERT INTO agent_sessions (token, device_id, user_id) VALUES ('session-a', $1, $2)`, defaultDeviceID, defaultUserID)
 	rehearsalExec(t, ctx, tx, `INSERT INTO web_push_subscriptions (endpoint, user_id) VALUES ('https://push.example.com/a', $1)`, defaultUserID)
 	rehearsalExec(t, ctx, tx, `INSERT INTO audit_events (user_id, action, target) VALUES ($1, 'login', 'session')`, defaultUserID)

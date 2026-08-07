@@ -16,7 +16,7 @@ import (
 
 // connectAgent establishes a QUIC agent and returns the stream and device ID.
 // Reuses the pattern from agentapi_test.go.
-func (e *sessionTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (io.ReadWriter, uuid.UUID) {
+func (e *sessionTestEnv) connectAgent(t *testing.T, siteID uuid.UUID) (io.ReadWriter, uuid.UUID) {
 	t.Helper()
 	// Create a temporary agentTestEnv-like setup reusing the existing env
 	ae := &agentTestEnv{
@@ -26,7 +26,7 @@ func (e *sessionTestEnv) connectAgent(t *testing.T, groupID uuid.UUID) (io.ReadW
 		srv:     e.agentSrv,
 		addr:    e.agentAddr,
 	}
-	stream, deviceID := ae.connectAgent(t, groupID)
+	stream, deviceID := ae.connectAgent(t, siteID)
 	return stream, deviceID
 }
 

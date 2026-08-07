@@ -16,8 +16,8 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 	tenantB := uuid.New()
 	userA := uuid.New()
 	userB := uuid.New()
-	groupA := uuid.New()
-	groupB := uuid.New()
+	siteA := uuid.New()
+	siteB := uuid.New()
 	deviceA := uuid.New()
 	deviceB := uuid.New()
 
@@ -28,7 +28,7 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 		tenantA, "Tenant A", tenantB, "Tenant B")
 	require.NoError(t, err)
 
-	insertTenantFixture := func(tenantID, userID, groupID, deviceID uuid.UUID, email string) {
+	insertTenantFixture := func(tenantID, userID, siteID, deviceID uuid.UUID, email string) {
 		t.Helper()
 		tx := beginTenantTx(t, ctx, s.db, tenantID, false)
 		defer tx.Rollback() //nolint:errcheck // harmless after Commit
@@ -36,23 +36,23 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 			`INSERT INTO users (id, tenant_id, email, password_hash) VALUES ($1, $2, $3, 'hash')`,
 			userID, tenantID, email)
 		require.NoError(t, err)
-		_, err = tx.ExecContext(ctx,
-			`INSERT INTO groups_ (id, tenant_id, name) VALUES ($1, $2, $3)`,
-			groupID, tenantID, "owned")
-		require.NoError(t, err)
 		organizationID := uuid.New()
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO organizations (id, tenant_id, name) VALUES ($1, $2, $3)`,
 			organizationID, tenantID, "Customer "+organizationID.String())
 		require.NoError(t, err)
 		_, err = tx.ExecContext(ctx,
-			`INSERT INTO devices (id, tenant_id, organization_id, group_id, hostname) VALUES ($1, $2, $3, $4, $5)`,
-			deviceID, tenantID, organizationID, groupID, "host-"+email)
+			`INSERT INTO sites (id, tenant_id, organization_id, name) VALUES ($1, $2, $3, $4)`,
+			siteID, tenantID, organizationID, "owned")
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO devices (id, tenant_id, organization_id, site_id, hostname) VALUES ($1, $2, $3, $4, $5)`,
+			deviceID, tenantID, organizationID, siteID, "host-"+email)
 		require.NoError(t, err)
 		require.NoError(t, tx.Commit())
 	}
-	insertTenantFixture(tenantA, userA, groupA, deviceA, "a@example.com")
-	insertTenantFixture(tenantB, userB, groupB, deviceB, "b@example.com")
+	insertTenantFixture(tenantA, userA, siteA, deviceA, "a@example.com")
+	insertTenantFixture(tenantB, userB, siteB, deviceB, "b@example.com")
 
 	unscopedTx, err := s.db.BeginTx(ctx, nil)
 	require.NoError(t, err)

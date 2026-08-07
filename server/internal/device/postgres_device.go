@@ -25,7 +25,7 @@ func NewPostgresDevices(db *sql.DB) *PostgresDevices {
 // carry the device's Intel AMT property: capability from the hardware row, live
 // connection state from the AMT row when one is linked. Both join by primary key
 // and serve the badge straight from the device payload, with no second request.
-const deviceSelect = `SELECT d.id, d.organization_id, d.group_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
+const deviceSelect = `SELECT d.id, d.organization_id, d.site_id, d.hostname, d.os, d.os_display, d.agent_version, d.capabilities, d.status, d.last_seen, d.created_at, d.updated_at,
 	        d.maintenance_on, d.maintenance_since, d.maintenance_by, d.maintenance_reason,
 	        h.amt_available, a.status, a.uuid
 	 FROM devices d
@@ -46,17 +46,17 @@ const (
 		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid
 		 ORDER BY d.hostname`
 
-	listDevicesByGroupQuery = deviceSelect +
-		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.group_id = $1
+	listDevicesBySiteQuery = deviceSelect +
+		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.site_id = $1
 		 ORDER BY d.hostname`
 
 	listDevicesByOrganizationQuery = deviceSelect +
 		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid AND d.organization_id = $1
 		 ORDER BY d.hostname`
 
-	listDevicesByGroupAndOrganizationQuery = deviceSelect +
+	listDevicesBySiteAndOrganizationQuery = deviceSelect +
 		`WHERE d.tenant_id = current_setting('app.current_tenant')::uuid
-		   AND d.group_id = $1 AND d.organization_id = $2
+		   AND d.site_id = $1 AND d.organization_id = $2
 		 ORDER BY d.hostname`
 
 	getDeviceByAMTUUIDQuery = deviceSelect +
@@ -65,20 +65,20 @@ const (
 
 func scanDevice(sc interface{ Scan(...any) error }) (*Device, error) {
 	var d Device
-	var groupID uuid.NullUUID
+	var siteID uuid.NullUUID
 	var capsJSON []byte
 	var maintSince sql.NullTime
 	var maintBy uuid.NullUUID
 	var amtAvailable sql.NullBool
 	var amtStatus sql.NullString
 	var amtUUID uuid.NullUUID
-	if err := sc.Scan(&d.ID, &d.OrganizationID, &groupID, &d.Hostname, &d.OS, &d.OsDisplay, &d.AgentVersion, &capsJSON, &d.Status, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt,
+	if err := sc.Scan(&d.ID, &d.OrganizationID, &siteID, &d.Hostname, &d.OS, &d.OsDisplay, &d.AgentVersion, &capsJSON, &d.Status, &d.LastSeen, &d.CreatedAt, &d.UpdatedAt,
 		&d.MaintenanceOn, &maintSince, &maintBy, &d.MaintenanceReason,
 		&amtAvailable, &amtStatus, &amtUUID); err != nil {
 		return nil, err
 	}
-	if groupID.Valid {
-		d.GroupID = groupID.UUID
+	if siteID.Valid {
+		d.SiteID = siteID.UUID
 	}
 	if maintSince.Valid {
 		d.MaintenanceSince = &maintSince.Time
@@ -164,13 +164,13 @@ func (p *PostgresDevices) List(ctx context.Context, filter Filter) ([]*Device, e
 // listStatementFor picks the fixed statement matching which filter fields are
 // set, and the arguments that go with it.
 func listStatementFor(filter Filter) (string, []any) {
-	hasGroup := filter.GroupID != uuid.Nil
+	hasSite := filter.SiteID != uuid.Nil
 	hasOrganization := filter.OrganizationID != uuid.Nil
 	switch {
-	case hasGroup && hasOrganization:
-		return listDevicesByGroupAndOrganizationQuery, []any{filter.GroupID, filter.OrganizationID}
-	case hasGroup:
-		return listDevicesByGroupQuery, []any{filter.GroupID}
+	case hasSite && hasOrganization:
+		return listDevicesBySiteAndOrganizationQuery, []any{filter.SiteID, filter.OrganizationID}
+	case hasSite:
+		return listDevicesBySiteQuery, []any{filter.SiteID}
 	case hasOrganization:
 		return listDevicesByOrganizationQuery, []any{filter.OrganizationID}
 	default:

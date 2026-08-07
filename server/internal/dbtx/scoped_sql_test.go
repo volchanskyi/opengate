@@ -10,7 +10,7 @@ import (
 var tenantTables = []string{
 	"organizations",
 	"users",
-	"groups_",
+	"sites",
 	"devices",
 	"agent_sessions",
 	"web_push_subscriptions",

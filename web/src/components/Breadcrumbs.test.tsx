@@ -102,9 +102,9 @@ describe('Breadcrumbs', () => {
   });
 
   it('skips security segment and shows next-level label', () => {
-    renderAt('/security/groups');
+    renderAt('/security/sites');
     // 'security' is intentionally skipped — only the next segment renders.
-    // 'groups' is not in the recognized list, so nothing else shows.
+    // 'sites' is not in the recognized list, so nothing else shows.
     // Just confirm no 'security' label leaked in.
     expect(screen.queryByText('security')).toBeNull();
   });
@@ -117,7 +117,7 @@ describe('Breadcrumbs', () => {
 
   it('renders /devices/<id> with hostname when selectedDevice is loaded', () => {
     useDeviceStore.setState({
-      selectedDevice: { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      selectedDevice: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
     });
     const router = createMemoryRouter(
       [{ path: 'devices/:id', element: <Breadcrumbs /> }],
@@ -178,7 +178,7 @@ describe('Breadcrumbs', () => {
 
   it('does not treat a device-id segment outside the devices/* path as a hostname', () => {
     useDeviceStore.setState({
-      selectedDevice: { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      selectedDevice: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
     });
     // The guard `crumbs.some((c) => c.label === 'Devices')` ensures the hostname swap only
     // applies under /devices/*. Here params.id matches but the path is /audit/d1 — no Devices crumb yet.

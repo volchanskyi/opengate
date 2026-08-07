@@ -61,12 +61,12 @@ function AmtSection({ amt, confirmPowerAction, onPowerAction }: AmtSectionProps)
   );
 }
 
-const UNASSIGNED_GROUP_ID = '00000000-0000-0000-0000-000000000000';
+const UNASSIGNED_SITE_ID = '00000000-0000-0000-0000-000000000000';
 
-/** A device with no real group: an empty id or the all-zeros placeholder UUID. */
-function isUnassignedGroup(id: string | undefined | null): boolean {
+/** A device with no real site: an empty id or the all-zeros placeholder UUID. */
+function isUnassignedSite(id: string | undefined | null): boolean {
   const trimmed = id?.trim();
-  return !trimmed || trimmed === UNASSIGNED_GROUP_ID;
+  return !trimmed || trimmed === UNASSIGNED_SITE_ID;
 }
 
 function formatBytes(bytes: number): string {
@@ -89,13 +89,13 @@ export function DeviceDetail() {
   const createSession = useSessionStore((s) => s.createSession);
   const sendPowerAction = useDeviceStore((s) => s.sendPowerAction);
   const addToast = useToastStore((s) => s.addToast);
-  const groups = useDeviceStore((s) => s.groups);
-  // Deleting a device and moving it between groups are configuration changes:
+  const sites = useDeviceStore((s) => s.sites);
+  // Deleting a device and moving it between sites are configuration changes:
   // the server refuses them for a non-admin, so the controls are absent rather
   // than present-and-failing.
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
-  const fetchGroups = useDeviceStore((s) => s.fetchGroups);
-  const updateDeviceGroup = useDeviceStore((s) => s.updateDeviceGroup);
+  const fetchSites = useDeviceStore((s) => s.fetchSites);
+  const updateDeviceSite = useDeviceStore((s) => s.updateDeviceSite);
   const moveDeviceOrganization = useDeviceStore((s) => s.moveDeviceOrganization);
   const organizations = useOrganizationStore((s) => s.organizations);
   const fetchOrganizations = useOrganizationStore((s) => s.fetchOrganizations);
@@ -112,7 +112,7 @@ export function DeviceDetail() {
   const [isRestarting, setIsRestarting] = useState(false);
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [selectedSiteId, setSelectedSiteId] = useState('');
   const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
   // Collapsed on open: the inventory is reference detail, so the host card
   // stays scannable until an operator asks for it.
@@ -126,10 +126,10 @@ export function DeviceDetail() {
       fireAndForget(fetchDevice(id));
       fireAndForget(fetchSessions(id));
     }
-    fireAndForget(fetchGroups());
+    fireAndForget(fetchSites());
     fireAndForget(fetchOrganizations());
     fireAndForget(fetchManifests());
-  }, [id, fetchDevice, fetchSessions, fetchGroups, fetchOrganizations, fetchManifests]);
+  }, [id, fetchDevice, fetchSessions, fetchSites, fetchOrganizations, fetchManifests]);
 
   // Poll device data every 30s so agent_version and status stay in sync, and
   // re-read the session list on the same beat so a session that ended anywhere
@@ -244,11 +244,11 @@ export function DeviceDetail() {
   };
 
   const handleMoveGroup = async () => {
-    if (!selectedGroupId || selectedGroupId === device.group_id) return;
-    const ok = await updateDeviceGroup(device.id, selectedGroupId);
+    if (!selectedSiteId || selectedSiteId === device.site_id) return;
+    const ok = await updateDeviceSite(device.id, selectedSiteId);
     if (ok) {
-      addToast('Device moved to new group', 'success');
-      setSelectedGroupId('');
+      addToast('Device moved to new site', 'success');
+      setSelectedSiteId('');
     } else {
       addToast('Failed to move device', 'error');
     }
@@ -355,8 +355,8 @@ export function DeviceDetail() {
             <dd>{device.os_display || device.os}</dd>
           </div>
           <div>
-            <dt className="text-gray-400">Group ID</dt>
-            <dd className="font-mono text-xs">{isUnassignedGroup(device.group_id) ? 'N/A' : device.group_id}</dd>
+            <dt className="text-gray-400">Site ID</dt>
+            <dd className="font-mono text-xs">{isUnassignedSite(device.site_id) ? 'N/A' : device.site_id}</dd>
           </div>
           <div>
             <dt className="text-gray-400">Last Seen</dt>
@@ -403,24 +403,24 @@ export function DeviceDetail() {
           </div>
         )}
 
-        {isAdmin && groups.length > 1 && (
+        {isAdmin && sites.length > 1 && (
           <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-2">Move to Group</h3>
+            <h3 className="text-sm font-semibold text-gray-300 mb-2">Move to Site</h3>
             <div className="flex gap-2">
               <select
-                value={selectedGroupId}
-                onChange={(e) => setSelectedGroupId(e.target.value)}
+                value={selectedSiteId}
+                onChange={(e) => setSelectedSiteId(e.target.value)}
                 className="bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-sm flex-1"
               >
-                <option value="">Select group...</option>
-                {groups.filter((g) => g.id !== device.group_id).map((g) => (
+                <option value="">Select site...</option>
+                {sites.filter((g) => g.id !== device.site_id).map((g) => (
                   <option key={g.id} value={g.id}>{g.name}</option>
                 ))}
               </select>
               <button
                 type="button"
                 onClick={() => { fireAndForget(handleMoveGroup()); }}
-                disabled={!selectedGroupId}
+                disabled={!selectedSiteId}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm disabled:opacity-50"
               >
                 Move

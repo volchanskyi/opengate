@@ -184,10 +184,10 @@ func NewTestDevices(t testing.TB, s *db.PostgresStore) device.Repository {
 	return device.NewPostgresDevices(s.DB())
 }
 
-// NewTestGroups returns a Postgres-backed device.GroupRepository.
-func NewTestGroups(t testing.TB, s *db.PostgresStore) device.GroupRepository {
+// NewTestSites returns a Postgres-backed device.SiteRepository.
+func NewTestSites(t testing.TB, s *db.PostgresStore) device.SiteRepository {
 	t.Helper()
-	return device.NewPostgresGroups(s.DB())
+	return device.NewPostgresSites(s.DB())
 }
 
 // NewTestHardware returns a Postgres-backed device.HardwareRepository.
@@ -267,27 +267,32 @@ func SeedUser(t testing.TB, ctx context.Context, s *db.PostgresStore) *auth.User
 	return u
 }
 
-// SeedGroup inserts a group into the store's tenant scope and returns it.
-// Uses an ad-hoc device.GroupRepository over the same connection pool to
-// avoid forcing every test setup to thread a repo through.
-func SeedGroup(t testing.TB, ctx context.Context, s *db.PostgresStore) *device.Group {
+// SeedSite inserts a site into the store's tenant scope and returns it. It goes
+// under the tenant's own customer, which is the same one a device seeded without
+// an explicit customer lands in — so the pair a device and its site have to form
+// holds by default. Uses an ad-hoc device.SiteRepository over the same
+// connection pool to avoid forcing every test setup to thread a repo through.
+func SeedSite(t testing.TB, ctx context.Context, s *db.PostgresStore) *device.Site {
 	t.Helper()
 	ctx, _ = tenantOrDefault(ctx, false)
-	g := &device.Group{
-		ID:   uuid.New(),
-		Name: "group-" + uuid.New().String()[:8],
+	organizationID, err := NewTestOrganizations(t, s).EnsureDefault(ctx)
+	require.NoError(t, err)
+	site := &device.Site{
+		ID:             uuid.New(),
+		OrganizationID: organizationID,
+		Name:           "site-" + uuid.New().String()[:8],
 	}
-	require.NoError(t, NewTestGroups(t, s).Create(ctx, g))
-	return g
+	require.NoError(t, NewTestSites(t, s).Create(ctx, site))
+	return site
 }
 
-// SeedDevice inserts an offline device belonging to groupID into the store and returns it.
-func SeedDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, groupID uuid.UUID) *device.Device {
+// SeedDevice inserts an offline device belonging to siteID into the store and returns it.
+func SeedDevice(t testing.TB, ctx context.Context, s *db.PostgresStore, siteID uuid.UUID) *device.Device {
 	t.Helper()
 	ctx, _ = tenantOrDefault(ctx, false)
 	d := &device.Device{
 		ID:       uuid.New(),
-		GroupID:  groupID,
+		SiteID:   siteID,
 		Hostname: "host-" + uuid.New().String()[:8],
 		OS:       "linux",
 		Status:   device.StatusOffline,

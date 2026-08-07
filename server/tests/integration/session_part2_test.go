@@ -52,7 +52,7 @@ func newSessionTestEnv(t *testing.T) *sessionTestEnv {
 }
 
 // newSessionTestEnvWithAPITimeout builds the env with an explicit per-request
-// timeout on the API middleware group. A zero duration keeps the production
+// timeout on the API middleware site. A zero duration keeps the production
 // default, so only tests that assert timeout behavior pay attention to it.
 func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *sessionTestEnv {
 	t.Helper()
@@ -101,7 +101,7 @@ func newSessionTestEnvWithAPITimeout(t *testing.T, apiTimeout time.Duration) *se
 		Enrollment:     testutil.NewTestEnrollment(t, store),
 		SecurityGroups: testutil.NewTestSecurityGroups(t, store),
 		Devices:        testutil.NewTestDevices(t, store),
-		Groups:         testutil.NewTestGroups(t, store),
+		Sites:          testutil.NewTestSites(t, store),
 		Hardware:       testutil.NewTestHardware(t, store),
 		WebPush:        testutil.NewTestWebPush(t, store),
 		Sessions:       testutil.NewTestSessions(t, store),

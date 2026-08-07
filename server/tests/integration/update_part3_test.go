@@ -18,14 +18,14 @@ func TestUpdatePushSkipsCurrentVersion(t *testing.T) {
 	ctx := context.Background()
 
 	admin, _ := testutil.SeedAdminUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store)
+	site := testutil.SeedSite(t, ctx, env.store)
 
 	adminJWT, err := env.jwt.GenerateToken(admin.ID, admin.Email, admin.IsAdmin)
 	require.NoError(t, err)
 
 	// Connect agent — it will register with the version from AGENT_VERSION env
 	// (defaults to Cargo.toml version). We publish a manifest matching that version.
-	_, deviceID := env.connectAgent(t, group.ID)
+	_, deviceID := env.connectAgent(t, site.ID)
 
 	require.Eventually(t, func() bool {
 		d, err := env.devices.Get(defaultTenantContext(), deviceID)
@@ -53,13 +53,13 @@ func TestUpdatePushNoMatchingOS(t *testing.T) {
 	ctx := context.Background()
 
 	admin, _ := testutil.SeedAdminUser(t, ctx, env.store)
-	group := testutil.SeedGroup(t, ctx, env.store)
+	site := testutil.SeedSite(t, ctx, env.store)
 
 	adminJWT, err := env.jwt.GenerateToken(admin.ID, admin.Email, admin.IsAdmin)
 	require.NoError(t, err)
 
 	// Connect agent — registers as linux/amd64
-	_, deviceID := env.connectAgent(t, group.ID)
+	_, deviceID := env.connectAgent(t, site.ID)
 
 	require.Eventually(t, func() bool {
 		d, err := env.devices.Get(defaultTenantContext(), deviceID)

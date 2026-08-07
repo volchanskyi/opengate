@@ -14,7 +14,7 @@ import (
 
 // TestDeviceFleetReadsAreTenantWide verifies that tenant membership alone
 // grants the fleet read surface: two ordinary members of the same tenant
-// see the same devices, whichever group holds them.
+// see the same devices, whichever site holds them.
 func TestDeviceFleetReadsAreTenantWide(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
@@ -26,8 +26,8 @@ func TestDeviceFleetReadsAreTenantWide(t *testing.T) {
 	admin, _ := srv.users.GetByEmail(ctx, "admin-fleet@example.com")
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
-	group := testutil.SeedGroup(t, ctx, srv.store)
-	dev := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	site := testutil.SeedSite(t, ctx, srv.store)
+	dev := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 
 	for name, token := range map[string]string{
 		"member a": memberAToken,
@@ -47,8 +47,8 @@ func TestDeviceFleetReadsAreTenantWide(t *testing.T) {
 			assert.Len(t, devices, 1)
 		})
 
-		t.Run("list devices by group "+name, func(t *testing.T) {
-			w := doRequest(srv, http.MethodGet, testPathDevices+"?group_id="+group.ID.String(), token, nil)
+		t.Run("list devices by site "+name, func(t *testing.T) {
+			w := doRequest(srv, http.MethodGet, testPathDevices+"?site_id="+site.ID.String(), token, nil)
 			require.Equal(t, http.StatusOK, w.Code)
 			var devices []Device
 			require.NoError(t, json.NewDecoder(w.Body).Decode(&devices))
@@ -58,7 +58,7 @@ func TestDeviceFleetReadsAreTenantWide(t *testing.T) {
 }
 
 // TestDeviceConfigurationIsAdminOnly verifies the mutation boundary: deleting a
-// device and moving it between groups are configuration changes, refused to an
+// device and moving it between sites are configuration changes, refused to an
 // ordinary member and allowed to an admin.
 func TestDeviceConfigurationIsAdminOnly(t *testing.T) {
 	t.Parallel()
@@ -70,18 +70,18 @@ func TestDeviceConfigurationIsAdminOnly(t *testing.T) {
 	admin, _ := srv.users.GetByEmail(ctx, "cfg-admin@example.com")
 	require.NoError(t, srv.securityGroups.AddMember(ctx, auth.AdminGroupID, admin.ID))
 
-	group := testutil.SeedGroup(t, ctx, srv.store)
-	target := testutil.SeedGroup(t, ctx, srv.store)
-	dev := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	site := testutil.SeedSite(t, ctx, srv.store)
+	target := testutil.SeedSite(t, ctx, srv.store)
+	dev := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 
 	t.Run("move device member forbidden", func(t *testing.T) {
-		body := map[string]string{"group_id": target.ID.String()}
+		body := map[string]string{"site_id": target.ID.String()}
 		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), memberToken, body)
 		assert.Equal(t, http.StatusForbidden, w.Code)
 	})
 
 	t.Run("move device admin succeeds", func(t *testing.T) {
-		body := map[string]string{"group_id": target.ID.String()}
+		body := map[string]string{"site_id": target.ID.String()}
 		w := doRequest(srv, http.MethodPatch, testPathDevicesS+dev.ID.String(), adminToken, body)
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
@@ -108,8 +108,8 @@ func TestDeviceCommandsAreOpenToTenantMembers(t *testing.T) {
 
 	_, memberToken := seedTestUser(t, srv, cfg, "cmd-member@example.com", false)
 
-	group := testutil.SeedGroup(t, ctx, srv.store)
-	dev := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	site := testutil.SeedSite(t, ctx, srv.store)
+	dev := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 
 	t.Run("restart reaches the agent broker", func(t *testing.T) {
 		w := doRequest(srv, http.MethodPost, testPathDevicesS+dev.ID.String()+"/restart", memberToken, map[string]string{})
@@ -141,8 +141,8 @@ func TestDeviceReadsRejectOtherTenants(t *testing.T) {
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)
 
-	group := testutil.SeedGroup(t, ctx, srv.store)
-	dev := testutil.SeedDevice(t, ctx, srv.store, group.ID)
+	site := testutil.SeedSite(t, ctx, srv.store)
+	dev := testutil.SeedDevice(t, ctx, srv.store, site.ID)
 
 	outsider, _ := seedTestUser(t, srv, cfg, "outsider@example.com", false)
 	outsiderToken, err := cfg.GenerateToken(outsider.ID, outsider.Email, false, uuid.New())

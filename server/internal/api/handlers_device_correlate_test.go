@@ -37,9 +37,9 @@ func TestCorrelateDeviceHandler(t *testing.T) {
 	_, token := seedTestUser(t, srv, cfg, "corr@example.com", false)
 	ctx := testTenantContext(t)
 
-	group := &device.Group{ID: uuid.New(), Name: "corr-group"}
-	require.NoError(t, srv.groups.Create(ctx, group))
-	dev := &device.Device{ID: uuid.New(), GroupID: group.ID, Hostname: "corr-host", OS: "linux", Status: db.StatusOnline}
+	site := &device.Site{ID: uuid.New(), Name: "corr-site"}
+	require.NoError(t, srv.sites.Create(ctx, site))
+	dev := &device.Device{ID: uuid.New(), SiteID: site.ID, Hostname: "corr-host", OS: "linux", Status: db.StatusOnline}
 	require.NoError(t, srv.devices.Upsert(ctx, dev))
 
 	body := map[string]any{

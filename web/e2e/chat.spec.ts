@@ -44,7 +44,7 @@ function fakeDevice() {
   const now = new Date().toISOString();
   return {
     id: DEVICE_ID,
-    group_id: GROUP_ID,
+    site_id: GROUP_ID,
     hostname: "e2e-chat-host",
     os: "linux",
     os_display: "Linux",
@@ -61,7 +61,7 @@ type AuthedPage = Parameters<Parameters<typeof test>[2]>[0]["authedPage"];
 
 async function stubCommonRoutes(page: AuthedPage) {
   await page.route(`**/api/v1/devices/${DEVICE_ID}`, (route: Route) => ok(route, fakeDevice()));
-  await page.route("**/api/v1/groups", (route: Route) =>
+  await page.route("**/api/v1/sites", (route: Route) =>
     ok(route, [{ id: GROUP_ID, name: "default", created_at: "", updated_at: "" }]),
   );
   await page.route(`**/api/v1/sessions?device_id=${DEVICE_ID}*`, (route: Route) => ok(route, []));

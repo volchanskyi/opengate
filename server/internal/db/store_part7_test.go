@@ -25,7 +25,7 @@ func assertMultitenancyDownReversal(t *testing.T, ctx context.Context, db *sql.D
 		WHERE table_schema = 'public'
 		  AND column_name = 'org_id'
 		  AND table_name IN (
-		    'users', 'groups_', 'devices', 'agent_sessions', 'web_push_subscriptions',
+		    'users', 'sites', 'devices', 'agent_sessions', 'web_push_subscriptions',
 		    'audit_events', 'amt_devices', 'enrollment_tokens', 'security_groups',
 		    'security_group_members', 'device_updates', 'device_hardware', 'device_logs')`).Scan(&tenantIDColumns))
 	assert.Zero(t, tenantIDColumns)
@@ -36,11 +36,17 @@ func assertMultitenancyDownReversal(t *testing.T, ctx context.Context, db *sql.D
 // deny-list and progress log, which must outlive the rows they describe. Tables
 // introduced after the rename are not in the list — they were born with the
 // current name and have their own step's assertions.
-var tenantScopedTables = []string{
-	"users", "groups_", "devices", "agent_sessions", "web_push_subscriptions",
-	"audit_events", "amt_devices", "enrollment_tokens", "security_groups",
-	"security_group_members", "device_updates", "device_hardware",
-	"device_processes", "device_inventory", "deleted_ids", "purge_jobs",
+//
+// siteTable is named by the caller because the filing level is renamed by a
+// later migration, so the same list reads under two names depending on how far
+// the rehearsal has walked.
+func tenantScopedTables(siteTable string) []string {
+	return []string{
+		"users", siteTable, "devices", "agent_sessions", "web_push_subscriptions",
+		"audit_events", "amt_devices", "enrollment_tokens", "security_groups",
+		"security_group_members", "device_updates", "device_hardware",
+		"device_processes", "device_inventory", "deleted_ids", "purge_jobs",
+	}
 }
 
 const (
@@ -48,15 +54,15 @@ const (
 	tenantScopeSettingAfter  = "app.current_tenant"
 )
 
-// tenantScopeColumnCount counts how many of tenantScopedTables carry a column of
-// the given name.
-func tenantScopeColumnCount(t *testing.T, ctx context.Context, db *sql.DB, column string) int {
+// tenantScopeColumnCount counts how many of the tenant-scoped tables carry a
+// column of the given name.
+func tenantScopeColumnCount(t *testing.T, ctx context.Context, db *sql.DB, siteTable, column string) int {
 	t.Helper()
 	var count int
 	require.NoError(t, db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM information_schema.columns
 		WHERE table_schema = 'public' AND column_name = $1 AND table_name = ANY($2)`,
-		column, tenantScopedTables).Scan(&count))
+		column, tenantScopedTables(siteTable)).Scan(&count))
 	return count
 }
 
@@ -76,15 +82,15 @@ func policiesReadingSetting(t *testing.T, ctx context.Context, db *sql.DB, setti
 // assertTenancyRenamed confirms the rename migration moved the scope table, the
 // scope column on every table that carries it, and the setting every tenant
 // policy reads — and that nothing keeps the introduced names.
-func assertTenancyRenamed(t *testing.T, ctx context.Context, db *sql.DB) {
+func assertTenancyRenamed(t *testing.T, ctx context.Context, db *sql.DB, siteTable string) {
 	t.Helper()
 	var tenants sql.NullString
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.tenants')`).Scan(&tenants))
 	assert.True(t, tenants.Valid, "the tenants table should exist after the rename")
 
-	assert.Equal(t, len(tenantScopedTables), tenantScopeColumnCount(t, ctx, db, "tenant_id"),
+	assert.Equal(t, len(tenantScopedTables(siteTable)), tenantScopeColumnCount(t, ctx, db, siteTable, "tenant_id"),
 		"every tenant-scoped table should carry tenant_id")
-	assert.Zero(t, tenantScopeColumnCount(t, ctx, db, "org_id"),
+	assert.Zero(t, tenantScopeColumnCount(t, ctx, db, siteTable, "org_id"),
 		"no table should keep the introduced scope column name")
 
 	assert.Positive(t, policiesReadingSetting(t, ctx, db, tenantScopeSettingAfter),
@@ -119,8 +125,10 @@ func assertTenancyRenameDownReversal(t *testing.T, ctx context.Context, db *sql.
 	assert.False(t, tenants.Valid, "the rename rollback should remove the tenants name")
 	assert.True(t, organizations.Valid, "the rename rollback should restore the organizations name")
 
-	assert.Equal(t, len(tenantScopedTables), tenantScopeColumnCount(t, ctx, db, "org_id"))
-	assert.Zero(t, tenantScopeColumnCount(t, ctx, db, "tenant_id"))
+	// The rollback runs below 012, so the filing level is back under its own
+	// earlier name by the time this reads the schema.
+	assert.Equal(t, len(tenantScopedTables("groups_")), tenantScopeColumnCount(t, ctx, db, "groups_", "org_id"))
+	assert.Zero(t, tenantScopeColumnCount(t, ctx, db, "groups_", "tenant_id"))
 	assert.Positive(t, policiesReadingSetting(t, ctx, db, tenantScopeSettingBefore))
 	assert.Zero(t, policiesReadingSetting(t, ctx, db, tenantScopeSettingAfter))
 }
@@ -306,14 +314,15 @@ func assertAMTDeviceLinkDownReversal(t *testing.T, ctx context.Context, db *sql.
 		"the 008 down rollback should restore the original amt_devices columns")
 }
 
-// groupOwnerNullability reports whether groups_.owner_id exists and, when it
-// does, whether the column accepts NULL.
-func groupOwnerNullability(t *testing.T, ctx context.Context, db *sql.DB) (bool, bool) {
+// siteOwnerNullability reports whether the site table's owner_id exists and,
+// when it does, whether the column accepts NULL. The table is named by the
+// caller because the rehearsal walks through the point where it is renamed.
+func siteOwnerNullability(t *testing.T, ctx context.Context, db *sql.DB, table string) (bool, bool) {
 	t.Helper()
 	var nullable sql.NullString
 	err := db.QueryRowContext(ctx, `
 		SELECT is_nullable FROM information_schema.columns
-		WHERE table_schema = 'public' AND table_name = 'groups_' AND column_name = 'owner_id'`).Scan(&nullable)
+		WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'owner_id'`, table).Scan(&nullable)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, false
 	}
@@ -332,31 +341,32 @@ func groupOwnerIndexCount(t *testing.T, ctx context.Context, db *sql.DB) int {
 	return count
 }
 
-// assertGroupOwnerDropped confirms migration 009 removed the group-ownership
+// assertSiteOwnerDropped confirms migration 009 removed the site-ownership
 // column and the index built on it. Tenant is the visibility boundary, so
-// nothing reads a group owner any more.
+// nothing reads a site owner any more.
 //
-// tenantColumn names the group's tenant scope column, which the rename
-// migration moves — the caller passes whichever name the schema is on.
-func assertGroupOwnerDropped(t *testing.T, ctx context.Context, db *sql.DB, tenantColumn string) {
+// table and tenantColumn are named by the caller because both move as the
+// rehearsal walks forward: the scope column is renamed by 010 and the table
+// itself by 012.
+func assertSiteOwnerDropped(t *testing.T, ctx context.Context, db *sql.DB, table, tenantColumn string) {
 	t.Helper()
-	exists, _ := groupOwnerNullability(t, ctx, db)
-	assert.False(t, exists, "groups_.owner_id should be gone after migration 009")
+	exists, _ := siteOwnerNullability(t, ctx, db, table)
+	assert.Falsef(t, exists, "%s.owner_id should be gone after migration 009", table)
 	assert.Zero(t, groupOwnerIndexCount(t, ctx, db), "the owner index should be gone after migration 009")
 
 	// The surviving rows keep their tenant, which is what scopes them now.
 	var orphaned int
 	require.NoError(t, db.QueryRowContext(ctx, fmt.Sprintf(
-		`SELECT COUNT(*) FROM groups_ WHERE %s IS NULL`, sqlIdent(tenantColumn))).Scan(&orphaned))
-	assert.Zero(t, orphaned, "every group should still carry its tenant")
+		`SELECT COUNT(*) FROM %s WHERE %s IS NULL`, sqlIdent(table), sqlIdent(tenantColumn))).Scan(&orphaned))
+	assert.Zero(t, orphaned, "every site should still carry its tenant")
 }
 
-// assertGroupOwnerDownReversal confirms the 009 down rollback re-adds owner_id.
+// assertSiteOwnerDownReversal confirms the 009 down rollback re-adds owner_id.
 // Dropping a column is lossy, so the restored column is nullable — the original
 // NOT NULL cannot be recreated without the data it held.
-func assertGroupOwnerDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+func assertSiteOwnerDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
-	exists, nullable := groupOwnerNullability(t, ctx, db)
+	exists, nullable := siteOwnerNullability(t, ctx, db, "groups_")
 	assert.True(t, exists, "groups_.owner_id should be back after the 009 down rollback")
 	assert.True(t, nullable, "the restored owner_id is nullable — the dropped values cannot be recovered")
 	assert.Equal(t, 1, groupOwnerIndexCount(t, ctx, db), "the owner index should be back after the 009 down rollback")
@@ -430,6 +440,102 @@ func assertOrganizationDeleteCascades(t *testing.T, ctx context.Context, db *sql
 	assert.Zero(t, devices, "deleting a customer should take its devices")
 	assert.Zero(t, hardware, "and everything keyed to them")
 	assert.Equal(t, 1, survivors, "the tenant's other devices should be untouched")
+}
+
+// assertSitesIntroduced confirms the filing level landed whole: it is named
+// sites, it carries the tenant policy under its new name, every site names a
+// customer, and the pair constraint that keeps a device's site inside the
+// device's own customer is live.
+func assertSitesIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+	t.Helper()
+
+	var sites, groups sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.sites')`).Scan(&sites))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.groups_')`).Scan(&groups))
+	assert.True(t, sites.Valid, "the filing level should be reachable as sites")
+	assert.False(t, groups.Valid, "and not under the name it had before")
+
+	assert.Equal(t, 1, policyCount(t, ctx, db, "tenant_isolation_sites"),
+		"sites should carry the tenant policy under its own name")
+
+	var orphanSites int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sites WHERE organization_id IS NULL`).Scan(&orphanSites))
+	assert.Zero(t, orphanSites, "every site should name a customer")
+
+	// security_groups is a user permission group, an unrelated concept that
+	// merely shares the word. The rename must not have touched it.
+	var securityGroups sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.security_groups')`).Scan(&securityGroups))
+	assert.True(t, securityGroups.Valid, "user permission groups are a different concept and stay put")
+
+	assertSiteMustMatchDeviceOrganization(t, ctx, db, schemaName)
+}
+
+// assertSiteMustMatchDeviceOrganization proves the pair constraint refuses the
+// mismatch outright: a device in one customer cannot be filed into another
+// customer's office, and deleting an office unfiles its machines rather than
+// deleting them.
+func assertSiteMustMatchDeviceOrganization(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+	t.Helper()
+	const roleName = "opengate_rls_rehearsal"
+	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
+
+	const (
+		tenantID = "00000000-0000-0000-0000-000000000002"
+		orgA     = "00000000-0000-0000-0000-000000000401"
+		orgB     = "00000000-0000-0000-0000-000000000402"
+		siteA    = "00000000-0000-0000-0000-000000000403"
+		deviceB  = "00000000-0000-0000-0000-000000000404"
+	)
+	rehearsalExecNoTx(t, ctx, db,
+		`INSERT INTO organizations (id, tenant_id, name) VALUES ($1, $2, 'Contoso Rehearsal'), ($3, $2, 'Fabrikam Rehearsal')
+		 ON CONFLICT DO NOTHING`, orgA, tenantID, orgB)
+	rehearsalExecNoTx(t, ctx, db,
+		`INSERT INTO sites (id, tenant_id, organization_id, name) VALUES ($1, $2, $3, 'Dallas Rehearsal')
+		 ON CONFLICT DO NOTHING`, siteA, tenantID, orgA)
+	rehearsalExecNoTx(t, ctx, db,
+		`INSERT INTO devices (id, tenant_id, organization_id, hostname) VALUES ($1, $2, $3, 'rehearsal-b')
+		 ON CONFLICT DO NOTHING`, deviceB, tenantID, orgB)
+
+	_, err := db.ExecContext(ctx,
+		`UPDATE devices SET site_id = $1 WHERE id = $2`, siteA, deviceB)
+	require.Error(t, err, "a device must not take a site belonging to another customer")
+
+	// The same device inside the right customer is accepted, and losing the
+	// site leaves the machine in place, simply unfiled.
+	rehearsalExecNoTx(t, ctx, db, `UPDATE devices SET organization_id = $1, site_id = $2 WHERE id = $3`, orgA, siteA, deviceB)
+	rehearsalExecNoTx(t, ctx, db, `DELETE FROM sites WHERE id = $1`, siteA)
+
+	var siteID sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT site_id FROM devices WHERE id = $1`, deviceB).Scan(&siteID))
+	assert.False(t, siteID.Valid, "deleting a site unfiles its machines rather than deleting them")
+
+	rehearsalExecNoTx(t, ctx, db, `DELETE FROM devices WHERE id = $1`, deviceB)
+	rehearsalExecNoTx(t, ctx, db, `DELETE FROM organizations WHERE id IN ($1, $2)`, orgA, orgB)
+}
+
+// assertSitesDownReversal confirms the rollback put the filing level back to a
+// flat label on the tenant: the old name returns and the customer link is gone.
+func assertSitesDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	var groups, sites sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.groups_')`).Scan(&groups))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.sites')`).Scan(&sites))
+	assert.True(t, groups.Valid, "the rollback should restore the name the level had before")
+	assert.False(t, sites.Valid, "and leave nothing behind under the new one")
+
+	var linkColumns, siteColumns int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'groups_' AND column_name = 'organization_id'`).Scan(&linkColumns))
+	assert.Zero(t, linkColumns, "the rollback should drop the customer link")
+
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'devices' AND column_name = 'site_id'`).Scan(&siteColumns))
+	assert.Zero(t, siteColumns, "and restore the device column to the name it had")
 }
 
 // assertOrganizationsDownReversal confirms the rollback removed the customer

@@ -26,7 +26,7 @@ func deviceToAPI(d *device.Device) Device {
 	dev := Device{
 		Id:             d.ID,
 		OrganizationId: d.OrganizationID,
-		GroupId:        d.GroupID,
+		SiteId:         d.SiteID,
 		Hostname:       d.Hostname,
 		Os:             d.OS,
 		AgentVersion:   d.AgentVersion,
@@ -73,17 +73,18 @@ func devicesToAPI(ds []*device.Device) []Device {
 	return mapSlice(ds, deviceToAPI)
 }
 
-func groupToAPI(g *device.Group) Group {
-	return Group{
-		Id:        g.ID,
-		Name:      g.Name,
-		CreatedAt: g.CreatedAt,
-		UpdatedAt: g.UpdatedAt,
+func siteToAPI(s *device.Site) Site {
+	return Site{
+		Id:             s.ID,
+		OrganizationId: s.OrganizationID,
+		Name:           s.Name,
+		CreatedAt:      s.CreatedAt,
+		UpdatedAt:      s.UpdatedAt,
 	}
 }
 
-func groupsToAPI(gs []*device.Group) []Group {
-	return mapSlice(gs, groupToAPI)
+func sitesToAPI(ss []*device.Site) []Site {
+	return mapSlice(ss, siteToAPI)
 }
 
 func organizationToAPI(o *organization.Organization) Organization {

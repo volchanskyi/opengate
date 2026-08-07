@@ -13,11 +13,12 @@ import (
 	"time"
 )
 
-func TestMultitenancyMigrationRehearsal(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-
-	// Intentionally ignores POSTGRES_TEST_URL: dump/restore is destructive and needs matching client binaries.
+// startRehearsalContainer brings up the throwaway Postgres the rehearsal walks
+// its migrations against, and returns it with its connection string. It
+// intentionally ignores POSTGRES_TEST_URL: dump/restore is destructive and needs
+// matching client binaries.
+func startRehearsalContainer(t *testing.T, ctx context.Context) (*postgres.PostgresContainer, string) {
+	t.Helper()
 	container, err := postgres.Run(ctx, testpg.PostgresImage,
 		postgres.WithDatabase("opengate_rehearsal"),
 		postgres.WithUsername("opengate"),
@@ -34,6 +35,14 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	dbURL, err := container.ConnectionString(ctx, "sslmode=disable")
 	require.NoError(t, err)
+	return container, dbURL
+}
+
+func TestMultitenancyMigrationRehearsal(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	container, dbURL := startRehearsalContainer(t, ctx)
 
 	runMigrationSteps(t, dbURL, 1)
 	rehearsalDB := openRehearsalDB(t, ctx, dbURL)
@@ -81,18 +90,22 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 	t.Log("rehearsal: 008 AMT device link verified")
 
 	runMigrationSteps(t, dbURL, 1)
-	assertGroupOwnerDropped(t, ctx, rehearsalDB, "org_id")
+	assertSiteOwnerDropped(t, ctx, rehearsalDB, "groups_", "org_id")
 	t.Log("rehearsal: 009 dropped groups_.owner_id")
 
 	runMigrationSteps(t, dbURL, 1)
-	assertTenancyRenamed(t, ctx, rehearsalDB)
+	assertTenancyRenamed(t, ctx, rehearsalDB, "groups_")
 	assertOrganizationsNameIsFree(t, ctx, rehearsalDB)
 	t.Log("rehearsal: 010 renamed the tenancy vocabulary")
 
 	runMigrationSteps(t, dbURL, 1)
 	assertOrganizationsIntroduced(t, ctx, rehearsalDB, "public")
+	t.Log("rehearsal: 011 gave every tenant a customer and every device an owner")
+
+	runMigrationSteps(t, dbURL, 1)
+	assertSitesIntroduced(t, ctx, rehearsalDB, "public")
 	assertMigrationNoChange(t, dbURL)
-	t.Log("rehearsal: 011 gave every tenant a customer and every device an owner; head is idempotent")
+	t.Log("rehearsal: 012 reparented the filing level under the customer; head is idempotent")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
@@ -115,9 +128,10 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertDataLifecycleTables(t, ctx, db)
 	assertMaintenanceColumns(t, ctx, db)
 	assertAMTDeviceLink(t, ctx, db)
-	assertGroupOwnerDropped(t, ctx, db, "tenant_id")
-	assertTenancyRenamed(t, ctx, db)
+	assertSiteOwnerDropped(t, ctx, db, "sites", "tenant_id")
+	assertTenancyRenamed(t, ctx, db, "sites")
 	assertOrganizationsIntroduced(t, ctx, db, "public")
+	assertSitesIntroduced(t, ctx, db, "public")
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, asserting
@@ -129,9 +143,10 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"012 returned the filing level to a flat tenant label", assertSitesDownReversal},
 		{"011 removed organizations and the device link cleanly", assertOrganizationsDownReversal},
 		{"010 restored the introduced tenancy names", assertTenancyRenameDownReversal},
-		{"009 re-added a nullable owner_id", assertGroupOwnerDownReversal},
+		{"009 re-added a nullable owner_id", assertSiteOwnerDownReversal},
 		{"008 restored the original amt_devices shape", assertAMTDeviceLinkDownReversal},
 		{"007 removed maintenance columns cleanly", assertMaintenanceColumnsDownReversal},
 		{"006 removed data-lifecycle tables cleanly", assertDataLifecycleDownReversal},

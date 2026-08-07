@@ -39,7 +39,7 @@ func waitForDeviceStatus(t *testing.T, store *db.PostgresStore, deviceID protoco
 		"device %s never reached status %q", deviceID, want)
 }
 
-// setupOnlineAgent creates a test env, seeds a user + group, connects a
+// setupOnlineAgent creates a test env, seeds a user + site, connects a
 // fake agent through the full handshake, and waits for the resulting
 // device row to flip to StatusOnline. Returns the env (for store / srv
 // access in tests), the agent-side QUIC stream (for fault injection), and
@@ -48,8 +48,8 @@ func setupOnlineAgent(t *testing.T) (*agentTestEnv, *quic.Stream, protocol.Devic
 	t.Helper()
 	env := newAgentTestEnv(t)
 	ctx := context.Background()
-	group := testutil.SeedGroup(t, ctx, env.store)
-	stream, deviceID := env.connectAgent(t, group.ID)
+	site := testutil.SeedSite(t, ctx, env.store)
+	stream, deviceID := env.connectAgent(t, site.ID)
 	waitForDeviceStatus(t, env.store, deviceID, db.StatusOnline)
 	return env, stream, deviceID
 }

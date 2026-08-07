@@ -54,7 +54,7 @@ func pgStore(t *testing.T) (*db.PostgresStore, *sql.DB) {
 func seedDeviceRow(t *testing.T, ctx context.Context, sqlDB *sql.DB, id uuid.UUID, lastSeen time.Time) {
 	t.Helper()
 	_, err := sqlDB.ExecContext(ctx, `
-		INSERT INTO devices (id, tenant_id, organization_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+		INSERT INTO devices (id, tenant_id, organization_id, site_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
 		VALUES ($1, $2, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 ORDER BY o.created_at LIMIT 1), NULL, 'native-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', $3, NOW(), NOW())
 	`, id, dbtx.DefaultTenantID, lastSeen)
 	require.NoError(t, err)
@@ -97,8 +97,8 @@ func TestPostgresJSONBNetworkInterfacesRoundTrip(t *testing.T) {
 	store, _ := pgStore(t)
 	ctx := defaultTenantContext()
 
-	group := testutil.SeedGroup(t, ctx, store)
-	dev := testutil.SeedDevice(t, ctx, store, group.ID)
+	site := testutil.SeedSite(t, ctx, store)
+	dev := testutil.SeedDevice(t, ctx, store, site.ID)
 
 	originals := []device.NetworkInterfaceInfo{
 		{Name: "eth0", MAC: "aa:bb:cc:dd:ee:ff",
@@ -210,7 +210,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 	store, _ := pgStore(t)
 	ctx := defaultTenantContext()
 
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 
 	const N = 32
 	ids := make([]uuid.UUID, N)
@@ -226,7 +226,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 			defer wg.Done()
 			err := testutil.NewTestDevices(t, store).Upsert(ctx, &device.Device{
 				ID:           ids[i],
-				GroupID:      group.ID,
+				SiteID:       site.ID,
 				Hostname:     fmt.Sprintf("concurrent-%d", i),
 				OS:           "linux",
 				OsDisplay:    "Linux",
@@ -247,7 +247,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 	}
 	require.Empty(t, errs, "concurrent UpsertDevice produced errors")
 
-	devices, err := testutil.NewTestDevices(t, store).List(ctx, device.Filter{GroupID: group.ID})
+	devices, err := testutil.NewTestDevices(t, store).List(ctx, device.Filter{SiteID: site.ID})
 	require.NoError(t, err)
 	assert.Len(t, devices, N, "all concurrent inserts must be visible after wg.Wait")
 }
@@ -257,7 +257,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 	store, _ := pgStore(t)
 	ctx := defaultTenantContext()
 
-	group := testutil.SeedGroup(t, ctx, store)
+	site := testutil.SeedSite(t, ctx, store)
 
 	// 200 sequential upserts of distinct rows. The driver caches the
 	// prepared statement keyed by SQL text; a pool-config regression that
@@ -268,7 +268,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 	for i := range N {
 		err := testutil.NewTestDevices(t, store).Upsert(ctx, &device.Device{
 			ID:           uuid.New(),
-			GroupID:      group.ID,
+			SiteID:       site.ID,
 			Hostname:     fmt.Sprintf("cache-%d", i),
 			OS:           "linux",
 			OsDisplay:    "Linux",

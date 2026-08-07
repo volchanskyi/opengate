@@ -41,7 +41,7 @@ type Orchestrator struct {
 	logger     *slog.Logger
 }
 
-// OrchestratorConfig groups the orchestrator's dependencies.
+// OrchestratorConfig gathers the orchestrator's dependencies.
 type OrchestratorConfig struct {
 	Tombstones *TombstoneStore
 	Jobs       *JobStore

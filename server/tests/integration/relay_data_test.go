@@ -31,12 +31,12 @@ func (e *sessionTestEnv) setupRelayPair(t *testing.T, ctx context.Context) (agen
 	t.Helper()
 
 	user := testutil.SeedUser(t, ctx, e.store)
-	group := testutil.SeedGroup(t, ctx, e.store)
+	site := testutil.SeedSite(t, ctx, e.store)
 
 	jwtToken, err := e.jwt.GenerateToken(user.ID, user.Email, user.IsAdmin)
 	require.NoError(t, err)
 
-	stream, deviceID := e.connectAgent(t, group.ID)
+	stream, deviceID := e.connectAgent(t, site.ID)
 
 	require.Eventually(t, func() bool {
 		d, err := device.NewPostgresDevices(e.store.DB()).Get(defaultTenantContext(), deviceID)

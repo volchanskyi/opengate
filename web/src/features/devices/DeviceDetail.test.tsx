@@ -55,7 +55,7 @@ function renderDetailWithHardware() {
 
 const mockDevice = {
   id: 'd1',
-  organization_id: 'org-1', group_id: 'g1',
+  organization_id: 'org-1', site_id: 'g1',
   hostname: 'test-host',
   os: 'linux',
   agent_version: '1.0.0',
@@ -78,7 +78,7 @@ function setLinkedAmtDevice(sendPowerAction: (uuid: string, action: PowerAction)
   });
 }
 
-/** Sets the signed-in user's admin flag; delete and group-move are admin-only. */
+/** Sets the signed-in user's admin flag; delete and site-move are admin-only. */
 function seedUser(isAdmin: boolean) {
   useAuthStore.setState({
     user: { id: 'u1', email: 'a@b.com', display_name: 'A', is_admin: isAdmin, created_at: '', updated_at: '' },
@@ -95,11 +95,11 @@ describe('DeviceDetail', () => {
       isLoading: false,
       error: null,
       devices: [],
-      groups: [],
-      selectedGroupId: null,
+      sites: [],
+      selectedSiteId: null,
       fetchDevice: vi.fn(),
       refreshDevice: vi.fn(),
-      fetchGroups: vi.fn(),
+      fetchSites: vi.fn(),
       fetchHardware: vi.fn(),
       deleteDevice: vi.fn(),
       upgradeAgent: vi.fn().mockResolvedValue(true),
@@ -317,29 +317,29 @@ describe('DeviceDetail', () => {
     expect(toasts.some((t) => t.message.includes('Failed to restart'))).toBe(true);
   });
 
-  it('handleMoveGroup moves device to new group', async () => {
+  it('handleMoveGroup moves device to new site', async () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const updateGroupFn = vi.fn().mockResolvedValue(true);
     useDeviceStore.setState({
-      groups: [
-        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
+      sites: [
+        { id: 'g1', organization_id: 'org-1', name: 'Site 1', created_at: '', updated_at: '' },
+        { id: 'g2', organization_id: 'org-1', name: 'Site 2', created_at: '', updated_at: '' },
       ],
-      updateDeviceGroup: updateGroupFn,
+      updateDeviceSite: updateGroupFn,
     });
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
 
-    // Select new group from the "Move to Group" dropdown (not the logs filter dropdown)
-    const groupSelect = screen.getByDisplayValue('Select group...');
+    // Select new site from the "Move to Site" dropdown (not the logs filter dropdown)
+    const groupSelect = screen.getByDisplayValue('Select site...');
     await user.selectOptions(groupSelect, 'g2');
     await user.click(screen.getByText('Move'));
 
     expect(updateGroupFn).toHaveBeenCalledWith('d1', 'g2');
     const toasts = useToastStore.getState().toasts;
-    expect(toasts.some((t) => t.message.includes('moved to new group'))).toBe(true);
+    expect(toasts.some((t) => t.message.includes('moved to new site'))).toBe(true);
   });
 
   it('moves the device to another customer', async () => {
@@ -470,16 +470,16 @@ describe('DeviceDetail', () => {
     const user = userEvent.setup();
     const updateGroupFn = vi.fn().mockResolvedValue(false);
     useDeviceStore.setState({
-      groups: [
-        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
+      sites: [
+        { id: 'g1', organization_id: 'org-1', name: 'Site 1', created_at: '', updated_at: '' },
+        { id: 'g2', organization_id: 'org-1', name: 'Site 2', created_at: '', updated_at: '' },
       ],
-      updateDeviceGroup: updateGroupFn,
+      updateDeviceSite: updateGroupFn,
     });
     useToastStore.setState({ toasts: [] });
 
     renderDetail();
-    const groupSelect = screen.getByDisplayValue('Select group...');
+    const groupSelect = screen.getByDisplayValue('Select site...');
     await user.selectOptions(groupSelect, 'g2');
     await user.click(screen.getByText('Move'));
 
@@ -692,22 +692,22 @@ describe('DeviceDetail', () => {
     expect(fetchHardwareFn).toHaveBeenCalledTimes(1);
   });
 
-  it('shows N/A for the Group ID when the device is not in a group', () => {
-    useDeviceStore.setState({ selectedDevice: { ...mockDevice, organization_id: 'org-1', group_id: '' } });
+  it('shows N/A for the Site ID when the device is not in a site', () => {
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, organization_id: 'org-1', site_id: '' } });
     renderDetail();
-    expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('N/A');
+    expect(screen.getByText('Site ID').nextElementSibling?.textContent).toBe('N/A');
   });
 
-  it('shows the group id when the device belongs to a group', () => {
-    useDeviceStore.setState({ selectedDevice: { ...mockDevice, organization_id: 'org-1', group_id: 'g-42' } });
+  it('shows the site id when the device belongs to a site', () => {
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, organization_id: 'org-1', site_id: 'g-42' } });
     renderDetail();
-    expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('g-42');
+    expect(screen.getByText('Site ID').nextElementSibling?.textContent).toBe('g-42');
   });
 
-  it('shows N/A for the all-zeros placeholder Group ID', () => {
-    useDeviceStore.setState({ selectedDevice: { ...mockDevice, organization_id: 'org-1', group_id: '00000000-0000-0000-0000-000000000000' } });
+  it('shows N/A for the all-zeros placeholder Site ID', () => {
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, organization_id: 'org-1', site_id: '00000000-0000-0000-0000-000000000000' } });
     renderDetail();
-    expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('N/A');
+    expect(screen.getByText('Site ID').nextElementSibling?.textContent).toBe('N/A');
   });
 
   it('Hardware section is collapsed by default and expands via the caret toggle', async () => {
@@ -782,45 +782,45 @@ describe('DeviceDetail', () => {
     expect(screen.queryByText('Network Interfaces')).not.toBeInTheDocument();
   });
 
-  it('Move to Group section hidden when groups.length === 0', () => {
-    useDeviceStore.setState({ groups: [] });
+  it('Move to Site section hidden when sites.length === 0', () => {
+    useDeviceStore.setState({ sites: [] });
     renderDetail();
-    expect(screen.queryByText('Move to Group')).not.toBeInTheDocument();
+    expect(screen.queryByText('Move to Site')).not.toBeInTheDocument();
   });
 
-  it('Move to Group section hidden when groups.length === 1', () => {
+  it('Move to Site section hidden when sites.length === 1', () => {
     useDeviceStore.setState({
-      groups: [{ id: 'g1', name: 'Only', created_at: '', updated_at: '' }],
+      sites: [{ id: 'g1', organization_id: 'org-1', name: 'Only', created_at: '', updated_at: '' }],
     });
     renderDetail();
-    expect(screen.queryByText('Move to Group')).not.toBeInTheDocument();
+    expect(screen.queryByText('Move to Site')).not.toBeInTheDocument();
   });
 
-  it('Move to Group dropdown excludes the device current group', () => {
+  it('Move to Site dropdown excludes the device current site', () => {
     useDeviceStore.setState({
-      groups: [
-        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
-        { id: 'g3', name: 'Group 3', created_at: '', updated_at: '' },
+      sites: [
+        { id: 'g1', organization_id: 'org-1', name: 'Site 1', created_at: '', updated_at: '' },
+        { id: 'g2', organization_id: 'org-1', name: 'Site 2', created_at: '', updated_at: '' },
+        { id: 'g3', organization_id: 'org-1', name: 'Site 3', created_at: '', updated_at: '' },
       ],
     });
     renderDetail();
-    const select = screen.getByDisplayValue('Select group...') as HTMLSelectElement;
+    const select = screen.getByDisplayValue('Select site...') as HTMLSelectElement;
     const optionLabels = Array.from(select.options).map((o) => o.textContent ?? '');
-    expect(optionLabels).toEqual(['Select group...', 'Group 2', 'Group 3']);
-    expect(optionLabels).not.toContain('Group 1');
+    expect(optionLabels).toEqual(['Select site...', 'Site 2', 'Site 3']);
+    expect(optionLabels).not.toContain('Site 1');
   });
 
-  it('handleMoveGroup is a no-op when no group is selected', async () => {
+  it('handleMoveGroup is a no-op when no site is selected', async () => {
     vi.useRealTimers();
     const user = userEvent.setup();
     const updateGroupFn = vi.fn();
     useDeviceStore.setState({
-      groups: [
-        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
+      sites: [
+        { id: 'g1', organization_id: 'org-1', name: 'Site 1', created_at: '', updated_at: '' },
+        { id: 'g2', organization_id: 'org-1', name: 'Site 2', created_at: '', updated_at: '' },
       ],
-      updateDeviceGroup: updateGroupFn,
+      updateDeviceSite: updateGroupFn,
     });
     renderDetail();
     const moveBtn = screen.getByText('Move') as HTMLButtonElement;
@@ -1055,15 +1055,15 @@ describe('DeviceDetail', () => {
     const user = userEvent.setup();
     const updateGroupFn = vi.fn().mockResolvedValue(true);
     useDeviceStore.setState({
-      groups: [
-        { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
+      sites: [
+        { id: 'g1', organization_id: 'org-1', name: 'Site 1', created_at: '', updated_at: '' },
+        { id: 'g2', organization_id: 'org-1', name: 'Site 2', created_at: '', updated_at: '' },
       ],
-      updateDeviceGroup: updateGroupFn,
+      updateDeviceSite: updateGroupFn,
     });
     renderDetail();
 
-    const select = screen.getByDisplayValue('Select group...') as HTMLSelectElement;
+    const select = screen.getByDisplayValue('Select site...') as HTMLSelectElement;
     await user.selectOptions(select, 'g2');
     expect(select.value).toBe('g2');
 
@@ -1072,8 +1072,8 @@ describe('DeviceDetail', () => {
 
     await user.click(moveBtn);
 
-    // After a successful move, selectedGroupId is reset to '' — so the Move button is disabled again.
-    // (A mutation that swaps `setSelectedGroupId('')` for any truthy literal leaves the button enabled.)
+    // After a successful move, selectedSiteId is reset to '' — so the Move button is disabled again.
+    // (A mutation that swaps `setSelectedSiteId('')` for any truthy literal leaves the button enabled.)
     const moveBtnAfter = screen.getByText('Move') as HTMLButtonElement;
     expect(moveBtnAfter.disabled).toBe(true);
   });
@@ -1094,12 +1094,12 @@ describe('DeviceDetail', () => {
     expect(refreshFn).toHaveBeenCalledTimes(1);
   });
 
-  it('mount triggers fetchDevice, fetchSessions, fetchAmtDevices, fetchGroups, fetchManifests', () => {
+  it('mount triggers fetchDevice, fetchSessions, fetchAmtDevices, fetchSites, fetchManifests', () => {
     const fetchDeviceFn = vi.fn();
     const fetchSessionsFn = vi.fn();
     const fetchGroupsFn = vi.fn();
     const fetchManifestsFn = vi.fn();
-    useDeviceStore.setState({ fetchDevice: fetchDeviceFn, fetchGroups: fetchGroupsFn });
+    useDeviceStore.setState({ fetchDevice: fetchDeviceFn, fetchSites: fetchGroupsFn });
     useSessionStore.setState({ ...useSessionStore.getState(), fetchSessions: fetchSessionsFn });
     useUpdateStore.setState({ fetchManifests: fetchManifestsFn });
 
@@ -1319,15 +1319,15 @@ describe('DeviceDetail', () => {
       expect(screen.queryByRole('button', { name: /delete device/i })).toBeNull();
     });
 
-    it('omits the Move to Group panel from the DOM', () => {
+    it('omits the Move to Site panel from the DOM', () => {
       useDeviceStore.setState({
-        groups: [
-          { id: 'g1', name: 'Group 1', created_at: '', updated_at: '' },
-          { id: 'g2', name: 'Group 2', created_at: '', updated_at: '' },
+        sites: [
+          { id: 'g1', organization_id: 'org-1', name: 'Site 1', created_at: '', updated_at: '' },
+          { id: 'g2', organization_id: 'org-1', name: 'Site 2', created_at: '', updated_at: '' },
         ],
       });
       renderDetail();
-      expect(screen.queryByText('Move to Group')).toBeNull();
+      expect(screen.queryByText('Move to Site')).toBeNull();
     });
 
     it('keeps the device commands a member may issue', () => {

@@ -22,26 +22,26 @@ func TestDeviceLifecycle(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&user))
 	resp.Body.Close()
 
-	// Create a group via API
-	resp = env.doJSON(t, http.MethodPost, pathGroups, token, map[string]string{"name": "prod-servers"})
+	// Create a site via API
+	resp = env.doJSON(t, http.MethodPost, pathSites, token, map[string]string{"name": "prod-servers"})
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var group device.Group
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&group))
+	var site device.Site
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&site))
 	resp.Body.Close()
-	assert.Equal(t, "prod-servers", group.Name)
+	assert.Equal(t, "prod-servers", site.Name)
 
 	// Seed a device directly into the store (agents register via agentapi, not REST)
 	d := &device.Device{
 		ID:       uuid.New(),
-		GroupID:  group.ID,
+		SiteID:   site.ID,
 		Hostname: webServer01,
 		OS:       "linux",
 		Status:   db.StatusOnline,
 	}
 	require.NoError(t, env.devices.Upsert(defaultTenantContext(), d))
 
-	t.Run("list devices in group", func(t *testing.T) {
-		resp := env.doJSON(t, http.MethodGet, "/api/v1/devices?group_id="+group.ID.String(), token, nil)
+	t.Run("list devices in site", func(t *testing.T) {
+		resp := env.doJSON(t, http.MethodGet, "/api/v1/devices?site_id="+site.ID.String(), token, nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -62,13 +62,13 @@ func TestDeviceLifecycle(t *testing.T) {
 		assert.Equal(t, "linux", d.OS)
 	})
 
-	t.Run("delete group ungroups devices", func(t *testing.T) {
-		// Delete the group
-		resp := env.doJSON(t, http.MethodDelete, "/api/v1/groups/"+group.ID.String(), token, nil)
+	t.Run("delete site ungroups devices", func(t *testing.T) {
+		// Delete the site
+		resp := env.doJSON(t, http.MethodDelete, "/api/v1/sites/"+site.ID.String(), token, nil)
 		defer resp.Body.Close()
 		assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 
-		// Device should still exist but with null group_id
+		// Device should still exist but with null site_id
 		resp2 := env.doJSON(t, http.MethodGet, "/api/v1/devices/"+d.ID.String(), token, nil)
 		defer resp2.Body.Close()
 		assert.Equal(t, http.StatusOK, resp2.StatusCode)

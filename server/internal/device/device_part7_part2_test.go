@@ -15,11 +15,11 @@ func TestInstrumentedGroups_AllMethods(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		obs := &fakeObserver{}
-		r := device.NewInstrumentedGroups(&memGroups{}, obs)
-		require.NoError(t, r.Create(ctx, &device.Group{}))
+		r := device.NewInstrumentedSites(&memSites{}, obs)
+		require.NoError(t, r.Create(ctx, &device.Site{}))
 		_, err := r.Get(ctx, uuid.New())
 		require.NoError(t, err)
-		_, err = r.List(ctx)
+		_, err = r.List(ctx, uuid.Nil)
 		require.NoError(t, err)
 		require.NoError(t, r.Delete(ctx, uuid.New()))
 		require.Len(t, obs.calls, 4)
@@ -30,11 +30,11 @@ func TestInstrumentedGroups_AllMethods(t *testing.T) {
 
 	t.Run("error", func(t *testing.T) {
 		obs := &fakeObserver{}
-		r := device.NewInstrumentedGroups(&memGroups{failEvery: true}, obs)
-		assert.Error(t, r.Create(ctx, &device.Group{}))
+		r := device.NewInstrumentedSites(&memSites{failEvery: true}, obs)
+		assert.Error(t, r.Create(ctx, &device.Site{}))
 		_, err := r.Get(ctx, uuid.New())
 		assert.Error(t, err)
-		_, err = r.List(ctx)
+		_, err = r.List(ctx, uuid.Nil)
 		assert.Error(t, err)
 		assert.Error(t, r.Delete(ctx, uuid.New()))
 		require.Len(t, obs.calls, 4)

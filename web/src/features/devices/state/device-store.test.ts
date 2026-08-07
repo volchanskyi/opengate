@@ -28,8 +28,8 @@ describe('device store', () => {
     useToastStore.setState({ addToast });
     useDeviceStore.setState({
       devices: [],
-      groups: [],
-      selectedGroupId: null,
+      sites: [],
+      selectedSiteId: null,
       selectedDevice: null,
       hardware: null,
       logs: { agent: null, system: null },
@@ -58,7 +58,7 @@ describe('device store', () => {
   }
 
   it('silent operations never toggle isLoading', async () => {
-    // createGroup, deleteGroup, deleteDevice, updateDeviceGroup, restartAgent,
+    // createSite, deleteSite, deleteDevice, updateDeviceSite, restartAgent,
     // fetchHardware, upgradeAgent, refreshDevice — all pass `loading: false`.
     // Any mutant flipping that to `true` would briefly set isLoading=true.
     mockPost.mockResolvedValue({ data: { id: 'g2', name: 'g', created_at: '', updated_at: '' }, error: undefined });
@@ -67,10 +67,10 @@ describe('device store', () => {
     mockGet.mockResolvedValue({ data: { id: 'd1' }, error: undefined });
 
     const peaks: boolean[] = [];
-    peaks.push((await captureIsLoading(() => useDeviceStore.getState().createGroup('g'))).peak);
-    peaks.push((await captureIsLoading(() => useDeviceStore.getState().deleteGroup('g1'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().createSite('g'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().deleteSite('g1'))).peak);
     peaks.push((await captureIsLoading(() => useDeviceStore.getState().deleteDevice('d1'))).peak);
-    peaks.push((await captureIsLoading(() => useDeviceStore.getState().updateDeviceGroup('d1', 'g2'))).peak);
+    peaks.push((await captureIsLoading(() => useDeviceStore.getState().updateDeviceSite('d1', 'g2'))).peak);
     peaks.push((await captureIsLoading(() => useDeviceStore.getState().restartAgent('d1'))).peak);
     peaks.push((await captureIsLoading(() => useDeviceStore.getState().refreshDevice('d1'))).peak);
     peaks.push((await captureIsLoading(() => useDeviceStore.getState().upgradeAgent('d1', '2.0', 'linux', 'amd64'))).peak);
@@ -158,19 +158,19 @@ describe('device store', () => {
     vi.useRealTimers();
   });
 
-  it('fetchGroups populates groups', async () => {
+  it('fetchSites populates sites', async () => {
     mockGet.mockResolvedValueOnce({
-      data: [{ id: 'g1', name: 'Group 1' }],
+      data: [{ id: 'g1', name: 'Site 1' }],
       error: undefined,
     });
 
-    await useDeviceStore.getState().fetchGroups();
+    await useDeviceStore.getState().fetchSites();
 
-    expect(useDeviceStore.getState().groups).toHaveLength(1);
-    expect(useDeviceStore.getState().groups[0]?.name).toBe('Group 1');
+    expect(useDeviceStore.getState().sites).toHaveLength(1);
+    expect(useDeviceStore.getState().sites[0]?.name).toBe('Site 1');
   });
 
-  it('fetchDevices with groupId', async () => {
+  it('fetchDevices with siteId', async () => {
     mockGet.mockResolvedValueOnce({
       data: [{ id: 'd1', hostname: 'host1', status: 'online' }],
       error: undefined,
@@ -180,108 +180,108 @@ describe('device store', () => {
 
     expect(useDeviceStore.getState().devices).toHaveLength(1);
     expect(mockGet).toHaveBeenCalledWith('/api/v1/devices', {
-      params: { query: { group_id: 'g1' } },
+      params: { query: { site_id: 'g1' } },
     });
   });
 
-  it('selectGroup triggers fetchDevices', async () => {
+  it('selectSite triggers fetchDevices', async () => {
     mockGet.mockResolvedValueOnce({
       data: [{ id: 'd1', hostname: 'host1' }],
       error: undefined,
     });
 
-    useDeviceStore.getState().selectGroup('g1');
+    useDeviceStore.getState().selectSite('g1');
 
-    expect(useDeviceStore.getState().selectedGroupId).toBe('g1');
+    expect(useDeviceStore.getState().selectedSiteId).toBe('g1');
     // fetchDevices was called
     expect(mockGet).toHaveBeenCalledWith('/api/v1/devices', {
-      params: { query: { group_id: 'g1' } },
+      params: { query: { site_id: 'g1' } },
     });
   });
 
-  it('createGroup appends to list and sends body name', async () => {
-    useDeviceStore.setState({ groups: [{ id: 'g1', name: 'Existing', created_at: '', updated_at: '' }] });
+  it('createSite appends to list and sends body name', async () => {
+    useDeviceStore.setState({ sites: [{ id: 'g1', organization_id: 'org-1', name: 'Existing', created_at: '', updated_at: '' }] });
     mockPost.mockResolvedValueOnce({
-      data: { id: 'g2', name: 'New Group', created_at: '', updated_at: '' },
+      data: { id: 'g2', name: 'New Site', created_at: '', updated_at: '' },
       error: undefined,
     });
 
-    await useDeviceStore.getState().createGroup('New Group');
+    await useDeviceStore.getState().createSite('New Site');
 
-    expect(useDeviceStore.getState().groups).toHaveLength(2);
-    expect(useDeviceStore.getState().groups[1]?.name).toBe('New Group');
-    expect(mockPost).toHaveBeenCalledWith('/api/v1/groups', { body: { name: 'New Group' } });
+    expect(useDeviceStore.getState().sites).toHaveLength(2);
+    expect(useDeviceStore.getState().sites[1]?.name).toBe('New Site');
+    expect(mockPost).toHaveBeenCalledWith('/api/v1/sites', { body: { name: 'New Site' } });
   });
 
-  it('createGroup does NOT mutate list on error', async () => {
-    useDeviceStore.setState({ groups: [{ id: 'g1', name: 'Existing', created_at: '', updated_at: '' }] });
+  it('createSite does NOT mutate list on error', async () => {
+    useDeviceStore.setState({ sites: [{ id: 'g1', organization_id: 'org-1', name: 'Existing', created_at: '', updated_at: '' }] });
     mockPost.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
 
-    await useDeviceStore.getState().createGroup('New Group');
+    await useDeviceStore.getState().createSite('New Site');
 
-    // Kills `if (res.ok)` → `if (true)` mutant on createGroup.
-    expect(useDeviceStore.getState().groups).toHaveLength(1);
+    // Kills `if (res.ok)` → `if (true)` mutant on createSite.
+    expect(useDeviceStore.getState().sites).toHaveLength(1);
   });
 
-  it('deleteGroup removes from list and clears selection if active', async () => {
+  it('deleteSite removes from list and clears selection if active', async () => {
     useDeviceStore.setState({
-      groups: [
-        { id: 'g1', name: 'A', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'B', created_at: '', updated_at: '' },
+      sites: [
+        { id: 'g1', organization_id: 'org-1', name: 'A', created_at: '', updated_at: '' },
+        { id: 'g2', organization_id: 'org-1', name: 'B', created_at: '', updated_at: '' },
       ],
-      selectedGroupId: 'g1',
+      selectedSiteId: 'g1',
     });
     mockDelete.mockResolvedValueOnce({ error: undefined });
 
-    await useDeviceStore.getState().deleteGroup('g1');
+    await useDeviceStore.getState().deleteSite('g1');
 
-    expect(useDeviceStore.getState().groups).toHaveLength(1);
-    expect(useDeviceStore.getState().groups[0]?.id).toBe('g2');
-    expect(useDeviceStore.getState().selectedGroupId).toBeNull();
-    expect(mockDelete).toHaveBeenCalledWith('/api/v1/groups/{id}', {
+    expect(useDeviceStore.getState().sites).toHaveLength(1);
+    expect(useDeviceStore.getState().sites[0]?.id).toBe('g2');
+    expect(useDeviceStore.getState().selectedSiteId).toBeNull();
+    expect(mockDelete).toHaveBeenCalledWith('/api/v1/sites/{id}', {
       params: { path: { id: 'g1' } },
     });
   });
 
-  it('deleteGroup keeps selection when removing a different group', async () => {
+  it('deleteSite keeps selection when removing a different site', async () => {
     useDeviceStore.setState({
-      groups: [
-        { id: 'g1', name: 'A', created_at: '', updated_at: '' },
-        { id: 'g2', name: 'B', created_at: '', updated_at: '' },
+      sites: [
+        { id: 'g1', organization_id: 'org-1', name: 'A', created_at: '', updated_at: '' },
+        { id: 'g2', organization_id: 'org-1', name: 'B', created_at: '', updated_at: '' },
       ],
-      selectedGroupId: 'g2',
+      selectedSiteId: 'g2',
     });
     mockDelete.mockResolvedValueOnce({ error: undefined });
 
-    await useDeviceStore.getState().deleteGroup('g1');
+    await useDeviceStore.getState().deleteSite('g1');
 
-    // Kills `selectedGroupId === id ? null : state.selectedGroupId` → `true ? null : ...` mutant.
-    expect(useDeviceStore.getState().selectedGroupId).toBe('g2');
+    // Kills `selectedSiteId === id ? null : state.selectedSiteId` → `true ? null : ...` mutant.
+    expect(useDeviceStore.getState().selectedSiteId).toBe('g2');
   });
 
-  it('deleteGroup leaves list and selection alone on error', async () => {
+  it('deleteSite leaves list and selection alone on error', async () => {
     useDeviceStore.setState({
-      groups: [
-        { id: 'g1', name: 'A', created_at: '', updated_at: '' },
+      sites: [
+        { id: 'g1', organization_id: 'org-1', name: 'A', created_at: '', updated_at: '' },
       ],
-      selectedGroupId: 'g1',
+      selectedSiteId: 'g1',
     });
     mockDelete.mockResolvedValueOnce({ error: { error: 'forbidden' } });
 
-    await useDeviceStore.getState().deleteGroup('g1');
+    await useDeviceStore.getState().deleteSite('g1');
 
-    // Kills `if (res.ok)` → `if (true)` mutant on deleteGroup.
-    expect(useDeviceStore.getState().groups).toHaveLength(1);
-    expect(useDeviceStore.getState().selectedGroupId).toBe('g1');
+    // Kills `if (res.ok)` → `if (true)` mutant on deleteSite.
+    expect(useDeviceStore.getState().sites).toHaveLength(1);
+    expect(useDeviceStore.getState().selectedSiteId).toBe('g1');
   });
 
-  it('fetchGroups error sets error state', async () => {
+  it('fetchSites error sets error state', async () => {
     mockGet.mockResolvedValueOnce({
       data: undefined,
       error: { error: 'unauthorized' },
     });
 
-    await useDeviceStore.getState().fetchGroups();
+    await useDeviceStore.getState().fetchSites();
 
     expect(useDeviceStore.getState().error).toBe('unauthorized');
   });
@@ -291,7 +291,7 @@ describe('device store', () => {
     // these synchronously before awaiting, so the mutation `set({})` (no fields)
     // is killed.
     useDeviceStore.setState({
-      selectedDevice: { id: 'old', organization_id: 'org-1', group_id: 'g1', hostname: 'old', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      selectedDevice: { id: 'old', organization_id: 'org-1', site_id: 'g1', hostname: 'old', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
       hardware: mockHardware,
       logs: { agent: { entries: [], total: 0, has_more: false }, system: null },
     });
@@ -314,8 +314,8 @@ describe('device store', () => {
   it('deleteDevice removes from list', async () => {
     useDeviceStore.setState({
       devices: [
-        { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-        { id: 'd2', organization_id: 'org-1', group_id: 'g1', hostname: 'h2', os: 'linux', agent_version: '', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'd2', organization_id: 'org-1', site_id: 'g1', hostname: 'h2', os: 'linux', agent_version: '', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
       ],
     });
     mockDelete.mockResolvedValueOnce({ error: undefined });
@@ -332,7 +332,7 @@ describe('device store', () => {
   it('deleteDevice does NOT mutate list on error', async () => {
     useDeviceStore.setState({
       devices: [
-        { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
       ],
     });
     mockDelete.mockResolvedValueOnce({ error: { error: 'forbidden' } });
@@ -496,34 +496,34 @@ describe('device store', () => {
     });
   });
 
-  it('updateDeviceGroup returns true on success and sends body group_id', async () => {
+  it('updateDeviceSite returns true on success and sends body site_id', async () => {
     mockPatch.mockResolvedValueOnce({ data: {}, error: undefined });
 
-    const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+    const ok = await useDeviceStore.getState().updateDeviceSite('d1', 'g2');
 
     expect(ok).toBe(true);
     expect(mockPatch).toHaveBeenCalledWith('/api/v1/devices/{id}', {
       params: { path: { id: 'd1' } },
-      body: { group_id: 'g2' },
+      body: { site_id: 'g2' },
     });
   });
 
-  it('updateDeviceGroup returns false on error', async () => {
+  it('updateDeviceSite returns false on error', async () => {
     mockPatch.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
 
-    const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+    const ok = await useDeviceStore.getState().updateDeviceSite('d1', 'g2');
 
     expect(ok).toBe(false);
   });
 
-  it('updateDeviceGroup updates selectedDevice on success', async () => {
-    const updatedDevice = { id: 'd1', organization_id: 'org-1', group_id: 'g2', hostname: 'host1', os: 'linux', agent_version: '', status: 'online' };
+  it('updateDeviceSite updates selectedDevice on success', async () => {
+    const updatedDevice = { id: 'd1', organization_id: 'org-1', site_id: 'g2', hostname: 'host1', os: 'linux', agent_version: '', status: 'online' };
     useDeviceStore.setState({
-      selectedDevice: { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'host1', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      selectedDevice: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'host1', os: 'linux', agent_version: '', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
     });
     mockPatch.mockResolvedValueOnce({ data: updatedDevice, error: undefined });
 
-    await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+    await useDeviceStore.getState().updateDeviceSite('d1', 'g2');
 
     expect(useDeviceStore.getState().selectedDevice).toEqual(updatedDevice);
   });
@@ -581,13 +581,13 @@ describe('device store', () => {
     const existingHardware = mockHardware;
     const existingLogs = { agent: { entries: [], total: 0, has_more: false }, system: null };
     useDeviceStore.setState({
-      selectedDevice: { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'old', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      selectedDevice: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'old', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
       hardware: existingHardware,
       logs: existingLogs,
     });
 
     mockGet.mockResolvedValueOnce({
-      data: { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'updated', os: 'linux', agent_version: '1.0.1', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+      data: { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'updated', os: 'linux', agent_version: '1.0.1', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
       error: undefined,
     });
 
@@ -612,7 +612,7 @@ describe('device store', () => {
   });
 
   const deviceIn = (over: Partial<import('../../../types/api').components['schemas']['Device']> = {}) => ({
-    id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'host1', os: 'linux', agent_version: '1.0.0',
+    id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'host1', os: 'linux', agent_version: '1.0.0',
     capabilities: [], status: 'online' as const, last_seen: '', created_at: '', updated_at: '', ...over,
   });
 
@@ -900,39 +900,39 @@ describe('device store', () => {
     expect(mockGet).toHaveBeenCalledTimes(2);
   });
 
-  it('updateDeviceGroup rewrites the moved device in the devices list', async () => {
-    const d1 = deviceIn({ id: 'd1', organization_id: 'org-1', group_id: 'g1' });
-    const d2 = deviceIn({ id: 'd2', organization_id: 'org-1', group_id: 'g1' });
+  it('updateDeviceSite rewrites the moved device in the devices list', async () => {
+    const d1 = deviceIn({ id: 'd1', organization_id: 'org-1', site_id: 'g1' });
+    const d2 = deviceIn({ id: 'd2', organization_id: 'org-1', site_id: 'g1' });
     useDeviceStore.setState({ devices: [d1, d2], selectedDevice: null });
-    mockPatch.mockResolvedValueOnce({ data: { ...d1, organization_id: 'org-1', group_id: 'g2' }, error: undefined });
+    mockPatch.mockResolvedValueOnce({ data: { ...d1, organization_id: 'org-1', site_id: 'g2' }, error: undefined });
 
-    const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+    const ok = await useDeviceStore.getState().updateDeviceSite('d1', 'g2');
 
     expect(ok).toBe(true);
     const devices = useDeviceStore.getState().devices;
-    expect(devices.find((d) => d.id === 'd1')?.group_id).toBe('g2');
+    expect(devices.find((d) => d.id === 'd1')?.site_id).toBe('g2');
     // The sibling is untouched — kills a mutant that rewrites every row.
-    expect(devices.find((d) => d.id === 'd2')?.group_id).toBe('g1');
+    expect(devices.find((d) => d.id === 'd2')?.site_id).toBe('g1');
   });
 
-  it('updateDeviceGroup leaves selectedDevice alone when a different device moved', async () => {
-    const viewing = deviceIn({ id: 'd9', organization_id: 'org-1', group_id: 'g1' });
-    useDeviceStore.setState({ devices: [deviceIn({ id: 'd1', organization_id: 'org-1', group_id: 'g1' })], selectedDevice: viewing });
-    mockPatch.mockResolvedValueOnce({ data: deviceIn({ id: 'd1', organization_id: 'org-1', group_id: 'g2' }), error: undefined });
+  it('updateDeviceSite leaves selectedDevice alone when a different device moved', async () => {
+    const viewing = deviceIn({ id: 'd9', organization_id: 'org-1', site_id: 'g1' });
+    useDeviceStore.setState({ devices: [deviceIn({ id: 'd1', organization_id: 'org-1', site_id: 'g1' })], selectedDevice: viewing });
+    mockPatch.mockResolvedValueOnce({ data: deviceIn({ id: 'd1', organization_id: 'org-1', site_id: 'g2' }), error: undefined });
 
-    await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+    await useDeviceStore.getState().updateDeviceSite('d1', 'g2');
 
     expect(useDeviceStore.getState().selectedDevice?.id).toBe('d9');
   });
 
-  it('updateDeviceGroup does not mutate the list on error', async () => {
-    useDeviceStore.setState({ devices: [deviceIn({ id: 'd1', organization_id: 'org-1', group_id: 'g1' })] });
+  it('updateDeviceSite does not mutate the list on error', async () => {
+    useDeviceStore.setState({ devices: [deviceIn({ id: 'd1', organization_id: 'org-1', site_id: 'g1' })] });
     mockPatch.mockResolvedValueOnce({ data: undefined, error: { error: 'forbidden' } });
 
-    const ok = await useDeviceStore.getState().updateDeviceGroup('d1', 'g2');
+    const ok = await useDeviceStore.getState().updateDeviceSite('d1', 'g2');
 
     expect(ok).toBe(false);
-    expect(useDeviceStore.getState().devices[0]?.group_id).toBe('g1');
+    expect(useDeviceStore.getState().devices[0]?.site_id).toBe('g1');
   });
 
   it('sendPowerAction posts to the AMT uuid, not the device id', async () => {
@@ -987,14 +987,14 @@ describe('device store narrows by the selected customer', () => {
     });
   });
 
-  it('narrows by customer and group together', async () => {
+  it('narrows by customer and site together', async () => {
     useOrganizationStore.setState({ selectedOrganizationId: 'org-2' });
     mockGet.mockResolvedValue({ data: [], response: { ok: true } });
 
-    await useDeviceStore.getState().fetchDevices('group-7');
+    await useDeviceStore.getState().fetchDevices('site-7');
 
     expect(mockGet).toHaveBeenCalledWith('/api/v1/devices', {
-      params: { query: { group_id: 'group-7', organization_id: 'org-2' } },
+      params: { query: { site_id: 'site-7', organization_id: 'org-2' } },
     });
   });
 
@@ -1010,7 +1010,7 @@ describe('device store narrows by the selected customer', () => {
   });
 
   it('moves a device to another customer and updates both views', async () => {
-    const moved = { id: 'd1', organization_id: 'org-2', group_id: 'g1', hostname: 'h', os: 'linux', agent_version: '1', capabilities: [], status: 'online' as const, last_seen: '', created_at: '', updated_at: '' };
+    const moved = { id: 'd1', organization_id: 'org-2', site_id: 'g1', hostname: 'h', os: 'linux', agent_version: '1', capabilities: [], status: 'online' as const, last_seen: '', created_at: '', updated_at: '' };
     mockPut.mockResolvedValue({ data: moved, response: { ok: true } });
     useDeviceStore.setState({
       devices: [{ ...moved, organization_id: 'org-1' }],
@@ -1029,7 +1029,7 @@ describe('device store narrows by the selected customer', () => {
   });
 
   it('leaves both views alone when a move is refused', async () => {
-    const before = { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'h', os: 'linux', agent_version: '1', capabilities: [], status: 'online' as const, last_seen: '', created_at: '', updated_at: '' };
+    const before = { id: 'd1', organization_id: 'org-1', site_id: 'g1', hostname: 'h', os: 'linux', agent_version: '1', capabilities: [], status: 'online' as const, last_seen: '', created_at: '', updated_at: '' };
     mockPut.mockResolvedValue({ error: { error: 'organization not found' }, response: { ok: false, status: 404 } });
     useDeviceStore.setState({ devices: [before], selectedDevice: before });
 
