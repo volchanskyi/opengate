@@ -8,6 +8,7 @@ import (
 )
 
 var tenantTables = []string{
+	"organizations",
 	"users",
 	"groups_",
 	"devices",

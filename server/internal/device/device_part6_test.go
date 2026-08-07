@@ -23,7 +23,7 @@ func (m *memDevices) SetMaintenance(_ context.Context, _ device.DeviceID, _ bool
 	return m.maybeFail()
 }
 
-func (m *memDevices) Counts(_ context.Context) (device.Counts, error) {
+func (m *memDevices) Counts(_ context.Context, _ device.OrganizationID) (device.Counts, error) {
 	return device.Counts{}, m.maybeFail()
 }
 

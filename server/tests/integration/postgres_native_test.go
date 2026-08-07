@@ -54,8 +54,8 @@ func pgStore(t *testing.T) (*db.PostgresStore, *sql.DB) {
 func seedDeviceRow(t *testing.T, ctx context.Context, sqlDB *sql.DB, id uuid.UUID, lastSeen time.Time) {
 	t.Helper()
 	_, err := sqlDB.ExecContext(ctx, `
-		INSERT INTO devices (id, tenant_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-		VALUES ($1, $2, NULL, 'native-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', $3, NOW(), NOW())
+		INSERT INTO devices (id, tenant_id, organization_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+		VALUES ($1, $2, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 ORDER BY o.created_at LIMIT 1), NULL, 'native-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', $3, NOW(), NOW())
 	`, id, dbtx.DefaultTenantID, lastSeen)
 	require.NoError(t, err)
 }
@@ -161,8 +161,8 @@ func TestPostgresUUIDRejectsMalformedAtBoundary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := sqlDB.ExecContext(ctx, `
-					INSERT INTO devices (id, tenant_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-					VALUES ($1, $2, 'x', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
+					INSERT INTO devices (id, tenant_id, organization_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+					VALUES ($1, $2, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 ORDER BY o.created_at LIMIT 1), 'x', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
 				`, tt.raw, dbtx.DefaultTenantID)
 			require.Error(t, err, "postgres must reject malformed UUID %q", tt.raw)
 			assert.Contains(t, strings.ToLower(err.Error()), "invalid input syntax")
@@ -190,8 +190,8 @@ func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := sqlDB.ExecContext(ctx, `
-					INSERT INTO devices (id, tenant_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-					VALUES ($1, $2, 'case-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
+					INSERT INTO devices (id, tenant_id, organization_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+					VALUES ($1, $2, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 ORDER BY o.created_at LIMIT 1), 'case-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
 					ON CONFLICT (id) DO UPDATE SET hostname = EXCLUDED.hostname
 				`, tt.raw, dbtx.DefaultTenantID)
 			require.NoError(t, err)
@@ -247,7 +247,7 @@ func TestPostgresConcurrentUpsertDevices(t *testing.T) {
 	}
 	require.Empty(t, errs, "concurrent UpsertDevice produced errors")
 
-	devices, err := testutil.NewTestDevices(t, store).List(ctx, group.ID)
+	devices, err := testutil.NewTestDevices(t, store).List(ctx, device.Filter{GroupID: group.ID})
 	require.NoError(t, err)
 	assert.Len(t, devices, N, "all concurrent inserts must be visible after wg.Wait")
 }
@@ -282,7 +282,7 @@ func TestPostgresPreparedStatementCacheReuse(t *testing.T) {
 
 	// Reset of a single connection should not leak server-side prepared
 	// statements either — ensure subsequent queries still work.
-	devices, err := testutil.NewTestDevices(t, store).ListAll(ctx)
+	devices, err := testutil.NewTestDevices(t, store).List(ctx, device.Filter{})
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(devices), N)
 }
@@ -297,8 +297,8 @@ func TestPostgresMalformedUUIDInsertRollbackable(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := sqlDB.ExecContext(ctx, `
-		INSERT INTO devices (id, tenant_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-		VALUES ($1, $2, 'malformed', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
+		INSERT INTO devices (id, tenant_id, organization_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+		VALUES ($1, $2, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 ORDER BY o.created_at LIMIT 1), 'malformed', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
 	`, "not-a-uuid", dbtx.DefaultTenantID)
 	require.Error(t, err)
 

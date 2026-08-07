@@ -4,6 +4,7 @@ import { apiAction } from '../../../state/api-action';
 import { useToastStore } from '../../../lib/feedback/toast-store';
 import type { components } from '../../../types/api';
 import { fireAndForget } from '../../../lib/fire-and-forget';
+import { selectedOrganizationQuery } from '../../organizations';
 
 type Device = components['schemas']['Device'];
 type Group = components['schemas']['Group'];
@@ -73,6 +74,8 @@ interface DeviceState {
   error: string | null;
   fetchGroups: () => Promise<void>;
   fetchDevices: (groupId?: string) => Promise<void>;
+  /** Move a device to another customer. Returns whether the move landed. */
+  moveDeviceOrganization: (id: string, organizationId: string) => Promise<boolean>;
   fetchDevice: (id: string) => Promise<void>;
   refreshDevice: (id: string) => Promise<void>;
   selectGroup: (id: string | null) => void;
@@ -191,7 +194,12 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   },
 
   fetchDevices: async (groupId?) => {
-    const query = groupId ? { group_id: groupId } : {};
+    // Both narrowings travel together: the picked customer scopes the fleet, the
+    // group narrows within it, and an absent value simply does not narrow.
+    const query = {
+      ...(groupId ? { group_id: groupId } : {}),
+      ...(selectedOrganizationQuery() ? { organization_id: selectedOrganizationQuery() } : {}),
+    };
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices', { params: { query } }),
     );
@@ -264,6 +272,22 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         devices: state.devices.filter((d) => d.id !== id),
       }));
     }
+  },
+
+  moveDeviceOrganization: async (id, organizationId) => {
+    const res = await apiAction(set, () =>
+      api.PUT('/api/v1/devices/{id}/organization', {
+        params: { path: { id } },
+        body: { organization_id: organizationId },
+      }), false,
+    );
+    if (res.ok) {
+      set((state) => ({
+        selectedDevice: state.selectedDevice?.id === id ? res.data : state.selectedDevice,
+        devices: state.devices.map((d) => (d.id === id ? res.data : d)),
+      }));
+    }
+    return res.ok;
   },
 
   updateDeviceGroup: async (id, groupId) => {
@@ -399,8 +423,13 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   fetchSummary: async () => {
     // One fixed-size request drives every dashboard tile, so the dashboard
     // never downloads the device list to count it.
+    // The rollup narrows to the same customer as the list, so the tiles and the
+    // fleet below them always describe one set.
+    const organizationId = selectedOrganizationQuery();
     const res = await apiAction(set, () =>
-      api.GET('/api/v1/devices/summary'), false,
+      api.GET('/api/v1/devices/summary', {
+        params: { query: organizationId ? { organization_id: organizationId } : {} },
+      }), false,
     );
     if (res.ok) set({ summary: res.data });
   },

@@ -41,19 +41,19 @@ func TestPostgresDevices_CRUD(t *testing.T) {
 	})
 
 	t.Run("list by group", func(t *testing.T) {
-		ds, err := devices.List(ctx, g.ID)
+		ds, err := devices.List(ctx, device.Filter{GroupID: g.ID})
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(ds), 1)
 	})
 
 	t.Run("list all", func(t *testing.T) {
-		ds, err := devices.ListAll(ctx)
+		ds, err := devices.List(ctx, device.Filter{})
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(ds), 1)
 	})
 
 	t.Run("counts roll up the tenant fleet", func(t *testing.T) {
-		counts, err := devices.Counts(ctx)
+		counts, err := devices.Counts(ctx, uuid.Nil)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, counts.Total, 1)
 		assert.LessOrEqual(t, counts.Online, counts.Total)

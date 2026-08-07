@@ -29,7 +29,7 @@ const mockUser = {
 
 const mockDevice = {
   id: 'd1',
-  group_id: 'g1',
+  organization_id: 'org-1', group_id: 'g1',
   hostname: 'prod-server',
   os: 'linux',
   agent_version: '1.0.0',

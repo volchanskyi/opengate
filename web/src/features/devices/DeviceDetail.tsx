@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router';
 import { useDeviceStore } from './state/device-store';
 import { useAuthStore } from '../../state/auth-store';
 import { useSessionStore } from '../session';
+import { useOrganizationStore } from '../organizations';
 import { useUpdateStore } from './state/update-store';
 import { useToastStore } from '../../lib/feedback/toast-store';
 import { StatusBadge } from './StatusBadge';
@@ -95,6 +96,9 @@ export function DeviceDetail() {
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const fetchGroups = useDeviceStore((s) => s.fetchGroups);
   const updateDeviceGroup = useDeviceStore((s) => s.updateDeviceGroup);
+  const moveDeviceOrganization = useDeviceStore((s) => s.moveDeviceOrganization);
+  const organizations = useOrganizationStore((s) => s.organizations);
+  const fetchOrganizations = useOrganizationStore((s) => s.fetchOrganizations);
   const restartAgent = useDeviceStore((s) => s.restartAgent);
   const setMaintenance = useDeviceStore((s) => s.setMaintenance);
   const hardware = useDeviceStore((s) => s.hardware);
@@ -109,6 +113,7 @@ export function DeviceDetail() {
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [confirmPowerAction, setConfirmPowerAction] = useState<PowerAction | null>(null);
   const [selectedGroupId, setSelectedGroupId] = useState('');
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
   // Collapsed on open: the inventory is reference detail, so the host card
   // stays scannable until an operator asks for it.
   const [showHardware, setShowHardware] = useState(false);
@@ -122,8 +127,9 @@ export function DeviceDetail() {
       fireAndForget(fetchSessions(id));
     }
     fireAndForget(fetchGroups());
+    fireAndForget(fetchOrganizations());
     fireAndForget(fetchManifests());
-  }, [id, fetchDevice, fetchSessions, fetchGroups, fetchManifests]);
+  }, [id, fetchDevice, fetchSessions, fetchGroups, fetchOrganizations, fetchManifests]);
 
   // Poll device data every 30s so agent_version and status stay in sync, and
   // re-read the session list on the same beat so a session that ended anywhere
@@ -224,6 +230,17 @@ export function DeviceDetail() {
       addToast(enabled ? 'Failed to enter maintenance' : 'Failed to resume device', 'error');
     }
     return ok;
+  };
+
+  const handleMoveOrganization = async () => {
+    if (!selectedOrganizationId || selectedOrganizationId === device.organization_id) return;
+    const ok = await moveDeviceOrganization(device.id, selectedOrganizationId);
+    if (ok) {
+      addToast('Device moved to new customer', 'success');
+      setSelectedOrganizationId('');
+    } else {
+      addToast('Failed to move device', 'error');
+    }
   };
 
   const handleMoveGroup = async () => {
@@ -358,6 +375,33 @@ export function DeviceDetail() {
         </dl>
 
         <MaintenancePanel device={device} onToggle={handleToggleMaintenance} />
+
+        {isAdmin && organizations.length > 1 && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-300 mb-2">Move to Customer</h3>
+            <div className="flex gap-2">
+              <select
+                aria-label="Move to customer"
+                value={selectedOrganizationId}
+                onChange={(e) => setSelectedOrganizationId(e.target.value)}
+                className="bg-gray-900 border border-gray-600 rounded px-3 py-1.5 text-sm flex-1"
+              >
+                <option value="">Select customer...</option>
+                {organizations.filter((o) => o.id !== device.organization_id).map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => { fireAndForget(handleMoveOrganization()); }}
+                disabled={!selectedOrganizationId}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded text-sm disabled:opacity-50"
+              >
+                Move
+              </button>
+            </div>
+          </div>
+        )}
 
         {isAdmin && groups.length > 1 && (
           <div>

@@ -12,7 +12,7 @@ type Device = components['schemas']['Device'];
 
 function dev(overrides: Partial<Device>): Device {
   return {
-    id: 'd', group_id: 'g', hostname: 'h', os: 'linux', agent_version: '1.0.0',
+    id: 'd', organization_id: 'org-1', group_id: 'g', hostname: 'h', os: 'linux', agent_version: '1.0.0',
     capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '',
     ...overrides,
   };

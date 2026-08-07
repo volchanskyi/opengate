@@ -35,12 +35,12 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	_, err = hardware.Get(ctxA, deviceB.ID)
 	assert.ErrorIs(t, err, device.ErrHardwareNotFound)
 
-	allDevices, err := devices.ListAll(ctxA)
+	allDevices, err := devices.List(ctxA, device.Filter{})
 	require.NoError(t, err)
 	assert.Len(t, allDevices, 1)
 	assert.Equal(t, deviceA.ID, allDevices[0].ID)
 
-	devicesInBGroup, err := devices.List(ctxA, groupB.ID)
+	devicesInBGroup, err := devices.List(ctxA, device.Filter{GroupID: groupB.ID})
 	require.NoError(t, err)
 	assert.Empty(t, devicesInBGroup)
 	groupsInA, err := groups.List(ctxA)
@@ -48,7 +48,7 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	require.Len(t, groupsInA, 1, "tenant A sees its own group and nothing of tenant B's")
 	assert.Equal(t, groupA.ID, groupsInA[0].ID)
 
-	countsA, err := devices.Counts(ctxA)
+	countsA, err := devices.Counts(ctxA, uuid.Nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, countsA.Total, "the rollup counts tenant A's device only")
 
@@ -58,7 +58,7 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	_, err = devices.TenantForDevice(ctxA, deviceB.ID)
 	assert.ErrorIs(t, err, device.ErrDeviceNotFound)
 
-	_, err = devices.ListAll(context.Background())
+	_, err = devices.List(context.Background(), device.Filter{})
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 	_, err = groups.Get(context.Background(), groupA.ID)
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
@@ -102,11 +102,13 @@ func (m *memDevices) TenantForDevice(_ context.Context, _ device.DeviceID) (uuid
 	return uuid.Nil, m.maybeFail()
 }
 
-func (m *memDevices) List(_ context.Context, _ device.GroupID) ([]*device.Device, error) {
+func (m *memDevices) List(_ context.Context, _ device.Filter) ([]*device.Device, error) {
 	return nil, m.maybeFail()
 }
 
-func (m *memDevices) ListAll(_ context.Context) ([]*device.Device, error) { return nil, m.maybeFail() }
+func (m *memDevices) UpdateOrganization(_ context.Context, _ device.DeviceID, _ device.OrganizationID) error {
+	return m.maybeFail()
+}
 
 func (m *memDevices) ListForOwner(_ context.Context, _ uuid.UUID) ([]*device.Device, error) {
 	return nil, m.maybeFail()

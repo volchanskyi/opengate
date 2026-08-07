@@ -40,9 +40,14 @@ func TestMultitenancyRLSCrossTenantDeny(t *testing.T) {
 			`INSERT INTO groups_ (id, tenant_id, name) VALUES ($1, $2, $3)`,
 			groupID, tenantID, "owned")
 		require.NoError(t, err)
+		organizationID := uuid.New()
 		_, err = tx.ExecContext(ctx,
-			`INSERT INTO devices (id, tenant_id, group_id, hostname) VALUES ($1, $2, $3, $4)`,
-			deviceID, tenantID, groupID, "host-"+email)
+			`INSERT INTO organizations (id, tenant_id, name) VALUES ($1, $2, $3)`,
+			organizationID, tenantID, "Customer "+organizationID.String())
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx,
+			`INSERT INTO devices (id, tenant_id, organization_id, group_id, hostname) VALUES ($1, $2, $3, $4, $5)`,
+			deviceID, tenantID, organizationID, groupID, "host-"+email)
 		require.NoError(t, err)
 		require.NoError(t, tx.Commit())
 	}

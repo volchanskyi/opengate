@@ -27,6 +27,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/lifecycle"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/organization"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/session"
@@ -110,6 +111,7 @@ func main() {
 	securityGroupsRepo := auth.NewInstrumentedSecurityGroups(auth.NewPostgresSecurityGroups(store.DB()), appMetrics)
 	devicesRepo := device.NewInstrumentedDevices(device.NewPostgresDevices(store.DB()), appMetrics)
 	groupsRepo := device.NewInstrumentedGroups(device.NewPostgresGroups(store.DB()), appMetrics)
+	organizationsRepo := organization.NewInstrumented(organization.NewPostgresOrganizations(store.DB()), appMetrics)
 	hardwareRepo := device.NewInstrumentedHardware(device.NewPostgresHardware(store.DB()), appMetrics)
 	webPushRepo := notifications.NewInstrumentedWebPush(notifications.NewPostgresWebPush(store.DB()), appMetrics)
 	amtRepo := amt.NewInstrumented(amt.NewPostgresAMTDevices(store.DB()), appMetrics)
@@ -254,6 +256,7 @@ func main() {
 		SecurityGroups:        securityGroupsRepo,
 		Devices:               devicesRepo,
 		Groups:                groupsRepo,
+		Organizations:         organizationsRepo,
 		Hardware:              hardwareRepo,
 		Inventory:             inventoryRepo,
 		WebPush:               webPushRepo,

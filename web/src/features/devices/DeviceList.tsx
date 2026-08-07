@@ -11,6 +11,7 @@ import { DeviceCard } from './DeviceCard';
 import { DeviceSearchBar } from './DeviceSearchBar';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
+import { useOrganizationStore } from '../organizations';
 
 /** How often the grid refreshes device status while the tab is visible. */
 const DEVICE_LIST_POLL_MS = 15_000;
@@ -52,6 +53,9 @@ export function DeviceList() {
   const isLoading = useDeviceStore((s) => s.isLoading);
   const fetchGroups = useDeviceStore((s) => s.fetchGroups);
   const fetchDevices = useDeviceStore((s) => s.fetchDevices);
+  // The picked customer is a narrowing of this list, so a change to it re-reads
+  // exactly like a change to the group filter does.
+  const selectedOrganizationId = useOrganizationStore((s) => s.selectedOrganizationId);
   const upgradeAgent = useDeviceStore((s) => s.upgradeAgent);
   const manifests = useUpdateStore((s) => s.manifests);
   const fetchManifests = useUpdateStore((s) => s.fetchManifests);
@@ -75,7 +79,7 @@ export function DeviceList() {
     fireAndForget(fetchGroups());
     fireAndForget(fetchDevices());
     fireAndForget(fetchManifests());
-  }, [fetchGroups, fetchDevices, fetchManifests]);
+  }, [fetchGroups, fetchDevices, fetchManifests, selectedOrganizationId]);
 
   // Poll device status so online/offline stays current. A hidden tab issues
   // nothing and catches up the moment it is shown again.

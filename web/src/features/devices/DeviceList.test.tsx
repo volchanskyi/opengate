@@ -59,8 +59,8 @@ describe('DeviceList', () => {
   it('renders devices', () => {
     useDeviceStore.setState({
       devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
-        { id: 'd2', group_id: 'g1', hostname: 'host-2', os: 'windows', agent_version: '', capabilities: [], status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd2', organization_id: 'org-1', group_id: 'g1', hostname: 'host-2', os: 'windows', agent_version: '', capabilities: [], status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
       ],
     });
     renderDeviceList();
@@ -73,8 +73,8 @@ describe('DeviceList', () => {
     useInventoryStore.setState({ fetchInventory });
     useDeviceStore.setState({
       devices: [
-        { id: 'd1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
-        { id: 'd2', group_id: 'g1', hostname: 'host-2', os: 'windows', agent_version: '', capabilities: [], status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'host-1', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
+        { id: 'd2', organization_id: 'org-1', group_id: 'g1', hostname: 'host-2', os: 'windows', agent_version: '', capabilities: [], status: 'offline', last_seen: new Date().toISOString(), created_at: '', updated_at: '' },
       ],
     });
     renderDeviceList();
@@ -124,9 +124,9 @@ describe('DeviceList', () => {
     beforeEach(() => {
       useDeviceStore.setState({
         devices: [
-          { id: 'd1', group_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-          { id: 'd2', group_id: 'g1', hostname: 'db-01', os: 'windows', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-          { id: 'd3', group_id: 'g1', hostname: 'cache-01', os: 'darwin', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'd2', organization_id: 'org-1', group_id: 'g1', hostname: 'db-01', os: 'windows', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'd3', organization_id: 'org-1', group_id: 'g1', hostname: 'cache-01', os: 'darwin', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
         ],
       });
     });
@@ -179,9 +179,9 @@ describe('DeviceList', () => {
       // Two devices: one outdated online (will upgrade), one current (will not).
       useDeviceStore.setState({
         devices: [
-          { id: 'old', group_id: 'g1', hostname: 'outdated', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-          { id: 'cur', group_id: 'g1', hostname: 'current', os: 'linux', agent_version: '2.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-          { id: 'off', group_id: 'g1', hostname: 'offline-old', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'old', organization_id: 'org-1', group_id: 'g1', hostname: 'outdated', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'cur', organization_id: 'org-1', group_id: 'g1', hostname: 'current', os: 'linux', agent_version: '2.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'off', organization_id: 'org-1', group_id: 'g1', hostname: 'offline-old', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
         ],
         upgradeAgent: vi.fn().mockResolvedValue(true),
       });
@@ -249,8 +249,8 @@ describe('DeviceList', () => {
       useToastStore.setState({ addToast: addToastFn });
       useDeviceStore.setState({
         devices: [
-          { id: 'old1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-          { id: 'old2', group_id: 'g1', hostname: 'h2', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'old1', organization_id: 'org-1', group_id: 'g1', hostname: 'h1', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'old2', organization_id: 'org-1', group_id: 'g1', hostname: 'h2', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
         ],
         upgradeAgent: vi.fn().mockResolvedValue(true),
       });
@@ -297,7 +297,7 @@ describe('DeviceList', () => {
           // device.agent_version = "2.0.0" but latest = "10.0.0" — lexicographic compare would say
           // "2.0.0" >= "10.0.0" (since '2' > '1') and treat the device as up to date. Numeric
           // comparison correctly returns -1, so the device is outdated and gets upgraded.
-          { id: 'd', group_id: 'g1', hostname: 'h', os: 'linux', agent_version: '2.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'd', organization_id: 'org-1', group_id: 'g1', hostname: 'h', os: 'linux', agent_version: '2.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
         ],
         upgradeAgent: upgradeAgentFn,
       });
@@ -316,7 +316,7 @@ describe('DeviceList', () => {
     it('outdated filter respects per-OS scoping (a linux manifest does not bump a windows device)', () => {
       useDeviceStore.setState({
         devices: [
-          { id: 'win', group_id: 'g1', hostname: 'winhost', os: 'windows', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'win', organization_id: 'org-1', group_id: 'g1', hostname: 'winhost', os: 'windows', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
         ],
       });
       useUpdateStore.setState({
@@ -334,8 +334,8 @@ describe('DeviceList', () => {
     it('outdated filter excludes offline outdated devices', () => {
       useDeviceStore.setState({
         devices: [
-          { id: 'on', group_id: 'g1', hostname: 'on', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-          { id: 'off', group_id: 'g1', hostname: 'off', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'on', organization_id: 'org-1', group_id: 'g1', hostname: 'on', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'off', organization_id: 'org-1', group_id: 'g1', hostname: 'off', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
         ],
       });
       renderDeviceList();
@@ -358,7 +358,7 @@ describe('DeviceList', () => {
     it('uses different copy when filtering vs. browsing', async () => {
       useDeviceStore.setState({
         devices: [
-          { id: 'd', group_id: 'g1', hostname: 'h', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'd', organization_id: 'org-1', group_id: 'g1', hostname: 'h', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
         ],
       });
       renderDeviceList();
@@ -391,10 +391,10 @@ describe('DeviceList', () => {
     beforeEach(() => {
       useDeviceStore.setState({
         devices: [
-          { id: 'd1', group_id: 'g1', hostname: 'online-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
-          { id: 'd2', group_id: 'g1', hostname: 'offline-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
-          { id: 'd3', group_id: 'g1', hostname: 'maint-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '', maintenance_on: true },
-          { id: 'd4', group_id: 'g1', hostname: 'anomalous-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '', anomaly_rate: 0.9 },
+          { id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'online-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'd2', organization_id: 'org-1', group_id: 'g1', hostname: 'offline-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'offline', last_seen: '', created_at: '', updated_at: '' },
+          { id: 'd3', organization_id: 'org-1', group_id: 'g1', hostname: 'maint-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '', maintenance_on: true },
+          { id: 'd4', organization_id: 'org-1', group_id: 'g1', hostname: 'anomalous-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '', anomaly_rate: 0.9 },
         ],
       });
     });
@@ -451,7 +451,7 @@ describe('DeviceList', () => {
     it('windows a large device list (renders a subset, not every card)', () => {
       const many = Array.from({ length: 300 }, (_, i) => ({
         id: 'd' + String(i),
-        group_id: 'g1',
+        organization_id: 'org-1', group_id: 'g1',
         hostname: 'host-' + String(i),
         os: 'linux',
         agent_version: '1.0.0',
@@ -479,7 +479,7 @@ describe('DeviceList', () => {
     useDeviceStore.setState({
       isLoading: true,
       devices: [
-        { id: 'd', group_id: 'g1', hostname: 'visible-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
+        { id: 'd', organization_id: 'org-1', group_id: 'g1', hostname: 'visible-host', os: 'linux', agent_version: '1.0.0', capabilities: [], status: 'online', last_seen: '', created_at: '', updated_at: '' },
       ],
     });
     renderDeviceList();
@@ -492,7 +492,7 @@ describe('DeviceList', () => {
     function makeDevices(n: number) {
       return Array.from({ length: n }, (_, i) => ({
         id: 'd' + String(i),
-        group_id: 'g1',
+        organization_id: 'org-1', group_id: 'g1',
         hostname: 'host-' + String(i),
         os: 'linux',
         agent_version: '1.0.0',

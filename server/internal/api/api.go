@@ -28,6 +28,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/inventory"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/organization"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
 	"github.com/volchanskyi/opengate/server/internal/session"
@@ -107,6 +108,7 @@ type ServerConfig struct {
 	SecurityGroups        auth.SecurityGroupRepository
 	Devices               device.Repository
 	Groups                device.GroupRepository
+	Organizations         organization.Repository
 	Hardware              device.HardwareRepository
 	Inventory             inventory.Repository
 	WebPush               notifications.WebPushRepository
@@ -154,6 +156,7 @@ type Server struct {
 	securityGroups  auth.SecurityGroupRepository
 	devices         device.Repository
 	groups          device.GroupRepository
+	organizations   organization.Repository
 	hardware        device.HardwareRepository
 	inventory       inventory.Repository
 	webPush         notifications.WebPushRepository
@@ -257,6 +260,7 @@ func NewServer(cfg ServerConfig) *Server {
 		securityGroups:  cfg.SecurityGroups,
 		devices:         cfg.Devices,
 		groups:          cfg.Groups,
+		organizations:   cfg.Organizations,
 		hardware:        cfg.Hardware,
 		inventory:       cfg.Inventory,
 		webPush:         cfg.WebPush,

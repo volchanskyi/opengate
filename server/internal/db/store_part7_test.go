@@ -31,9 +31,11 @@ func assertMultitenancyDownReversal(t *testing.T, ctx context.Context, db *sql.D
 	assert.Zero(t, tenantIDColumns)
 }
 
-// tenantScopedTables lists every table carrying the tenant scope column at head.
-// deleted_ids and purge_jobs carry it without a policy: they are the erasure
-// deny-list and progress log, which must outlive the rows they describe.
+// tenantScopedTables lists the tables the tenancy rename moved the scope column
+// on. deleted_ids and purge_jobs carry it without a policy: they are the erasure
+// deny-list and progress log, which must outlive the rows they describe. Tables
+// introduced after the rename are not in the list — they were born with the
+// current name and have their own step's assertions.
 var tenantScopedTables = []string{
 	"users", "groups_", "devices", "agent_sessions", "web_push_subscriptions",
 	"audit_events", "amt_devices", "enrollment_tokens", "security_groups",
@@ -76,11 +78,9 @@ func policiesReadingSetting(t *testing.T, ctx context.Context, db *sql.DB, setti
 // policy reads — and that nothing keeps the introduced names.
 func assertTenancyRenamed(t *testing.T, ctx context.Context, db *sql.DB) {
 	t.Helper()
-	var tenants, organizations sql.NullString
+	var tenants sql.NullString
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.tenants')`).Scan(&tenants))
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.organizations')`).Scan(&organizations))
 	assert.True(t, tenants.Valid, "the tenants table should exist after the rename")
-	assert.False(t, organizations.Valid, "the tenants table should not be reachable under its introduced name")
 
 	assert.Equal(t, len(tenantScopedTables), tenantScopeColumnCount(t, ctx, db, "tenant_id"),
 		"every tenant-scoped table should carry tenant_id")
@@ -96,6 +96,17 @@ func assertTenancyRenamed(t *testing.T, ctx context.Context, db *sql.DB) {
 	require.NoError(t, db.QueryRowContext(ctx,
 		`SELECT name FROM tenants WHERE id = '00000000-0000-0000-0000-000000000002'`).Scan(&defaultName))
 	assert.Equal(t, "Default Tenant", defaultName)
+}
+
+// assertOrganizationsNameIsFree confirms the rename left the word available for
+// the customer entity the next step introduces. It belongs to that step alone:
+// once the customer table exists, the name is in use again and means something
+// else.
+func assertOrganizationsNameIsFree(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	var organizations sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.organizations')`).Scan(&organizations))
+	assert.False(t, organizations.Valid, "the tenants table should not be reachable under its introduced name")
 }
 
 // assertTenancyRenameDownReversal confirms the rename rollback put every name
@@ -349,4 +360,89 @@ func assertGroupOwnerDownReversal(t *testing.T, ctx context.Context, db *sql.DB)
 	assert.True(t, exists, "groups_.owner_id should be back after the 009 down rollback")
 	assert.True(t, nullable, "the restored owner_id is nullable — the dropped values cannot be recovered")
 	assert.Equal(t, 1, groupOwnerIndexCount(t, ctx, db), "the owner index should be back after the 009 down rollback")
+}
+
+// assertOrganizationsIntroduced confirms the customer entity landed whole: the
+// table carries the tenant policy like every other tenant table, every tenant
+// has at least one customer, every device names one, and deleting a customer
+// takes its devices with it rather than leaving them behind.
+func assertOrganizationsIntroduced(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+	t.Helper()
+
+	var orphanTenants, orphanDevices int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM tenants t
+		 WHERE NOT EXISTS (SELECT 1 FROM organizations o WHERE o.tenant_id = t.id)`).Scan(&orphanTenants))
+	assert.Zero(t, orphanTenants, "every tenant should have somewhere to put a device")
+
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM devices WHERE organization_id IS NULL`).Scan(&orphanDevices))
+	assert.Zero(t, orphanDevices, "every device should name a customer")
+
+	assert.Equal(t, 1, policyCount(t, ctx, db, "tenant_isolation_organizations"),
+		"organizations should carry the tenant policy")
+
+	assertOrganizationDeleteCascades(t, ctx, db, schemaName)
+}
+
+// policyCount reports how many policies of the given name exist in the schema.
+func policyCount(t *testing.T, ctx context.Context, db *sql.DB, policy string) int {
+	t.Helper()
+	var count int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pg_policies WHERE schemaname = 'public' AND policyname = $1`, policy).Scan(&count))
+	return count
+}
+
+// assertOrganizationDeleteCascades proves the erasure chain from the customer
+// down: a throwaway customer with a device and a hardware row leaves nothing
+// behind, and its tenant's other rows are untouched.
+func assertOrganizationDeleteCascades(t *testing.T, ctx context.Context, db *sql.DB, schemaName string) {
+	t.Helper()
+	const roleName = "opengate_rls_rehearsal"
+	ensureRLSRoleInSchema(t, ctx, db, roleName, schemaName)
+
+	const (
+		tenantID   = "00000000-0000-0000-0000-000000000002"
+		orgID      = "00000000-0000-0000-0000-000000000301"
+		deviceID   = "00000000-0000-0000-0000-000000000302"
+		surviveDev = "00000000-0000-0000-0000-000000000103"
+	)
+	rehearsalExecNoTx(t, ctx, db,
+		`INSERT INTO organizations (id, tenant_id, name) VALUES ($1, $2, 'Doomed Customer')
+		 ON CONFLICT DO NOTHING`, orgID, tenantID)
+	rehearsalExecNoTx(t, ctx, db,
+		`INSERT INTO devices (id, tenant_id, organization_id, hostname) VALUES ($1, $2, $3, 'doomed')
+		 ON CONFLICT DO NOTHING`, deviceID, tenantID, orgID)
+	rehearsalExecNoTx(t, ctx, db,
+		`INSERT INTO device_hardware (device_id, tenant_id, cpu_model) VALUES ($1, $2, 'doomed-cpu')
+		 ON CONFLICT DO NOTHING`, deviceID, tenantID)
+
+	rehearsalExecNoTx(t, ctx, db, `DELETE FROM organizations WHERE id = $1`, orgID)
+
+	var devices, hardware, survivors int
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM devices WHERE id = $1`, deviceID).Scan(&devices))
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM device_hardware WHERE device_id = $1`, deviceID).Scan(&hardware))
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM devices WHERE id = $1`, surviveDev).Scan(&survivors))
+	assert.Zero(t, devices, "deleting a customer should take its devices")
+	assert.Zero(t, hardware, "and everything keyed to them")
+	assert.Equal(t, 1, survivors, "the tenant's other devices should be untouched")
+}
+
+// assertOrganizationsDownReversal confirms the rollback removed the customer
+// entity and the device link, leaving the schema as the step before it built it.
+func assertOrganizationsDownReversal(t *testing.T, ctx context.Context, db *sql.DB) {
+	t.Helper()
+	var organizations sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT to_regclass('public.organizations')`).Scan(&organizations))
+	assert.False(t, organizations.Valid, "the rollback should drop the customer table")
+
+	var linkColumns int
+	require.NoError(t, db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = 'public' AND table_name = 'devices' AND column_name = 'organization_id'`).Scan(&linkColumns))
+	assert.Zero(t, linkColumns, "the rollback should drop the device link")
 }

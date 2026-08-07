@@ -40,7 +40,7 @@ mutation_go_shard_units() {
       echo "file:internal/api/api.go file:internal/api/converters.go file:internal/api/middleware.go file:internal/api/wsconn.go file:internal/api/handlers_client_errors.go file:internal/api/handlers_health.go file:internal/api/log_redact.go file:internal/api/metrics_assemble.go file:internal/api/ratelimit.go file:internal/api/validate.go"
       ;;
     go-api-identity-admin)
-      echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_groups.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go file:internal/api/handlers_push.go"
+      echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_groups.go file:internal/api/handlers_organizations.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go file:internal/api/handlers_push.go"
       ;;
     go-api-device-operations)
       echo "file:internal/api/handlers_devices.go file:internal/api/handlers_device_summary.go file:internal/api/handlers_device_actions.go file:internal/api/handlers_maintenance.go file:internal/api/handlers_device_correlate.go file:internal/api/handlers_device_history.go file:internal/api/handlers_device_inventory.go file:internal/api/handlers_device_metrics.go file:internal/api/handlers_amt.go file:internal/api/handlers_relay.go file:internal/api/handlers_sessions.go"
@@ -58,7 +58,7 @@ mutation_go_shard_units() {
       echo "file:internal/agentapi/conn_discovery.go file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/conn_hardware.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go"
       ;;
     go-domain-persistence)
-      echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/session dir:internal/audit dir:internal/usecase"
+      echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/session dir:internal/audit dir:internal/usecase"
       ;;
     go-amt-updates-certificates)
       echo "dir:internal/amt dir:internal/updater dir:internal/notifications dir:internal/cert"

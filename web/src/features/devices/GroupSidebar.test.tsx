@@ -230,7 +230,7 @@ describe('GroupSidebar', () => {
 
   describe('drop target for device drags', () => {
     const device = {
-      id: 'd1', group_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '1.0.0',
+      id: 'd1', organization_id: 'org-1', group_id: 'g1', hostname: 'web-01', os: 'linux', agent_version: '1.0.0',
       capabilities: [], status: 'online' as const, last_seen: '', created_at: '', updated_at: '',
     };
 
@@ -307,7 +307,7 @@ describe('GroupSidebar', () => {
     it('moves the dragged device, not the first one in the list', async () => {
       // Two devices, and the dragged one is not devices[0]: the lookup must
       // match on id or a drag moves someone else's machine.
-      const other = { ...device, id: 'd0', group_id: 'g2', hostname: 'db-01' };
+      const other = { ...device, id: 'd0', organization_id: 'org-1', group_id: 'g2', hostname: 'db-01' };
       const updateDeviceGroup = vi.fn().mockResolvedValue(true);
       const addToast = vi.fn();
       useToastStore.setState({ addToast });
@@ -330,7 +330,7 @@ describe('GroupSidebar', () => {
     ])('dropping a device with %s onto Ungrouped is a no-op', async (_label, groupId) => {
       const updateDeviceGroup = vi.fn();
       useDeviceStore.setState({
-        devices: [{ ...device, group_id: groupId }],
+        devices: [{ ...device, organization_id: 'org-1', group_id: groupId }],
         updateDeviceGroup,
         fetchDevices: vi.fn(),
       });

@@ -86,8 +86,13 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 
 	runMigrationSteps(t, dbURL, 1)
 	assertTenancyRenamed(t, ctx, rehearsalDB)
+	assertOrganizationsNameIsFree(t, ctx, rehearsalDB)
+	t.Log("rehearsal: 010 renamed the tenancy vocabulary")
+
+	runMigrationSteps(t, dbURL, 1)
+	assertOrganizationsIntroduced(t, ctx, rehearsalDB, "public")
 	assertMigrationNoChange(t, dbURL)
-	t.Log("rehearsal: 010 renamed the tenancy vocabulary; head is idempotent")
+	t.Log("rehearsal: 011 gave every tenant a customer and every device an owner; head is idempotent")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
@@ -112,6 +117,7 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertAMTDeviceLink(t, ctx, db)
 	assertGroupOwnerDropped(t, ctx, db, "tenant_id")
 	assertTenancyRenamed(t, ctx, db)
+	assertOrganizationsIntroduced(t, ctx, db, "public")
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, asserting
@@ -123,6 +129,7 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"011 removed organizations and the device link cleanly", assertOrganizationsDownReversal},
 		{"010 restored the introduced tenancy names", assertTenancyRenameDownReversal},
 		{"009 re-added a nullable owner_id", assertGroupOwnerDownReversal},
 		{"008 restored the original amt_devices shape", assertAMTDeviceLinkDownReversal},

@@ -19,6 +19,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/notifications"
+	"github.com/volchanskyi/opengate/server/internal/organization"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/testpg"
@@ -223,15 +224,24 @@ func NewTestUsers(t testing.TB, s *db.PostgresStore) auth.UserRepository {
 	return auth.NewPostgresUsers(s.DB())
 }
 
-// EnsureTenant inserts tenantID if it does not exist. Tests that exercise
-// cross-tenant behavior can create extra tenants without depending on a
-// specific repository package.
+// EnsureTenant inserts tenantID if it does not exist and gives it the default
+// organization every tenant has, so a device seeded into it always has somewhere
+// to belong. Tests that exercise cross-tenant behavior can create extra tenants
+// without depending on a specific repository package.
 func EnsureTenant(t testing.TB, ctx context.Context, s *db.PostgresStore, tenantID uuid.UUID, name string) {
 	t.Helper()
 	_, err := s.DB().ExecContext(ctx,
 		`INSERT INTO tenants (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
 		tenantID, name)
 	require.NoError(t, err)
+	_, err = NewTestOrganizations(t, s).EnsureDefault(dbtx.WithTenant(ctx, tenantID, false))
+	require.NoError(t, err)
+}
+
+// NewTestOrganizations returns an organization.Repository over the store.
+func NewTestOrganizations(t testing.TB, s *db.PostgresStore) organization.Repository {
+	t.Helper()
+	return organization.NewPostgresOrganizations(s.DB())
 }
 
 func tenantOrDefault(ctx context.Context, isAdmin bool) (context.Context, dbtx.Tenant) {

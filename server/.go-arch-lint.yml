@@ -69,6 +69,13 @@ components:
   device:
     in: internal/device
 
+  # Constrained: the organization module owns the Organization aggregate — one
+  # customer inside a tenant. Repository interface, Postgres adapter, and
+  # Instrumented decorator live here. It imports only dbtx for tenant-scoped
+  # transactions, like the other leaf aggregates.
+  organization:
+    in: internal/organization
+
   # Constrained: the notifications module owns the WebPushSubscription
   # aggregate plus the existing Notifier interface
   # and VAPID key material. Repository interface, Postgres adapter, and
@@ -171,6 +178,16 @@ deps:
     # Same leaf-module pattern as audit/update/auth/device/notifications.
     # The Repository interface, Postgres adapter, and Instrumented
     # decorator live entirely in this package; no internal imports.
+    mayDependOn:
+      - dbtx
+    anyVendorDeps: true
+    deepScan: false
+  organization:
+    # Owns the Organization port and its Postgres adapter; dbtx is the only
+    # project-internal dependency for tenant-scoped RLS transactions. deepScan
+    # is off for the same reason as the other aggregates — the Instrumented
+    # decorator takes a duck-typed Observer that deepScan would trace back to
+    # metrics.Metrics at the wiring site.
     mayDependOn:
       - dbtx
     anyVendorDeps: true

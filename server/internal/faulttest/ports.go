@@ -41,11 +41,11 @@ func (f *FaultDevices) Get(ctx context.Context, id device.DeviceID) (*device.Dev
 }
 
 // List consults the "List" fault, then delegates.
-func (f *FaultDevices) List(ctx context.Context, groupID device.GroupID) ([]*device.Device, error) {
+func (f *FaultDevices) List(ctx context.Context, filter device.Filter) ([]*device.Device, error) {
 	if delegate, err := f.faults.apply(ctx, "List"); !delegate {
 		return nil, err
 	}
-	return f.Repository.List(ctx, groupID)
+	return f.Repository.List(ctx, filter)
 }
 
 // FaultSessions decorates a session.Repository.

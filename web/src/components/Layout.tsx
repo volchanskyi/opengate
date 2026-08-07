@@ -3,6 +3,7 @@ import { useAuthStore } from '../state/auth-store';
 import { NotificationCenter } from '../features/admin/NotificationCenter';
 import { ToastContainer } from './ToastContainer';
 import { Breadcrumbs } from './Breadcrumbs';
+import { OrganizationPicker } from '../features/organizations';
 
 export function Layout() {
   const user = useAuthStore((s) => s.user);
@@ -25,6 +26,7 @@ export function Layout() {
           )}
         </div>
         <div className="flex items-center gap-4">
+          <OrganizationPicker />
           <NotificationCenter />
           {user && (
             <Link to="/profile" className="text-sm text-gray-300 hover:text-white">

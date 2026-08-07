@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { useDeviceStore, FleetHealth } from '../devices';
 import { fireAndForget } from '../../lib/fire-and-forget';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
+import { useOrganizationStore } from '../organizations';
 
 /** How often the dashboard refreshes its rollup while the tab is visible. */
 const POLL_MS = 15_000;
@@ -38,10 +39,13 @@ function StatCard({ label, value, to, colorClasses = '' }: StatCardProps) {
 export function Dashboard() {
   const summary = useDeviceStore((s) => s.summary);
   const fetchSummary = useDeviceStore((s) => s.fetchSummary);
+  // The tiles describe the picked customer, so they re-read when it changes and
+  // never disagree with the device list.
+  const selectedOrganizationId = useOrganizationStore((s) => s.selectedOrganizationId);
 
   useEffect(() => {
     fireAndForget(fetchSummary());
-  }, [fetchSummary]);
+  }, [fetchSummary, selectedOrganizationId]);
 
   // Every tile reads one fixed-size response, so a refresh costs the same
   // whatever the fleet size. A hidden tab polls nothing and catches up on

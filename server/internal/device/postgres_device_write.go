@@ -20,12 +20,20 @@ func (p *PostgresDevices) Upsert(ctx context.Context, d *Device) error {
 	if err != nil {
 		return err
 	}
+	// A device that names no customer takes the tenant's oldest one — the row
+	// the agent connection path lands on, since a registering agent knows only
+	// its tenant. On a reconnect the existing customer wins, so a move is never
+	// undone by the device coming back online.
+	organizationID := nullableUUID(d.OrganizationID)
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err = tx.ExecContext(ctx,
-			`INSERT INTO devices (id, tenant_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
+			`INSERT INTO devices (id, tenant_id, organization_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+			 VALUES ($1, $2,
+			         COALESCE($10::uuid, (SELECT o.id FROM organizations o WHERE o.tenant_id = $2 ORDER BY o.created_at, o.id LIMIT 1)),
+			         $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
 			 ON CONFLICT (id) DO UPDATE SET
 			   tenant_id = EXCLUDED.tenant_id,
+			   organization_id = COALESCE($10::uuid, devices.organization_id),
 			   group_id = COALESCE(EXCLUDED.group_id, devices.group_id),
 			   hostname = EXCLUDED.hostname,
 			   os = EXCLUDED.os,
@@ -35,8 +43,33 @@ func (p *PostgresDevices) Upsert(ctx context.Context, d *Device) error {
 			   status = EXCLUDED.status,
 			   last_seen = NOW(),
 			   updated_at = NOW()`,
-			d.ID, tenant.TenantID, groupID, d.Hostname, d.OS, d.OsDisplay, d.AgentVersion, capsJSON, string(d.Status))
+			d.ID, tenant.TenantID, groupID, d.Hostname, d.OS, d.OsDisplay, d.AgentVersion, capsJSON, string(d.Status), organizationID)
 		return err
+	})
+}
+
+// UpdateOrganization implements Repository. The customer is looked up in the
+// caller's tenant first: a foreign-key check runs past row-level security, so
+// the constraint alone would accept another tenant's customer.
+func (p *PostgresDevices) UpdateOrganization(ctx context.Context, id DeviceID, organizationID OrganizationID) error {
+	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		var exists bool
+		err := tx.QueryRowContext(ctx,
+			`SELECT EXISTS (
+			   SELECT 1 FROM organizations
+			    WHERE id = $1 AND tenant_id = current_setting('app.current_tenant')::uuid)`,
+			organizationID).Scan(&exists)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return ErrOrganizationNotFound
+		}
+		res, err := tx.ExecContext(ctx,
+			`UPDATE devices SET organization_id = $2, updated_at = NOW()
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`,
+			id, organizationID)
+		return checkAffected(res, err, ErrDeviceNotFound)
 	})
 }
 
@@ -111,15 +144,19 @@ func (p *PostgresDevices) SetMaintenance(ctx context.Context, id DeviceID, on bo
 // deliberately tenant-scoped for every caller, administrators included: the
 // dashboard describes the caller's own tenant, so the tiles and the
 // health bands always cover one device set.
-func (p *PostgresDevices) Counts(ctx context.Context) (Counts, error) {
+func (p *PostgresDevices) Counts(ctx context.Context, organizationID OrganizationID) (Counts, error) {
 	var c Counts
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
+		// A NULL customer counts the whole tenant, so the tiles describe
+		// whatever the picker currently has selected.
 		return tx.QueryRowContext(ctx,
 			`SELECT COUNT(*),
 			        COUNT(*) FILTER (WHERE status = 'online'),
 			        COUNT(*) FILTER (WHERE maintenance_on)
 			   FROM devices
-			  WHERE tenant_id = current_setting('app.current_tenant')::uuid`).
+			  WHERE tenant_id = current_setting('app.current_tenant')::uuid
+			    AND ($1::uuid IS NULL OR organization_id = $1::uuid)`,
+			nullableUUID(organizationID)).
 			Scan(&c.Total, &c.Online, &c.Maintenance)
 	})
 	return c, err

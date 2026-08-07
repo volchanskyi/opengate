@@ -32,6 +32,31 @@ Native Postgres types throughout — no TEXT/INTEGER shims.
 | JSON columns | `JSONB` |
 | Upsert semantics | `ON CONFLICT ... DO UPDATE` / `DO NOTHING` |
 
+## Tenancy
+
+Three levels, matching what the rest of the market means by the words:
+
+| Level | What it is |
+|---|---|
+| Tenant | The MSP. The wall the database enforces. |
+| Organization | One customer inside a tenant. |
+| Device | One managed machine, belonging to exactly one customer. |
+
+The isolation boundary is the **tenant** and only the tenant. An organization is
+structural — it decides what a technician is looking at and what a rule or a
+ceiling applies to — so it carries the tenant policy like every other
+tenant-scoped table and adds no second wall of its own. Filtering by customer is
+a query concern: every fleet read accepts an `organization_id` and narrows to it,
+and returns the whole tenant when none is given.
+
+Every tenant has at least one organization and every device names one, so nothing
+is ever orphaned:
+[`011_organizations`](../server/internal/db/migrations/011_organizations.up.sql)
+gives each existing tenant its own, a device row written without a customer takes
+the tenant's oldest, and deleting a tenant's last customer is refused. Deleting
+any other customer cascades its devices and, through them, their telemetry,
+inventory, hardware and update rows.
+
 ## Multi-Tenancy
 
 Every tenant-owned table carries `tenant_id UUID NOT NULL` and is protected by

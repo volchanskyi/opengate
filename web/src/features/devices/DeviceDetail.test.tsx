@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createMemoryRouter, RouterProvider, useLocation } from 'react-router';
 import { useDeviceStore } from './state/device-store';
+import { useOrganizationStore } from '../organizations';
 import type { components } from '../../types/api';
 import { useSessionStore } from '../session';
 import { useUpdateStore } from './state/update-store';
@@ -54,7 +55,7 @@ function renderDetailWithHardware() {
 
 const mockDevice = {
   id: 'd1',
-  group_id: 'g1',
+  organization_id: 'org-1', group_id: 'g1',
   hostname: 'test-host',
   os: 'linux',
   agent_version: '1.0.0',
@@ -339,6 +340,39 @@ describe('DeviceDetail', () => {
     expect(updateGroupFn).toHaveBeenCalledWith('d1', 'g2');
     const toasts = useToastStore.getState().toasts;
     expect(toasts.some((t) => t.message.includes('moved to new group'))).toBe(true);
+  });
+
+  it('moves the device to another customer', async () => {
+    vi.useRealTimers();
+    const user = userEvent.setup();
+    const moveFn = vi.fn().mockResolvedValue(true);
+    useDeviceStore.setState({ moveDeviceOrganization: moveFn });
+    useOrganizationStore.setState({
+      organizations: [
+        { id: 'org-1', name: 'Contoso', created_at: '', updated_at: '' },
+        { id: 'org-2', name: 'Fabrikam', created_at: '', updated_at: '' },
+      ],
+      fetchOrganizations: vi.fn().mockResolvedValue(undefined),
+    });
+    useToastStore.setState({ toasts: [] });
+
+    renderDetail();
+
+    await user.selectOptions(screen.getByLabelText('Move to customer'), 'org-2');
+    await user.click(screen.getByLabelText('Move to customer').closest('div')!.querySelector('button')!);
+
+    expect(moveFn).toHaveBeenCalledWith('d1', 'org-2');
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts.some((t) => t.message.includes('moved to new customer'))).toBe(true);
+  });
+
+  it('hides the customer move when the tenant has only one customer', () => {
+    useOrganizationStore.setState({
+      organizations: [{ id: 'org-1', name: 'Contoso', created_at: '', updated_at: '' }],
+      fetchOrganizations: vi.fn().mockResolvedValue(undefined),
+    });
+    renderDetail();
+    expect(screen.queryByText('Move to Customer')).not.toBeInTheDocument();
   });
 
   it('handleDelete navigates to device list after confirm', async () => {
@@ -659,19 +693,19 @@ describe('DeviceDetail', () => {
   });
 
   it('shows N/A for the Group ID when the device is not in a group', () => {
-    useDeviceStore.setState({ selectedDevice: { ...mockDevice, group_id: '' } });
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, organization_id: 'org-1', group_id: '' } });
     renderDetail();
     expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('N/A');
   });
 
   it('shows the group id when the device belongs to a group', () => {
-    useDeviceStore.setState({ selectedDevice: { ...mockDevice, group_id: 'g-42' } });
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, organization_id: 'org-1', group_id: 'g-42' } });
     renderDetail();
     expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('g-42');
   });
 
   it('shows N/A for the all-zeros placeholder Group ID', () => {
-    useDeviceStore.setState({ selectedDevice: { ...mockDevice, group_id: '00000000-0000-0000-0000-000000000000' } });
+    useDeviceStore.setState({ selectedDevice: { ...mockDevice, organization_id: 'org-1', group_id: '00000000-0000-0000-0000-000000000000' } });
     renderDetail();
     expect(screen.getByText('Group ID').nextElementSibling?.textContent).toBe('N/A');
   });

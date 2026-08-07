@@ -47,12 +47,8 @@ func (i *InstrumentedDevices) Get(ctx context.Context, id DeviceID) (*Device, er
 	return observe1(i.observer, "device.Device.Get", func() (*Device, error) { return i.inner.Get(ctx, id) })
 }
 
-func (i *InstrumentedDevices) List(ctx context.Context, groupID GroupID) ([]*Device, error) {
-	return observe1(i.observer, "device.Device.List", func() ([]*Device, error) { return i.inner.List(ctx, groupID) })
-}
-
-func (i *InstrumentedDevices) ListAll(ctx context.Context) ([]*Device, error) {
-	return observe1(i.observer, "device.Device.ListAll", func() ([]*Device, error) { return i.inner.ListAll(ctx) })
+func (i *InstrumentedDevices) List(ctx context.Context, filter Filter) ([]*Device, error) {
+	return observe1(i.observer, "device.Device.List", func() ([]*Device, error) { return i.inner.List(ctx, filter) })
 }
 
 func (i *InstrumentedDevices) GetByAMTUUID(ctx context.Context, amtUUID uuid.UUID) (*Device, error) {
@@ -79,8 +75,14 @@ func (i *InstrumentedDevices) SetMaintenance(ctx context.Context, id DeviceID, o
 	return observe0(i.observer, "device.Device.SetMaintenance", func() error { return i.inner.SetMaintenance(ctx, id, on, by, reason) })
 }
 
-func (i *InstrumentedDevices) Counts(ctx context.Context) (Counts, error) {
-	return observe1(i.observer, "device.Device.Counts", func() (Counts, error) { return i.inner.Counts(ctx) })
+func (i *InstrumentedDevices) Counts(ctx context.Context, organizationID OrganizationID) (Counts, error) {
+	return observe1(i.observer, "device.Device.Counts", func() (Counts, error) { return i.inner.Counts(ctx, organizationID) })
+}
+
+func (i *InstrumentedDevices) UpdateOrganization(ctx context.Context, id DeviceID, organizationID OrganizationID) error {
+	return observe0(i.observer, "device.Device.UpdateOrganization", func() error {
+		return i.inner.UpdateOrganization(ctx, id, organizationID)
+	})
 }
 
 // InstrumentedGroups decorates a GroupRepository with per-call observation.

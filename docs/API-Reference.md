@@ -97,6 +97,12 @@ const { data, error } = await api.GET('/api/v1/groups');
 | `/api/v1/updates/status/{version}` | GET | JWT | Get update status for a version |
 | `/api/v1/updates/signing-key` | GET | JWT | Get Ed25519 update signing public key |
 | `/api/v1/server/install.sh` | GET | No | Get agent install script |
+| `/api/v1/organizations` | GET | JWT | List the tenant's customers |
+| `/api/v1/organizations` | POST | JWT (admin) | Add a customer |
+| `/api/v1/organizations/{id}` | GET | JWT | Get one customer |
+| `/api/v1/organizations/{id}` | PATCH | JWT (admin) | Rename, retire or restore a customer |
+| `/api/v1/organizations/{id}` | DELETE | JWT (admin) | Delete a customer and its devices (refused for a tenant's last one) |
+| `/api/v1/devices/{id}/organization` | PUT | JWT (admin) | Move a device to another customer in the same tenant |
 | `/api/v1/tenants/{tenantId}/purge` | POST | JWT (admin) | Purge a whole tenant's telemetry (async, tenant-scoped; [Data Lifecycle](Data-Lifecycle.md)) |
 | `/api/v1/purge-jobs/{jobId}` | GET | JWT | Get purge job status |
 | `/ws/relay/{token}` | GET | Token | WebSocket relay (bidirectional agent↔browser pipe) |
@@ -214,6 +220,21 @@ fleet summary below. The four maintenance fields
 (`maintenance_on`/`_since`/`_by`/`_reason`) are present on the device DTO only
 while a device is in maintenance. The canonical request/response shapes are in
 [`api/openapi.yaml`](../api/openapi.yaml).
+
+### Customers and the Fleet Filter
+
+A tenant is the wall the database enforces; an organization is one customer
+inside it, and every device belongs to exactly one. A technician sees every
+customer in their tenant, so the reads that answer with a set of devices — the
+device list and the fleet summary — accept an `organization_id` and narrow to it,
+returning the whole tenant when none is given. The rule is enforced against the
+specification rather than a hand-kept list: an operation whose 200 response is a
+set of devices or a rollup over one must declare the parameter, so a fleet read
+added later without it fails the suite.
+
+Customer names are unique within a tenant, not globally. Retiring a customer
+keeps its devices and its history and takes it out of the working set; deleting
+one takes its devices with it, and a tenant's last customer cannot be deleted.
 
 ### Fleet Summary
 

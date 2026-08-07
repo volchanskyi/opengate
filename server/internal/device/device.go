@@ -20,6 +20,9 @@ type DeviceID = uuid.UUID
 // GroupID uniquely identifies a device group.
 type GroupID = uuid.UUID
 
+// OrganizationID uniquely identifies the customer a device belongs to.
+type OrganizationID = uuid.UUID
+
 // DeviceStatus is the wire-protocol connection state of a managed device.
 type DeviceStatus string
 
@@ -39,19 +42,37 @@ var ErrGroupNotFound = errors.New("group not found")
 // ErrHardwareNotFound is returned when no hardware inventory exists for a device.
 var ErrHardwareNotFound = errors.New("device hardware not found")
 
+// ErrOrganizationNotFound is returned when a move names a customer that does not
+// exist in the device's tenant. Foreign-key checks run past row-level security,
+// so this is the check that keeps a device from being pushed into another
+// tenant's customer.
+var ErrOrganizationNotFound = errors.New("organization not found in this tenant")
+
+// Filter narrows a device list. A zero value in a field does not narrow on it,
+// so an empty Filter is the whole tenant. Fields narrow together.
+type Filter struct {
+	// GroupID limits the list to one filing label.
+	GroupID GroupID
+	// OrganizationID limits the list to one customer.
+	OrganizationID OrganizationID
+}
+
 // Device is a managed agent installation.
 type Device struct {
-	ID           DeviceID     `json:"id"`
-	GroupID      GroupID      `json:"group_id"`
-	Hostname     string       `json:"hostname"`
-	OS           string       `json:"os"`
-	OsDisplay    string       `json:"os_display"`
-	AgentVersion string       `json:"agent_version"`
-	Capabilities []string     `json:"capabilities"`
-	Status       DeviceStatus `json:"status"`
-	LastSeen     time.Time    `json:"last_seen"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
+	ID DeviceID `json:"id"`
+	// OrganizationID is the customer this device belongs to. It is never zero on
+	// a stored device: a write that names none takes the tenant's own.
+	OrganizationID OrganizationID `json:"organization_id"`
+	GroupID        GroupID        `json:"group_id"`
+	Hostname       string         `json:"hostname"`
+	OS             string         `json:"os"`
+	OsDisplay      string         `json:"os_display"`
+	AgentVersion   string         `json:"agent_version"`
+	Capabilities   []string       `json:"capabilities"`
+	Status         DeviceStatus   `json:"status"`
+	LastSeen       time.Time      `json:"last_seen"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
 
 	// Maintenance mode: the server-authoritative desired suppression state an
 	// administrator toggles. MaintenanceOn defaults to false (Active). When set,
@@ -166,10 +187,15 @@ type Repository interface {
 	// ErrDeviceNotFound when no device in scope owns the UUID.
 	GetByAMTUUID(ctx context.Context, amtUUID uuid.UUID) (*Device, error)
 	TenantForDevice(ctx context.Context, id DeviceID) (uuid.UUID, error)
-	List(ctx context.Context, groupID GroupID) ([]*Device, error)
-	ListAll(ctx context.Context) ([]*Device, error)
+	// List returns the devices in the caller's tenant that match filter. An
+	// empty filter is the whole tenant.
+	List(ctx context.Context, filter Filter) ([]*Device, error)
 	Delete(ctx context.Context, id DeviceID) error
 	UpdateGroup(ctx context.Context, id DeviceID, groupID GroupID) error
+	// UpdateOrganization moves a device to another customer inside the same
+	// tenant. Returns ErrDeviceNotFound when the device is not in scope and
+	// ErrOrganizationNotFound when the customer is not.
+	UpdateOrganization(ctx context.Context, id DeviceID, organizationID OrganizationID) error
 	SetStatus(ctx context.Context, id DeviceID, status DeviceStatus) error
 	ResetAllStatuses(ctx context.Context) error
 	// SetMaintenance toggles a device's maintenance state. Enabling stamps the
@@ -177,9 +203,10 @@ type Repository interface {
 	// the reason; disabling clears all three. Returns ErrDeviceNotFound when no
 	// device in the current tenant scope matches id.
 	SetMaintenance(ctx context.Context, id DeviceID, on bool, by uuid.UUID, reason string) error
-	// Counts returns the fleet status rollup for the current tenant scope in one
-	// aggregate row, so the dashboard never reads device rows to count them.
-	Counts(ctx context.Context) (Counts, error)
+	// Counts returns the fleet status rollup in one aggregate row, so the
+	// dashboard never reads device rows to count them. A zero organizationID
+	// counts the whole tenant; a named one counts that customer.
+	Counts(ctx context.Context, organizationID OrganizationID) (Counts, error)
 }
 
 // Counts is the fleet status rollup behind the dashboard tiles: three integers
