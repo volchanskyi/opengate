@@ -43,10 +43,10 @@ func TestAmtPowerActionUnknownIdentity(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-// TestAmtPowerActionRejectsOtherOrganization proves the guard is a tenant
+// TestAmtPowerActionRejectsOtherTenant proves the guard is a tenant
 // boundary, not just an existence check: a real AMT identity from another
-// organization is refused before any command is dispatched.
-func TestAmtPowerActionRejectsOtherOrganization(t *testing.T) {
+// tenant is refused before any command is dispatched.
+func TestAmtPowerActionRejectsOtherTenant(t *testing.T) {
 	t.Parallel()
 	srv, cfg := newTestServer(t)
 	ctx := testTenantContext(t)

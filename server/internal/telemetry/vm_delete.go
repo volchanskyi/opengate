@@ -20,12 +20,12 @@ func (v *VMClient) WithDeleteAuthKey(key string) *VMClient {
 }
 
 // DeleteSeries issues a scoped delete-series covering every metric for the
-// subject: the whole org when deviceID is nil, otherwise one device within the
-// org. The selector always includes org_id so a purge can never span tenants.
+// subject: the whole tenant when deviceID is nil, otherwise one device within the
+// tenant. The selector always includes tenant_id so a purge can never span tenants.
 // VictoriaMetrics processes the delete asynchronously and frees disk on a later
 // merge, so callers verify completion with CountSeries.
-func (v *VMClient) DeleteSeries(ctx context.Context, orgID uuid.UUID, deviceID *uuid.UUID) error {
-	selector, err := subjectSelector(orgID, deviceID)
+func (v *VMClient) DeleteSeries(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) error {
+	selector, err := subjectSelector(tenantID, deviceID)
 	if err != nil {
 		return err
 	}
@@ -45,8 +45,8 @@ func (v *VMClient) DeleteSeries(ctx context.Context, orgID uuid.UUID, deviceID *
 
 // CountSeries returns how many series still match the subject selector. A purge
 // job may complete only once this reaches zero.
-func (v *VMClient) CountSeries(ctx context.Context, orgID uuid.UUID, deviceID *uuid.UUID) (int, error) {
-	selector, err := subjectSelector(orgID, deviceID)
+func (v *VMClient) CountSeries(ctx context.Context, tenantID uuid.UUID, deviceID *uuid.UUID) (int, error) {
+	selector, err := subjectSelector(tenantID, deviceID)
 	if err != nil {
 		return 0, err
 	}
@@ -67,14 +67,14 @@ func (v *VMClient) CountSeries(ctx context.Context, orgID uuid.UUID, deviceID *u
 	return len(body.Data), nil
 }
 
-// SeriesSubject is one (org, device) pair that owns series in VictoriaMetrics.
+// SeriesSubject is one (tenant, device) pair that owns series in VictoriaMetrics.
 // The reconciliation sweep compares these against Postgres to find orphans.
 type SeriesSubject struct {
-	OrgID    uuid.UUID
+	TenantID uuid.UUID
 	DeviceID uuid.UUID
 }
 
-// ListSubjects returns the distinct (org_id, device_id) pairs present in
+// ListSubjects returns the distinct (tenant_id, device_id) pairs present in
 // VictoriaMetrics. Series lacking either label, or carrying an unparseable one,
 // are skipped: a reconciliation sweep must never delete what it cannot scope.
 func (v *VMClient) ListSubjects(ctx context.Context) ([]SeriesSubject, error) {
@@ -94,7 +94,7 @@ func (v *VMClient) ListSubjects(ctx context.Context) ([]SeriesSubject, error) {
 	seen := make(map[SeriesSubject]struct{})
 	var out []SeriesSubject
 	for _, labels := range body.Data {
-		org, err := uuid.Parse(labels["org_id"])
+		tenant, err := uuid.Parse(labels["tenant_id"])
 		if err != nil {
 			continue
 		}
@@ -102,7 +102,7 @@ func (v *VMClient) ListSubjects(ctx context.Context) ([]SeriesSubject, error) {
 		if err != nil {
 			continue
 		}
-		subject := SeriesSubject{OrgID: org, DeviceID: device}
+		subject := SeriesSubject{TenantID: tenant, DeviceID: device}
 		if _, ok := seen[subject]; ok {
 			continue
 		}
@@ -113,14 +113,14 @@ func (v *VMClient) ListSubjects(ctx context.Context) ([]SeriesSubject, error) {
 }
 
 // subjectSelector builds a bare label-matcher selector for a purge subject. It
-// always pins org_id and, for a device purge, device_id — never a metric name,
+// always pins tenant_id and, for a device purge, device_id — never a metric name,
 // so it matches every metric belonging to the subject.
-func subjectSelector(orgID uuid.UUID, deviceID *uuid.UUID) (string, error) {
-	if orgID == uuid.Nil {
-		return "", fmt.Errorf("org_id is required")
+func subjectSelector(tenantID uuid.UUID, deviceID *uuid.UUID) (string, error) {
+	if tenantID == uuid.Nil {
+		return "", fmt.Errorf("tenant_id is required")
 	}
 	if deviceID == nil {
-		return fmt.Sprintf(`{org_id=%q}`, orgID.String()), nil
+		return fmt.Sprintf(`{tenant_id=%q}`, tenantID.String()), nil
 	}
-	return fmt.Sprintf(`{org_id=%q,device_id=%q}`, orgID.String(), deviceID.String()), nil
+	return fmt.Sprintf(`{tenant_id=%q,device_id=%q}`, tenantID.String(), deviceID.String()), nil
 }

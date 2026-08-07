@@ -1,11 +1,11 @@
 ---
 adr: 062
-title: Organization-Scoped Reads, Admin-Gated Configuration, and an O(1) Fleet Summary
+title: Tenant-Scoped Reads, Admin-Gated Configuration, and an O(1) Fleet Summary
 status: Accepted
 date: 2026-07-30
 ---
 
-# ADR-062: Organization-Scoped Reads, Admin-Gated Configuration, and an O(1) Fleet Summary
+# ADR-062: Tenant-Scoped Reads, Admin-Gated Configuration, and an O(1) Fleet Summary
 
 ## Status
 
@@ -18,7 +18,7 @@ that nothing in the product exposed.
 
 **Group ownership gated nothing coherent.** `groups_.owner_id` recorded whoever
 created a group. A helper resolved `device → group → group.owner_id` and
-compared it to the caller, so a colleague in the same organization could not
+compared it to the caller, so a colleague in the same tenant could not
 open a device page for a group they had not created — while an ungrouped device
 was readable by everyone, because the nil group had no owner to check. The web
 client never displayed an owner and offered no way to change one. The result was
@@ -39,21 +39,21 @@ device pages.
 
 ## Decision
 
-### Organization is the visibility boundary; `is_admin` is the mutation boundary
+### Tenant is the visibility boundary; `is_admin` is the mutation boundary
 
-Every member of an organization sees the same fleet and may act on any device in
+Every member of a tenant sees the same fleet and may act on any device in
 it. Only configuration and secret-bearing reads are gated on admin.
 
 | Class | Gate | Endpoints |
 |---|---|---|
-| Fleet reads | Organization | Device list/detail/summary, metrics, correlate, history, inventory, hardware, group list/detail, session list |
-| Device commands | Organization | Session create/delete, restart, maintenance, Intel AMT power |
-| Configuration | Admin | Device delete, device group move, group create/delete, enrollment tokens, updates, users, security groups, organization purge |
+| Fleet reads | Tenant | Device list/detail/summary, metrics, correlate, history, inventory, hardware, group list/detail, session list |
+| Device commands | Tenant | Session create/delete, restart, maintenance, Intel AMT power |
+| Configuration | Admin | Device delete, device group move, group create/delete, enrollment tokens, updates, users, security groups, tenant purge |
 | Secret-bearing reads | Admin | Device logs, enrollment tokens, update signing key, audit log, user list |
 
 Visibility is enforced in the repository rather than in a handler branch. Every
-read runs inside a transaction that sets `app.current_org`, so a resource in
-another organization resolves to "not found" — the boundary is structural and a
+read runs inside a transaction that sets `app.current_tenant`, so a resource in
+another tenant resolves to "not found" — the boundary is structural and a
 handler cannot forget it. The mutation boundary is the `denyIfNotAdmin` helper
 at the top of each configuration handler.
 
@@ -62,7 +62,7 @@ filing label, not an access boundary. Because dropping a column is lossy, the
 down migration restores `owner_id` as nullable; the original `NOT NULL` cannot
 be recreated without the values it held.
 
-Three named guards make the organization check explicit where a handler acts on
+Three named guards make the tenant check explicit where a handler acts on
 a resource addressed by a caller-supplied id: `requireDeviceInScope`,
 `requireAMTDeviceInScope` and `requireSessionInScope`. Naming the step matters
 for more than readability — the adversarial pen-test gate
@@ -73,9 +73,9 @@ an admin gate nor a scope guard is refused at commit time.
 Intel AMT power is the one case where the resource has no tenant of its own: the
 CIRA connection map is keyed by AMT UUID alone. The handler resolves the managed
 device behind that UUID through the tenant-scoped repository first, so a UUID
-outside the caller's organization is refused before any command is dispatched.
+outside the caller's tenant is refused before any command is dispatched.
 This replaces the previous admin gate, which was standing in for a tenancy check
-it could not actually perform — an administrator of one organization could have
+it could not actually perform — an administrator of one tenant could have
 power-cycled another's hardware.
 
 ### `GET /api/v1/devices/summary`
@@ -100,14 +100,14 @@ is the sharp edge of the design and it is tested against a real VictoriaMetrics,
 not a mock. `unknown` is the remainder, `total − Σbands`, floored at zero
 because a sample can outlive the device row it described.
 
-The summary is **organization-scoped for every caller, administrators
-included** — the one deliberate exception to admin cross-organization reads. The
-dashboard describes the caller's own organization, so the tiles and the health
+The summary is **tenant-scoped for every caller, administrators
+included** — the one deliberate exception to admin cross-tenant reads. The
+dashboard describes the caller's own tenant, so the tiles and the health
 bands always cover one device set and `unknown` is exact.
 
-*Accepted consequence:* for an administrator in a multi-organization deployment,
-a tile links to `/devices?status=online`, which lists across organizations, so
-tile counts and list length can differ. Production runs a single organization,
+*Accepted consequence:* for an administrator in a multi-tenant deployment,
+a tile links to `/devices?status=online`, which lists across tenants, so
+tile counts and list length can differ. Production runs a single tenant,
 so this is latent rather than live. If it ever bites, the fix is a scope
 selector on the list, not a change here.
 
@@ -132,7 +132,7 @@ bounded, user-initiated job whose terminal state drives a completion toast.
 
 ## Consequences
 
-A colleague added to an organization now sees the fleet immediately, with no
+A colleague added to a tenant now sees the fleet immediately, with no
 group hand-off. Two people looking at the same deployment see the same thing,
 which is what an operations tool has to guarantee.
 

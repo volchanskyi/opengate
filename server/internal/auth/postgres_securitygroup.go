@@ -29,9 +29,9 @@ func (p *PostgresSecurityGroups) Create(ctx context.Context, g *SecurityGroup) e
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO security_groups (id, org_id, name, description, is_system, created_at, updated_at)
+			`INSERT INTO security_groups (id, tenant_id, name, description, is_system, created_at, updated_at)
 			 VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
-			g.ID, tenant.OrgID, g.Name, g.Description, g.IsSystem)
+			g.ID, tenant.TenantID, g.Name, g.Description, g.IsSystem)
 		return err
 	})
 }
@@ -42,7 +42,7 @@ func (p *PostgresSecurityGroups) Get(ctx context.Context, id SecurityGroupID) (*
 		return tx.QueryRowContext(ctx,
 			`SELECT id, name, description, is_system, created_at, updated_at
 			 FROM security_groups
-			 WHERE org_id = current_setting('app.current_org')::uuid AND id = $1`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`,
 			id).Scan(&g.ID, &g.Name, &g.Description, &g.IsSystem, &g.CreatedAt, &g.UpdatedAt)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -60,7 +60,7 @@ func (p *PostgresSecurityGroups) List(ctx context.Context) ([]*SecurityGroup, er
 		rows, err := tx.QueryContext(ctx,
 			`SELECT id, name, description, is_system, created_at, updated_at
 			 FROM security_groups
-			 WHERE org_id = current_setting('app.current_org')::uuid
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid
 			 ORDER BY name`)
 		if err != nil {
 			return err
@@ -90,7 +90,7 @@ func (p *PostgresSecurityGroups) Delete(ctx context.Context, id SecurityGroupID)
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`DELETE FROM security_groups
-			 WHERE org_id = current_setting('app.current_org')::uuid AND id = $1`, id)
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`, id)
 		if err != nil {
 			return err
 		}
@@ -112,10 +112,10 @@ func (p *PostgresSecurityGroups) AddMember(ctx context.Context, groupID Security
 	}
 	if err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO security_group_members (org_id, group_id, user_id, added_at)
+			`INSERT INTO security_group_members (tenant_id, group_id, user_id, added_at)
 			 VALUES ($1, $2, $3, NOW())
 			 ON CONFLICT DO NOTHING`,
-			tenant.OrgID, groupID, userID)
+			tenant.TenantID, groupID, userID)
 		return err
 	}); err != nil {
 		return err
@@ -139,7 +139,7 @@ func (p *PostgresSecurityGroups) RemoveMember(ctx context.Context, groupID Secur
 	if err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`DELETE FROM security_group_members
-			 WHERE org_id = current_setting('app.current_org')::uuid AND group_id = $1 AND user_id = $2`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND group_id = $1 AND user_id = $2`,
 			groupID, userID)
 		if err != nil {
 			return err
@@ -168,8 +168,8 @@ func (p *PostgresSecurityGroups) ListMembers(ctx context.Context, groupID Securi
 			`SELECT u.id, u.email, u.display_name, u.is_admin, u.created_at, u.updated_at
 			 FROM users u
 			 INNER JOIN security_group_members sgm ON sgm.user_id = u.id
-			 WHERE sgm.org_id = current_setting('app.current_org')::uuid
-			   AND u.org_id = current_setting('app.current_org')::uuid
+			 WHERE sgm.tenant_id = current_setting('app.current_tenant')::uuid
+			   AND u.tenant_id = current_setting('app.current_tenant')::uuid
 			   AND sgm.group_id = $1
 			 ORDER BY u.email`,
 			groupID)
@@ -196,7 +196,7 @@ func (p *PostgresSecurityGroups) IsUserInGroup(ctx context.Context, userID uuid.
 		return tx.QueryRowContext(ctx,
 			`SELECT EXISTS(
 				SELECT 1 FROM security_group_members
-				WHERE org_id = current_setting('app.current_org')::uuid AND group_id = $1 AND user_id = $2)`,
+				WHERE tenant_id = current_setting('app.current_tenant')::uuid AND group_id = $1 AND user_id = $2)`,
 			groupID, userID).Scan(&exists)
 	})
 	return exists, err
@@ -207,7 +207,7 @@ func (p *PostgresSecurityGroups) CountMembers(ctx context.Context, groupID Secur
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM security_group_members
-			 WHERE org_id = current_setting('app.current_org')::uuid AND group_id = $1`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND group_id = $1`,
 			groupID).Scan(&count)
 	})
 	return count, err
@@ -224,9 +224,9 @@ func (p *PostgresSecurityGroups) syncIsAdmin(ctx context.Context, userID uuid.UU
 		_, err := tx.ExecContext(ctx,
 			`UPDATE users SET is_admin = EXISTS(
 				SELECT 1 FROM security_group_members
-				WHERE org_id = current_setting('app.current_org')::uuid AND user_id = $1 AND group_id = $2
+				WHERE tenant_id = current_setting('app.current_tenant')::uuid AND user_id = $1 AND group_id = $2
 			), updated_at = NOW()
-			WHERE org_id = current_setting('app.current_org')::uuid AND id = $1`,
+			WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`,
 			userID, AdminGroupID)
 		return err
 	})

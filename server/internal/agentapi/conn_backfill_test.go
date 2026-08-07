@@ -21,12 +21,12 @@ var errBackfillWrite = errors.New("backfill write failed")
 
 // backfillConn builds an AgentConn wired to a scheduler over an in-memory
 // buffer, advertising the Backfill capability unless capable is false.
-func backfillConn(t *testing.T, s *BackfillScheduler, org uuid.UUID, capable bool) (*AgentConn, *bytes.Buffer) {
+func backfillConn(t *testing.T, s *BackfillScheduler, tenant uuid.UUID, capable bool) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
 	ac := &AgentConn{
 		DeviceID:  uuid.New(),
-		OrgID:     org,
+		TenantID:  tenant,
 		stream:    &buf,
 		codec:     &protocol.Codec{},
 		scheduler: s,
@@ -40,12 +40,12 @@ func backfillConn(t *testing.T, s *BackfillScheduler, org uuid.UUID, capable boo
 
 // ingestConn builds an AgentConn wired to a telemetry writer over an in-memory
 // buffer, advertising the Backfill capability unless capable is false.
-func ingestConn(t *testing.T, org uuid.UUID, writer telemetry.NumericWriter, capable bool) (*AgentConn, *bytes.Buffer) {
+func ingestConn(t *testing.T, tenant uuid.UUID, writer telemetry.NumericWriter, capable bool) (*AgentConn, *bytes.Buffer) {
 	t.Helper()
 	var buf bytes.Buffer
 	ac := &AgentConn{
 		DeviceID:  uuid.New(),
-		OrgID:     org,
+		TenantID:  tenant,
 		stream:    &buf,
 		codec:     &protocol.Codec{},
 		telemetry: writer,
@@ -57,9 +57,9 @@ func ingestConn(t *testing.T, org uuid.UUID, writer telemetry.NumericWriter, cap
 	return ac, &buf
 }
 
-// tenantCtx scopes a context to org, as handleControl does before dispatch.
-func tenantCtx(org uuid.UUID) context.Context {
-	return dbtx.WithTenant(context.Background(), org, false)
+// tenantCtx scopes a context to tenant, as handleControl does before dispatch.
+func tenantCtx(tenant uuid.UUID) context.Context {
+	return dbtx.WithTenant(context.Background(), tenant, false)
 }
 
 // readReply decodes the single control frame the handler wrote back to buf.
@@ -76,8 +76,8 @@ func readReply(t *testing.T, ac *AgentConn, buf *bytes.Buffer) *protocol.Control
 func TestHandleRequestBackfillSlot_GrantsWhenAdmitted(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
-	org := uuid.New()
-	ac, buf := backfillConn(t, s, org, true)
+	tenant := uuid.New()
+	ac, buf := backfillConn(t, s, tenant, true)
 
 	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{
 		Type:           protocol.MsgRequestBackfillSlot,
@@ -89,7 +89,7 @@ func TestHandleRequestBackfillSlot_GrantsWhenAdmitted(t *testing.T) {
 	assert.Equal(t, protocol.MsgGrantBackfill, reply.Type)
 	assert.GreaterOrEqual(t, reply.Rate, schedCfg().MinGrantRate)
 	assert.Equal(t, clock().Add(schedCfg().GrantTTL).Unix(), reply.Deadline)
-	// The slot is booked against the connection's org, never an agent-supplied one.
+	// The slot is booked against the connection's tenant, never an agent-supplied one.
 	assert.Equal(t, 1, s.ActiveCount())
 }
 
@@ -136,26 +136,26 @@ func TestHandleRequestBackfillSlot_NoSchedulerIsNoOp(t *testing.T) {
 	assert.Zero(t, buf.Len())
 }
 
-func TestHandleRequestBackfillSlot_ScopesToConnectionOrg(t *testing.T) {
+func TestHandleRequestBackfillSlot_ScopesToConnectionTenant(t *testing.T) {
 	clock, _ := fixedClock()
 	s := NewBackfillScheduler(schedCfg(), clock, func() float64 { return 1.0 })
-	connOrg := uuid.New()
-	ac, buf := backfillConn(t, s, connOrg, true)
+	connTenant := uuid.New()
+	ac, buf := backfillConn(t, s, connTenant, true)
 
-	// Fill the connection's org to its per-tenant cap using the SAME org id the
+	// Fill the connection's tenant to its per-tenant cap using the SAME tenant id the
 	// connection carries; the next request must defer — proving admission keys on
-	// the connection org, not anything the agent could supply.
+	// the connection tenant, not anything the agent could supply.
 	for range schedCfg().PerTenantMax {
-		require.True(t, s.RequestSlot(uuid.New(), connOrg, SlotRequest{}).Grant)
+		require.True(t, s.RequestSlot(uuid.New(), connTenant, SlotRequest{}).Grant)
 	}
 	require.NoError(t, ac.handleRequestBackfillSlot(&protocol.ControlMessage{Type: protocol.MsgRequestBackfillSlot}))
 	assert.Equal(t, protocol.MsgDeferBackfill, readReply(t, ac, buf).Type)
 }
 
 func TestHandleMetricBackfillBatch_WritesHistoricalSamplesAndAcks(t *testing.T) {
-	org := uuid.New()
+	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, buf := ingestConn(t, org, writer, true)
+	ac, buf := ingestConn(t, tenant, writer, true)
 
 	now := time.Now().Unix()
 	tooOld := now - backfillRetentionSecs - 3600 // out of retention → clamped
@@ -170,14 +170,14 @@ func TestHandleMetricBackfillBatch_WritesHistoricalSamplesAndAcks(t *testing.T) 
 		Cursor: now - 7140,
 	}
 
-	// handleControl injects the tenant scope; the org must come from the
+	// handleControl injects the tenant scope; the tenant must come from the
 	// connection, so seed the context with a DIFFERENT tenant to prove the
 	// write keys on the connection's tenant, not the context default.
-	ctx := dbtx.WithTenant(context.Background(), org, false)
+	ctx := dbtx.WithTenant(context.Background(), tenant, false)
 	require.NoError(t, ac.handleMetricBackfillBatch(ctx, msg, 256))
 
 	call := <-writer.calls
-	assert.Equal(t, org, call.orgID, "write is scoped to the connection org")
+	assert.Equal(t, tenant, call.tenantID, "write is scoped to the connection tenant")
 	assert.Equal(t, ac.DeviceID, call.deviceID)
 	require.Len(t, call.samples, 2, "the out-of-retention sample is clamped away")
 	for _, s := range call.samples {
@@ -196,9 +196,9 @@ func TestHandleMetricBackfillBatch_WritesHistoricalSamplesAndAcks(t *testing.T) 
 }
 
 func TestHandleMetricBackfillBatch_AllClampedStillAcksToUnstick(t *testing.T) {
-	org := uuid.New()
+	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, buf := ingestConn(t, org, writer, true)
+	ac, buf := ingestConn(t, tenant, writer, true)
 	now := time.Now().Unix()
 	msg := &protocol.ControlMessage{
 		Type: protocol.MsgMetricBackfillBatch,
@@ -208,7 +208,7 @@ func TestHandleMetricBackfillBatch_AllClampedStillAcksToUnstick(t *testing.T) {
 		},
 		Cursor: now - backfillRetentionSecs - 100,
 	}
-	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(org), msg, 128))
+	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), msg, 128))
 
 	// No write (everything clamped) but still an ack so the agent does not stall.
 	assert.Empty(t, writer.calls)
@@ -226,55 +226,55 @@ func (e *erroringTelemetryWriter) WriteSamples(context.Context, uuid.UUID, uuid.
 }
 
 func TestHandleMetricBackfillBatch_DoesNotAckOnPersistFailure(t *testing.T) {
-	org := uuid.New()
+	tenant := uuid.New()
 	writer := &erroringTelemetryWriter{}
-	ac, buf := ingestConn(t, org, writer, true)
+	ac, buf := ingestConn(t, tenant, writer, true)
 	msg := &protocol.ControlMessage{
 		Type:            protocol.MsgMetricBackfillBatch,
 		Tier:            protocol.BackfillTierRaw10s,
 		BackfillSamples: []protocol.BackfillSample{{Name: "cpu.total", TS: time.Now().Unix() - 100, Value: 1}},
 		Cursor:          time.Now().Unix() - 100,
 	}
-	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(org), msg, 128))
+	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), msg, 128))
 	assert.Equal(t, 1, writer.calls, "the write was attempted")
 	assert.Zero(t, buf.Len(), "a failed write is not acked — the agent re-sends from its cursor")
 }
 
 func TestHandleMetricBackfillBatch_GuardsNilTelemetryPayloadAndTenant(t *testing.T) {
-	org := uuid.New()
+	tenant := uuid.New()
 	sample := []protocol.BackfillSample{{Name: "cpu.total", TS: time.Now().Unix() - 100, Value: 1}}
 	msg := &protocol.ControlMessage{Type: protocol.MsgMetricBackfillBatch, BackfillSamples: sample}
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
 
 	// Nil telemetry writer: a silent no-op.
-	nilAc, nilBuf := ingestConn(t, org, nil, true)
-	require.NoError(t, nilAc.handleMetricBackfillBatch(tenantCtx(org), msg, 128))
+	nilAc, nilBuf := ingestConn(t, tenant, nil, true)
+	require.NoError(t, nilAc.handleMetricBackfillBatch(tenantCtx(tenant), msg, 128))
 	assert.Zero(t, nilBuf.Len())
 
 	// Oversized payload is dropped before any write or ack.
-	bigAc, bigBuf := ingestConn(t, org, writer, true)
-	require.NoError(t, bigAc.handleMetricBackfillBatch(tenantCtx(org), msg, maxTelemetryPayloadBytes+1))
+	bigAc, bigBuf := ingestConn(t, tenant, writer, true)
+	require.NoError(t, bigAc.handleMetricBackfillBatch(tenantCtx(tenant), msg, maxTelemetryPayloadBytes+1))
 	assert.Empty(t, writer.calls)
 	assert.Zero(t, bigBuf.Len())
 	assert.Positive(t, bigAc.DroppedTelemetryCount())
 
-	// No tenant in context: dropped, never written with a guessed org.
-	noTenantAc, noTenantBuf := ingestConn(t, org, writer, true)
+	// No tenant in context: dropped, never written with a guessed tenant.
+	noTenantAc, noTenantBuf := ingestConn(t, tenant, writer, true)
 	require.NoError(t, noTenantAc.handleMetricBackfillBatch(context.Background(), msg, 128))
 	assert.Empty(t, writer.calls)
 	assert.Zero(t, noTenantBuf.Len())
 }
 
 func TestHandleMetricBackfillBatch_IgnoredWithoutCapability(t *testing.T) {
-	org := uuid.New()
+	tenant := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
-	ac, buf := ingestConn(t, org, writer, false)
+	ac, buf := ingestConn(t, tenant, writer, false)
 	msg := &protocol.ControlMessage{
 		Type:            protocol.MsgMetricBackfillBatch,
 		Tier:            protocol.BackfillTierRaw10s,
 		BackfillSamples: []protocol.BackfillSample{{Name: "cpu.total", TS: time.Now().Unix() - 100, Value: 1}},
 	}
-	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(org), msg, 128))
+	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), msg, 128))
 	assert.Empty(t, writer.calls, "no write for an agent without the Backfill capability")
 	assert.Zero(t, buf.Len(), "no ack either")
 }

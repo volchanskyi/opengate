@@ -84,7 +84,7 @@ pub struct ProcessReportEntry {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HealthSummary {
     pub ts: i64,
-    pub org_id: String,
+    pub tenant_id: String,
     pub node_anomaly_rate: f64,
     #[serde(default)]
     pub per_family_rates: Vec<FamilyAnomalyRate>,
@@ -214,7 +214,7 @@ pub enum ControlMessage {
         #[serde(default)]
         ts: i64,
         #[serde(default)]
-        org_id: String,
+        tenant_id: String,
         #[serde(default)]
         node_anomaly_rate: f64,
         #[serde(default)]
@@ -234,7 +234,7 @@ pub enum ControlMessage {
         #[serde(default)]
         ts: i64,
         #[serde(default)]
-        org_id: String,
+        tenant_id: String,
         #[serde(default)]
         dims: Vec<MetricDim>,
     },
@@ -242,7 +242,7 @@ pub enum ControlMessage {
         #[serde(default)]
         ts: i64,
         #[serde(default)]
-        org_id: String,
+        tenant_id: String,
         #[serde(default)]
         top_n: Vec<ProcessReportEntry>,
     },
@@ -547,13 +547,13 @@ pub enum ControlMessage {
     /// and installed packages. Non-intrusive, read-only, per-category bounded;
     /// `truncated` is set when any category was capped. Carries no secrets
     /// (engine/port/version only, never connection strings or credentials). The
-    /// server assigns the authoritative org, so the agent leaves `org_id` empty.
+    /// server assigns the authoritative tenant, so the agent leaves `tenant_id` empty.
     /// Gated by the Discovery capability.
     DiscoveryReport {
         #[serde(default)]
         ts: i64,
         #[serde(default)]
-        org_id: String,
+        tenant_id: String,
         #[serde(default)]
         ports: Vec<DiscoveredPort>,
         #[serde(default)]
@@ -570,7 +570,7 @@ pub enum ControlMessage {
 
     /// Server → Agent: replace the agent's active threshold-alert ruleset (WS-19)
     /// with this tenant-scoped set. The server sends only the connecting agent's
-    /// authoritative-org rules; the agent evaluates them locally each window and
+    /// authoritative-tenant rules; the agent evaluates them locally each window and
     /// carries any breach in `AgentHealthSummary`. Gated by the ThresholdAlerts
     /// capability.
     PushAlertRules {

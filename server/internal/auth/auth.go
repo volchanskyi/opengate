@@ -2,6 +2,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -18,12 +19,18 @@ type JWTConfig struct {
 	Duration time.Duration
 }
 
+// ErrTenantClaimMissing is returned when a token carries no readable tenant.
+// Every request runs inside a tenant, so a token that names none cannot be
+// honoured; it is refused as a token, which asks the caller to log in again
+// instead of letting the request reach a handler with no scope to work in.
+var ErrTenantClaimMissing = errors.New("token carries no tenant claim")
+
 // Claims represents the JWT claims embedded in a token.
 type Claims struct {
-	UserID  uuid.UUID `json:"uid"`
-	OrgID   uuid.UUID `json:"org"`
-	Email   string    `json:"email"`
-	IsAdmin bool      `json:"admin"`
+	UserID   uuid.UUID `json:"uid"`
+	TenantID uuid.UUID `json:"tenant"`
+	Email    string    `json:"email"`
+	IsAdmin  bool      `json:"admin"`
 	jwt.RegisteredClaims
 }
 
@@ -42,17 +49,17 @@ func CheckPassword(hash, password string) error {
 }
 
 // GenerateToken creates a signed JWT for the given user.
-func (c *JWTConfig) GenerateToken(userID uuid.UUID, email string, isAdmin bool, orgIDs ...uuid.UUID) (string, error) {
+func (c *JWTConfig) GenerateToken(userID uuid.UUID, email string, isAdmin bool, tenantIDs ...uuid.UUID) (string, error) {
 	now := time.Now()
-	orgID := dbtx.DefaultOrgID
-	if len(orgIDs) > 0 && orgIDs[0] != uuid.Nil {
-		orgID = orgIDs[0]
+	tenantID := dbtx.DefaultTenantID
+	if len(tenantIDs) > 0 && tenantIDs[0] != uuid.Nil {
+		tenantID = tenantIDs[0]
 	}
 	claims := &Claims{
-		UserID:  userID,
-		OrgID:   orgID,
-		Email:   email,
-		IsAdmin: isAdmin,
+		UserID:   userID,
+		TenantID: tenantID,
+		Email:    email,
+		IsAdmin:  isAdmin,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    c.Issuer,
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -79,6 +86,9 @@ func (c *JWTConfig) ValidateToken(tokenString string) (*Claims, error) {
 	}, jwt.WithIssuer(c.Issuer), jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil {
 		return nil, fmt.Errorf("validate token: %w", err)
+	}
+	if claims.TenantID == uuid.Nil {
+		return nil, ErrTenantClaimMissing
 	}
 	return claims, nil
 }

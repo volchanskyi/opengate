@@ -7,7 +7,7 @@ type User = components['schemas']['User'];
 
 interface AuthState {
   token: string | null;
-  orgId: string | null;
+  tenantId: string | null;
   user: User | null;
   isLoading: boolean;
   hydrated: boolean;
@@ -19,7 +19,7 @@ interface AuthState {
   hydrate: () => Promise<void>;
 }
 
-export function orgIdFromToken(token: string): string | null {
+export function tenantIdFromToken(token: string): string | null {
   const payload = token.split('.')[1];
   if (!payload) {
     return null;
@@ -27,8 +27,8 @@ export function orgIdFromToken(token: string): string | null {
   try {
     const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
     const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
-    const claims = JSON.parse(globalThis.atob(padded)) as { org?: unknown };
-    return typeof claims.org === 'string' && claims.org.length > 0 ? claims.org : null;
+    const claims = JSON.parse(globalThis.atob(padded)) as { tenant?: unknown };
+    return typeof claims.tenant === 'string' && claims.tenant.length > 0 ? claims.tenant : null;
   } catch {
     return null;
   }
@@ -36,7 +36,7 @@ export function orgIdFromToken(token: string): string | null {
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
-  orgId: null,
+  tenantId: null,
   user: null,
   isLoading: false,
   hydrated: false,
@@ -48,7 +48,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     );
     if (res.ok) {
       localStorage.setItem('token', res.data.token);
-      set({ token: res.data.token, orgId: orgIdFromToken(res.data.token) });
+      set({ token: res.data.token, tenantId: tenantIdFromToken(res.data.token) });
       await get().fetchMe();
     }
   },
@@ -61,14 +61,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     );
     if (res.ok) {
       localStorage.setItem('token', res.data.token);
-      set({ token: res.data.token, orgId: orgIdFromToken(res.data.token) });
+      set({ token: res.data.token, tenantId: tenantIdFromToken(res.data.token) });
       await get().fetchMe();
     }
   },
 
   logout: () => {
     localStorage.removeItem('token');
-    set({ token: null, orgId: null, user: null, error: null });
+    set({ token: null, tenantId: null, user: null, error: null });
   },
 
   fetchMe: async () => {
@@ -88,7 +88,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ hydrated: true });
       return;
     }
-    set({ token, orgId: orgIdFromToken(token) });
+    set({ token, tenantId: tenantIdFromToken(token) });
     await get().fetchMe();
     set({ hydrated: true });
   },

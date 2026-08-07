@@ -36,18 +36,18 @@ is neither complete nor race-safe.
 - **Every write path checks the deny-list.** The agent server warms an in-memory
   copy at startup and rejects a tombstoned device on connect and on every
   write-path control message; a tenant purge records a per-device tombstone for
-  each device so the check needs only the device id even after the org linkage is
+  each device so the check needs only the device id even after the tenant linkage is
   gone.
 - **Verified, resumable jobs.** `purge_jobs` persists per-store progress;
   completion is gated on a post-delete VictoriaMetrics emptiness check, and an
   interrupted job resumes idempotently at startup. A periodic reconciliation
   sweep garbage-collects orphaned series as defense in depth.
-- **Retain the erasure proof.** Audit events and the organization row are
+- **Retain the erasure proof.** Audit events and the tenant row are
   retained: the audit trail is the compliance record, and referential integrity
-  against retained audit events would otherwise block deleting the org row.
+  against retained audit events would otherwise block deleting the tenant row.
 - **Server-side only.** The VictoriaMetrics delete key (`-deleteAuthKey`) and any
   object-store credentials never reach the edge; the delete selector always pins
-  `org_id` so a purge can never span tenants.
+  `tenant_id` so a purge can never span tenants.
 
 ## Consequences
 

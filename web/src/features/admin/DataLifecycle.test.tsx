@@ -10,13 +10,13 @@ vi.mock('../../lib/api', () => ({
   api: { GET: vi.fn(), POST: vi.fn() },
 }));
 
-const orgId = '11111111-1111-1111-1111-111111111111';
+const tenantId = '11111111-1111-1111-1111-111111111111';
 const addToast = vi.fn();
 
 function jobAt(state: string, overrides: Record<string, unknown> = {}) {
   return {
     data: {
-      id: 'job-1', org_id: orgId, scope: 'org', state,
+      id: 'job-1', tenant_id: tenantId, scope: 'tenant', state,
       vm_deleted: state !== 'requested', object_deleted: false, pg_deleted: false, verified: false,
       created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', ...overrides,
     },
@@ -27,7 +27,7 @@ function jobAt(state: string, overrides: Record<string, unknown> = {}) {
 describe('DataLifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAuthStore.setState({ orgId, token: 't', user: null, hydrated: true, error: null });
+    useAuthStore.setState({ tenantId, token: 't', user: null, hydrated: true, error: null });
     useToastStore.setState({ addToast });
   });
 
@@ -47,7 +47,7 @@ describe('DataLifecycle', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /confirm/i }));
     await waitFor(() => { expect(api.POST).toHaveBeenCalledTimes(1); });
-    expect(api.POST).toHaveBeenCalledWith('/api/v1/orgs/{orgId}/purge', { params: { path: { orgId } } });
+    expect(api.POST).toHaveBeenCalledWith('/api/v1/tenants/{tenantId}/purge', { params: { path: { tenantId } } });
     expect(addToast).toHaveBeenCalledWith('Tenant purge started', 'success');
   });
 
@@ -89,8 +89,8 @@ describe('DataLifecycle', () => {
     expect(api.POST).not.toHaveBeenCalled();
   });
 
-  it('disables purge when the authenticated organization is absent', () => {
-    useAuthStore.setState({ orgId: null });
+  it('disables purge when the authenticated tenant is absent', () => {
+    useAuthStore.setState({ tenantId: null });
     render(<DataLifecycle />);
     expect(screen.getByRole('button', { name: 'Purge all tenant telemetry' })).toBeDisabled();
   });

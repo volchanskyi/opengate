@@ -67,7 +67,7 @@ type AgentServerConfig struct {
 	Logger        *slog.Logger
 	// AlertRules provides each connecting agent's tenant-scoped WS-19
 	// threshold-alert ruleset. Optional: nil falls back to DefaultAlertRules
-	// for every org.
+	// for every tenant.
 	AlertRules AlertRuleProvider
 	// Tombstones is the persisted deny-list used to warm the in-memory cache at
 	// startup so a purged device stays rejected across restarts. Optional: nil
@@ -210,7 +210,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 	deviceID := result.DeviceID
 	ac := &AgentConn{
 		DeviceID:      deviceID,
-		OrgID:         agentOrgID(ctx),
+		TenantID:      agentTenantID(ctx),
 		GroupID:       groupID,
 		isTombstoned:  func() bool { _, ok := s.tombstones.Load(deviceID); return ok },
 		stream:        stream,
@@ -256,8 +256,8 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 		s.count.Add(-1)
 		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if ac.OrgID != uuid.Nil {
-			offlineCtx = dbtx.WithTenant(offlineCtx, ac.OrgID, false)
+		if ac.TenantID != uuid.Nil {
+			offlineCtx = dbtx.WithTenant(offlineCtx, ac.TenantID, false)
 		} else {
 			offlineCtx = dbtx.WithDefaultTenant(offlineCtx, false)
 		}
@@ -281,22 +281,22 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 
 func (s *AgentServer) scopeForDevice(ctx context.Context, deviceID uuid.UUID, logger *slog.Logger) context.Context {
 	resolveCtx := dbtx.WithDefaultTenant(ctx, true)
-	orgID, err := s.devices.OrgForDevice(resolveCtx, deviceID)
+	tenantID, err := s.devices.TenantForDevice(resolveCtx, deviceID)
 	if err != nil {
 		if !errors.Is(err, device.ErrDeviceNotFound) {
-			logger.Warn("resolve device org failed; falling back to default org", "error", err)
+			logger.Warn("resolve device tenant failed; falling back to default tenant", "error", err)
 		}
 		return dbtx.WithDefaultTenant(ctx, false)
 	}
-	return dbtx.WithTenant(ctx, orgID, false)
+	return dbtx.WithTenant(ctx, tenantID, false)
 }
 
-func agentOrgID(ctx context.Context) uuid.UUID {
+func agentTenantID(ctx context.Context) uuid.UUID {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {
 		return uuid.Nil
 	}
-	return tenant.OrgID
+	return tenant.TenantID
 }
 
 // runControlLoop processes control messages until the stream errors or the context is cancelled.

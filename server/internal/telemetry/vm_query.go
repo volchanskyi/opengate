@@ -38,8 +38,8 @@ func (a RangeAgg) overTimeFunc() (string, bool) {
 	}
 }
 
-// RangeQuery describes a bounded, org-scoped, step-downsampled range read of a
-// single metric. Matchers must not include org_id (the scoped client owns it).
+// RangeQuery describes a bounded, tenant-scoped, step-downsampled range read of a
+// single metric. Matchers must not include tenant_id (the scoped client owns it).
 type RangeQuery struct {
 	Metric   string
 	Matchers map[string]string
@@ -75,13 +75,13 @@ type vmMatrixResponse struct {
 	} `json:"data"`
 }
 
-// QueryRange runs a bounded, org-scoped, step-downsampled range query for a
+// QueryRange runs a bounded, tenant-scoped, step-downsampled range query for a
 // single metric filtered by non-reserved label matchers. Each step bucket is
 // collapsed with agg over the raw 10 s samples, so the returned point count per
 // series is bounded by (end-start)/step regardless of window span — the core
-// scalability lever. The authoritative org_id matcher is injected here; callers
+// scalability lever. The authoritative tenant_id matcher is injected here; callers
 // never supply their own.
-func (v *VMClient) QueryRange(ctx context.Context, orgID uuid.UUID, rq RangeQuery) ([]RangeSeries, error) {
+func (v *VMClient) QueryRange(ctx context.Context, tenantID uuid.UUID, rq RangeQuery) ([]RangeSeries, error) {
 	fn, ok := rq.Agg.overTimeFunc()
 	if !ok {
 		return nil, fmt.Errorf("unsupported range aggregation %q", rq.Agg)
@@ -89,7 +89,7 @@ func (v *VMClient) QueryRange(ctx context.Context, orgID uuid.UUID, rq RangeQuer
 	if rq.Step <= 0 {
 		return nil, fmt.Errorf("step must be positive")
 	}
-	scoped, err := v.scopedSelector(orgID, rq.Metric, rq.Matchers)
+	scoped, err := v.scopedSelector(tenantID, rq.Metric, rq.Matchers)
 	if err != nil {
 		return nil, err
 	}
@@ -107,21 +107,21 @@ func (v *VMClient) QueryRange(ctx context.Context, orgID uuid.UUID, rq RangeQuer
 	return matrixToRangeSeries(resp)
 }
 
-// QueryInstant runs an org-scoped instant query returning the latest value per
+// QueryInstant runs a tenant-scoped instant query returning the latest value per
 // series for the metric filtered by matchers. Passing no device_id matcher
-// yields one value per device in the org — a single query behind the fleet
+// yields one value per device in the tenant — a single query behind the fleet
 // health badge.
-func (v *VMClient) QueryInstant(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]InstantValue, error) {
-	return v.scopedInstant(ctx, orgID, metric, matchers, at, nil)
+func (v *VMClient) QueryInstant(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]InstantValue, error) {
+	return v.scopedInstant(ctx, tenantID, metric, matchers, at, nil)
 }
 
-// QueryInstantLookback runs an org-scoped instant query returning the most
+// QueryInstantLookback runs a tenant-scoped instant query returning the most
 // recent value within `lookback` of `at` per series, via
 // `last_over_time(<selector>[<lookback>])`. It backs the fleet-health badge: a
 // brief gap between anomaly summaries (the summary is low-rate) never blanks the
 // badge, because the last sample inside the window still resolves.
-func (v *VMClient) QueryInstantLookback(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time, lookback time.Duration) ([]InstantValue, error) {
-	return v.scopedInstant(ctx, orgID, metric, matchers, at, func(selector string) string {
+func (v *VMClient) QueryInstantLookback(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time, lookback time.Duration) ([]InstantValue, error) {
+	return v.scopedInstant(ctx, tenantID, metric, matchers, at, func(selector string) string {
 		return fmt.Sprintf("last_over_time(%s[%ds])", selector, int64(lookback.Seconds()))
 	})
 }
@@ -144,7 +144,7 @@ const MetricNodeAnomalyRate = "opengate_edge_node_anomaly_rate"
 const bandLabel = "band"
 
 // CountAnomalyBands returns the number of devices in each edge-health band for
-// one organization, in a single instant query. The counting happens inside
+// one tenant, in a single instant query. The counting happens inside
 // VictoriaMetrics, so no per-device sample crosses the wire however large the
 // fleet is.
 //
@@ -152,8 +152,8 @@ const bandLabel = "band"
 // lookback falls in that band, tagged with a band label so the three scalars
 // travel in one vector. count() over an empty set yields no sample at all — a
 // band with no devices is simply absent from the result and reads back as 0.
-func (v *VMClient) CountAnomalyBands(ctx context.Context, orgID uuid.UUID, watch, anomalous float64, at time.Time, lookback time.Duration) (BandCounts, error) {
-	scoped, err := ScopeSelector(MetricNodeAnomalyRate, orgID)
+func (v *VMClient) CountAnomalyBands(ctx context.Context, tenantID uuid.UUID, watch, anomalous float64, at time.Time, lookback time.Duration) (BandCounts, error) {
+	scoped, err := ScopeSelector(MetricNodeAnomalyRate, tenantID)
 	if err != nil {
 		return BandCounts{}, err
 	}
@@ -202,11 +202,11 @@ func formatThreshold(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
-// scopedInstant scopes the selector for orgID/metric/matchers, optionally
+// scopedInstant scopes the selector for tenantID/metric/matchers, optionally
 // rewrites it with wrap (nil evaluates the bare selector), and runs it as an
 // instant query at `at`. It is the shared spine of the two instant read paths.
-func (v *VMClient) scopedInstant(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time, wrap func(string) string) ([]InstantValue, error) {
-	scoped, err := v.scopedSelector(orgID, metric, matchers)
+func (v *VMClient) scopedInstant(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time, wrap func(string) string) ([]InstantValue, error) {
+	scoped, err := v.scopedSelector(tenantID, metric, matchers)
 	if err != nil {
 		return nil, err
 	}
@@ -232,13 +232,13 @@ func (v *VMClient) instantQuery(ctx context.Context, expr string, at time.Time) 
 }
 
 // scopedSelector builds a validated `metric{...}` selector and injects the
-// authoritative org_id matcher — the single choke point both read paths share.
-func (v *VMClient) scopedSelector(orgID uuid.UUID, metric string, matchers map[string]string) (string, error) {
+// authoritative tenant_id matcher — the single choke point both read paths share.
+func (v *VMClient) scopedSelector(tenantID uuid.UUID, metric string, matchers map[string]string) (string, error) {
 	selector, err := buildSelector(metric, matchers)
 	if err != nil {
 		return "", err
 	}
-	return ScopeSelector(selector, orgID)
+	return ScopeSelector(selector, tenantID)
 }
 
 func (v *VMClient) getMatrix(ctx context.Context, path string) (*vmMatrixResponse, error) {
@@ -308,14 +308,14 @@ func parseVMSample(pair [2]any) (int64, float64, error) {
 }
 
 // buildSelector composes a validated `metric{k="v",...}` selector with sorted,
-// escaped matchers. It rejects an org_id matcher (the scoped client owns it) and
+// escaped matchers. It rejects a tenant_id matcher (the scoped client owns it) and
 // invalid metric/label names.
 func buildSelector(metric string, matchers map[string]string) (string, error) {
 	if !metricNameRE.MatchString(metric) {
 		return "", fmt.Errorf("invalid metric name %q", metric)
 	}
-	if _, ok := matchers["org_id"]; ok {
-		return "", ErrOrgMatcherNotAllowed
+	if _, ok := matchers["tenant_id"]; ok {
+		return "", ErrTenantMatcherNotAllowed
 	}
 	if len(matchers) == 0 {
 		return metric, nil

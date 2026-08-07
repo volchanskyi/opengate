@@ -38,15 +38,15 @@ func (p *PostgresProcessRepository) UpsertReport(ctx context.Context, deviceID u
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		for _, sample := range samples {
 			_, err := tx.ExecContext(ctx,
-				`INSERT INTO device_processes (org_id, device_id, ts, rank, basename, cmdline_hash, pid, cpu, mem)
+				`INSERT INTO device_processes (tenant_id, device_id, ts, rank, basename, cmdline_hash, pid, cpu, mem)
 				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-				 ON CONFLICT (org_id, device_id, ts, rank) DO UPDATE SET
+				 ON CONFLICT (tenant_id, device_id, ts, rank) DO UPDATE SET
 				   basename = EXCLUDED.basename,
 				   cmdline_hash = EXCLUDED.cmdline_hash,
 				   pid = EXCLUDED.pid,
 				   cpu = EXCLUDED.cpu,
 				   mem = EXCLUDED.mem`,
-				tenant.OrgID, deviceID, ts.UTC(), int64(sample.Rank), sample.Basename,
+				tenant.TenantID, deviceID, ts.UTC(), int64(sample.Rank), sample.Basename,
 				sample.CmdlineHash, int64(sample.PID), sample.CPU, sample.Mem)
 			if err != nil {
 				return fmt.Errorf("upsert process sample: %w", err)
@@ -66,7 +66,7 @@ func (p *PostgresProcessRepository) ListLatest(ctx context.Context, deviceID uui
 		rows, err := tx.QueryContext(ctx,
 			`SELECT ts, rank, basename, cmdline_hash, pid, cpu, mem
 			 FROM device_processes
-			 WHERE org_id = current_setting('app.current_org')::uuid AND device_id = $1
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND device_id = $1
 			 ORDER BY ts DESC, rank ASC
 			 LIMIT $2`,
 			deviceID, limit)

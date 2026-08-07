@@ -29,7 +29,7 @@ func TestPostgresGroups_CRUD(t *testing.T) {
 		assert.ErrorIs(t, err, device.ErrGroupNotFound)
 	})
 
-	t.Run("list returns the organization's groups", func(t *testing.T) {
+	t.Run("list returns the tenant's groups", func(t *testing.T) {
 		gs, err := groups.List(ctx)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, len(gs), 1)

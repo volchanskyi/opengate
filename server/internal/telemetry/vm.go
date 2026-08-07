@@ -20,9 +20,9 @@ import (
 )
 
 var (
-	// ErrOrgMatcherNotAllowed is returned when a caller tries to provide its
-	// own org_id matcher instead of letting the scoped client inject it.
-	ErrOrgMatcherNotAllowed = errors.New("org_id matcher is not allowed")
+	// ErrTenantMatcherNotAllowed is returned when a caller tries to provide its
+	// own tenant_id matcher instead of letting the scoped client inject it.
+	ErrTenantMatcherNotAllowed = errors.New("tenant_id matcher is not allowed")
 	// ErrReservedLabel is returned when a sample tries to override labels the
 	// server owns for tenant/device scoping.
 	ErrReservedLabel = errors.New("reserved telemetry label")
@@ -63,15 +63,15 @@ func NewVMClient(baseURL string, client *http.Client) *VMClient {
 	}
 }
 
-// WriteSamples imports samples as Prometheus exposition text. The org_id and
+// WriteSamples imports samples as Prometheus exposition text. The tenant_id and
 // device_id labels are always server-owned and cannot be overridden by samples.
-func (v *VMClient) WriteSamples(ctx context.Context, orgID uuid.UUID, deviceID uuid.UUID, samples []Sample) error {
+func (v *VMClient) WriteSamples(ctx context.Context, tenantID uuid.UUID, deviceID uuid.UUID, samples []Sample) error {
 	if len(samples) == 0 {
 		return nil
 	}
 	var body bytes.Buffer
 	for _, sample := range samples {
-		if err := writePrometheusSample(&body, orgID, deviceID, sample); err != nil {
+		if err := writePrometheusSample(&body, tenantID, deviceID, sample); err != nil {
 			return err
 		}
 	}
@@ -102,10 +102,10 @@ func (v *VMClient) Flush(ctx context.Context) error {
 }
 
 // Export queries series through the scoped selector path used by future
-// telemetry reads. The caller supplies a selector without org_id; this method
+// telemetry reads. The caller supplies a selector without tenant_id; this method
 // injects the authoritative tenant matcher.
-func (v *VMClient) Export(ctx context.Context, orgID uuid.UUID, selector string, start, end time.Time) ([]ExportedSeries, error) {
-	scoped, err := ScopeSelector(selector, orgID)
+func (v *VMClient) Export(ctx context.Context, tenantID uuid.UUID, selector string, start, end time.Time) ([]ExportedSeries, error) {
+	scoped, err := ScopeSelector(selector, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -133,21 +133,21 @@ func (v *VMClient) Export(ctx context.Context, orgID uuid.UUID, selector string,
 	}
 }
 
-// ScopeSelector injects an org_id label matcher into a single VM series
-// selector and rejects any caller-supplied org_id matcher.
-func ScopeSelector(selector string, orgID uuid.UUID) (string, error) {
-	if orgID == uuid.Nil {
-		return "", fmt.Errorf("org_id is required")
+// ScopeSelector injects a tenant_id label matcher into a single VM series
+// selector and rejects any caller-supplied tenant_id matcher.
+func ScopeSelector(selector string, tenantID uuid.UUID) (string, error) {
+	if tenantID == uuid.Nil {
+		return "", fmt.Errorf("tenant_id is required")
 	}
 	selector = strings.TrimSpace(selector)
 	if selector == "" {
 		return "", fmt.Errorf("selector is required")
 	}
-	if strings.Contains(selector, "org_id") {
-		return "", ErrOrgMatcherNotAllowed
+	if strings.Contains(selector, "tenant_id") {
+		return "", ErrTenantMatcherNotAllowed
 	}
 	if !strings.Contains(selector, "{") {
-		return fmt.Sprintf(`%s{org_id=%q}`, selector, orgID.String()), nil
+		return fmt.Sprintf(`%s{tenant_id=%q}`, selector, tenantID.String()), nil
 	}
 	open := strings.Index(selector, "{")
 	if !strings.HasSuffix(selector, "}") || open == len(selector)-1 {
@@ -155,12 +155,12 @@ func ScopeSelector(selector string, orgID uuid.UUID) (string, error) {
 	}
 	inner := selector[open+1 : len(selector)-1]
 	if strings.TrimSpace(inner) == "" {
-		return selector[:open] + fmt.Sprintf(`{org_id=%q}`, orgID.String()), nil
+		return selector[:open] + fmt.Sprintf(`{tenant_id=%q}`, tenantID.String()), nil
 	}
-	return selector[:open] + fmt.Sprintf(`{org_id=%q,`, orgID.String()) + inner + "}", nil
+	return selector[:open] + fmt.Sprintf(`{tenant_id=%q,`, tenantID.String()) + inner + "}", nil
 }
 
-func writePrometheusSample(b *bytes.Buffer, orgID uuid.UUID, deviceID uuid.UUID, sample Sample) error {
+func writePrometheusSample(b *bytes.Buffer, tenantID uuid.UUID, deviceID uuid.UUID, sample Sample) error {
 	if !metricNameRE.MatchString(sample.Name) {
 		return fmt.Errorf("invalid metric name %q", sample.Name)
 	}
@@ -172,10 +172,10 @@ func writePrometheusSample(b *bytes.Buffer, orgID uuid.UUID, deviceID uuid.UUID,
 	}
 
 	labels := make(map[string]string, len(sample.Labels)+2)
-	labels["org_id"] = orgID.String()
+	labels["tenant_id"] = tenantID.String()
 	labels["device_id"] = deviceID.String()
 	for k, v := range sample.Labels {
-		if k == "org_id" || k == "device_id" {
+		if k == "tenant_id" || k == "device_id" {
 			return fmt.Errorf("%w: %s", ErrReservedLabel, k)
 		}
 		if !labelNameRE.MatchString(k) {

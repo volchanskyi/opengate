@@ -16,8 +16,8 @@ type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 
 /**
  * Which log pane a fetch targets: `agent` reads the agent's own rotated files;
- * `system` reads the platform host log (journald / Windows Event Log). The two
- * panes hold independent state so one never clobbers the other.
+ * `system` reads the platform host log (journald on Linux). The two panes hold
+ * independent state so one never clobbers the other.
  */
 export type LogPaneSource = 'agent' | 'system';
 

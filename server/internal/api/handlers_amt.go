@@ -18,10 +18,10 @@ var powerActionMap = map[AMTPowerRequestAction]int{
 }
 
 // AmtPowerAction sends a power command to a connected AMT device. It is a
-// device command, open to every member of the organization that owns the
+// device command, open to every member of the tenant that owns the
 // device. The CIRA connection map is keyed by AMT UUID alone and knows no
 // tenant, so the managed device behind that UUID is resolved through the
-// tenant-scoped repository first: a UUID belonging to another organization
+// tenant-scoped repository first: a UUID belonging to another tenant
 // resolves to nothing and the command is never dispatched.
 func (s *Server) AmtPowerAction(ctx context.Context, request AmtPowerActionRequestObject) (AmtPowerActionResponseObject, error) {
 	if err := s.requireAMTDeviceInScope(ctx, request.Uuid); err != nil {

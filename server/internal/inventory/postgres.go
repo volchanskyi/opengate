@@ -56,15 +56,15 @@ func (r *PostgresInventoryRepository) Replace(ctx context.Context, deviceID uuid
 			}
 			if _, err := tx.ExecContext(ctx,
 				`INSERT INTO device_inventory
-				   (org_id, device_id, kind, name, version, port, proto, state, runtime, image, first_seen, last_seen)
+				   (tenant_id, device_id, kind, name, version, port, proto, state, runtime, image, first_seen, last_seen)
 				 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
-				 ON CONFLICT (org_id, device_id, kind, name, port, proto) DO UPDATE SET
+				 ON CONFLICT (tenant_id, device_id, kind, name, port, proto) DO UPDATE SET
 				   version   = EXCLUDED.version,
 				   state     = EXCLUDED.state,
 				   runtime   = EXCLUDED.runtime,
 				   image     = EXCLUDED.image,
 				   last_seen = EXCLUDED.last_seen`,
-				tenant.OrgID, deviceID, c.Kind,
+				tenant.TenantID, deviceID, c.Kind,
 				sanitizeInventoryText(c.Name),
 				sanitizeInventoryText(c.Version),
 				int(c.Port),
@@ -80,7 +80,7 @@ func (r *PostgresInventoryRepository) Replace(ctx context.Context, deviceID uuid
 		// the device's latest footprint (bounded by the agent's per-category caps).
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM device_inventory
-			 WHERE org_id = current_setting('app.current_org')::uuid AND device_id = $1 AND last_seen < $2`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND device_id = $1 AND last_seen < $2`,
 			deviceID, ts); err != nil {
 			return fmt.Errorf("prune stale inventory: %w", err)
 		}
@@ -98,7 +98,7 @@ func (r *PostgresInventoryRepository) ListForDevice(ctx context.Context, deviceI
 		rows, err := tx.QueryContext(ctx,
 			`SELECT kind, name, version, port, proto, state, runtime, image, first_seen, last_seen
 			 FROM device_inventory
-			 WHERE org_id = current_setting('app.current_org')::uuid AND device_id = $1
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND device_id = $1
 			 ORDER BY kind ASC, name ASC, port ASC
 			 LIMIT $2`,
 			deviceID, limit)

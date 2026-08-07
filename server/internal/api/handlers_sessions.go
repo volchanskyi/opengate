@@ -17,7 +17,7 @@ import (
 func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequestObject) (CreateSessionResponseObject, error) {
 	deviceID := request.Body.DeviceId
 
-	// Verify the device exists in the caller's organization.
+	// Verify the device exists in the caller's tenant.
 	if err := s.requireDeviceInScope(ctx, deviceID); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return CreateSession404JSONResponse{Error: "device not found"}, nil
@@ -99,7 +99,7 @@ func (s *Server) CreateSession(ctx context.Context, request CreateSessionRequest
 
 // ListSessions implements StrictServerInterface.
 func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error) {
-	// Verify the device exists in the caller's organization.
+	// Verify the device exists in the caller's tenant.
 	if err := s.requireDeviceInScope(ctx, request.Params.DeviceId); err != nil {
 		if errors.Is(err, device.ErrDeviceNotFound) {
 			return ListSessions200JSONResponse([]AgentSession{}), nil
@@ -120,7 +120,7 @@ func (s *Server) ListSessions(ctx context.Context, request ListSessionsRequestOb
 }
 
 // DeleteSession implements StrictServerInterface. Ending a remote session is a
-// device command, so organization membership is the whole gate: the handler
+// device command, so tenant membership is the whole gate: the handler
 // resolves the token in the caller's tenant scope, then delegates orchestration
 // to usecase.SessionService.Delete, which owns the persistence, the audit write
 // and the push event.

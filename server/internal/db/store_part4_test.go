@@ -42,12 +42,13 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 	t.Log("rehearsal: applied 001 and seeded pre-tenancy rows")
 
 	runMigrationSteps(t, dbURL, 1)
-	assertAllRowsBackfilledToDefaultOrg(t, ctx, rehearsalDB)
+	assertAllRowsBackfilledToDefaultTenant(t, ctx, rehearsalDB)
 	insertSecondTenantRows(t, ctx, rehearsalDB)
 	assertRehearsalRLS(t, ctx, rehearsalDB, "public")
 	t.Log("rehearsal: 002 backfill, idempotence, cross-tenant deny, and admin bypass verified")
 
 	runMigrationSteps(t, dbURL, 1)
+	seedTelemetryProcessRows(t, ctx, rehearsalDB)
 	assertTelemetryProcessRLS(t, ctx, rehearsalDB, "public")
 	t.Log("rehearsal: 003 process telemetry table and RLS verified")
 
@@ -56,6 +57,7 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 	t.Log("rehearsal: 004 retired device_logs")
 
 	runMigrationSteps(t, dbURL, 1)
+	seedInventoryRows(t, ctx, rehearsalDB)
 	assertInventoryRLS(t, ctx, rehearsalDB, "public")
 	t.Log("rehearsal: 005 discovery inventory table and RLS verified")
 
@@ -79,9 +81,13 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 	t.Log("rehearsal: 008 AMT device link verified")
 
 	runMigrationSteps(t, dbURL, 1)
-	assertGroupOwnerDropped(t, ctx, rehearsalDB)
+	assertGroupOwnerDropped(t, ctx, rehearsalDB, "org_id")
+	t.Log("rehearsal: 009 dropped groups_.owner_id")
+
+	runMigrationSteps(t, dbURL, 1)
+	assertTenancyRenamed(t, ctx, rehearsalDB)
 	assertMigrationNoChange(t, dbURL)
-	t.Log("rehearsal: 009 dropped groups_.owner_id; head is idempotent")
+	t.Log("rehearsal: 010 renamed the tenancy vocabulary; head is idempotent")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
@@ -104,7 +110,8 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertDataLifecycleTables(t, ctx, db)
 	assertMaintenanceColumns(t, ctx, db)
 	assertAMTDeviceLink(t, ctx, db)
-	assertGroupOwnerDropped(t, ctx, db)
+	assertGroupOwnerDropped(t, ctx, db, "tenant_id")
+	assertTenancyRenamed(t, ctx, db)
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, asserting
@@ -116,6 +123,7 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"010 restored the introduced tenancy names", assertTenancyRenameDownReversal},
 		{"009 re-added a nullable owner_id", assertGroupOwnerDownReversal},
 		{"008 restored the original amt_devices shape", assertAMTDeviceLinkDownReversal},
 		{"007 removed maintenance columns cleanly", assertMaintenanceColumnsDownReversal},
@@ -123,7 +131,7 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		{"005 removed device_inventory cleanly", assertInventoryDownReversal},
 		{"004 recreated device_logs cleanly", assertDeviceLogsRestored},
 		{"003 removed device_processes cleanly", assertTelemetryDownReversal},
-		{"002 removed organizations/org_id cleanly", assertMultitenancyDownReversal},
+		{"002 removed tenants/tenant_id cleanly", assertMultitenancyDownReversal},
 	}
 	for _, step := range steps {
 		runMigrationSteps(t, dbURL, -1)
@@ -167,15 +175,14 @@ func ensureRLSRoleInSchema(t *testing.T, ctx context.Context, db *sql.DB, roleNa
 	require.NoError(t, err)
 }
 
-func beginTenantTx(t *testing.T, ctx context.Context, db *sql.DB, orgID uuid.UUID, isAdmin bool) *sql.Tx {
+func beginTenantTx(t *testing.T, ctx context.Context, db *sql.DB, tenantID uuid.UUID, isAdmin bool) *sql.Tx {
 	t.Helper()
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	_, err = tx.ExecContext(ctx, `SET LOCAL ROLE opengate_rls_test`)
 	require.NoError(t, err)
-	_, err = tx.ExecContext(ctx,
-		`SELECT set_config('app.current_org', $1, true), set_config('app.is_admin', $2, true)`,
-		orgID.String(), strconv.FormatBool(isAdmin))
+	_, err = tx.ExecContext(ctx, setRehearsalTenantScopeSQL,
+		tenantID.String(), strconv.FormatBool(isAdmin))
 	require.NoError(t, err)
 	return tx
 }

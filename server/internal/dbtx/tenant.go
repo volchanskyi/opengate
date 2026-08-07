@@ -7,34 +7,34 @@ import (
 	"github.com/google/uuid"
 )
 
-// DefaultOrgID is the seeded single-tenant organization used during migration
-// and by legacy single-org token generation.
-var DefaultOrgID = uuid.MustParse("00000000-0000-0000-0000-000000000002")
+// DefaultTenantID is the seeded single-tenant tenant used during migration
+// and by legacy single-tenant token generation.
+var DefaultTenantID = uuid.MustParse("00000000-0000-0000-0000-000000000002")
 
 type tenantKey struct{}
 
-// Tenant describes the current request's organization scope.
+// Tenant describes the current request's tenant scope.
 type Tenant struct {
-	// OrgID is the organization scope for tenant tables.
-	OrgID uuid.UUID
-	// IsAdmin permits policy-based cross-org reads when explicitly set in RLS.
+	// TenantID is the tenant scope for tenant tables.
+	TenantID uuid.UUID
+	// IsAdmin permits policy-based cross-tenant reads when explicitly set in RLS.
 	IsAdmin bool
 }
 
 // WithTenant stores tenant scope on ctx.
-func WithTenant(ctx context.Context, orgID uuid.UUID, isAdmin bool) context.Context {
-	return context.WithValue(ctx, tenantKey{}, Tenant{OrgID: orgID, IsAdmin: isAdmin})
+func WithTenant(ctx context.Context, tenantID uuid.UUID, isAdmin bool) context.Context {
+	return context.WithValue(ctx, tenantKey{}, Tenant{TenantID: tenantID, IsAdmin: isAdmin})
 }
 
-// WithDefaultTenant stores the seeded default organization on ctx.
+// WithDefaultTenant stores the seeded default tenant on ctx.
 func WithDefaultTenant(ctx context.Context, isAdmin bool) context.Context {
-	return WithTenant(ctx, DefaultOrgID, isAdmin)
+	return WithTenant(ctx, DefaultTenantID, isAdmin)
 }
 
 // TenantFromContext returns tenant scope from ctx.
 func TenantFromContext(ctx context.Context) (Tenant, bool) {
 	tenant, ok := ctx.Value(tenantKey{}).(Tenant)
-	if !ok || tenant.OrgID == uuid.Nil {
+	if !ok || tenant.TenantID == uuid.Nil {
 		return Tenant{}, false
 	}
 	return tenant, true

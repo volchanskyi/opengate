@@ -22,10 +22,10 @@ func (p *PostgresDevices) Upsert(ctx context.Context, d *Device) error {
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err = tx.ExecContext(ctx,
-			`INSERT INTO devices (id, org_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+			`INSERT INTO devices (id, tenant_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), NOW())
 			 ON CONFLICT (id) DO UPDATE SET
-			   org_id = EXCLUDED.org_id,
+			   tenant_id = EXCLUDED.tenant_id,
 			   group_id = COALESCE(EXCLUDED.group_id, devices.group_id),
 			   hostname = EXCLUDED.hostname,
 			   os = EXCLUDED.os,
@@ -35,7 +35,7 @@ func (p *PostgresDevices) Upsert(ctx context.Context, d *Device) error {
 			   status = EXCLUDED.status,
 			   last_seen = NOW(),
 			   updated_at = NOW()`,
-			d.ID, tenant.OrgID, groupID, d.Hostname, d.OS, d.OsDisplay, d.AgentVersion, capsJSON, string(d.Status))
+			d.ID, tenant.TenantID, groupID, d.Hostname, d.OS, d.OsDisplay, d.AgentVersion, capsJSON, string(d.Status))
 		return err
 	})
 }
@@ -61,7 +61,7 @@ func marshalCapabilities(caps []string) ([]byte, error) {
 func (p *PostgresDevices) Delete(ctx context.Context, id DeviceID) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`DELETE FROM devices WHERE org_id = current_setting('app.current_org')::uuid AND id = $1`, id)
+			`DELETE FROM devices WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`, id)
 		return checkAffected(res, err, ErrDeviceNotFound)
 	})
 }
@@ -71,7 +71,7 @@ func (p *PostgresDevices) UpdateGroup(ctx context.Context, id DeviceID, groupID 
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`UPDATE devices SET group_id = $1, updated_at = NOW()
-			 WHERE org_id = current_setting('app.current_org')::uuid AND id = $2`, gid, id)
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $2`, gid, id)
 		return checkAffected(res, err, ErrDeviceNotFound)
 	})
 }
@@ -80,7 +80,7 @@ func (p *PostgresDevices) SetStatus(ctx context.Context, id DeviceID, status Dev
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`UPDATE devices SET status = $1, last_seen = NOW(), updated_at = NOW()
-			 WHERE org_id = current_setting('app.current_org')::uuid AND id = $2`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $2`,
 			string(status), id)
 		return checkAffected(res, err, ErrDeviceNotFound)
 	})
@@ -101,15 +101,15 @@ func (p *PostgresDevices) SetMaintenance(ctx context.Context, id DeviceID, on bo
 			   maintenance_by = CASE WHEN $1 THEN $2::uuid ELSE NULL END,
 			   maintenance_reason = CASE WHEN $1 THEN $3 ELSE '' END,
 			   updated_at = NOW()
-			 WHERE org_id = current_setting('app.current_org')::uuid AND id = $4`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $4`,
 			on, by, reason, id)
 		return checkAffected(res, err, ErrDeviceNotFound)
 	})
 }
 
 // Counts collapses the whole fleet rollup into one aggregate row. It is
-// deliberately org-scoped for every caller, administrators included: the
-// dashboard describes the caller's own organization, so the tiles and the
+// deliberately tenant-scoped for every caller, administrators included: the
+// dashboard describes the caller's own tenant, so the tiles and the
 // health bands always cover one device set.
 func (p *PostgresDevices) Counts(ctx context.Context) (Counts, error) {
 	var c Counts
@@ -119,7 +119,7 @@ func (p *PostgresDevices) Counts(ctx context.Context) (Counts, error) {
 			        COUNT(*) FILTER (WHERE status = 'online'),
 			        COUNT(*) FILTER (WHERE maintenance_on)
 			   FROM devices
-			  WHERE org_id = current_setting('app.current_org')::uuid`).
+			  WHERE tenant_id = current_setting('app.current_tenant')::uuid`).
 			Scan(&c.Total, &c.Online, &c.Maintenance)
 	})
 	return c, err
@@ -129,7 +129,7 @@ func (p *PostgresDevices) ResetAllStatuses(ctx context.Context) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
 			`UPDATE devices SET status = $1, updated_at = NOW()
-			 WHERE org_id = current_setting('app.current_org')::uuid AND status = $2`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND status = $2`,
 			string(StatusOffline), string(StatusOnline))
 		return err
 	})

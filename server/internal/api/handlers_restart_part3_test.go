@@ -27,8 +27,8 @@ func TestGetDeviceHardware(t *testing.T) {
 		{"no cache but online triggers request", false, true, true, true, http.StatusAccepted},
 		{"no cache and offline", false, false, true, true, http.StatusNotFound},
 		{"device not found", false, false, false, true, http.StatusNotFound},
-		// The hardware read is a fleet read, open to every member of the org.
-		{"peer in the same organization", true, true, true, false, http.StatusOK},
+		// The hardware read is a fleet read, open to every member of the tenant.
+		{"peer in the same tenant", true, true, true, false, http.StatusOK},
 	}
 
 	for _, tt := range tests {

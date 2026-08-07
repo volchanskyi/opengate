@@ -15,43 +15,43 @@ import (
 )
 
 func TestStaticAlertRuleProvider_TenantScopedWithDefault(t *testing.T) {
-	orgA := uuid.New()
-	orgB := uuid.New()
-	ruleA := protocol.ThresholdRule{ID: "orgA-only", Metric: "cpu.total", Comparator: protocol.AlertComparatorGt, Threshold: 50, Clear: 40}
+	tenantA := uuid.New()
+	tenantB := uuid.New()
+	ruleA := protocol.ThresholdRule{ID: "tenantA-only", Metric: "cpu.total", Comparator: protocol.AlertComparatorGt, Threshold: 50, Clear: 40}
 	provider := NewStaticAlertRuleProvider(DefaultAlertRules(), map[uuid.UUID][]protocol.ThresholdRule{
-		orgA: {ruleA},
+		tenantA: {ruleA},
 	})
 
-	got := provider.RulesFor(orgA)
+	got := provider.RulesFor(tenantA)
 	require.Len(t, got, 1)
-	assert.Equal(t, "orgA-only", got[0].ID)
+	assert.Equal(t, "tenantA-only", got[0].ID)
 
-	// Org B has no override → the minimal default set, and never org A's rule.
-	def := provider.RulesFor(orgB)
+	// Tenant B has no override → the minimal default set, and never tenant A's rule.
+	def := provider.RulesFor(tenantB)
 	assert.Equal(t, DefaultAlertRules(), def)
 	for _, r := range def {
-		assert.NotEqual(t, "orgA-only", r.ID, "org A's rule must never reach org B")
+		assert.NotEqual(t, "tenantA-only", r.ID, "tenant A's rule must never reach tenant B")
 	}
 }
 
 func TestStaticAlertRuleProvider_ReturnsDefensiveCopy(t *testing.T) {
-	org := uuid.New()
+	tenant := uuid.New()
 	provider := NewStaticAlertRuleProvider(DefaultAlertRules(), map[uuid.UUID][]protocol.ThresholdRule{
-		org: {{ID: "x", Metric: "cpu.total", Comparator: protocol.AlertComparatorGt, Threshold: 1, Clear: 0}},
+		tenant: {{ID: "x", Metric: "cpu.total", Comparator: protocol.AlertComparatorGt, Threshold: 1, Clear: 0}},
 	})
-	got := provider.RulesFor(org)
+	got := provider.RulesFor(tenant)
 	got[0].ID = "mutated"
-	assert.Equal(t, "x", provider.RulesFor(org)[0].ID, "provider must hand back a copy the caller cannot mutate")
+	assert.Equal(t, "x", provider.RulesFor(tenant)[0].ID, "provider must hand back a copy the caller cannot mutate")
 }
 
-func TestAgentConn_PushAlertRules_ScopedToAuthoritativeOrg(t *testing.T) {
-	orgA := uuid.New()
-	orgB := uuid.New()
-	ruleA := protocol.ThresholdRule{ID: "orgA-only", Metric: "cpu.total", Comparator: protocol.AlertComparatorGt, Threshold: 50, Clear: 40, SustainSecs: 10}
-	provider := NewStaticAlertRuleProvider(DefaultAlertRules(), map[uuid.UUID][]protocol.ThresholdRule{orgA: {ruleA}})
+func TestAgentConn_PushAlertRules_ScopedToAuthoritativeTenant(t *testing.T) {
+	tenantA := uuid.New()
+	tenantB := uuid.New()
+	ruleA := protocol.ThresholdRule{ID: "tenantA-only", Metric: "cpu.total", Comparator: protocol.AlertComparatorGt, Threshold: 50, Clear: 40, SustainSecs: 10}
+	provider := NewStaticAlertRuleProvider(DefaultAlertRules(), map[uuid.UUID][]protocol.ThresholdRule{tenantA: {ruleA}})
 
-	// An agent authenticated as org A receives exactly org A's rule.
-	acA := &AgentConn{OrgID: orgA, codec: &protocol.Codec{}, logger: testLogger(), alertRules: provider,
+	// An agent authenticated as tenant A receives exactly tenant A's rule.
+	acA := &AgentConn{TenantID: tenantA, codec: &protocol.Codec{}, logger: testLogger(), alertRules: provider,
 		Capabilities: []protocol.AgentCapability{protocol.CapThresholdAlerts}}
 	var bufA bytes.Buffer
 	acA.stream = &bufA
@@ -59,10 +59,10 @@ func TestAgentConn_PushAlertRules_ScopedToAuthoritativeOrg(t *testing.T) {
 	msgA := readReply(t, acA, &bufA)
 	assert.Equal(t, protocol.MsgPushAlertRules, msgA.Type)
 	require.Len(t, msgA.AlertRules, 1)
-	assert.Equal(t, "orgA-only", msgA.AlertRules[0].ID)
+	assert.Equal(t, "tenantA-only", msgA.AlertRules[0].ID)
 
-	// An agent authenticated as org B receives the default set — never org A's rule.
-	acB := &AgentConn{OrgID: orgB, codec: &protocol.Codec{}, logger: testLogger(), alertRules: provider,
+	// An agent authenticated as tenant B receives the default set — never tenant A's rule.
+	acB := &AgentConn{TenantID: tenantB, codec: &protocol.Codec{}, logger: testLogger(), alertRules: provider,
 		Capabilities: []protocol.AgentCapability{protocol.CapThresholdAlerts}}
 	var bufB bytes.Buffer
 	acB.stream = &bufB
@@ -70,13 +70,13 @@ func TestAgentConn_PushAlertRules_ScopedToAuthoritativeOrg(t *testing.T) {
 	msgB := readReply(t, acB, &bufB)
 	require.NotEmpty(t, msgB.AlertRules)
 	for _, r := range msgB.AlertRules {
-		assert.NotEqual(t, "orgA-only", r.ID, "org A's rule must never reach org B")
+		assert.NotEqual(t, "tenantA-only", r.ID, "tenant A's rule must never reach tenant B")
 	}
 }
 
 func TestAgentConn_PushAlertRules_RequiresCapability(t *testing.T) {
 	provider := NewStaticAlertRuleProvider(DefaultAlertRules(), nil)
-	ac := &AgentConn{OrgID: uuid.New(), codec: &protocol.Codec{}, logger: testLogger(), alertRules: provider}
+	ac := &AgentConn{TenantID: uuid.New(), codec: &protocol.Codec{}, logger: testLogger(), alertRules: provider}
 	var buf bytes.Buffer
 	ac.stream = &buf
 
@@ -87,7 +87,7 @@ func TestAgentConn_PushAlertRules_RequiresCapability(t *testing.T) {
 }
 
 func TestAgentConn_PushAlertRules_NilProviderNoOp(t *testing.T) {
-	ac := &AgentConn{OrgID: uuid.New(), codec: &protocol.Codec{}, logger: testLogger()}
+	ac := &AgentConn{TenantID: uuid.New(), codec: &protocol.Codec{}, logger: testLogger()}
 	var buf bytes.Buffer
 	ac.stream = &buf
 	require.NoError(t, ac.pushAlertRules(context.Background()))

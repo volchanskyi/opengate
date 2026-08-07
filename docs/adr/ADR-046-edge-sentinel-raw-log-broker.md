@@ -49,7 +49,7 @@ Retire the central raw-log cache and broker every raw pull transiently.
 - The `device_logs` table, its RLS policy, and its repository are dropped
   (`004_retire_device_logs`).
 - Log-*rate* dims continue to flow to VictoriaMetrics through the existing
-  scoped telemetry client, scoped by the server-resolved device org.
+  scoped telemetry client, scoped by the server-resolved device tenant.
 
 ## Consequences
 

@@ -5,7 +5,7 @@ Status: Accepted
 
 ## Context
 
-[ADR-020](ADR-020-modular-monolith-full-hexagonal.md) adopted full hexagonal architecture across OpenGate. The Rust agent is already a 5-crate workspace (`mesh-agent-core`, `mesh-agent`, `mesh-protocol`, `platform-linux`, `platform-windows`) with mature trait-based platform abstraction. The only structural pinch-point identified is inside `mesh-agent-core`'s session-handling.
+[ADR-020](ADR-020-modular-monolith-full-hexagonal.md) adopted full hexagonal architecture across OpenGate. The Rust agent is already a multi-crate workspace (`mesh-agent-core`, `mesh-agent`, `mesh-protocol`, `edge-tsdb`, `platform-linux`) with mature trait-based platform abstraction — a further platform plugs in as one more `platform-*` crate implementing the same three traits. The only structural pinch-point identified is inside `mesh-agent-core`'s session-handling.
 
 Two locations were in play (the original plan misidentified the file):
 

@@ -9,7 +9,7 @@ import "strings"
 func NormalizeOS(agentOS string) string {
 	lower := strings.ToLower(agentOS)
 	switch {
-	case lower == "linux" || lower == "windows" || lower == "darwin":
+	case lower == "linux" || lower == "windows":
 		return lower
 	case strings.Contains(lower, "linux"),
 		strings.Contains(lower, "ubuntu"),
@@ -22,8 +22,6 @@ func NormalizeOS(agentOS string) string {
 		return "linux"
 	case strings.Contains(lower, "windows"):
 		return "windows"
-	case strings.Contains(lower, "darwin"), strings.Contains(lower, "macos"):
-		return "darwin"
 	default:
 		return lower
 	}

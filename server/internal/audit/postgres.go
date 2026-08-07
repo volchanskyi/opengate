@@ -25,9 +25,9 @@ func (p *Postgres) Write(ctx context.Context, event *Event) error {
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO audit_events (org_id, user_id, action, target, details, created_at)
+			`INSERT INTO audit_events (tenant_id, user_id, action, target, details, created_at)
 			 VALUES ($1, $2, $3, $4, $5, NOW())`,
-			tenant.OrgID, event.UserID, event.Action, event.Target, event.Details)
+			tenant.TenantID, event.UserID, event.Action, event.Target, event.Details)
 		return err
 	})
 }
@@ -44,7 +44,7 @@ func (p *Postgres) Query(ctx context.Context, q Query) ([]*Event, error) {
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx,
 			`SELECT id, user_id, action, target, details, created_at FROM audit_events
-			 WHERE org_id = current_setting('app.current_org')::uuid
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid
 			   AND ($1::uuid IS NULL OR user_id = $1)
 			   AND ($2 = '' OR action = $2)
 			 ORDER BY created_at DESC, id DESC

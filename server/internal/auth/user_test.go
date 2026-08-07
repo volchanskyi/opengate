@@ -98,10 +98,10 @@ func TestPostgresUsers_TenantDeny(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestUsers(t, store)
-	orgB := uuid.New()
+	tenantB := uuid.New()
 	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
-	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
-	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
+	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 
 	userA := &auth.User{ID: uuid.New(), Email: "a-" + uuid.New().String()[:8] + "@example.com"}
 	userB := &auth.User{ID: uuid.New(), Email: "b-" + uuid.New().String()[:8] + "@example.com"}
@@ -118,7 +118,7 @@ func TestPostgresUsers_TenantDeny(t *testing.T) {
 	seen := map[uuid.UUID]bool{}
 	for _, u := range users {
 		seen[u.ID] = true
-		assert.Equal(t, dbtx.DefaultOrgID, u.OrgID)
+		assert.Equal(t, dbtx.DefaultTenantID, u.TenantID)
 	}
 	assert.True(t, seen[userA.ID])
 	assert.False(t, seen[userB.ID])

@@ -205,13 +205,13 @@ components:
       type: object
       description: >-
         Fixed-size fleet rollup for the dashboard tiles. Always describes the
-        caller's own organization, administrators included, so the status counts
+        caller's own tenant, administrators included, so the status counts
         and the health bands cover one device set.
       required: [total, online, offline, maintenance, health]
       properties:
         total:
           type: integer
-          description: Devices in the organization.
+          description: Devices in the tenant.
         online:
           type: integer
           description: Devices with a live agent connection.
@@ -247,21 +247,21 @@ components:
         Progress of a right-to-be-forgotten telemetry purge. "Logical" states
         mean ingest is blocked and the subject is no longer queryable; physical
         VictoriaMetrics compaction and offline-edge erasure complete later.
-      required: [id, org_id, scope, state, vm_deleted, object_deleted, pg_deleted, verified, created_at, updated_at]
+      required: [id, tenant_id, scope, state, vm_deleted, object_deleted, pg_deleted, verified, created_at, updated_at]
       properties:
         id:
           type: string
           format: uuid
-        org_id:
+        tenant_id:
           type: string
           format: uuid
         device_id:
           type: string
           format: uuid
-          description: Absent for an organization-wide (tenant/fleet) purge.
+          description: Absent for a tenant-wide purge.
         scope:
           type: string
-          enum: [device, org]
+          enum: [device, tenant]
         state:
           type: string
           enum:
@@ -340,7 +340,7 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: Identifying labels (org_id/device_id stripped).
+          description: Identifying labels (tenant_id/device_id stripped).
         score:
           type: number
           description: Blended rank score in [0,1] (KS, anomaly rate, shift magnitude).
@@ -576,8 +576,8 @@ components:
           type: array
           description: >-
             Distinct emitting units the host source offers for the unit filter
-            dropdown (systemd units / Windows providers). Empty for the agent's
-            own files and where no host source exists.
+            dropdown (systemd units). Empty for the agent's own files and where
+            no host source exists.
           items:
             type: string
 
@@ -616,8 +616,8 @@ components:
     Group:
       type: object
       description: >-
-        A named collection of devices within one organization. A group is a
-        filing label, not an access boundary — every member of an organization
+        A named collection of devices within one tenant. A group is a
+        filing label, not an access boundary — every member of a tenant
         sees every group in it.
       required: [id, name, created_at, updated_at]
       properties:
@@ -1521,7 +1521,7 @@ paths:
       operationId: getDeviceSummary
       summary: Fleet rollup for the dashboard
       description: >-
-        Returns a fixed-size count of the caller's organization — status tiles
+        Returns a fixed-size count of the caller's tenant — status tiles
         plus edge-health bands — in one aggregate row and one instant telemetry
         query. The response size does not grow with the fleet.
       security:
@@ -1659,8 +1659,9 @@ paths:
           in: query
           description: >-
             Log source: "self" (or omitted) reads the agent's own files; "host"
-            auto-resolves the platform system log (journald on Linux, Windows
-            Event Log on Windows).
+            auto-resolves the platform system log (journald on Linux). A host
+            with no reader for the requested source answers with an error naming
+            it, not an empty page.
           schema:
             type: string
             enum: ["self", "host"]
@@ -1668,8 +1669,8 @@ paths:
         - name: unit
           in: query
           description: >-
-            Narrows host logs to one emitting unit (systemd unit / Windows
-            provider). Ignored for the agent's own files.
+            Narrows host logs to one emitting unit (systemd unit). Ignored for
+            the agent's own files.
           schema:
             type: string
         - name: offset
@@ -1976,7 +1977,7 @@ paths:
         ports, host services, database engines, containers, and installed
         packages — from the tenant-scoped inventory store. Descriptive
         attack-surface data only; never a credential or connection string.
-        Visible to any device viewer in the organization.
+        Visible to any device viewer in the tenant.
       security:
         - bearerAuth: []
       parameters:
@@ -2052,7 +2053,7 @@ paths:
                 $ref: "#/components/schemas/ApiError"
     get:
       operationId: listGroups
-      summary: List the organization's device groups
+      summary: List the tenant's device groups
       security:
         - bearerAuth: []
       responses:
@@ -2248,7 +2249,7 @@ paths:
       operationId: amtPowerAction
       summary: Send power command to AMT device
       description: >-
-        Open to every member of the organization that owns the device. The
+        Open to every member of the tenant that owns the device. The
         managed device behind the AMT identity is resolved in the caller's
         tenant scope, so an identity outside it answers 404.
       security:
@@ -2839,10 +2840,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
-  /api/v1/orgs/{orgId}/purge:
+  /api/v1/tenants/{tenantId}/purge:
     post:
-      operationId: purgeOrg
-      summary: Purge all telemetry for an organization (admin only)
+      operationId: purgeTenant
+      summary: Purge all telemetry for a tenant (admin only)
       description: >-
         Irreversibly erase every device's centralized telemetry for a whole
         tenant/fleet and deprovision its agents. Runs as an async, resumable job;
@@ -2850,7 +2851,7 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - name: orgId
+        - name: tenantId
           in: path
           required: true
           schema:

@@ -469,7 +469,7 @@ export function DeviceDetail() {
         <DeviceLogs deviceId={device.id} />
       </div>
 
-      {/* System Logs (host journald / Windows Event Log; drill target), full width */}
+      {/* System Logs (the platform host log, journald on Linux; drill target), full width */}
       <div className="lg:col-span-2 bg-gray-800 border border-gray-700 rounded-lg p-6">
         <SystemLogs deviceId={device.id} focusWindow={logWindow} />
       </div>

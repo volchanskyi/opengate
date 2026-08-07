@@ -29,9 +29,9 @@ func (p *PostgresSessions) Create(ctx context.Context, s *Session) error {
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO agent_sessions (token, org_id, device_id, user_id, created_at)
+			`INSERT INTO agent_sessions (token, tenant_id, device_id, user_id, created_at)
 			 VALUES ($1, $2, $3, $4, NOW())`,
-			s.Token, tenant.OrgID, s.DeviceID, s.UserID)
+			s.Token, tenant.TenantID, s.DeviceID, s.UserID)
 		return err
 	})
 }
@@ -41,7 +41,7 @@ func (p *PostgresSessions) Get(ctx context.Context, token string) (*Session, err
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx,
 			`SELECT token, device_id, user_id, created_at FROM agent_sessions
-			 WHERE org_id = current_setting('app.current_org')::uuid AND token = $1`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND token = $1`,
 			token).Scan(&s.Token, &s.DeviceID, &s.UserID, &s.CreatedAt)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -57,7 +57,7 @@ func (p *PostgresSessions) Delete(ctx context.Context, token string) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`DELETE FROM agent_sessions
-			 WHERE org_id = current_setting('app.current_org')::uuid AND token = $1`, token)
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND token = $1`, token)
 		if err != nil {
 			return err
 		}
@@ -74,7 +74,7 @@ func (p *PostgresSessions) Delete(ctx context.Context, token string) error {
 
 // DeleteRelaySession implements [Repository]. Relay teardown has no request
 // tenant, so this path supplies an admin scope and identifies the row by the
-// globally unique token across organizations.
+// globally unique token across tenants.
 func (p *PostgresSessions) DeleteRelaySession(ctx context.Context, token string) error {
 	ctx = dbtx.WithDefaultTenant(ctx, true)
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
@@ -94,7 +94,7 @@ func (p *PostgresSessions) DeleteRelaySession(ctx context.Context, token string)
 }
 
 // DeleteStale implements [Repository]. It scopes itself to the seeded default
-// organization with admin rights, which the RLS policy widens to every org, so
+// tenant with admin rights, which the RLS policy widens to every tenant, so
 // the fleet-wide sweep runs outside any request tenant.
 func (p *PostgresSessions) DeleteStale(ctx context.Context, cutoff time.Time, keep []string) (int, error) {
 	if keep == nil {
@@ -125,7 +125,7 @@ func (p *PostgresSessions) ListActiveForDevice(ctx context.Context, deviceID uui
 	err := dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		rows, err := tx.QueryContext(ctx,
 			`SELECT token, device_id, user_id, created_at FROM agent_sessions
-			 WHERE org_id = current_setting('app.current_org')::uuid AND device_id = $1`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND device_id = $1`,
 			deviceID)
 		if err != nil {
 			return err

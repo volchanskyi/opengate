@@ -45,7 +45,7 @@ func assertNoDirectVMQuery(t *testing.T, path string) error {
 	}
 	src := string(srcBytes)
 	if strings.Contains(src, "/api/v1/export") || strings.Contains(src, "/api/v1/query") {
-		t.Errorf("%s queries VictoriaMetrics directly; use telemetry.VMClient so org_id is injected", path)
+		t.Errorf("%s queries VictoriaMetrics directly; use telemetry.VMClient so tenant_id is injected", path)
 	}
 	return nil
 }

@@ -45,7 +45,7 @@ func (s *Server) requestHardwareFromAgent(ctx context.Context, id device.DeviceI
 // GetDeviceInventory implements StrictServerInterface. It returns the device's
 // current auto-discovered footprint (ports, services, DB engines, containers,
 // packages) from the tenant-scoped inventory store. Read access is any member of
-// the organization — a fleet read, not the elevated admin gate.
+// the tenant — a fleet read, not the elevated admin gate.
 func (s *Server) GetDeviceInventory(ctx context.Context, request GetDeviceInventoryRequestObject) (GetDeviceInventoryResponseObject, error) {
 	if s.inventory == nil {
 		return GetDeviceInventory503JSONResponse{Error: "inventory not available"}, nil

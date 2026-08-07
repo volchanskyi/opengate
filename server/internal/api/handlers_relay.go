@@ -66,8 +66,8 @@ func (s *Server) authenticateBrowser(r *http.Request, sessionToken string) bool 
 	}
 
 	// Resolve the session under the caller's own tenant scope so a relay token
-	// cannot be used across organizations.
-	scoped := dbtx.WithTenant(r.Context(), claims.OrgID, claims.IsAdmin)
+	// cannot be used across tenants.
+	scoped := dbtx.WithTenant(r.Context(), claims.TenantID, claims.IsAdmin)
 	if _, err := s.sessions.Get(scoped, sessionToken); err != nil {
 		return false
 	}

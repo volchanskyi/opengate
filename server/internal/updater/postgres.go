@@ -31,9 +31,9 @@ func (p *PostgresDeviceUpdates) Create(ctx context.Context, du *DeviceUpdate) er
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx,
-			`INSERT INTO device_updates (org_id, device_id, version, status, error, pushed_at)
+			`INSERT INTO device_updates (tenant_id, device_id, version, status, error, pushed_at)
 			 VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id`,
-			tenant.OrgID, du.DeviceID, du.Version, string(du.Status), du.Error).Scan(&du.ID)
+			tenant.TenantID, du.DeviceID, du.Version, string(du.Status), du.Error).Scan(&du.ID)
 	})
 }
 
@@ -41,7 +41,7 @@ func (p *PostgresDeviceUpdates) SetStatus(ctx context.Context, deviceID uuid.UUI
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`UPDATE device_updates SET status = $1, error = $2, acked_at = NOW()
-			 WHERE org_id = current_setting('app.current_org')::uuid AND device_id = $3 AND version = $4`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND device_id = $3 AND version = $4`,
 			string(status), errMsg, deviceID, version)
 		return execAffected(res, err)
 	})
@@ -53,7 +53,7 @@ func (p *PostgresDeviceUpdates) ListByVersion(ctx context.Context, version strin
 		rows, err := tx.QueryContext(ctx,
 			`SELECT id, device_id, version, status, error, pushed_at, acked_at
 			 FROM device_updates
-			 WHERE org_id = current_setting('app.current_org')::uuid AND version = $1
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND version = $1
 			 ORDER BY pushed_at DESC`,
 			version)
 		if err != nil {
@@ -95,9 +95,9 @@ func (p *PostgresEnrollment) Create(ctx context.Context, t *EnrollmentToken) err
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO enrollment_tokens (id, org_id, token, label, created_by, max_uses, use_count, expires_at, created_at)
+			`INSERT INTO enrollment_tokens (id, tenant_id, token, label, created_by, max_uses, use_count, expires_at, created_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-			t.ID, tenant.OrgID, t.Token, t.Label, t.CreatedBy, t.MaxUses, t.UseCount, t.ExpiresAt.UTC())
+			t.ID, tenant.TenantID, t.Token, t.Label, t.CreatedBy, t.MaxUses, t.UseCount, t.ExpiresAt.UTC())
 		return err
 	})
 }
@@ -113,7 +113,7 @@ func (p *PostgresEnrollment) GetByToken(ctx context.Context, token string) (*Enr
 		t, err = scanEnrollment(tx.QueryRowContext(scopeCtx,
 			`SELECT id, token, label, created_by, max_uses, use_count, expires_at, created_at
 			 FROM enrollment_tokens
-			 WHERE (org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean)
+			 WHERE (tenant_id = current_setting('app.current_tenant')::uuid OR current_setting('app.is_admin', true)::boolean)
 			   AND token = $1`, token))
 		return err
 	})
@@ -129,7 +129,7 @@ func (p *PostgresEnrollment) List(ctx context.Context, createdBy uuid.UUID) ([]*
 		rows, err := tx.QueryContext(ctx,
 			`SELECT id, token, label, created_by, max_uses, use_count, expires_at, created_at
 			 FROM enrollment_tokens
-			 WHERE org_id = current_setting('app.current_org')::uuid AND created_by = $1
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND created_by = $1
 			 ORDER BY created_at DESC`,
 			createdBy)
 		if err != nil {
@@ -153,7 +153,7 @@ func (p *PostgresEnrollment) Delete(ctx context.Context, id uuid.UUID) error {
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		return execAffected(tx.ExecContext(ctx,
 			`DELETE FROM enrollment_tokens
-			 WHERE org_id = current_setting('app.current_org')::uuid AND id = $1`, id))
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND id = $1`, id))
 	})
 }
 
@@ -165,7 +165,7 @@ func (p *PostgresEnrollment) IncrementUseCount(ctx context.Context, id uuid.UUID
 	return dbtx.Scoped(scopeCtx, p.db, func(tx *sql.Tx) error {
 		return execAffected(tx.ExecContext(scopeCtx,
 			`UPDATE enrollment_tokens SET use_count = use_count + 1
-			 WHERE (org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean)
+			 WHERE (tenant_id = current_setting('app.current_tenant')::uuid OR current_setting('app.is_admin', true)::boolean)
 			   AND id = $1`, id))
 	})
 }

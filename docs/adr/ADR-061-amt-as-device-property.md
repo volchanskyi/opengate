@@ -26,7 +26,7 @@ dropped. Nothing under the MPS transport injected a tenant, because a CIRA
 connection has no request to inherit one from.
 
 **The tests could not see it.** The MPS test substituted a writer that bypassed
-the tenant-scoped transaction helper and hardcoded the default organization, so
+the tenant-scoped transaction helper and hardcoded the default tenant, so
 the one path that failed in production was the one path never exercised.
 
 **The join key was never populated.** Registration wrote uuid, status and
@@ -46,11 +46,11 @@ Intel AMT becomes a property of the managed device it belongs to.
 **The join key is the SMBIOS system UUID.** The agent reads it out of DMI and
 reports it with its hardware inventory; on vPro hardware the AMT firmware
 presents that same value as its CIRA identity. The match is exact, and — this is
-the point — it resolves the device, and through it the organization, which is
+the point — it resolves the device, and through it the tenant, which is
 precisely what the connection was missing. The same key that makes discovery
 work closes the tenancy hole.
 
-The lookup runs cross-org and self-scoped, the same shape as relay-session
+The lookup runs cross-tenant and self-scoped, the same shape as relay-session
 teardown in [ADR-059](ADR-059-agent-session-row-lifecycle.md): it supplies its
 own admin scope because there is no request tenant to inherit. A UUID that
 matches more than one device resolves to nothing — cloned disk images share the
@@ -60,7 +60,7 @@ firmware's UUID, and an ambiguous key is not an identity.
 generated TypeScript type, and no UI. It exists to resolve the link.
 
 **An unmatched connection persists nothing.** AMT is a property of a managed
-device, so an AMT box with no agent has no organization to store state in. The
+device, so an AMT box with no agent has no tenant to store state in. The
 connection stays live in memory and the lookup is retried on a timer, so the
 machine is adopted the moment its agent registers — no reconnect required.
 
@@ -73,7 +73,7 @@ survives `omitempty` — the server must distinguish "this host has no Managemen
 Engine" from "this agent predates AMT reporting", and only the second preserves
 what is already stored.
 
-**`amt_devices` is reduced to connection state** — uuid, device link, org,
+**`amt_devices` is reduced to connection state** — uuid, device link, tenant,
 status, last seen. The device row owns the hostname; the hardware row owns the
 model and firmware.
 
@@ -97,7 +97,7 @@ The device detail page issues no AMT request at all — one fewer round trip per
 page load, and the badge is correct before any AMT-specific fetch could have
 returned.
 
-MPS registration now writes under the resolved device's organization, so AMT
+MPS registration now writes under the resolved device's tenant, so AMT
 connection state is tenant-isolated by the same RLS policy as everything else,
 and the MPS tests drive the real Postgres adapter instead of a substitute that
 hid the failure.
@@ -107,7 +107,7 @@ hardware *supports* AMT — not that AMT is provisioned. A linked connection row
 is the proof of actual activation, and the badge tooltip distinguishes the two.
 
 Migration `008_amt_device_link` links existing AMT rows by hostname within their
-organization and discards what cannot be linked; those rows carried only status
+tenant and discards what cannot be linked; those rows carried only status
 and last-seen, and the next CIRA connect recreates them against the device that
 claims the system UUID. The down path restores the original column shape.
 
@@ -121,7 +121,7 @@ existing admin gate.
 ## Alternatives considered
 
 **Join on hostname.** What the code attempted. Hostnames are mutable, not unique
-across organizations, and the AMT firmware does not report one over CIRA without
+across tenants, and the AMT firmware does not report one over CIRA without
 an extra WSMAN round trip — so it could not have resolved a tenant even if it
 had been populated.
 
@@ -129,7 +129,7 @@ had been populated.
 a client-side join for data the device read can carry for free, and leaves a
 second collection to keep consistent.
 
-**Persist unmatched AMT connections under a holding organization.** Creates rows
+**Persist unmatched AMT connections under a holding tenant.** Creates rows
 with no owner, no access-control story, and no way to decide which tenant may see
 them. Holding the connection in memory costs nothing and resolves itself.
 

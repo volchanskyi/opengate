@@ -14,7 +14,7 @@ import (
 // TestGroupLifecycle exercises the group surface end to end under the current
 // authorization model: creating a group is a configuration change behind the
 // admin gate, and the resulting groups are visible to every member of the
-// organization — including the member who created none of them.
+// tenant — including the member who created none of them.
 func TestGroupLifecycle(t *testing.T) {
 	t.Parallel()
 	env := newTestEnv(t)
@@ -50,7 +50,7 @@ func TestGroupLifecycle(t *testing.T) {
 		return out
 	}
 
-	t.Run("every member sees every group in the organization", func(t *testing.T) {
+	t.Run("every member sees every group in the tenant", func(t *testing.T) {
 		want := []string{"group-a", "group-b", "group-c"}
 		assert.Equal(t, want, names(t, adminToken))
 		assert.Equal(t, want, names(t, memberToken), "the member created none of these and still sees them all")

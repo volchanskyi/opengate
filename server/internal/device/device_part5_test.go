@@ -16,10 +16,10 @@ import (
 func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	t.Parallel()
 	devices, groups, hardware, store := newRepos(t)
-	orgB := uuid.New()
+	tenantB := uuid.New()
 	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
-	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
-	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
+	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 
 	groupA := testutil.SeedGroup(t, ctxA, store)
 	groupB := testutil.SeedGroup(t, ctxB, store)
@@ -52,10 +52,10 @@ func TestPostgresDeviceRepos_TenantDeny(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, countsA.Total, "the rollup counts tenant A's device only")
 
-	resolvedOrg, err := devices.OrgForDevice(dbtx.WithDefaultTenant(context.Background(), true), deviceB.ID)
+	resolvedTenant, err := devices.TenantForDevice(dbtx.WithDefaultTenant(context.Background(), true), deviceB.ID)
 	require.NoError(t, err)
-	assert.Equal(t, orgB, resolvedOrg)
-	_, err = devices.OrgForDevice(ctxA, deviceB.ID)
+	assert.Equal(t, tenantB, resolvedTenant)
+	_, err = devices.TenantForDevice(ctxA, deviceB.ID)
 	assert.ErrorIs(t, err, device.ErrDeviceNotFound)
 
 	_, err = devices.ListAll(context.Background())
@@ -98,7 +98,7 @@ func (m *memDevices) Get(_ context.Context, _ device.DeviceID) (*device.Device, 
 	return &device.Device{}, m.maybeFail()
 }
 
-func (m *memDevices) OrgForDevice(_ context.Context, _ device.DeviceID) (uuid.UUID, error) {
+func (m *memDevices) TenantForDevice(_ context.Context, _ device.DeviceID) (uuid.UUID, error) {
 	return uuid.Nil, m.maybeFail()
 }
 

@@ -45,13 +45,13 @@ func newOrchestratorFixture(t *testing.T) *orchestratorFixture {
 }
 
 // newSeededPurge builds an orchestrator fixture with one device (plus process,
-// inventory, and VM telemetry) in a fresh org — the common start of the
+// inventory, and VM telemetry) in a fresh tenant — the common start of the
 // device-purge tests.
 func newSeededPurge(t *testing.T) (*orchestratorFixture, context.Context, uuid.UUID, uuid.UUID) {
 	t.Helper()
 	f := newOrchestratorFixture(t)
-	org := uuid.New()
-	return f, context.Background(), org, seedDeviceWithTelemetry(t, f, org)
+	tenant := uuid.New()
+	return f, context.Background(), tenant, seedDeviceWithTelemetry(t, f, tenant)
 }
 
 // assertJobComplete asserts a purge job reached verified terminal completion.
@@ -63,13 +63,13 @@ func assertJobComplete(t *testing.T, f *orchestratorFixture, ctx context.Context
 	require.NotNil(t, got.CompletedAt, "a complete job is stamped")
 }
 
-// seedDeviceWithTelemetry seeds a device in the given org plus process,
-// inventory, and VM rows so a purge has something to erase. Returns the org and
+// seedDeviceWithTelemetry seeds a device in the given tenant plus process,
+// inventory, and VM rows so a purge has something to erase. Returns the tenant and
 // device ids.
-func seedDeviceWithTelemetry(t *testing.T, f *orchestratorFixture, orgID uuid.UUID) uuid.UUID {
+func seedDeviceWithTelemetry(t *testing.T, f *orchestratorFixture, tenantID uuid.UUID) uuid.UUID {
 	t.Helper()
-	ctx := dbtx.WithTenant(context.Background(), orgID, false)
-	testutil.EnsureOrganization(t, ctx, f.store, orgID, "Org "+orgID.String()[:8])
+	ctx := dbtx.WithTenant(context.Background(), tenantID, false)
+	testutil.EnsureTenant(t, ctx, f.store, tenantID, "Tenant "+tenantID.String()[:8])
 	group := testutil.SeedGroup(t, ctx, f.store)
 	device := testutil.SeedDevice(t, ctx, f.store, group.ID)
 
@@ -82,7 +82,7 @@ func seedDeviceWithTelemetry(t *testing.T, f *orchestratorFixture, orgID uuid.UU
 	require.NoError(t, inv.Replace(ctx, device.ID, ts, []inventory.Component{
 		{Kind: inventory.KindPort, Name: "sshd", Proto: "tcp", Port: 22},
 	}))
-	require.NoError(t, f.vm.WriteSamples(context.Background(), orgID, device.ID, []telemetry.Sample{
+	require.NoError(t, f.vm.WriteSamples(context.Background(), tenantID, device.ID, []telemetry.Sample{
 		{Name: "opengate_edge_metric_avg", Value: 5, TS: ts, Labels: map[string]string{"dim": "cpu"}},
 	}))
 	require.NoError(t, f.vm.Flush(context.Background()))
@@ -91,9 +91,9 @@ func seedDeviceWithTelemetry(t *testing.T, f *orchestratorFixture, orgID uuid.UU
 
 func TestOrchestratorPurgeDeviceFansOutAndVerifies(t *testing.T) {
 	t.Parallel()
-	f, ctx, org, device := newSeededPurge(t)
+	f, ctx, tenant, device := newSeededPurge(t)
 
-	job, err := f.orch.PurgeDevice(ctx, org, device, nil)
+	job, err := f.orch.PurgeDevice(ctx, tenant, device, nil)
 	require.NoError(t, err)
 	require.NoError(t, f.orch.Run(ctx, job))
 
@@ -104,17 +104,17 @@ func TestOrchestratorPurgeDeviceFansOutAndVerifies(t *testing.T) {
 	assert.True(t, got.Verified && got.VMDeleted && got.PGDeleted)
 
 	// Tombstone blocks future ingest.
-	tombstoned, err := f.tombstone.IsDeviceTombstoned(ctx, org, device)
+	tombstoned, err := f.tombstone.IsDeviceTombstoned(ctx, tenant, device)
 	require.NoError(t, err)
 	assert.True(t, tombstoned)
 
 	// VM series gone.
-	n, err := f.vm.CountSeries(ctx, org, &device)
+	n, err := f.vm.CountSeries(ctx, tenant, &device)
 	require.NoError(t, err)
 	assert.Zero(t, n)
 
 	// Postgres device row + cascaded telemetry gone.
-	scoped := dbtx.WithTenant(ctx, org, true)
+	scoped := dbtx.WithTenant(ctx, tenant, true)
 	assert.Zero(t, countRows(t, f, scoped, qDevices, device))
 	assert.Zero(t, countRows(t, f, scoped, qProcesses, device))
 	assert.Zero(t, countRows(t, f, scoped, qInventory, device))
@@ -122,9 +122,9 @@ func TestOrchestratorPurgeDeviceFansOutAndVerifies(t *testing.T) {
 
 func TestOrchestratorPurgeDeviceIsIdempotent(t *testing.T) {
 	t.Parallel()
-	f, ctx, org, device := newSeededPurge(t)
+	f, ctx, tenant, device := newSeededPurge(t)
 
-	job, err := f.orch.PurgeDevice(ctx, org, device, nil)
+	job, err := f.orch.PurgeDevice(ctx, tenant, device, nil)
 	require.NoError(t, err)
 	require.NoError(t, f.orch.Run(ctx, job))
 	// Running the same completed job again must not error.
@@ -133,7 +133,7 @@ func TestOrchestratorPurgeDeviceIsIdempotent(t *testing.T) {
 
 func TestOrchestratorResumesAfterMidPurgeCrash(t *testing.T) {
 	t.Parallel()
-	f, ctx, org, device := newSeededPurge(t)
+	f, ctx, tenant, device := newSeededPurge(t)
 
 	// Simulate a crash after the tombstone + VM delete but before Postgres delete:
 	// a purger that fails once, wrapping the real one.
@@ -143,54 +143,54 @@ func TestOrchestratorResumesAfterMidPurgeCrash(t *testing.T) {
 		Verify: VerifyConfig{MaxAttempts: 20, Interval: 250 * time.Millisecond},
 	})
 
-	job, err := crashOrch.PurgeDevice(ctx, org, device, nil)
+	job, err := crashOrch.PurgeDevice(ctx, tenant, device, nil)
 	require.NoError(t, err)
 	require.Error(t, crashOrch.Run(ctx, job), "postgres delete fails mid-purge")
 
 	// The crash left the subject marked deleted (tombstone + VM already gone), not
 	// half-alive: VM is empty but the device row still exists.
-	n, err := f.vm.CountSeries(ctx, org, &device)
+	n, err := f.vm.CountSeries(ctx, tenant, &device)
 	require.NoError(t, err)
 	assert.Zero(t, n, "VM delete already issued before the crash")
 
 	// Resume re-runs the incomplete job to completion.
 	require.NoError(t, crashOrch.Resume(ctx))
 	assertJobComplete(t, f, ctx, job.ID)
-	assert.Zero(t, countRows(t, f, dbtx.WithTenant(ctx, org, true), qDevices, device))
+	assert.Zero(t, countRows(t, f, dbtx.WithTenant(ctx, tenant, true), qDevices, device))
 }
 
-func TestOrchestratorPurgeOrgLeavesOtherTenantsUntouched(t *testing.T) {
+func TestOrchestratorPurgeTenantLeavesOtherTenantsUntouched(t *testing.T) {
 	t.Parallel()
 	f := newOrchestratorFixture(t)
 	ctx := context.Background()
 
-	orgA := uuid.New()
-	orgB := uuid.New()
-	deviceA1 := seedDeviceWithTelemetry(t, f, orgA)
-	deviceA2 := seedDeviceWithTelemetry(t, f, orgA)
-	deviceB := seedDeviceWithTelemetry(t, f, orgB)
+	tenantA := uuid.New()
+	tenantB := uuid.New()
+	deviceA1 := seedDeviceWithTelemetry(t, f, tenantA)
+	deviceA2 := seedDeviceWithTelemetry(t, f, tenantA)
+	deviceB := seedDeviceWithTelemetry(t, f, tenantB)
 
-	job, err := f.orch.PurgeOrg(ctx, orgA, nil)
+	job, err := f.orch.PurgeTenant(ctx, tenantA, nil)
 	require.NoError(t, err)
 	require.NoError(t, f.orch.Run(ctx, job))
 	assertJobComplete(t, f, ctx, job.ID)
 
-	// Every orgA device is gone from VM and Postgres.
-	nA, err := f.vm.CountSeries(ctx, orgA, nil)
+	// Every tenantA device is gone from VM and Postgres.
+	nA, err := f.vm.CountSeries(ctx, tenantA, nil)
 	require.NoError(t, err)
 	assert.Zero(t, nA)
 	for _, d := range []uuid.UUID{deviceA1, deviceA2} {
-		assert.Zero(t, countRows(t, f, dbtx.WithTenant(ctx, orgA, true), qDevices, d))
+		assert.Zero(t, countRows(t, f, dbtx.WithTenant(ctx, tenantA, true), qDevices, d))
 	}
 
-	// orgB is fully intact.
-	nB, err := f.vm.CountSeries(ctx, orgB, nil)
+	// tenantB is fully intact.
+	nB, err := f.vm.CountSeries(ctx, tenantB, nil)
 	require.NoError(t, err)
 	assert.Positive(t, nB)
-	assert.Positive(t, countRows(t, f, dbtx.WithTenant(ctx, orgB, true), qDevices, deviceB))
-	tombstoned, err := f.tombstone.IsDeviceTombstoned(ctx, orgB, deviceB)
+	assert.Positive(t, countRows(t, f, dbtx.WithTenant(ctx, tenantB, true), qDevices, deviceB))
+	tombstoned, err := f.tombstone.IsDeviceTombstoned(ctx, tenantB, deviceB)
 	require.NoError(t, err)
-	assert.False(t, tombstoned, "org purge must not tombstone another tenant")
+	assert.False(t, tombstoned, "tenant purge must not tombstone another tenant")
 }
 
 // flakyPGPurger wraps a real PGPurger and fails DeleteDevice a fixed number of
@@ -200,20 +200,20 @@ type flakyPGPurger struct {
 	failuresLeft int
 }
 
-func (f *flakyPGPurger) DeleteDevice(ctx context.Context, orgID, deviceID uuid.UUID) error {
+func (f *flakyPGPurger) DeleteDevice(ctx context.Context, tenantID, deviceID uuid.UUID) error {
 	if f.failuresLeft > 0 {
 		f.failuresLeft--
 		return errors.New("simulated crash")
 	}
-	return f.inner.DeleteDevice(ctx, orgID, deviceID)
+	return f.inner.DeleteDevice(ctx, tenantID, deviceID)
 }
 
-func (f *flakyPGPurger) DeleteOrgDevices(ctx context.Context, orgID uuid.UUID) (int, error) {
-	return f.inner.DeleteOrgDevices(ctx, orgID)
+func (f *flakyPGPurger) DeleteTenantDevices(ctx context.Context, tenantID uuid.UUID) (int, error) {
+	return f.inner.DeleteTenantDevices(ctx, tenantID)
 }
 
-func (f *flakyPGPurger) ListOrgDeviceIDs(ctx context.Context, orgID uuid.UUID) ([]uuid.UUID, error) {
-	return f.inner.ListOrgDeviceIDs(ctx, orgID)
+func (f *flakyPGPurger) ListTenantDeviceIDs(ctx context.Context, tenantID uuid.UUID) ([]uuid.UUID, error) {
+	return f.inner.ListTenantDeviceIDs(ctx, tenantID)
 }
 
 func (f *flakyPGPurger) ListAllDeviceIDs(ctx context.Context) ([]uuid.UUID, error) {

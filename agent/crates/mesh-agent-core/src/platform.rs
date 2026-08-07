@@ -1,9 +1,12 @@
 //! Platform abstraction traits for screen capture, input injection,
 //! and service lifecycle.
 //!
-//! These traits define the contract that platform-specific crates
-//! (`platform-linux`, `platform-windows`) implement. The core agent
-//! programs against these traits, enabling cross-platform operation.
+//! These traits define the contract a platform-specific crate implements —
+//! `platform-linux` today, and the plug-in point for any further platform. The
+//! core agent programs against the traits alone, so it holds no OS-specific
+//! code. The null implementations at the bottom of this module satisfy every
+//! trait by doing nothing, which is what headless hosts, containers, and CI
+//! runs use.
 
 use mesh_protocol::{KeyEvent, MouseButton};
 

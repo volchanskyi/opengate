@@ -75,10 +75,10 @@ func TestPostgresSessions_TenantDeny(t *testing.T) {
 	t.Parallel()
 	store := testutil.NewTestStore(t)
 	repo := testutil.NewTestSessions(t, store)
-	orgB := uuid.New()
+	tenantB := uuid.New()
 	ctxA := dbtx.WithDefaultTenant(context.Background(), false)
-	ctxB := dbtx.WithTenant(context.Background(), orgB, false)
-	testutil.EnsureOrganization(t, context.Background(), store, orgB, "Tenant "+orgB.String()[:8])
+	ctxB := dbtx.WithTenant(context.Background(), tenantB, false)
+	testutil.EnsureTenant(t, context.Background(), store, tenantB, "Tenant "+tenantB.String()[:8])
 
 	userA := testutil.SeedUser(t, ctxA, store)
 	userB := testutil.SeedUser(t, ctxB, store)

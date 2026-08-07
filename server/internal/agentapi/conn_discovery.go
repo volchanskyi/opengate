@@ -21,8 +21,8 @@ const (
 )
 
 // handleDiscoveryReport persists a WS-16 auto-discovery report as the device's
-// current inventory footprint, scoped to the connection's authoritative org
-// (never the agent-supplied org). The report is descriptive attack-surface data
+// current inventory footprint, scoped to the connection's authoritative tenant
+// (never the agent-supplied tenant). The report is descriptive attack-surface data
 // only; nothing here becomes a VictoriaMetrics label.
 func (a *AgentConn) handleDiscoveryReport(ctx context.Context, msg *protocol.ControlMessage, payloadLen int) error {
 	if a.inventory == nil || !a.acceptDiscovery(msg.TS, payloadLen) {

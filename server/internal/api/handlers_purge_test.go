@@ -22,19 +22,19 @@ import (
 // fakePurger records purge calls and returns canned jobs.
 type fakePurger struct {
 	devicePurged []uuid.UUID
-	orgPurged    []uuid.UUID
+	tenantPurged []uuid.UUID
 	ranJobs      []uuid.UUID
 	bgJobs       []uuid.UUID
 }
 
-func (f *fakePurger) PurgeDevice(_ context.Context, orgID, deviceID uuid.UUID, _ *uuid.UUID) (*lifecycle.PurgeJob, error) {
+func (f *fakePurger) PurgeDevice(_ context.Context, tenantID, deviceID uuid.UUID, _ *uuid.UUID) (*lifecycle.PurgeJob, error) {
 	f.devicePurged = append(f.devicePurged, deviceID)
-	return &lifecycle.PurgeJob{ID: uuid.New(), OrgID: orgID, DeviceID: &deviceID, Scope: lifecycle.ScopeDevice, State: lifecycle.StateRequested}, nil
+	return &lifecycle.PurgeJob{ID: uuid.New(), TenantID: tenantID, DeviceID: &deviceID, Scope: lifecycle.ScopeDevice, State: lifecycle.StateRequested}, nil
 }
 
-func (f *fakePurger) PurgeOrg(_ context.Context, orgID uuid.UUID, _ *uuid.UUID) (*lifecycle.PurgeJob, error) {
-	f.orgPurged = append(f.orgPurged, orgID)
-	return &lifecycle.PurgeJob{ID: uuid.New(), OrgID: orgID, Scope: lifecycle.ScopeOrg, State: lifecycle.StateRequested}, nil
+func (f *fakePurger) PurgeTenant(_ context.Context, tenantID uuid.UUID, _ *uuid.UUID) (*lifecycle.PurgeJob, error) {
+	f.tenantPurged = append(f.tenantPurged, tenantID)
+	return &lifecycle.PurgeJob{ID: uuid.New(), TenantID: tenantID, Scope: lifecycle.ScopeTenant, State: lifecycle.StateRequested}, nil
 }
 
 func (f *fakePurger) Run(_ context.Context, job *lifecycle.PurgeJob) error {
@@ -105,53 +105,53 @@ func TestDeleteDeviceRunsPurgeWhenWired(t *testing.T) {
 	assert.Len(t, purger.ranJobs, 1, "device purge runs in-request")
 }
 
-func TestPurgeOrgAdminOnly(t *testing.T) {
+func TestPurgeTenantAdminOnly(t *testing.T) {
 	purger := &fakePurger{}
 	srv, cfg := newPurgeTestServer(t, purger, nil)
 	_, userToken := seedTestUser(t, srv, cfg, "user-purge@example.com", false)
 
-	w := doRequest(srv, http.MethodPost, "/api/v1/orgs/"+dbtx.DefaultOrgID.String()+"/purge", userToken, nil)
+	w := doRequest(srv, http.MethodPost, "/api/v1/tenants/"+dbtx.DefaultTenantID.String()+"/purge", userToken, nil)
 	assert.Equal(t, http.StatusForbidden, w.Code, "non-admin cannot purge a tenant")
-	assert.Empty(t, purger.orgPurged)
+	assert.Empty(t, purger.tenantPurged)
 }
 
-func TestPurgeOrgCrossTenantDenied(t *testing.T) {
+func TestPurgeTenantCrossTenantDenied(t *testing.T) {
 	purger := &fakePurger{}
 	srv, cfg := newPurgeTestServer(t, purger, nil)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin-cross@example.com", true)
 
-	// The admin's org is the default org; purging a different org must be denied.
+	// The admin's tenant is the default tenant; purging a different tenant must be denied.
 	other := uuid.New()
-	w := doRequest(srv, http.MethodPost, "/api/v1/orgs/"+other.String()+"/purge", adminToken, nil)
+	w := doRequest(srv, http.MethodPost, "/api/v1/tenants/"+other.String()+"/purge", adminToken, nil)
 	assert.Equal(t, http.StatusForbidden, w.Code, "admin cannot purge another tenant")
-	assert.Empty(t, purger.orgPurged)
+	assert.Empty(t, purger.tenantPurged)
 }
 
-func TestPurgeOrgAcceptsAndRunsAsync(t *testing.T) {
+func TestPurgeTenantAcceptsAndRunsAsync(t *testing.T) {
 	purger := &fakePurger{}
 	srv, cfg := newPurgeTestServer(t, purger, nil)
 	_, adminToken := seedTestUser(t, srv, cfg, "admin-ok@example.com", true)
 
-	w := doRequest(srv, http.MethodPost, "/api/v1/orgs/"+dbtx.DefaultOrgID.String()+"/purge", adminToken, nil)
+	w := doRequest(srv, http.MethodPost, "/api/v1/tenants/"+dbtx.DefaultTenantID.String()+"/purge", adminToken, nil)
 	assert.Equal(t, http.StatusAccepted, w.Code)
-	require.Len(t, purger.orgPurged, 1)
-	assert.Equal(t, dbtx.DefaultOrgID, purger.orgPurged[0])
+	require.Len(t, purger.tenantPurged, 1)
+	assert.Equal(t, dbtx.DefaultTenantID, purger.tenantPurged[0])
 	assert.Len(t, purger.bgJobs, 1, "tenant purge runs asynchronously")
 }
 
 func TestGetPurgeJobScopedToTenant(t *testing.T) {
-	otherOrgJob := &lifecycle.PurgeJob{ID: uuid.New(), OrgID: uuid.New(), Scope: lifecycle.ScopeOrg, State: lifecycle.StateComplete}
-	ownJob := &lifecycle.PurgeJob{ID: uuid.New(), OrgID: dbtx.DefaultOrgID, Scope: lifecycle.ScopeOrg, State: lifecycle.StateComplete}
-	reader := &fakeJobReader{jobs: map[uuid.UUID]*lifecycle.PurgeJob{otherOrgJob.ID: otherOrgJob, ownJob.ID: ownJob}}
+	otherTenantJob := &lifecycle.PurgeJob{ID: uuid.New(), TenantID: uuid.New(), Scope: lifecycle.ScopeTenant, State: lifecycle.StateComplete}
+	ownJob := &lifecycle.PurgeJob{ID: uuid.New(), TenantID: dbtx.DefaultTenantID, Scope: lifecycle.ScopeTenant, State: lifecycle.StateComplete}
+	reader := &fakeJobReader{jobs: map[uuid.UUID]*lifecycle.PurgeJob{otherTenantJob.ID: otherTenantJob, ownJob.ID: ownJob}}
 	srv, cfg := newPurgeTestServer(t, &fakePurger{}, reader)
 	_, userToken := seedTestUser(t, srv, cfg, "user-job@example.com", false)
 
-	// Own-org job is visible.
+	// Own-tenant job is visible.
 	w := doRequest(srv, http.MethodGet, "/api/v1/purge-jobs/"+ownJob.ID.String(), userToken, nil)
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	// Another tenant's job is forbidden to a non-admin.
-	w = doRequest(srv, http.MethodGet, "/api/v1/purge-jobs/"+otherOrgJob.ID.String(), userToken, nil)
+	w = doRequest(srv, http.MethodGet, "/api/v1/purge-jobs/"+otherTenantJob.ID.String(), userToken, nil)
 	assert.Equal(t, http.StatusForbidden, w.Code)
 
 	// A missing job is 404.

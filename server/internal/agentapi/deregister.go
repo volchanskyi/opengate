@@ -55,13 +55,13 @@ func (s *AgentServer) DeregisterAgent(ctx context.Context, deviceID protocol.Dev
 	}
 }
 
-// DeregisterOrg tombstones and disconnects every connected agent in an org, for
-// a tenant-wide purge. Offline agents in the org are covered by the persisted
+// DeregisterTenant tombstones and disconnects every connected agent in a tenant, for
+// a tenant-wide purge. Offline agents in the tenant are covered by the persisted
 // per-device deny-list entries the purge records, so they are rejected by their
 // own id when they next reconnect.
-func (s *AgentServer) DeregisterOrg(ctx context.Context, orgID uuid.UUID) {
+func (s *AgentServer) DeregisterTenant(ctx context.Context, tenantID uuid.UUID) {
 	for _, ac := range s.ListConnectedAgents() {
-		if ac.OrgID == orgID {
+		if ac.TenantID == tenantID {
 			s.DeregisterAgent(ctx, ac.DeviceID)
 		}
 	}

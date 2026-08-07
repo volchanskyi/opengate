@@ -9,32 +9,32 @@ _None currently._
 
 ## Severity: Medium
 
-### Multi-org membership API and web org switcher deferred
+### Multi-tenant membership API and web tenant switcher deferred
 
-WS-0 satisfies "web carries org context" by retaining the JWT `org` claim in the
+WS-0 satisfies "web carries tenant context" by retaining the JWT `tenant` claim in the
 auth store as display/UX state only; the server derives authorization scope from
-the signed token and never trusts a browser-supplied org value. There is not yet a
-multi-org membership API, so a web org switcher has no authoritative membership
-surface to switch between. The deferred multi-org design must also settle:
+the signed token and never trusts a browser-supplied tenant value. There is not yet a
+multi-tenant membership API, so a web tenant switcher has no authoritative membership
+surface to switch between. The deferred multi-tenant design must also settle:
 
-1. Split platform-admin from org-scoped admin. Today `users.is_admin` is mirrored
+1. Split platform-admin from tenant-scoped admin. Today `users.is_admin` is mirrored
    from Administrators membership and drives the `app.is_admin` RLS policy bypass;
-   that is correct only while every user is in the default org.
-2. Decide whether `organizations` itself remains globally enumerable or gains a
-   membership-scoped read surface once users can belong to more than one org.
+   that is correct only while every user is in the default tenant.
+2. Decide whether `tenants` itself remains globally enumerable or gains a
+   membership-scoped read surface once users can belong to more than one tenant.
 3. Decide the login/email uniqueness model. The current global `users.email`
-   uniqueness keeps login lookup unambiguous, but it also blocks per-org email
-   reuse and makes the new `(org_id, email)` index advisory until multi-org
+   uniqueness keeps login lookup unambiguous, but it also blocks per-tenant email
+   reuse and makes the new `(tenant_id, email)` index advisory until multi-tenant
    membership exists.
-4. Reconcile globally unique `security_groups.name` with per-org system groups
-   before creating non-default organizations that need their own Administrators
+4. Reconcile globally unique `security_groups.name` with per-tenant system groups
+   before creating non-default tenants that need their own Administrators
    group name.
 
-**Pay-down trigger:** when multi-org membership is introduced, add the server
-membership/switching API, issue refreshed tokens for the selected org, split
-platform-admin from org-admin bypass semantics, choose the org/email/security
-group uniqueness model, decide the organization visibility model, and build the
-web org switcher against that server-trusted flow.
+**Pay-down trigger:** when multi-tenant membership is introduced, add the server
+membership/switching API, issue refreshed tokens for the selected tenant, split
+platform-admin from tenant-admin bypass semantics, choose the tenant/email/security
+group uniqueness model, decide the tenant visibility model, and build the
+web tenant switcher against that server-trusted flow.
 
 ### W3 decision — adopt 1-RTT TLS session resumption; agent-side enablement pending; 0-RTT deferred
 
@@ -124,10 +124,10 @@ any run that leaves a group behind, and
 [`fleet-stub.ts`](../web/e2e/helpers/fleet-stub.ts) gives the specs that assert
 an empty fleet a way to supply that emptiness instead of reading shared state.
 Both narrow the audit to specs that seed devices or users, and both hold at any
-worker count. Since the organization — not the creating user — is the visibility
+worker count. Since the tenant — not the creating user — is the visibility
 boundary, per-worker identities would not isolate fleet writes on their own; the
 remaining audit has to cover that, or the worker count needs a per-worker
-organization.
+tenant.
 
 **Pay-down trigger:** E2E wall time becomes a merge-latency problem, making the
 per-test mutation audit worth its cost.

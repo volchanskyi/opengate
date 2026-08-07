@@ -54,9 +54,9 @@ func pgStore(t *testing.T) (*db.PostgresStore, *sql.DB) {
 func seedDeviceRow(t *testing.T, ctx context.Context, sqlDB *sql.DB, id uuid.UUID, lastSeen time.Time) {
 	t.Helper()
 	_, err := sqlDB.ExecContext(ctx, `
-		INSERT INTO devices (id, org_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+		INSERT INTO devices (id, tenant_id, group_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
 		VALUES ($1, $2, NULL, 'native-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', $3, NOW(), NOW())
-	`, id, dbtx.DefaultOrgID, lastSeen)
+	`, id, dbtx.DefaultTenantID, lastSeen)
 	require.NoError(t, err)
 }
 
@@ -161,9 +161,9 @@ func TestPostgresUUIDRejectsMalformedAtBoundary(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := sqlDB.ExecContext(ctx, `
-					INSERT INTO devices (id, org_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+					INSERT INTO devices (id, tenant_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
 					VALUES ($1, $2, 'x', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
-				`, tt.raw, dbtx.DefaultOrgID)
+				`, tt.raw, dbtx.DefaultTenantID)
 			require.Error(t, err, "postgres must reject malformed UUID %q", tt.raw)
 			assert.Contains(t, strings.ToLower(err.Error()), "invalid input syntax")
 		})
@@ -190,10 +190,10 @@ func TestPostgresUUIDAcceptsAllCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := sqlDB.ExecContext(ctx, `
-					INSERT INTO devices (id, org_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+					INSERT INTO devices (id, tenant_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
 					VALUES ($1, $2, 'case-test', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
 					ON CONFLICT (id) DO UPDATE SET hostname = EXCLUDED.hostname
-				`, tt.raw, dbtx.DefaultOrgID)
+				`, tt.raw, dbtx.DefaultTenantID)
 			require.NoError(t, err)
 
 			var got uuid.UUID
@@ -297,9 +297,9 @@ func TestPostgresMalformedUUIDInsertRollbackable(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := sqlDB.ExecContext(ctx, `
-		INSERT INTO devices (id, org_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
+		INSERT INTO devices (id, tenant_id, hostname, os, os_display, agent_version, capabilities, status, last_seen, created_at, updated_at)
 		VALUES ($1, $2, 'malformed', 'linux', 'Linux', '0.1.0', '[]'::jsonb, 'online', NOW(), NOW(), NOW())
-	`, "not-a-uuid", dbtx.DefaultOrgID)
+	`, "not-a-uuid", dbtx.DefaultTenantID)
 	require.Error(t, err)
 
 	// The pool must still be usable.

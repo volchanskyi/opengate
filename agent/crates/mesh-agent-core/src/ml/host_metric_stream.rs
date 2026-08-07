@@ -101,7 +101,7 @@ impl HostMetricWindower {
     /// accumulator. `None` when no samples are buffered. Each dim is averaged
     /// over its own sample count and a dim with no readings this window (e.g. a
     /// net rate that never resolved) is omitted. The server assigns the
-    /// authoritative org, so `org_id` is left empty.
+    /// authoritative tenant, so `tenant_id` is left empty.
     fn close(&mut self) -> Option<ControlMessage> {
         let start = self.window?;
         let dims = BACKFILL_SERIES
@@ -124,7 +124,7 @@ impl HostMetricWindower {
         }
         Some(ControlMessage::AgentMetricWindow {
             ts: start,
-            org_id: String::new(),
+            tenant_id: String::new(),
             dims,
         })
     }

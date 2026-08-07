@@ -20,7 +20,7 @@ func TestInstrumentedDevices_AllMethods(t *testing.T) {
 		require.NoError(t, r.Upsert(ctx, &device.Device{}))
 		_, err := r.Get(ctx, uuid.New())
 		require.NoError(t, err)
-		_, err = r.OrgForDevice(ctx, uuid.New())
+		_, err = r.TenantForDevice(ctx, uuid.New())
 		require.NoError(t, err)
 		_, err = r.List(ctx, uuid.New())
 		require.NoError(t, err)
@@ -37,7 +37,7 @@ func TestInstrumentedDevices_AllMethods(t *testing.T) {
 		for _, c := range obs.calls {
 			assert.True(t, c.ok)
 		}
-		assert.Equal(t, "device.Device.OrgForDevice", obs.calls[2].op)
+		assert.Equal(t, "device.Device.TenantForDevice", obs.calls[2].op)
 	})
 
 	t.Run("error paths", func(t *testing.T) {
@@ -47,7 +47,7 @@ func TestInstrumentedDevices_AllMethods(t *testing.T) {
 		assert.Error(t, r.Upsert(ctx, &device.Device{}))
 		_, err := r.Get(ctx, uuid.New())
 		assert.Error(t, err)
-		_, err = r.OrgForDevice(ctx, uuid.New())
+		_, err = r.TenantForDevice(ctx, uuid.New())
 		assert.Error(t, err)
 		_, err = r.List(ctx, uuid.New())
 		assert.Error(t, err)

@@ -120,7 +120,7 @@ agents. The app chart wires the VM endpoint into the server through
 [`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml),
 and the scoped client lives in
 [`server/internal/telemetry`](../server/internal/telemetry/). VM reads go through
-that client so the server injects the authoritative `org_id` matcher. Process
+that client so the server injects the authoritative `tenant_id` matcher. Process
 snapshots with basenames and optional command-line hashes stay in Postgres RLS;
 see [Database](Database.md#device-processes-table).
 
@@ -133,8 +133,8 @@ its filters stay live either way, and the caret collapses the returned lines
 alone. The response is cached for the browser session, so returning to a device
 page renders the lines it already has and every later pull is an explicit
 control — a window button, a unit or severity filter, or a search.
-The host log source is read through first-party CLIs (`journalctl -o json`,
-PowerShell `Get-WinEvent`) rather than a GPL journal library, per
+The host log source is read through its first-party CLI (`journalctl -o json`)
+rather than a GPL journal library, per
 [ADR-050](adr/ADR-050-edge-sentinel-log-reader-sourcing.md).
 
 Raw log lines are never centralized — they are brokered on demand, redacted, and
@@ -198,12 +198,12 @@ comparator, a fire threshold, a hysteresis clear boundary, and a sustain duratio
 continuously for its sustain duration before it fires (suppressing brief spikes),
 then stays firing until the metric recovers past the clear boundary (suppressing
 flapping around the threshold). The server delivers each connecting agent's
-authoritative-org ruleset over a capability-gated `PushAlertRules` control
+authoritative-tenant ruleset over a capability-gated `PushAlertRules` control
 message ([`alert_rules.go`](../server/internal/agentapi/alert_rules.go)), so one
-org's rules never reach another; an org without a custom set receives a minimal
+tenant's rules never reach another; a tenant without a custom set receives a minimal
 built-in default. A firing breach rides additively in an `AgentHealthSummary`,
 which the server ingests as `opengate_edge_alert_breach` scoped to the resolved
-org and charts on the Edge-Sentinel Soak dashboard. Delivery is
+tenant and charts on the Edge-Sentinel Soak dashboard. Delivery is
 **investigation-aid only** — no auto-notify — until the false-positive soak; see
 [ADR-053](adr/ADR-053-edge-sentinel-threshold-alerts.md).
 
@@ -220,7 +220,7 @@ The load driver is the QUIC agent load harness
 ([`server/tests/loadtest`](../server/tests/loadtest)). Beyond raw connect/register
 timing it can drive the **default telemetry shape** per agent (`-default-telemetry`:
 a health summary, a host metric window, and a minimal process report), spread
-agents across tenant cohorts (`-orgs`), and run a **fleet-wide reconnect storm**
+agents across tenant cohorts (`-tenants`), and run a **fleet-wide reconnect storm**
 (`-backfill-batches`) in which a cohort returns at once with offline backlogs and
 drains through the admission scheduler one acked batch at a time. Run it through
 the Docker/e2e stack lifecycle, never bare tooling.

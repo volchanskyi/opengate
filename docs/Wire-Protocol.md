@@ -79,9 +79,9 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 |---------|-----------|--------|
 | `AgentRegister` | Agent → Server | `capabilities`, `hostname`, `os`, `arch`, `version` |
 | `AgentHeartbeat` | Agent → Server | `timestamp` |
-| `AgentHealthSummary` | Agent → Server | `ts`, `org_id`, `node_anomaly_rate`, `per_family_rates`, `recent_bitmask`, `sampler_ver`, `model_ver` |
-| `AgentMetricWindow` | Agent → Server | `ts`, `org_id`, `dims` |
-| `ProcessReport` | Agent → Server | `ts`, `org_id`, `top_n` |
+| `AgentHealthSummary` | Agent → Server | `ts`, `tenant_id`, `node_anomaly_rate`, `per_family_rates`, `recent_bitmask`, `sampler_ver`, `model_ver` |
+| `AgentMetricWindow` | Agent → Server | `ts`, `tenant_id`, `dims` |
+| `ProcessReport` | Agent → Server | `ts`, `tenant_id`, `top_n` |
 | `SessionAccept` | Agent → Server | `token`, `relay_url` |
 | `SessionReject` | Agent → Server | `token`, `reason` |
 | `SessionRequest` | Server → Agent | `token`, `relay_url`, `permissions` |
@@ -115,15 +115,15 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `DeviceLogsError` | Agent → Server | `error` |
 | `RequestHealthWindow` | Server → Agent | `since_ts`, `limit` |
 | `HealthWindowResponse` | Agent → Server | `summaries` |
-| `DiscoveryReport` | Agent → Server | `ts`, `org_id`, `ports`, `services`, `db_engines`, `containers`, `packages`, `truncated` |
+| `DiscoveryReport` | Agent → Server | `ts`, `tenant_id`, `ports`, `services`, `db_engines`, `containers`, `packages`, `truncated` |
 | `SetMaintenanceMode` | Server → Agent | `enabled` |
 | `MaintenanceApplied` | Agent → Server | `enabled` |
 
 The Edge Sentinel telemetry variants are ingested by the server when received.
 The agent sampler runs on every device
 ([ADR-056](./adr/ADR-056-device-maintenance-mode.md)); it pauses only while the
-device is in maintenance mode. Server ingest ignores payload `org_id` for
-authorization, resolves the device's authoritative organization after handshake,
+device is in maintenance mode. Server ingest ignores payload `tenant_id` for
+authorization, resolves the device's authoritative tenant after handshake,
 applies a telemetry payload cap and interval floor, and drops/counts telemetry
 when the bounded persistence path is saturated. The source-of-truth payload definitions are the Rust
 [`ControlMessage`](../agent/crates/mesh-protocol/src/control.rs) enum and Go
@@ -139,14 +139,17 @@ primary-interface throughput in bytes/second (rounded to whole bytes so they
 stay on the lossless integer path). The 10 s averaging matches reconnect-
 backfill's roll-up exactly, so a live point and a later gap-filled point for the
 same `(dim, ts)` land in one series. On the on-demand log query, `RequestDeviceLogs.source` selects the log
-source (`host` resolves journald / the Windows Event Log; empty or `self` reads
-the agent's own files) and `unit` narrows host logs to one emitting unit;
-`DeviceLogsResponse.available_units` enumerates the source's distinct units for
-the UI unit dropdown.
+source (`host` resolves the platform system log, journald on Linux; empty or
+`self` reads the agent's own files) and `unit` narrows host logs to one emitting
+unit; `DeviceLogsResponse.available_units` enumerates the source's distinct units
+for the UI unit dropdown. The `source` vocabulary is the extension point for a
+further platform's log reader and is wider than any one agent implements — an
+agent that names a source it has no reader for gets `DeviceLogsError` naming that
+source, never an empty page and never another source's records.
 
 `DiscoveryReport` carries a non-intrusive, read-only host profile: listening
-ports (transport, port, owning process basename), host services (systemd unit /
-Windows service name + run state), database engines inferred from listening
+ports (transport, port, owning process basename), host services (systemd unit
+name + run state), database engines inferred from listening
 ports (engine family + port, no probe), containers from a local runtime
 (runtime, image, name, state), and installed packages (name, version). Each
 category is per-device bounded on the agent, and `truncated` is set when any hit
@@ -155,7 +158,7 @@ credential. The agent's discovery task profiles on a long interval and forwards 
 report over a bounded channel **only when the profile changed** since the last one
 shipped — so a
 steady host is silent and a burst never backpressures the control stream. The
-server assigns the authoritative organization, so the agent leaves `org_id`
+server assigns the authoritative tenant, so the agent leaves `tenant_id`
 empty.
 
 `SetMaintenanceMode` carries the server's desired maintenance state for the

@@ -27,14 +27,14 @@ func (p *PostgresWebPush) Upsert(ctx context.Context, sub *WebPushSubscription) 
 	}
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx,
-			`INSERT INTO web_push_subscriptions (endpoint, org_id, user_id, p256dh, auth)
+			`INSERT INTO web_push_subscriptions (endpoint, tenant_id, user_id, p256dh, auth)
 			 VALUES ($1, $2, $3, $4, $5)
 			 ON CONFLICT (endpoint) DO UPDATE SET
-			   org_id = EXCLUDED.org_id,
+			   tenant_id = EXCLUDED.tenant_id,
 			   user_id = EXCLUDED.user_id,
 			   p256dh = EXCLUDED.p256dh,
 			   auth = EXCLUDED.auth`,
-			sub.Endpoint, tenant.OrgID, sub.UserID, sub.P256dh, sub.Auth)
+			sub.Endpoint, tenant.TenantID, sub.UserID, sub.P256dh, sub.Auth)
 		return err
 	})
 }
@@ -45,7 +45,7 @@ func (p *PostgresWebPush) ListForUser(ctx context.Context, userID uuid.UUID) ([]
 		var err error
 		subs, err = queryWebPushList(ctx, tx,
 			`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions
-			 WHERE org_id = current_setting('app.current_org')::uuid AND user_id = $1`,
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid AND user_id = $1`,
 			userID)
 		return err
 	})
@@ -58,7 +58,7 @@ func (p *PostgresWebPush) ListAll(ctx context.Context) ([]*WebPushSubscription, 
 		var err error
 		subs, err = queryWebPushList(ctx, tx,
 			`SELECT endpoint, user_id, p256dh, auth FROM web_push_subscriptions
-			 WHERE org_id = current_setting('app.current_org')::uuid OR current_setting('app.is_admin', true)::boolean`)
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid OR current_setting('app.is_admin', true)::boolean`)
 		return err
 	})
 	return subs, err
@@ -68,7 +68,7 @@ func (p *PostgresWebPush) Delete(ctx context.Context, endpoint string, userID uu
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`DELETE FROM web_push_subscriptions
-			 WHERE org_id = current_setting('app.current_org')::uuid
+			 WHERE tenant_id = current_setting('app.current_tenant')::uuid
 			   AND endpoint = $1 AND user_id = $2`, endpoint, userID)
 		if err != nil {
 			return err

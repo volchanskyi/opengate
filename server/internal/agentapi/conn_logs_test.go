@@ -128,21 +128,21 @@ func TestDeliverLogs_NoWaiterDrops(t *testing.T) {
 	assert.False(t, ac.deliverLogs(logsResult{total: 1}))
 }
 
-// TestHostMetricDimsIngestScopedByConnectionOrg pins that live host-metric
+// TestHostMetricDimsIngestScopedByConnectionTenant pins that live host-metric
 // windows ride the AgentMetricWindow path and land in the telemetry writer as
 // `opengate_edge_metric_avg{dim=...}` scoped to the connection's authoritative
-// org — never the agent-supplied one. Cross-tenant reads are then denied by the
+// tenant — never the agent-supplied one. Cross-tenant reads are then denied by the
 // VM scoped reader (see telemetry.ScopeSelector tests).
-func TestHostMetricDimsIngestScopedByConnectionOrg(t *testing.T) {
+func TestHostMetricDimsIngestScopedByConnectionTenant(t *testing.T) {
 	deviceID := uuid.New()
 	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
 	ac, buf := newTestAgentConn(t, deviceID, nil)
 	ac.telemetry = writer
 
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
-		Type:  protocol.MsgAgentMetricWindow,
-		TS:    time.Now().Unix(),
-		OrgID: uuid.New().String(), // agent-supplied org must be ignored
+		Type:     protocol.MsgAgentMetricWindow,
+		TS:       time.Now().Unix(),
+		TenantID: uuid.New().String(), // agent-supplied tenant must be ignored
 		Dims: []protocol.MetricDim{
 			{Name: "cpu.total", Avg: 42.5},
 			{Name: "net.rx_bps", Avg: 123456},
@@ -153,7 +153,7 @@ func TestHostMetricDimsIngestScopedByConnectionOrg(t *testing.T) {
 	ac.flushTelemetry(dbtx.WithDefaultTenant(context.Background(), false))
 
 	call := receiveTelemetryCall(t, writer.calls)
-	assert.Equal(t, dbtx.DefaultOrgID, call.orgID, "org must be the connection's, not agent-supplied")
+	assert.Equal(t, dbtx.DefaultTenantID, call.tenantID, "tenant must be the connection's, not agent-supplied")
 	assert.Equal(t, deviceID, call.deviceID)
 	require.Len(t, call.samples, 2)
 	for _, s := range call.samples {

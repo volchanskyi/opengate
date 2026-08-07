@@ -14,11 +14,19 @@ The agent uses platform traits defined in `mesh-agent-core` to abstract OS-speci
 
 ## Platform Implementations
 
-| Trait | Linux | Windows |
-|-------|-------|---------|
-| `ScreenCapture` | Not implemented (Linux = Terminal + FileManager only) | DXGI Desktop Duplication |
-| `InputInjector` | Not implemented | Win32 `SendInput` |
-| `ServiceLifecycle` | systemd `sd_notify` | Windows SCM |
+The agent implements Linux. Every trait a platform crate does not implement
+resolves to its null implementation, which is what headless hosts, containers,
+and CI runs use.
+
+| Trait | Linux |
+|-------|-------|
+| `ScreenCapture` | Null (Linux = Terminal + FileManager only) |
+| `InputInjector` | Null |
+| `ServiceLifecycle` | systemd `sd_notify` |
+
+A further platform plugs in by adding a crate that implements the three traits
+and exposes the same three factory functions. Nothing in `mesh-agent-core`
+changes to accommodate one.
 
 ## Factory Functions
 
@@ -46,14 +54,13 @@ Null implementations are returned when running in containers or environments whe
 
 ## Capability Detection
 
-Linux agents statically report **Terminal**, **FileManager**, **HardwareInventory**, and **DeviceLogs** capabilities. Windows/Mac agents additionally report desktop capture/input capabilities when those platform backends exist. There is no runtime display detection on Linux — the desktop capability set is fixed at compile time.
+Linux agents statically report **Terminal**, **FileManager**, **HardwareInventory**, and **DeviceLogs** capabilities. There is no runtime display detection — the capability set is fixed at compile time. An agent whose platform crate provides desktop capture and input injection additionally reports those capabilities.
 
 Capabilities are sent in the `AgentRegister` control message, persisted to the `devices.capabilities` JSON column in the database, and exposed via the Device REST API. The web client uses them to hide unsupported session tabs (e.g., Desktop and Chat tabs are hidden for agents without `RemoteDesktop`). The server also gates newer server-to-agent messages on these advertised capabilities so old agents never receive variants they cannot decode.
 
 ## Compilation
 
 - Linux implementations live in `platform-linux` and compile unconditionally (ServiceLifecycle only)
-- Windows implementations live in `platform-windows` and are behind `#[cfg(windows)]` — they compile on Linux as stubs
 - Null implementations live in `mesh-agent-core` and are always available
 
 ## Input Wire Types

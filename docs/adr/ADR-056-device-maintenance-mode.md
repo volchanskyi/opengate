@@ -85,11 +85,11 @@ then flips back:
 - **Control surface.** The central web UI is the only control surface; the server
   is the sole source of truth and there is no local agent CLI. The REST toggle
   (`POST /devices/{id}/maintenance`) is a device command open to every member of
-  the device's organization, audits every enter/exit, and returns success even
+  the device's tenant, audits every enter/exit, and returns success even
   when the agent is offline — maintenance is a desired state, not a live command.
-  The fleet count of devices in maintenance is one field of the organization
+  The fleet count of devices in maintenance is one field of the tenant
   rollup `GET /devices/summary`
-  ([ADR-062](ADR-062-org-scoped-reads-and-fleet-summary.md)), served from a
+  ([ADR-062](ADR-062-tenant-scoped-reads-and-fleet-summary.md)), served from a
   partial index.
 
 ### Visibility replaces auto-expiry

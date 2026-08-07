@@ -34,26 +34,26 @@ Native Postgres types throughout — no TEXT/INTEGER shims.
 
 ## Multi-Tenancy
 
-Every tenant-owned table carries `org_id UUID NOT NULL` and is protected by
-Postgres Row-Level Security. The server derives the active organization from
-the JWT `org` claim, stores it in request context, and each repository method
+Every tenant-owned table carries `tenant_id UUID NOT NULL` and is protected by
+Postgres Row-Level Security. The server derives the active tenant from
+the JWT `tenant` claim, stores it in request context, and each repository method
 opens a tenant-scoped transaction through `dbtx.Scoped`.
 
-Inside that transaction the server issues `SET LOCAL app.current_org = ...`
+Inside that transaction the server issues `SET LOCAL app.current_tenant = ...`
 and `SET LOCAL app.is_admin = ...`; the settings reset automatically on commit
 or rollback, so pooled connections do not leak tenant state between requests.
-Tenant queries also carry explicit `WHERE org_id =
-current_setting('app.current_org')::uuid` predicates so the `org_id`-leading
+Tenant queries also carry explicit `WHERE tenant_id =
+current_setting('app.current_tenant')::uuid` predicates so the `tenant_id`-leading
 indexes stay usable instead of relying on RLS as a post-filter.
 
-Admin cross-org access is policy-based: RLS policies also allow rows when
+Admin cross-tenant access is policy-based: RLS policies also allow rows when
 `app.is_admin` is true. Helm deployments build the server `DATABASE_URL` for the
 dedicated runtime role in
 [`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml);
 [`zz-app-role.sh`](../deploy/helm/opengate/files/zz-app-role.sh) and
 [`cd.yml`](../.github/workflows/cd.yml) keep that role non-superuser and without
 `BYPASSRLS`, so a missing tenant GUC fails closed. Pre-tenant paths such as login
-lookup and enrollment token validation opt into the default organization
+lookup and enrollment token validation opt into the default tenant
 explicitly.
 
 The RLS boundary is covered by per-repository cross-tenant-deny tests plus
@@ -126,7 +126,7 @@ collision with the Postgres `GROUP` reserved word. All column lists,
 indexes, and the Administrators seed row live in
 [`001_initial.up.sql`](../server/internal/db/migrations/001_initial.up.sql).
 
-All tenant tables below include `org_id` in addition to the domain columns shown.
+All tenant tables below include `tenant_id` in addition to the domain columns shown.
 
 ### Enrollment Tokens Table
 
@@ -238,7 +238,7 @@ The `device_processes` table stores sanitized Edge Sentinel process snapshots:
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | BIGINT PK | Identity column |
-| `org_id` | UUID FK | Tenant scope, protected by forced RLS |
+| `tenant_id` | UUID FK | Tenant scope, protected by forced RLS |
 | `device_id` | UUID FK | References `devices(id)`, CASCADE delete |
 | `ts` | TIMESTAMPTZ | Agent sample timestamp |
 | `rank` | INTEGER | Top-N rank assigned by the agent sampler |
@@ -265,7 +265,7 @@ engine, container, or installed package.
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | BIGINT PK | Identity column |
-| `org_id` | UUID FK | Tenant scope, protected by forced RLS |
+| `tenant_id` | UUID FK | Tenant scope, protected by forced RLS |
 | `device_id` | UUID FK | References `devices(id)`, CASCADE delete |
 | `kind` | TEXT | One of `port`, `service`, `db_engine`, `container`, `package` |
 | `name` | TEXT | Primary label — owning process, unit, engine, or component name |
@@ -283,21 +283,21 @@ through `dbtx.Scoped`. Each discovery report replaces the device's footprint:
 present components are upserted (advancing `last_seen`) while vanished ones are
 pruned, so the stored rows always reflect the latest scan and stay bounded by the
 agent's per-category caps. The report is scoped to the connection's authoritative
-organization, never an agent-supplied org, and carries descriptive attack-surface
+tenant, never an agent-supplied tenant, and carries descriptive attack-surface
 data only — never a connection string or credential. It is exposed to any device
-viewer in the organization through
+viewer in the tenant through
 [`GET /devices/{id}/inventory`](API-Reference.md).
 
 ### Data Lifecycle Tables
 
 Two system-level tables back right-to-be-forgotten erasure (see
 [Data Lifecycle](Data-Lifecycle.md)). Neither is tenant-scoped (RLS) and neither
-carries a foreign key to `organizations`: both must outlive an organization's own
+carries a foreign key to `tenants`: both must outlive a tenant's own
 data so the deny-list keeps rejecting a purged subject and the completion record
 survives as the erasure proof.
 
 - `deleted_ids` — the persisted tombstone / deny-list. One row per purged device
-  or org (`scope`), recorded before any store is touched and retained
+  or tenant (`scope`), recorded before any store is touched and retained
   indefinitely; it carries ids and purge scope only, never telemetry.
 - `purge_jobs` — per-subject purge progress (`state` plus `vm_deleted`,
   `object_deleted`, `pg_deleted`, `verified` flags), so a purge is idempotent and
@@ -314,9 +314,9 @@ eleven SQLite migrations into a single flat Postgres-native migration:
 - [`001_initial.down.sql`](../server/internal/db/migrations/001_initial.down.sql)
   drops the base schema in FK-safe order.
 - [`002_multitenancy.up.sql`](../server/internal/db/migrations/002_multitenancy.up.sql)
-  creates `organizations`, seeds the default org
+  creates `tenants`, seeds the default tenant
   (`00000000-0000-0000-0000-000000000002`), backfills tenant tables, adds
-  `org_id`-leading indexes, and enables forced RLS policies.
+  `tenant_id`-leading indexes, and enables forced RLS policies.
 - [`002_multitenancy.down.sql`](../server/internal/db/migrations/002_multitenancy.down.sql)
   removes those policies, indexes, and columns for rollback rehearsal.
 - [`003_telemetry.up.sql`](../server/internal/db/migrations/003_telemetry.up.sql)
@@ -341,7 +341,7 @@ eleven SQLite migrations into a single flat Postgres-native migration:
 - [`007_maintenance_mode.up.sql`](../server/internal/db/migrations/007_maintenance_mode.up.sql)
   adds `maintenance_on`/`maintenance_since`/`maintenance_by`/`maintenance_reason`
   to `devices` (the server-authoritative maintenance desired state, default
-  Active) plus a partial index on `(org_id) WHERE maintenance_on` for the fleet
+  Active) plus a partial index on `(tenant_id) WHERE maintenance_on` for the fleet
   count (see [ADR-056](adr/ADR-056-device-maintenance-mode.md)).
 - [`007_maintenance_mode.down.sql`](../server/internal/db/migrations/007_maintenance_mode.down.sql)
   drops the columns and index for rollback.
@@ -363,7 +363,7 @@ and the server is ready. Schema changes made after Phase 13a land as new
 sequentially numbered `.up.sql` / `.down.sql` pairs in the same directory.
 
 Migrations run on their own single-connection pool that carries the
-cross-tenant `app.is_admin` / `app.current_org` scope, because the deployed role
+cross-tenant `app.is_admin` / `app.current_tenant` scope, because the deployed role
 is `NOBYPASSRLS` and owns tables under forced RLS — a migration that touches
 rows is otherwise refused by the tenant policy. The pool that serves application
 traffic never carries that scope. See

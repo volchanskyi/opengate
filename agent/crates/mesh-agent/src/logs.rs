@@ -39,6 +39,7 @@ pub struct LogFilter {
 }
 
 /// Result of a log collection request.
+#[derive(Debug)]
 pub struct LogResult {
     /// Matching log entries for the requested page.
     pub entries: Vec<LogEntry>,

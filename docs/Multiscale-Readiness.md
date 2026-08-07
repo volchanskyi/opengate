@@ -95,7 +95,7 @@ Before Medium-Free can be activated, the implementation must deliver:
    ([`loadtest`](../server/tests/loadtest/main.go)) also drives the full
    always-on Edge-Sentinel telemetry path so the same run folds it into the budget:
    `-default-telemetry` emits the default per-agent shape (health summary + host
-   metric window + process report), `-orgs` spreads agents across tenant cohorts,
+   metric window + process report), `-tenant` spreads agents across tenant cohorts,
    `-backfill-batches` runs a fleet-wide reconnect storm through the admission
    scheduler, and `-metric-windows` / `-answer-log-pulls` cover extra host-metric
    ingest and broker pulls. A run must show control-plane p99 within ~20% of the

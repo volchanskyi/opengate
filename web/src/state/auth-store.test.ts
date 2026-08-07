@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { orgIdFromToken, useAuthStore } from './auth-store';
+import { tenantIdFromToken, useAuthStore } from './auth-store';
 
 const mockPost = vi.fn();
 const mockGet = vi.fn();
@@ -11,10 +11,10 @@ vi.mock('../lib/api', () => ({
   },
 }));
 
-function jwtWithOrg(orgId: string): string {
+function jwtWithTenant(tenantId: string): string {
   const encode = (value: object) =>
     btoa(JSON.stringify(value)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
-  return `${encode({ alg: 'none' })}.${encode({ org: orgId })}.sig`;
+  return `${encode({ alg: 'none' })}.${encode({ tenant: tenantId })}.sig`;
 }
 
 describe('auth store', () => {
@@ -23,7 +23,7 @@ describe('auth store', () => {
     vi.clearAllMocks();
     useAuthStore.setState({
       token: null,
-      orgId: null,
+      tenantId: null,
       user: null,
       isLoading: false,
       hydrated: false,
@@ -32,7 +32,7 @@ describe('auth store', () => {
   });
 
   it('login stores token and fetches user', async () => {
-    const token = jwtWithOrg('00000000-0000-0000-0000-000000000002');
+    const token = jwtWithTenant('00000000-0000-0000-0000-000000000002');
     mockPost.mockResolvedValueOnce({
       data: { token },
       error: undefined,
@@ -47,7 +47,7 @@ describe('auth store', () => {
 
     expect(localStorage.getItem('token')).toBe(token);
     expect(useAuthStore.getState().token).toBe(token);
-    expect(useAuthStore.getState().orgId).toBe('00000000-0000-0000-0000-000000000002');
+    expect(useAuthStore.getState().tenantId).toBe('00000000-0000-0000-0000-000000000002');
     expect(useAuthStore.getState().user?.email).toBe('a@b.com');
     expect(useAuthStore.getState().error).toBeNull();
   });
@@ -65,7 +65,7 @@ describe('auth store', () => {
   });
 
   it('register stores token and fetches user', async () => {
-    const token = jwtWithOrg('33333333-3333-3333-3333-333333333333');
+    const token = jwtWithTenant('33333333-3333-3333-3333-333333333333');
     mockPost.mockResolvedValueOnce({
       data: { token },
       error: undefined,
@@ -80,7 +80,7 @@ describe('auth store', () => {
 
     expect(localStorage.getItem('token')).toBe(token);
     expect(useAuthStore.getState().token).toBe(token);
-    expect(useAuthStore.getState().orgId).toBe('33333333-3333-3333-3333-333333333333');
+    expect(useAuthStore.getState().tenantId).toBe('33333333-3333-3333-3333-333333333333');
     expect(useAuthStore.getState().user?.display_name).toBe('B');
   });
 
@@ -88,7 +88,7 @@ describe('auth store', () => {
     localStorage.setItem('token', 'old-token');
     useAuthStore.setState({
       token: 'old-token',
-      orgId: '00000000-0000-0000-0000-000000000002',
+      tenantId: '00000000-0000-0000-0000-000000000002',
       user: {
         id: '1',
         email: 'a@b.com',
@@ -103,12 +103,12 @@ describe('auth store', () => {
 
     expect(localStorage.getItem('token')).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
-    expect(useAuthStore.getState().orgId).toBeNull();
+    expect(useAuthStore.getState().tenantId).toBeNull();
     expect(useAuthStore.getState().user).toBeNull();
   });
 
   it('hydrate reads token from localStorage and fetches user', async () => {
-    const token = jwtWithOrg('11111111-1111-1111-1111-111111111111');
+    const token = jwtWithTenant('11111111-1111-1111-1111-111111111111');
     localStorage.setItem('token', token);
     mockGet.mockResolvedValueOnce({
       data: { id: '1', email: 'a@b.com', display_name: 'A', is_admin: false },
@@ -119,7 +119,7 @@ describe('auth store', () => {
     await useAuthStore.getState().hydrate();
 
     expect(useAuthStore.getState().token).toBe(token);
-    expect(useAuthStore.getState().orgId).toBe('11111111-1111-1111-1111-111111111111');
+    expect(useAuthStore.getState().tenantId).toBe('11111111-1111-1111-1111-111111111111');
     expect(useAuthStore.getState().user?.email).toBe('a@b.com');
     expect(useAuthStore.getState().hydrated).toBe(true);
   });
@@ -161,32 +161,37 @@ describe('auth store', () => {
     expect(localStorage.getItem('token')).toBe('live-token');
   });
 
-  it('orgIdFromToken fails closed on malformed tokens', () => {
-    expect(orgIdFromToken('not-a-jwt')).toBeNull();
-    expect(orgIdFromToken('a.b.c')).toBeNull();
+  it('tenantIdFromToken fails closed on malformed tokens', () => {
+    expect(tenantIdFromToken('not-a-jwt')).toBeNull();
+    expect(tenantIdFromToken('a.b.c')).toBeNull();
   });
 
-  it('orgIdFromToken decodes a base64url payload needing both substitutions and padding', () => {
-    // This org encodes to a payload carrying '-' and '_' (base64url's stand-ins
+  it('tenantIdFromToken decodes a base64url payload needing both substitutions and padding', () => {
+    // This tenant encodes to a payload carrying '-' and '_' (base64url's stand-ins
     // for '+' and '/') whose length is not a multiple of four, so decoding it
     // exercises both character substitutions and the '=' padding together.
-    const org = '_%Y~NBDRz?rZS';
-    const token = jwtWithOrg(org);
+    const tenant = '_%Y~NBDRz?rZS';
+    const token = jwtWithTenant(tenant);
     const payload = token.split('.')[1] ?? '';
     expect(payload).toContain('-');
     expect(payload).toContain('_');
     expect(payload.length % 4).not.toBe(0);
 
-    expect(orgIdFromToken(token)).toBe(org);
+    expect(tenantIdFromToken(token)).toBe(tenant);
   });
 
-  it('orgIdFromToken treats an absent, empty, or non-string org as no org', () => {
+  it('tenantIdFromToken treats an absent, empty, or non-string tenant as no tenant', () => {
     const encode = (value: object) =>
       btoa(JSON.stringify(value)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
     const tokenWithClaims = (claims: object) => `${encode({ alg: 'none' })}.${encode(claims)}.sig`;
 
-    expect(orgIdFromToken(tokenWithClaims({}))).toBeNull();
-    expect(orgIdFromToken(jwtWithOrg(''))).toBeNull();
-    expect(orgIdFromToken(tokenWithClaims({ org: 42 }))).toBeNull();
+    expect(tenantIdFromToken(tokenWithClaims({}))).toBeNull();
+    expect(tenantIdFromToken(jwtWithTenant(''))).toBeNull();
+    expect(tenantIdFromToken(tokenWithClaims({ tenant: 42 }))).toBeNull();
+
+    // A token still held from before the tenancy rename names its tenant under
+    // a key this build does not read, so it reads as no tenant. The server
+    // answers 401 for the same token and the store logs out from there.
+    expect(tenantIdFromToken(tokenWithClaims({ org: crypto.randomUUID() }))).toBeNull();
   });
 });

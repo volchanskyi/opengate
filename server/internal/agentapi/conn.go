@@ -27,8 +27,8 @@ type AgentConn struct {
 	DeviceID protocol.DeviceID
 	// GroupID is the group this agent belongs to (set during registration).
 	GroupID uuid.UUID
-	// OrgID is the authoritative organization resolved by the server.
-	OrgID uuid.UUID
+	// TenantID is the authoritative tenant resolved by the server.
+	TenantID uuid.UUID
 
 	// metaMu guards the four registration-reported fields below. handleRegister
 	// writes them on the read-loop goroutine while Meta()/requireCapability read
@@ -144,7 +144,7 @@ func (a *AgentConn) setMeta(osName, arch, version string, caps []protocol.AgentC
 // parameter cap while the shared Store dependency was split into narrow ports.
 type AgentConnConfig struct {
 	DeviceID      protocol.DeviceID
-	OrgID         uuid.UUID
+	TenantID      uuid.UUID
 	GroupID       uuid.UUID
 	Stream        io.ReadWriter
 	Devices       device.Repository
@@ -163,7 +163,7 @@ type AgentConnConfig struct {
 func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 	return &AgentConn{
 		DeviceID:      cfg.DeviceID,
-		OrgID:         cfg.OrgID,
+		TenantID:      cfg.TenantID,
 		GroupID:       cfg.GroupID,
 		stream:        cfg.Stream,
 		codec:         &protocol.Codec{},
@@ -306,14 +306,14 @@ func (a *AgentConn) SendPushAlertRules(ctx context.Context, rules []protocol.Thr
 }
 
 // pushAlertRules delivers the connecting agent's tenant-scoped threshold-alert
-// ruleset, selected by its authoritative org so one org's rules never reach
+// ruleset, selected by its authoritative tenant so one tenant's rules never reach
 // another. A nil provider is a no-op; a missing capability surfaces as a
 // capability error the caller can ignore.
 func (a *AgentConn) pushAlertRules(ctx context.Context) error {
 	if a.alertRules == nil {
 		return nil
 	}
-	return a.SendPushAlertRules(ctx, a.alertRules.RulesFor(a.OrgID))
+	return a.SendPushAlertRules(ctx, a.alertRules.RulesFor(a.TenantID))
 }
 
 // SendRequestLocalHistory asks the agent for a bounded, full-resolution slice of

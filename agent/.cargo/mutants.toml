@@ -5,7 +5,7 @@
 # set so golden file tests resolve their fixtures inside the temp tree.
 #
 # exclude_globs carves out genuinely-untestable code:
-#   * platform shims (Wayland/X11/Windows/macOS bridges with no in-tree harness)
+#   * platform shims (Wayland/X11 bridges with no in-tree harness)
 #   * the agent binary entry point (`mesh-agent/src/main.rs`) — async wiring
 #     and process lifecycle exercised only by E2E
 #   * SELinux restorecon match guards in `update.rs` — depend on a privileged
@@ -26,7 +26,6 @@
 
 exclude_globs = [
     "crates/platform-linux/**",
-    "crates/platform-windows/**",
     "crates/mesh-agent/src/main.rs",
     "crates/mesh-agent-core/src/webrtc.rs",
     "crates/mesh-agent-core/src/session/handlers/webrtc.rs",

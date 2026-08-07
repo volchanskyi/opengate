@@ -46,7 +46,7 @@ func readControl(t *testing.T, codec *protocol.Codec, buf *bytes.Buffer) *protoc
 // TestDefaultTelemetryFrames builds the full default telemetry shape one agent
 // emits each cycle: a health summary, a host metric window, and a minimal
 // process report — the shape the WS-15b soak drives through the WS-4 ingest
-// path. None of them asserts an org (the server assigns it from the connection).
+// path. None of them asserts a tenant (the server assigns it from the connection).
 func TestDefaultTelemetryFrames(t *testing.T) {
 	frames := defaultTelemetryFrames(1_700_000_000)
 	require.Len(t, frames, 3)
@@ -59,7 +59,7 @@ func TestDefaultTelemetryFrames(t *testing.T) {
 	}, types)
 
 	for _, f := range frames {
-		assert.Empty(t, f.OrgID, "agent must not assert an org; the server assigns it")
+		assert.Empty(t, f.TenantID, "agent must not assert a tenant; the server assigns it")
 	}
 
 	// The metric window carries the default host dims.
@@ -74,27 +74,27 @@ func TestDefaultTelemetryFrames(t *testing.T) {
 }
 
 // TestBuildTenantAgents deterministically partitions N tenants × M agents so a
-// soak run is reproducible: every agent has a stable org index and a
-// tenant-tagged hostname, and the org indices cover exactly [0, tenants).
+// soak run is reproducible: every agent has a stable tenant index and a
+// tenant-tagged hostname, and the tenant indices cover exactly [0, tenants).
 func TestBuildTenantAgents(t *testing.T) {
 	const tenants, perTenant = 5, 100
 	agents := buildTenantAgents(tenants, perTenant)
 	require.Len(t, agents, tenants*perTenant)
 
-	seenOrg := map[int]int{}
+	seenTenant := map[int]int{}
 	seenHost := map[string]struct{}{}
 	for _, a := range agents {
-		require.GreaterOrEqual(t, a.orgIndex, 0)
-		require.Less(t, a.orgIndex, tenants)
-		seenOrg[a.orgIndex]++
+		require.GreaterOrEqual(t, a.tenantIndex, 0)
+		require.Less(t, a.tenantIndex, tenants)
+		seenTenant[a.tenantIndex]++
 		_, dup := seenHost[a.hostname]
 		require.False(t, dup, "hostnames must be unique: %q", a.hostname)
 		seenHost[a.hostname] = struct{}{}
 	}
 	// Every tenant is represented, evenly.
-	require.Len(t, seenOrg, tenants)
-	for org, count := range seenOrg {
-		assert.Equal(t, perTenant, count, "tenant %d agent count", org)
+	require.Len(t, seenTenant, tenants)
+	for tenant, count := range seenTenant {
+		assert.Equal(t, perTenant, count, "tenant %d agent count", tenant)
 	}
 
 	// The partition is deterministic: a second call is identical.

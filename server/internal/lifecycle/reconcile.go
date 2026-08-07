@@ -9,7 +9,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
-// SubjectLister lists the (org, device) subjects that own VictoriaMetrics
+// SubjectLister lists the (tenant, device) subjects that own VictoriaMetrics
 // series, so the reconciler can diff them against Postgres.
 type SubjectLister interface {
 	ListSubjects(ctx context.Context) ([]telemetry.SeriesSubject, error)
@@ -60,13 +60,13 @@ func (r *Reconciler) Sweep(ctx context.Context) (int, error) {
 			continue
 		}
 		deviceID := subject.DeviceID
-		if err := r.series.DeleteSeries(ctx, subject.OrgID, &deviceID); err != nil {
+		if err := r.series.DeleteSeries(ctx, subject.TenantID, &deviceID); err != nil {
 			r.logger.Error("reconcile: delete orphan series failed",
-				"org_id", subject.OrgID, "device_id", deviceID, "error", err)
+				"tenant_id", subject.TenantID, "device_id", deviceID, "error", err)
 			continue
 		}
 		r.logger.Warn("reconcile: purged orphan telemetry series",
-			"org_id", subject.OrgID, "device_id", deviceID)
+			"tenant_id", subject.TenantID, "device_id", deviceID)
 		purged++
 	}
 	return purged, nil

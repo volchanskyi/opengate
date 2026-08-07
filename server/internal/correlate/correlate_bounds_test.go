@@ -13,15 +13,15 @@ func TestCorrelatePassesTenantScopeToFetcher(t *testing.T) {
 	t.Parallel()
 	f := &fakeFetcher{series: []Series{seriesWith("cpu", 10, 500)}}
 	e := newTestEngine(t, f, nil)
-	org := uuid.New()
+	tenant := uuid.New()
 	req := stdRequest()
-	if _, err := e.Correlate(context.Background(), org, req); err != nil {
+	if _, err := e.Correlate(context.Background(), tenant, req); err != nil {
 		t.Fatalf("Correlate: %v", err)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.gotOrg != org {
-		t.Errorf("fetcher org = %v, want %v (tenant scope must be propagated)", f.gotOrg, org)
+	if f.gotTenant != tenant {
+		t.Errorf("fetcher tenant = %v, want %v (tenant scope must be propagated)", f.gotTenant, tenant)
 	}
 	if f.gotDevice != req.DeviceID {
 		t.Errorf("fetcher device = %v, want %v", f.gotDevice, req.DeviceID)

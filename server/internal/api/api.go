@@ -80,7 +80,7 @@ type CertProvider interface {
 // demand. Implemented by *correlate.Engine; nil when telemetry is not
 // configured, in which case the correlate endpoint reports 503.
 type CorrelationRanker interface {
-	Correlate(ctx context.Context, orgID uuid.UUID, req correlate.Request) (correlate.Result, error)
+	Correlate(ctx context.Context, tenantID uuid.UUID, req correlate.Request) (correlate.Result, error)
 }
 
 // MetricsReader reads tenant-scoped numeric telemetry for chart windows and the
@@ -88,13 +88,13 @@ type CorrelationRanker interface {
 // not configured, in which case the metrics endpoint reports 503 and the device
 // list omits anomaly_rate.
 type MetricsReader interface {
-	QueryRange(ctx context.Context, orgID uuid.UUID, rq telemetry.RangeQuery) ([]telemetry.RangeSeries, error)
-	QueryInstant(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]telemetry.InstantValue, error)
-	QueryInstantLookback(ctx context.Context, orgID uuid.UUID, metric string, matchers map[string]string, at time.Time, lookback time.Duration) ([]telemetry.InstantValue, error)
+	QueryRange(ctx context.Context, tenantID uuid.UUID, rq telemetry.RangeQuery) ([]telemetry.RangeSeries, error)
+	QueryInstant(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time) ([]telemetry.InstantValue, error)
+	QueryInstantLookback(ctx context.Context, tenantID uuid.UUID, metric string, matchers map[string]string, at time.Time, lookback time.Duration) ([]telemetry.InstantValue, error)
 	// CountAnomalyBands returns how many devices fall in each edge-health band,
 	// counted inside the time-series store so the dashboard rollup stays O(1) in
 	// fleet size.
-	CountAnomalyBands(ctx context.Context, orgID uuid.UUID, watch, anomalous float64, at time.Time, lookback time.Duration) (telemetry.BandCounts, error)
+	CountAnomalyBands(ctx context.Context, tenantID uuid.UUID, watch, anomalous float64, at time.Time, lookback time.Duration) (telemetry.BandCounts, error)
 }
 
 // ServerConfig holds all dependencies for the API server.
@@ -472,7 +472,7 @@ func (s *Server) auditLog(ctx context.Context, userID db.UserID, action, target,
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	auditCtx := context.WithoutCancel(ctx)
 	if ok {
-		auditCtx = dbtx.WithTenant(auditCtx, tenant.OrgID, tenant.IsAdmin)
+		auditCtx = dbtx.WithTenant(auditCtx, tenant.TenantID, tenant.IsAdmin)
 	} else {
 		auditCtx = dbtx.WithDefaultTenant(auditCtx, false)
 	}

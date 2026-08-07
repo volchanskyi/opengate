@@ -59,7 +59,7 @@ type AMTStateWriter interface {
 // files the detail read back over it. A CIRA connection carries no request
 // tenant, so this lookup is what supplies one: it maps the AMT firmware's UUID —
 // the host's SMBIOS system UUID on vPro hardware — to a device and its
-// organization. device.HardwareRepository satisfies it structurally, by the same
+// tenant. device.HardwareRepository satisfies it structurally, by the same
 // no-import rule as AMTStateWriter.
 type AMTDeviceLinker interface {
 	ResolveBySystemUUID(ctx context.Context, systemUUID uuid.UUID) (uuid.UUID, uuid.UUID, error)
@@ -222,11 +222,11 @@ func (s *Server) registerConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) 
 }
 
 // linkConn resolves the managed device that owns this AMT connection and records
-// the connection online under that device's organization. It reports whether the
+// the connection online under that device's tenant. It reports whether the
 // connection is linked.
 //
 // A connection that resolves to nothing persists nothing: Intel AMT is a
-// property of a managed device, so an AMT box with no agent has no organization
+// property of a managed device, so an AMT box with no agent has no tenant
 // to store state in. The connection stays live in memory and the keepalive
 // retries this lookup, so the machine is adopted the moment its agent registers.
 func (s *Server) linkConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) bool {
@@ -237,12 +237,12 @@ func (s *Server) linkConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) bool
 	linkCtx, cancel := context.WithTimeout(ctx, amtLinkTimeout)
 	defer cancel()
 
-	deviceID, orgID, err := s.linker.ResolveBySystemUUID(linkCtx, amtUUID)
+	deviceID, tenantID, err := s.linker.ResolveBySystemUUID(linkCtx, amtUUID)
 	if err != nil {
 		return false
 	}
 
-	if err := s.state.Upsert(dbtx.WithTenant(linkCtx, orgID, false), &db.AMTDevice{
+	if err := s.state.Upsert(dbtx.WithTenant(linkCtx, tenantID, false), &db.AMTDevice{
 		UUID:     amtUUID,
 		DeviceID: deviceID,
 		Status:   db.StatusOnline,
@@ -252,9 +252,9 @@ func (s *Server) linkConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) bool
 		return false
 	}
 
-	mc.link(deviceID, orgID)
+	mc.link(deviceID, tenantID)
 	mc.logger.Info("AMT connection linked to device", "device_id", deviceID)
-	go s.storeDetail(ctx, mc, deviceID, orgID)
+	go s.storeDetail(ctx, mc, deviceID, tenantID)
 	return true
 }
 
@@ -262,7 +262,7 @@ func (s *Server) linkConn(ctx context.Context, mc *Conn, amtUUID uuid.UUID) bool
 // CIRA connection and files them on the device's hardware row. It runs on its
 // own goroutine because the WSMAN reply arrives through the message loop the
 // caller is about to enter.
-func (s *Server) storeDetail(ctx context.Context, mc *Conn, deviceID, orgID uuid.UUID) {
+func (s *Server) storeDetail(ctx context.Context, mc *Conn, deviceID, tenantID uuid.UUID) {
 	prober := s.detailProber()
 	if prober == nil {
 		return
@@ -279,7 +279,7 @@ func (s *Server) storeDetail(ctx context.Context, mc *Conn, deviceID, orgID uuid
 	if model == "" && firmware == "" {
 		return
 	}
-	if err := s.linker.SetAMTDetail(dbtx.WithTenant(probeCtx, orgID, false), deviceID, model, firmware); err != nil {
+	if err := s.linker.SetAMTDetail(dbtx.WithTenant(probeCtx, tenantID, false), deviceID, model, firmware); err != nil {
 		mc.logger.Error("store AMT device detail", "error", err)
 	}
 }
@@ -290,10 +290,10 @@ func (s *Server) unregisterConn(mc *Conn, amtUUID uuid.UUID) {
 	s.conns.Delete(amtUUID)
 	s.count.Add(-1)
 
-	if _, orgID, ok := mc.linked(); ok {
+	if _, tenantID, ok := mc.linked(); ok {
 		offCtx, offCancel := context.WithTimeout(context.Background(), amtLinkTimeout)
 		defer offCancel()
-		if err := s.state.SetStatus(dbtx.WithTenant(offCtx, orgID, false), amtUUID, db.StatusOffline); err != nil {
+		if err := s.state.SetStatus(dbtx.WithTenant(offCtx, tenantID, false), amtUUID, db.StatusOffline); err != nil {
 			mc.logger.Error("set AMT device offline", "error", err)
 		}
 	}

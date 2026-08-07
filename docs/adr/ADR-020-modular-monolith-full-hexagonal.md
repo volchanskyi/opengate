@@ -146,7 +146,8 @@ cross-compilation).
 **Transitive-duplicate allowlist (amends §5.4).** The 28 pre-existing
 `multiple-versions` warns are upstream version stagger — the RustCrypto 0.10/0.11
 split, the rand/getrandom major split, the rcgen 0.13/0.14 (+ yasna) split, the
-Windows API binding cohort, and single-version slack (`bitflags`, `nix`, `nom`,
+Windows API binding cohort pulled in transitively by `sysinfo`, and single-version
+slack (`bitflags`, `nix`, `nom`,
 `thiserror`, `webpki-roots`, …). Each is recorded in
 [`agent/deny.toml`](../../agent/deny.toml) `[bans.skip]` with an `@<old-version>`
 spec and a `reason`. Reviewer rule: each skip is an IOU — when an upstream bump

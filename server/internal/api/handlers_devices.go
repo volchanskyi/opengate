@@ -8,8 +8,8 @@ import (
 )
 
 // ListDevices implements StrictServerInterface. The repository predicate is the
-// whole gate: a caller sees its own organization's devices, and an admin sees
-// every organization's. Narrowing to a group is a filter, not a permission.
+// whole gate: a caller sees its own tenant's devices, and an admin sees
+// every tenant's. Narrowing to a group is a filter, not a permission.
 func (s *Server) ListDevices(ctx context.Context, request ListDevicesRequestObject) (ListDevicesResponseObject, error) {
 	var devices []*device.Device
 	var err error

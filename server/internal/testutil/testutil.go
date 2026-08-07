@@ -223,14 +223,14 @@ func NewTestUsers(t testing.TB, s *db.PostgresStore) auth.UserRepository {
 	return auth.NewPostgresUsers(s.DB())
 }
 
-// EnsureOrganization inserts orgID if it does not exist. Tests that exercise
-// cross-tenant behavior can create extra organizations without depending on a
+// EnsureTenant inserts tenantID if it does not exist. Tests that exercise
+// cross-tenant behavior can create extra tenants without depending on a
 // specific repository package.
-func EnsureOrganization(t testing.TB, ctx context.Context, s *db.PostgresStore, orgID uuid.UUID, name string) {
+func EnsureTenant(t testing.TB, ctx context.Context, s *db.PostgresStore, tenantID uuid.UUID, name string) {
 	t.Helper()
 	_, err := s.DB().ExecContext(ctx,
-		`INSERT INTO organizations (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
-		orgID, name)
+		`INSERT INTO tenants (id, name) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING`,
+		tenantID, name)
 	require.NoError(t, err)
 }
 
@@ -238,7 +238,7 @@ func tenantOrDefault(ctx context.Context, isAdmin bool) (context.Context, dbtx.T
 	if tenant, ok := dbtx.TenantFromContext(ctx); ok {
 		return ctx, tenant
 	}
-	return dbtx.WithDefaultTenant(ctx, isAdmin), dbtx.Tenant{OrgID: dbtx.DefaultOrgID, IsAdmin: isAdmin}
+	return dbtx.WithDefaultTenant(ctx, isAdmin), dbtx.Tenant{TenantID: dbtx.DefaultTenantID, IsAdmin: isAdmin}
 }
 
 // SeedUser inserts a minimal user via the auth.UserRepository. The email is
@@ -248,7 +248,7 @@ func SeedUser(t testing.TB, ctx context.Context, s *db.PostgresStore) *auth.User
 	ctx, tenant := tenantOrDefault(ctx, false)
 	u := &auth.User{
 		ID:           uuid.New(),
-		OrgID:        tenant.OrgID,
+		TenantID:     tenant.TenantID,
 		Email:        "test-" + uuid.New().String()[:8] + "@example.com",
 		PasswordHash: "hash",
 		DisplayName:  "Test User",
@@ -310,7 +310,7 @@ func SeedAdminUser(t testing.TB, ctx context.Context, s *db.PostgresStore) (*aut
 	require.NoError(t, err)
 	u := &auth.User{
 		ID:           uuid.New(),
-		OrgID:        tenant.OrgID,
+		TenantID:     tenant.TenantID,
 		Email:        "admin-" + uuid.New().String()[:8] + "@example.com",
 		PasswordHash: hash,
 		DisplayName:  "Admin User",

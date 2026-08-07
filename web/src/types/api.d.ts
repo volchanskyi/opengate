@@ -241,7 +241,7 @@ export interface paths {
         };
         /**
          * Fleet rollup for the dashboard
-         * @description Returns a fixed-size count of the caller's organization — status tiles plus edge-health bands — in one aggregate row and one instant telemetry query. The response size does not grow with the fleet.
+         * @description Returns a fixed-size count of the caller's tenant — status tiles plus edge-health bands — in one aggregate row and one instant telemetry query. The response size does not grow with the fleet.
          */
         get: operations["getDeviceSummary"];
         put?: never;
@@ -378,7 +378,7 @@ export interface paths {
         };
         /**
          * Discovered software and service inventory for a device
-         * @description Returns the device's current auto-discovered footprint — listening ports, host services, database engines, containers, and installed packages — from the tenant-scoped inventory store. Descriptive attack-surface data only; never a credential or connection string. Visible to any device viewer in the organization.
+         * @description Returns the device's current auto-discovered footprint — listening ports, host services, database engines, containers, and installed packages — from the tenant-scoped inventory store. Descriptive attack-surface data only; never a credential or connection string. Visible to any device viewer in the tenant.
          */
         get: operations["getDeviceInventory"];
         put?: never;
@@ -396,7 +396,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the organization's device groups */
+        /** List the tenant's device groups */
         get: operations["listGroups"];
         put?: never;
         /**
@@ -477,7 +477,7 @@ export interface paths {
         put?: never;
         /**
          * Send power command to AMT device
-         * @description Open to every member of the organization that owns the device. The managed device behind the AMT identity is resolved in the caller's tenant scope, so an identity outside it answers 404.
+         * @description Open to every member of the tenant that owns the device. The managed device behind the AMT identity is resolved in the caller's tenant scope, so an identity outside it answers 404.
          */
         post: operations["amtPowerAction"];
         delete?: never;
@@ -711,7 +711,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/orgs/{orgId}/purge": {
+    "/api/v1/tenants/{tenantId}/purge": {
         parameters: {
             query?: never;
             header?: never;
@@ -721,10 +721,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Purge all telemetry for an organization (admin only)
+         * Purge all telemetry for a tenant (admin only)
          * @description Irreversibly erase every device's centralized telemetry for a whole tenant/fleet and deprovision its agents. Runs as an async, resumable job; poll the returned job for completion.
          */
-        post: operations["purgeOrg"];
+        post: operations["purgeTenant"];
         delete?: never;
         options?: never;
         head?: never;
@@ -845,9 +845,9 @@ export interface components {
             /** @description Optional operator note recorded while entering maintenance. */
             reason?: string;
         };
-        /** @description Fixed-size fleet rollup for the dashboard tiles. Always describes the caller's own organization, administrators included, so the status counts and the health bands cover one device set. */
+        /** @description Fixed-size fleet rollup for the dashboard tiles. Always describes the caller's own tenant, administrators included, so the status counts and the health bands cover one device set. */
         DeviceSummary: {
-            /** @description Devices in the organization. */
+            /** @description Devices in the tenant. */
             total: number;
             /** @description Devices with a live agent connection. */
             online: number;
@@ -869,14 +869,14 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            org_id: string;
+            tenant_id: string;
             /**
              * Format: uuid
-             * @description Absent for an organization-wide (tenant/fleet) purge.
+             * @description Absent for a tenant-wide purge.
              */
             device_id?: string;
             /** @enum {string} */
-            scope: "device" | "org";
+            scope: "device" | "tenant";
             /** @enum {string} */
             state: "requested" | "central-logical-complete" | "central-physical-compaction-pending" | "object-delete-pending" | "edge-erase-pending" | "complete";
             vm_deleted: boolean;
@@ -922,7 +922,7 @@ export interface components {
         CorrelatedDimension: {
             /** @description Metric name of the ranked dimension. */
             metric: string;
-            /** @description Identifying labels (org_id/device_id stripped). */
+            /** @description Identifying labels (tenant_id/device_id stripped). */
             labels?: {
                 [key: string]: string;
             };
@@ -1043,7 +1043,7 @@ export interface components {
             entries: components["schemas"]["DeviceLogEntry"][];
             total: number;
             has_more: boolean;
-            /** @description Distinct emitting units the host source offers for the unit filter dropdown (systemd units / Windows providers). Empty for the agent's own files and where no host source exists. */
+            /** @description Distinct emitting units the host source offers for the unit filter dropdown (systemd units). Empty for the agent's own files and where no host source exists. */
             available_units?: string[];
         };
         DeviceLogEntry: {
@@ -1062,7 +1062,7 @@ export interface components {
         CreateGroupRequest: {
             name: string;
         };
-        /** @description A named collection of devices within one organization. A group is a filing label, not an access boundary — every member of an organization sees every group in it. */
+        /** @description A named collection of devices within one tenant. A group is a filing label, not an access boundary — every member of a tenant sees every group in it. */
         Group: {
             /** Format: uuid */
             id: string;
@@ -2075,9 +2075,9 @@ export interface operations {
                 from?: string;
                 to?: string;
                 search?: string;
-                /** @description Log source: "self" (or omitted) reads the agent's own files; "host" auto-resolves the platform system log (journald on Linux, Windows Event Log on Windows). */
+                /** @description Log source: "self" (or omitted) reads the agent's own files; "host" auto-resolves the platform system log (journald on Linux). A host with no reader for the requested source answers with an error naming it, not an empty page. */
                 source?: "self" | "host";
-                /** @description Narrows host logs to one emitting unit (systemd unit / Windows provider). Ignored for the agent's own files. */
+                /** @description Narrows host logs to one emitting unit (systemd unit). Ignored for the agent's own files. */
                 unit?: string;
                 offset?: number;
                 limit?: number;
@@ -3514,12 +3514,12 @@ export interface operations {
             };
         };
     };
-    purgeOrg: {
+    purgeTenant: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                orgId: string;
+                tenantId: string;
             };
             cookie?: never;
         };

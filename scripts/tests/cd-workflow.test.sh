@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Tests for staging reset seed SQL in .github/workflows/cd.yml.
 #
-# Bug history: WS-0 added security_groups.org_id NOT NULL. The CD staging reset
-# truncates security_groups and then reseeds Administrators; omitting org_id
+# Bug history: WS-0 added security_groups.tenant_id NOT NULL. The CD staging reset
+# truncates security_groups and then reseeds Administrators; omitting tenant_id
 # makes post-migration CD fail before Playwright E2E starts.
 #
 # Run: ./scripts/tests/cd-workflow.test.sh
@@ -60,16 +60,16 @@ else
 fi
 
 assert_reset_contains \
-  "Administrators reseed includes org_id" \
-  "INSERT INTO security_groups (id, org_id, name, description, is_system)"
+  "Administrators reseed includes tenant_id" \
+  "INSERT INTO security_groups (id, tenant_id, name, description, is_system)"
 assert_reset_contains \
-  "Administrators reseed uses seeded default org" \
+  "Administrators reseed uses seeded default tenant" \
   "VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002', 'Administrators', 'Full system access', TRUE)"
 
-if grep -qE '^[[:space:]]+organizations[[:space:],]*$' <<<"$RESET_BLOCK"; then
-  fail "staging reset preserves the migration-seeded default organization"
+if grep -qE '^[[:space:]]+tenants[[:space:],]*$' <<<"$RESET_BLOCK"; then
+  fail "staging reset preserves the migration-seeded default tenant"
 else
-  pass "staging reset preserves the migration-seeded default organization"
+  pass "staging reset preserves the migration-seeded default tenant"
 fi
 
 # The app-role password must reach psql over stdin. A --set flag would put it in

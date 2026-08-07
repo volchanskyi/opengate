@@ -42,7 +42,7 @@ func TestHandlerStoreFailures(t *testing.T) {
 		ID: userID, Email: email, PasswordHash: hash,
 	}
 	require.NoError(t, usersRepo.Upsert(testTenantContext(t), user))
-	token, err := cfg.GenerateToken(userID, email, true, user.OrgID)
+	token, err := cfg.GenerateToken(userID, email, true, user.TenantID)
 	require.NoError(t, err)
 
 	srv := NewServer(ServerConfig{

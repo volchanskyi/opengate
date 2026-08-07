@@ -118,7 +118,7 @@ type ControlMessage struct {
 
 	// Edge Sentinel telemetry
 	TS              int64                `msgpack:"ts,omitempty"`
-	OrgID           string               `msgpack:"org_id,omitempty"`
+	TenantID        string               `msgpack:"tenant_id,omitempty"`
 	NodeAnomalyRate float64              `msgpack:"node_anomaly_rate,omitempty"`
 	PerFamilyRates  []FamilyAnomalyRate  `msgpack:"per_family_rates,omitempty"`
 	RecentBitmask   []byte               `msgpack:"recent_bitmask,omitempty"`
@@ -243,7 +243,7 @@ type ControlMessage struct {
 	// and sorted. Empty for the agent's own files and for older agents.
 	AvailableUnits []string `msgpack:"available_units,omitempty"`
 
-	// DiscoveryReport (WS-16). TS/OrgID/Truncated are shared with the fields
+	// DiscoveryReport (WS-16). TS/TenantID/Truncated are shared with the fields
 	// above. Each category is per-device bounded on the agent; Truncated is set
 	// when any category was capped.
 	Ports      []DiscoveredPort      `msgpack:"ports,omitempty"`
@@ -312,7 +312,7 @@ type ProcessReportEntry struct {
 // HealthSummary is one bounded health summary point returned for read-back requests.
 type HealthSummary struct {
 	TS              int64               `msgpack:"ts"`
-	OrgID           string              `msgpack:"org_id"`
+	TenantID        string              `msgpack:"tenant_id"`
 	NodeAnomalyRate float64             `msgpack:"node_anomaly_rate"`
 	PerFamilyRates  []FamilyAnomalyRate `msgpack:"per_family_rates"`
 	RecentBitmask   []byte              `msgpack:"recent_bitmask"`

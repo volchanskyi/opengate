@@ -16,7 +16,7 @@ func TestGoldenControlDiscoveryReport(t *testing.T) {
 	msg := decodeControlFrame(t, "control_discovery_report.bin")
 	assert.Equal(t, MsgDiscoveryReport, msg.Type)
 	assert.Equal(t, int64(1700000000), msg.TS)
-	assert.Empty(t, msg.OrgID, "agent must not assert an org")
+	assert.Empty(t, msg.TenantID, "agent must not assert a tenant")
 
 	require.Len(t, msg.Ports, 2)
 	assert.Equal(t, "tcp", msg.Ports[0].Proto)

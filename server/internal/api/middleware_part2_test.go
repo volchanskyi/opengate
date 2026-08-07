@@ -81,14 +81,14 @@ func TestAuthMiddlewareBearerCaseInsensitive(t *testing.T) {
 func TestAuthMiddlewareInjectsTenantScope(t *testing.T) {
 	t.Parallel()
 	h := newAuthMiddlewareHarness()
-	orgID := uuid.New()
-	token, err := h.cfg.GenerateToken(h.userID, testEmailUser, true, orgID)
+	tenantID := uuid.New()
+	token, err := h.cfg.GenerateToken(h.userID, testEmailUser, true, tenantID)
 	require.NoError(t, err)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tenant, ok := dbtx.TenantFromContext(r.Context())
 		require.True(t, ok)
-		assert.Equal(t, orgID, tenant.OrgID)
+		assert.Equal(t, tenantID, tenant.TenantID)
 		assert.True(t, tenant.IsAdmin)
 		w.WriteHeader(http.StatusOK)
 	})

@@ -69,13 +69,13 @@ pub(crate) fn spawn_discovery(
 
 /// Build the WS-19 breach-carrying `AgentHealthSummary` for emission. Only the
 /// breach signal is populated; the anomaly-rate fields stay at their defaults and
-/// the server leaves the org empty to assign (the summary is investigation-aid
+/// the server leaves the tenant empty to assign (the summary is investigation-aid
 /// only). The server treats a summary with no sampler computation as breach-only
 /// and does not record an anomaly-rate sample for it.
 fn breach_summary(now: i64, breaches: Vec<mesh_protocol::AlertBreach>) -> ControlMessage {
     ControlMessage::AgentHealthSummary {
         ts: now,
-        org_id: String::new(),
+        tenant_id: String::new(),
         node_anomaly_rate: 0.0,
         per_family_rates: Vec::new(),
         recent_bitmask: Vec::new(),
@@ -134,7 +134,7 @@ fn anomaly_summary(
 ) -> ControlMessage {
     ControlMessage::AgentHealthSummary {
         ts: now,
-        org_id: String::new(),
+        tenant_id: String::new(),
         node_anomaly_rate: rate,
         per_family_rates: Vec::new(),
         recent_bitmask: bitmask,
@@ -541,14 +541,17 @@ mod tests {
         match breach_summary(1_700_000_000, breaches) {
             ControlMessage::AgentHealthSummary {
                 ts,
-                org_id,
+                tenant_id,
                 node_anomaly_rate,
                 sampler_ver,
                 breaches,
                 ..
             } => {
                 assert_eq!(ts, 1_700_000_000);
-                assert!(org_id.is_empty(), "server assigns the authoritative org");
+                assert!(
+                    tenant_id.is_empty(),
+                    "server assigns the authoritative tenant"
+                );
                 assert_eq!(node_anomaly_rate, 0.0);
                 assert!(
                     sampler_ver.is_empty(),

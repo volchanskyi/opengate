@@ -134,7 +134,7 @@ func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	present[4] = m.Arch != ""
 	present[5] = m.Timestamp != 0
 	present[6] = m.TS != 0
-	present[7] = m.OrgID != ""
+	present[7] = m.TenantID != ""
 	present[8] = m.NodeAnomalyRate != 0
 	present[9] = len(m.PerFamilyRates) != 0
 	present[10] = len(m.RecentBitmask) != 0
@@ -235,7 +235,7 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 	case 6:
 		return putInt64(enc, "ts", m.TS)
 	case 7:
-		return putString(enc, "org_id", string(m.OrgID))
+		return putString(enc, "tenant_id", string(m.TenantID))
 	case 8:
 		return putFloat64(enc, "node_anomaly_rate", m.NodeAnomalyRate)
 	case 9:

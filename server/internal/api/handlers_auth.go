@@ -91,7 +91,7 @@ func (s *Server) Register(ctx context.Context, request RegisterRequestObject) (R
 	if adminErr != nil {
 		s.logger.Warn("admin lookup failed", "user_id", user.ID, "error", adminErr)
 	}
-	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin, user.OrgID)
+	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin, user.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -131,12 +131,12 @@ func (s *Server) Login(ctx context.Context, request LoginRequestObject) (LoginRe
 
 	s.loginLimiter.reset(email)
 
-	tenantCtx := dbtx.WithTenant(ctx, user.OrgID, user.IsAdmin)
+	tenantCtx := dbtx.WithTenant(ctx, user.TenantID, user.IsAdmin)
 	isAdmin, adminErr := s.securityGroups.IsUserInGroup(tenantCtx, user.ID, auth.AdminGroupID)
 	if adminErr != nil {
 		s.logger.Warn("admin lookup failed", "user_id", user.ID, "error", adminErr)
 	}
-	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin, user.OrgID)
+	token, err := s.jwt.GenerateToken(user.ID, user.Email, isAdmin, user.TenantID)
 	if err != nil {
 		return nil, err
 	}

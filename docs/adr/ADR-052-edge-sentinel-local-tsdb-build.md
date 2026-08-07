@@ -126,8 +126,8 @@ and what converges at fleet scale.
   the store on every agent, capped at a fixed footprint limit. The store is a
   cache: an open failure recreates it and, failing that, degrades to log-only —
   it never aborts the agent.
-- The footprint/recovery numbers here are x86_64 Linux; ARM64 + Windows
-  footprint/recovery (Windows file-locking, `F_FULLFSYNC`) remain unmeasured, an
+- The footprint/recovery numbers here are x86_64 Linux; ARM64
+  footprint/recovery remains unmeasured, an
   open follow-up tracked in [`techdebt.md`](../../.claude/techdebt.md). The
   always-run gate tests
   (persistence, precision, atomic rollups, eviction, cursor, anomaly/MVCC,

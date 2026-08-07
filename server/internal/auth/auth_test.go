@@ -63,14 +63,14 @@ func TestGenerateToken(t *testing.T) {
 	})
 
 	t.Run("token contains correct claims", func(t *testing.T) {
-		orgID := uuid.New()
-		token, err := cfg.GenerateToken(userID, "admin@example.com", true, orgID)
+		tenantID := uuid.New()
+		token, err := cfg.GenerateToken(userID, "admin@example.com", true, tenantID)
 		require.NoError(t, err)
 
 		claims, err := cfg.ValidateToken(token)
 		require.NoError(t, err)
 		assert.Equal(t, userID, claims.UserID)
-		assert.Equal(t, orgID, claims.OrgID)
+		assert.Equal(t, tenantID, claims.TenantID)
 		assert.Equal(t, "admin@example.com", claims.Email)
 		assert.True(t, claims.IsAdmin)
 		assert.Equal(t, "opengate-test", claims.Issuer)

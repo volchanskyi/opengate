@@ -58,10 +58,10 @@ func (f *fakeTombstoneLoader) ListAll(context.Context) ([]lifecycle.Tombstone, e
 func TestWarmTombstonesLoadsDeviceDenyList(t *testing.T) {
 	t.Parallel()
 	device := uuid.New()
-	org := uuid.New()
+	tenant := uuid.New()
 	loader := &fakeTombstoneLoader{tombstones: []lifecycle.Tombstone{
-		{OrgID: org, DeviceID: &device, Scope: lifecycle.ScopeDevice},
-		{OrgID: org, Scope: lifecycle.ScopeOrg}, // org-scoped: carries no device id
+		{TenantID: tenant, DeviceID: &device, Scope: lifecycle.ScopeDevice},
+		{TenantID: tenant, Scope: lifecycle.ScopeTenant}, // tenant-scoped: carries no device id
 	}}
 	s := NewAgentServer(AgentServerConfig{Logger: testLogger(), Tombstones: loader})
 
