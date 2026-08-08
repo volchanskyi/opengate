@@ -363,11 +363,14 @@ fn golden_control_frame_request_device_logs() {
 #[test]
 fn golden_control_frame_agent_metric_window_host_metrics() {
     // The host-metric emitter aggregates the 1 s sampler into a 10 s-average
-    // AgentMetricWindow over the five host-resource series. The dim names are the
+    // AgentMetricWindow over the six host-resource series. The dim names are the
     // shared central labels from `store_sink::series_dim_name`; the net dims are
     // primary-interface throughput in bytes/second, averaged the same way
-    // reconnect-backfill rolls them. This fixture pins that naming contract for
-    // the server.
+    // reconnect-backfill rolls them. `disk.used_percent` is the fullest mount and
+    // `disk.mounts_critical` counts the mounts at or above the critical
+    // threshold, so this fixture carries a file server whose small system volume
+    // is nearly full beside a large, mostly empty data volume. It pins that
+    // naming contract for the server.
     let msg = ControlMessage::AgentMetricWindow {
         ts: 1700000260,
         tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
@@ -382,7 +385,7 @@ fn golden_control_frame_agent_metric_window_host_metrics() {
             },
             MetricDim {
                 name: "disk.used_percent".to_string(),
-                avg: 55.0,
+                avg: 98.0,
             },
             MetricDim {
                 name: "net.rx_bps".to_string(),
@@ -391,6 +394,10 @@ fn golden_control_frame_agent_metric_window_host_metrics() {
             MetricDim {
                 name: "net.tx_bps".to_string(),
                 avg: 654321.0,
+            },
+            MetricDim {
+                name: "disk.mounts_critical".to_string(),
+                avg: 1.0,
             },
         ],
     };

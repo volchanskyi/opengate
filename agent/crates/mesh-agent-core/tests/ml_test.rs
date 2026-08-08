@@ -73,7 +73,8 @@ fn fake_sampler_returns_deterministic_process_ranks_without_full_cmdline() {
     let sample = MetricSample {
         cpu_total_percent: 42.0,
         memory_used_percent: 25.0,
-        disk_used_percent: 70.0,
+        disk_used_percent: Some(70.0),
+        disk_mounts_critical: Some(0),
         network_rx_bps: Some(1000.0),
         network_tx_bps: Some(2000.0),
         processes: vec![

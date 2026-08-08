@@ -306,7 +306,8 @@ mod tests {
         MetricSample {
             cpu_total_percent: cpu,
             memory_used_percent: 10.0,
-            disk_used_percent: 20.0,
+            disk_used_percent: Some(20.0),
+            disk_mounts_critical: Some(0),
             network_rx_bps: Some(0.0),
             network_tx_bps: Some(0.0),
             processes: Vec::new(),

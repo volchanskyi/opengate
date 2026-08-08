@@ -329,10 +329,14 @@ pub(crate) fn spawn_sampler(
                 emit_host_metric_window(&mut windower, tx, now, &sample);
             }
 
+            // The ensemble needs a fixed-width vector, and a host with no
+            // measurable mount has no disk-fullness signal to detect — it
+            // contributes a flat 0 to the model rather than an invented reading.
+            // The published vital stays absent; this value never leaves the host.
             let features = [
                 sample.cpu_total_percent,
                 sample.memory_used_percent,
-                sample.disk_used_percent,
+                sample.disk_used_percent.unwrap_or(0.0),
             ];
             // Cold start: collect a warm-up window, then train once. Until the
             // ensemble exists, samples are stored with a `false` anomaly bit.
@@ -359,7 +363,8 @@ pub(crate) fn spawn_sampler(
             debug!(
                 cpu = sample.cpu_total_percent,
                 mem = sample.memory_used_percent,
-                disk = sample.disk_used_percent,
+                disk = ?sample.disk_used_percent,
+                mounts_critical = ?sample.disk_mounts_critical,
                 anomaly,
                 "edge-sentinel sample"
             );
@@ -481,7 +486,8 @@ mod tests {
         MetricSample {
             cpu_total_percent: cpu,
             memory_used_percent: 50.0,
-            disk_used_percent: 50.0,
+            disk_used_percent: Some(50.0),
+            disk_mounts_critical: Some(0),
             network_rx_bps: Some(0.0),
             network_tx_bps: Some(0.0),
             processes: Vec::new(),

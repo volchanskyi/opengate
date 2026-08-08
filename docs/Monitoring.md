@@ -115,6 +115,15 @@ Services via Kubernetes endpoint metadata rather than hard-coded Docker hostname
 Metric names and registration live under
 [`server/internal/metrics`](../server/internal/metrics/).
 
+The host-resource dimensions an agent reports are listed in
+[Wire-Protocol](Wire-Protocol.md). Disk is reported per mount and reduced to two
+numbers by [`sampler.rs`](../agent/crates/mesh-agent-core/src/ml/sampler.rs):
+**`disk.used_percent` is the fullest mount** and `disk.mounts_critical` counts
+how many mounts sit at or above the critical-usage threshold. The fullest mount
+is what an operator can act on — a file server with a small system volume at 98 %
+beside a 2 TB data volume at 10 % pools to about 15 %, and a threshold rule
+watching a pooled figure never fires for the volume that is about to fill.
+
 Edge Sentinel numeric telemetry is pushed by the server, not scraped from
 agents. The app chart wires the VM endpoint into the server through
 [`server-deployment.yaml`](../deploy/helm/opengate/templates/server-deployment.yaml),
@@ -197,7 +206,9 @@ comparator, a fire threshold, a hysteresis clear boundary, and a sustain duratio
 ([`alerts`](../agent/crates/mesh-agent-core/src/alerts/)). A breach must hold
 continuously for its sustain duration before it fires (suppressing brief spikes),
 then stays firing until the metric recovers past the clear boundary (suppressing
-flapping around the threshold). The server delivers each connecting agent's
+flapping around the threshold). A rule's `disk.used` gauge reads the fullest
+mount, so it fires for the volume that is filling; a host with no measurable
+mount has no reading and no disk rule fires on it. The server delivers each connecting agent's
 authoritative-tenant ruleset over a capability-gated `PushAlertRules` control
 message ([`alert_rules.go`](../server/internal/agentapi/alert_rules.go)), so one
 tenant's rules never reach another; a tenant without a custom set receives a minimal

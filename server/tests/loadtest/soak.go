@@ -30,6 +30,7 @@ type loadOptions struct {
 // only; min/max/last + 1 s raw stay agent-local.
 var defaultMetricDimNames = []string{
 	"cpu.total", "mem.used_percent", "disk.used_percent", "net.rx_bps", "net.tx_bps",
+	"disk.mounts_critical",
 }
 
 // defaultFamilies are the per-family anomaly-rate buckets a health summary

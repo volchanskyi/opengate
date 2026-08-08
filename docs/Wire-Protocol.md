@@ -134,11 +134,19 @@ Live host metrics reuse `AgentMetricWindow`: the sampler folds its 1 s samples
 into a 10 s average and emits one window per 10 s over a bounded channel that
 drops under pressure, so a burst never backpressures the control stream. Each
 `dims` entry is a host-resource series (`cpu.total`, `mem.used_percent`,
-`disk.used_percent`, `net.rx_bps`, `net.tx_bps`); the net dims are
-primary-interface throughput in bytes/second (rounded to whole bytes so they
-stay on the lossless integer path). The 10 s averaging matches reconnect-
-backfill's roll-up exactly, so a live point and a later gap-filled point for the
-same `(dim, ts)` land in one series. On the on-demand log query, `RequestDeviceLogs.source` selects the log
+`disk.used_percent`, `net.rx_bps`, `net.tx_bps`, `disk.mounts_critical`); the net
+dims are primary-interface throughput in bytes/second (rounded to whole bytes so
+they stay on the lossless integer path). The two disk dims are a per-mount
+reduction ([`sampler.rs`](../agent/crates/mesh-agent-core/src/ml/sampler.rs)):
+**`disk.used_percent` is the fullest mount**, not a pooled average over every
+mount's bytes, and `disk.mounts_critical` counts the mounts at or above the
+critical-usage threshold (`MOUNT_CRITICAL_PERCENT` in the same file). Every mount
+the platform lists takes part, network shares and removable media included. A
+mount reporting no capacity takes part in neither number, and a host with no
+measurable mount ships neither dim rather than a zero, because a dim a sample
+could not read is absent from the window rather than substituted. The 10 s
+averaging matches reconnect-backfill's roll-up exactly, so a live point and a
+later gap-filled point for the same `(dim, ts)` land in one series. On the on-demand log query, `RequestDeviceLogs.source` selects the log
 source (`host` resolves the platform system log, journald on Linux; empty or
 `self` reads the agent's own files) and `unit` narrows host logs to one emitting
 unit; `DeviceLogsResponse.available_units` enumerates the source's distinct units
