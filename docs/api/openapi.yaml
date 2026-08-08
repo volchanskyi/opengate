@@ -460,10 +460,10 @@ components:
           description: Upper band per bucket, aligned with t. Present only when min_max_source is not none.
         min_max_source:
           type: string
-          enum: [local, avg_of_10s, none]
+          enum: [local, avg_of_60s, none]
           description: >-
             Provenance of the band. local = true host min/max from an on-demand
-            local-history pull; avg_of_10s = min/max across the 10 s averages in
+            local-history pull; avg_of_60s = min/max across the 60 s averages in
             the bucket (not host extrema); none = avg line only, no band.
 
     MetricRangeResponse:
@@ -1937,8 +1937,8 @@ paths:
           description: Band provenance to compute alongside the avg line.
           schema:
             type: string
-            enum: [none, avg_of_10s]
-            default: avg_of_10s
+            enum: [none, avg_of_60s]
+            default: avg_of_60s
       responses:
         "200":
           description: Downsampled telemetry window
