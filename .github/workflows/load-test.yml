@@ -81,27 +81,18 @@ jobs:
 
       - name: Run k6 API baseline
         run: |
-          /tmp/k6 run \
-            --summary-export "$LOADTEST_K6_SUMMARY_DIR/api-baseline.json" \
-            --summary-trend-stats "$K6_SUMMARY_TREND_STATS" \
-            --env BASE_URL=http://127.0.0.1:18080 \
-            load/k6/scenarios/api-baseline.js
+          K6_BIN=/tmp/k6 LOADTEST_BASE_URL=http://127.0.0.1:18080 \
+            scripts/loadtest-k6-run.sh api-baseline load/k6/scenarios/api-baseline.js
 
       - name: Run k6 concurrent agents
         run: |
-          /tmp/k6 run \
-            --summary-export "$LOADTEST_K6_SUMMARY_DIR/concurrent-agents.json" \
-            --summary-trend-stats "$K6_SUMMARY_TREND_STATS" \
-            --env BASE_URL=http://127.0.0.1:18080 \
-            load/k6/scenarios/concurrent-agents.js
+          K6_BIN=/tmp/k6 LOADTEST_BASE_URL=http://127.0.0.1:18080 \
+            scripts/loadtest-k6-run.sh concurrent-agents load/k6/scenarios/concurrent-agents.js
 
       - name: Run k6 relay throughput
         run: |
-          /tmp/k6 run \
-            --summary-export "$LOADTEST_K6_SUMMARY_DIR/relay-throughput.json" \
-            --summary-trend-stats "$K6_SUMMARY_TREND_STATS" \
-            --env BASE_URL=http://127.0.0.1:18080 \
-            load/k6/scenarios/relay-throughput.js
+          K6_BIN=/tmp/k6 LOADTEST_BASE_URL=http://127.0.0.1:18080 \
+            scripts/loadtest-k6-run.sh relay-throughput load/k6/scenarios/relay-throughput.js
 
       - name: Stop staging port-forward
         if: always()

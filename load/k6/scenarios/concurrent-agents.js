@@ -1,6 +1,6 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
-import { authHeaders, registerMember, visibleGroupIds, devicesUrl } from "../lib/session.js";
+import { authHeaders, registerMember, visibleSiteIds, devicesUrl } from "../lib/session.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
@@ -17,9 +17,9 @@ export const options = {
 };
 
 export function setup() {
-  // One shared member for every VU, reading the groups the organization has.
+  // One shared member for every VU, reading the sites the organization has.
   const token = registerMember(BASE_URL, "agent-load");
-  return { token, groupIds: visibleGroupIds(BASE_URL, token) };
+  return { token, siteIds: visibleSiteIds(BASE_URL, token) };
 }
 
 export default function (data) {
@@ -29,9 +29,9 @@ export default function (data) {
   const health = http.get(`${BASE_URL}/api/v1/health`);
   check(health, { "health ok": (r) => r.status === 200 });
 
-  // Spread the device reads across the groups in the fleet
-  const idx = Math.floor(Math.random() * data.groupIds.length);
-  const devices = http.get(devicesUrl(BASE_URL, data.groupIds[idx]), { headers });
+  // Spread the device reads across the sites in the fleet
+  const idx = Math.floor(Math.random() * data.siteIds.length);
+  const devices = http.get(devicesUrl(BASE_URL, data.siteIds[idx]), { headers });
   check(devices, { "devices ok": (r) => r.status === 200 });
 
   // List sessions (even if empty)

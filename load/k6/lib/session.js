@@ -2,7 +2,7 @@
 //
 // The scenarios drive the API as an ordinary organization member, which is what
 // a load generator can be: organization is the visibility boundary, so a member
-// reads the whole fleet, while creating or deleting a group is administrator
+// reads the whole fleet, while creating or deleting a site is administrator
 // work the server refuses. A scenario that stands up its own fixtures would get
 // a 403 and then measure the error path, so the scenarios read the fleet the
 // staging organization already has.
@@ -40,24 +40,24 @@ export function registerMember(baseUrl, prefix) {
 }
 
 /**
- * Ids of the groups visible to this member, newest last. Empty when the
- * organization has no groups — a valid fleet shape, not a setup failure.
+ * Ids of the sites visible to this member, newest last. Empty when the
+ * organization has no sites — a valid fleet shape, not a setup failure.
  */
-export function visibleGroupIds(baseUrl, token) {
-  const resp = http.get(`${baseUrl}/api/v1/groups`, { headers: authHeaders(token) });
+export function visibleSiteIds(baseUrl, token) {
+  const resp = http.get(`${baseUrl}/api/v1/sites`, { headers: authHeaders(token) });
   if (resp.status !== 200) {
-    throw new Error(`setup: list groups returned ${resp.status}: ${resp.body}`);
+    throw new Error(`setup: list sites returned ${resp.status}: ${resp.body}`);
   }
-  return (resp.json() || []).map((group) => group.id);
+  return (resp.json() || []).map((site) => site.id);
 }
 
 /**
- * Device-list URL, narrowed to `groupId` when one is given. An absent group id
- * means the organization has no groups, so the unfiltered fleet read is the
+ * Device-list URL, narrowed to `siteId` when one is given. An absent site id
+ * means the organization has no sites, so the unfiltered fleet read is the
  * request a client would actually make.
  */
-export function devicesUrl(baseUrl, groupId) {
-  return groupId
-    ? `${baseUrl}/api/v1/devices?group_id=${groupId}`
+export function devicesUrl(baseUrl, siteId) {
+  return siteId
+    ? `${baseUrl}/api/v1/devices?site_id=${siteId}`
     : `${baseUrl}/api/v1/devices`;
 }

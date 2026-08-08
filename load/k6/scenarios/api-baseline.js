@@ -1,6 +1,6 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
-import { authHeaders, registerMember, visibleGroupIds, devicesUrl } from "../lib/session.js";
+import { authHeaders, registerMember, visibleSiteIds, devicesUrl } from "../lib/session.js";
 
 const BASE_URL = __ENV.BASE_URL || "http://localhost:8080";
 
@@ -18,7 +18,7 @@ export const options = {
 
 export function setup() {
   const token = registerMember(BASE_URL, "load");
-  return { token, groupIds: visibleGroupIds(BASE_URL, token) };
+  return { token, siteIds: visibleSiteIds(BASE_URL, token) };
 }
 
 export default function (data) {
@@ -32,12 +32,12 @@ export default function (data) {
   const me = http.get(`${BASE_URL}/api/v1/users/me`, { headers });
   check(me, { "me 200": (r) => r.status === 200 });
 
-  // List groups
-  const groups = http.get(`${BASE_URL}/api/v1/groups`, { headers });
-  check(groups, { "groups 200": (r) => r.status === 200 });
+  // List sites
+  const sites = http.get(`${BASE_URL}/api/v1/sites`, { headers });
+  check(sites, { "sites 200": (r) => r.status === 200 });
 
-  // List devices, narrowed to a group when the organization has one
-  const devices = http.get(devicesUrl(BASE_URL, data.groupIds[0]), { headers });
+  // List devices, narrowed to a site when the organization has one
+  const devices = http.get(devicesUrl(BASE_URL, data.siteIds[0]), { headers });
   check(devices, { "devices 200": (r) => r.status === 200 });
 
   sleep(1);
