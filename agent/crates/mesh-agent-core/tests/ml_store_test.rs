@@ -10,6 +10,7 @@ use edge_tsdb::Durability;
 use mesh_agent_core::ml::sampler::MetricSample;
 use mesh_agent_core::ml::store_sink::{
     LocalStoreSink, SERIES_CPU, SERIES_DISK, SERIES_DISK_MOUNTS_CRITICAL, SERIES_MEM,
+    SERIES_NET_RX, SERIES_NET_TX,
 };
 
 fn sample(cpu: f32, mem: f32, disk: f32) -> MetricSample {
@@ -68,6 +69,46 @@ fn records_raw_and_anomaly_bits_and_rolls_up() {
     assert!(!t1.is_empty());
     assert_eq!(t1[0].max, 24.0);
     assert_eq!(t1[0].min, 20.0);
+}
+
+/// Every series stores its own field's reading. The sampler-to-series mapping is
+/// positional, so two entries swapped in it would file each reading under the
+/// other's name — a defect no averaging or round-trip test can see, because both
+/// sides stay self-consistent. Each field therefore carries a value no other
+/// field has, and each series is read back and matched to the one it owns.
+#[test]
+fn each_series_stores_the_field_it_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = LocalStoreSink::open(dir.path(), 8 * 1024 * 1024, 1).unwrap();
+    sink.record(
+        4_000,
+        &MetricSample {
+            cpu_total_percent: 11.0,
+            memory_used_percent: 22.0,
+            disk_used_percent: Some(33.0),
+            disk_mounts_critical: Some(66),
+            network_rx_bps: Some(44.0),
+            network_tx_bps: Some(55.0),
+            processes: Vec::new(),
+        },
+        false,
+    )
+    .unwrap();
+    sink.flush(Durability::Full).unwrap();
+
+    let stored = |series| {
+        sink.store()
+            .range_raw(series, i64::MIN, i64::MAX)
+            .unwrap()
+            .first()
+            .map(|(s, _)| s.value)
+    };
+    assert_eq!(stored(SERIES_CPU), Some(11.0));
+    assert_eq!(stored(SERIES_MEM), Some(22.0));
+    assert_eq!(stored(SERIES_DISK), Some(33.0));
+    assert_eq!(stored(SERIES_NET_RX), Some(44.0));
+    assert_eq!(stored(SERIES_NET_TX), Some(55.0));
+    assert_eq!(stored(SERIES_DISK_MOUNTS_CRITICAL), Some(66.0));
 }
 
 /// The critical-mount count is a whole number, and it comes back out of the

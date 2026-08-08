@@ -86,6 +86,25 @@ pub fn dim_series(name: &str) -> Option<SeriesId> {
     }
 }
 
+/// One sample's readings in [`BACKFILL_SERIES`] order — the single ordered
+/// mapping from a [`MetricSample`] to the dims that leave the sampler. The local
+/// store ([`LocalStoreSink::record`]) and the live stream share it, so the two
+/// can never disagree about which reading is which series. A `None` is a reading
+/// this sample does not carry — a net rate before it can be computed, or the
+/// disk reduction on a host with no measurable mount — and leaves a gap rather
+/// than writing a wrong number.
+#[must_use]
+pub(crate) fn sample_dim_values(sample: &MetricSample) -> [Option<f64>; BACKFILL_SERIES.len()] {
+    [
+        Some(f64::from(sample.cpu_total_percent)),
+        Some(f64::from(sample.memory_used_percent)),
+        sample.disk_used_percent.map(f64::from),
+        sample.network_rx_bps,
+        sample.network_tx_bps,
+        sample.disk_mounts_critical.map(f64::from),
+    ]
+}
+
 /// A cadence-buffered writer from the sampler into the local store.
 pub struct LocalStoreSink {
     store: LocalTsdb,
@@ -133,18 +152,7 @@ impl LocalStoreSink {
         sample: &MetricSample,
         anomaly: bool,
     ) -> Result<(), TsdbError> {
-        let dims = [
-            (SERIES_CPU, Some(f64::from(sample.cpu_total_percent))),
-            (SERIES_MEM, Some(f64::from(sample.memory_used_percent))),
-            (SERIES_DISK, sample.disk_used_percent.map(f64::from)),
-            (SERIES_NET_RX, sample.network_rx_bps),
-            (SERIES_NET_TX, sample.network_tx_bps),
-            (
-                SERIES_DISK_MOUNTS_CRITICAL,
-                sample.disk_mounts_critical.map(f64::from),
-            ),
-        ];
-        for (series, value) in dims {
+        for (series, value) in BACKFILL_SERIES.into_iter().zip(sample_dim_values(sample)) {
             if let Some(value) = value {
                 self.store.append(series, Sample::new(ts, value), anomaly)?;
             }

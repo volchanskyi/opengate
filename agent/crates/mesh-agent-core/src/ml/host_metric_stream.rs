@@ -17,28 +17,16 @@ use mesh_protocol::{ControlMessage, MetricDim};
 
 use super::backfill::window_start_10s;
 use super::sampler::MetricSample;
-use super::store_sink::{series_dim_name, BACKFILL_SERIES};
+use super::store_sink::{sample_dim_values, series_dim_name, BACKFILL_SERIES};
 
 /// The number of host-resource series streamed per window, in [`BACKFILL_SERIES`]
 /// order (`cpu.total`, `mem.used_percent`, `disk.used_percent`, `net.rx_bps`,
-/// `net.tx_bps`, `disk.mounts_critical`).
+/// `net.tx_bps`, `disk.mounts_critical`). Readings come from
+/// [`sample_dim_values`], the same mapping
+/// [`super::store_sink::LocalStoreSink::record`] persists, so the live average
+/// and the backfilled average fold identical values. A `None` entry is skipped
+/// from that dim's average.
 const DIMS: usize = BACKFILL_SERIES.len();
-
-/// The per-dim readings of one sample, in [`BACKFILL_SERIES`] order — the same
-/// mapping [`super::store_sink::LocalStoreSink::record`] persists, so the live
-/// average and the backfilled average fold identical values. A `None` entry (a
-/// net rate before it can be computed, or the disk reduction on a host with no
-/// measurable mount) is skipped from that dim's average.
-fn sample_values(sample: &MetricSample) -> [Option<f64>; DIMS] {
-    [
-        Some(f64::from(sample.cpu_total_percent)),
-        Some(f64::from(sample.memory_used_percent)),
-        sample.disk_used_percent.map(f64::from),
-        sample.network_rx_bps,
-        sample.network_tx_bps,
-        sample.disk_mounts_critical.map(f64::from),
-    ]
-}
 
 /// Folds 1 s host samples into 10 s-average metric windows. Feed every sample
 /// through [`push`](Self::push); it returns a closed window whenever a sample
@@ -75,7 +63,7 @@ impl HostMetricWindower {
             Some(open) if open != bucket => self.close(),
             _ => None,
         };
-        let values = sample_values(sample);
+        let values = sample_dim_values(sample);
         for ((sum, count), v) in self.sums.iter_mut().zip(self.counts.iter_mut()).zip(values) {
             if let Some(v) = v {
                 *sum += v;
@@ -180,7 +168,7 @@ mod tests {
             let raw: Vec<(Sample, bool)> = seq
                 .iter()
                 .filter_map(|(ts, s)| {
-                    sample_values(s)[dim_idx].map(|v| (Sample::new(*ts, v), false))
+                    sample_dim_values(s)[dim_idx].map(|v| (Sample::new(*ts, v), false))
                 })
                 .collect();
             let rolled = roll_to_10s(&raw);
