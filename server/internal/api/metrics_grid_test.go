@@ -202,7 +202,7 @@ func TestAssembleMetricRangeBandSharesTheRequestGrid(t *testing.T) {
 	got, off := assembleMetricRange(avg, mins, maxs, nil, true, g)
 
 	require.Len(t, got.Series, 1)
-	assert.Equal(t, MetricSeriesMinMaxSourceAvgOf10s, got.Series[0].MinMaxSource)
+	assert.Equal(t, MetricSeriesMinMaxSourceAvgOf60s, got.Series[0].MinMaxSource)
 	require.NotNil(t, got.Series[0].Min)
 	require.NotNil(t, got.Series[0].Max)
 	assert.Len(t, *got.Series[0].Min, 1008)

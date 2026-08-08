@@ -19,7 +19,7 @@ const (
 	metricNodeAnomalyRate = telemetry.MetricNodeAnomalyRate
 	metricDimLabel        = "dim"
 	metricDeviceIDLabel   = "device_id"
-	minRangeStepSecs      = 10   // raw 10 s sample cadence — never bucket finer than this
+	minRangeStepSecs      = 60   // central vitals cadence — never bucket finer than this
 	defaultMaxPoints      = 1000 // chart pixel width order of magnitude
 	minMaxPointsBound     = 10
 	maxMaxPointsBound     = 2000
@@ -108,7 +108,7 @@ type metricRangeQuery struct {
 	wantBand bool
 }
 
-// buildMetricRange fetches the avg line (and optional avg_of_10s band) for the
+// buildMetricRange fetches the avg line (and optional avg_of_60s band) for the
 // device's numeric dimensions and projects every series onto the grid the
 // request implies, so the payload maps 1:1 to a client charting engine's
 // aligned data and covers the window that was asked for however much of it the

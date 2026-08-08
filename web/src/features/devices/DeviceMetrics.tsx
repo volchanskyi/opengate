@@ -31,7 +31,7 @@ const DEFAULT_PRESET = '6h';
 function bandProvenance(hasBand: boolean, source: MinMaxSource): string {
   if (!hasBand) return 'avg only';
   if (source === 'local') return 'Band: host min/max (local history)';
-  if (source === 'avg_of_10s') return 'Band: min/max across 10 s averages (not host extrema)';
+  if (source === 'avg_of_60s') return 'Band: min/max across 60 s averages (not host extrema)';
   return 'avg only';
 }
 
@@ -148,7 +148,7 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
     fireAndForget(fetchMetrics(deviceId, {
       from: from.toISOString(),
       to: to.toISOString(),
-      band: 'avg_of_10s',
+      band: 'avg_of_60s',
       maxPoints: MAX_POINTS,
     }));
   }, [deviceId, seconds, fetchMetrics]);

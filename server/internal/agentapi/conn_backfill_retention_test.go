@@ -27,7 +27,7 @@ func TestBackfillOutOfRetentionIsCounted(t *testing.T) {
 	now := time.Now().Unix()
 	msg := &protocol.ControlMessage{
 		Type: protocol.MsgMetricBackfillBatch,
-		Tier: protocol.BackfillTierRaw10s,
+		Tier: protocol.BackfillTierRecent60s,
 		BackfillSamples: []protocol.BackfillSample{
 			// Inside the 90 d floor — a 7 d clamp would have truncated this one.
 			{Name: testDim, Value: 1, TS: now - 60*24*3600},
@@ -59,7 +59,7 @@ func TestBackfillInRetentionCountsNoDrop(t *testing.T) {
 	now := time.Now().Unix()
 	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), &protocol.ControlMessage{
 		Type:            protocol.MsgMetricBackfillBatch,
-		Tier:            protocol.BackfillTierRaw10s,
+		Tier:            protocol.BackfillTierRecent60s,
 		BackfillSamples: []protocol.BackfillSample{{Name: testDim, Value: 1, TS: now - 3600}},
 	}, 512))
 

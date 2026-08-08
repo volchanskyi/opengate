@@ -37,7 +37,7 @@ function fakeMetrics() {
   const max = avg.map((v) => v + 4);
   return {
     t,
-    series: [{ name: "cpu.util", avg, min, max, min_max_source: "avg_of_10s" }],
+    series: [{ name: "cpu.util", avg, min, max, min_max_source: "avg_of_60s" }],
     downsampled: true,
     bucket_s: 60,
   };

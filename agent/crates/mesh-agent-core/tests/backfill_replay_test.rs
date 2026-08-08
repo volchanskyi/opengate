@@ -1,7 +1,7 @@
 //! WS-15 reconnect-backfill replay engine — behavior tests (plan Steps 1 & 3).
 //!
 //! Drives the pure `ml::backfill` engine against an in-memory `TierReader` fake,
-//! asserting the locked decisions: resolution-tiered mapping (T0→Raw10s,
+//! asserting the locked decisions: resolution-tiered mapping (T0→Recent60s,
 //! T1→Rollup1m, T2→Rollup1h; 1 s never sent), recent-first-then-older ordering,
 //! in-order-within-tier + resumable-from-cursor drain, retention clamp, and
 //! clock-skew bounds. The server-side VM-bucket correctness is covered
@@ -13,7 +13,7 @@ use edge_tsdb::tier::TierPoint;
 use edge_tsdb::{Sample, SeriesId, Tier, TsdbError};
 use mesh_agent_core::ml::backfill::{
     answer_local_history, load_cursors, pace_delay, pending_hint, record_ack, tier_cursor_key,
-    BackfillConfig, BackfillCursors, BackfillDrain, CursorStore, TierReader, TIER_CURSOR_RAW10S,
+    BackfillConfig, BackfillCursors, BackfillDrain, CursorStore, TierReader, TIER_CURSOR_RECENT60S,
     TIER_CURSOR_ROLLUP1H, TIER_CURSOR_ROLLUP1M,
 };
 use mesh_protocol::BackfillTier;
@@ -37,10 +37,17 @@ impl FakeReader {
     }
 
     fn push_tier(&mut self, series: SeriesId, tier: Tier, bucket: i64, avg: f64) {
+        self.push_tier_max(series, tier, bucket, avg, avg);
+    }
+
+    /// A rollup bucket whose maximum differs from its average — the shape a
+    /// stall produces, and the only shape that catches a `.max` dim quietly
+    /// carrying the average instead of the stored extremum.
+    fn push_tier_max(&mut self, series: SeriesId, tier: Tier, bucket: i64, avg: f64, max: f64) {
         let point = TierPoint {
             bucket,
             min: avg,
-            max: avg,
+            max,
             avg,
             last: avg,
             count: 1,
@@ -97,7 +104,7 @@ impl TierReader for FakeReader {
 }
 
 /// Compact config with tiny bands so fixtures are hand-checkable:
-/// age < 100 → Raw10s, 100..1000 → Rollup1m, 1000..10000 → Rollup1h, else skip.
+/// age < 100 → Recent60s, 100..1000 → Rollup1m, 1000..10000 → Rollup1h, else skip.
 fn cfg(max_batch: usize) -> BackfillConfig {
     BackfillConfig {
         retention_secs: 10_000,
@@ -131,7 +138,7 @@ fn drain_all<R: TierReader>(
 #[test]
 fn recent_first_then_older_tiers_in_order() {
     let mut r = FakeReader::default();
-    // Recent band (age < 100): raw 1 s samples across two 10 s windows.
+    // Recent band (age < 100): raw 1 s samples inside one 60 s window.
     for ts in (NOW - 20)..=(NOW - 1) {
         r.push_raw(CPU, ts, 50.0);
     }
@@ -145,31 +152,37 @@ fn recent_first_then_older_tiers_in_order() {
 
     let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
 
-    // Tier order: all Raw10s first, then all Rollup1m, then all Rollup1h.
+    // Tier order: all Recent60s first, then all Rollup1m, then all Rollup1h.
     let tiers: Vec<BackfillTier> = batches.iter().map(|b| b.tier).collect();
     let first_1m = tiers.iter().position(|t| *t == BackfillTier::Rollup1m);
     let first_1h = tiers.iter().position(|t| *t == BackfillTier::Rollup1h);
     assert!(
-        tiers.first() == Some(&BackfillTier::Raw10s),
+        tiers.first() == Some(&BackfillTier::Recent60s),
         "recent window first"
     );
     assert!(first_1m < first_1h, "1 min drains before 1 hr");
     for (i, t) in tiers.iter().enumerate() {
-        if *t == BackfillTier::Raw10s {
+        if *t == BackfillTier::Recent60s {
             assert!(
                 first_1m.is_none_or(|m| i < m),
-                "no Raw10s batch after an older tier"
+                "no Recent60s batch after an older tier"
             );
         }
     }
 
-    // Every sample timestamp is ascending across the whole drain within a tier,
-    // and no 1 s sample is ever sent (Raw10s buckets are 10 s-aligned).
+    // Every bucket carries the dim and its companion maximum, and the recent
+    // tier's buckets sit on the same 60 s grid the live stream emits on — never
+    // 1 s — so a backfilled point and a live point for the same second are the
+    // same point.
     for b in &batches {
         for s in &b.samples {
-            assert_eq!(s.name, "cpu.total");
-            if b.tier == BackfillTier::Raw10s {
-                assert_eq!(s.ts % 10, 0, "raw is rolled to 10 s windows, never 1 s");
+            assert!(
+                s.name == "cpu.total" || s.name == "cpu.total.max",
+                "unexpected dim {}",
+                s.name
+            );
+            if b.tier == BackfillTier::Recent60s {
+                assert_eq!(s.ts % 60, 0, "raw is rolled to 60 s windows, never 1 s");
             }
         }
     }
@@ -201,8 +214,63 @@ fn resumes_after_cursor_without_reemitting() {
         .collect();
     assert_eq!(
         ts_seen,
-        vec![NOW - 300],
-        "only buckets strictly after the cursor"
+        vec![NOW - 300, NOW - 300],
+        "only buckets strictly after the cursor, as avg + max"
+    );
+}
+
+/// The rollup tiers ship the bucket's *stored* maximum. Recomputing a maximum
+/// from rolled averages would give a max-of-averages — a different, smaller
+/// number that hides exactly the stall the `.max` dim exists to show — and only
+/// a bucket whose peak differs from its mean can tell the two apart.
+#[test]
+fn rollup_max_dim_carries_the_stored_extremum_not_the_average() {
+    let mut r = FakeReader::default();
+    // A minute that averages 26.7 % and peaks at a full freeze.
+    r.push_tier_max(CPU, Tier::T1, NOW - 300, 26.7, 100.0);
+
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let seen: Vec<(String, f64)> = batches
+        .iter()
+        .flat_map(|b| b.samples.iter().map(|s| (s.name.clone(), s.value)))
+        .collect();
+    assert_eq!(
+        seen,
+        vec![
+            ("cpu.total".to_string(), 26.7),
+            ("cpu.total.max".to_string(), 100.0),
+        ]
+    );
+}
+
+/// The recent tier rolls 1 s raw itself, so its maximum is the largest raw
+/// sample in the minute — not the largest of anything already averaged.
+#[test]
+fn recent_tier_max_dim_is_the_largest_raw_sample_in_the_minute() {
+    let mut r = FakeReader::default();
+    // 40 samples inside one 60 s bucket: 35 quiet seconds and a 5 s pin at 100 %.
+    for i in 0..40 {
+        let ts = NOW - 40 + i;
+        r.push_raw(CPU, ts, if (20..25).contains(&i) { 100.0 } else { 20.0 });
+    }
+
+    let batches = drain_all(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default());
+    let seen: Vec<(String, f64)> = batches
+        .iter()
+        .flat_map(|b| b.samples.iter().map(|s| (s.name.clone(), s.value)))
+        .collect();
+    let avg = (35.0 * 20.0 + 5.0 * 100.0) / 40.0;
+    assert_eq!(seen.len(), 2, "one minute, one avg and one max");
+    assert_eq!(seen[0].0, "cpu.total");
+    assert!(
+        (seen[0].1 - avg).abs() < 1e-9,
+        "the average hides the pin: {} vs {avg}",
+        seen[0].1
+    );
+    assert_eq!(
+        seen[1],
+        ("cpu.total.max".to_string(), 100.0),
+        "the maximum recovers it"
     );
 }
 
@@ -271,7 +339,8 @@ fn batches_respect_the_sample_cap() {
     for i in 0..10 {
         r.push_tier(CPU, Tier::T1, NOW - 900 + i * 60, 40.0 + i as f64);
     }
-    // Cap of 3 samples/batch over a single series → at most 3 buckets per batch.
+    // Cap of 3 samples/batch over a series carrying an avg and a max → one
+    // bucket per batch, because the cap counts samples, not buckets.
     let batches = drain_all(&r, NOW, cfg(3), &[CPU], BackfillCursors::default());
     assert!(
         batches.len() > 1,
@@ -308,14 +377,14 @@ fn tier_cursor_keys_are_distinct_and_reserved() {
     // distinct and sit above every real metric series id (0..) so a tier
     // watermark never collides with a WS-14b per-series cursor.
     let keys = [
-        tier_cursor_key(BackfillTier::Raw10s).unwrap(),
+        tier_cursor_key(BackfillTier::Recent60s).unwrap(),
         tier_cursor_key(BackfillTier::Rollup1m).unwrap(),
         tier_cursor_key(BackfillTier::Rollup1h).unwrap(),
     ];
     assert_eq!(
         keys,
         [
-            TIER_CURSOR_RAW10S,
+            TIER_CURSOR_RECENT60S,
             TIER_CURSOR_ROLLUP1M,
             TIER_CURSOR_ROLLUP1H
         ]
@@ -333,12 +402,12 @@ fn tier_cursor_keys_are_distinct_and_reserved() {
 fn ack_persists_the_matching_tier_watermark_only() {
     let mut c = FakeCursors::default();
     // A fresh store reports no watermark for any tier.
-    assert_eq!(load_cursors(&c).unwrap().raw10s, None);
+    assert_eq!(load_cursors(&c).unwrap().recent60s, None);
 
     record_ack(&mut c, BackfillTier::Rollup1m, NOW - 300).unwrap();
     let cursors = load_cursors(&c).unwrap();
     assert_eq!(cursors.rollup1m, Some(NOW - 300), "acked tier advanced");
-    assert_eq!(cursors.raw10s, None, "other tiers untouched");
+    assert_eq!(cursors.recent60s, None, "other tiers untouched");
     assert_eq!(cursors.rollup1h, None);
 
     // A later ack for the same tier moves the watermark forward.
@@ -352,11 +421,11 @@ fn cursors_round_trip_through_a_real_store() {
 
     let dir = tempfile::tempdir().unwrap();
     let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
-    record_ack(&mut store, BackfillTier::Raw10s, 12_340).unwrap();
+    record_ack(&mut store, BackfillTier::Recent60s, 12_340).unwrap();
     record_ack(&mut store, BackfillTier::Rollup1h, 9_000).unwrap();
 
     let cursors = load_cursors(&store).unwrap();
-    assert_eq!(cursors.raw10s, Some(12_340));
+    assert_eq!(cursors.recent60s, Some(12_340));
     assert_eq!(cursors.rollup1h, Some(9_000));
     assert_eq!(cursors.rollup1m, None);
 
@@ -377,7 +446,10 @@ fn pending_hint_counts_backlog_and_reports_oldest() {
 
     let (pending, oldest) =
         pending_hint(&r, NOW, cfg(1000), &[CPU], BackfillCursors::default()).unwrap();
-    assert_eq!(pending, 3, "three pending buckets across the tiers");
+    assert_eq!(
+        pending, 6,
+        "three pending buckets across the tiers, each an avg and a max"
+    );
     assert_eq!(oldest, NOW - 5400, "oldest pending bucket is the T2 point");
 
     // Nothing pending → a zeroed hint (never a bogus timestamp).
@@ -404,7 +476,7 @@ fn drains_a_real_local_store_snapshot() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = LocalTsdb::open(dir.path(), TsdbConfig::default()).unwrap();
     let now = 1_000_000i64;
-    // Recent 1 s raw across three 10 s windows; commit builds T0 + rollups.
+    // Recent 1 s raw inside one 60 s window; commit builds T0 + rollups.
     for ts in (now - 30)..now {
         store.append(CPU, Sample::new(ts, 25.0), false).unwrap();
     }
@@ -414,18 +486,18 @@ fn drains_a_real_local_store_snapshot() {
     // The engine reads the real MVCC snapshot through the TierReader impl. The
     // Mid/Old phases exercise range_tier even though those bands are empty here.
     let mut drain = BackfillDrain::new(&snap, now, cfg(1000), &[CPU], BackfillCursors::default());
-    let mut windows = 0;
+    let mut dims = Vec::new();
     while let Some(b) = drain.next_batch().unwrap() {
-        assert_eq!(b.tier, BackfillTier::Raw10s);
+        assert_eq!(b.tier, BackfillTier::Recent60s);
         for s in &b.samples {
-            assert_eq!(s.name, "cpu.total");
-            assert_eq!(s.ts % 10, 0);
+            assert_eq!(s.ts % 60, 0);
+            dims.push(s.name.clone());
         }
-        windows += b.samples.len();
     }
     assert_eq!(
-        windows, 3,
-        "30 one-second samples fold into three 10 s windows"
+        dims,
+        vec!["cpu.total".to_string(), "cpu.total.max".to_string()],
+        "30 one-second samples fold into one 60 s window, as an avg and a max"
     );
 
     let (points, truncated) = answer_local_history(&snap, CPU, now - 30, now, 100).unwrap();

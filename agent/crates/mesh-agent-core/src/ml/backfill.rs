@@ -7,11 +7,18 @@
 //! server-granted rate.
 //!
 //! The locked decisions this module encodes:
-//! - **Tiered mapping** — the recent window ships as 10 s from T0
-//!   ([`BackfillTier::Raw10s`]); older history up to the mid boundary ships as
-//!   1 min from T1 ([`BackfillTier::Rollup1m`]); older-still up to retention ships
-//!   as 1 hr from T2 ([`BackfillTier::Rollup1h`]). Full-res **1 s raw is never
-//!   sent** — it is reachable only via [`answer_local_history`].
+//! - **Tiered mapping** — the recent window ships as 60 s rolled from T0
+//!   ([`BackfillTier::Recent60s`]), the same grid and the same fold the live
+//!   stream emits on, so a backfilled point and a live point for the same second
+//!   are the same point; older history up to the mid boundary ships as 1 min from
+//!   T1 ([`BackfillTier::Rollup1m`]); older-still up to retention ships as 1 hr
+//!   from T2 ([`BackfillTier::Rollup1h`]). Full-res **1 s raw is never sent** —
+//!   it is reachable only via [`answer_local_history`].
+//! - **Extrema ride along** — every bucket ships its average and, for the gauges
+//!   that carry one, the bucket's maximum. The rollup tiers take that maximum
+//!   from the stored bucket, never from the averages they just read: a
+//!   max-of-averages is a different and smaller number, and it hides the stall
+//!   the maximum exists to show.
 //! - **Hybrid order** — the recent window drains first, then the older tiers
 //!   oldest-first from a per-tier watermark, so an interrupted drain resumes
 //!   cleanly.
@@ -33,7 +40,7 @@ use edge_tsdb::tier::TierPoint;
 use edge_tsdb::{Durability, LocalTsdb, Sample, SeriesId, Tier, TsdbError};
 use mesh_protocol::{BackfillSample, BackfillTier, HistoryPoint};
 
-use super::store_sink::series_dim_name;
+use super::store_sink::{series_dim_name, series_max_dim_name};
 
 /// Read side of the local store the backfill engine needs. Implemented by the
 /// store's [`TsdbSnapshot`] in production and by an in-memory fake in tests.
@@ -77,20 +84,24 @@ impl TierReader for TsdbSnapshot {
     }
 }
 
-/// Seconds in a 10 s / 1 min / 1 hr backfill bucket.
-const RAW_STEP: i64 = 10;
+/// One bucket's readings for a series: the bucket's average and its maximum.
+type BucketReduction = (SeriesId, f64, f64);
+
+/// Seconds in a recent / 1 min / 1 hr backfill bucket. The recent tier rolls raw
+/// T0 to the same 60 s grid the live stream uses.
+const RECENT_STEP: i64 = 60;
 const MIN_STEP: i64 = 60;
 const HOUR_STEP: i64 = 3600;
 
 /// Tunables for a reconnect-backfill drain. Age bands are half-open by sample
-/// age (`now - ts`): `[0, recent)` → Raw10s, `[recent, mid)` → Rollup1m,
+/// age (`now - ts`): `[0, recent)` → Recent60s, `[recent, mid)` → Rollup1m,
 /// `[mid, retention)` → Rollup1h, `>= retention` → skipped (on-demand only).
 #[derive(Debug, Clone, Copy)]
 pub struct BackfillConfig {
     /// Central VM retention window (seconds). Buckets at or beyond this age are
     /// never shipped — they remain reachable only via an on-demand pull.
     pub retention_secs: i64,
-    /// Age below which history ships as 10 s from T0.
+    /// Age below which history ships as 60 s rolled from T0.
     pub recent_secs: i64,
     /// Age below which (and at/above `recent_secs`) history ships as 1 min from T1;
     /// at/above this and below `retention_secs` it ships as 1 hr from T2.
@@ -118,8 +129,8 @@ impl Default for BackfillConfig {
 /// shipped-and-acked for each tier, or `None` if a tier has never shipped.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BackfillCursors {
-    /// Newest 10 s window shipped from T0.
-    pub raw10s: Option<i64>,
+    /// Newest 60 s window shipped from T0.
+    pub recent60s: Option<i64>,
     /// Newest 1 min bucket shipped from T1.
     pub rollup1m: Option<i64>,
     /// Newest 1 hr bucket shipped from T2.
@@ -129,7 +140,7 @@ pub struct BackfillCursors {
 impl BackfillCursors {
     fn get(&self, tier: BackfillTier) -> Option<i64> {
         match tier {
-            BackfillTier::Raw10s => self.raw10s,
+            BackfillTier::Recent60s => self.recent60s,
             BackfillTier::Rollup1m => self.rollup1m,
             BackfillTier::Rollup1h => self.rollup1h,
             _ => None,
@@ -159,7 +170,7 @@ enum Phase {
 impl Phase {
     fn tier(self) -> Option<BackfillTier> {
         match self {
-            Phase::Recent => Some(BackfillTier::Raw10s),
+            Phase::Recent => Some(BackfillTier::Recent60s),
             Phase::Mid => Some(BackfillTier::Rollup1m),
             Phase::Old => Some(BackfillTier::Rollup1h),
             Phase::Done => None,
@@ -213,9 +224,23 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
         }
     }
 
-    /// Buckets per batch = the sample cap spread across the active series (>=1).
+    /// Samples one bucket produces across the active series: each series' average
+    /// plus its maximum where it has one. The cap counts samples, so the bucket
+    /// budget divides by this rather than by the series count.
+    fn samples_per_bucket(&self) -> usize {
+        self.series
+            .iter()
+            .map(|&series| {
+                usize::from(series_dim_name(series).is_some())
+                    + usize::from(series_max_dim_name(series).is_some())
+            })
+            .sum::<usize>()
+            .max(1)
+    }
+
+    /// Buckets per batch = the sample cap spread across a bucket's samples (>=1).
     fn buckets_per_batch(&self) -> i64 {
-        let per = self.cfg.max_batch_samples / self.series.len().max(1);
+        let per = self.cfg.max_batch_samples / self.samples_per_bucket();
         per.max(1) as i64
     }
 
@@ -225,7 +250,7 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
             Phase::Recent => (
                 self.now - self.cfg.recent_secs,
                 self.now + self.cfg.future_skew_secs,
-                RAW_STEP,
+                RECENT_STEP,
             ),
             Phase::Mid => (
                 self.now - self.cfg.mid_secs,
@@ -237,7 +262,7 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
                 self.now - self.cfg.mid_secs,
                 HOUR_STEP,
             ),
-            Phase::Done => (0, -1, RAW_STEP),
+            Phase::Done => (0, -1, RECENT_STEP),
         }
     }
 
@@ -245,8 +270,8 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
     /// bucket ships only if it lies **entirely** inside its tier's time range, so
     /// a coarse bucket that straddles into a finer tier's range is dropped rather
     /// than double-counting the same wall-clock time at two resolutions. The
-    /// finest tier (Raw10s) has no upper straddle to guard, only the recent
-    /// floor. Bucket timestamps beyond `now + skew` are wild clocks and never
+    /// recent tier has no upper straddle to guard, only the recent floor. Bucket
+    /// timestamps beyond `now + skew` are wild clocks and never
     /// ship; the retention floor is the Old band's own lower bound.
     fn emit_ok(&self, ts: i64, step: i64) -> bool {
         if ts > self.now + self.cfg.future_skew_secs {
@@ -299,12 +324,19 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
             let cursor = *buckets.keys().next_back().expect("non-empty");
             let mut samples = Vec::new();
             for (ts, dims) in buckets {
-                for (series, value) in dims {
+                for (series, avg, max) in dims {
                     if let Some(name) = series_dim_name(series) {
                         samples.push(BackfillSample {
                             name: name.to_string(),
                             ts,
-                            value,
+                            value: avg,
+                        });
+                    }
+                    if let Some(name) = series_max_dim_name(series) {
+                        samples.push(BackfillSample {
+                            name: name.to_string(),
+                            ts,
+                            value: max,
                         });
                     }
                 }
@@ -324,38 +356,42 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
     }
 
     /// Read one bounded slice for `tier` over `[start, end]`, returning a map of
-    /// bucket-ts → the `(series, value)` pairs at that bucket, capped to
-    /// `buckets_per_batch` distinct buckets and filtered by [`sanitize`].
+    /// bucket-ts → the `(series, avg, max)` triples at that bucket, capped to
+    /// `buckets_per_batch` distinct buckets and bounded by [`emit_ok`].
     ///
-    /// [`sanitize`]: BackfillDrain::sanitize
+    /// The rollup tiers read `max` from the stored bucket rather than deriving it
+    /// from the averages, so a bucket's maximum is the largest raw sample in it
+    /// and not the largest of its own means.
+    ///
+    /// [`emit_ok`]: BackfillDrain::emit_ok
     fn read_buckets(
         &self,
         tier: BackfillTier,
         step: i64,
         start: i64,
         end: i64,
-    ) -> Result<BTreeMap<i64, Vec<(SeriesId, f64)>>, TsdbError> {
-        let mut acc: BTreeMap<i64, Vec<(SeriesId, f64)>> = BTreeMap::new();
+    ) -> Result<BTreeMap<i64, Vec<BucketReduction>>, TsdbError> {
+        let mut acc: BTreeMap<i64, Vec<BucketReduction>> = BTreeMap::new();
         for &series in self.series {
-            let points: Vec<(i64, f64)> = match tier {
-                BackfillTier::Raw10s => roll_to_10s(&self.reader.range_raw(series, start, end)?),
+            let points: Vec<(i64, f64, f64)> = match tier {
+                BackfillTier::Recent60s => roll_to_60s(&self.reader.range_raw(series, start, end)?),
                 BackfillTier::Rollup1m => self
                     .reader
                     .range_tier(series, Tier::T1, start, end)?
                     .into_iter()
-                    .map(|p| (p.bucket, p.avg))
+                    .map(|p| (p.bucket, p.avg, p.max))
                     .collect(),
                 BackfillTier::Rollup1h => self
                     .reader
                     .range_tier(series, Tier::T2, start, end)?
                     .into_iter()
-                    .map(|p| (p.bucket, p.avg))
+                    .map(|p| (p.bucket, p.avg, p.max))
                     .collect(),
                 _ => Vec::new(),
             };
-            for (ts, value) in points {
+            for (ts, avg, max) in points {
                 if self.emit_ok(ts, step) {
-                    acc.entry(ts).or_default().push((series, value));
+                    acc.entry(ts).or_default().push((series, avg, max));
                 }
             }
         }
@@ -369,27 +405,28 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
     }
 }
 
-/// The 10 s window start a raw second-timestamp falls into
-/// (window start = `floor(ts/10)*10`). Shared with the live host-metric emitter
-/// so a live 10 s average and a reconnect-backfilled 10 s average key the same
+/// The 60 s window start a raw second-timestamp falls into
+/// (window start = `floor(ts/60)*60`). Shared with the live host-metric emitter
+/// so a live 60 s average and a reconnect-backfilled 60 s average key the same
 /// bucket for the same second — the two paths never diverge on a timestamp.
-pub(crate) fn window_start_10s(ts: i64) -> i64 {
-    ts.div_euclid(RAW_STEP) * RAW_STEP
+pub(crate) fn window_start_60s(ts: i64) -> i64 {
+    ts.div_euclid(RECENT_STEP) * RECENT_STEP
 }
 
-/// Fold 1 s raw samples into 10 s-window averages (window start = `floor(ts/10)*10`),
-/// ascending. A partial window (fewer than 10 samples, e.g. across an offline
-/// gap) averages the samples that exist — the best available value.
-pub(crate) fn roll_to_10s(samples: &[(Sample, bool)]) -> Vec<(i64, f64)> {
-    let mut acc: BTreeMap<i64, (f64, u32)> = BTreeMap::new();
+/// Fold 1 s raw samples into 60 s windows of `(window start, average, maximum)`,
+/// ascending. A partial window (fewer than 60 samples, e.g. across an offline
+/// gap) reduces the samples that exist — the best available values.
+pub(crate) fn roll_to_60s(samples: &[(Sample, bool)]) -> Vec<(i64, f64, f64)> {
+    let mut acc: BTreeMap<i64, (f64, f64, u32)> = BTreeMap::new();
     for (s, _) in samples {
-        let window = window_start_10s(s.ts);
-        let e = acc.entry(window).or_insert((0.0, 0));
+        let window = window_start_60s(s.ts);
+        let e = acc.entry(window).or_insert((0.0, f64::NEG_INFINITY, 0));
         e.0 += s.value;
-        e.1 += 1;
+        e.1 = e.1.max(s.value);
+        e.2 += 1;
     }
     acc.into_iter()
-        .map(|(w, (sum, n))| (w, sum / f64::from(n)))
+        .map(|(w, (sum, max, n))| (w, sum / f64::from(n), max))
         .collect()
 }
 
@@ -397,7 +434,7 @@ pub(crate) fn roll_to_10s(samples: &[(Sample, bool)]) -> Vec<(i64, f64)> {
 /// watermarks. Real metric series are small ids (0..); these sit at the very top
 /// of the [`SeriesId`] space so a tier watermark never collides with a series'
 /// WS-14b per-series cursor in the same table.
-pub const TIER_CURSOR_RAW10S: SeriesId = SeriesId::MAX;
+pub const TIER_CURSOR_RECENT60S: SeriesId = SeriesId::MAX;
 /// Reserved key for the 1 min-tier watermark.
 pub const TIER_CURSOR_ROLLUP1M: SeriesId = SeriesId::MAX - 1;
 /// Reserved key for the 1 hr-tier watermark.
@@ -408,7 +445,7 @@ pub const TIER_CURSOR_ROLLUP1H: SeriesId = SeriesId::MAX - 2;
 #[must_use]
 pub fn tier_cursor_key(tier: BackfillTier) -> Option<SeriesId> {
     match tier {
-        BackfillTier::Raw10s => Some(TIER_CURSOR_RAW10S),
+        BackfillTier::Recent60s => Some(TIER_CURSOR_RECENT60S),
         BackfillTier::Rollup1m => Some(TIER_CURSOR_ROLLUP1M),
         BackfillTier::Rollup1h => Some(TIER_CURSOR_ROLLUP1H),
         _ => None,
@@ -441,7 +478,7 @@ impl CursorStore for LocalTsdb {
 /// Load the three durable per-tier resume watermarks from `store`.
 pub fn load_cursors<C: CursorStore>(store: &C) -> Result<BackfillCursors, TsdbError> {
     Ok(BackfillCursors {
-        raw10s: store.load_cursor(TIER_CURSOR_RAW10S)?,
+        recent60s: store.load_cursor(TIER_CURSOR_RECENT60S)?,
         rollup1m: store.load_cursor(TIER_CURSOR_ROLLUP1M)?,
         rollup1h: store.load_cursor(TIER_CURSOR_ROLLUP1H)?,
     })
@@ -522,24 +559,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn roll_to_10s_averages_each_window() {
-        let samples: Vec<(Sample, bool)> = (0..25)
+    fn roll_to_60s_reduces_each_window_to_an_average_and_a_maximum() {
+        let samples: Vec<(Sample, bool)> = (0..150)
             .map(|ts| (Sample::new(ts, ts as f64), false))
             .collect();
-        let rolled = roll_to_10s(&samples);
+        let rolled = roll_to_60s(&samples);
         assert_eq!(
             rolled,
-            vec![(0, 4.5), (10, 14.5), (20, 22.0)],
-            "each 10 s window averages its 1 s samples"
+            vec![(0, 29.5, 59.0), (60, 89.5, 119.0), (120, 134.5, 149.0)],
+            "each 60 s window averages its 1 s samples and keeps the largest"
         );
     }
 
     #[test]
-    fn roll_to_10s_handles_a_partial_window() {
+    fn roll_to_60s_handles_a_partial_window() {
         let samples = vec![
-            (Sample::new(30, 10.0), false),
-            (Sample::new(31, 20.0), false),
+            (Sample::new(180, 10.0), false),
+            (Sample::new(181, 20.0), false),
         ];
-        assert_eq!(roll_to_10s(&samples), vec![(30, 15.0)]);
+        assert_eq!(roll_to_60s(&samples), vec![(180, 15.0, 20.0)]);
+    }
+
+    /// A window of negative readings must not report a maximum of zero — the
+    /// running extremum starts below every possible sample, not at the origin.
+    #[test]
+    fn roll_to_60s_maximum_of_negative_readings_is_negative() {
+        let samples = vec![
+            (Sample::new(0, -30.0), false),
+            (Sample::new(1, -10.0), false),
+        ];
+        assert_eq!(roll_to_60s(&samples), vec![(0, -20.0, -10.0)]);
     }
 }

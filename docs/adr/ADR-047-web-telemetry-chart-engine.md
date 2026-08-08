@@ -45,7 +45,7 @@ owning chrome and the renderer owning pixels.
   [`FleetHealth`](../../web/src/features/devices/FleetHealth.tsx)) — no
   per-device series on the grid.
 - **Band provenance is labelled honestly.** Central VM is `avg`-only, so chart
-  bands carry a `min_max_source` (`local` / `avg_of_10s` / `none`); the UI never
+  bands carry a `min_max_source` (`local` / `avg_of_60s` / `none`); the UI never
   implies host extrema the source cannot back.
 - The logs explorer
   ([`DeviceLogs`](../../web/src/features/devices/DeviceLogs.tsx)) renders only the

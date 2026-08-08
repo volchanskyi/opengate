@@ -231,7 +231,7 @@ func TestHandleMetricBackfillBatch_DoesNotAckOnPersistFailure(t *testing.T) {
 	ac, buf := ingestConn(t, tenant, writer, true)
 	msg := &protocol.ControlMessage{
 		Type:            protocol.MsgMetricBackfillBatch,
-		Tier:            protocol.BackfillTierRaw10s,
+		Tier:            protocol.BackfillTierRecent60s,
 		BackfillSamples: []protocol.BackfillSample{{Name: "cpu.total", TS: time.Now().Unix() - 100, Value: 1}},
 		Cursor:          time.Now().Unix() - 100,
 	}
@@ -271,7 +271,7 @@ func TestHandleMetricBackfillBatch_IgnoredWithoutCapability(t *testing.T) {
 	ac, buf := ingestConn(t, tenant, writer, false)
 	msg := &protocol.ControlMessage{
 		Type:            protocol.MsgMetricBackfillBatch,
-		Tier:            protocol.BackfillTierRaw10s,
+		Tier:            protocol.BackfillTierRecent60s,
 		BackfillSamples: []protocol.BackfillSample{{Name: "cpu.total", TS: time.Now().Unix() - 100, Value: 1}},
 	}
 	require.NoError(t, ac.handleMetricBackfillBatch(tenantCtx(tenant), msg, 128))

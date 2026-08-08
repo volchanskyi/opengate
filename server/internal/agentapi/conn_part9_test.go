@@ -155,12 +155,12 @@ func TestAgentConn_TelemetryIntervalFloorDropsFastSamples(t *testing.T) {
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type: protocol.MsgAgentMetricWindow,
 		TS:   now,
-		Dims: []protocol.MetricDim{{Name: "cpu", Avg: 1}},
+		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 1}},
 	})
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type: protocol.MsgAgentMetricWindow,
 		TS:   now + 1,
-		Dims: []protocol.MetricDim{{Name: "cpu", Avg: 2}},
+		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 2}},
 	})
 
 	require.NoError(t, ac.handleControl(ctx))
@@ -197,7 +197,7 @@ func TestAgentConn_TelemetryWriterDoesNotBlockControlLoop(t *testing.T) {
 	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
 		Type: protocol.MsgAgentMetricWindow,
 		TS:   time.Now().Unix(),
-		Dims: []protocol.MetricDim{{Name: "cpu", Avg: 1}},
+		Dims: []protocol.MetricDim{{Name: "cpu.total", Avg: 1}},
 	})
 
 	ctx := dbtx.WithDefaultTenant(context.Background(), false)

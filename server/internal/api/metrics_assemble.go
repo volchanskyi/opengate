@@ -128,7 +128,7 @@ func assembleMetricRange(avg, mins, maxs []telemetry.RangeSeries, want map[strin
 	}, off
 }
 
-// attachBand fills a series' avg_of_10s band from the per-dim min/max results,
+// attachBand fills a series' avg_of_60s band from the per-dim min/max results,
 // but only when both are present so a chart never draws a half band. The band
 // shares the avg line's grid — a fill on a different axis would not belong to
 // the line it wraps.
@@ -142,7 +142,7 @@ func attachBand(ms *MetricSeries, dim string, grid metricGrid, off *offGridPoint
 	maxVals := alignValues(mx, dim, grid, off)
 	ms.Min = &minVals
 	ms.Max = &maxVals
-	ms.MinMaxSource = MetricSeriesMinMaxSourceAvgOf10s
+	ms.MinMaxSource = MetricSeriesMinMaxSourceAvgOf60s
 }
 
 // alignValues projects one series' values onto the grid; absent buckets stay nil
@@ -206,8 +206,8 @@ func clampMaxPoints(mp *int) int {
 	return v
 }
 
-// chooseStep picks the smallest whole-second bucket (never below the 10 s raw
-// cadence) that keeps the point count within maxPoints for the window.
+// chooseStep picks the smallest whole-second bucket (never below the 60 s
+// vitals cadence) that keeps the point count within maxPoints for the window.
 func chooseStep(from, to time.Time, maxPoints int) time.Duration {
 	windowSecs := int64(to.Sub(from).Seconds())
 	if windowSecs <= 0 {
@@ -222,7 +222,7 @@ func chooseStep(from, to time.Time, maxPoints int) time.Duration {
 
 func bandFromParam(b *GetDeviceMetricsParamsBand) bool {
 	if b == nil {
-		return true // default: avg_of_10s band
+		return true // default: avg_of_60s band
 	}
-	return *b == GetDeviceMetricsParamsBandAvgOf10s
+	return *b == GetDeviceMetricsParamsBandAvgOf60s
 }

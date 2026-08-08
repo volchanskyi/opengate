@@ -13,7 +13,7 @@ const (
 	// backfillMetric is the central series reconnect backfill writes into — the
 	// same raw `avg` series live telemetry uses and the WS-6 charts read via
 	// *_over_time, so backfilled history is continuous with live telemetry and
-	// immediately visible. The agent's Raw10s/1m/1h tiering is a bandwidth
+	// immediately visible. The agent's 60 s/1 min/1 hr tiering is a bandwidth
 	// optimization (coarser points for older periods); on the server they
 	// reconstitute this one series at their native resolution, deduped by VM on
 	// (series, timestamp) so replaying a batch is idempotent. The import API
@@ -64,9 +64,17 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 	ceil := now + backfillFutureSkewSecs
 	samples := make([]telemetry.Sample, 0, len(msg.BackfillSamples))
 	skipped := 0
+	unknown := 0
 	for _, s := range msg.BackfillSamples {
 		if s.TS < floor || s.TS > ceil {
 			skipped++ // retention clamp + wild-clock guard (defense in depth)
+			continue
+		}
+		// Backfill writes the same series live telemetry does, so it answers to
+		// the same vocabulary. A dim outside it would open exactly the central
+		// cardinality the allowlist closes, one replayed batch at a time.
+		if !isVitalDim(s.Name) {
+			unknown++
 			continue
 		}
 		samples = append(samples, telemetry.Sample{
@@ -82,6 +90,10 @@ func (a *AgentConn) handleMetricBackfillBatch(ctx context.Context, msg *protocol
 	if skipped > 0 {
 		a.dropTelemetry("backfill_out_of_retention", "type", protocol.MsgMetricBackfillBatch,
 			"tier", msg.Tier, "skipped", skipped, "batch", len(msg.BackfillSamples))
+	}
+	if unknown > 0 {
+		a.dropTelemetry("unknown_dim", "type", protocol.MsgMetricBackfillBatch,
+			"tier", msg.Tier, "unknown", unknown, "batch", len(msg.BackfillSamples))
 	}
 
 	if len(samples) > 0 {

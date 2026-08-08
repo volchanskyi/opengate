@@ -100,9 +100,10 @@ pub struct HealthSummary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum BackfillTier {
-    /// 10 s windows rolled from local T0 (1 s) → VM raw tier.
+    /// 60 s windows rolled from local T0 (1 s) → VM raw tier, on the same grid
+    /// the live stream emits on.
     #[default]
-    Raw10s,
+    Recent60s,
     /// 1 min points from local T1 → VM 1 min rollup.
     Rollup1m,
     /// 1 hr points from local T2 → VM 1 hr rollup.

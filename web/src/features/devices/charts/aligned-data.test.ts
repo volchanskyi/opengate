@@ -67,7 +67,7 @@ describe('buildFamilyChart', () => {
   it('adds min/max columns and a band when provenance is not none', () => {
     const chart = buildFamilyChart(
       [1000, 1010, 1020],
-      [series({ name: 'cpu.util', avg: [10, null, 30], min: [5, null, 25], max: [15, null, 35], min_max_source: 'avg_of_10s' })],
+      [series({ name: 'cpu.util', avg: [10, null, 30], min: [5, null, 25], max: [15, null, 35], min_max_source: 'avg_of_60s' })],
     );
     // data = [x, avg, min, max]
     expect(chart.data).toHaveLength(4);
@@ -109,7 +109,7 @@ describe('buildFamilyChart', () => {
   it('does not draw a half band when either bound is absent', () => {
     const chart = buildFamilyChart([1000], [
       series({ name: 'cpu.util', avg: [10], min: [5], min_max_source: 'local' }),
-      series({ name: 'cpu.load', avg: [20], max: [25], min_max_source: 'avg_of_10s' }),
+      series({ name: 'cpu.load', avg: [20], max: [25], min_max_source: 'avg_of_60s' }),
     ]);
     expect(chart.data).toHaveLength(3);
     expect(chart.bands).toEqual([]);
@@ -195,7 +195,7 @@ describe('buildFamilyChart', () => {
       series({
         name: 'cpu.util',
         avg: [10, null, 30], min: [5, null, 25], max: [15, null, 35],
-        min_max_source: 'avg_of_10s',
+        min_max_source: 'avg_of_60s',
       }),
     ]);
     // A band whose edges spanned the hole would fill a region the avg line
@@ -210,7 +210,7 @@ describe('buildFamilyChart', () => {
     // uPlot reads column i against x[i]. A column shorter than the axis would
     // silently shift every later reading left, so it is padded with gaps.
     const chart = buildFamilyChart([1000, 1010, 1020, 1030], [
-      series({ name: 'cpu.util', avg: [10, 20], min: [5], max: [15], min_max_source: 'avg_of_10s' }),
+      series({ name: 'cpu.util', avg: [10, 20], min: [5], max: [15], min_max_source: 'avg_of_60s' }),
     ]);
     for (const column of chart.data) {
       expect(column).toHaveLength(4);

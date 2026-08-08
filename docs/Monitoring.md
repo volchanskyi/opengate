@@ -167,9 +167,30 @@ The [rollup config](../deploy/helm/monitoring/files/edge-sentinel-stream-aggr.ya
 produces coarse `avg`-only rollups for `opengate_edge_*` metrics at two intervals
 while `-streamAggr.keepInput` preserves the raw matched input. Central rollups
 carry `avg` alone because each aggregate is its own series, so emitting
-min/max/last centrally would multiply active series past the budget ratified in
+min/max/last centrally would multiply active series past the budget measured in
 [`spike_test.go`](../server/tests/vmcardinality/spike_test.go); chart bands are
-computed from min/max over the raw 10 s samples instead.
+computed from min/max over the raw 60 s samples instead.
+
+### The vitals contract
+
+A device writes a fixed vocabulary of central series, and cardinality — not
+sample rate — is what bounds the central store. Each of the six host-resource
+gauges ships its 60 s average, and the four where a within-minute spike is the
+signal (cpu, memory, and both net rates) ship the window maximum beside it: over
+a minute at 1 Hz, five seconds pinned at 100 % move a 20 % average to 26.7 %,
+while the maximum reads 100. Those ten dims plus the node-wide anomaly rate and
+the five per-family rates are the sixteen series a Linux device occupies today,
+under a per-device cap of 24.
+
+The vocabulary is fixed on both sides: the agent builds it from one series
+mapping ([`store_sink.rs`](../agent/crates/mesh-agent-core/src/ml/store_sink.rs))
+and the server allowlists it before writing a label
+([`vitals.go`](../server/internal/agentapi/vitals.go)), so a dim name arriving on
+the wire cannot enlarge the store — an unlisted one is dropped and counted under
+`opengate_edge_telemetry_drops_total{reason="unknown_dim"}`. The two lists are
+pinned together by the cross-language golden fixture for a metric window, and
+the per-device cost is measured against a real VictoriaMetrics in
+[`spike_test.go`](../server/tests/vmcardinality/spike_test.go).
 
 ### Reconnect backfill and deep-history pull
 
@@ -181,9 +202,12 @@ scheduler ([`backfill_scheduler.go`](../server/internal/agentapi/backfill_schedu
 grants a rate or defers under live load. Once granted, the agent drives the pure
 replay engine ([`backfill.rs`](../agent/crates/mesh-agent-core/src/ml/backfill.rs))
 from the control loop ([`backfill_loop.rs`](../agent/crates/mesh-agent/src/backfill_loop.rs)):
-it drains the recent window first as 10 s points, then the older 1 min and 1 hr
-rollups oldest-first, throttled to the granted rate and one acked batch at a
-time. Full-resolution 1 s raw is never pushed; a durable per-tier watermark
+it drains the recent window first as 60 s points — the same grid the live stream
+emits on, so a backfilled point and a live point for the same second are the same
+point — then the older 1 min and 1 hr rollups oldest-first, throttled to the
+granted rate and one acked batch at a time. Each bucket carries its average and,
+for the gauges that have one, its maximum, taken from the stored rollup rather
+than recomputed from averages. Full-resolution 1 s raw is never pushed; a durable per-tier watermark
 advances only on each `MetricBackfillAck`, so an interrupted drain resumes
 without re-sending.
 
@@ -317,8 +341,8 @@ across a device-offline stretch would assert measurements nobody took.
 The device-detail panel
 ([`DeviceMetrics`](../web/src/features/devices/DeviceMetrics.tsx)) shows the
 current edge-health anomaly rate, per-family metric timelines (avg line plus a
-band whose `min_max_source` provenance is labelled honestly — `avg_of_10s` is
-min/max across the 10 s averages, not host extrema), and a Netdata-style
+band whose `min_max_source` provenance is labelled honestly — `avg_of_60s` is
+min/max across the 60 s averages, not host extrema), and a Netdata-style
 correlation drill-down: dragging a window on a chart ranks the dimensions that
 broke pattern through the correlate endpoint. The virtualized device grid and the
 dashboard carry only scalar health badges
@@ -337,7 +361,7 @@ window from the metrics panel straight into the explorer.
 Single-node OSS VictoriaMetrics applies **one global retention window** set by
 `victoriametrics.retention` in
 [`values.yaml`](../deploy/helm/monitoring/values.yaml) — per-series retention and
-downsampling are Enterprise features, so raw 10 s samples and the `avg` rollups
+downsampling are Enterprise features, so raw 60 s samples and the `avg` rollups
 share the same window. The rollups exist for query efficiency: a long range reads
 coarse pre-aggregated series instead of scanning raw. Within that window
 VictoriaMetrics is the source of truth for central numeric telemetry, stored with

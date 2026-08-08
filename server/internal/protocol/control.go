@@ -91,8 +91,9 @@ const (
 type BackfillTier string
 
 const (
-	// BackfillTierRaw10s carries 10 s windows rolled from local T0 → VM raw tier.
-	BackfillTierRaw10s BackfillTier = "Raw10s"
+	// BackfillTierRecent60s carries 60 s windows rolled from local T0 → VM raw
+	// tier, on the same grid live telemetry streams on.
+	BackfillTierRecent60s BackfillTier = "Recent60s"
 	// BackfillTierRollup1m carries 1 min points from local T1 → VM 1 min rollup.
 	BackfillTierRollup1m BackfillTier = "Rollup1m"
 	// BackfillTierRollup1h carries 1 hr points from local T2 → VM 1 hr rollup.
