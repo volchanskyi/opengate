@@ -32,18 +32,25 @@ pub const SERIES_DISK: SeriesId = 2;
 pub const SERIES_NET_RX: SeriesId = 3;
 /// Transmitted throughput on the primary interface, bytes/second.
 pub const SERIES_NET_TX: SeriesId = 4;
+/// Count of mounted filesystems at or above the critical-usage threshold.
+pub const SERIES_DISK_MOUNTS_CRITICAL: SeriesId = 5;
 
 /// Fixed-point scale for percentage gauges: centi precision, lossless.
 const PERCENT_SCALE: i64 = 100;
+/// Fixed-point scale for whole-number counts: unit precision, exact.
+const COUNT_SCALE: i64 = 1;
 
 /// Every host-metric series the backfill/telemetry path carries, in a stable
-/// order. The single source of truth paired with [`series_dim_name`].
-pub const BACKFILL_SERIES: [SeriesId; 5] = [
+/// order. The single source of truth paired with [`series_dim_name`]. Ids are a
+/// persistence contract — an agent upgrading in place reads rows it wrote under
+/// the old ones — so a series is appended here, never renumbered or reused.
+pub const BACKFILL_SERIES: [SeriesId; 6] = [
     SERIES_CPU,
     SERIES_MEM,
     SERIES_DISK,
     SERIES_NET_RX,
     SERIES_NET_TX,
+    SERIES_DISK_MOUNTS_CRITICAL,
 ];
 
 /// The stable central dimension label for a local series, or `None` for an
@@ -58,6 +65,7 @@ pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
         SERIES_DISK => Some("disk.used_percent"),
         SERIES_NET_RX => Some("net.rx_bps"),
         SERIES_NET_TX => Some("net.tx_bps"),
+        SERIES_DISK_MOUNTS_CRITICAL => Some("disk.mounts_critical"),
         _ => None,
     }
 }
@@ -73,6 +81,7 @@ pub fn dim_series(name: &str) -> Option<SeriesId> {
         "disk.used_percent" => Some(SERIES_DISK),
         "net.rx_bps" => Some(SERIES_NET_RX),
         "net.tx_bps" => Some(SERIES_NET_TX),
+        "disk.mounts_critical" => Some(SERIES_DISK_MOUNTS_CRITICAL),
         _ => None,
     }
 }
@@ -98,6 +107,7 @@ impl LocalStoreSink {
         store.set_scale(SERIES_CPU, PERCENT_SCALE);
         store.set_scale(SERIES_MEM, PERCENT_SCALE);
         store.set_scale(SERIES_DISK, PERCENT_SCALE);
+        store.set_scale(SERIES_DISK_MOUNTS_CRITICAL, COUNT_SCALE);
         Ok(Self {
             store,
             commit_every: commit_every.max(1),
@@ -113,9 +123,10 @@ impl LocalStoreSink {
 
     /// Append one host sample across every metric series, stamping each with the
     /// window's `anomaly` verdict, and flush durably on the configured cadence.
-    /// The net-rate series are appended only when a rate is available; an absent
-    /// rate (first sample, interface change, counter reset) leaves a gap rather
-    /// than writing a wrong number, and reconnect-backfill rolls the same gaps.
+    /// A series is appended only when the sample carries that reading; an absent
+    /// one — a net rate before it can be computed, or a disk reduction on a host
+    /// with no measurable mount — leaves a gap rather than writing a wrong
+    /// number, and reconnect-backfill rolls the same gaps.
     pub fn record(
         &mut self,
         ts: i64,
@@ -125,9 +136,13 @@ impl LocalStoreSink {
         let dims = [
             (SERIES_CPU, Some(f64::from(sample.cpu_total_percent))),
             (SERIES_MEM, Some(f64::from(sample.memory_used_percent))),
-            (SERIES_DISK, Some(f64::from(sample.disk_used_percent))),
+            (SERIES_DISK, sample.disk_used_percent.map(f64::from)),
             (SERIES_NET_RX, sample.network_rx_bps),
             (SERIES_NET_TX, sample.network_tx_bps),
+            (
+                SERIES_DISK_MOUNTS_CRITICAL,
+                sample.disk_mounts_critical.map(f64::from),
+            ),
         ];
         for (series, value) in dims {
             if let Some(value) = value {
@@ -166,7 +181,10 @@ impl LocalStoreSink {
 
 #[cfg(test)]
 mod tests {
-    use super::{dim_series, series_dim_name, BACKFILL_SERIES};
+    use super::{
+        dim_series, series_dim_name, BACKFILL_SERIES, SERIES_CPU, SERIES_DISK,
+        SERIES_DISK_MOUNTS_CRITICAL, SERIES_MEM, SERIES_NET_RX, SERIES_NET_TX,
+    };
 
     #[test]
     fn dim_name_and_series_are_inverse_and_total() {
@@ -176,7 +194,35 @@ mod tests {
             let name = series_dim_name(series).expect("every backfill series has a label");
             assert_eq!(dim_series(name), Some(series), "round-trips for {name}");
         }
-        assert_eq!(BACKFILL_SERIES.len(), 5);
+        assert_eq!(BACKFILL_SERIES.len(), 6);
+    }
+
+    /// Each series appears exactly once. A duplicate would double-count the dim
+    /// in every live window and every backfill batch.
+    #[test]
+    fn each_series_appears_once_in_the_backfill_set() {
+        let mut seen = BACKFILL_SERIES.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), BACKFILL_SERIES.len());
+    }
+
+    /// Ids key rows in the on-disk store, so an agent upgrading in place reads
+    /// its existing history under the ids it wrote. Pinning them here makes a
+    /// renumber a test failure rather than a silent history loss.
+    #[test]
+    fn series_ids_are_a_persistence_contract() {
+        assert_eq!(
+            [
+                SERIES_CPU,
+                SERIES_MEM,
+                SERIES_DISK,
+                SERIES_NET_RX,
+                SERIES_NET_TX,
+                SERIES_DISK_MOUNTS_CRITICAL,
+            ],
+            [0, 1, 2, 3, 4, 5]
+        );
     }
 
     #[test]

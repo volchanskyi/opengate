@@ -7,14 +7,14 @@
 
 ## Context — a shipped RMM defect, not a design gap
 
-[`disk_used_percent`](../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L72) is fed by a fold that
+[`disk_used_percent`](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L72) is fed by a fold that
 **sums every disk's bytes first** and divides once
-([sampler.rs:79](../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L79), consumed at
-[:245](../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L245)) — a capacity-weighted average.
+([sampler.rs:79](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L79), consumed at
+[:245](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L245)) — a capacity-weighted average.
 
 FS01 (120 GB system volume at 98 %, 2 TB data volume at 10 %) therefore reports **15.0 %**. The
 volume is about to fill, and `disk.used` is one of only three metrics the shipped rule vocabulary
-supports ([alert_rules.go:61](../../server/internal/agentapi/alert_rules.go#L61)) — so **no
+supports ([alert_rules.go:61](../../../server/internal/agentapi/alert_rules.go#L61)) — so **no
 threshold rule can fire**. Servers are worst affected, because a small OS volume beside large data
 volumes is the normal shape.
 
@@ -33,19 +33,19 @@ and must be called out in the ADR and the docs (EF-Z1 owns the ADR; this plan ow
 
 ## File inventory
 
-- **Modify:** [sampler.rs](../../agent/crates/mesh-agent-core/src/ml/sampler.rs) — per-mount
+- **Modify:** [sampler.rs](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs) — per-mount
   reduction, new `disk_mounts_critical` field on `MetricSample`.
-- **Modify:** [store_sink.rs](../../agent/crates/mesh-agent-core/src/ml/store_sink.rs) — append
+- **Modify:** [store_sink.rs](../../../agent/crates/mesh-agent-core/src/ml/store_sink.rs) — append
   `SERIES_DISK_MOUNTS_CRITICAL` (**next free id, never renumber**), extend `BACKFILL_SERIES`,
   `series_dim_name`, `dim_series`, `record`, and set its fixed-point scale.
-- **Modify:** [host_metric_stream.rs](../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs)
+- **Modify:** [host_metric_stream.rs](../../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs)
   — `DIMS` follows `BACKFILL_SERIES.len()`; the new dim rides the window automatically once the
   reading array is extended.
-- **Modify:** [backfill.rs](../../agent/crates/mesh-agent-core/src/ml/backfill.rs) — the same dim
+- **Modify:** [backfill.rs](../../../agent/crates/mesh-agent-core/src/ml/backfill.rs) — the same dim
   must roll identically, or live and backfilled points land in different series.
-- **Regenerate:** [testdata/golden/](../../testdata/golden/) `control_agent_metric_window*` fixtures
+- **Regenerate:** [testdata/golden/](../../../testdata/golden/) `control_agent_metric_window*` fixtures
   (both directions).
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md), [Wire-Protocol.md](../../docs/Wire-Protocol.md).
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md), [Wire-Protocol.md](../../../docs/Wire-Protocol.md).
 
 ## Steps (TDD-first)
 
@@ -56,7 +56,7 @@ and must be called out in the ADR and the docs (EF-Z1 owns the ADR; this plan ow
    pin it, so the threshold is a test, not a reading of the code.
 3. **Test first — degenerate inputs:** zero-byte mount (`total == 0`) is excluded, not counted as
    100 %; `free > total` clamps to 0 (the existing
-   [clamp test](../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L388) must keep passing);
+   [clamp test](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L388) must keep passing);
    **no mounts at all** yields `None`/absent rather than 0 — a host with nothing mounted is not a
    host with empty disks.
 4. Implement the reduction in `sampler.rs`; keep `disk_used_percent(total, free)` as the per-mount
@@ -72,7 +72,7 @@ and must be called out in the ADR and the docs (EF-Z1 owns the ADR; this plan ow
 ## Traps
 
 - **`SeriesId`s are a persistence contract.** They key rows in the on-disk redb store
-  ([edge-tsdb](../../agent/crates/edge-tsdb/)), so an agent upgrading in place reads its old rows
+  ([edge-tsdb](../../../agent/crates/edge-tsdb/)), so an agent upgrading in place reads its old rows
   with the old ids. Append the next free id; never renumber, never reuse.
 - Choose the fixed-point scale deliberately: `PERCENT_SCALE` (centi) suits a percentage, but
   `mounts_critical` is a **count**. A scale of 1 is exact and cheaper; whatever is chosen, the

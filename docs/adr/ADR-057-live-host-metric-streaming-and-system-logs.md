@@ -14,9 +14,11 @@ Accepted.
 ## Context
 
 The host system-resource series (`cpu.total`, `mem.used_percent`,
-`disk.used_percent`, `net.rx_bps`, `net.tx_bps` — the net dims are
-primary-interface throughput in bytes/second) are sampled every second and
-written to the agent-local store. They must also chart **live** on the central
+`disk.used_percent`, `net.rx_bps`, `net.tx_bps`, `disk.mounts_critical` — the net
+dims are primary-interface throughput in bytes/second, and the disk dims are the
+fullest mount's used percentage and the count of mounts at or above the
+critical-usage threshold) are sampled every second and written to the
+agent-local store. They must also chart **live** on the central
 Telemetry pane for a continuously-connected device — not only after a
 reconnect-backfill or an on-demand deep-history pull. The reconnect-backfill path
 already defines the central shape: 10 s-average points on the
@@ -35,10 +37,13 @@ and the frontend family charts unchanged.
 - The live averaging is the **same computation** as reconnect-backfill's 10 s
   roll-up — shared window key (`floor(ts/10)*10`) and `sum/n` — so a live point
   and a later gap-filled point for the same `(dim, ts)` are equal and land in one
-  series. An invariant test asserts the two paths agree for all five dims.
-- Network bytes stream **cumulatively**, exactly as backfill writes them. A
-  per-interval throughput series is deferred to a later change that spans the
-  live, backfill, and frontend paths together under a new dim name.
+  series. An invariant test asserts the two paths agree for every dim.
+- The net dims stream **primary-interface throughput** in bytes/second, exactly
+  as backfill writes them, rounded to whole bytes so they stay on the lossless
+  integer path and the two paths' averages match byte-for-byte.
+- A dim a sample could not read — a net rate with no computable interval, or the
+  disk reduction on a host with no measurable mount — is **absent** from the
+  window rather than substituted, and backfill leaves the same gap.
 - The partial (still-open) window is **discarded across maintenance** and is
   never emitted on its own; backfill fills any window that never closed.
 

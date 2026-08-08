@@ -118,12 +118,15 @@ impl AlertEvaluator {
 
 /// Map a rule's declared metric name to the matching sampler dimension. The
 /// vocabulary is the three percent gauges the sampler exposes; an unrecognized
-/// name yields `None`, so a rule referencing it never fires.
+/// name yields `None`, so a rule referencing it never fires. `disk.used` is the
+/// fullest mount, so a rule watching it fires for the volume that is about to
+/// fill rather than for a pool average that hides it; on a host with no
+/// measurable mount the reading is absent and no disk rule fires.
 fn metric_value(metric: &str, sample: &MetricSample) -> Option<f64> {
     match metric {
         "cpu.total" => Some(f64::from(sample.cpu_total_percent)),
         "mem.used" => Some(f64::from(sample.memory_used_percent)),
-        "disk.used" => Some(f64::from(sample.disk_used_percent)),
+        "disk.used" => sample.disk_used_percent.map(f64::from),
         _ => None,
     }
 }

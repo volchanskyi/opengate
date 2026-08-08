@@ -7,9 +7,11 @@
 //! bucket by [`super::backfill::window_start_10s`] and report `sum/n`, so a
 //! live point and a later gap-filled point for the same `(dim, ts)` are equal
 //! and land in one central series. The net dims are primary-interface
-//! throughput in bytes/second; a sample with no computable rate is skipped for
-//! those dims (per-dim counts), exactly as the local store leaves a gap that
-//! backfill then rolls over the same seconds.
+//! throughput in bytes/second and the disk dims are the worst-mount reduction; a
+//! sample carrying no reading for a dim — an uncomputable net rate, or a host
+//! with no measurable mount — is skipped for that dim alone (per-dim counts),
+//! exactly as the local store leaves a gap that backfill then rolls over the
+//! same seconds.
 
 use mesh_protocol::{ControlMessage, MetricDim};
 
@@ -19,20 +21,22 @@ use super::store_sink::{series_dim_name, BACKFILL_SERIES};
 
 /// The number of host-resource series streamed per window, in [`BACKFILL_SERIES`]
 /// order (`cpu.total`, `mem.used_percent`, `disk.used_percent`, `net.rx_bps`,
-/// `net.tx_bps`).
+/// `net.tx_bps`, `disk.mounts_critical`).
 const DIMS: usize = BACKFILL_SERIES.len();
 
 /// The per-dim readings of one sample, in [`BACKFILL_SERIES`] order — the same
 /// mapping [`super::store_sink::LocalStoreSink::record`] persists, so the live
-/// average and the backfilled average fold identical values. A `None` entry (the
-/// net rate before it can be computed) is skipped from that dim's average.
+/// average and the backfilled average fold identical values. A `None` entry (a
+/// net rate before it can be computed, or the disk reduction on a host with no
+/// measurable mount) is skipped from that dim's average.
 fn sample_values(sample: &MetricSample) -> [Option<f64>; DIMS] {
     [
         Some(f64::from(sample.cpu_total_percent)),
         Some(f64::from(sample.memory_used_percent)),
-        Some(f64::from(sample.disk_used_percent)),
+        sample.disk_used_percent.map(f64::from),
         sample.network_rx_bps,
         sample.network_tx_bps,
+        sample.disk_mounts_critical.map(f64::from),
     ]
 }
 
@@ -142,14 +146,19 @@ mod tests {
     #[test]
     fn live_windows_equal_backfill_roll_to_10s() {
         // A sequence spanning three 10 s buckets with uneven, non-round readings
-        // so a rounding divergence would surface. Net counters climb (cumulative).
+        // so a rounding divergence would surface. Net counters climb (cumulative),
+        // the critical-mount count steps, and one stretch carries no disk reading
+        // at all so the disk dims fold over a different sample count than the
+        // rest — a divergence between the two paths' per-dim counts shows up here.
         let seq: Vec<(i64, MetricSample)> = (0..25)
             .map(|i| {
                 let ts = 1_000 + i;
+                let measurable = !(12..15).contains(&i);
                 let s = MetricSample {
                     cpu_total_percent: 1.0 + (i as f32) * 0.37,
                     memory_used_percent: 20.0 + (i as f32) * 1.11,
-                    disk_used_percent: 55.5,
+                    disk_used_percent: measurable.then_some(55.5 + (i as f32) * 1.75),
+                    disk_mounts_critical: measurable.then_some(u32::from(i as u8 % 3)),
                     // Net dims are whole-byte/second rates.
                     network_rx_bps: Some(1_000.0 + (i as f64) * 512.0),
                     network_tx_bps: Some(2_000.0 + (i as f64) * 256.0),
@@ -176,10 +185,16 @@ mod tests {
                 .collect();
             let rolled = roll_to_10s(&raw);
 
+            // Look the dim up by name, not by position: a window that carried no
+            // reading for it omits it entirely, and backfill omits the same
+            // bucket, so both sides must agree on the absence too.
             let live_points: Vec<(i64, f64)> = live
                 .iter()
-                .map(|msg| match msg {
-                    ControlMessage::AgentMetricWindow { ts, dims, .. } => (*ts, dims[dim_idx].avg),
+                .filter_map(|msg| match msg {
+                    ControlMessage::AgentMetricWindow { ts, dims, .. } => dims
+                        .iter()
+                        .find(|dim| dim.name == name)
+                        .map(|dim| (*ts, dim.avg)),
                     other => panic!("expected AgentMetricWindow, got {other:?}"),
                 })
                 .collect();
@@ -200,7 +215,8 @@ mod tests {
         let s = MetricSample {
             cpu_total_percent: 5.0,
             memory_used_percent: 5.0,
-            disk_used_percent: 5.0,
+            disk_used_percent: Some(5.0),
+            disk_mounts_critical: Some(0),
             network_rx_bps: Some(0.0),
             network_tx_bps: Some(0.0),
             processes: Vec::new(),
@@ -230,7 +246,8 @@ mod tests {
         let base = MetricSample {
             cpu_total_percent: 10.0,
             memory_used_percent: 20.0,
-            disk_used_percent: 30.0,
+            disk_used_percent: Some(30.0),
+            disk_mounts_critical: Some(0),
             network_rx_bps: None,
             network_tx_bps: None,
             processes: Vec::new(),

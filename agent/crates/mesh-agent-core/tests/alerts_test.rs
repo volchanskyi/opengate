@@ -12,11 +12,13 @@ use mesh_agent_core::ml::sampler::{MetricSample, ProcessSample};
 use mesh_protocol::{AlertComparator, ThresholdRule};
 
 /// Build a metric sample with the three gauge dimensions the evaluator watches.
+/// `disk` is the fullest mount's used percentage.
 fn sample(cpu: f32, mem: f32, disk: f32) -> MetricSample {
     MetricSample {
         cpu_total_percent: cpu,
         memory_used_percent: mem,
-        disk_used_percent: disk,
+        disk_used_percent: Some(disk),
+        disk_mounts_critical: Some(0),
         network_rx_bps: Some(0.0),
         network_tx_bps: Some(0.0),
         processes: Vec::<ProcessSample>::new(),

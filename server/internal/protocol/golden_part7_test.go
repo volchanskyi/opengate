@@ -92,24 +92,28 @@ func TestGoldenControlAgentMetricWindow(t *testing.T) {
 
 func TestGoldenControlAgentMetricWindowHostMetrics(t *testing.T) {
 	// The host-metric emitter aggregates the 1 s sampler into a 10 s-average
-	// AgentMetricWindow over the five host-resource series. The dim names are the
+	// AgentMetricWindow over the six host-resource series. The dim names are the
 	// shared central labels; the net dims are primary-interface throughput in
 	// bytes/second, averaged the same way reconnect-backfill rolls them, so live
-	// and backfilled points land in the same series.
+	// and backfilled points land in the same series. disk.used_percent is the
+	// fullest mount and disk.mounts_critical counts the mounts at or above the
+	// critical threshold — this fixture is a file server whose small system
+	// volume is nearly full beside a large, mostly empty data volume.
 	msg := decodeControlFrame(t, "control_agent_metric_window_host_metrics.bin")
 	assert.Equal(t, MsgAgentMetricWindow, msg.Type)
 	assert.Equal(t, int64(1700000260), msg.TS)
 	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.TenantID)
-	require.Len(t, msg.Dims, 5)
+	require.Len(t, msg.Dims, 6)
 	want := []struct {
 		name string
 		avg  float64
 	}{
 		{"cpu.total", 42.5},
 		{"mem.used_percent", 63.0},
-		{"disk.used_percent", 55.0},
+		{"disk.used_percent", 98.0},
 		{"net.rx_bps", 123456.0},
 		{"net.tx_bps", 654321.0},
+		{"disk.mounts_critical", 1.0},
 	}
 	for i, w := range want {
 		assert.Equal(t, w.name, msg.Dims[i].Name, "dim %d name", i)

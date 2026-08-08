@@ -25,8 +25,15 @@ pub struct MetricSample {
     pub cpu_total_percent: f32,
     /// Used memory percentage.
     pub memory_used_percent: f32,
-    /// Used disk percentage across mounted disks.
-    pub disk_used_percent: f32,
+    /// Used percentage of the **fullest mounted filesystem**. `None` when no
+    /// mount reports capacity, which is an unmeasurable disk rather than an
+    /// empty one — see [`disk_reduction`].
+    pub disk_used_percent: Option<f32>,
+    /// How many mounts are at or above [`MOUNT_CRITICAL_PERCENT`] used. `None`
+    /// under the same condition as
+    /// [`disk_used_percent`](Self::disk_used_percent), so the pair is always
+    /// present together or absent together.
+    pub disk_mounts_critical: Option<u32>,
     /// Received throughput on the primary interface, in bytes/second (rounded to
     /// whole bytes). `None` when no rate can be computed yet — the first sample,
     /// an interface change, a counter reset, or a non-positive interval — so a
@@ -73,11 +80,51 @@ pub(crate) fn disk_used_percent(total: u64, free: u64) -> f32 {
     used_percent(total.saturating_sub(free), total)
 }
 
-/// Sum `(total, free)` capacity across mounted disks into one host-wide pair.
+/// The used percentage at which a mount is counted critical. A volume this full
+/// has run out of comfortable headroom, so an operator wants it named while
+/// there is still room to act.
+pub const MOUNT_CRITICAL_PERCENT: f32 = 90.0;
+
+/// The host-wide disk reading reduced from every mount: how full the fullest one
+/// is, and how many are at or above [`MOUNT_CRITICAL_PERCENT`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct DiskReduction {
+    /// The fullest mount's used percentage.
+    pub worst_used_percent: f32,
+    /// Mounts at or above [`MOUNT_CRITICAL_PERCENT`] used.
+    pub mounts_critical: u32,
+}
+
+/// Reduce per-mount `(total, free)` capacity to the fullest mount's used
+/// percentage and the count of mounts at or above [`MOUNT_CRITICAL_PERCENT`].
+///
+/// The fullest mount is what makes the reading actionable. Pooling every mount's
+/// bytes and dividing once answers a question nobody asks: a 120 GB system
+/// volume at 98 % beside a 2 TB data volume at 10 % pools to ~15 %, so the volume
+/// that is about to fill is invisible to any threshold, and a small OS volume
+/// beside large data volumes is the normal shape of a server.
+///
+/// A mount reporting zero total is capacity the platform did not report, so it
+/// takes part in neither number rather than reading as 100 % full. `None` when
+/// no mount reports capacity at all — a host with nothing measurable mounted has
+/// no disk reading, which is a different thing from empty disks.
 #[must_use]
-pub(crate) fn disk_totals(disks: impl Iterator<Item = (u64, u64)>) -> (u64, u64) {
-    disks.fold((0u64, 0u64), |(total, free), (disk_total, disk_free)| {
-        (total + disk_total, free + disk_free)
+pub(crate) fn disk_reduction(mounts: impl Iterator<Item = (u64, u64)>) -> Option<DiskReduction> {
+    let mut worst: Option<f32> = None;
+    let mut mounts_critical = 0u32;
+    for (total, free) in mounts {
+        if total == 0 {
+            continue;
+        }
+        let used = disk_used_percent(total, free);
+        if used >= MOUNT_CRITICAL_PERCENT {
+            mounts_critical += 1;
+        }
+        worst = Some(worst.map_or(used, |w| w.max(used)));
+    }
+    worst.map(|worst_used_percent| DiskReduction {
+        worst_used_percent,
+        mounts_critical,
     })
 }
 
@@ -239,12 +286,11 @@ impl MetricSampler for SysinfoSampler {
             used_percent(self.system.used_memory(), self.system.total_memory());
 
         let disks = Disks::new_with_refreshed_list();
-        let (disk_total, disk_free) = disk_totals(
+        let disk = disk_reduction(
             disks
                 .iter()
-                .map(|disk| (disk.total_space(), disk.available_space())),
+                .map(|mount| (mount.total_space(), mount.available_space())),
         );
-        let disk_used_percent = disk_used_percent(disk_total, disk_free);
 
         let reading = resolve_primary_iface(&self.networks).and_then(|iface| {
             self.networks
@@ -287,7 +333,8 @@ impl MetricSampler for SysinfoSampler {
         Ok(MetricSample {
             cpu_total_percent: self.system.global_cpu_usage(),
             memory_used_percent,
-            disk_used_percent,
+            disk_used_percent: disk.map(|d| d.worst_used_percent),
+            disk_mounts_critical: disk.map(|d| d.mounts_critical),
             network_rx_bps,
             network_tx_bps,
             processes,
@@ -390,16 +437,106 @@ mod tests {
         assert_eq!(disk_used_percent(0, 100), 0.0);
     }
 
+    /// FS01: a 120 GB system volume at 98 % beside a 2 TB data volume at 10 %.
+    /// Pooling the bytes reports ~15 % and hides the volume that is about to
+    /// fill; the fullest mount reports 98 %, which is what a threshold can act
+    /// on, and one mount is counted critical.
     #[test]
-    fn disk_totals_sums_each_mount_into_one_pair() {
-        let mounts = [(500u64, 100u64), (250, 250), (1_000, 1)];
-        assert_eq!(disk_totals(mounts.into_iter()), (1_750, 351));
+    fn fs01_reports_the_volume_that_is_about_to_fill() {
+        let mounts = [
+            (120_000_000_000u64, 2_400_000_000u64),
+            (2_000_000_000_000, 1_800_000_000_000),
+        ];
+
+        let reduced = disk_reduction(mounts.into_iter()).expect("both mounts report capacity");
+
+        assert!(
+            (reduced.worst_used_percent - 98.0).abs() < 0.05,
+            "the full volume must be reported, got {}",
+            reduced.worst_used_percent
+        );
+        assert_eq!(reduced.mounts_critical, 1);
     }
 
+    /// The threshold is inclusive: a mount sitting exactly on it is critical,
+    /// and one a hair below is not.
     #[test]
-    fn disk_totals_of_no_mounts_is_zero() {
+    fn a_mount_exactly_on_the_threshold_is_critical() {
+        let on_it = disk_used_percent(1_000, 100);
+        assert_eq!(
+            on_it, MOUNT_CRITICAL_PERCENT,
+            "fixture sits on the boundary"
+        );
+        let under = disk_used_percent(1_000_000, 100_001);
+        assert!(under < MOUNT_CRITICAL_PERCENT, "fixture sits just under it");
+
+        assert_eq!(
+            disk_reduction([(1_000u64, 100u64)].into_iter())
+                .expect("one mount")
+                .mounts_critical,
+            1
+        );
+        assert_eq!(
+            disk_reduction([(1_000_000u64, 100_001u64)].into_iter())
+                .expect("one mount")
+                .mounts_critical,
+            0
+        );
+    }
+
+    /// Every critical mount is counted, not just the worst one — three volumes
+    /// past the line is a different morning from one.
+    #[test]
+    fn every_mount_past_the_threshold_is_counted() {
+        let mounts = [
+            (1_000u64, 5u64), // 99.5 %
+            (1_000, 60),      // 94 %
+            (1_000, 500),     // 50 %
+            (1_000, 20),      // 98 %
+        ];
+
+        let reduced = disk_reduction(mounts.into_iter()).expect("mounts report capacity");
+
+        assert_eq!(reduced.worst_used_percent, 99.5);
+        assert_eq!(reduced.mounts_critical, 3);
+    }
+
+    /// A mount whose platform reported no capacity is unmeasured, not full. It
+    /// must neither win the worst-mount comparison nor be counted critical —
+    /// pseudo-filesystems report this routinely and would otherwise alarm every
+    /// host in the fleet.
+    #[test]
+    fn a_mount_reporting_no_capacity_takes_part_in_neither_number() {
+        let mounts = [(0u64, 0u64), (1_000, 500), (0, 500)];
+
+        let reduced = disk_reduction(mounts.into_iter()).expect("one mount reports capacity");
+
+        assert_eq!(reduced.worst_used_percent, 50.0);
+        assert_eq!(reduced.mounts_critical, 0);
+    }
+
+    /// Network and virtual mounts do report more free space than size. Clamped
+    /// to 0 % by [`disk_used_percent`], such a mount is the emptiest possible
+    /// one — never a wrapped value that wins the worst-mount comparison.
+    #[test]
+    fn a_mount_with_more_free_than_total_reads_as_empty() {
+        let mounts = [(500u64, 900u64), (1_000, 250)];
+
+        let reduced = disk_reduction(mounts.into_iter()).expect("mounts report capacity");
+
+        assert_eq!(reduced.worst_used_percent, 75.0);
+        assert_eq!(reduced.mounts_critical, 0);
+    }
+
+    /// A host with nothing mounted has no disk reading. Reporting 0 % would say
+    /// its volumes are empty, which is a claim about disks it does not have.
+    #[test]
+    fn a_host_with_no_measurable_mount_has_no_reading() {
         let none: [(u64, u64); 0] = [];
-        assert_eq!(disk_totals(none.into_iter()), (0, 0));
+        assert_eq!(disk_reduction(none.into_iter()), None);
+        // Mounts that all report zero capacity are the same case: nothing was
+        // measured, so there is nothing to report.
+        assert_eq!(disk_reduction([(0u64, 0u64), (0, 128)].into_iter()), None);
     }
 
     /// Rank is the series key: the busiest process is rank 1, never rank 0.
