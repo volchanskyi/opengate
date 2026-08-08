@@ -5,7 +5,7 @@
 //! raw that central `avg`-only VictoriaMetrics does not keep. Each host metric
 //! dimension is a fixed series; percentage gauges use ×100 fixed-point (lossless
 //! to centi precision), while the net-rate gauges are rounded to whole
-//! bytes/second and ride the adaptive integer path (lossless), so a live 10 s
+//! bytes/second and ride the adaptive integer path (lossless), so a live 60 s
 //! average and a reconnect-backfilled average of the same seconds agree exactly.
 //!
 //! Writes are buffered and flushed on a cadence — never fsync-per-sample — so the
@@ -55,8 +55,8 @@ pub const BACKFILL_SERIES: [SeriesId; 6] = [
 
 /// The stable central dimension label for a local series, or `None` for an
 /// unknown series id. This label becomes the VM `dim=` label, so live telemetry
-/// and reconnect backfill land in the *same* series — keep the two mappings
-/// ([`series_dim_name`] / [`dim_series`]) in lockstep.
+/// and reconnect backfill land in the *same* series — keep the three mappings
+/// ([`series_dim_name`] / [`series_max_dim_name`] / [`dim_series`]) in lockstep.
 #[must_use]
 pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
     match series {
@@ -70,17 +70,54 @@ pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
     }
 }
 
+/// The central label for a series' per-window **maximum**, or `None` for a
+/// series that ships no maximum.
+///
+/// Averaging is what destroys a stall, not the sample rate: over a 60 s window
+/// at 1 Hz, five seconds pinned at 100 % move a 20 % average to 26.7 % — noise
+/// — while the maximum reads 100. So the four gauges where a spike *is* the
+/// signal each ship a companion maximum beside their average. `disk.used_percent`
+/// moves too slowly for a within-minute peak to mean anything, and
+/// `disk.mounts_critical` is already a threshold count, so neither has one.
+#[must_use]
+pub fn series_max_dim_name(series: SeriesId) -> Option<&'static str> {
+    match series {
+        SERIES_CPU => Some("cpu.total.max"),
+        SERIES_MEM => Some("mem.used_percent.max"),
+        SERIES_NET_RX => Some("net.rx_bps.max"),
+        SERIES_NET_TX => Some("net.tx_bps.max"),
+        _ => None,
+    }
+}
+
+/// Every central dim name, in the order a window emits them: each series'
+/// average followed by its maximum where it has one. This is the whole
+/// agent-side vocabulary of `opengate_edge_metric_avg`, and the count the
+/// server's allowlist and the central cardinality cap are measured against.
+#[must_use]
+pub fn central_dim_names() -> Vec<&'static str> {
+    BACKFILL_SERIES
+        .iter()
+        .flat_map(|&series| {
+            series_dim_name(series)
+                .into_iter()
+                .chain(series_max_dim_name(series))
+        })
+        .collect()
+}
+
 /// The local series id for a central dimension label, or `None` if unknown.
-/// Inverse of [`series_dim_name`]; used to resolve an on-demand deep-history
-/// pull's `dim` back to a local series.
+/// Inverse of [`series_dim_name`] and [`series_max_dim_name`] — a `.max` label
+/// resolves to the series it summarizes, because a maximum is a reduction over
+/// that series rather than a series of its own.
 #[must_use]
 pub fn dim_series(name: &str) -> Option<SeriesId> {
     match name {
-        "cpu.total" => Some(SERIES_CPU),
-        "mem.used_percent" => Some(SERIES_MEM),
+        "cpu.total" | "cpu.total.max" => Some(SERIES_CPU),
+        "mem.used_percent" | "mem.used_percent.max" => Some(SERIES_MEM),
         "disk.used_percent" => Some(SERIES_DISK),
-        "net.rx_bps" => Some(SERIES_NET_RX),
-        "net.tx_bps" => Some(SERIES_NET_TX),
+        "net.rx_bps" | "net.rx_bps.max" => Some(SERIES_NET_RX),
+        "net.tx_bps" | "net.tx_bps.max" => Some(SERIES_NET_TX),
         "disk.mounts_critical" => Some(SERIES_DISK_MOUNTS_CRITICAL),
         _ => None,
     }
@@ -190,8 +227,9 @@ impl LocalStoreSink {
 #[cfg(test)]
 mod tests {
     use super::{
-        dim_series, series_dim_name, BACKFILL_SERIES, SERIES_CPU, SERIES_DISK,
-        SERIES_DISK_MOUNTS_CRITICAL, SERIES_MEM, SERIES_NET_RX, SERIES_NET_TX,
+        central_dim_names, dim_series, series_dim_name, series_max_dim_name, SeriesId,
+        BACKFILL_SERIES, SERIES_CPU, SERIES_DISK, SERIES_DISK_MOUNTS_CRITICAL, SERIES_MEM,
+        SERIES_NET_RX, SERIES_NET_TX,
     };
 
     #[test]
@@ -233,9 +271,66 @@ mod tests {
         );
     }
 
+    /// A `.max` label resolves back to the series it summarizes, and the four
+    /// gauges that ship a maximum are exactly the four where a within-window
+    /// spike is the signal.
+    #[test]
+    fn max_labels_resolve_to_the_series_they_summarize() {
+        for series in BACKFILL_SERIES {
+            if let Some(name) = series_max_dim_name(series) {
+                assert_eq!(dim_series(name), Some(series), "round-trips for {name}");
+                let base = series_dim_name(series).expect("a maximum implies an average");
+                assert_eq!(
+                    name,
+                    format!("{base}.max"),
+                    "a maximum is named for its average"
+                );
+            }
+        }
+        let with_max: Vec<SeriesId> = BACKFILL_SERIES
+            .into_iter()
+            .filter(|&s| series_max_dim_name(s).is_some())
+            .collect();
+        assert_eq!(
+            with_max,
+            vec![SERIES_CPU, SERIES_MEM, SERIES_NET_RX, SERIES_NET_TX]
+        );
+    }
+
+    /// The emitted vocabulary is exactly ten names, each appearing once, in
+    /// series order with every maximum beside its average. The central series
+    /// cap is counted against this list, so a name added here is a deliberate
+    /// spend of the remaining headroom.
+    #[test]
+    fn the_central_dim_vocabulary_is_ten_distinct_names() {
+        let names = central_dim_names();
+        assert_eq!(
+            names,
+            vec![
+                "cpu.total",
+                "cpu.total.max",
+                "mem.used_percent",
+                "mem.used_percent.max",
+                "disk.used_percent",
+                "net.rx_bps",
+                "net.rx_bps.max",
+                "net.tx_bps",
+                "net.tx_bps.max",
+                "disk.mounts_critical",
+            ]
+        );
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "no dim is emitted twice");
+    }
+
     #[test]
     fn unknown_series_and_dim_have_no_mapping() {
         assert_eq!(series_dim_name(999), None);
+        assert_eq!(series_max_dim_name(999), None);
+        assert_eq!(series_max_dim_name(SERIES_DISK), None);
         assert_eq!(dim_series("nope.unknown"), None);
+        assert_eq!(dim_series("disk.used_percent.max"), None);
     }
 }

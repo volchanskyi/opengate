@@ -183,12 +183,12 @@ func TestGetDeviceMetricsWindowSelectorChangesThePointCount(t *testing.T) {
 		assert.LessOrEqual(t, len(resp.T), maxMaxPointsBound)
 	}
 
-	// An hour at the 10 s raw cadence is 360 buckets — under the cap, so the
+	// An hour at the 60 s vitals cadence is 60 buckets — under the cap, so the
 	// window sets the count. Wider windows widen the bucket instead and land
 	// just under the cap, because the step is a whole number of seconds and the
 	// span rarely divides by it evenly.
-	assert.Equal(t, 360, counts[time.Hour])
-	assert.Equal(t, 981, counts[6*time.Hour])
+	assert.Equal(t, 60, counts[time.Hour])
+	assert.Equal(t, 360, counts[6*time.Hour])
 	assert.Equal(t, 993, counts[24*time.Hour])
 	assert.Equal(t, 999, counts[7*24*time.Hour])
 	assert.Len(t, counts, 4, "every preset renders its own axis — the selector is not a dead control")

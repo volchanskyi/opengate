@@ -23,8 +23,8 @@ vi.mock('./charts/TimeSeriesChart', () => ({
 const sampleMetrics = {
   t: [1_700_000_000, 1_700_000_060, 1_700_000_120],
   series: [
-    { name: 'cpu.util', avg: [10, 20, 30], min: [5, 15, 25], max: [15, 25, 35], min_max_source: 'avg_of_10s' as const },
-    { name: 'mem.used', avg: [40, 50, 60], min_max_source: 'avg_of_10s' as const },
+    { name: 'cpu.util', avg: [10, 20, 30], min: [5, 15, 25], max: [15, 25, 35], min_max_source: 'avg_of_60s' as const },
+    { name: 'mem.used', avg: [40, 50, 60], min_max_source: 'avg_of_60s' as const },
   ],
   downsampled: true,
   bucket_s: 60,
@@ -54,7 +54,7 @@ describe('DeviceMetrics', () => {
   beforeEach(() => { resetStore(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it('fetches the metrics window on mount with an avg_of_10s band', () => {
+  it('fetches the metrics window on mount with an avg_of_60s band', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-14T12:00:00Z'));
     const fetchMetrics = vi.fn().mockResolvedValue(undefined);
@@ -63,7 +63,7 @@ describe('DeviceMetrics', () => {
     expect(fetchMetrics).toHaveBeenCalledWith('d1', {
       from: '2026-07-14T06:00:00.000Z',
       to: '2026-07-14T12:00:00.000Z',
-      band: 'avg_of_10s',
+      band: 'avg_of_60s',
       maxPoints: 1000,
     });
   });
@@ -81,9 +81,9 @@ describe('DeviceMetrics', () => {
     resetStore({ metrics: sampleMetrics });
     render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
     // The inline caption text is removed (item 8) — provenance lives in a tooltip.
-    expect(screen.queryByText(/10 s averages/i)).toBeNull();
+    expect(screen.queryByText(/60 s averages/i)).toBeNull();
     const cpuHeader = screen.getByText('cpu').closest('[title]');
-    expect(cpuHeader?.getAttribute('title')).toMatch(/10 s averages/i);
+    expect(cpuHeader?.getAttribute('title')).toMatch(/60 s averages/i);
   });
 
   it('exposes local-extrema and avg-only provenance via the header tooltip', () => {

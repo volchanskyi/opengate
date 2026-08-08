@@ -13,9 +13,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// RangeAgg selects how QueryRange collapses the raw 10 s samples in each step
+// RangeAgg selects how QueryRange collapses the raw 60 s samples in each step
 // bucket. Only avg/min/max are allowed — a chart band is honestly the min/max
-// across the 10 s averages in the bucket, never fabricated host extrema.
+// across the 60 s averages in the bucket, never fabricated host extrema.
 type RangeAgg string
 
 // Supported per-bucket aggregations for QueryRange.

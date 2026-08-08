@@ -501,17 +501,19 @@ mod tests {
         let mut windower = HostMetricWindower::new();
         let (tx, rx) = sync_channel::<ControlMessage>(4);
 
-        emit_host_metric_window(&mut windower, &tx, 100, &host_sample(10.0));
-        emit_host_metric_window(&mut windower, &tx, 105, &host_sample(30.0));
+        emit_host_metric_window(&mut windower, &tx, 120, &host_sample(10.0));
+        emit_host_metric_window(&mut windower, &tx, 125, &host_sample(30.0));
         assert!(rx.try_recv().is_err(), "an open window sends nothing");
 
-        // A later-window sample closes the 100-window and forwards it.
-        emit_host_metric_window(&mut windower, &tx, 110, &host_sample(99.0));
+        // A later-window sample closes the 120-window and forwards it.
+        emit_host_metric_window(&mut windower, &tx, 180, &host_sample(99.0));
         match rx.try_recv().expect("closed window is forwarded") {
             ControlMessage::AgentMetricWindow { ts, dims, .. } => {
-                assert_eq!(ts, 100);
+                assert_eq!(ts, 120);
                 assert_eq!(dims[0].name, "cpu.total");
                 assert_eq!(dims[0].avg, 20.0, "mean(10,30)");
+                assert_eq!(dims[1].name, "cpu.total.max");
+                assert_eq!(dims[1].avg, 30.0, "the minute's peak, not its mean");
             }
             other => panic!("expected AgentMetricWindow, got {other:?}"),
         }
@@ -525,10 +527,10 @@ mod tests {
         let (tx, rx) = sync_channel::<ControlMessage>(1);
 
         // Fill the single channel slot with a first closed window.
-        emit_host_metric_window(&mut windower, &tx, 100, &host_sample(10.0));
-        emit_host_metric_window(&mut windower, &tx, 110, &host_sample(20.0));
+        emit_host_metric_window(&mut windower, &tx, 120, &host_sample(10.0));
+        emit_host_metric_window(&mut windower, &tx, 180, &host_sample(20.0));
         // The next close finds the channel full; it must drop without panicking.
-        emit_host_metric_window(&mut windower, &tx, 120, &host_sample(30.0));
+        emit_host_metric_window(&mut windower, &tx, 240, &host_sample(30.0));
 
         assert!(rx.try_recv().is_ok(), "the first window occupied the slot");
         assert!(

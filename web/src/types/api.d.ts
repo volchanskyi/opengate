@@ -1055,10 +1055,10 @@ export interface components {
             /** @description Upper band per bucket, aligned with t. Present only when min_max_source is not none. */
             max?: (number | null)[];
             /**
-             * @description Provenance of the band. local = true host min/max from an on-demand local-history pull; avg_of_10s = min/max across the 10 s averages in the bucket (not host extrema); none = avg line only, no band.
+             * @description Provenance of the band. local = true host min/max from an on-demand local-history pull; avg_of_60s = min/max across the 60 s averages in the bucket (not host extrema); none = avg line only, no band.
              * @enum {string}
              */
-            min_max_source: "local" | "avg_of_10s" | "none";
+            min_max_source: "local" | "avg_of_60s" | "none";
         };
         MetricRangeResponse: {
             /** @description Bucket timestamps in unix seconds, ascending, evenly spaced by bucket_s. Aligns 1:1 with each series. The axis comes from the requested window, not from what the store holds: it always carries (to - from) / bucket_s buckets, so a window over a device with little data renders that window with nulls rather than collapsing to the few buckets that had a value. The end instant is exclusive. */
@@ -2340,7 +2340,7 @@ export interface operations {
                 /** @description Upper bound on buckets per series (approximately the chart pixel width). */
                 max_points?: number;
                 /** @description Band provenance to compute alongside the avg line. */
-                band?: "none" | "avg_of_10s";
+                band?: "none" | "avg_of_60s";
             };
             header?: never;
             path: {

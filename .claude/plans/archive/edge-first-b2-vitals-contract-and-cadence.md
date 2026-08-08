@@ -9,10 +9,10 @@ step 6 (code half).
 ## Context — verified
 
 The dim vocabulary's single source of truth is
-[store_sink.rs](../../agent/crates/mesh-agent-core/src/ml/store_sink.rs): `SERIES_*` ids,
+[store_sink.rs](../../../agent/crates/mesh-agent-core/src/ml/store_sink.rs): `SERIES_*` ids,
 `BACKFILL_SERIES`, and the paired `series_dim_name` / `dim_series` mappings that keep live
 streaming and reconnect backfill in the *same* VM series.
-[`HostMetricWindower`](../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs) folds 1 Hz
+[`HostMetricWindower`](../../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs) folds 1 Hz
 samples into **10 s averages** today; `DIMS` is derived from `BACKFILL_SERIES.len()`, so the
 contract grows from one place.
 
@@ -20,7 +20,7 @@ contract grows from one place.
 5 s CPU-pinning freeze moves `avg` from 20 % to 26.7 % — noise — while `max` reads 100 %.
 
 **A hole to close in the same step (I2/I5).** `handleAgentMetricWindow`
-([conn_telemetry.go:68](../../server/internal/agentapi/conn_telemetry.go#L68)) copies
+([conn_telemetry.go:68](../../../server/internal/agentapi/conn_telemetry.go#L68)) copies
 `msg.Dims[].Name` straight into the VM `dim` label with **no allowlist and no bound**. Central
 cardinality is therefore agent-controlled today, which contradicts I2 outright ("bounded by a
 compile-time constant") and is untrusted-input handling the rest of the ingest path already does
@@ -46,27 +46,27 @@ Windows-native equivalents of the 8 it can name honestly — under their own nam
 
 ## File inventory
 
-- **Modify:** [host_metric_stream.rs](../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs)
+- **Modify:** [host_metric_stream.rs](../../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs)
   — 60 s bucket, per-bucket `max` beside the running sum.
-- **Modify:** [store_sink.rs](../../agent/crates/mesh-agent-core/src/ml/store_sink.rs) — the four
+- **Modify:** [store_sink.rs](../../../agent/crates/mesh-agent-core/src/ml/store_sink.rs) — the four
   `.max` dims (see the trap on ids below).
-- **Modify:** [backfill.rs](../../agent/crates/mesh-agent-core/src/ml/backfill.rs) — roll to the same
+- **Modify:** [backfill.rs](../../../agent/crates/mesh-agent-core/src/ml/backfill.rs) — roll to the same
   60 s bucket as live, and carry `.max` from the tier's stored `max` rather than recomputing.
-- **Modify:** [conn_telemetry.go](../../server/internal/agentapi/conn_telemetry.go) — dim allowlist +
+- **Modify:** [conn_telemetry.go](../../../server/internal/agentapi/conn_telemetry.go) — dim allowlist +
   `unknown_dim` typed drop.
-- **Modify:** [handlers_device_metrics.go](../../server/internal/api/handlers_device_metrics.go) —
+- **Modify:** [handlers_device_metrics.go](../../../server/internal/api/handlers_device_metrics.go) —
   `minRangeStepSecs` 10 → 60.
-- **Modify:** [api/openapi.yaml](../../api/openapi.yaml) — band enum `avg_of_10s` → `avg_of_60s`;
+- **Modify:** [api/openapi.yaml](../../../api/openapi.yaml) — band enum `avg_of_10s` → `avg_of_60s`;
   regen Go + TS.
-- **Modify:** [DeviceMetrics.tsx](../../web/src/features/devices/DeviceMetrics.tsx) — the band caption
-  at [:34](../../web/src/features/devices/DeviceMetrics.tsx#L34) and the request at
-  [:151](../../web/src/features/devices/DeviceMetrics.tsx#L151); plus
-  [device-store.ts](../../web/src/features/devices/state/device-store.ts#L41).
-- **Modify:** [spike_test.go](../../server/tests/vmcardinality/spike_test.go) — replace the
+- **Modify:** [DeviceMetrics.tsx](../../../web/src/features/devices/DeviceMetrics.tsx) — the band caption
+  at [:34](../../../web/src/features/devices/DeviceMetrics.tsx#L34) and the request at
+  [:151](../../../web/src/features/devices/DeviceMetrics.tsx#L151); plus
+  [device-store.ts](../../../web/src/features/devices/state/device-store.ts#L41).
+- **Modify:** [spike_test.go](../../../server/tests/vmcardinality/spike_test.go) — replace the
   40-series **projection** with the real 24-series contract.
-- **Regenerate:** [testdata/golden/](../../testdata/golden/) metric-window fixtures.
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md), [Architecture.md](../../docs/Architecture.md),
-  [API-Reference.md](../../docs/API-Reference.md).
+- **Regenerate:** [testdata/golden/](../../../testdata/golden/) metric-window fixtures.
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md), [Architecture.md](../../../docs/Architecture.md),
+  [API-Reference.md](../../../docs/API-Reference.md).
 
 ## Steps (TDD-first)
 
@@ -83,7 +83,7 @@ Windows-native equivalents of the 8 it can name honestly — under their own nam
    for that dim and increments `opengate_edge_telemetry_drops_total{reason="unknown_dim"}`; a window
    carrying 1 000 junk dims creates **zero** new series. Then add the allowlist as a Go constant set
    derived from one place, with a unit test asserting `len(allowlist) + anomalySeries == 24`.
-5. **Test first (B1, end-to-end):** in [vmcardinality](../../server/tests/vmcardinality/), write one
+5. **Test first (B1, end-to-end):** in [vmcardinality](../../../server/tests/vmcardinality/), write one
    device's **full Linux vitals set** against a real VictoriaMetrics and assert active series ≤ 24
    for that device, and that a 25th dim fails the assertion. Tag writes with a `run_id` — the suite
    shares one VM instance, so a TSDB-wide count is not device-scoped.
@@ -99,7 +99,7 @@ Windows-native equivalents of the 8 it can name honestly — under their own nam
 - **`SeriesId`s are a persistence contract** (on-disk redb rows survive an agent upgrade). Append,
   never renumber.
 - `.max` must come from the tier's **stored** `max` on the backfill path
-  ([`StoredTierPoint`](../../agent/crates/edge-tsdb/src/tier.rs) already holds `min/max/sum/last/count`)
+  ([`StoredTierPoint`](../../../agent/crates/edge-tsdb/src/tier.rs) already holds `min/max/sum/last/count`)
   — recomputing it from rolled averages would produce a max-of-averages, which is a different, wrong
   number that no test would notice unless the live/backfill equivalence test covers the maxima.
 - **No percentiles.** `StoredTierPoint` has no percentile structure and p99 is dropped by decision

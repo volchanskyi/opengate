@@ -175,6 +175,14 @@ every value. Issuing the read on the grid's own instants makes the rounding a
 no-op; a sample that still arrives off the grid is counted on
 `opengate_metrics_grid_misalignment_total` and logged, never dropped in silence.
 
+The narrowest bucket is 60 s, the cadence a device writes its vitals on
+([ADR-065](adr/ADR-065-vitals-contract-cadence-extrema-and-bounded-dims.md)); a
+finer one would ask the store for detail it does not hold. The optional `band`
+computes min/max alongside the avg line, and the response labels its provenance:
+`avg_of_60s` is min/max across the 60 s averages in the bucket, never host
+extrema. The dims a device writes are the fixed vitals vocabulary — each gauge's
+average, plus a `.max` for the four where a within-minute spike is the signal.
+
 Clients must render `null` as a gap and never interpolate across one — a
 straight line over a device-offline window is a reading nobody took. The uPlot
 adapter does this with `spanGaps: false` on every drawn series

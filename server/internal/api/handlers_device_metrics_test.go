@@ -92,12 +92,12 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 	dev := seedOwnedDevice(t, srv)
 	path := "/api/v1/devices/" + dev.ID.String() + "/metrics?from=2026-07-02T00:00:00Z&to=2026-07-02T01:00:00Z"
 
-	// The handler's own grid for that window: one hour at the 10 s raw cadence
-	// under the default 1000-point cap, so 360 buckets. The fake answers on it,
-	// the way a real store answers the query the grid is issued on.
+	// The handler's own grid for that window: one hour at the 60 s vitals
+	// cadence under the default 1000-point cap, so 60 buckets. The fake answers
+	// on it, the way a real store answers the query the grid is issued on.
 	handlerFrom := time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)
 	handlerGrid := buildMetricGrid(handlerFrom, handlerFrom.Add(time.Hour), chooseStep(handlerFrom, handlerFrom.Add(time.Hour), defaultMaxPoints))
-	require.Len(t, handlerGrid.ts, 360)
+	require.Len(t, handlerGrid.ts, 60)
 
 	t.Run("503 when telemetry not configured", func(t *testing.T) {
 		srv.telemetryReader = nil
@@ -119,7 +119,7 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 	})
 
-	t.Run("200 maps avg + avg_of_10s band, scopes to device, defaults band on", func(t *testing.T) {
+	t.Run("200 maps avg + avg_of_60s band, scopes to device, defaults band on", func(t *testing.T) {
 		answered := []int64{handlerGrid.ts[0], handlerGrid.ts[6]}
 		fake := &fakeMetricsReader{rangeByAgg: map[telemetry.RangeAgg][]telemetry.RangeSeries{
 			telemetry.RangeAvg: {{Labels: map[string]string{"dim": "cpu.util"}, Timestamps: answered, Values: []float64{10, 20}}},
@@ -137,10 +137,10 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 		assert.Equal(t, minRangeStepSecs, resp.BucketS)
 		require.Len(t, resp.Series, 1)
 		assert.Equal(t, "cpu.util", resp.Series[0].Name)
-		assert.Equal(t, MetricSeriesMinMaxSourceAvgOf10s, resp.Series[0].MinMaxSource)
+		assert.Equal(t, MetricSeriesMinMaxSourceAvgOf60s, resp.Series[0].MinMaxSource)
 		require.NotNil(t, resp.Series[0].Min)
 		require.NotNil(t, resp.Series[0].Max)
-		require.Len(t, resp.Series[0].Avg, 360)
+		require.Len(t, resp.Series[0].Avg, 60)
 		assert.Equal(t, []int{0, 6}, nonNullSlots(resp.Series[0].Avg))
 		assert.InDelta(t, 20.0, *resp.Series[0].Avg[6], 1e-9)
 
@@ -152,7 +152,7 @@ func TestGetDeviceMetricsHandler(t *testing.T) {
 			_, hasTenant := c.Matchers["tenant_id"]
 			assert.False(t, hasTenant, "handler must never inject tenant_id itself")
 			assert.Equal(t, handlerGrid.ts[0], c.Start.Unix())
-			assert.Equal(t, handlerGrid.ts[359], c.End.Unix())
+			assert.Equal(t, handlerGrid.ts[len(handlerGrid.ts)-1], c.End.Unix())
 		}
 	})
 
@@ -193,11 +193,11 @@ func TestChooseStep(t *testing.T) {
 		maxPoints int
 		wantSecs  int64
 	}{
-		{"one hour into 1000 points floors at 10s", time.Hour, 1000, 10},
+		{"one hour into 1000 points floors at the vitals cadence", time.Hour, 1000, 60},
 		{"seven days into 1000 points widens the bucket", 7 * 24 * time.Hour, 1000, 605},
-		{"tiny window still floors at raw cadence", time.Minute, 1000, 10},
-		{"exact division does not add an extra bucket second", 1000 * time.Second, 100, 10},
-		{"zero window falls back to raw cadence", 0, 1000, 10},
+		{"tiny window still floors at the vitals cadence", time.Minute, 1000, 60},
+		{"exact division does not add an extra bucket second", 12_000 * time.Second, 100, 120},
+		{"zero window falls back to the vitals cadence", 0, 1000, 60},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -259,7 +259,7 @@ func TestAssembleMetricRangeDimFilterAndDownsampled(t *testing.T) {
 	assert.Zero(t, off.count)
 	require.Len(t, got.Series, 1)
 	assert.Equal(t, "cpu.util", got.Series[0].Name)
-	assert.True(t, got.Downsampled, "60s bucket is coarser than the 10s raw cadence")
+	assert.False(t, got.Downsampled, "a 60s bucket is the vitals cadence, not a downsample")
 }
 
 func TestEnrichAnomalyRates(t *testing.T) {

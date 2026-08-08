@@ -74,13 +74,28 @@ func (a *AgentConn) handleAgentMetricWindow(ctx context.Context, msg *protocol.C
 	}
 	ts := a.telemetryTimestamp(msg.TS)
 	samples := make([]telemetry.Sample, 0, len(msg.Dims))
+	unknown := 0
 	for _, dim := range msg.Dims {
+		if !isVitalDim(dim.Name) {
+			unknown++
+			continue
+		}
 		samples = append(samples, telemetry.Sample{
 			Name:   "opengate_edge_metric_avg",
 			Value:  dim.Avg,
 			TS:     ts,
 			Labels: map[string]string{"dim": dim.Name},
 		})
+	}
+	// One window is one message, so the counter moves once however many of its
+	// dims were unlisted; the count rides the log line. Without the filter the
+	// dim label would be agent-controlled, and central cardinality with it.
+	if unknown > 0 {
+		a.dropTelemetry("unknown_dim", "type", protocol.MsgAgentMetricWindow,
+			"unknown", unknown, "dims", len(msg.Dims))
+	}
+	if len(samples) == 0 {
+		return nil
 	}
 	a.bufferTelemetry(ctx, samples)
 	return nil

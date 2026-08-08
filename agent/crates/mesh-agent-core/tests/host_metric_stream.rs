@@ -1,8 +1,8 @@
-//! Integration coverage for the live host-metric 10 s windower — the emitter
+//! Integration coverage for the live host-metric 60 s windower — the emitter
 //! that streams `cpu.total`/`mem.used_percent`/`disk.used_percent`/`net.rx_bps`/
-//! `net.tx_bps`/`disk.mounts_critical` to central VictoriaMetrics on the same
-//! 10 s cadence reconnect-backfill uses, so live and backfilled points land in
-//! one series.
+//! `net.tx_bps`/`disk.mounts_critical`, each with the window maximum where a
+//! spike is the signal, to central VictoriaMetrics on the same 60 s cadence
+//! reconnect-backfill uses, so live and backfilled points land in one series.
 
 use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
 use mesh_agent_core::ml::sampler::MetricSample;
@@ -37,32 +37,37 @@ fn window_dims(msg: &ControlMessage) -> (i64, Vec<(String, f64)>) {
     }
 }
 
-/// Samples inside one 10 s window never emit; the window closes only when a
+/// Samples inside one 60 s window never emit; the window closes only when a
 /// later-window sample arrives, and it is stamped at the window start and
-/// carries the per-dim average of exactly the samples in that window.
+/// carries the per-dim average — and, where the dim has one, the largest
+/// reading — of exactly the samples in that window.
 #[test]
 fn closes_a_window_only_when_a_later_sample_arrives() {
     let mut w = HostMetricWindower::new();
 
-    // Three samples in the 100..110 window — none close it.
-    assert!(w.push(100, &sample(10.0, 40.0, 70.0, 1000, 2000)).is_none());
-    assert!(w.push(103, &sample(20.0, 50.0, 72.0, 1200, 2200)).is_none());
-    assert!(w.push(109, &sample(30.0, 60.0, 74.0, 1400, 2400)).is_none());
+    // Three samples in the 120..180 window — none close it.
+    assert!(w.push(120, &sample(10.0, 40.0, 70.0, 1000, 2000)).is_none());
+    assert!(w.push(133, &sample(20.0, 50.0, 72.0, 1200, 2200)).is_none());
+    assert!(w.push(179, &sample(30.0, 60.0, 74.0, 1400, 2400)).is_none());
 
-    // A sample in the next window closes the 100-window, stamped at 100.
+    // A sample in the next window closes the 120-window, stamped at 120.
     let emitted = w
-        .push(110, &sample(99.0, 99.0, 99.0, 9999, 9999))
+        .push(180, &sample(99.0, 99.0, 99.0, 9999, 9999))
         .expect("a later-window sample closes the prior window");
     let (ts, dims) = window_dims(&emitted);
-    assert_eq!(ts, 100, "window is stamped at its start");
+    assert_eq!(ts, 120, "window is stamped at its start");
     assert_eq!(
         dims,
         vec![
-            ("cpu.total".to_string(), 20.0),         // mean(10,20,30)
-            ("mem.used_percent".to_string(), 50.0),  // mean(40,50,60)
+            ("cpu.total".to_string(), 20.0),        // mean(10,20,30)
+            ("cpu.total.max".to_string(), 30.0),    // the minute's peak
+            ("mem.used_percent".to_string(), 50.0), // mean(40,50,60)
+            ("mem.used_percent.max".to_string(), 60.0),
             ("disk.used_percent".to_string(), 72.0), // mean(70,72,74)
             ("net.rx_bps".to_string(), 1200.0),      // mean(1000,1200,1400)
-            ("net.tx_bps".to_string(), 2200.0),      // mean(2000,2200,2400)
+            ("net.rx_bps.max".to_string(), 1400.0),
+            ("net.tx_bps".to_string(), 2200.0), // mean(2000,2200,2400)
+            ("net.tx_bps.max".to_string(), 2400.0),
             ("disk.mounts_critical".to_string(), 0.0),
         ],
     );
@@ -80,14 +85,23 @@ fn a_host_with_no_measurable_mount_streams_no_disk_dims() {
         disk_mounts_critical: None,
         ..sample(10.0, 20.0, 0.0, 100, 200)
     };
-    assert!(w.push(400, &diskless).is_none());
-    assert!(w.push(405, &diskless).is_none());
+    assert!(w.push(420, &diskless).is_none());
+    assert!(w.push(425, &diskless).is_none());
 
     let (_, dims) = window_dims(&w.flush().expect("open window flushes"));
     let names: Vec<&str> = dims.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(
         names,
-        vec!["cpu.total", "mem.used_percent", "net.rx_bps", "net.tx_bps"],
+        vec![
+            "cpu.total",
+            "cpu.total.max",
+            "mem.used_percent",
+            "mem.used_percent.max",
+            "net.rx_bps",
+            "net.rx_bps.max",
+            "net.tx_bps",
+            "net.tx_bps.max",
+        ],
         "neither disk dim rides a window with nothing to report"
     );
 }
@@ -103,9 +117,9 @@ fn the_critical_mount_count_streams_as_its_own_dim() {
         ..sample(10.0, 20.0, 91.0, 100, 200)
     };
     // Three samples: two mounts critical, then one, then one.
-    assert!(w.push(500, &with_critical(2)).is_none());
-    assert!(w.push(503, &with_critical(1)).is_none());
-    assert!(w.push(509, &with_critical(1)).is_none());
+    assert!(w.push(540, &with_critical(2)).is_none());
+    assert!(w.push(543, &with_critical(1)).is_none());
+    assert!(w.push(549, &with_critical(1)).is_none());
 
     let (_, dims) = window_dims(&w.flush().expect("open window flushes"));
     let by_name = |name: &str| {
@@ -122,13 +136,14 @@ fn the_critical_mount_count_streams_as_its_own_dim() {
 #[test]
 fn flush_emits_the_open_partial_window() {
     let mut w = HostMetricWindower::new();
-    assert!(w.push(200, &sample(10.0, 10.0, 10.0, 100, 200)).is_none());
-    assert!(w.push(205, &sample(30.0, 30.0, 30.0, 300, 400)).is_none());
+    assert!(w.push(240, &sample(10.0, 10.0, 10.0, 100, 200)).is_none());
+    assert!(w.push(245, &sample(30.0, 30.0, 30.0, 300, 400)).is_none());
 
     let (ts, dims) = window_dims(&w.flush().expect("open window flushes"));
-    assert_eq!(ts, 200);
+    assert_eq!(ts, 240);
     assert_eq!(dims[0], ("cpu.total".to_string(), 20.0));
-    assert_eq!(dims[3], ("net.rx_bps".to_string(), 200.0));
+    assert_eq!(dims[1], ("cpu.total.max".to_string(), 30.0));
+    assert_eq!(dims[5], ("net.rx_bps".to_string(), 200.0));
 
     // After a flush the accumulator is empty.
     assert!(w.flush().is_none(), "nothing left after a flush");
@@ -142,6 +157,6 @@ fn reset_discards_the_partial_window() {
     assert!(w.push(300, &sample(50.0, 50.0, 50.0, 500, 600)).is_none());
     w.reset();
     // A later-window sample now closes nothing (the pre-reset window is gone).
-    assert!(w.push(311, &sample(60.0, 60.0, 60.0, 700, 800)).is_none());
+    assert!(w.push(371, &sample(60.0, 60.0, 60.0, 700, 800)).is_none());
     assert!(w.flush().is_some(), "only the post-reset window survives");
 }

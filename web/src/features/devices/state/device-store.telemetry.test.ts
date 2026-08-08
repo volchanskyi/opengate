@@ -13,7 +13,7 @@ vi.mock('../../../lib/api', () => ({
 
 const sampleMetrics = {
   t: [1000, 1060, 1120],
-  series: [{ name: 'cpu.util', avg: [10, 20, 30], min_max_source: 'avg_of_10s' as const }],
+  series: [{ name: 'cpu.util', avg: [10, 20, 30], min_max_source: 'avg_of_60s' as const }],
   downsampled: true,
   bucket_s: 60,
 };

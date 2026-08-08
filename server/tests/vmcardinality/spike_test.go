@@ -1,20 +1,20 @@
-// Package vmcardinality is a feasibility measurement: it ingests a
-// representative multi-tenant telemetry schema into a throwaway VictoriaMetrics
-// and measures the resulting active-series count, so the central-store
-// cardinality budget is grounded in a real measurement rather than a guess.
+// Package vmcardinality measures what one device actually costs the central
+// store, against a real VictoriaMetrics.
 //
-// Two schema decisions are under test and demonstrated here:
+// Cardinality — not sample rate — is the binding constraint on the central
+// store, so the vitals contract fixes how many series a device may occupy and
+// this package proves the number rather than projecting it. Two properties are
+// under test:
 //
-//   - Central store keeps ONE aggregate (avg) per dimension, not four
-//     (min/max/avg/last). Each aggregate is its own series, so storing all four
-//     would ~4x the active-series count; min/max/last stay agent-local.
-//   - Per-entity expansion (per-core CPU, per-disk, per-filesystem,
-//     per-interface) is CAPPED, so a single large host cannot drive unbounded
-//     cardinality. Central growth is then ~linear in agent count, not host size.
+//   - A device occupies at most vitalSeriesCap series, whatever it sends. The
+//     count is a compile-time constant of the contract, not a function of how
+//     large the host is or of what dim names an agent chooses to invent.
+//   - The whole reference fleet fits the budget at that per-device cost, which
+//     is what makes central growth linear in agent count.
 //
-// The per-dimension and per-entity-cap counts below are representative and are
-// refined once the agent sampler's real dimension set is benchmarked on
-// hardware; the harness re-runs to re-ratify the budget when they change.
+// The dims written here are the contract the agent emits and the server
+// allowlists; a name added on either side without being added here writes a
+// series this measurement does not account for.
 package vmcardinality
 
 import (
@@ -41,217 +41,164 @@ const (
 	seriesBudget    = 50_000
 )
 
-// Health-summary series emitted per agent: one node-wide anomaly rate plus one
-// rate per detected metric family.
+// vitalSeriesCap is the most central series one device may occupy — the same
+// cap the ingest path enforces (server/internal/agentapi/vitals.go). The count
+// below sits under it by the headroom the platform-specific vitals are
+// reserved for.
+const vitalSeriesCap = 24
+
+// metricDims is every dimension of opengate_edge_metric_avg a device writes:
+// each gauge's average, plus the window maximum for the four where a
+// within-minute spike is the signal.
+var metricDims = []string{
+	"cpu.total",
+	"cpu.total.max",
+	"mem.used_percent",
+	"mem.used_percent.max",
+	"disk.used_percent",
+	"net.rx_bps",
+	"net.rx_bps.max",
+	"net.tx_bps",
+	"net.tx_bps.max",
+	"disk.mounts_critical",
+}
+
+// anomalyFamilies are the metric families the health summary reports a rate for,
+// beside the one node-wide rate.
+var anomalyFamilies = []string{"cpu", "mem", "disk", "net", "proc"}
+
 const (
-	nodeAnomalyRateSeries = 1
-	familyCount           = 5 // cpu, mem, disk, net, proc
+	metricAvgName         = "opengate_edge_metric_avg"
+	nodeAnomalyRateName   = "opengate_edge_node_anomaly_rate"
+	familyAnomalyRateName = "opengate_edge_family_anomaly_rate"
 )
 
-// Avg-only metric dimensions per family. Scalar dims are one series each;
-// per-entity dims are multiplied by the (capped) entity count.
-const (
-	cpuScalarDims     = 4 // usage, user, system, iowait
-	cpuPerCoreDims    = 1 // usage, per core
-	memScalarDims     = 5 // used, available, cached, buffers, swap_used
-	diskPerDeviceDims = 3 // read_bytes, write_bytes, io_util, per block device
-	fsPerMountDims    = 1 // used_pct, per mounted filesystem
-	netPerIfaceDims   = 4 // rx_bytes, tx_bytes, rx_errors, tx_errors, per interface
-)
+// seriesPerDevice is what one device occupies centrally: one series per metric
+// dim, one node-wide anomaly rate, and one rate per family.
+func seriesPerDevice() int { return len(metricDims) + 1 + len(anomalyFamilies) }
 
-// Aggregates stored centrally per dimension: the locked decision (avg only) vs.
-// the rejected alternative (min/max/avg/last).
-const (
-	aggregatesAvgOnly = 1
-	aggregatesAllFour = 4
-)
+// TestSeriesModelFitsTheCap pins the per-device cost and its headroom before any
+// VM is involved, so a dim added to the contract without a decision fails here.
+func TestSeriesModelFitsTheCap(t *testing.T) {
+	require.Equal(t, 16, seriesPerDevice(), "the vitals a Linux device emits today")
+	require.LessOrEqual(t, seriesPerDevice(), vitalSeriesCap,
+		"a device's series must fit the central cap")
+	require.Equal(t, 8, vitalSeriesCap-seriesPerDevice(),
+		"headroom reserved for the stall and disk-performance vitals")
 
-// Per-entity caps: the most series any single host may contribute for each
-// expandable entity, regardless of the host's real hardware count.
-const (
-	maxCores       = 16
-	maxDisks       = 8
-	maxFilesystems = 12
-	maxInterfaces  = 8
-)
-
-// hostProfile is a representative host after per-entity caps are applied.
-type hostProfile struct {
-	name        string
-	cores       int
-	disks       int
-	filesystems int
-	interfaces  int
+	// Central growth is linear in agent count at this per-device cost.
+	require.LessOrEqual(t, seriesPerDevice()*referenceAgents, seriesBudget,
+		"the reference fleet must fit the central budget")
 }
 
-// cappedProfile clamps raw host counts to the per-entity caps, modelling the
-// agent-side cap so no single host can blow up central cardinality.
-func cappedProfile(name string, cores, disks, filesystems, interfaces int) hostProfile {
-	return hostProfile{
-		name:        name,
-		cores:       min(cores, maxCores),
-		disks:       min(disks, maxDisks),
-		filesystems: min(filesystems, maxFilesystems),
-		interfaces:  min(interfaces, maxInterfaces),
-	}
-}
-
-// metricDimsPerAgent is the count of distinct avg dimensions (excluding the
-// health-summary rates), before the central-aggregate multiplier.
-func metricDimsPerAgent(p hostProfile) int {
-	return cpuScalarDims + cpuPerCoreDims*p.cores +
-		memScalarDims +
-		diskPerDeviceDims*p.disks +
-		fsPerMountDims*p.filesystems +
-		netPerIfaceDims*p.interfaces
-}
-
-func healthDimsPerAgent() int { return nodeAnomalyRateSeries + familyCount }
-
-// avgOnlySeriesPerAgent is the central active-series count per agent under the
-// locked avg-only decision.
-func avgOnlySeriesPerAgent(p hostProfile) int {
-	return healthDimsPerAgent() + metricDimsPerAgent(p)*aggregatesAvgOnly
-}
-
-// allFourSeriesPerAgent is the count had all four aggregates been centralised —
-// the rejected alternative, kept here to quantify what the decision avoids.
-func allFourSeriesPerAgent(p hostProfile) int {
-	return healthDimsPerAgent() + metricDimsPerAgent(p)*aggregatesAllFour
-}
-
-var (
-	smallProfile   = cappedProfile("small", 4, 1, 2, 1)
-	typicalProfile = cappedProfile("typical", 8, 2, 3, 2)
-	// largeProfile intentionally exceeds every cap to prove clamping.
-	largeProfile = cappedProfile("large", 64, 20, 40, 16)
-)
-
-// TestSeriesModel pins the cardinality arithmetic and the per-entity caps so a
-// schema change that would silently inflate central series fails loudly here,
-// before any VM is involved.
-func TestSeriesModel(t *testing.T) {
-	tests := []struct {
-		p           hostProfile
-		wantAvg     int
-		wantAllFour int
-	}{
-		// small: dims = 4+4 +5 +3 +2 +4 = 22 → avg 6+22=28, allfour 6+88=94.
-		{smallProfile, 28, 94},
-		// typical: dims = 4+8 +5 +6 +3 +8 = 34 → avg 6+34=40, allfour 6+136=142.
-		{typicalProfile, 40, 142},
-		// large (capped 16/8/12/8): dims = 4+16 +5 +24 +12 +32 = 93 → avg 99, allfour 6+372=378.
-		{largeProfile, 99, 378},
-	}
-	for _, tt := range tests {
-		t.Run(tt.p.name, func(t *testing.T) {
-			require.Equal(t, tt.wantAvg, avgOnlySeriesPerAgent(tt.p), "avg-only series/agent")
-			require.Equal(t, tt.wantAllFour, allFourSeriesPerAgent(tt.p), "all-four series/agent")
-			// The avoided cost is a ~4x-class multiplier on the metric dims.
-			require.Greater(t, allFourSeriesPerAgent(tt.p), avgOnlySeriesPerAgent(tt.p))
-		})
-	}
-
-	// Caps clamp a pathological host so central cardinality stays bounded.
-	clamped := cappedProfile("pathological", 1000, 1000, 1000, 1000)
-	require.Equal(t, maxCores, clamped.cores)
-	require.Equal(t, maxDisks, clamped.disks)
-	require.Equal(t, maxFilesystems, clamped.filesystems)
-	require.Equal(t, maxInterfaces, clamped.interfaces)
-
-	// Even a fully-capped host stays within budget at the reference fleet size.
-	require.LessOrEqual(t, avgOnlySeriesPerAgent(largeProfile)*referenceAgents, seriesBudget,
-		"a capped large host must still fit the central budget at reference scale")
-}
-
-// TestVMCardinalitySpike ingests the avg-only schema for the reference fleet
-// into a real VictoriaMetrics and asserts the measured active-series count
-// matches the model and fits the budget — the empirical half of the gate.
-func TestVMCardinalitySpike(t *testing.T) {
+// TestDeviceSeriesAreCappedInVM writes the contract for real devices and counts
+// what VictoriaMetrics actually holds. A count is only meaningful per device, so
+// every assertion is scoped to one device_id — the TSDB-wide total says nothing
+// about whether a single agent can grow without bound.
+func TestDeviceSeriesAreCappedInVM(t *testing.T) {
 	base := testvm.BaseURL(t)
-	p := typicalProfile
-	perAgent := avgOnlySeriesPerAgent(p)
-	// Every series this run writes is tagged with a fresh run_id, so the counts
-	// below measure exactly what this test ingested and nothing else in the TSDB.
+	// Every series this run writes carries a fresh run_id, so the counts measure
+	// exactly what this test ingested and nothing else in a shared TSDB.
 	runID := "vmcard-" + uuid.NewString()
 
-	// Stage 1: first 100 agents. The generator's line count must equal the
-	// model, and VM's active-series count must equal the lines ingested.
-	lines100, n100 := generate(runID, p, 0, 100)
-	require.Equal(t, 100*perAgent, n100, "generator must match the series model")
-	ingest(t, base, lines100)
-	require.Equal(t, n100, measureRunSeries(t, base, runID, n100))
+	devices := deviceIDs(runID, 3)
+	ingest(t, base, generate(runID, devices, nil))
 
-	// Stage 2: scale to the reference fleet (add the remaining agents).
-	lines500, n400 := generate(runID, p, 100, referenceAgents)
-	require.Equal(t, (referenceAgents-100)*perAgent, n400)
-	ingest(t, base, lines500)
-
-	total := referenceAgents * perAgent
-	require.Equal(t, total, measureRunSeries(t, base, runID, total),
-		"measured VM active series must match the avg-only model at reference scale")
-	require.LessOrEqualf(t, total, seriesBudget,
-		"avg-only cardinality (%d) must fit the central budget (%d)", total, seriesBudget)
-
-	// Evidence: what the avg-only decision buys versus centralising all four.
-	allFour := referenceAgents * allFourSeriesPerAgent(p)
-	t.Logf("EVIDENCE avg-only: %d series/agent (%s host) -> %d @%d agents (budget %d) PASS",
-		perAgent, p.name, total, referenceAgents, seriesBudget)
-	t.Logf("EVIDENCE all-four: %d series/agent -> %d @%d agents (~%.1fx, over budget) -> avg-only justified",
-		allFourSeriesPerAgent(p), allFour, referenceAgents, float64(allFour)/float64(total))
+	for _, device := range devices {
+		got := measureDeviceSeries(t, base, runID, device, seriesPerDevice())
+		require.Equal(t, seriesPerDevice(), got, "device %s writes its whole contract", device)
+		require.LessOrEqualf(t, got, vitalSeriesCap,
+			"device %s occupies %d series, over the cap of %d", device, got, vitalSeriesCap)
+	}
 }
 
-// generate returns Prometheus exposition lines for agents in [start,end) of the
-// given profile, spread across a handful of tenants, plus the number of distinct
-// series produced. Metric name + label set is unique per (agent, dimension,
-// entity), so the line count equals the distinct active-series count.
-func generate(runID string, p hostProfile, start, end int) (string, int) {
+// TestAnUnlistedDimWouldBreachTheCap is the measurement that gives the cap its
+// teeth: writing dims beyond the contract for one device raises that device's
+// series count past the cap, which is exactly what the server's allowlist stops
+// happening from an agent's own message. Here the writes bypass the allowlist —
+// they go straight to VM — so the breach is observable rather than theoretical.
+func TestAnUnlistedDimWouldBreachTheCap(t *testing.T) {
+	base := testvm.BaseURL(t)
+	runID := "vmcard-" + uuid.NewString()
+	device := deviceIDs(runID, 1)[0]
+
+	extra := make([]string, 0, vitalSeriesCap)
+	for i := range vitalSeriesCap - seriesPerDevice() + 1 {
+		extra = append(extra, fmt.Sprintf("invented.dim.%d", i))
+	}
+	want := seriesPerDevice() + len(extra)
+	ingest(t, base, generate(runID, []string{device}, extra))
+
+	got := measureDeviceSeries(t, base, runID, device, want)
+	require.Equal(t, want, got)
+	require.Greaterf(t, got, vitalSeriesCap,
+		"one device past the contract must exceed the cap, or the cap measures nothing (%d <= %d)",
+		got, vitalSeriesCap)
+}
+
+// TestFleetFitsTheBudget scales the measured per-device cost to the reference
+// fleet and checks the total against the central budget.
+func TestFleetFitsTheBudget(t *testing.T) {
+	base := testvm.BaseURL(t)
+	runID := "vmcard-" + uuid.NewString()
+
+	// Measure a sample of devices, then project: writing 500 devices' worth of
+	// series proves nothing the per-device count does not already prove, and it
+	// would make the suite pay for 8 000 series to learn it.
+	const sample = 25
+	devices := deviceIDs(runID, sample)
+	ingest(t, base, generate(runID, devices, nil))
+
+	want := sample * seriesPerDevice()
+	require.Equal(t, want, measureRunSeries(t, base, runID, want),
+		"measured VM active series must match the model for the sample")
+
+	fleet := referenceAgents * seriesPerDevice()
+	require.LessOrEqualf(t, fleet, seriesBudget,
+		"fleet cardinality (%d) must fit the central budget (%d)", fleet, seriesBudget)
+	t.Logf("EVIDENCE %d series/device measured -> %d @%d agents (budget %d, cap %d/device) PASS",
+		seriesPerDevice(), fleet, referenceAgents, seriesBudget, vitalSeriesCap)
+}
+
+// deviceIDs returns n device ids unique to this run.
+func deviceIDs(runID string, n int) []string {
+	ids := make([]string, 0, n)
+	for i := range n {
+		ids = append(ids, fmt.Sprintf("%s-dev-%d", runID, i))
+	}
+	return ids
+}
+
+// generate returns Prometheus exposition lines carrying the vitals contract for
+// each device, plus any extraDims — the dims an agent outside the contract would
+// write if nothing filtered them. Metric name + label set is unique per (device,
+// dimension), so the line count equals the distinct active-series count.
+func generate(runID string, devices, extraDims []string) string {
 	const tenants = 5
 	ts := time.Now().UnixMilli()
 	var b strings.Builder
-	count := 0
-	emit := func(name, device, tenant, extraKey, extraVal string) {
-		if extraKey == "" {
-			fmt.Fprintf(&b, "%s{run_id=%q,tenant_id=%q,device_id=%q} 1 %d\n", name, runID, tenant, device, ts)
-		} else {
-			fmt.Fprintf(&b, "%s{run_id=%q,tenant_id=%q,device_id=%q,%s=%q} 1 %d\n", name, runID, tenant, device, extraKey, extraVal, ts)
-		}
-		count++
-	}
-	for a := start; a < end; a++ {
-		device := fmt.Sprintf("dev-%d", a)
-		tenant := fmt.Sprintf("tenant-%d", a%tenants)
-
-		emit("es_node_anomaly_rate", device, tenant, "", "")
-		for _, fam := range []string{"cpu", "mem", "disk", "net", "proc"} {
-			emit("es_family_anomaly_rate", device, tenant, "family", fam)
-		}
-		for _, name := range []string{"es_cpu_usage_avg", "es_cpu_user_avg", "es_cpu_system_avg", "es_cpu_iowait_avg"} {
-			emit(name, device, tenant, "", "")
-		}
-		for c := range p.cores {
-			emit("es_cpu_core_usage_avg", device, tenant, "core", fmt.Sprintf("%d", c))
-		}
-		for _, name := range []string{"es_mem_used_avg", "es_mem_available_avg", "es_mem_cached_avg", "es_mem_buffers_avg", "es_mem_swap_used_avg"} {
-			emit(name, device, tenant, "", "")
-		}
-		for d := range p.disks {
-			dev := fmt.Sprintf("disk%d", d)
-			for _, name := range []string{"es_disk_read_bytes_avg", "es_disk_write_bytes_avg", "es_disk_io_util_avg"} {
-				emit(name, device, tenant, "block_device", dev)
+	for i, device := range devices {
+		tenant := fmt.Sprintf("tenant-%d", i%tenants)
+		emit := func(name, extraKey, extraVal string) {
+			if extraKey == "" {
+				fmt.Fprintf(&b, "%s{run_id=%q,tenant_id=%q,device_id=%q} 1 %d\n", name, runID, tenant, device, ts)
+				return
 			}
+			fmt.Fprintf(&b, "%s{run_id=%q,tenant_id=%q,device_id=%q,%s=%q} 1 %d\n",
+				name, runID, tenant, device, extraKey, extraVal, ts)
 		}
-		for f := range p.filesystems {
-			emit("es_fs_used_pct_avg", device, tenant, "mount", fmt.Sprintf("mnt%d", f))
+		for _, dim := range metricDims {
+			emit(metricAvgName, "dim", dim)
 		}
-		for i := range p.interfaces {
-			iface := fmt.Sprintf("eth%d", i)
-			for _, name := range []string{"es_net_rx_bytes_avg", "es_net_tx_bytes_avg", "es_net_rx_errors_avg", "es_net_tx_errors_avg"} {
-				emit(name, device, tenant, "iface", iface)
-			}
+		for _, dim := range extraDims {
+			emit(metricAvgName, "dim", dim)
+		}
+		emit(nodeAnomalyRateName, "", "")
+		for _, family := range anomalyFamilies {
+			emit(familyAnomalyRateName, "family", family)
 		}
 	}
-	return b.String(), count
+	return b.String()
 }
 
 func ingest(t *testing.T, base, body string) {
@@ -264,16 +211,28 @@ func ingest(t *testing.T, base, body string) {
 	require.Lessf(t, resp.StatusCode, 300, "import should succeed, got %d", resp.StatusCode)
 }
 
-// measureRunSeries flushes VM and re-counts this run's series, retrying (in the
-// same goroutine, so -race stays clean) until the count reaches want or the
-// budget of attempts is spent — then returns the last reading for the caller to
-// assert on, so a mismatch fails loudly rather than skips.
+// measureDeviceSeries counts the series one device carries in this run.
+func measureDeviceSeries(t *testing.T, base, runID, device string, want int) int {
+	t.Helper()
+	return measure(t, base, fmt.Sprintf(`{run_id=%q,device_id=%q}`, runID, device), want)
+}
+
+// measureRunSeries counts every series this run wrote.
 func measureRunSeries(t *testing.T, base, runID string, want int) int {
+	t.Helper()
+	return measure(t, base, fmt.Sprintf(`{run_id=%q}`, runID), want)
+}
+
+// measure flushes VM and re-counts the matching series, retrying (in the same
+// goroutine, so -race stays clean) until the count reaches want or the budget of
+// attempts is spent — then returns the last reading for the caller to assert on,
+// so a mismatch fails loudly rather than skips.
+func measure(t *testing.T, base, selector string, want int) int {
 	t.Helper()
 	var last int
 	for range 25 {
 		forceFlush(t, base)
-		last = runSeries(t, base, runID)
+		last = countSeries(t, base, selector)
 		if last == want {
 			return last
 		}
@@ -292,18 +251,14 @@ func forceFlush(t *testing.T, base string) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
-// runSeries counts the series carrying this run's run_id label. Scoping the
-// count to the run — rather than reading the TSDB-wide total — keeps the
-// measurement exact when VICTORIAMETRICS_TEST_URL points at a VM shared with
-// other packages or with a longer-lived local stack. run_id takes a single value
-// across every generated series, so it does not move the cardinality it measures.
+// countSeries counts the series matching a selector.
 //
 // /api/v1/series answers this rather than an instant `count()` query: VM's
 // default -search.latencyOffset evaluates instant queries 30s in the past, so a
 // query would never see samples written moments earlier.
-func runSeries(t *testing.T, base, runID string) int {
+func countSeries(t *testing.T, base, selector string) int {
 	t.Helper()
-	q := url.Values{"match[]": {fmt.Sprintf(`{run_id=%q}`, runID)}}
+	q := url.Values{"match[]": {selector}}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet,
 		base+"/api/v1/series?"+q.Encode(), nil)
 	require.NoError(t, err)

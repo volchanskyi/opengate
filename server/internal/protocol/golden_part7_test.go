@@ -92,27 +92,34 @@ func TestGoldenControlAgentMetricWindow(t *testing.T) {
 
 func TestGoldenControlAgentMetricWindowHostMetrics(t *testing.T) {
 	// The host-metric emitter aggregates the 1 s sampler into a 10 s-average
-	// AgentMetricWindow over the six host-resource series. The dim names are the
-	// shared central labels; the net dims are primary-interface throughput in
-	// bytes/second, averaged the same way reconnect-backfill rolls them, so live
+	// AgentMetricWindow over the six host-resource series, four of which also
+	// carry the window maximum: a minute's average hides a stall and its maximum
+	// recovers it. The dim names are the shared central labels, in the order a
+	// window emits them; the net dims are primary-interface throughput in
+	// bytes/second, reduced the same way reconnect-backfill rolls them, so live
 	// and backfilled points land in the same series. disk.used_percent is the
 	// fullest mount and disk.mounts_critical counts the mounts at or above the
 	// critical threshold — this fixture is a file server whose small system
-	// volume is nearly full beside a large, mostly empty data volume.
+	// volume is nearly full beside a large, mostly empty data volume, during a
+	// minute whose CPU briefly pinned.
 	msg := decodeControlFrame(t, "control_agent_metric_window_host_metrics.bin")
 	assert.Equal(t, MsgAgentMetricWindow, msg.Type)
 	assert.Equal(t, int64(1700000260), msg.TS)
 	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.TenantID)
-	require.Len(t, msg.Dims, 6)
+	require.Len(t, msg.Dims, 10)
 	want := []struct {
 		name string
 		avg  float64
 	}{
 		{"cpu.total", 42.5},
+		{"cpu.total.max", 100.0},
 		{"mem.used_percent", 63.0},
+		{"mem.used_percent.max", 71.25},
 		{"disk.used_percent", 98.0},
 		{"net.rx_bps", 123456.0},
+		{"net.rx_bps.max", 987654.0},
 		{"net.tx_bps", 654321.0},
+		{"net.tx_bps.max", 1234567.0},
 		{"disk.mounts_critical", 1.0},
 	}
 	for i, w := range want {

@@ -357,7 +357,7 @@ mod tests {
             other => panic!("expected RequestBackfillSlot, got {other:?}"),
         }
 
-        // Grant → drain. Every batch is the recent 10 s tier, never 1 s raw.
+        // Grant → drain. Every batch is the recent 60 s tier, never 1 s raw.
         c.on_grant(100, now + 3600);
         assert!(c.is_draining());
         let mut batches = 0;
@@ -368,10 +368,10 @@ mod tests {
                     samples,
                     cursor,
                 } => {
-                    assert_eq!(tier, BackfillTier::Raw10s);
+                    assert_eq!(tier, BackfillTier::Recent60s);
                     assert!(!samples.is_empty());
                     for s in &samples {
-                        assert_eq!(s.ts % 10, 0, "10 s windows, never 1 s");
+                        assert_eq!(s.ts % 60, 0, "60 s windows, never 1 s");
                     }
                     batches += 1;
                     // Server acks the batch; cursor advances, pace is honored.

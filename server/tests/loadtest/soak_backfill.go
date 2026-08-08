@@ -106,7 +106,7 @@ func drainBackfill(codec *protocol.Codec, stream soakStream, opts loadOptions) (
 // the drain without an error, mirroring an expired grant).
 func sendBackfillBatch(codec *protocol.Codec, stream soakStream, samplesPerBatch int, startTS int64) (bool, error) {
 	samples := buildBackfillSamples(samplesPerBatch, startTS)
-	batch := buildBackfillBatch(protocol.BackfillTierRaw10s, samples, samples[len(samples)-1].TS)
+	batch := buildBackfillBatch(protocol.BackfillTierRecent60s, samples, samples[len(samples)-1].TS)
 	payload, err := codec.EncodeControl(batch)
 	if err != nil {
 		return false, fmt.Errorf("encode backfill batch: %w", err)

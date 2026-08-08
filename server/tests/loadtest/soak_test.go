@@ -110,9 +110,9 @@ func TestBuildBackfillBatch(t *testing.T) {
 	samples := buildBackfillSamples(n, start)
 	require.Len(t, samples, n)
 
-	batch := buildBackfillBatch(protocol.BackfillTierRaw10s, samples, samples[n-1].TS)
+	batch := buildBackfillBatch(protocol.BackfillTierRecent60s, samples, samples[n-1].TS)
 	assert.Equal(t, protocol.MsgMetricBackfillBatch, batch.Type)
-	assert.Equal(t, protocol.BackfillTierRaw10s, batch.Tier)
+	assert.Equal(t, protocol.BackfillTierRecent60s, batch.Tier)
 	assert.Equal(t, samples[n-1].TS, batch.Cursor)
 	require.Len(t, batch.BackfillSamples, n)
 	// Timestamps are strictly increasing historical seconds; every sample names a
@@ -139,7 +139,7 @@ func TestBackfillStormRoundTrip(t *testing.T) {
 	writeControl(t, codec, &serverToAgent, grant)
 	for i := 0; i < batches; i++ {
 		writeControl(t, codec, &serverToAgent, &protocol.ControlMessage{
-			Type: protocol.MsgMetricBackfillAck, Tier: protocol.BackfillTierRaw10s, Cursor: int64(i),
+			Type: protocol.MsgMetricBackfillAck, Tier: protocol.BackfillTierRecent60s, Cursor: int64(i),
 		})
 	}
 

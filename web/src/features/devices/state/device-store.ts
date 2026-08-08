@@ -39,7 +39,7 @@ export interface MetricsParams {
   to: string;
   dims?: string[];
   maxPoints?: number;
-  band?: 'none' | 'avg_of_10s';
+  band?: 'none' | 'avg_of_60s';
 }
 
 /** Focus/baseline window for the on-demand correlation drill-down. */
