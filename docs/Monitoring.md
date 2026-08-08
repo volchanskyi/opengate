@@ -430,6 +430,10 @@ Validation sources:
 - [`scripts/tests/loadtest-summarize.test.sh`](../scripts/tests/loadtest-summarize.test.sh)
   verifies k6 summary-export and QUIC harness output parsing for load-test
   trend rows, including partial failed-run capture.
+- [`scripts/tests/loadtest-k6-run.test.sh`](../scripts/tests/loadtest-k6-run.test.sh)
+  verifies that a k6 scenario which aborts contributes no trend row while a
+  failed threshold still does, and that the workflow runs every scenario
+  through the runner.
 - [`scripts/tests/loadtest-regression-check.test.sh`](../scripts/tests/loadtest-regression-check.test.sh)
   verifies per-series VM read-back regression checks, p99 advisory behavior,
   cold-start handling, and VM fail-open behavior.

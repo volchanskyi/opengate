@@ -37,12 +37,12 @@ export default function (data) {
   // Without a real agent, we test the WebSocket upgrade path only.
   const headers = authHeaders(data.token);
 
-  // Health + groups to maintain API load alongside relay
+  // Health + sites to maintain API load alongside relay
   const health = http.get(`${BASE_URL}/api/v1/health`);
   check(health, { "health ok": (r) => r.status === 200 });
 
-  const groups = http.get(`${BASE_URL}/api/v1/groups`, { headers });
-  check(groups, { "groups ok": (r) => r.status === 200 });
+  const sites = http.get(`${BASE_URL}/api/v1/sites`, { headers });
+  check(sites, { "sites ok": (r) => r.status === 200 });
 
   relayMsgCount.add(1);
   relayMsgLatency.add(health.timings.duration);

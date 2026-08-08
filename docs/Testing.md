@@ -450,17 +450,30 @@ its own VU ramp and thresholds in its `options` block:
 
 | Scenario | Exercises |
 |----------|-----------|
-| [`api-baseline.js`](../load/k6/scenarios/api-baseline.js) | Health, current user, groups, and the device list under a steady ramp |
-| [`relay-throughput.js`](../load/k6/scenarios/relay-throughput.js) | Relay latency alongside constant health and group reads |
-| [`concurrent-agents.js`](../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's groups |
+| [`api-baseline.js`](../load/k6/scenarios/api-baseline.js) | Health, current user, sites, and the device list under a steady ramp |
+| [`relay-throughput.js`](../load/k6/scenarios/relay-throughput.js) | Relay latency alongside constant health and site reads |
+| [`concurrent-agents.js`](../load/k6/scenarios/concurrent-agents.js) | Agent-shaped device and session reads spread across the fleet's sites |
 
-`setup()` registers a throwaway member of the staging tenant through
-[`load/k6/lib/session.js`](../load/k6/lib/session.js) and reads the groups that
-member can see. The scenarios drive read paths only: tenant is the visibility
-boundary, so a member reads the whole fleet, while creating a group is administrator
+`setup()` registers a throwaway member of the staging organization through
+[`load/k6/lib/session.js`](../load/k6/lib/session.js) and reads the sites that
+member can see. The scenarios drive read paths only: organization is the visibility
+boundary, so a member reads the whole fleet, while creating a site is administrator
 work the server refuses. A scenario that stood up its own fixtures would measure the
 403 path instead. `setup()` throws on an unexpected status, so a broken precondition
 names itself rather than turning every request in the run red.
+
+The scenarios spell their URLs by hand, so
+[`scripts/tests/api-endpoint-drift.test.sh`](../scripts/tests/api-endpoint-drift.test.sh)
+checks every path and query parameter they send — and every one
+[`deploy/scripts/smoke-test.sh`](../deploy/scripts/smoke-test.sh) probes — against
+[`api/openapi.yaml`](../api/openapi.yaml), which is what makes a route rename fail
+in the gauntlet rather than in the nightly.
+
+[`scripts/loadtest-k6-run.sh`](../scripts/loadtest-k6-run.sh) runs each scenario and
+keeps its summary export only when the run produced a measurement. A failed
+threshold counts; a script exception does not, and its export is discarded so the
+handful of requests `setup()` managed never enters the trend the regression check
+compares against.
 
 ### Go QUIC Load Harness
 
