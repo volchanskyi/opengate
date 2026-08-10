@@ -18,6 +18,15 @@ fn sample(cpu: f32, mem: f32, disk: f32, rx: u64, tx: u64) -> MetricSample {
         disk_mounts_critical: Some(0),
         network_rx_bps: Some(rx as f64),
         network_tx_bps: Some(tx as f64),
+        // Stall vitals are the kernel's own 60 s pressure averages. They are
+        // derived from the gauges here only so each carries a distinct value
+        // that changes across a window — every divisor is a power of two, so
+        // the fixture values are exact in both f32 and f64.
+        stall_cpu_some: Some(cpu / 8.0),
+        stall_mem_some: Some(mem / 8.0),
+        stall_mem_full: Some(mem / 16.0),
+        stall_io_some: Some(disk / 8.0),
+        stall_io_full: Some(disk / 16.0),
         processes: Vec::new(),
     }
 }
@@ -69,6 +78,13 @@ fn closes_a_window_only_when_a_later_sample_arrives() {
             ("net.tx_bps".to_string(), 2200.0), // mean(2000,2200,2400)
             ("net.tx_bps.max".to_string(), 2400.0),
             ("disk.mounts_critical".to_string(), 0.0),
+            // A stall vital publishes the window's last reading, not its mean:
+            // the kernel already averaged each reading over the trailing 60 s.
+            ("stall.cpu.some".to_string(), 3.75), // last of (1.25, 2.5, 3.75)
+            ("stall.mem.some".to_string(), 7.5),  // last of (5.0, 6.25, 7.5)
+            ("stall.mem.full".to_string(), 3.75),
+            ("stall.io.some".to_string(), 9.25), // last of (8.75, 9.0, 9.25)
+            ("stall.io.full".to_string(), 4.625),
         ],
     );
 }
@@ -101,6 +117,11 @@ fn a_host_with_no_measurable_mount_streams_no_disk_dims() {
             "net.rx_bps.max",
             "net.tx_bps",
             "net.tx_bps.max",
+            "stall.cpu.some",
+            "stall.mem.some",
+            "stall.mem.full",
+            "stall.io.some",
+            "stall.io.full",
         ],
         "neither disk dim rides a window with nothing to report"
     );

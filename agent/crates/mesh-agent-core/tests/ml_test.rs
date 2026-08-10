@@ -77,6 +77,11 @@ fn fake_sampler_returns_deterministic_process_ranks_without_full_cmdline() {
         disk_mounts_critical: Some(0),
         network_rx_bps: Some(1000.0),
         network_tx_bps: Some(2000.0),
+        stall_cpu_some: Some(0.0),
+        stall_mem_some: Some(0.0),
+        stall_mem_full: Some(0.0),
+        stall_io_some: Some(0.0),
+        stall_io_full: Some(0.0),
         processes: vec![
             ProcessSample {
                 rank: 1,

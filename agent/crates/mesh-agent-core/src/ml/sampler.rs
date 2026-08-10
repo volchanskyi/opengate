@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use sysinfo::{Disks, Networks, System, MINIMUM_CPU_UPDATE_INTERVAL};
 use thiserror::Error;
 
+use super::pressure::PressureReader;
 use super::primary_iface::resolve_primary_iface;
 use super::redact::cmdline_hash;
 
@@ -42,6 +43,19 @@ pub struct MetricSample {
     /// Transmitted throughput on the primary interface, in bytes/second. `None`
     /// under the same conditions as [`network_rx_bps`](Self::network_rx_bps).
     pub network_tx_bps: Option<f64>,
+    /// Percent of the last 60 s some task was stalled on CPU. `None` on a host
+    /// whose kernel publishes no pressure information — never a zero, which
+    /// would read as "never stalled" on a host that cannot measure stalling at
+    /// all. The same holds for the four vitals below.
+    pub stall_cpu_some: Option<f32>,
+    /// Percent of the last 60 s some task was stalled on memory.
+    pub stall_mem_some: Option<f32>,
+    /// Percent of the last 60 s every runnable task was stalled on memory.
+    pub stall_mem_full: Option<f32>,
+    /// Percent of the last 60 s some task was stalled on I/O.
+    pub stall_io_some: Option<f32>,
+    /// Percent of the last 60 s every runnable task was stalled on I/O.
+    pub stall_io_full: Option<f32>,
     /// Top processes by CPU rank.
     pub processes: Vec<ProcessSample>,
 }
@@ -207,10 +221,16 @@ pub struct SysinfoSampler {
     top_processes: usize,
     include_cmdline_hash: bool,
     prev_net: Option<PrevNet>,
+    pressure: PressureReader,
 }
 
 impl SysinfoSampler {
     /// Create a sampler that records top processes by rank only.
+    ///
+    /// The pressure source is resolved once here, from the real filesystem root:
+    /// the agent's own cgroup when it runs inside a container, the host's
+    /// `/proc/pressure` otherwise, and nothing at all on a host whose kernel
+    /// publishes no pressure information.
     pub fn new(top_processes: usize) -> Result<Self, SamplerError> {
         if top_processes > u8::MAX as usize {
             return Err(SamplerError::TopNTooLarge);
@@ -221,6 +241,7 @@ impl SysinfoSampler {
             top_processes,
             include_cmdline_hash: false,
             prev_net: None,
+            pressure: PressureReader::for_root(std::path::Path::new("/")),
         })
     }
 
@@ -330,6 +351,8 @@ impl MetricSampler for SysinfoSampler {
             })
             .collect();
 
+        let stall = self.pressure.read();
+
         Ok(MetricSample {
             cpu_total_percent: self.system.global_cpu_usage(),
             memory_used_percent,
@@ -337,6 +360,11 @@ impl MetricSampler for SysinfoSampler {
             disk_mounts_critical: disk.map(|d| d.mounts_critical),
             network_rx_bps,
             network_tx_bps,
+            stall_cpu_some: stall.cpu_some,
+            stall_mem_some: stall.mem_some,
+            stall_mem_full: stall.mem_full,
+            stall_io_some: stall.io_some,
+            stall_io_full: stall.io_full,
             processes,
         })
     }

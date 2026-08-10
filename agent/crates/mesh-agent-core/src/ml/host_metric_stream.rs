@@ -9,29 +9,34 @@
 //!
 //! The fold is byte-identical to the reconnect-backfill roll-up
 //! ([`super::backfill::roll_to_60s`]): both key a bucket by
-//! [`super::backfill::window_start_60s`], report `sum/n`, and take the largest
-//! raw reading, so a live point and a later gap-filled point for the same
-//! `(dim, ts)` are equal and land in one central series. The net dims are
-//! primary-interface throughput in bytes/second and the disk dims are the
-//! worst-mount reduction; a sample carrying no reading for a dim — an
-//! uncomputable net rate, or a host with no measurable mount — is skipped for
-//! that dim alone (per-dim counts), exactly as the local store leaves a gap that
-//! backfill then rolls over the same seconds.
+//! [`super::backfill::window_start_60s`], reduce it by the series' own
+//! [`series_reduction`], and take the largest raw reading, so a live point and a
+//! later gap-filled point for the same `(dim, ts)` are equal and land in one
+//! central series. The net dims are primary-interface throughput in
+//! bytes/second, the disk dims are the worst-mount reduction, and the stall dims
+//! are the kernel's own pressure averages; a sample carrying no reading for a
+//! dim — an uncomputable net rate, a host with no measurable mount, or a kernel
+//! that publishes no pressure — is skipped for that dim alone (per-dim counts),
+//! exactly as the local store leaves a gap that backfill then rolls over the
+//! same seconds.
 
 use mesh_protocol::{ControlMessage, MetricDim};
 
 use super::backfill::window_start_60s;
 use super::sampler::MetricSample;
-use super::store_sink::{sample_dim_values, series_dim_name, series_max_dim_name, BACKFILL_SERIES};
+use super::store_sink::{
+    sample_dim_values, series_dim_name, series_max_dim_name, series_reduction, WindowReduction,
+    BACKFILL_SERIES,
+};
 
 /// The number of host-resource series streamed per window, in [`BACKFILL_SERIES`]
 /// order (`cpu.total`, `mem.used_percent`, `disk.used_percent`, `net.rx_bps`,
-/// `net.tx_bps`, `disk.mounts_critical`). Readings come from
-/// [`sample_dim_values`], the same mapping
-/// [`super::store_sink::LocalStoreSink::record`] persists, so the live average
-/// and the backfilled average fold identical values. A `None` entry is skipped
-/// from that dim's average. Four of these series also ship a maximum, so a
-/// window carries up to ten dims.
+/// `net.tx_bps`, `disk.mounts_critical`, then the five stall vitals). Readings
+/// come from [`sample_dim_values`], the same mapping
+/// [`super::store_sink::LocalStoreSink::record`] persists, so the live value and
+/// the backfilled value fold identically. A `None` entry is skipped from that
+/// dim's reduction. Four of these series also ship a maximum, so a window
+/// carries up to fifteen dims.
 const DIMS: usize = BACKFILL_SERIES.len();
 
 /// Folds 1 s host samples into 60 s metric windows. Feed every sample through
@@ -49,6 +54,11 @@ pub struct HostMetricWindower {
     /// Largest reading seen this window per dim, in the same order. Meaningful
     /// only where `counts` is non-zero.
     maxima: [f64; DIMS],
+    /// Latest reading seen this window per dim, with the timestamp it arrived
+    /// at, so the "latest" is the largest timestamp rather than the last call.
+    /// This is what a stall vital publishes: the kernel already averaged it over
+    /// the trailing 60 s.
+    lasts: [(i64, f64); DIMS],
     /// Per-dim count of folded samples — a dim whose value was `None` (an
     /// uncomputable net rate) is not counted, so its average divides only the
     /// samples that actually carried a reading.
@@ -73,10 +83,11 @@ impl HostMetricWindower {
             _ => None,
         };
         let values = sample_dim_values(sample);
-        for (((sum, max), count), v) in self
+        for ((((sum, max), last), count), v) in self
             .sums
             .iter_mut()
             .zip(self.maxima.iter_mut())
+            .zip(self.lasts.iter_mut())
             .zip(self.counts.iter_mut())
             .zip(values)
         {
@@ -84,6 +95,9 @@ impl HostMetricWindower {
                 *sum += v;
                 if *count == 0 || v > *max {
                     *max = v;
+                }
+                if *count == 0 || ts >= last.0 {
+                    *last = (ts, v);
                 }
                 *count += 1;
             }
@@ -105,6 +119,7 @@ impl HostMetricWindower {
         self.window = None;
         self.sums = [0.0; DIMS];
         self.maxima = [0.0; DIMS];
+        self.lasts = [(0, 0.0); DIMS];
         self.counts = [0; DIMS];
     }
 
@@ -116,10 +131,11 @@ impl HostMetricWindower {
     fn close(&mut self) -> Option<ControlMessage> {
         let start = self.window?;
         let mut dims = Vec::with_capacity(DIMS);
-        for (((&series, sum), max), count) in BACKFILL_SERIES
+        for ((((&series, sum), max), last), count) in BACKFILL_SERIES
             .iter()
             .zip(self.sums)
             .zip(self.maxima)
+            .zip(self.lasts)
             .zip(self.counts)
         {
             if count == 0 {
@@ -128,7 +144,10 @@ impl HostMetricWindower {
             if let Some(name) = series_dim_name(series) {
                 dims.push(MetricDim {
                     name: name.to_string(),
-                    avg: sum / f64::from(count),
+                    avg: match series_reduction(series) {
+                        WindowReduction::Mean => sum / f64::from(count),
+                        WindowReduction::Last => last.1,
+                    },
                 });
             }
             if let Some(name) = series_max_dim_name(series) {
@@ -179,6 +198,11 @@ mod tests {
             disk_mounts_critical: Some(0),
             network_rx_bps: Some(0.0),
             network_tx_bps: Some(0.0),
+            stall_cpu_some: None,
+            stall_mem_some: None,
+            stall_mem_full: None,
+            stall_io_some: None,
+            stall_io_full: None,
             processes: Vec::new(),
         };
         // A minute that reads 20 % except for five consecutive pinned seconds.
@@ -216,9 +240,12 @@ mod tests {
     fn live_windows_equal_backfill_roll_to_60s() {
         // A sequence spanning three 60 s buckets with uneven, non-round readings
         // so a rounding divergence would surface. Net counters climb (cumulative),
-        // the critical-mount count steps, and one stretch carries no disk reading
-        // at all so the disk dims fold over a different sample count than the
-        // rest — a divergence between the two paths' per-dim counts shows up here.
+        // the critical-mount count steps, and one stretch carries neither a disk
+        // reading nor any pressure — so those dims fold over a different sample
+        // count than the rest, and a divergence between the two paths' per-dim
+        // counts shows up here. The stall dims also reduce by their latest
+        // reading rather than their mean, so a path that averaged one of them
+        // would fail here too.
         let seq: Vec<(i64, MetricSample)> = (0..150)
             .map(|i| {
                 let ts = 1_000 + i;
@@ -231,6 +258,11 @@ mod tests {
                     // Net dims are whole-byte/second rates.
                     network_rx_bps: Some(1_000.0 + (i as f64) * 512.0),
                     network_tx_bps: Some(2_000.0 + (i as f64) * 256.0),
+                    stall_cpu_some: measurable.then_some((i as f32) * 0.13),
+                    stall_mem_some: measurable.then_some((i as f32) * 0.07),
+                    stall_mem_full: measurable.then_some((i as f32) * 0.03),
+                    stall_io_some: measurable.then_some((i as f32) * 0.21),
+                    stall_io_full: measurable.then_some((i as f32) * 0.11),
                     processes: Vec::new(),
                 };
                 (ts, s)
@@ -252,7 +284,7 @@ mod tests {
                     sample_dim_values(s)[dim_idx].map(|v| (Sample::new(*ts, v), false))
                 })
                 .collect();
-            let rolled = roll_to_60s(&raw);
+            let rolled = roll_to_60s(&raw, series_reduction(series));
 
             // Look the dim up by name, not by position: a window that carried no
             // reading for it omits it entirely, and backfill omits the same
@@ -305,6 +337,11 @@ mod tests {
             disk_mounts_critical: Some(0),
             network_rx_bps: Some(0.0),
             network_tx_bps: Some(0.0),
+            stall_cpu_some: Some(0.0),
+            stall_mem_some: Some(0.0),
+            stall_mem_full: Some(0.0),
+            stall_io_some: Some(0.0),
+            stall_io_full: Some(0.0),
             processes: Vec::new(),
         };
         // 1_700_000_040 is a 60 s boundary, so the whole minute after it folds
@@ -343,6 +380,11 @@ mod tests {
             disk_mounts_critical: Some(0),
             network_rx_bps: None,
             network_tx_bps: None,
+            stall_cpu_some: Some(1.0),
+            stall_mem_some: Some(1.0),
+            stall_mem_full: Some(1.0),
+            stall_io_some: Some(1.0),
+            stall_io_full: Some(1.0),
             processes: Vec::new(),
         };
         // Two samples in the first 60 s bucket: net None then net 100/200.
@@ -374,7 +416,7 @@ mod tests {
 
     /// The window ships the full vocabulary and nothing else, in contract order.
     #[test]
-    fn a_full_window_ships_the_ten_dim_contract_in_order() {
+    fn a_full_window_ships_the_fifteen_dim_contract_in_order() {
         let mut w = HostMetricWindower::new();
         let s = MetricSample {
             cpu_total_percent: 1.0,
@@ -383,6 +425,11 @@ mod tests {
             disk_mounts_critical: Some(1),
             network_rx_bps: Some(4.0),
             network_tx_bps: Some(5.0),
+            stall_cpu_some: Some(6.0),
+            stall_mem_some: Some(7.0),
+            stall_mem_full: Some(8.0),
+            stall_io_some: Some(9.0),
+            stall_io_full: Some(10.0),
             processes: Vec::new(),
         };
         assert!(w.push(1_700_000_000, &s).is_none());
@@ -394,5 +441,88 @@ mod tests {
             other => panic!("expected AgentMetricWindow, got {other:?}"),
         };
         assert_eq!(names, crate::ml::store_sink::central_dim_names());
+        assert_eq!(names.len(), 15);
+    }
+
+    /// B11: a host whose kernel publishes no pressure ships **no** stall dim.
+    /// The absence is asserted by name — a zero would be a claim that the host
+    /// never stalled, which is a different statement from "this host cannot
+    /// measure stalling".
+    #[test]
+    fn a_host_without_pressure_ships_no_stall_dim() {
+        let mut w = HostMetricWindower::new();
+        let s = MetricSample {
+            cpu_total_percent: 12.0,
+            memory_used_percent: 34.0,
+            disk_used_percent: Some(56.0),
+            disk_mounts_critical: Some(0),
+            network_rx_bps: Some(78.0),
+            network_tx_bps: Some(90.0),
+            stall_cpu_some: None,
+            stall_mem_some: None,
+            stall_mem_full: None,
+            stall_io_some: None,
+            stall_io_full: None,
+            processes: Vec::new(),
+        };
+        assert!(w.push(1_700_000_000, &s).is_none());
+        let closed = w.push(1_700_000_060, &s).expect("boundary closes window");
+
+        let names: Vec<String> = match &closed {
+            ControlMessage::AgentMetricWindow { dims, .. } => {
+                dims.iter().map(|d| d.name.clone()).collect()
+            }
+            other => panic!("expected AgentMetricWindow, got {other:?}"),
+        };
+        assert!(
+            !names.iter().any(|n| n.starts_with("stall.")),
+            "no stall dim ships without pressure, got {names:?}"
+        );
+        // The platform-neutral vitals are unaffected: what the host can measure
+        // it still reports.
+        assert_eq!(dim_of(&closed, "cpu.total"), Some(12.0));
+        assert_eq!(dim_of(&closed, "cpu.total.max"), Some(12.0));
+    }
+
+    /// A stall vital publishes the minute's **latest** reading, because the
+    /// kernel already averaged it over that minute. WS-4471's storage array
+    /// stalls for the second half of a minute: I/O pressure climbs from 0 to 60,
+    /// and the vital must report the 60 the kernel measured, not the 20-ish mean
+    /// of sixty overlapping averages that would make the minute look calm.
+    #[test]
+    fn a_stall_vital_publishes_the_minutes_latest_reading() {
+        let mut w = HostMetricWindower::new();
+        let sample = |io: f32| MetricSample {
+            cpu_total_percent: 5.0,
+            memory_used_percent: 5.0,
+            disk_used_percent: Some(5.0),
+            disk_mounts_critical: Some(0),
+            network_rx_bps: Some(0.0),
+            network_tx_bps: Some(0.0),
+            stall_cpu_some: Some(0.0),
+            stall_mem_some: Some(0.0),
+            stall_mem_full: Some(0.0),
+            stall_io_some: Some(io),
+            stall_io_full: Some(io / 2.0),
+            processes: Vec::new(),
+        };
+        let base = 1_700_000_040; // a 60 s boundary
+        for i in 0..60 {
+            let io = if i < 30 { 0.0 } else { (i - 29) as f32 * 2.0 };
+            assert!(w.push(base + i, &sample(io)).is_none());
+        }
+        let closed = w
+            .push(base + 60, &sample(0.0))
+            .expect("the next minute closes it");
+
+        assert_eq!(
+            dim_of(&closed, "stall.io.some"),
+            Some(60.0),
+            "the minute publishes the kernel's latest reading"
+        );
+        assert_eq!(dim_of(&closed, "stall.io.full"), Some(30.0));
+        // A stall vital ships no companion maximum: the reading already covers
+        // the whole minute.
+        assert_eq!(dim_of(&closed, "stall.io.some.max"), None);
     }
 }

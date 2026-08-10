@@ -23,6 +23,11 @@ func TestVitalDimsAreTheAgreedVocabulary(t *testing.T) {
 		"net.tx_bps",
 		"net.tx_bps.max",
 		"disk.mounts_critical",
+		"stall.cpu.some",
+		"stall.mem.some",
+		"stall.mem.full",
+		"stall.io.some",
+		"stall.io.full",
 	}, vitalDims, "the metric-window vocabulary")
 
 	require.Len(t, vitalDimSet, len(vitalDims), "no dim is listed twice")
@@ -33,11 +38,11 @@ func TestVitalDimsAreTheAgreedVocabulary(t *testing.T) {
 
 func TestVitalSeriesPerDeviceFitTheCap(t *testing.T) {
 	total := len(vitalDims) + anomalySeriesPerDevice
-	assert.Equal(t, 16, total, "the vitals a Linux device emits today")
+	assert.Equal(t, 21, total, "the vitals a Linux device emits today")
 	assert.LessOrEqual(t, total, vitalSeriesCap,
 		"a device's series must fit the central cap")
-	assert.Equal(t, 8, vitalSeriesCap-total,
-		"the headroom the stall and disk-performance vitals are reserved for")
+	assert.Equal(t, 3, vitalSeriesCap-total,
+		"the headroom the disk-performance vitals are reserved for")
 }
 
 // An unlisted dim is dropped rather than written, which is what makes central
@@ -45,8 +50,11 @@ func TestVitalSeriesPerDeviceFitTheCap(t *testing.T) {
 func TestKnownVitalDimsFiltersUnlistedNames(t *testing.T) {
 	assert.True(t, isVitalDim("cpu.total"))
 	assert.True(t, isVitalDim("net.tx_bps.max"))
+	assert.True(t, isVitalDim("stall.io.full"))
 	assert.False(t, isVitalDim("cpu.total.min"), "a plausible-looking name is still unlisted")
 	assert.False(t, isVitalDim("disk.used_percent.max"), "the disk gauge ships no maximum")
+	assert.False(t, isVitalDim("stall.cpu.full"), "the kernel defines CPU full as always zero")
+	assert.False(t, isVitalDim("stall.io.some.max"), "a stall vital ships no maximum")
 	assert.False(t, isVitalDim(""), "an empty dim name is not a dim")
 	assert.False(t, isVitalDim("attacker.dim.0"))
 }

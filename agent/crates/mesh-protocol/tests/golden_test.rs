@@ -363,17 +363,20 @@ fn golden_control_frame_request_device_logs() {
 #[test]
 fn golden_control_frame_agent_metric_window_host_metrics() {
     // The host-metric emitter aggregates the 1 s sampler into a 60 s
-    // AgentMetricWindow over the six host-resource series, four of which also
+    // AgentMetricWindow over the eleven host-resource series, four of which also
     // carry the window maximum: an average over a minute hides a stall, and the
     // maximum is what recovers it. The dim names are the shared central labels
     // from `store_sink::series_dim_name` and `series_max_dim_name`, in the order
     // a window emits them; the net dims are primary-interface throughput in
     // bytes/second, reduced the same way reconnect-backfill rolls them.
     // `disk.used_percent` is the fullest mount and `disk.mounts_critical` counts
-    // the mounts at or above the critical threshold, so this fixture carries a
-    // file server whose small system volume is nearly full beside a large,
-    // mostly empty data volume, during a minute whose CPU briefly pinned. It
-    // pins that naming contract for the server.
+    // the mounts at or above the critical threshold, and the five stall dims are
+    // the share of the minute tasks spent stalled, straight from the kernel's
+    // pressure accounting. So this fixture carries a file server whose small
+    // system volume is nearly full beside a large, mostly empty data volume,
+    // during a minute whose CPU briefly pinned and whose readers spent two
+    // fifths of their time waiting on the disk. It pins that naming contract for
+    // the server.
     let msg = ControlMessage::AgentMetricWindow {
         ts: 1700000260,
         tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
@@ -417,6 +420,26 @@ fn golden_control_frame_agent_metric_window_host_metrics() {
             MetricDim {
                 name: "disk.mounts_critical".to_string(),
                 avg: 1.0,
+            },
+            MetricDim {
+                name: "stall.cpu.some".to_string(),
+                avg: 3.75,
+            },
+            MetricDim {
+                name: "stall.mem.some".to_string(),
+                avg: 0.5,
+            },
+            MetricDim {
+                name: "stall.mem.full".to_string(),
+                avg: 0.25,
+            },
+            MetricDim {
+                name: "stall.io.some".to_string(),
+                avg: 41.5,
+            },
+            MetricDim {
+                name: "stall.io.full".to_string(),
+                avg: 39.0,
             },
         ],
     };

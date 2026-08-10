@@ -34,6 +34,16 @@ pub const SERIES_NET_RX: SeriesId = 3;
 pub const SERIES_NET_TX: SeriesId = 4;
 /// Count of mounted filesystems at or above the critical-usage threshold.
 pub const SERIES_DISK_MOUNTS_CRITICAL: SeriesId = 5;
+/// Percent of the last 60 s some task was stalled on CPU.
+pub const SERIES_STALL_CPU_SOME: SeriesId = 6;
+/// Percent of the last 60 s some task was stalled on memory.
+pub const SERIES_STALL_MEM_SOME: SeriesId = 7;
+/// Percent of the last 60 s every runnable task was stalled on memory.
+pub const SERIES_STALL_MEM_FULL: SeriesId = 8;
+/// Percent of the last 60 s some task was stalled on I/O.
+pub const SERIES_STALL_IO_SOME: SeriesId = 9;
+/// Percent of the last 60 s every runnable task was stalled on I/O.
+pub const SERIES_STALL_IO_FULL: SeriesId = 10;
 
 /// Fixed-point scale for percentage gauges: centi precision, lossless.
 const PERCENT_SCALE: i64 = 100;
@@ -44,14 +54,51 @@ const COUNT_SCALE: i64 = 1;
 /// order. The single source of truth paired with [`series_dim_name`]. Ids are a
 /// persistence contract — an agent upgrading in place reads rows it wrote under
 /// the old ones — so a series is appended here, never renumbered or reused.
-pub const BACKFILL_SERIES: [SeriesId; 6] = [
+pub const BACKFILL_SERIES: [SeriesId; 11] = [
     SERIES_CPU,
     SERIES_MEM,
     SERIES_DISK,
     SERIES_NET_RX,
     SERIES_NET_TX,
     SERIES_DISK_MOUNTS_CRITICAL,
+    SERIES_STALL_CPU_SOME,
+    SERIES_STALL_MEM_SOME,
+    SERIES_STALL_MEM_FULL,
+    SERIES_STALL_IO_SOME,
+    SERIES_STALL_IO_FULL,
 ];
+
+/// How a 60 s bucket reduces the 1 s samples of one series into the single
+/// number it publishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum WindowReduction {
+    /// The mean of the bucket's readings. Each sample is an instantaneous
+    /// reading of the resource, so the minute's average is the mean of the
+    /// readings taken in it.
+    Mean,
+    /// The bucket's latest reading. The kernel has already averaged a stall
+    /// vital over the trailing 60 s, so the last reading of a 60 s bucket *is*
+    /// that bucket's average — while the mean of sixty overlapping 60 s
+    /// averages spreads the minute across two and damps exactly the stall the
+    /// vital exists to show.
+    Last,
+}
+
+/// How `series` reduces over a 60 s bucket. Shared by the live windower and
+/// reconnect-backfill so a live point and a gap-filled point for the same
+/// `(dim, ts)` are the same number.
+#[must_use]
+pub fn series_reduction(series: SeriesId) -> WindowReduction {
+    match series {
+        SERIES_STALL_CPU_SOME
+        | SERIES_STALL_MEM_SOME
+        | SERIES_STALL_MEM_FULL
+        | SERIES_STALL_IO_SOME
+        | SERIES_STALL_IO_FULL => WindowReduction::Last,
+        _ => WindowReduction::Mean,
+    }
+}
 
 /// The stable central dimension label for a local series, or `None` for an
 /// unknown series id. This label becomes the VM `dim=` label, so live telemetry
@@ -66,6 +113,11 @@ pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
         SERIES_NET_RX => Some("net.rx_bps"),
         SERIES_NET_TX => Some("net.tx_bps"),
         SERIES_DISK_MOUNTS_CRITICAL => Some("disk.mounts_critical"),
+        SERIES_STALL_CPU_SOME => Some("stall.cpu.some"),
+        SERIES_STALL_MEM_SOME => Some("stall.mem.some"),
+        SERIES_STALL_MEM_FULL => Some("stall.mem.full"),
+        SERIES_STALL_IO_SOME => Some("stall.io.some"),
+        SERIES_STALL_IO_FULL => Some("stall.io.full"),
         _ => None,
     }
 }
@@ -78,7 +130,10 @@ pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
 /// — while the maximum reads 100. So the four gauges where a spike *is* the
 /// signal each ship a companion maximum beside their average. `disk.used_percent`
 /// moves too slowly for a within-minute peak to mean anything, and
-/// `disk.mounts_critical` is already a threshold count, so neither has one.
+/// `disk.mounts_critical` is already a threshold count, so neither has one. The
+/// stall vitals ship none either: the kernel already reduced a whole minute of
+/// stalling into each reading, so a maximum over a minute of those readings
+/// answers no question the reading itself does not.
 #[must_use]
 pub fn series_max_dim_name(series: SeriesId) -> Option<&'static str> {
     match series {
@@ -119,6 +174,11 @@ pub fn dim_series(name: &str) -> Option<SeriesId> {
         "net.rx_bps" | "net.rx_bps.max" => Some(SERIES_NET_RX),
         "net.tx_bps" | "net.tx_bps.max" => Some(SERIES_NET_TX),
         "disk.mounts_critical" => Some(SERIES_DISK_MOUNTS_CRITICAL),
+        "stall.cpu.some" => Some(SERIES_STALL_CPU_SOME),
+        "stall.mem.some" => Some(SERIES_STALL_MEM_SOME),
+        "stall.mem.full" => Some(SERIES_STALL_MEM_FULL),
+        "stall.io.some" => Some(SERIES_STALL_IO_SOME),
+        "stall.io.full" => Some(SERIES_STALL_IO_FULL),
         _ => None,
     }
 }
@@ -128,7 +188,8 @@ pub fn dim_series(name: &str) -> Option<SeriesId> {
 /// store ([`LocalStoreSink::record`]) and the live stream share it, so the two
 /// can never disagree about which reading is which series. A `None` is a reading
 /// this sample does not carry — a net rate before it can be computed, or the
-/// disk reduction on a host with no measurable mount — and leaves a gap rather
+/// disk reduction on a host with no measurable mount, or every stall vital on a
+/// host whose kernel publishes no pressure information — and leaves a gap rather
 /// than writing a wrong number.
 #[must_use]
 pub(crate) fn sample_dim_values(sample: &MetricSample) -> [Option<f64>; BACKFILL_SERIES.len()] {
@@ -139,6 +200,11 @@ pub(crate) fn sample_dim_values(sample: &MetricSample) -> [Option<f64>; BACKFILL
         sample.network_rx_bps,
         sample.network_tx_bps,
         sample.disk_mounts_critical.map(f64::from),
+        sample.stall_cpu_some.map(f64::from),
+        sample.stall_mem_some.map(f64::from),
+        sample.stall_mem_full.map(f64::from),
+        sample.stall_io_some.map(f64::from),
+        sample.stall_io_full.map(f64::from),
     ]
 }
 
@@ -164,6 +230,11 @@ impl LocalStoreSink {
         store.set_scale(SERIES_MEM, PERCENT_SCALE);
         store.set_scale(SERIES_DISK, PERCENT_SCALE);
         store.set_scale(SERIES_DISK_MOUNTS_CRITICAL, COUNT_SCALE);
+        store.set_scale(SERIES_STALL_CPU_SOME, PERCENT_SCALE);
+        store.set_scale(SERIES_STALL_MEM_SOME, PERCENT_SCALE);
+        store.set_scale(SERIES_STALL_MEM_FULL, PERCENT_SCALE);
+        store.set_scale(SERIES_STALL_IO_SOME, PERCENT_SCALE);
+        store.set_scale(SERIES_STALL_IO_FULL, PERCENT_SCALE);
         Ok(Self {
             store,
             commit_every: commit_every.max(1),
@@ -227,9 +298,11 @@ impl LocalStoreSink {
 #[cfg(test)]
 mod tests {
     use super::{
-        central_dim_names, dim_series, series_dim_name, series_max_dim_name, SeriesId,
-        BACKFILL_SERIES, SERIES_CPU, SERIES_DISK, SERIES_DISK_MOUNTS_CRITICAL, SERIES_MEM,
-        SERIES_NET_RX, SERIES_NET_TX,
+        central_dim_names, dim_series, series_dim_name, series_max_dim_name, series_reduction,
+        SeriesId, WindowReduction, BACKFILL_SERIES, SERIES_CPU, SERIES_DISK,
+        SERIES_DISK_MOUNTS_CRITICAL, SERIES_MEM, SERIES_NET_RX, SERIES_NET_TX,
+        SERIES_STALL_CPU_SOME, SERIES_STALL_IO_FULL, SERIES_STALL_IO_SOME, SERIES_STALL_MEM_FULL,
+        SERIES_STALL_MEM_SOME,
     };
 
     #[test]
@@ -240,7 +313,7 @@ mod tests {
             let name = series_dim_name(series).expect("every backfill series has a label");
             assert_eq!(dim_series(name), Some(series), "round-trips for {name}");
         }
-        assert_eq!(BACKFILL_SERIES.len(), 6);
+        assert_eq!(BACKFILL_SERIES.len(), 11);
     }
 
     /// Each series appears exactly once. A duplicate would double-count the dim
@@ -266,8 +339,13 @@ mod tests {
                 SERIES_NET_RX,
                 SERIES_NET_TX,
                 SERIES_DISK_MOUNTS_CRITICAL,
+                SERIES_STALL_CPU_SOME,
+                SERIES_STALL_MEM_SOME,
+                SERIES_STALL_MEM_FULL,
+                SERIES_STALL_IO_SOME,
+                SERIES_STALL_IO_FULL,
             ],
-            [0, 1, 2, 3, 4, 5]
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
         );
     }
 
@@ -297,12 +375,12 @@ mod tests {
         );
     }
 
-    /// The emitted vocabulary is exactly ten names, each appearing once, in
+    /// The emitted vocabulary is exactly fifteen names, each appearing once, in
     /// series order with every maximum beside its average. The central series
     /// cap is counted against this list, so a name added here is a deliberate
     /// spend of the remaining headroom.
     #[test]
-    fn the_central_dim_vocabulary_is_ten_distinct_names() {
+    fn the_central_dim_vocabulary_is_fifteen_distinct_names() {
         let names = central_dim_names();
         assert_eq!(
             names,
@@ -317,6 +395,11 @@ mod tests {
                 "net.tx_bps",
                 "net.tx_bps.max",
                 "disk.mounts_critical",
+                "stall.cpu.some",
+                "stall.mem.some",
+                "stall.mem.full",
+                "stall.io.some",
+                "stall.io.full",
             ]
         );
         let mut sorted = names.clone();
@@ -332,5 +415,41 @@ mod tests {
         assert_eq!(series_max_dim_name(SERIES_DISK), None);
         assert_eq!(dim_series("nope.unknown"), None);
         assert_eq!(dim_series("disk.used_percent.max"), None);
+    }
+
+    /// The contract carries no `stall.cpu.full`: the kernel defines it as always
+    /// zero, and a constant is not worth one of the twenty-four series a device
+    /// may occupy.
+    #[test]
+    fn cpu_full_is_not_part_of_the_stall_vocabulary() {
+        assert_eq!(dim_series("stall.cpu.full"), None);
+        assert!(!central_dim_names().contains(&"stall.cpu.full"));
+    }
+
+    /// A stall vital is already the kernel's own 60 s average, so its bucket
+    /// publishes the last reading in it; every other series is an instantaneous
+    /// gauge whose bucket publishes the mean. Averaging sixty overlapping 60 s
+    /// averages would spread a stall across two minutes and damp it in both.
+    #[test]
+    fn stall_vitals_publish_their_last_reading_and_the_gauges_their_mean() {
+        for series in [
+            SERIES_STALL_CPU_SOME,
+            SERIES_STALL_MEM_SOME,
+            SERIES_STALL_MEM_FULL,
+            SERIES_STALL_IO_SOME,
+            SERIES_STALL_IO_FULL,
+        ] {
+            assert_eq!(series_reduction(series), WindowReduction::Last);
+        }
+        for series in [
+            SERIES_CPU,
+            SERIES_MEM,
+            SERIES_DISK,
+            SERIES_NET_RX,
+            SERIES_NET_TX,
+            SERIES_DISK_MOUNTS_CRITICAL,
+        ] {
+            assert_eq!(series_reduction(series), WindowReduction::Mean);
+        }
     }
 }

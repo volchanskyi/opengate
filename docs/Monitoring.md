@@ -178,9 +178,33 @@ sample rate — is what bounds the central store. Each of the six host-resource
 gauges ships its 60 s average, and the four where a within-minute spike is the
 signal (cpu, memory, and both net rates) ship the window maximum beside it: over
 a minute at 1 Hz, five seconds pinned at 100 % move a 20 % average to 26.7 %,
-while the maximum reads 100. Those ten dims plus the node-wide anomaly rate and
-the five per-family rates are the sixteen series a Linux device occupies today,
-under a per-device cap of 24.
+while the maximum reads 100. Five stall vitals ship beside them, and those
+fifteen dims plus the node-wide anomaly rate and the five per-family rates are
+the twenty-one series a Linux device occupies today, under a per-device cap of
+24.
+
+### Stall vitals
+
+`stall.cpu.some`, `stall.mem.some`, `stall.mem.full`, `stall.io.some` and
+`stall.io.full` are each the share of the last 60 s that tasks spent stalled
+waiting on that resource, read straight from the kernel's pressure accounting by
+[`pressure.rs`](../agent/crates/mesh-agent-core/src/ml/pressure.rs). The kernel
+has already reduced the whole minute into one number, so a stall vital costs one
+file read and no cardinality, its averaging window is exactly the cadence it
+ships on, and its 60 s bucket carries the latest reading rather than a mean of
+sixty overlapping averages. The CPU `full` line is not published: the kernel
+defines it as always zero.
+
+An agent running inside a container reads its own cgroup's pressure files rather
+than the host's, so it never reports its neighbours' stalls as its own; if that
+cgroup publishes none, the vitals are absent rather than filled from the host.
+
+These five ship from a Linux agent. A platform with no time-in-stall measurement
+of its own gets no substitute built from counters that measure something else —
+that would put two meanings behind one name — so it reports `stall.*` as
+unsupported and ships nothing. **An absent stall vital is absent, never zero:**
+zero is the answer for a host that was measured and never stalled, which is a
+different fact from a host that cannot measure stalling.
 
 The vocabulary is fixed on both sides: the agent builds it from one series
 mapping ([`store_sink.rs`](../agent/crates/mesh-agent-core/src/ml/store_sink.rs))

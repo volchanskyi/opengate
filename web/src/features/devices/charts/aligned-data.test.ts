@@ -306,6 +306,29 @@ describe('familyCurrentLabel byte formatting', () => {
   });
 });
 
+describe('the stall family', () => {
+  const stall = [
+    series({ name: 'stall.cpu.some', avg: [1, 2, 3] }),
+    series({ name: 'stall.mem.some', avg: [0, 0, 0] }),
+    series({ name: 'stall.mem.full', avg: [0, 0, 0] }),
+    series({ name: 'stall.io.some', avg: [10, 40, 62] }),
+    series({ name: 'stall.io.full', avg: [8, 35, 58] }),
+  ];
+
+  it('groups the five stall vitals into one chart', () => {
+    const groups = groupByFamily(stall);
+    expect([...groups.keys()]).toEqual(['stall']);
+    expect(groups.get('stall')).toHaveLength(5);
+  });
+
+  it('shows no single "current" reading, because three resources share the chart', () => {
+    // Every stall vital is a percentage, so any one of them would render as a
+    // plausible badge — and a 3 % CPU stall standing in for a 62 % I/O stall is
+    // exactly the wrong summary. The chart shows all five lines instead.
+    expect(familyCurrentLabel(stall)).toBeNull();
+  });
+});
+
 describe('familyCurrentLabel dimension selection', () => {
   it('treats _percent as a suffix, not a substring', () => {
     expect(familyCurrentLabel([series({ name: 'disk._percent_used', avg: [42] })])).toBeNull();

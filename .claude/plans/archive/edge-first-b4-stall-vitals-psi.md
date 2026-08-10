@@ -32,17 +32,17 @@ agent measures its own pressure, not the host's.
 
 - **Create:** `agent/crates/mesh-agent-core/src/ml/pressure.rs` — PSI reader, environment detection,
   support state.
-- **Modify:** [ml/mod.rs](../../agent/crates/mesh-agent-core/src/ml/mod.rs) — register the module.
-- **Modify:** [sampler.rs](../../agent/crates/mesh-agent-core/src/ml/sampler.rs) — carry the five
+- **Modify:** [ml/mod.rs](../../../agent/crates/mesh-agent-core/src/ml/mod.rs) — register the module.
+- **Modify:** [sampler.rs](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs) — carry the five
   readings on `MetricSample` as `Option`s.
-- **Modify:** [store_sink.rs](../../agent/crates/mesh-agent-core/src/ml/store_sink.rs) — five
+- **Modify:** [store_sink.rs](../../../agent/crates/mesh-agent-core/src/ml/store_sink.rs) — five
   appended `SeriesId`s, dim names, `BACKFILL_SERIES`, scale.
-- **Modify:** [host_metric_stream.rs](../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs)
+- **Modify:** [host_metric_stream.rs](../../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs)
   — an absent reading emits **no dim**, never a zero.
 - **Create:** fixture tree under the crate's test data — synthetic `/proc/pressure/*` and cgroup
   files.
-- **Regenerate:** [testdata/golden/](../../testdata/golden/) metric-window fixtures.
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md) — the vitals table and the platform gap.
+- **Regenerate:** [testdata/golden/](../../../testdata/golden/) metric-window fixtures.
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md) — the vitals table and the platform gap.
 
 ## Steps (TDD-first)
 
