@@ -192,6 +192,66 @@ pinned together by the cross-language golden fixture for a metric window, and
 the per-device cost is measured against a real VictoriaMetrics in
 [`spike_test.go`](../server/tests/vmcardinality/spike_test.go).
 
+### What an active series costs the central store
+
+The contract bounds how many series a fleet creates; what one series then costs
+is measured. The harness in
+[`vmramseries`](../server/tests/vmramseries/vmram_test.go) provisions a
+VictoriaMetrics that no other test writes to, loads it with a growing fleet, and
+reads the store's own accounting — resident memory, active series, rows stored,
+and bytes on disk. It runs at fleet scale on every suite run and changes no
+limit; the numbers below are its output, and sizing decisions are taken against
+them elsewhere.
+
+The load is written at the per-device **cap** of 24 rather than at the sixteen
+series a Linux device occupies today, because a capacity plan must not assume the
+cheaper platform mix: the eight the cap reserves are Linux-only, and the fleet is
+Linux.
+
+**Memory is a fit, not a division.** Dividing one resident-memory reading by the
+series present charges VictoriaMetrics' fixed baseline to those series, and the
+baseline dominates at any size a test can afford — at fleet shape that division
+answers ≈ 2.2 KB per series, which is roughly where the rule of thumb it replaced
+came from. The store also allocates lazily, so a warm-up load runs first and its
+reading is excluded; every fit point sits past the startup ramp.
+
+Fleet-scale run — 5 000 devices × 24 series, VictoriaMetrics v1.114.0,
+2026-08-09:
+
+| Active series | Resident memory |
+|---|---|
+| 24 000 *(warm-up, excluded)* | 165.4 MB |
+| 48 000 | 213.5 MB |
+| 62 400 | 225.5 MB |
+| 76 800 | 237.4 MB |
+| 91 200 | 244.8 MB |
+| 105 600 | 250.0 MB |
+| 120 000 | 267.0 MB |
+
+Fit: **692 B per active series**, R² = 0.98, over a **181.6 MB** baseline —
+against **267.0 MB** held directly at 120 000 series. Across runs the slope moves
+between roughly 0.7 and 1.0 KB per series and the total between 250 and 290 MB,
+so the total is the steadier figure and the one to size against.
+
+**Disk is a compression measurement**, so it depends on series length and on what
+the values look like. The harness writes slow-drifting gauges reported to a tenth
+of a percent — a constant would measure VictoriaMetrics' best case and full
+entropy its worst — and lengthens the same series rather than adding new ones, so
+the index amortises the way it does in production:
+
+| Samples per series | Bytes per sample | Projected 30 d at 120 000 series |
+|---|---|---|
+| 60 (1 h) | 3.058 | 15.85 GB |
+| 720 (12 h) | 0.831 | 4.31 GB |
+| 2 880 (2 d) | 0.573 | 2.97 GB |
+| 5 760 (4 d) | 0.542 | 2.81 GB |
+
+The production store's own cost per sample — data size over
+`vm_rows_added_to_storage_total`, on real fleet telemetry — is **0.316 B**, which
+projects to **1.64 GB** over 30 d at 120 000 series. Real vitals repeat more than
+the synthetic drift does, so the two bracket the answer: 1.64 GB on measured
+production data, 2.81 GB as the harness's conservative upper bound.
+
 ### Reconnect backfill and deep-history pull
 
 An agent stores its own metric history in the durable local tiers

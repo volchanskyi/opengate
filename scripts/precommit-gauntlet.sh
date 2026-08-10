@@ -141,6 +141,25 @@ if ! pg_ensure_up; then
   exit 2
 fi
 
+# VictoriaMetrics reachability gate. Unlike Postgres this needs no credentials,
+# so the URL is derived rather than required — but it must be exported, because
+# testvm memoizes its container per test BINARY and `go test ./tests/...` builds
+# one binary per package. With the URL unset each VictoriaMetrics-touching
+# package provisions its own store, and several of them holding a fleet's worth
+# of series at once is enough memory pressure for the kernel to kill one
+# mid-run — which surfaces as an unrelated package failing on a refused
+# connection. Implementation lives in scripts/lib/victoriametrics-prereq.sh so it
+# can be unit-tested via scripts/tests/victoriametrics-prereq.test.sh.
+# shellcheck source=lib/victoriametrics-prereq.sh
+. "$PROJECT_ROOT/scripts/lib/victoriametrics-prereq.sh"
+if ! vm_ensure_up; then
+  color "1;31"
+  echo "✗ VictoriaMetrics prerequisite gate failed. See messages above." >&2
+  color "0"
+  exit 2
+fi
+export VICTORIAMETRICS_TEST_URL="${VICTORIAMETRICS_TEST_URL:-$(vm_test_url)}"
+
 if [ -z "${SONAR_TOKEN:-}" ]; then
   color "1;31"
   echo "✗ SONAR_TOKEN is unset — full SonarCloud scan is mandatory (no skip)." >&2

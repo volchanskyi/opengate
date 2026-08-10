@@ -8,6 +8,12 @@
 // "now" and silently misplace it on every chart. Hence backfill writes
 // pre-rolled rollups via the import API and never through stream aggregation;
 // stream aggregation is only for live telemetry, where arrival ≈ event time.
+//
+// Every sample written here carries a fresh run_id, so what is read back is
+// exactly what this run wrote. The store is shared across the suite and outlives
+// a single run, and these assertions are on the exact set of stored timestamps —
+// an earlier run's samples for the same metric name would otherwise appear in the
+// answer and fail a test that is measuring something else entirely.
 package vmbackfill
 
 import (
@@ -22,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/volchanskyi/opengate/server/internal/testvm"
@@ -39,6 +46,7 @@ type exportedSeries struct {
 // correct backfill path.
 func TestImportPreservesOriginalTimestamps(t *testing.T) {
 	base := testvm.BaseURL(t)
+	runID := newRunID()
 	now := time.Now()
 
 	// Distinct historical instants a reconnecting agent might replay.
@@ -51,11 +59,11 @@ func TestImportPreservesOriginalTimestamps(t *testing.T) {
 
 	var b strings.Builder
 	for i, ts := range wantTS {
-		fmt.Fprintf(&b, "es_backfill_preserve{tenant_id=%q} %g %d\n", "tenant-1", wantVal[i], ts)
+		fmt.Fprintf(&b, "es_backfill_preserve{tenant_id=%q,run_id=%q} %g %d\n", "tenant-1", runID, wantVal[i], ts)
 	}
 	importAndFlush(t, base, b.String())
 
-	got := exportSeries(t, base, "es_backfill_preserve", now.Add(-30*24*time.Hour), now)
+	got := exportSeries(t, base, "es_backfill_preserve", runID, now.Add(-30*24*time.Hour), now)
 	require.Equal(t, wantTS, got.Timestamps, "backfilled samples must keep their original timestamps")
 	require.Equal(t, wantVal, got.Values, "values must stay aligned to their original timestamps")
 }
@@ -65,16 +73,17 @@ func TestImportPreservesOriginalTimestamps(t *testing.T) {
 // timestamp must remain in the historical past it was written for.
 func TestBackfillNotArrivalBucketed(t *testing.T) {
 	base := testvm.BaseURL(t)
+	runID := newRunID()
 	now := time.Now()
 	arrivalFloor := now.Add(-time.Hour).UnixMilli()
 
 	oldest := now.Add(-30 * 24 * time.Hour).UnixMilli()
 	mid := now.Add(-10 * 24 * time.Hour).UnixMilli()
-	body := fmt.Sprintf("es_backfill_arrival{tenant_id=%q} 1 %d\nes_backfill_arrival{tenant_id=%q} 2 %d\n",
-		"tenant-1", oldest, "tenant-1", mid)
+	body := fmt.Sprintf("es_backfill_arrival{tenant_id=%q,run_id=%q} 1 %d\nes_backfill_arrival{tenant_id=%q,run_id=%q} 2 %d\n",
+		"tenant-1", runID, oldest, "tenant-1", runID, mid)
 	importAndFlush(t, base, body)
 
-	got := exportSeries(t, base, "es_backfill_arrival", now.Add(-60*24*time.Hour), now)
+	got := exportSeries(t, base, "es_backfill_arrival", runID, now.Add(-60*24*time.Hour), now)
 	require.NotEmpty(t, got.Timestamps)
 	for _, ts := range got.Timestamps {
 		require.Lessf(t, ts, arrivalFloor,
@@ -100,12 +109,16 @@ func post(t *testing.T, target string, body io.Reader, wantStatus int) {
 	require.Equal(t, wantStatus, resp.StatusCode, target)
 }
 
-// exportSeries reads the single series matching metricName over [start,end] via
-// the export API, returning its raw stored values and timestamps.
-func exportSeries(t *testing.T, base, metricName string, start, end time.Time) exportedSeries {
+// newRunID returns a label value unique to one test, so a read sees only the
+// samples that test wrote.
+func newRunID() string { return "vmbf-" + uuid.NewString() }
+
+// exportSeries reads this run's series for metricName over [start,end] via the
+// export API, returning its raw stored values and timestamps.
+func exportSeries(t *testing.T, base, metricName, runID string, start, end time.Time) exportedSeries {
 	t.Helper()
 	q := url.Values{}
-	q.Set("match[]", metricName)
+	q.Set("match[]", fmt.Sprintf("%s{run_id=%q}", metricName, runID))
 	q.Set("start", strconv.FormatInt(start.Unix(), 10))
 	q.Set("end", strconv.FormatInt(end.Unix(), 10))
 
@@ -125,6 +138,6 @@ func exportSeries(t *testing.T, base, metricName string, start, end time.Time) e
 			return es
 		}
 	}
-	t.Fatalf("export returned no %q series", metricName)
+	t.Fatalf("export returned no %q series for run %s", metricName, runID)
 	return exportedSeries{}
 }

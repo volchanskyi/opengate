@@ -19,6 +19,27 @@ POSTGRES_TEST_URL="postgres://opengate:opengate@localhost:5432/opengate_test?ssl
   go test -race -timeout 5m ./internal/db/...
 ```
 
+### Telemetry-store tests
+
+The packages under [`server/tests/`](../server/tests/) that measure the central
+store — cardinality, backfill, and per-series cost — run against a real
+VictoriaMetrics, never a mock. [`server/internal/testvm`](../server/internal/testvm/testvm.go)
+supplies it: `VICTORIAMETRICS_TEST_URL` when set, otherwise a throwaway
+container, failing loudly rather than skipping.
+
+Share one instance across the run. `testvm` memoizes per test **binary** and
+`go test ./tests/...` builds one binary per package, so with the URL unset each
+package starts its own store, and several of them holding a fleet's worth of
+series at once is enough memory pressure for the kernel to kill one mid-run —
+which surfaces as an unrelated package failing on a refused connection.
+`make victoriametrics-test-up` starts the shared instance and prints the export;
+[`scripts/test-go.sh`](../scripts/test-go.sh) (behind `make test-go`) and the
+precommit gauntlet both do it automatically.
+
+A measurement that reads the store's *own* memory or disk needs the opposite —
+an instance nothing else writes to — and takes one through `testvm.Dedicated`,
+which ignores the shared URL by design.
+
 ## Test Layers
 
 ```

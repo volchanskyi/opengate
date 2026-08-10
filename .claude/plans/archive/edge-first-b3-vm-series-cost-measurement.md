@@ -27,9 +27,9 @@ into the slope and overstates per-series cost at small N. The fit is the deliver
 ## File inventory
 
 - **Create:** `server/tests/vmramseries/` — a harness that provisions a dedicated throwaway
-  VictoriaMetrics via [testvm](../../server/internal/testvm/testvm.go), writes N devices × the real
+  VictoriaMetrics via [testvm](../../../server/internal/testvm/testvm.go), writes N devices × the real
   vitals set, settles, and scrapes VM's own `/metrics` plus `/api/v1/status/tsdb`.
-- **Reference:** [spike_test.go](../../server/tests/vmcardinality/spike_test.go) — the existing
+- **Reference:** [spike_test.go](../../../server/tests/vmcardinality/spike_test.go) — the existing
   cardinality spike is the shape to follow (`run_id`-tagged writes, real VM, no mocks).
 - **Deliverable:** a measurement record in the close-out evidence (EF-Z1) — raw table, fit, method,
   VM version, and the date.
@@ -40,7 +40,7 @@ into the slope and overstates per-series cost at small N. The fit is the deliver
    finish inside the normal suite budget) and asserts the *method*: series count matches what was
    written, RSS is read from a VM that is not shared with other tests, and the fit produces a
    positive slope with a reported R². No skips, no env gate — it always runs
-   ([tests-determinism.md](../rules/tests-determinism.md)).
+   ([tests-determinism.md](../../rules/tests-determinism.md)).
 2. Run the **full-scale** experiment manually with the same harness at 120 000 series: write
    5 000 × 24, let VM settle through a flush cycle, read RSS, active series, and disk.
 3. Record the raw table and the fit. Cross-check the disk figure against §2.2's measured
