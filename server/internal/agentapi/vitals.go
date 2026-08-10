@@ -17,8 +17,14 @@ package agentapi
 
 // vitalDims is every dimension of opengate_edge_metric_avg a device may write,
 // in the order a window carries them: each gauge's average, followed by its
-// window maximum where a within-minute spike is the signal. A minute's average
-// hides a five-second freeze; its maximum does not.
+// window maximum where a within-minute spike is the signal, then the stall
+// vitals. A minute's average hides a five-second freeze; its maximum does not.
+//
+// The five stall.* dims are the share of the last 60 s that tasks spent stalled
+// on a resource, read from the kernel's own pressure accounting. They ship from
+// a Linux agent; a platform without a time-in-stall primitive of its own reports
+// them as unsupported and sends nothing, so their absence is a stated gap rather
+// than a run of zeroes that reads as calm.
 var vitalDims = []string{
 	"cpu.total",
 	"cpu.total.max",
@@ -30,6 +36,11 @@ var vitalDims = []string{
 	"net.tx_bps",
 	"net.tx_bps.max",
 	"disk.mounts_critical",
+	"stall.cpu.some",
+	"stall.mem.some",
+	"stall.mem.full",
+	"stall.io.some",
+	"stall.io.full",
 }
 
 // anomalySeriesPerDevice counts the series a device's health summary occupies:

@@ -10,7 +10,8 @@ use edge_tsdb::Durability;
 use mesh_agent_core::ml::sampler::MetricSample;
 use mesh_agent_core::ml::store_sink::{
     LocalStoreSink, SERIES_CPU, SERIES_DISK, SERIES_DISK_MOUNTS_CRITICAL, SERIES_MEM,
-    SERIES_NET_RX, SERIES_NET_TX,
+    SERIES_NET_RX, SERIES_NET_TX, SERIES_STALL_CPU_SOME, SERIES_STALL_IO_FULL,
+    SERIES_STALL_IO_SOME, SERIES_STALL_MEM_FULL, SERIES_STALL_MEM_SOME,
 };
 
 fn sample(cpu: f32, mem: f32, disk: f32) -> MetricSample {
@@ -21,6 +22,11 @@ fn sample(cpu: f32, mem: f32, disk: f32) -> MetricSample {
         disk_mounts_critical: Some(0),
         network_rx_bps: Some(1_000.0),
         network_tx_bps: Some(2_000.0),
+        stall_cpu_some: Some(0.5),
+        stall_mem_some: Some(0.25),
+        stall_mem_full: Some(0.125),
+        stall_io_some: Some(1.5),
+        stall_io_full: Some(0.75),
         processes: Vec::new(),
     }
 }
@@ -89,6 +95,11 @@ fn each_series_stores_the_field_it_names() {
             disk_mounts_critical: Some(66),
             network_rx_bps: Some(44.0),
             network_tx_bps: Some(55.0),
+            stall_cpu_some: Some(77.0),
+            stall_mem_some: Some(88.0),
+            stall_mem_full: Some(99.0),
+            stall_io_some: Some(12.0),
+            stall_io_full: Some(13.0),
             processes: Vec::new(),
         },
         false,
@@ -109,6 +120,53 @@ fn each_series_stores_the_field_it_names() {
     assert_eq!(stored(SERIES_NET_RX), Some(44.0));
     assert_eq!(stored(SERIES_NET_TX), Some(55.0));
     assert_eq!(stored(SERIES_DISK_MOUNTS_CRITICAL), Some(66.0));
+    assert_eq!(stored(SERIES_STALL_CPU_SOME), Some(77.0));
+    assert_eq!(stored(SERIES_STALL_MEM_SOME), Some(88.0));
+    assert_eq!(stored(SERIES_STALL_MEM_FULL), Some(99.0));
+    assert_eq!(stored(SERIES_STALL_IO_SOME), Some(12.0));
+    assert_eq!(stored(SERIES_STALL_IO_FULL), Some(13.0));
+}
+
+/// A host whose kernel publishes no pressure leaves the five stall series with
+/// no rows at all. A zero row would be indistinguishable from a host that was
+/// measured and never stalled, and reconnect-backfill would then ship that zero
+/// centrally as a measurement.
+#[test]
+fn a_sample_without_pressure_writes_no_stall_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = LocalStoreSink::open(dir.path(), 8 * 1024 * 1024, 1).unwrap();
+    let mut s = sample(10.0, 20.0, 30.0);
+    s.stall_cpu_some = None;
+    s.stall_mem_some = None;
+    s.stall_mem_full = None;
+    s.stall_io_some = None;
+    s.stall_io_full = None;
+    sink.record(5_000, &s, false).unwrap();
+    sink.flush(Durability::Full).unwrap();
+
+    for series in [
+        SERIES_STALL_CPU_SOME,
+        SERIES_STALL_MEM_SOME,
+        SERIES_STALL_MEM_FULL,
+        SERIES_STALL_IO_SOME,
+        SERIES_STALL_IO_FULL,
+    ] {
+        assert!(
+            sink.store()
+                .range_raw(series, i64::MIN, i64::MAX)
+                .unwrap()
+                .is_empty(),
+            "series {series} has no row without a reading"
+        );
+    }
+    // The vitals the host can measure are unaffected.
+    assert_eq!(
+        sink.store()
+            .range_raw(SERIES_CPU, i64::MIN, i64::MAX)
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 /// The critical-mount count is a whole number, and it comes back out of the

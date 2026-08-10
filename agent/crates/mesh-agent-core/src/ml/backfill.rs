@@ -40,7 +40,7 @@ use edge_tsdb::tier::TierPoint;
 use edge_tsdb::{Durability, LocalTsdb, Sample, SeriesId, Tier, TsdbError};
 use mesh_protocol::{BackfillSample, BackfillTier, HistoryPoint};
 
-use super::store_sink::{series_dim_name, series_max_dim_name};
+use super::store_sink::{series_dim_name, series_max_dim_name, series_reduction, WindowReduction};
 
 /// Read side of the local store the backfill engine needs. Implemented by the
 /// store's [`TsdbSnapshot`] in production and by an in-memory fake in tests.
@@ -363,6 +363,11 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
     /// from the averages, so a bucket's maximum is the largest raw sample in it
     /// and not the largest of its own means.
     ///
+    /// A stall vital publishes its latest reading wherever the bucket is the
+    /// 60 s the kernel itself averaged over — the recent tier and the 1 min
+    /// rollup. The 1 hr rollup spans sixty of those kernel windows, so its mean
+    /// summarizes the hour the way it does for every other series.
+    ///
     /// [`emit_ok`]: BackfillDrain::emit_ok
     fn read_buckets(
         &self,
@@ -373,13 +378,22 @@ impl<'a, R: TierReader> BackfillDrain<'a, R> {
     ) -> Result<BTreeMap<i64, Vec<BucketReduction>>, TsdbError> {
         let mut acc: BTreeMap<i64, Vec<BucketReduction>> = BTreeMap::new();
         for &series in self.series {
+            let reduction = series_reduction(series);
             let points: Vec<(i64, f64, f64)> = match tier {
-                BackfillTier::Recent60s => roll_to_60s(&self.reader.range_raw(series, start, end)?),
+                BackfillTier::Recent60s => {
+                    roll_to_60s(&self.reader.range_raw(series, start, end)?, reduction)
+                }
                 BackfillTier::Rollup1m => self
                     .reader
                     .range_tier(series, Tier::T1, start, end)?
                     .into_iter()
-                    .map(|p| (p.bucket, p.avg, p.max))
+                    .map(|p| {
+                        let value = match reduction {
+                            WindowReduction::Mean => p.avg,
+                            WindowReduction::Last => p.last,
+                        };
+                        (p.bucket, value, p.max)
+                    })
                     .collect(),
                 BackfillTier::Rollup1h => self
                     .reader
@@ -413,20 +427,39 @@ pub(crate) fn window_start_60s(ts: i64) -> i64 {
     ts.div_euclid(RECENT_STEP) * RECENT_STEP
 }
 
-/// Fold 1 s raw samples into 60 s windows of `(window start, average, maximum)`,
-/// ascending. A partial window (fewer than 60 samples, e.g. across an offline
-/// gap) reduces the samples that exist — the best available values.
-pub(crate) fn roll_to_60s(samples: &[(Sample, bool)]) -> Vec<(i64, f64, f64)> {
-    let mut acc: BTreeMap<i64, (f64, f64, u32)> = BTreeMap::new();
+/// Fold 1 s raw samples into 60 s windows of `(window start, value, maximum)`,
+/// ascending. `reduction` is the series' own rule for the published value — the
+/// mean of the window for an instantaneous gauge, its latest reading for a stall
+/// vital the kernel has already averaged over 60 s — so a gap-filled point
+/// equals the live point the emitter would have sent for the same window. A
+/// partial window (fewer than 60 samples, e.g. across an offline gap) reduces
+/// the samples that exist — the best available values.
+pub(crate) fn roll_to_60s(
+    samples: &[(Sample, bool)],
+    reduction: WindowReduction,
+) -> Vec<(i64, f64, f64)> {
+    let mut acc: BTreeMap<i64, (f64, f64, u32, i64, f64)> = BTreeMap::new();
     for (s, _) in samples {
         let window = window_start_60s(s.ts);
-        let e = acc.entry(window).or_insert((0.0, f64::NEG_INFINITY, 0));
+        let e = acc
+            .entry(window)
+            .or_insert((0.0, f64::NEG_INFINITY, 0, i64::MIN, 0.0));
         e.0 += s.value;
         e.1 = e.1.max(s.value);
         e.2 += 1;
+        if s.ts >= e.3 {
+            e.3 = s.ts;
+            e.4 = s.value;
+        }
     }
     acc.into_iter()
-        .map(|(w, (sum, max, n))| (w, sum / f64::from(n), max))
+        .map(|(w, (sum, max, n, _, last))| {
+            let value = match reduction {
+                WindowReduction::Mean => sum / f64::from(n),
+                WindowReduction::Last => last,
+            };
+            (w, value, max)
+        })
         .collect()
 }
 
@@ -563,11 +596,43 @@ mod tests {
         let samples: Vec<(Sample, bool)> = (0..150)
             .map(|ts| (Sample::new(ts, ts as f64), false))
             .collect();
-        let rolled = roll_to_60s(&samples);
+        let rolled = roll_to_60s(&samples, WindowReduction::Mean);
         assert_eq!(
             rolled,
             vec![(0, 29.5, 59.0), (60, 89.5, 119.0), (120, 134.5, 149.0)],
             "each 60 s window averages its 1 s samples and keeps the largest"
+        );
+    }
+
+    /// A stall vital is already the kernel's 60 s average, so its window
+    /// publishes the latest reading in it. Averaging the window instead would
+    /// report 29.5 for a minute that ended at 59 — a stall that resolved and a
+    /// stall still in progress would look alike.
+    #[test]
+    fn roll_to_60s_publishes_the_latest_reading_for_a_stall_vital() {
+        let samples: Vec<(Sample, bool)> = (0..150)
+            .map(|ts| (Sample::new(ts, ts as f64), false))
+            .collect();
+        let rolled = roll_to_60s(&samples, WindowReduction::Last);
+        assert_eq!(
+            rolled,
+            vec![(0, 59.0, 59.0), (60, 119.0, 119.0), (120, 149.0, 149.0)],
+            "each 60 s window publishes its latest 1 s reading"
+        );
+    }
+
+    /// Samples reaching the roll-up out of order (a late NTP correction) must
+    /// not make an earlier reading the window's latest.
+    #[test]
+    fn roll_to_60s_latest_reading_is_by_timestamp_not_arrival() {
+        let samples = vec![
+            (Sample::new(30, 7.0), false),
+            (Sample::new(59, 9.0), false),
+            (Sample::new(45, 3.0), false),
+        ];
+        assert_eq!(
+            roll_to_60s(&samples, WindowReduction::Last),
+            vec![(0, 9.0, 9.0)]
         );
     }
 
@@ -577,7 +642,14 @@ mod tests {
             (Sample::new(180, 10.0), false),
             (Sample::new(181, 20.0), false),
         ];
-        assert_eq!(roll_to_60s(&samples), vec![(180, 15.0, 20.0)]);
+        assert_eq!(
+            roll_to_60s(&samples, WindowReduction::Mean),
+            vec![(180, 15.0, 20.0)]
+        );
+        assert_eq!(
+            roll_to_60s(&samples, WindowReduction::Last),
+            vec![(180, 20.0, 20.0)]
+        );
     }
 
     /// A window of negative readings must not report a maximum of zero — the
@@ -588,6 +660,9 @@ mod tests {
             (Sample::new(0, -30.0), false),
             (Sample::new(1, -10.0), false),
         ];
-        assert_eq!(roll_to_60s(&samples), vec![(0, -20.0, -10.0)]);
+        assert_eq!(
+            roll_to_60s(&samples, WindowReduction::Mean),
+            vec![(0, -20.0, -10.0)]
+        );
     }
 }

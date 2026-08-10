@@ -52,13 +52,14 @@ and how much of the store it may occupy.
   `net.rx_bps`, and `net.tx_bps` each ship a companion `.max` carrying the
   window's largest reading. `disk.used_percent` moves too slowly for a
   within-minute peak to mean anything and `disk.mounts_critical` is already a
-  threshold count, so neither has one. That is ten dims of
+  threshold count, so neither has one. With the five stall vitals of
+  [ADR-066](ADR-066-stall-vitals-from-kernel-pressure.md) that is fifteen dims of
   `opengate_edge_metric_avg`.
 - **A per-device cap of 24 series**, counted as the metric dims plus the
   node-wide anomaly rate plus the five per-family rates. Today a Linux device
-  occupies 16; the remaining 8 are reserved for the stall and disk-performance
-  vitals. The next vital of any kind past that spends headroom that no longer
-  exists and re-opens the cap.
+  occupies 21; the remaining 3 are reserved for the disk-performance vitals. The
+  next vital of any kind past that spends headroom that no longer exists and
+  re-opens the cap.
 - **A server-side allowlist** on both write paths — live windows and reconnect
   backfill, which write the same series. A name outside the vocabulary is dropped
   and counted under
