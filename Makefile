@@ -54,6 +54,26 @@ postgres-test-up:
 postgres-test-down:
 	docker rm -f opengate-pg-test 2>/dev/null || true
 
+# One VictoriaMetrics for the whole Go run. testvm memoizes per test BINARY and
+# `go test ./tests/...` builds one per package, so with the URL unset each
+# VictoriaMetrics-touching package starts its own store — several of them holding
+# a fleet's worth of series at once is enough memory pressure for the kernel to
+# kill one mid-run. Image pin matches testvm's; scripts/tests/victoriametrics-prereq.test.sh
+# fails the gauntlet if the two drift.
+victoriametrics-test-up:
+	docker rm -f opengate-vm-test 2>/dev/null || true
+	docker run -d --rm --name opengate-vm-test \
+		-p 8428:8428 victoriametrics/victoria-metrics:v1.114.0
+	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+		curl -fsS --max-time 2 http://127.0.0.1:8428/health >/dev/null 2>&1 && break; \
+		sleep 1; \
+	done
+	@echo "VictoriaMetrics test store ready. Export:"
+	@echo "  export VICTORIAMETRICS_TEST_URL=\"http://127.0.0.1:8428\""
+
+victoriametrics-test-down:
+	docker rm -f opengate-vm-test 2>/dev/null || true
+
 lint: lint-deploy pentest-review
 	cd agent && cargo clippy --workspace -- -D warnings
 	cd server && go vet ./...

@@ -62,6 +62,63 @@ func BaseURL(t testing.TB) string {
 	return url
 }
 
+// Dedicated provisions a VictoriaMetrics reserved for the calling test and
+// removes it when the test ends. extraArgs are appended to the process's command
+// line.
+//
+// URLEnv is deliberately ignored. A measurement that reads VictoriaMetrics' own
+// resident memory, series count or on-disk size is measuring the whole process,
+// so any series another test wrote lands in the answer — and the suite runs
+// against one shared instance by default. Tests that only need somewhere to put
+// samples should use BaseURL and pay nothing.
+//
+// Like BaseURL it never skips: a provisioning failure fails the test.
+func Dedicated(t testing.TB, extraArgs ...string) string {
+	t.Helper()
+	url, terminate, err := startDedicated(extraArgs)
+	if err != nil {
+		t.Fatalf("testvm: provision a dedicated VictoriaMetrics: %v", err)
+	}
+	t.Cleanup(terminate)
+	return url
+}
+
+// startDedicated launches a VictoriaMetrics container and returns its base URL
+// alongside the function that removes it. Unlike the shared container this one
+// is torn down eagerly rather than left to the reaper, because a measurement may
+// start several and each holds the memory it was asked to measure.
+func startDedicated(extraArgs []string) (string, func(), error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	opts := []testcontainers.ContainerCustomizer{
+		testcontainers.WithExposedPorts(httpPort),
+		testcontainers.WithWaitStrategy(
+			wait.ForHTTP("/health").
+				WithPort(httpPort).
+				WithStatusCodeMatcher(func(status int) bool { return status == http.StatusOK }),
+		),
+	}
+	if len(extraArgs) > 0 {
+		opts = append(opts, testcontainers.WithCmd(extraArgs...))
+	}
+
+	c, err := testcontainers.Run(ctx, image, opts...)
+	if err != nil {
+		return "", nil, fmt.Errorf("start VictoriaMetrics container: %w", err)
+	}
+	terminate := func() {
+		_ = testcontainers.TerminateContainer(c)
+	}
+
+	endpoint, err := c.Endpoint(ctx, "http")
+	if err != nil {
+		terminate()
+		return "", nil, fmt.Errorf("resolve VictoriaMetrics endpoint: %w", err)
+	}
+	return endpoint, terminate, nil
+}
+
 // resolveBaseURL uses an external URL from the environment when URLEnv is set,
 // otherwise provisions one via start. It is split out from URL so both branches
 // are unit-testable without the sync.Once memoization and without Docker.

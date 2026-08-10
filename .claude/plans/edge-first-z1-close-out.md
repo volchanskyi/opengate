@@ -16,11 +16,11 @@ with method, date and tool version — an archived plan is deletion-bound, so th
 
 | # | From | What must be recorded |
 |---|---|---|
-| Q3 | EF-B3 | RAM per active series (fit over ≥ 4 points, R²), the 120 000-series total, VM version, and **which of §9.1's four sizing options the owner chose** |
+| Q3 | EF-B3 | Recorded in [Monitoring.md](../../docs/Monitoring.md) (“What an active series costs the central store”): the fit, the 120 000-series total, method, VM version and date. Still to add there: **which of §9.1's four sizing options the owner chose** |
 | Q11 | EF-B10 | T1 reach on a steady-state store, the cap sizes used, the linearity evidence, and the assumed vitals shape |
 | Q12 | EF-C4 | Alerts/device/day, the population it was measured on, and the §9.1.2 option taken — or an explicit statement that no real-population measurement exists yet and the pack is held at canary |
 
-Also record Q2 and Q4 (active series and 30 d disk at fleet scale) from EF-B3.
+Q2 and Q4 (active series and 30 d disk at fleet scale) are recorded in the same section; verify they still match what the harness reports.
 
 ### 2. End-to-end
 

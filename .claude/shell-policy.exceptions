@@ -5,6 +5,7 @@ library	deploy/scripts/common.sh	-	Deployment functions inherit the caller's exe
 library	scripts/lib/vm-push.sh	-	Transport functions are sourced by multiple standalone push scripts.
 library	scripts/lib/vm-query.sh	-	Read-back query functions inherit the sourcing script's execution policy.
 library	scripts/lib/postgres-prereq.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
+library	scripts/lib/victoriametrics-prereq.sh	-	Precommit prerequisite functions inherit the aggregating runner's policy.
 library	scripts/lib/mutation-shards.sh	-	Go mutation shard split sourced by the Makefile and the mutation-workflow test.
 aggregate	.claude/hooks/git-post-commit.sh	-	Best-effort post-commit automation must report failures without failing the commit.
 aggregate	.claude/hooks/pretooluse-gauntlet-nudge.sh	-	Background status nudge treats operational failures as a no-op.
@@ -24,6 +25,7 @@ aggregate	scripts/tests/pentest-review.test.sh	-	Plain-Bash harness accumulates 
 aggregate	scripts/tests/pmat-precommit.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/pmat-summarize.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/postgres-prereq.test.sh	-	Plain-Bash harness asserts expected non-zero probe results.
+aggregate	scripts/tests/victoriametrics-prereq.test.sh	-	Plain-Bash harness asserts expected non-zero probe results.
 aggregate	scripts/tests/sonar-coverage-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/sonar-duplication-guard.test.sh	-	Plain-Bash harness accumulates all assertion failures.
 aggregate	scripts/tests/post-push-clean-caches.test.sh	-	Plain-Bash harness accumulates all assertion failures.

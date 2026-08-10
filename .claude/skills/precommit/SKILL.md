@@ -13,7 +13,7 @@ Run the gauntlet:
 ./scripts/precommit-gauntlet.sh
 ```
 
-Exit 0 = all checks passed; commit allowed. Exit 1 = one or more checks failed (the failing checks' output is printed inline). Exit 2 = a prerequisite is missing (`POSTGRES_TEST_URL`, `SONAR_TOKEN`, `$HOME/go` shadow install). Fix the prerequisite and re-run; **do not bypass**.
+Exit 0 = all checks passed; commit allowed. Exit 1 = one or more checks failed (the failing checks' output is printed inline). Exit 2 = a prerequisite is missing (`POSTGRES_TEST_URL`, `SONAR_TOKEN`, a reachable VictoriaMetrics, `$HOME/go` shadow install). Fix the prerequisite and re-run; **do not bypass**.
 
 The script is the single source of truth — running it here matches what `.claude/hooks/pretooluse-git-commit-guard.sh` runs at commit time, so a passing local run guarantees the hook will not block. The two callers share the same code path; there is no marker shortcut and no way to bypass with a manual file write.
 
@@ -21,7 +21,7 @@ The script is the single source of truth — running it here matches what `.clau
 
 In order, with elapsed time printed per step:
 
-1. **Prerequisites** — `$HOME/go` not a shadow install, `POSTGRES_TEST_URL` set, `SONAR_TOKEN` set.
+1. **Prerequisites** — `$HOME/go` not a shadow install, `POSTGRES_TEST_URL` set and reachable, VictoriaMetrics reachable (auto-started via `make victoriametrics-test-up`, then exported as `VICTORIAMETRICS_TEST_URL` so every Go package shares one store), `SONAR_TOKEN` set.
 2. **Lints** — `cargo fmt --check`, `cargo clippy -D warnings`, `go vet`, `eslint`, `actionlint`, `make taint-go`, `make taint-web`, `make dead-code`, `gitleaks protect --staged`, `make lint-deploy`.
 3. **Codegen sync** — `make verify-codegen` (`oapi-codegen` re-run + clean-diff assertion).
 4. **Tests** — Go unit + integration with `-race`, Rust workspace, Vitest with coverage.
