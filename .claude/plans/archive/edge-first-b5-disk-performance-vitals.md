@@ -11,7 +11,7 @@ be asserted once both exist).
 ## Context — today there is no disk *performance* signal at all
 
 `MetricSample` carries `disk_used_percent` and nothing else about disks
-([sampler.rs:23-40](../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L23-L40)). Capacity answers
+([sampler.rs:23-40](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L23-L40)). Capacity answers
 "is it full"; **nothing answers "is it slow"**. `sysinfo 0.39`'s `Disk::usage()` gives bytes, not
 service time.
 
@@ -40,14 +40,14 @@ never central series.
 
 - **Create:** `agent/crates/mesh-agent-core/src/ml/diskperf.rs` — parser, device filter, worst-device
   reduction, environment detection.
-- **Modify:** [ml/mod.rs](../../agent/crates/mesh-agent-core/src/ml/mod.rs),
-  [sampler.rs](../../agent/crates/mesh-agent-core/src/ml/sampler.rs),
-  [store_sink.rs](../../agent/crates/mesh-agent-core/src/ml/store_sink.rs),
-  [host_metric_stream.rs](../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs).
+- **Modify:** [ml/mod.rs](../../../agent/crates/mesh-agent-core/src/ml/mod.rs),
+  [sampler.rs](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs),
+  [store_sink.rs](../../../agent/crates/mesh-agent-core/src/ml/store_sink.rs),
+  [host_metric_stream.rs](../../../agent/crates/mesh-agent-core/src/ml/host_metric_stream.rs).
 - **Create:** fixture trees — bare-metal, VM guest (`vda`), container (non-root cgroup), wrap/reset,
   and mid-window disappearance.
-- **Regenerate:** [testdata/golden/](../../testdata/golden/) metric-window fixtures.
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md).
+- **Regenerate:** [testdata/golden/](../../../testdata/golden/) metric-window fixtures.
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
 
 ## Steps (TDD-first)
 
@@ -68,7 +68,7 @@ never central series.
 5. **Test first (B19, E29) — counter wrap or reset:** the sample yields `None`, never a negative or
    an enormous rate. **(E28)** a device present in the previous reading and absent now is dropped
    from the reduction with no rate computed across the gap — mirror
-   [`byte_rate`](../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L42)'s existing
+   [`byte_rate`](../../../agent/crates/mesh-agent-core/src/ml/sampler.rs#L42)'s existing
    never-a-wrong-number contract rather than inventing a second convention.
 6. **Test first — no I/O in the interval:** `Δ(reads + writes) == 0` yields `None`, not `0`. A quiet
    disk has no service time; reporting 0 ms would read as "instantaneous", the opposite of the truth.

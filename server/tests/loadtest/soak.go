@@ -32,6 +32,7 @@ var defaultMetricDimNames = []string{
 	"cpu.total", "mem.used_percent", "disk.used_percent", "net.rx_bps", "net.tx_bps",
 	"disk.mounts_critical",
 	"stall.cpu.some", "stall.mem.some", "stall.mem.full", "stall.io.some", "stall.io.full",
+	"disk.await_ms", "disk.queue_depth",
 }
 
 // defaultFamilies are the per-family anomaly-rate buckets a health summary

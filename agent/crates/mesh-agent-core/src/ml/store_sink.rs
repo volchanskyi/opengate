@@ -4,9 +4,11 @@
 //! graduated agent-local [`LocalTsdb`]: the sovereign copy of min/max/last + 1 s
 //! raw that central `avg`-only VictoriaMetrics does not keep. Each host metric
 //! dimension is a fixed series; percentage gauges use ×100 fixed-point (lossless
-//! to centi precision), while the net-rate gauges are rounded to whole
-//! bytes/second and ride the adaptive integer path (lossless), so a live 60 s
-//! average and a reconnect-backfilled average of the same seconds agree exactly.
+//! to centi precision) and the disk-performance gauges ×1000 (service time is
+//! sub-millisecond on an NVMe and queue depth is fractional), while the net-rate
+//! gauges are rounded to whole bytes/second and ride the adaptive integer path
+//! (lossless), so a live 60 s average and a reconnect-backfilled average of the
+//! same seconds agree exactly.
 //!
 //! Writes are buffered and flushed on a cadence — never fsync-per-sample — so the
 //! sampler stays inside the agent's <1 % CPU budget. Detection reads its recent
@@ -20,6 +22,7 @@ use edge_tsdb::{LocalTsdb, Sample, SeriesId, TsdbConfig, TsdbError};
 
 pub use edge_tsdb::Durability;
 
+use super::diskperf::DISK_PERF_SCALE;
 use super::sampler::MetricSample;
 
 /// Global CPU usage percentage.
@@ -44,6 +47,10 @@ pub const SERIES_STALL_MEM_FULL: SeriesId = 8;
 pub const SERIES_STALL_IO_SOME: SeriesId = 9;
 /// Percent of the last 60 s every runnable task was stalled on I/O.
 pub const SERIES_STALL_IO_FULL: SeriesId = 10;
+/// Average service time of one I/O on the slowest block device, milliseconds.
+pub const SERIES_DISK_AWAIT_MS: SeriesId = 11;
+/// Average number of I/Os outstanding on the most backed-up block device.
+pub const SERIES_DISK_QUEUE_DEPTH: SeriesId = 12;
 
 /// Fixed-point scale for percentage gauges: centi precision, lossless.
 const PERCENT_SCALE: i64 = 100;
@@ -54,7 +61,7 @@ const COUNT_SCALE: i64 = 1;
 /// order. The single source of truth paired with [`series_dim_name`]. Ids are a
 /// persistence contract — an agent upgrading in place reads rows it wrote under
 /// the old ones — so a series is appended here, never renumbered or reused.
-pub const BACKFILL_SERIES: [SeriesId; 11] = [
+pub const BACKFILL_SERIES: [SeriesId; 13] = [
     SERIES_CPU,
     SERIES_MEM,
     SERIES_DISK,
@@ -66,6 +73,8 @@ pub const BACKFILL_SERIES: [SeriesId; 11] = [
     SERIES_STALL_MEM_FULL,
     SERIES_STALL_IO_SOME,
     SERIES_STALL_IO_FULL,
+    SERIES_DISK_AWAIT_MS,
+    SERIES_DISK_QUEUE_DEPTH,
 ];
 
 /// How a 60 s bucket reduces the 1 s samples of one series into the single
@@ -118,6 +127,8 @@ pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
         SERIES_STALL_MEM_FULL => Some("stall.mem.full"),
         SERIES_STALL_IO_SOME => Some("stall.io.some"),
         SERIES_STALL_IO_FULL => Some("stall.io.full"),
+        SERIES_DISK_AWAIT_MS => Some("disk.await_ms"),
+        SERIES_DISK_QUEUE_DEPTH => Some("disk.queue_depth"),
         _ => None,
     }
 }
@@ -127,13 +138,18 @@ pub fn series_dim_name(series: SeriesId) -> Option<&'static str> {
 ///
 /// Averaging is what destroys a stall, not the sample rate: over a 60 s window
 /// at 1 Hz, five seconds pinned at 100 % move a 20 % average to 26.7 % — noise
-/// — while the maximum reads 100. So the four gauges where a spike *is* the
-/// signal each ship a companion maximum beside their average. `disk.used_percent`
-/// moves too slowly for a within-minute peak to mean anything, and
-/// `disk.mounts_critical` is already a threshold count, so neither has one. The
-/// stall vitals ship none either: the kernel already reduced a whole minute of
-/// stalling into each reading, so a maximum over a minute of those readings
-/// answers no question the reading itself does not.
+/// — while the maximum reads 100. So the five gauges where a spike *is* the
+/// signal each ship a companion maximum beside their average. `disk.await_ms` is
+/// one of them for exactly that arithmetic: a five-second I/O freeze barely
+/// moves the minute's service time and pins its maximum, which is what tells an
+/// investigator a desktop freeze was I/O-bound rather than CPU-bound.
+/// `disk.used_percent` moves too slowly for a within-minute peak to mean
+/// anything, `disk.mounts_critical` is already a threshold count, and
+/// `disk.queue_depth` is a time-weighted average over the interval rather than
+/// an instantaneous reading, so none of the three has one. The stall vitals ship
+/// none either: the kernel already reduced a whole minute of stalling into each
+/// reading, so a maximum over a minute of those readings answers no question the
+/// reading itself does not.
 #[must_use]
 pub fn series_max_dim_name(series: SeriesId) -> Option<&'static str> {
     match series {
@@ -141,6 +157,7 @@ pub fn series_max_dim_name(series: SeriesId) -> Option<&'static str> {
         SERIES_MEM => Some("mem.used_percent.max"),
         SERIES_NET_RX => Some("net.rx_bps.max"),
         SERIES_NET_TX => Some("net.tx_bps.max"),
+        SERIES_DISK_AWAIT_MS => Some("disk.await_ms.max"),
         _ => None,
     }
 }
@@ -179,6 +196,8 @@ pub fn dim_series(name: &str) -> Option<SeriesId> {
         "stall.mem.full" => Some(SERIES_STALL_MEM_FULL),
         "stall.io.some" => Some(SERIES_STALL_IO_SOME),
         "stall.io.full" => Some(SERIES_STALL_IO_FULL),
+        "disk.await_ms" | "disk.await_ms.max" => Some(SERIES_DISK_AWAIT_MS),
+        "disk.queue_depth" => Some(SERIES_DISK_QUEUE_DEPTH),
         _ => None,
     }
 }
@@ -205,6 +224,8 @@ pub(crate) fn sample_dim_values(sample: &MetricSample) -> [Option<f64>; BACKFILL
         sample.stall_mem_full.map(f64::from),
         sample.stall_io_some.map(f64::from),
         sample.stall_io_full.map(f64::from),
+        sample.disk_await_ms.map(f64::from),
+        sample.disk_queue_depth.map(f64::from),
     ]
 }
 
@@ -235,6 +256,8 @@ impl LocalStoreSink {
         store.set_scale(SERIES_STALL_MEM_FULL, PERCENT_SCALE);
         store.set_scale(SERIES_STALL_IO_SOME, PERCENT_SCALE);
         store.set_scale(SERIES_STALL_IO_FULL, PERCENT_SCALE);
+        store.set_scale(SERIES_DISK_AWAIT_MS, DISK_PERF_SCALE);
+        store.set_scale(SERIES_DISK_QUEUE_DEPTH, DISK_PERF_SCALE);
         Ok(Self {
             store,
             commit_every: commit_every.max(1),
@@ -299,10 +322,10 @@ impl LocalStoreSink {
 mod tests {
     use super::{
         central_dim_names, dim_series, series_dim_name, series_max_dim_name, series_reduction,
-        SeriesId, WindowReduction, BACKFILL_SERIES, SERIES_CPU, SERIES_DISK,
-        SERIES_DISK_MOUNTS_CRITICAL, SERIES_MEM, SERIES_NET_RX, SERIES_NET_TX,
-        SERIES_STALL_CPU_SOME, SERIES_STALL_IO_FULL, SERIES_STALL_IO_SOME, SERIES_STALL_MEM_FULL,
-        SERIES_STALL_MEM_SOME,
+        SeriesId, WindowReduction, BACKFILL_SERIES, SERIES_CPU, SERIES_DISK, SERIES_DISK_AWAIT_MS,
+        SERIES_DISK_MOUNTS_CRITICAL, SERIES_DISK_QUEUE_DEPTH, SERIES_MEM, SERIES_NET_RX,
+        SERIES_NET_TX, SERIES_STALL_CPU_SOME, SERIES_STALL_IO_FULL, SERIES_STALL_IO_SOME,
+        SERIES_STALL_MEM_FULL, SERIES_STALL_MEM_SOME,
     };
 
     #[test]
@@ -313,7 +336,7 @@ mod tests {
             let name = series_dim_name(series).expect("every backfill series has a label");
             assert_eq!(dim_series(name), Some(series), "round-trips for {name}");
         }
-        assert_eq!(BACKFILL_SERIES.len(), 11);
+        assert_eq!(BACKFILL_SERIES.len(), 13);
     }
 
     /// Each series appears exactly once. A duplicate would double-count the dim
@@ -344,13 +367,15 @@ mod tests {
                 SERIES_STALL_MEM_FULL,
                 SERIES_STALL_IO_SOME,
                 SERIES_STALL_IO_FULL,
+                SERIES_DISK_AWAIT_MS,
+                SERIES_DISK_QUEUE_DEPTH,
             ],
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
         );
     }
 
-    /// A `.max` label resolves back to the series it summarizes, and the four
-    /// gauges that ship a maximum are exactly the four where a within-window
+    /// A `.max` label resolves back to the series it summarizes, and the five
+    /// gauges that ship a maximum are exactly the five where a within-window
     /// spike is the signal.
     #[test]
     fn max_labels_resolve_to_the_series_they_summarize() {
@@ -371,16 +396,22 @@ mod tests {
             .collect();
         assert_eq!(
             with_max,
-            vec![SERIES_CPU, SERIES_MEM, SERIES_NET_RX, SERIES_NET_TX]
+            vec![
+                SERIES_CPU,
+                SERIES_MEM,
+                SERIES_NET_RX,
+                SERIES_NET_TX,
+                SERIES_DISK_AWAIT_MS
+            ]
         );
     }
 
-    /// The emitted vocabulary is exactly fifteen names, each appearing once, in
+    /// The emitted vocabulary is exactly eighteen names, each appearing once, in
     /// series order with every maximum beside its average. The central series
     /// cap is counted against this list, so a name added here is a deliberate
-    /// spend of the remaining headroom.
+    /// spend of headroom that no longer exists.
     #[test]
-    fn the_central_dim_vocabulary_is_fifteen_distinct_names() {
+    fn the_central_dim_vocabulary_is_eighteen_distinct_names() {
         let names = central_dim_names();
         assert_eq!(
             names,
@@ -400,12 +431,68 @@ mod tests {
                 "stall.mem.full",
                 "stall.io.some",
                 "stall.io.full",
+                "disk.await_ms",
+                "disk.await_ms.max",
+                "disk.queue_depth",
             ]
         );
         let mut sorted = names.clone();
         sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted.len(), names.len(), "no dim is emitted twice");
+    }
+
+    /// The health summary's own series, beside the vital dims: one node-wide
+    /// anomaly rate and one per detected metric family (cpu, mem, disk, net,
+    /// proc).
+    const ANOMALY_SERIES: usize = 1 + 5;
+    /// The most central series one device may occupy. The server's ingest path
+    /// enforces the same number against its own allowlist, and the cross-language
+    /// golden fixture pins the two vocabularies together; asserting it here is
+    /// what makes a dim added to the agent's contract fail before it reaches the
+    /// wire.
+    const VITAL_SERIES_CAP: usize = 24;
+
+    /// Whether a dim comes from a source only Linux publishes — kernel pressure
+    /// or `/proc/diskstats`.
+    fn is_linux_only(name: &str) -> bool {
+        name.starts_with("stall.")
+            || matches!(
+                dim_series(name),
+                Some(SERIES_DISK_AWAIT_MS | SERIES_DISK_QUEUE_DEPTH)
+            )
+    }
+
+    /// The whole per-device cost, in one assertion: a Linux host writes eighteen
+    /// dims plus the node-wide anomaly rate and five per-family rates, which is
+    /// **exactly** the cap of 24. The headroom the contract reserved is now
+    /// spent, so the next vital of any kind re-opens the cap rather than fitting
+    /// quietly.
+    #[test]
+    fn a_linux_device_occupies_exactly_the_central_cap() {
+        assert_eq!(central_dim_names().len() + ANOMALY_SERIES, VITAL_SERIES_CAP);
+    }
+
+    /// A host with neither `/proc/diskstats` nor kernel pressure — every
+    /// non-Linux platform, and a container for the disk half — writes the sixteen
+    /// platform-neutral series, and the missing eight are *absent*: a vital the
+    /// host cannot measure ships no dim at all, which is how coverage accounting
+    /// can call it unsupported instead of reading a run of zeroes as calm.
+    #[test]
+    fn a_host_without_the_linux_only_sources_occupies_sixteen() {
+        let names = central_dim_names();
+        let platform_neutral: Vec<&str> = names
+            .iter()
+            .copied()
+            .filter(|name| !is_linux_only(name))
+            .collect();
+
+        assert_eq!(platform_neutral.len() + ANOMALY_SERIES, 16);
+        assert_eq!(
+            names.len() - platform_neutral.len(),
+            8,
+            "five stall vitals and three disk-performance dims"
+        );
     }
 
     #[test]
@@ -415,6 +502,11 @@ mod tests {
         assert_eq!(series_max_dim_name(SERIES_DISK), None);
         assert_eq!(dim_series("nope.unknown"), None);
         assert_eq!(dim_series("disk.used_percent.max"), None);
+        assert_eq!(
+            dim_series("disk.queue_depth.max"),
+            None,
+            "queue depth is already an average over the interval"
+        );
     }
 
     /// The contract carries no `stall.cpu.full`: the kernel defines it as always
@@ -448,6 +540,8 @@ mod tests {
             SERIES_NET_RX,
             SERIES_NET_TX,
             SERIES_DISK_MOUNTS_CRITICAL,
+            SERIES_DISK_AWAIT_MS,
+            SERIES_DISK_QUEUE_DEPTH,
         ] {
             assert_eq!(series_reduction(series), WindowReduction::Mean);
         }

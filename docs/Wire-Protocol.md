@@ -134,16 +134,17 @@ Live host metrics reuse `AgentMetricWindow`: the sampler folds its 1 s samples
 into a 60 s window and emits one window per minute over a bounded channel that
 drops under pressure, so a burst never backpressures the control stream. Each
 `dims` entry is a host-resource series (`cpu.total`, `mem.used_percent`,
-`disk.used_percent`, `net.rx_bps`, `net.tx_bps`, `disk.mounts_critical`, and the
-five `stall.*` vitals) carrying that window's average, and the four where a
-within-minute spike is the signal carry the maximum too, under the same name
-suffixed `.max` (`cpu.total.max`, `mem.used_percent.max`, `net.rx_bps.max`,
-`net.tx_bps.max`). A minute's average hides a five-second freeze; its maximum is
-what recovers it. The net dims are primary-interface throughput in bytes/second
-(rounded to whole bytes so they stay on the lossless integer path). The server
-writes only these fifteen names — a dim outside the vocabulary is dropped and
-counted, so central cardinality is a property of the contract rather than of what
-an agent sends. The two disk dims are a per-mount
+`disk.used_percent`, `net.rx_bps`, `net.tx_bps`, `disk.mounts_critical`, the five
+`stall.*` vitals, `disk.await_ms` and `disk.queue_depth`) carrying that window's
+average, and the five where a within-minute spike is the signal carry the maximum
+too, under the same name suffixed `.max` (`cpu.total.max`,
+`mem.used_percent.max`, `net.rx_bps.max`, `net.tx_bps.max`,
+`disk.await_ms.max`). A minute's average hides a five-second freeze; its maximum
+is what recovers it. The net dims are primary-interface throughput in
+bytes/second (rounded to whole bytes so they stay on the lossless integer path).
+The server writes only these eighteen names — a dim outside the vocabulary is
+dropped and counted, so central cardinality is a property of the contract rather
+than of what an agent sends. The two disk capacity dims are a per-mount
 reduction ([`sampler.rs`](../agent/crates/mesh-agent-core/src/ml/sampler.rs)):
 **`disk.used_percent` is the fullest mount**, not a pooled average over every
 mount's bytes, and `disk.mounts_critical` counts the mounts at or above the
@@ -158,7 +159,14 @@ memory and I/O, read from the kernel's own pressure accounting
 whose kernel publishes no such accounting ships none of them, for the same
 reason. Because the kernel has already averaged each of those readings over
 60 s, a stall dim carries the window's latest reading where the other dims carry
-their mean. The 60 s fold matches reconnect-backfill's roll-up exactly, values
+their mean. `disk.await_ms` and `disk.queue_depth` answer how *slow* the disks
+are rather than how full — average service time per I/O and average outstanding
+I/Os, each from the worst device chosen independently, derived from the kernel's
+per-device counters ([`diskperf.rs`](../agent/crates/mesh-agent-core/src/ml/diskperf.rs)).
+A containerized agent ships neither, because those counters are host-wide and
+would report its neighbours' I/O as its own, and a device that completed no I/O
+in the interval ships no service time rather than a zero that would read as
+instantaneous. The 60 s fold matches reconnect-backfill's roll-up exactly, values
 and maxima alike, so a live point and a later gap-filled point for the same
 `(dim, ts)` land in one series. On the on-demand log query, `RequestDeviceLogs.source` selects the log
 source (`host` resolves the platform system log, journald on Linux; empty or

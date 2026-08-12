@@ -42,15 +42,14 @@ const (
 )
 
 // vitalSeriesCap is the most central series one device may occupy — the same
-// cap the ingest path enforces (server/internal/agentapi/vitals.go). The count
-// below sits under it by the headroom the disk-performance vitals are reserved
-// for.
+// cap the ingest path enforces (server/internal/agentapi/vitals.go). A Linux
+// device now writes exactly this many.
 const vitalSeriesCap = 24
 
 // metricDims is every dimension of opengate_edge_metric_avg a device writes:
-// each gauge's average, the window maximum for the four where a within-minute
-// spike is the signal, and the five stall vitals a Linux device reads from the
-// kernel's pressure accounting.
+// each gauge's average, the window maximum for the five where a within-minute
+// spike is the signal, the five stall vitals a Linux device reads from the
+// kernel's pressure accounting, and the three that say how slow its disks are.
 var metricDims = []string{
 	"cpu.total",
 	"cpu.total.max",
@@ -67,6 +66,9 @@ var metricDims = []string{
 	"stall.mem.full",
 	"stall.io.some",
 	"stall.io.full",
+	"disk.await_ms",
+	"disk.await_ms.max",
+	"disk.queue_depth",
 }
 
 // anomalyFamilies are the metric families the health summary reports a rate for,
@@ -86,11 +88,9 @@ func seriesPerDevice() int { return len(metricDims) + 1 + len(anomalyFamilies) }
 // TestSeriesModelFitsTheCap pins the per-device cost and its headroom before any
 // VM is involved, so a dim added to the contract without a decision fails here.
 func TestSeriesModelFitsTheCap(t *testing.T) {
-	require.Equal(t, 21, seriesPerDevice(), "the vitals a Linux device emits today")
-	require.LessOrEqual(t, seriesPerDevice(), vitalSeriesCap,
-		"a device's series must fit the central cap")
-	require.Equal(t, 3, vitalSeriesCap-seriesPerDevice(),
-		"headroom reserved for the disk-performance vitals")
+	require.Equal(t, 24, seriesPerDevice(), "the vitals a Linux device emits today")
+	require.Equal(t, vitalSeriesCap, seriesPerDevice(),
+		"a Linux device now occupies the whole cap, so the next vital re-opens it")
 
 	// Central growth is linear in agent count at this per-device cost.
 	require.LessOrEqual(t, seriesPerDevice()*referenceAgents, seriesBudget,

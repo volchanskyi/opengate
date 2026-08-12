@@ -91,24 +91,26 @@ func TestGoldenControlAgentMetricWindow(t *testing.T) {
 }
 
 func TestGoldenControlAgentMetricWindowHostMetrics(t *testing.T) {
-	// The host-metric emitter aggregates the 1 s sampler into a 10 s-average
-	// AgentMetricWindow over the eleven host-resource series, four of which also
-	// carry the window maximum: a minute's average hides a stall and its maximum
-	// recovers it. The dim names are the shared central labels, in the order a
-	// window emits them; the net dims are primary-interface throughput in
+	// The host-metric emitter aggregates the 1 s sampler into a 60 s-average
+	// AgentMetricWindow over the thirteen host-resource series, five of which
+	// also carry the window maximum: a minute's average hides a stall and its
+	// maximum recovers it. The dim names are the shared central labels, in the
+	// order a window emits them; the net dims are primary-interface throughput in
 	// bytes/second, reduced the same way reconnect-backfill rolls them, so live
 	// and backfilled points land in the same series. disk.used_percent is the
 	// fullest mount, disk.mounts_critical counts the mounts at or above the
-	// critical threshold, and the five stall dims are the share of the minute
-	// tasks spent stalled, straight from the kernel's pressure accounting — this
-	// fixture is a file server whose small system volume is nearly full beside a
-	// large, mostly empty data volume, during a minute whose CPU briefly pinned
-	// and whose readers spent two fifths of their time waiting on the disk.
+	// critical threshold, the five stall dims are the share of the minute tasks
+	// spent stalled straight from the kernel's pressure accounting, and the last
+	// three are how slow the worst block device was — this fixture is a file
+	// server whose small system volume is nearly full beside a large, mostly
+	// empty data volume, during a minute whose CPU briefly pinned, whose readers
+	// spent two fifths of their time waiting on the disk, and whose data device
+	// answered a typical I/O in 18.5 ms while one stretch of the minute took 812.
 	msg := decodeControlFrame(t, "control_agent_metric_window_host_metrics.bin")
 	assert.Equal(t, MsgAgentMetricWindow, msg.Type)
 	assert.Equal(t, int64(1700000260), msg.TS)
 	assert.Equal(t, "00000000-0000-0000-0000-000000000002", msg.TenantID)
-	require.Len(t, msg.Dims, 15)
+	require.Len(t, msg.Dims, 18)
 	want := []struct {
 		name string
 		avg  float64
@@ -128,6 +130,9 @@ func TestGoldenControlAgentMetricWindowHostMetrics(t *testing.T) {
 		{"stall.mem.full", 0.25},
 		{"stall.io.some", 41.5},
 		{"stall.io.full", 39.0},
+		{"disk.await_ms", 18.5},
+		{"disk.await_ms.max", 812.0},
+		{"disk.queue_depth", 27.25},
 	}
 	for i, w := range want {
 		assert.Equal(t, w.name, msg.Dims[i].Name, "dim %d name", i)

@@ -99,9 +99,10 @@ reduction. Contoso's terminal server now reads `stall.mem.some` near 20 while
 memory utilization sits at 38 %, which is the fact that matches what users
 report.
 
-Three series of the per-device cap remain, reserved for the disk-performance
-vitals. After those the next vital of any kind re-opens the cap — the intended
-friction.
+These five take a Linux device to 21 of the per-device cap; the
+disk-performance vitals of [ADR-067](ADR-067-disk-performance-vitals.md) spend
+the last three, after which the next vital of any kind re-opens the cap — the
+intended friction.
 
 Fleet coverage becomes something that must be reported rather than assumed: a
 device with no stall vitals is a device that cannot supply them, and the

@@ -26,6 +26,8 @@ fn sample(cpu: f32, mem: f32, disk: f32) -> MetricSample {
         stall_mem_full: Some(0.0),
         stall_io_some: Some(0.0),
         stall_io_full: Some(0.0),
+        disk_await_ms: Some(0.0),
+        disk_queue_depth: Some(0.0),
         processes: Vec::<ProcessSample>::new(),
     }
 }

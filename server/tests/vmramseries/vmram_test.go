@@ -28,7 +28,6 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -146,17 +145,29 @@ const (
 // would not be a measurement of anything.
 var vmArgs = []string{"-memory.allowedBytes=1073741824"}
 
-// How resident memory is read at a load point. Two effects are being defended
-// against: the Go runtime hands memory back to the operating system on its own
-// schedule, so one scrape can catch a transient that the median of a few spaced
-// readings cannot; and VictoriaMetrics keeps claiming caches and merging parts
-// after an import returns, so memory has to be given the chance to stop moving
-// before it describes the store it is supposed to describe.
+// How resident memory is read at a load point. Two properties of the process
+// being measured decide this.
+//
+// VictoriaMetrics refreshes the process metrics it reports about itself once a
+// second, so two scrapes taken closer together than that return one number
+// twice. A reading assembled from them describes the refresh interval, not the
+// store, and its steadiness is not evidence that anything has settled.
+//
+// The Go runtime frees what an import allocated only when it collects. Left
+// alone, resident memory holds a plateau of garbage that is perfectly stable
+// and unrelated to the series held — which is how a larger load point reads
+// smaller than the one before it, and takes the fit down with it.
+//
+// So a load point's reading is taken after forcing collection, repeatedly,
+// until it stops falling. One collection is not always enough: the runtime
+// returns pages over several cycles, and the residue of the warm-up drains
+// across the early points. What this converges on is the memory the store needs
+// to hold what it holds, measured in the same runtime state at every load
+// point, which is the comparability a line through those points depends on.
 const (
-	rssReadings        = 3
-	rssReadInterval    = 400 * time.Millisecond
-	rssSettleAttempts  = 20
-	rssSettleTolerance = 0.02
+	rssRefreshInterval = 1200 * time.Millisecond
+	rssSettleAttempts  = 12
+	rssSettleTolerance = 0.01
 )
 
 // gaugeDriftSamples is how many cadence ticks a synthetic gauge takes to swing
@@ -193,11 +204,12 @@ func TestRAMPerActiveSeriesFit(t *testing.T) {
 	warmSeries := warmupDevices * seriesPerDevice()
 	require.Equal(t, warmSeries, settleSeries(t, base, warmSeries))
 	t.Logf("EVIDENCE Q3 warm-up series=%d rss=%.1f MB — the startup ramp, excluded from the fit",
-		warmSeries, residentBytes(t, base)/megabyte)
+		warmSeries, collectedResidentBytes(t, base)/megabyte)
 
 	readings := make([]seriesRAMPoint, 0, len(points))
 	written := warmupDevices
-	for _, total := range points {
+	var topInUse float64
+	for i, total := range points {
 		ingest(t, base, vitalsExposition(runID, devices[written:total], 0))
 		written = total
 
@@ -206,9 +218,20 @@ func TestRAMPerActiveSeriesFit(t *testing.T) {
 		require.Equalf(t, want, got,
 			"%d devices must hold %d series; VictoriaMetrics counted %d", total, want, got)
 
-		rss := residentBytes(t, base)
+		// At the top of the load, memory is also read with the import's garbage
+		// still in it — the figure a pod is sized from. It is taken a refresh
+		// interval after the import so the number belongs to this load point
+		// rather than to the last one the cache saw, and it is deliberately not a
+		// point on the line: what the runtime happens to be holding at the moment
+		// of a scrape is not a property of the series held.
+		if i == len(points)-1 {
+			time.Sleep(rssRefreshInterval)
+			topInUse = residentBytes(t, base)
+		}
+
+		rss := collectedResidentBytes(t, base)
 		readings = append(readings, seriesRAMPoint{series: got, rss: rss})
-		t.Logf("EVIDENCE Q3 point devices=%d series=%d rss=%.1f MB", total, got, rss/megabyte)
+		t.Logf("EVIDENCE Q3 point devices=%d series=%d rss=%.1f MB collected", total, got, rss/megabyte)
 	}
 
 	fit, err := fitSeriesRAM(readings)
@@ -228,6 +251,8 @@ func TestRAMPerActiveSeriesFit(t *testing.T) {
 	t.Logf("EVIDENCE Q3 projection at Q2's %d series: marginal %.1f MB, with baseline %.1f MB (budget %d MB)",
 		seriesBudget, fit.marginalRAMBytes(seriesBudget)/megabyte,
 		fit.projectRAMBytes(seriesBudget)/megabyte, ramBudgetBytes/megabyte)
+	t.Logf("EVIDENCE Q3 the projection is what the data costs: at the top load point the process held %.1f MB with the import's garbage still in it against %.1f MB collected, and a pod pays that difference too",
+		topInUse/megabyte, last.rss/megabyte)
 }
 
 // TestDiskPerSampleAtVitalsCadence is Q4: bytes on disk per stored sample,
@@ -319,21 +344,6 @@ func envInt(t *testing.T, name string, fallback int) int {
 	require.NoErrorf(t, err, "%s=%q is not a number", name, raw)
 	require.Positivef(t, n, "%s must be positive, got %d", name, n)
 	return n
-}
-
-// median returns the middle of a set of readings without reordering the
-// caller's slice.
-func median(readings []float64) float64 {
-	if len(readings) == 0 {
-		return 0
-	}
-	sorted := append([]float64(nil), readings...)
-	sort.Float64s(sorted)
-	mid := len(sorted) / 2
-	if len(sorted)%2 == 1 {
-		return sorted[mid]
-	}
-	return (sorted[mid-1] + sorted[mid]) / 2
 }
 
 // deviceIDs returns n device ids unique to this run.
@@ -445,43 +455,43 @@ func settleDisk(t *testing.T, base string) float64 {
 	return last
 }
 
-// residentBytes returns the VictoriaMetrics process's resident memory once it
-// has stopped moving: successive medians are read until two agree within the
-// tolerance, or the attempts are spent and the last one is returned for the
-// caller to assert on.
+// collectedResidentBytes returns the VictoriaMetrics process's resident memory
+// with the garbage of the import that just finished collected out of it:
+// collection is forced and the memory re-read until the reading stops falling,
+// and the lowest reading is what the load point is credited with.
 //
-// Reading the instant an import returns measures a store that has not finished
-// absorbing it. That under-reports the early load points and so puts a ramp in
-// the middle of the line, which the fit then charges to the series — the same
-// error as dividing by N, arrived at by a longer route.
-func residentBytes(t *testing.T, base string) float64 {
+// Exhausting the attempts returns the last reading rather than raising, so a
+// store that never converges shows up as a point the fit cannot explain — a
+// loud failure on the real numbers, which is what the assertions are for.
+func collectedResidentBytes(t *testing.T, base string) float64 {
 	t.Helper()
-	var previous float64
+	previous := math.Inf(1)
 	for range rssSettleAttempts {
-		current := medianResident(t, base)
-		if previous > 0 && math.Abs(current-previous) <= rssSettleTolerance*previous {
-			return current
+		forceCollection(t, base)
+		time.Sleep(rssRefreshInterval)
+		current := residentBytes(t, base)
+		if current >= previous*(1-rssSettleTolerance) {
+			return math.Min(current, previous)
 		}
 		previous = current
 	}
 	return previous
 }
 
-// medianResident takes a few spaced readings of resident memory and returns the
-// middle one, so a single garbage-collection transient cannot stand for the load
-// point.
-func medianResident(t *testing.T, base string) float64 {
+// residentBytes reads the resident memory VictoriaMetrics reports for itself, as
+// of its last refresh of its own process metrics.
+func residentBytes(t *testing.T, base string) float64 {
 	t.Helper()
-	readings := make([]float64, 0, rssReadings)
-	for i := range rssReadings {
-		if i > 0 {
-			time.Sleep(rssReadInterval)
-		}
-		rss, ok := promGauge(scrape(t, base), "process_resident_memory_bytes")
-		require.True(t, ok, "VictoriaMetrics must report its own resident memory")
-		readings = append(readings, rss)
-	}
-	return median(readings)
+	rss, ok := promGauge(scrape(t, base), "process_resident_memory_bytes")
+	require.True(t, ok, "VictoriaMetrics must report its own resident memory")
+	return rss
+}
+
+// forceCollection makes the store's runtime collect before its memory is read.
+// The heap profile it returns is discarded; running the collection is the point.
+func forceCollection(t *testing.T, base string) {
+	t.Helper()
+	require.Equal(t, http.StatusOK, get(t, base+"/debug/pprof/heap?gc=1").status)
 }
 
 func forceFlush(t *testing.T, base string) {

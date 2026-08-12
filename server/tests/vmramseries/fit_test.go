@@ -2,7 +2,6 @@ package vmramseries
 
 import (
 	"errors"
-	"math"
 	"testing"
 	"time"
 
@@ -371,29 +370,6 @@ func TestLoadPoints(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestMedian(t *testing.T) {
-	tests := []struct {
-		name string
-		in   []float64
-		want float64
-	}{
-		{name: "odd count takes the middle reading", in: []float64{30, 10, 20}, want: 20},
-		{name: "even count averages the middle pair", in: []float64{40, 10, 30, 20}, want: 25},
-		{name: "one reading is its own median", in: []float64{7}, want: 7},
-		{name: "a garbage-collection spike does not move it", in: []float64{100, 101, 260}, want: 101},
-		{name: "no readings", in: nil, want: 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			in := append([]float64(nil), tt.in...)
-			require.InDelta(t, tt.want, median(in), 1e-9)
-			require.Equal(t, tt.in, in, "median must not reorder the caller's readings")
-			require.False(t, math.IsNaN(median(in)))
 		})
 	}
 }

@@ -18,13 +18,18 @@ package agentapi
 // vitalDims is every dimension of opengate_edge_metric_avg a device may write,
 // in the order a window carries them: each gauge's average, followed by its
 // window maximum where a within-minute spike is the signal, then the stall
-// vitals. A minute's average hides a five-second freeze; its maximum does not.
+// vitals and the disk-performance vitals. A minute's average hides a
+// five-second freeze; its maximum does not.
 //
 // The five stall.* dims are the share of the last 60 s that tasks spent stalled
-// on a resource, read from the kernel's own pressure accounting. They ship from
-// a Linux agent; a platform without a time-in-stall primitive of its own reports
-// them as unsupported and sends nothing, so their absence is a stated gap rather
-// than a run of zeroes that reads as calm.
+// on a resource, read from the kernel's own pressure accounting. The three disk
+// dims at the end answer how *slow* the disks were rather than how full: service
+// time per I/O on the worst device, its within-minute peak, and how many I/Os
+// were outstanding on average. Both sets ship from a Linux agent; a platform
+// without the kernel sources of its own — and a containerized agent, whose
+// host-wide disk counters are its neighbours' — reports them as unsupported and
+// sends nothing, so their absence is a stated gap rather than a run of zeroes
+// that reads as calm.
 var vitalDims = []string{
 	"cpu.total",
 	"cpu.total.max",
@@ -41,6 +46,9 @@ var vitalDims = []string{
 	"stall.mem.full",
 	"stall.io.some",
 	"stall.io.full",
+	"disk.await_ms",
+	"disk.await_ms.max",
+	"disk.queue_depth",
 }
 
 // anomalySeriesPerDevice counts the series a device's health summary occupies:
@@ -51,7 +59,8 @@ const anomalySeriesPerDevice = 1 + 5
 // vitalSeriesCap is the most central series one device may occupy. The count is
 // the whole cardinality budget per device, so it is a fixed number here rather
 // than a consequence of whatever the fleet happens to emit: crossing it is a
-// schema decision, not an accident.
+// schema decision, not an accident. A Linux device now writes exactly this many,
+// so the next vital of any kind is a decision about the cap itself.
 const vitalSeriesCap = 24
 
 // vitalDimSet is vitalDims as a lookup, built once at startup so the ingest path

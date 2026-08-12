@@ -18,6 +18,8 @@ crate mesh_agent_core
 ├── mod maintenance: pub
 ├── mod ml: pub
 │   ├── mod backfill: pub
+│   ├── mod cgroup: pub
+│   ├── mod diskperf: pub
 │   ├── mod ensemble: pub
 │   ├── mod host_metric_stream: pub
 │   ├── mod kmeans: pub

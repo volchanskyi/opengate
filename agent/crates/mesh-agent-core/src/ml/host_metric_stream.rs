@@ -13,10 +13,12 @@
 //! [`series_reduction`], and take the largest raw reading, so a live point and a
 //! later gap-filled point for the same `(dim, ts)` are equal and land in one
 //! central series. The net dims are primary-interface throughput in
-//! bytes/second, the disk dims are the worst-mount reduction, and the stall dims
-//! are the kernel's own pressure averages; a sample carrying no reading for a
-//! dim — an uncomputable net rate, a host with no measurable mount, or a kernel
-//! that publishes no pressure — is skipped for that dim alone (per-dim counts),
+//! bytes/second, the disk capacity dims are the worst-mount reduction, the disk
+//! performance dims are the worst device's service time and queue depth, and the
+//! stall dims are the kernel's own pressure averages; a sample carrying no
+//! reading for a dim — an uncomputable net rate, a host with no measurable mount,
+//! a kernel that publishes no pressure, or a containerized agent that refuses
+//! host-wide disk counters — is skipped for that dim alone (per-dim counts),
 //! exactly as the local store leaves a gap that backfill then rolls over the
 //! same seconds.
 
@@ -31,12 +33,13 @@ use super::store_sink::{
 
 /// The number of host-resource series streamed per window, in [`BACKFILL_SERIES`]
 /// order (`cpu.total`, `mem.used_percent`, `disk.used_percent`, `net.rx_bps`,
-/// `net.tx_bps`, `disk.mounts_critical`, then the five stall vitals). Readings
-/// come from [`sample_dim_values`], the same mapping
+/// `net.tx_bps`, `disk.mounts_critical`, the five stall vitals, then
+/// `disk.await_ms` and `disk.queue_depth`). Readings come from
+/// [`sample_dim_values`], the same mapping
 /// [`super::store_sink::LocalStoreSink::record`] persists, so the live value and
 /// the backfilled value fold identically. A `None` entry is skipped from that
-/// dim's reduction. Four of these series also ship a maximum, so a window
-/// carries up to fifteen dims.
+/// dim's reduction. Five of these series also ship a maximum, so a window
+/// carries up to eighteen dims.
 const DIMS: usize = BACKFILL_SERIES.len();
 
 /// Folds 1 s host samples into 60 s metric windows. Feed every sample through
@@ -203,6 +206,8 @@ mod tests {
             stall_mem_full: None,
             stall_io_some: None,
             stall_io_full: None,
+            disk_await_ms: None,
+            disk_queue_depth: None,
             processes: Vec::new(),
         };
         // A minute that reads 20 % except for five consecutive pinned seconds.
@@ -263,6 +268,10 @@ mod tests {
                     stall_mem_full: measurable.then_some((i as f32) * 0.03),
                     stall_io_some: measurable.then_some((i as f32) * 0.21),
                     stall_io_full: measurable.then_some((i as f32) * 0.11),
+                    // Milli-resolution readings, so a path that quantized one
+                    // side and not the other would diverge here.
+                    disk_await_ms: measurable.then_some(0.125 + (i as f32) * 0.5),
+                    disk_queue_depth: Some((i as f32) * 0.25),
                     processes: Vec::new(),
                 };
                 (ts, s)
@@ -342,6 +351,8 @@ mod tests {
             stall_mem_full: Some(0.0),
             stall_io_some: Some(0.0),
             stall_io_full: Some(0.0),
+            disk_await_ms: Some(0.0),
+            disk_queue_depth: Some(0.0),
             processes: Vec::new(),
         };
         // 1_700_000_040 is a 60 s boundary, so the whole minute after it folds
@@ -385,6 +396,8 @@ mod tests {
             stall_mem_full: Some(1.0),
             stall_io_some: Some(1.0),
             stall_io_full: Some(1.0),
+            disk_await_ms: Some(1.0),
+            disk_queue_depth: Some(1.0),
             processes: Vec::new(),
         };
         // Two samples in the first 60 s bucket: net None then net 100/200.
@@ -416,7 +429,7 @@ mod tests {
 
     /// The window ships the full vocabulary and nothing else, in contract order.
     #[test]
-    fn a_full_window_ships_the_fifteen_dim_contract_in_order() {
+    fn a_full_window_ships_the_eighteen_dim_contract_in_order() {
         let mut w = HostMetricWindower::new();
         let s = MetricSample {
             cpu_total_percent: 1.0,
@@ -430,6 +443,8 @@ mod tests {
             stall_mem_full: Some(8.0),
             stall_io_some: Some(9.0),
             stall_io_full: Some(10.0),
+            disk_await_ms: Some(11.0),
+            disk_queue_depth: Some(12.0),
             processes: Vec::new(),
         };
         assert!(w.push(1_700_000_000, &s).is_none());
@@ -441,7 +456,96 @@ mod tests {
             other => panic!("expected AgentMetricWindow, got {other:?}"),
         };
         assert_eq!(names, crate::ml::store_sink::central_dim_names());
-        assert_eq!(names.len(), 15);
+        assert_eq!(names.len(), 18);
+    }
+
+    /// B16: the disk analogue of the CPU freeze. WS-4471's desktop locks up for
+    /// five seconds at 12:05; `cpu.total.max` already says 100 %, which does not
+    /// say *why*. If the same minute's `disk.await_ms` averages 3 ms while its
+    /// maximum reads 800, the freeze was I/O-bound rather than CPU-bound — a
+    /// completely different fix, and one no average could have pointed at.
+    #[test]
+    fn a_five_second_io_stall_survives_as_the_maximum_and_not_the_average() {
+        let mut w = HostMetricWindower::new();
+        let sample = |await_ms: f32| MetricSample {
+            cpu_total_percent: 20.0,
+            memory_used_percent: 20.0,
+            disk_used_percent: Some(30.0),
+            disk_mounts_critical: Some(0),
+            network_rx_bps: Some(0.0),
+            network_tx_bps: Some(0.0),
+            stall_cpu_some: None,
+            stall_mem_some: None,
+            stall_mem_full: None,
+            stall_io_some: None,
+            stall_io_full: None,
+            disk_await_ms: Some(await_ms),
+            disk_queue_depth: Some(1.0),
+            processes: Vec::new(),
+        };
+        // A minute of healthy 3 ms service time with five stalled seconds in it.
+        let base = 1_700_000_040; // a 60 s boundary
+        for i in 0..60 {
+            let await_ms = if (30..35).contains(&i) { 800.0 } else { 3.0 };
+            assert!(w.push(base + i, &sample(await_ms)).is_none());
+        }
+        let closed = w
+            .push(base + 60, &sample(3.0))
+            .expect("the next minute closes it");
+
+        let avg = dim_of(&closed, "disk.await_ms").expect("the average ships");
+        assert!(
+            (avg - (55.0 * 3.0 + 5.0 * 800.0) / 60.0).abs() < 1e-9,
+            "the average reads {avg} ms, which no threshold would fire on"
+        );
+        assert!((avg - 69.4).abs() < 0.05);
+        assert_eq!(
+            dim_of(&closed, "disk.await_ms.max"),
+            Some(800.0),
+            "the maximum recovers the freeze"
+        );
+        // Queue depth ships no maximum: it is already a time-weighted average
+        // over the interval rather than an instantaneous reading.
+        assert_eq!(dim_of(&closed, "disk.queue_depth"), Some(1.0));
+        assert_eq!(dim_of(&closed, "disk.queue_depth.max"), None);
+    }
+
+    /// B18 / E26: a containerized agent ships **no** disk-performance dim.
+    /// `/proc/diskstats` is host-wide, so a number here would be its neighbours'
+    /// I/O reported as its own. The absence is asserted by name; what the
+    /// container *can* measure — its own cgroup's I/O stalls — still ships, so
+    /// the reduced set is a stated gap rather than a blind spot.
+    #[test]
+    fn a_containerized_agent_ships_no_disk_performance_dim() {
+        let mut w = HostMetricWindower::new();
+        let s = MetricSample {
+            cpu_total_percent: 12.0,
+            memory_used_percent: 34.0,
+            disk_used_percent: Some(56.0),
+            disk_mounts_critical: Some(0),
+            network_rx_bps: Some(78.0),
+            network_tx_bps: Some(90.0),
+            stall_cpu_some: Some(1.0),
+            stall_mem_some: Some(2.0),
+            stall_mem_full: Some(3.0),
+            stall_io_some: Some(44.0),
+            stall_io_full: Some(41.0),
+            disk_await_ms: None,
+            disk_queue_depth: None,
+            processes: Vec::new(),
+        };
+        assert!(w.push(1_700_000_000, &s).is_none());
+        let closed = w.push(1_700_000_060, &s).expect("boundary closes window");
+
+        for absent in ["disk.await_ms", "disk.await_ms.max", "disk.queue_depth"] {
+            assert_eq!(dim_of(&closed, absent), None, "{absent} must not ship");
+        }
+        assert_eq!(
+            dim_of(&closed, "stall.io.some"),
+            Some(44.0),
+            "the cgroup's own I/O stall is still measured"
+        );
+        assert_eq!(dim_of(&closed, "disk.used_percent"), Some(56.0));
     }
 
     /// B11: a host whose kernel publishes no pressure ships **no** stall dim.
@@ -463,6 +567,8 @@ mod tests {
             stall_mem_full: None,
             stall_io_some: None,
             stall_io_full: None,
+            disk_await_ms: Some(1.5),
+            disk_queue_depth: Some(2.5),
             processes: Vec::new(),
         };
         assert!(w.push(1_700_000_000, &s).is_none());
@@ -504,6 +610,8 @@ mod tests {
             stall_mem_full: Some(0.0),
             stall_io_some: Some(io),
             stall_io_full: Some(io / 2.0),
+            disk_await_ms: None,
+            disk_queue_depth: None,
             processes: Vec::new(),
         };
         let base = 1_700_000_040; // a 60 s boundary
