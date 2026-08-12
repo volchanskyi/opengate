@@ -4,6 +4,8 @@
 //! anomaly bits, and leaves protocol/reporting decisions to later workstreams.
 
 pub mod backfill;
+pub mod cgroup;
+pub mod diskperf;
 pub mod ensemble;
 pub mod host_metric_stream;
 pub mod kmeans;

@@ -27,6 +27,11 @@ fn sample(cpu: f32, mem: f32, disk: f32, rx: u64, tx: u64) -> MetricSample {
         stall_mem_full: Some(mem / 16.0),
         stall_io_some: Some(disk / 8.0),
         stall_io_full: Some(disk / 16.0),
+        // The disk-performance vitals are derived from the same gauges, at
+        // the milli resolution they publish at, and average like every other
+        // instantaneous reading rather than publishing a latest reading.
+        disk_await_ms: Some(disk / 4.0),
+        disk_queue_depth: Some(cpu / 32.0),
         processes: Vec::new(),
     }
 }
@@ -85,16 +90,25 @@ fn closes_a_window_only_when_a_later_sample_arrives() {
             ("stall.mem.full".to_string(), 3.75),
             ("stall.io.some".to_string(), 9.25), // last of (8.75, 9.0, 9.25)
             ("stall.io.full".to_string(), 4.625),
+            // Service time and queue depth are instantaneous readings like the
+            // gauges above, so they average — and the service time ships the
+            // minute's peak beside its mean.
+            ("disk.await_ms".to_string(), 18.0), // mean(17.5, 18.0, 18.5)
+            ("disk.await_ms.max".to_string(), 18.5),
+            ("disk.queue_depth".to_string(), 0.625), // mean(0.3125, 0.625, 0.9375)
         ],
     );
 }
 
-/// A host whose mounts report no capacity streams **no** disk dims at all. A
-/// zero would read as "every volume is empty" — the same one-name-two-meanings
-/// mistake the worst-mount reduction exists to fix — so an unmeasurable disk is
-/// absent from the window while every other dim still ships.
+/// A host whose mounts report no capacity streams **no** disk *capacity* dim at
+/// all. A zero would read as "every volume is empty" — the same
+/// one-name-two-meanings mistake the worst-mount reduction exists to fix — so an
+/// unmeasurable disk is absent from the window while every other dim still
+/// ships. The disk *performance* dims are among those: capacity is a property of
+/// a mount and service time is a property of a device, so a host with nothing
+/// measurable mounted still reports how fast its disks are.
 #[test]
-fn a_host_with_no_measurable_mount_streams_no_disk_dims() {
+fn a_host_with_no_measurable_mount_streams_no_disk_capacity_dim() {
     let mut w = HostMetricWindower::new();
     let diskless = MetricSample {
         disk_used_percent: None,
@@ -122,8 +136,11 @@ fn a_host_with_no_measurable_mount_streams_no_disk_dims() {
             "stall.mem.full",
             "stall.io.some",
             "stall.io.full",
+            "disk.await_ms",
+            "disk.await_ms.max",
+            "disk.queue_depth",
         ],
-        "neither disk dim rides a window with nothing to report"
+        "neither capacity dim rides a window with nothing to report"
     );
 }
 

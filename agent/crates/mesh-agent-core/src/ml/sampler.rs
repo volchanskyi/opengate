@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use sysinfo::{Disks, Networks, System, MINIMUM_CPU_UPDATE_INTERVAL};
 use thiserror::Error;
 
+use super::diskperf::DiskPerfReader;
 use super::pressure::PressureReader;
 use super::primary_iface::resolve_primary_iface;
 use super::redact::cmdline_hash;
@@ -56,6 +57,15 @@ pub struct MetricSample {
     pub stall_io_some: Option<f32>,
     /// Percent of the last 60 s every runnable task was stalled on I/O.
     pub stall_io_full: Option<f32>,
+    /// Average service time of one I/O on the slowest block device, in
+    /// milliseconds. `None` when no such reading exists — the first sample after
+    /// start, a device whose counters wrapped, a second in which no I/O
+    /// completed, a containerized agent, or a host without `/proc/diskstats`.
+    pub disk_await_ms: Option<f32>,
+    /// Average number of I/Os outstanding on the most backed-up block device.
+    /// `None` under the same conditions, except that a second in which nothing
+    /// queued is a real reading of zero.
+    pub disk_queue_depth: Option<f32>,
     /// Top processes by CPU rank.
     pub processes: Vec<ProcessSample>,
 }
@@ -222,26 +232,32 @@ pub struct SysinfoSampler {
     include_cmdline_hash: bool,
     prev_net: Option<PrevNet>,
     pressure: PressureReader,
+    diskperf: DiskPerfReader,
 }
 
 impl SysinfoSampler {
     /// Create a sampler that records top processes by rank only.
     ///
-    /// The pressure source is resolved once here, from the real filesystem root:
-    /// the agent's own cgroup when it runs inside a container, the host's
-    /// `/proc/pressure` otherwise, and nothing at all on a host whose kernel
-    /// publishes no pressure information.
+    /// The two Linux-only sources are resolved once here, from the real
+    /// filesystem root. Pressure comes from the agent's own cgroup when it runs
+    /// inside a container and the host's `/proc/pressure` otherwise, and nothing
+    /// at all on a host whose kernel publishes no pressure information. Disk
+    /// performance comes from `/proc/diskstats`, which is not namespaced, so a
+    /// containerized agent resolves no source rather than reporting its
+    /// neighbours' I/O as its own.
     pub fn new(top_processes: usize) -> Result<Self, SamplerError> {
         if top_processes > u8::MAX as usize {
             return Err(SamplerError::TopNTooLarge);
         }
+        let root = std::path::Path::new("/");
         Ok(Self {
             system: System::new_all(),
             networks: Networks::new_with_refreshed_list(),
             top_processes,
             include_cmdline_hash: false,
             prev_net: None,
-            pressure: PressureReader::for_root(std::path::Path::new("/")),
+            pressure: PressureReader::for_root(root),
+            diskperf: DiskPerfReader::for_root(root),
         })
     }
 
@@ -319,7 +335,12 @@ impl MetricSampler for SysinfoSampler {
                 .find(|(name, _)| name.as_str() == iface)
                 .map(|(_, data)| (iface, data.total_received(), data.total_transmitted()))
         });
-        let (network_rx_bps, network_tx_bps) = self.net_rates(reading, Instant::now());
+        // Both rate-shaped readings are differenced against the same instant, so
+        // a slow sample never gives the network and the disk different ideas of
+        // how long the interval was.
+        let now = Instant::now();
+        let (network_rx_bps, network_tx_bps) = self.net_rates(reading, now);
+        let disk_perf = self.diskperf.read(now);
 
         let mut processes: Vec<_> = self.system.processes().values().collect();
         processes.sort_by(|left, right| right.cpu_usage().total_cmp(&left.cpu_usage()));
@@ -365,6 +386,8 @@ impl MetricSampler for SysinfoSampler {
             stall_mem_full: stall.mem_full,
             stall_io_some: stall.io_some,
             stall_io_full: stall.io_full,
+            disk_await_ms: disk_perf.await_ms,
+            disk_queue_depth: disk_perf.queue_depth,
             processes,
         })
     }

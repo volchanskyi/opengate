@@ -9,9 +9,9 @@ use edge_tsdb::store::Tier;
 use edge_tsdb::Durability;
 use mesh_agent_core::ml::sampler::MetricSample;
 use mesh_agent_core::ml::store_sink::{
-    LocalStoreSink, SERIES_CPU, SERIES_DISK, SERIES_DISK_MOUNTS_CRITICAL, SERIES_MEM,
-    SERIES_NET_RX, SERIES_NET_TX, SERIES_STALL_CPU_SOME, SERIES_STALL_IO_FULL,
-    SERIES_STALL_IO_SOME, SERIES_STALL_MEM_FULL, SERIES_STALL_MEM_SOME,
+    LocalStoreSink, SERIES_CPU, SERIES_DISK, SERIES_DISK_AWAIT_MS, SERIES_DISK_MOUNTS_CRITICAL,
+    SERIES_DISK_QUEUE_DEPTH, SERIES_MEM, SERIES_NET_RX, SERIES_NET_TX, SERIES_STALL_CPU_SOME,
+    SERIES_STALL_IO_FULL, SERIES_STALL_IO_SOME, SERIES_STALL_MEM_FULL, SERIES_STALL_MEM_SOME,
 };
 
 fn sample(cpu: f32, mem: f32, disk: f32) -> MetricSample {
@@ -27,6 +27,8 @@ fn sample(cpu: f32, mem: f32, disk: f32) -> MetricSample {
         stall_mem_full: Some(0.125),
         stall_io_some: Some(1.5),
         stall_io_full: Some(0.75),
+        disk_await_ms: Some(0.125),
+        disk_queue_depth: Some(2.375),
         processes: Vec::new(),
     }
 }
@@ -100,6 +102,8 @@ fn each_series_stores_the_field_it_names() {
             stall_mem_full: Some(99.0),
             stall_io_some: Some(12.0),
             stall_io_full: Some(13.0),
+            disk_await_ms: Some(14.0),
+            disk_queue_depth: Some(15.0),
             processes: Vec::new(),
         },
         false,
@@ -125,6 +129,66 @@ fn each_series_stores_the_field_it_names() {
     assert_eq!(stored(SERIES_STALL_MEM_FULL), Some(99.0));
     assert_eq!(stored(SERIES_STALL_IO_SOME), Some(12.0));
     assert_eq!(stored(SERIES_STALL_IO_FULL), Some(13.0));
+    assert_eq!(stored(SERIES_DISK_AWAIT_MS), Some(14.0));
+    assert_eq!(stored(SERIES_DISK_QUEUE_DEPTH), Some(15.0));
+}
+
+/// The disk-performance series are stored at milli resolution, which is what
+/// makes them worth storing: a healthy NVMe serves an I/O in 0.125 ms and a
+/// queue is fractional, and the centi scale the percentage gauges use would
+/// round both to something else. The fixture values are exact at that scale, so
+/// the reading comes back out of the store as the number that went in.
+#[test]
+fn sub_millisecond_service_time_survives_the_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = LocalStoreSink::open(dir.path(), 8 * 1024 * 1024, 1).unwrap();
+    sink.record(9_000, &sample(10.0, 20.0, 30.0), false)
+        .unwrap();
+    sink.flush(Durability::Full).unwrap();
+
+    let stored = |series| {
+        sink.store()
+            .range_raw(series, i64::MIN, i64::MAX)
+            .unwrap()
+            .first()
+            .map(|(s, _)| s.value)
+    };
+    assert_eq!(stored(SERIES_DISK_AWAIT_MS), Some(0.125));
+    assert_eq!(stored(SERIES_DISK_QUEUE_DEPTH), Some(2.375));
+}
+
+/// A containerized agent, and any host without `/proc/diskstats`, leaves the two
+/// disk-performance series with no rows at all. A zero row would say the disks
+/// are instantaneous and idle — and reconnect-backfill would then ship that
+/// claim centrally as a measurement.
+#[test]
+fn a_sample_without_disk_performance_writes_no_row() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut sink = LocalStoreSink::open(dir.path(), 8 * 1024 * 1024, 1).unwrap();
+    let mut s = sample(10.0, 20.0, 30.0);
+    s.disk_await_ms = None;
+    s.disk_queue_depth = None;
+    sink.record(5_000, &s, false).unwrap();
+    sink.flush(Durability::Full).unwrap();
+
+    for series in [SERIES_DISK_AWAIT_MS, SERIES_DISK_QUEUE_DEPTH] {
+        assert!(
+            sink.store()
+                .range_raw(series, i64::MIN, i64::MAX)
+                .unwrap()
+                .is_empty(),
+            "series {series} has no row without a reading"
+        );
+    }
+    // The capacity reading beside them is unaffected: a disk whose speed cannot
+    // be measured still reports how full it is.
+    assert_eq!(
+        sink.store()
+            .range_raw(SERIES_DISK, i64::MIN, i64::MAX)
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 /// A host whose kernel publishes no pressure leaves the five stall series with

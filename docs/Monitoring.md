@@ -178,10 +178,16 @@ sample rate — is what bounds the central store. Each of the six host-resource
 gauges ships its 60 s average, and the four where a within-minute spike is the
 signal (cpu, memory, and both net rates) ship the window maximum beside it: over
 a minute at 1 Hz, five seconds pinned at 100 % move a 20 % average to 26.7 %,
-while the maximum reads 100. Five stall vitals ship beside them, and those
-fifteen dims plus the node-wide anomaly rate and the five per-family rates are
-the twenty-one series a Linux device occupies today, under a per-device cap of
-24.
+while the maximum reads 100. Five stall vitals and three disk-performance vitals
+ship beside them, and those eighteen dims plus the node-wide anomaly rate and the
+five per-family rates are exactly the 24 series a Linux device may occupy. The
+cap is spent: the next vital of any kind is a decision about the cap itself
+rather than something that fits quietly.
+
+A host that supplies neither Linux-only source writes the sixteen
+platform-neutral series and reports the missing eight as unsupported — it ships
+no dim for them at all, because a run of zeroes would read as a calm machine
+rather than as a machine nobody is measuring.
 
 ### Stall vitals
 
@@ -206,6 +212,38 @@ unsupported and ships nothing. **An absent stall vital is absent, never zero:**
 zero is the answer for a host that was measured and never stalled, which is a
 different fact from a host that cannot measure stalling.
 
+### Disk-performance vitals
+
+`disk.used_percent` answers "is the disk full". `disk.await_ms`,
+`disk.await_ms.max` and `disk.queue_depth` answer "is it slow", which is a
+different question about a different entity — capacity is a property of a mount,
+service time of a physical device. [`diskperf.rs`](../agent/crates/mesh-agent-core/src/ml/diskperf.rs)
+derives them from the kernel's per-device I/O counters: average time one I/O
+took, its within-minute peak, and how many I/Os were outstanding on average.
+
+**Worst device, per vital, independently.** The device with the slowest service
+time and the device with the deepest queue are routinely different — a wearing
+system disk beside a data disk taking a backup — and each vital answers its own
+question, so a mean across them would describe neither. Per-device detail rides
+alert evidence rather than central series, so the reduction costs no cardinality.
+The devices measured are the whole block devices the kernel lists, which excludes
+partitions by construction, minus the loop, ram and zram pseudo-devices; mapper
+and RAID devices are included, because encryption and RAID overhead is latency
+the user waits for.
+
+There is deliberately no busy-percentage vital. SSD and NVMe service many I/Os in
+parallel, so a utilization percentage pins at 100 % with substantial headroom
+left; queue depth keeps scaling where it saturates, which is what distinguishes
+"busy but healthy" from "overloaded".
+
+A virtual machine needs no special handling: the latency its guest kernel
+measures already includes host contention and volume throttling, which is
+precisely what makes the customer's application slow. A **containerized** agent
+reports these vitals as unsupported instead — the kernel's disk counters are not
+per-container, so a number here would be its neighbours' I/O reported as its own,
+and the cgroup's own I/O accounting carries no service time to substitute. What
+the container keeps is a genuine I/O-stall signal through `stall.io.*`.
+
 The vocabulary is fixed on both sides: the agent builds it from one series
 mapping ([`store_sink.rs`](../agent/crates/mesh-agent-core/src/ml/store_sink.rs))
 and the server allowlists it before writing a label
@@ -227,35 +265,49 @@ and bytes on disk. It runs at fleet scale on every suite run and changes no
 limit; the numbers below are its output, and sizing decisions are taken against
 them elsewhere.
 
-The load is written at the per-device **cap** of 24 rather than at the sixteen
-series a Linux device occupies today, because a capacity plan must not assume the
-cheaper platform mix: the eight the cap reserves are Linux-only, and the fleet is
-Linux.
+The load is written at the per-device **cap** of 24, which is what a Linux device
+occupies. A capacity plan must not assume the cheaper platform mix: eight of those
+series come from Linux-only kernel sources, and the fleet is Linux.
 
 **Memory is a fit, not a division.** Dividing one resident-memory reading by the
 series present charges VictoriaMetrics' fixed baseline to those series, and the
 baseline dominates at any size a test can afford — at fleet shape that division
-answers ≈ 2.2 KB per series, which is roughly where the rule of thumb it replaced
-came from. The store also allocates lazily, so a warm-up load runs first and its
-reading is excluded; every fit point sits past the startup ramp.
+answers ≈ 1.1 KB per series, roughly twice the marginal cost. The store also
+allocates lazily, so a warm-up load runs first and its reading is excluded; every
+fit point sits past the startup ramp.
+
+**Each point is read after forcing the store to collect**, because two numbers
+are in play and only one of them scales with series. Left to itself the Go
+runtime frees what an import allocated whenever it next collects, so resident
+memory holds a plateau of garbage that is steady to look at, unrelated to the
+series held, and capable of reading *lower* at a larger load. Collecting first
+puts every point in the same runtime state, which is what makes a line through
+them mean anything.
 
 Fleet-scale run — 5 000 devices × 24 series, VictoriaMetrics v1.114.0,
-2026-08-09:
+2026-08-11:
 
-| Active series | Resident memory |
+| Active series | Resident memory, collected |
 |---|---|
-| 24 000 *(warm-up, excluded)* | 165.4 MB |
-| 48 000 | 213.5 MB |
-| 62 400 | 225.5 MB |
-| 76 800 | 237.4 MB |
-| 91 200 | 244.8 MB |
-| 105 600 | 250.0 MB |
-| 120 000 | 267.0 MB |
+| 24 000 *(warm-up, excluded)* | 76.3 MB |
+| 48 000 | 91.2 MB |
+| 62 400 | 99.0 MB |
+| 76 800 | 103.1 MB |
+| 91 200 | 108.9 MB |
+| 105 600 | 119.0 MB |
+| 120 000 | 129.8 MB |
 
-Fit: **692 B per active series**, R² = 0.98, over a **181.6 MB** baseline —
-against **267.0 MB** held directly at 120 000 series. Across runs the slope moves
-between roughly 0.7 and 1.0 KB per series and the total between 250 and 290 MB,
-so the total is the steadier figure and the one to size against.
+Fit: **514 B per active series**, R² = 0.97, over a **65.4 MB** baseline, which
+projects **127.0 MB** to hold the fleet's 120 000 series. Across runs the slope
+holds within a few percent of 0.5 KB per series.
+
+**Size the pod above that projection, not at it.** The fit measures what the data
+costs; a store that is not being asked to collect also holds the garbage of
+whatever it last ingested, and that is real resident memory the pod has to have.
+In the run above the process sat at **223.2 MB** with the import still
+uncollected against the 129.8 MB it needed to hold the same series — the gap is
+the working memory of ingestion, and it is the larger of the two numbers that a
+memory limit has to clear.
 
 **Disk is a compression measurement**, so it depends on series length and on what
 the values look like. The harness writes slow-drifting gauges reported to a tenth

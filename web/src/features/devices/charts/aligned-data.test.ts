@@ -329,6 +329,36 @@ describe('the stall family', () => {
   });
 });
 
+describe('the disk family', () => {
+  const disk = [
+    series({ name: 'disk.used_percent', avg: [61, 62, 63] }),
+    series({ name: 'disk.mounts_critical', avg: [0, 0, 1] }),
+    series({ name: 'disk.await_ms', avg: [2, 3, 812] }),
+    series({ name: 'disk.await_ms.max', avg: [4, 6, 940] }),
+    series({ name: 'disk.queue_depth', avg: [1, 1.5, 28] }),
+  ];
+
+  it('charts capacity and performance together, because both are facts about the disks', () => {
+    const groups = groupByFamily(disk);
+    expect([...groups.keys()]).toEqual(['disk']);
+    expect(groups.get('disk')).toHaveLength(5);
+  });
+
+  it('reads its "current" badge from the capacity percent, never from a latency', () => {
+    // Service time is milliseconds and queue depth is a count. Either would
+    // render as a plausible percentage — "812%" full — so the badge must keep
+    // picking the one dimension that actually is one.
+    expect(familyCurrentLabel(disk)).toBe('63%');
+  });
+
+  it('shows no badge at all for a host that reports only disk performance', () => {
+    // A host with no measurable mount reports how fast its devices are and not
+    // how full they are. A millisecond figure in the percent badge would be a
+    // wrong number where a missing one is the truth.
+    expect(familyCurrentLabel(disk.slice(2))).toBeNull();
+  });
+});
+
 describe('familyCurrentLabel dimension selection', () => {
   it('treats _percent as a suffix, not a substring', () => {
     expect(familyCurrentLabel([series({ name: 'disk._percent_used', avg: [42] })])).toBeNull();
