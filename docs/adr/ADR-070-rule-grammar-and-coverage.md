@@ -131,15 +131,35 @@ reported nothing. A calm machine emits no breach summary at all, so coverage
 rides the periodic anomaly summary too, or a rule watching nothing on a quiet
 fleet would be invisible.
 
-**No `rule_coverage` table.** Coverage is a liveness view, not a history: what a
-rule is doing on a machine is knowable only while that machine is connected, and
-a device that has said nothing since the server started is exactly what `unknown`
-means. Holding reported states in memory per connected agent and deriving
-`unknown` as `fleet size − reported`
-([`conn_coverage.go`](../../server/internal/agentapi/conn_coverage.go)) is
-therefore correct across a restart by construction rather than by a cleanup job,
-and a device that disconnects moves to `unknown` rather than vanishing from the
-count.
+**The three states are stored by their nature, not together.**
+
+`active` and `unknown` are **liveness**: what a rule is doing on a machine is
+knowable only while that machine is connected, and a device that has said nothing
+since the server started is exactly what `unknown` means. They are held in memory
+per connected agent, with `unknown` derived as `fleet size − reported`
+([`conn_coverage.go`](../../server/internal/agentapi/conn_coverage.go)) — correct
+across a restart by construction rather than by a cleanup job, and a device that
+disconnects moves to `unknown` rather than vanishing from the count. Storing them
+would be worse, not better: a row asserting `active` because that is what a
+decommissioned file server last reported keeps claiming a machine is watched
+weeks after it was unplugged.
+
+`unsupported` is a **durable fact about the estate**, not liveness. A customer's
+containerized agents can never evaluate a rule reading kernel pressure
+accounting, and that standing hole in their monitoring belongs on a remediation
+list rather than evaporating on a deploy — otherwise "how much of this estate is
+that rule blind to?" answers differently depending on when the server last
+restarted, and no coverage report over it is reproducible. It is therefore
+persisted alongside the rules schema, under two rules that keep the stored half
+honest: **only `unsupported` is ever written** (a device reporting `active`
+deletes its row rather than storing an `active` state, so nothing stored can go
+stale into a lie, and steady state costs zero writes), and **deleting a device
+erases its rows** (I9), or a decommissioned machine inflates the count forever.
+
+Rejected: persisting all three with a `last_reported_at` and a staleness window
+on read. It buys nothing the split does not, pays a write per summary per device,
+and reintroduces the decommissioned-server lie in a form that then needs a
+staleness rule to suppress.
 
 ## Consequences
 
@@ -149,10 +169,12 @@ count.
 - A partial window is **not enough data**, not a fire. A rule warming up is
   `active` — evaluating — not `unsupported`; firing on a partial window would
   make every agent restart page someone.
-- Coverage counts are held in memory and exposed per rule; the Prometheus export
-  and the operator-facing surface are separate work. Should coverage ever need to
-  survive a restart, it becomes a column set on the rules schema — an additive
-  change, because nothing here depends on its absence.
+- Coverage counts are exposed per rule; the Prometheus export and the
+  operator-facing surface are separate work. The durable `unsupported` half is an
+  additive table on the rules schema, because nothing in the liveness half
+  depends on its absence — the read becomes persisted rows for devices still in
+  the fleet, memory for `active`, and the remainder `unknown`, with the identity
+  unchanged.
 - Coverage is agent input, so the rules one device may report on are capped and
   their ids sanitized on the same path as breach rule ids: a device cannot make
   the server hold more rule ids than it could ever be pushed.

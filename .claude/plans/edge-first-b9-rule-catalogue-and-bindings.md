@@ -12,6 +12,7 @@
 | **Rule definition** — predicate, grammar, evidence spec, coverage predicate, `group_by`, `group_window` | Versioned YAML `go:embed`-ed into the server | **No.** Immutable per `(rule_id, version)` |
 | **RuleBinding** — customer parameter overrides, keyed `(organization_id, rule_id, level, level_key, selector)` | Postgres | Yes |
 | **RuleRollout** — `enabled`, `canary_group`, `rollout_percent`, `kill` | Postgres | Yes |
+| **Unsupported coverage** — which devices a rule *cannot* be evaluated on | Postgres | Yes (agent-reported) |
 
 Definitions in Postgres would move the program's highest-impact gate out of CI — cost-bounding a
 predicate before it reaches 5 000 customer endpoints is mandatory and free in CI, and a validator
@@ -31,6 +32,42 @@ A binding also carries an optional **cross-cutting device-tag selector** with an
 `precedence` breaking ties between two tag selectors at the same level — never an invisible tie-break.
 Across levels the narrower level always wins.
 
+## Coverage: persist the durable half only (owner decision, 2026-08-13)
+
+EF-B8 holds all three coverage states in memory
+([`conn_coverage.go`](../../server/internal/agentapi/conn_coverage.go)) and derives `unknown` as
+`fleet − reported`. That is right for two of the three states and wrong for the third, because they
+are not the same kind of fact:
+
+- **`active` / `unknown` are liveness.** They are *supposed* to reset when the server loses its view
+  of the fleet. FS01, a file server Contoso decommissioned three weeks ago without telling anyone, is
+  `unknown` — which is exactly true. A row saying `active` because that is what FS01 last reported
+  before it was unplugged would claim 500/500 machines watched when the real number is 499. **These
+  stay in memory. Do not persist them.**
+- **`unsupported` is a durable fact about the estate.** Contoso's 40 containerized agents can never
+  evaluate `io-stalled` — the kernel's pressure accounting is not per-container — so that is a
+  standing 8 % hole in Contoso's monitoring that belongs on a remediation list, not something that
+  evaporates on a deploy. Today "how much of Contoso is `io-stalled` blind to?" answers differently
+  depending on when the server last restarted, which makes a monthly coverage report
+  non-reproducible. **This one is persisted here.**
+
+Two rules make the persisted half safe, and both are the FS01 case in disguise:
+
+1. **Only `unsupported` is ever written.** A device reporting `active` for a rule it has a row for
+   **deletes** that row — never flips it to an `active` state. There is no stored `active`, so there
+   is nothing that can go stale into a lie. This also keeps steady-state write volume at **zero**:
+   a write happens on a state *change*, not on every summary.
+2. **Deleting a device erases its coverage rows** (I9), or a decommissioned machine inflates the
+   `unsupported` count forever.
+
+The read then becomes: `unsupported` = persisted rows for devices still in the fleet (so an offline
+container stays counted — that is the point), `active` = what memory currently holds, `unknown` =
+`fleet − active − unsupported`. The identity still holds.
+
+Rejected: persisting all three with `last_reported_at` plus a staleness window on read. It buys
+nothing this does not, pays a write per summary per device, and reintroduces the FS01 lie in a form
+that now needs a staleness rule to suppress.
+
 ## File inventory
 
 - **Create:** `server/internal/rules/` — embedded catalogue loader, schema validation, cost analysis,
@@ -44,6 +81,12 @@ Across levels the narrower level always wins.
 - **Modify:** [alert_rules.go](../../server/internal/agentapi/alert_rules.go) — the
   `AlertRuleProvider` resolves catalogue + bindings + rollout instead of returning a hardcoded
   literal.
+- **Modify:** [conn_coverage.go](../../server/internal/agentapi/conn_coverage.go) — `Report` writes
+  through to `rule_coverage_unsupported` on a state *change* (insert on newly unsupported, delete on
+  newly active) and `Aggregate` reads the persisted rows for the unsupported count. The in-memory
+  store stays the home of `active`; do not move it.
+- **Modify:** [internal/lifecycle](../../server/internal/lifecycle/) — device erasure drops the
+  device's coverage rows.
 - **Modify:** [.go-arch-lint.yml](../../server/.go-arch-lint.yml), the scoped-SQL tenant-table gate
   ([scoped_sql_test.go](../../server/internal/dbtx/scoped_sql_test.go)), and the migration rehearsal
   ([store_part4_test.go](../../server/internal/db/store_part4_test.go)).
@@ -59,6 +102,11 @@ only values the rule declares tunable, validated against the rule's declared bou
 
 `rule_rollout` — `tenant_id, organization_id, rule_id, enabled, canary_group, rollout_percent, kill,
 stage_entered_at, updated_at, updated_by`, `PRIMARY KEY (organization_id, rule_id)`.
+
+`rule_coverage_unsupported` — `tenant_id, organization_id, device_id, rule_id, since, updated_at`,
+`PRIMARY KEY (device_id, rule_id)`, `ON DELETE CASCADE` from `devices`. Presence *is* the state, so
+there is no `state` column to go stale; `since` is what makes "this estate has been 8 % blind to
+`io-stalled` since March" answerable.
 
 ## Steps (TDD-first)
 
@@ -87,13 +135,23 @@ stage_entered_at, updated_at, updated_by`, `PRIMARY KEY (organization_id, rule_i
    bindings never reach a Fabrikam agent, **including when both sit inside one tenant** — that is
    the case the database wall does not catch (the existing WS-19 property; do not regress it while
    replacing the provider).
-8. Implement; docs.
+8. **Test first — durable `unsupported` (owner decision above):** a device reporting `unsupported`
+   for `io-stalled` survives a server restart and is still counted while that device is **offline**;
+   the same device later reporting `active` **deletes** the row rather than storing an `active`
+   state; a summary that changes nothing writes nothing (assert the write count, or "zero writes in
+   steady state" is a claim rather than a property); deleting the device erases its rows; and the
+   `active + unsupported + unknown == fleet` identity still holds across all of it. FS01 — offline
+   three weeks, no coverage row — must read `unknown`, never `active`.
+9. Implement; docs.
 
 ## Traps
 
-- **Confirm the free migration number at implementation time.** 010 is free today; a parallel
-  micro-plan landing a migration first would silently collide. `ls server/internal/db/migrations/`
-  before writing the file.
+- **Confirm the free migration number at implementation time.** 013 is free today (the tenancy
+  rework took 010–012); a parallel micro-plan landing a migration first would silently collide.
+  `ls server/internal/db/migrations/` before writing the file.
+- **Never store an `active` coverage state.** The temptation is a `state` column mirroring the wire
+  enum. That is the FS01 bug: a machine unplugged three weeks ago keeps asserting it is watched.
+  Presence of a row means unsupported; absence means ask memory.
 - The catalogue is `go:embed`-ed, so **a YAML typo is a build failure, not a runtime 500** — keep it
   that way. Do not add a "load from disk if present" fallback; that is the runtime-mutable
   definitions path this design rejects.
@@ -113,15 +171,18 @@ A rule-authoring UI (§4.2 forbids it). Retroactive evaluation (EF-B10).
 
 - [ ] Cost gate proven to fail on an over-budget rule.
 - [ ] Catalogue immutability per `(rule_id, version)` asserted.
-- [ ] Migration 010 up/down + forced RLS + cross-tenant deny + rehearsal + tenant-table gate.
+- [ ] Migration 013 up/down + forced RLS + cross-tenant deny + rehearsal + tenant-table gate, for
+      all three new tables.
 - [ ] Params validated against declared bounds on write; undeclared params rejected.
 - [ ] Selector resolution most-specific-wins **and** deterministic on ties (FS01 95 / DAL-WS-012 90).
 - [ ] Legacy metric names still fire end to end.
+- [ ] `unsupported` persists across a restart and while the device is offline; `active` is never
+      stored; a no-change summary writes nothing; device deletion erases the rows.
 - [ ] `go-arch-lint` clean with the new component.
 
 ## Verification
 
-`cd server && go test ./internal/rules/... ./internal/db/... ./internal/agentapi/... ./internal/dbtx/...`,
+`cd server && go test ./internal/rules/... ./internal/db/... ./internal/agentapi/... ./internal/dbtx/... ./internal/lifecycle/...`,
 `make lint`, `/precommit`.
 
 ## Close-out (mandatory)
