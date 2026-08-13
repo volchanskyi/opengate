@@ -12,8 +12,22 @@
 # sources outside internal/ (notably tests/loadtest) from being mutated and
 # counted once per shard.
 
+# The Rust leg is split by `cargo mutants --shard i/N --sharding round-robin`.
+# N lives here alone: the workflow matrix, the artifact merge, and
+# scripts/tests/mutation-workflow.test.sh all derive from this list, so the leg
+# is resized by editing one line.
+#
+# Sizing: the agent workspace holds ~2400 mutants and each costs roughly 15
+# seconds, dominated by the per-mutant rebuild rather than the test run. Sixteen
+# shards put ~150 mutants on each, finishing well inside the 75-minute job cap
+# with room for the workspace to keep growing. Eight shards carried ~300 each
+# and needed longer than the cap allowed.
 mutation_rust_shards() {
-  echo "rust-round-robin-1-of-8 rust-round-robin-2-of-8 rust-round-robin-3-of-8 rust-round-robin-4-of-8 rust-round-robin-5-of-8 rust-round-robin-6-of-8 rust-round-robin-7-of-8 rust-round-robin-8-of-8"
+  local i out=""
+  for i in $(seq 1 16); do
+    out="$out rust-round-robin-$i-of-16"
+  done
+  echo "${out# }"
 }
 
 mutation_web_shards() {
@@ -55,10 +69,10 @@ mutation_go_shard_units() {
       echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/conn_backfill.go"
       ;;
     go-agentapi-edge-telemetry)
-      echo "file:internal/agentapi/conn_discovery.go file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_accounting.go file:internal/agentapi/conn_coverage.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/conn_hardware.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go file:internal/agentapi/vitals.go"
+      echo "file:internal/agentapi/conn_discovery.go file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_accounting.go file:internal/agentapi/conn_coverage.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/conn_hardware.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go file:internal/agentapi/alert_rules_catalogue.go file:internal/agentapi/vitals.go"
       ;;
     go-domain-persistence)
-      echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/settings dir:internal/session dir:internal/audit dir:internal/usecase"
+      echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/rules dir:internal/settings dir:internal/session dir:internal/audit dir:internal/usecase"
       ;;
     go-amt-updates-certificates)
       echo "dir:internal/amt dir:internal/updater dir:internal/notifications dir:internal/cert"

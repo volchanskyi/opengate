@@ -1371,7 +1371,7 @@ W1–W6 and §14's close-out folds them back.
 | `archive/edge-first-b6-event-rule-pack.md` | 9 | B6 | — |
 | `archive/edge-first-b7-edge-correlation-port.md` | 10 | B7 | — |
 | `archive/edge-first-b8-rule-grammar-and-coverage.md` | 11 | B8 | B2, B4, B5 |
-| `edge-first-b9-rule-catalogue-and-bindings.md` | 12 | B12 | B8 |
+| `archive/edge-first-b9-rule-catalogue-and-bindings.md` | 12 | B12 | B8 |
 | `edge-first-b10-retroactive-evaluation.md` | 13 | B9, B10, B14 | B6, B8, B9 |
 | `edge-first-b11-rollout-safety.md` | 14 | B13 | B9 (+ C2 signal) |
 | `edge-first-c1-alert-wire-and-evidence.md` | 15, 18 (evidence) | C9, C10, C13, C14 | B6, B7 |

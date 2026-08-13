@@ -1,0 +1,105 @@
+rules:
+  # The curated pack. Every rule here is pushed to the fleet, so each one is
+  # cost-bounded at load and locked against its committed digest: editing a
+  # published definition is refused, and a change of meaning is a new version.
+  #
+  # Thresholds are the shipped defaults. A customer retunes them through a
+  # binding, within the bounds each rule declares below.
+
+  - id: disk-critical
+    version: 1
+    summary: A disk is nearly full and will stop accepting writes.
+    metric: disk.used_percent
+    comparator: gte
+    threshold: 90
+    clear: 85
+    sustain_secs: 300
+    predicate: Instant
+    # Grouped by the mount as well as the machine: a full data volume and a full
+    # system volume on one server are two problems, not one.
+    group_by: [device, mount]
+    group_window_secs: 900
+    evidence: [vitals, top_processes, inventory]
+    tunable:
+      threshold: {min: 50, max: 99}
+      clear: {min: 40, max: 98}
+      sustain_secs: {min: 60, max: 3600}
+
+  - id: cpu-saturated
+    version: 1
+    summary: A machine has been pinned at full CPU long enough to be slow to use.
+    metric: cpu.total
+    comparator: gte
+    threshold: 95
+    clear: 85
+    sustain_secs: 300
+    predicate: Instant
+    group_by: [device]
+    group_window_secs: 900
+    evidence: [vitals, top_processes]
+    tunable:
+      threshold: {min: 50, max: 100}
+      clear: {min: 20, max: 99}
+      sustain_secs: {min: 60, max: 3600}
+
+  - id: memory-pressure
+    version: 1
+    summary: A machine is nearly out of memory and about to start killing processes.
+    metric: mem.used_percent
+    comparator: gte
+    threshold: 95
+    clear: 85
+    sustain_secs: 300
+    predicate: Instant
+    group_by: [device]
+    group_window_secs: 900
+    evidence: [vitals, top_processes]
+    tunable:
+      threshold: {min: 50, max: 100}
+      clear: {min: 20, max: 99}
+      sustain_secs: {min: 60, max: 3600}
+
+  - id: io-stalled
+    version: 1
+    summary: Work on this machine is spending its time waiting for storage.
+    # Read from the kernel's own pressure accounting, which is per-host. A
+    # containerized agent cannot take this reading at all, so it reports the rule
+    # unsupported rather than sitting there never firing.
+    metric: stall.io.some
+    comparator: gte
+    threshold: 40
+    clear: 20
+    sustain_secs: 300
+    # A mean over the window rather than an instant reading: storage stalls in
+    # bursts, and one busy second is not a machine in trouble.
+    predicate: WindowMean
+    window_secs: 300
+    group_by: [device]
+    group_window_secs: 1800
+    evidence: [vitals, top_processes, correlation]
+    coverage_requires: [stall.io.some]
+    tunable:
+      threshold: {min: 10, max: 100}
+      clear: {min: 0, max: 99}
+      sustain_secs: {min: 60, max: 3600}
+      window_secs: {min: 60, max: 1800}
+
+  - id: disk-slow
+    version: 1
+    summary: A disk is taking long enough to answer that everything on it feels slow.
+    metric: disk.await_ms
+    comparator: gte
+    threshold: 50
+    clear: 20
+    sustain_secs: 300
+    predicate: WindowMean
+    window_secs: 300
+    group_by: [device, mount]
+    group_window_secs: 1800
+    evidence: [vitals, top_processes, correlation]
+    coverage_requires: [disk.await_ms]
+    tunable:
+      threshold: {min: 5, max: 5000}
+      clear: {min: 1, max: 4999}
+      sustain_secs: {min: 60, max: 3600}
+      window_secs: {min: 60, max: 1800}

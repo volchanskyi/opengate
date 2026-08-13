@@ -369,11 +369,10 @@ then stays firing until the metric recovers past the clear boundary (suppressing
 flapping around the threshold). A rule's `disk.used_percent` gauge reads the
 fullest mount, so it fires for the volume that is filling; a host with no
 measurable mount has no reading and no disk rule fires on it. The server delivers
-each connecting agent's authoritative-tenant ruleset over a capability-gated
-`PushAlertRules` control message
-([`alert_rules.go`](../server/internal/agentapi/alert_rules.go)), so one
-tenant's rules never reach another; a tenant without a custom set receives a minimal
-built-in default. A firing breach rides additively in an `AgentHealthSummary`,
+each connecting agent's ruleset over a capability-gated `PushAlertRules` control
+message ([`alert_rules.go`](../server/internal/agentapi/alert_rules.go)),
+assembled for the machine's own place in the tenancy ladder, so one customer's
+rules never reach another's machines even inside a single tenant. A firing breach rides additively in an `AgentHealthSummary`,
 which the server ingests as `opengate_edge_alert_breach` scoped to the resolved
 tenant and charts on the Edge-Sentinel Soak dashboard. Delivery is
 **investigation-aid only** — no auto-notify — until the false-positive soak; see
@@ -393,6 +392,36 @@ firing. Every shape is bounded and its cost computable from the rule's own text;
 the wire fields and their limits are in
 [Wire-Protocol](Wire-Protocol.md#alert-rules-breaches-and-coverage).
 
+**Where a rule comes from, and what a customer can change about it.** A rule has
+three layers, separated by how mutable each one is.
+
+Its *definition* — predicate, window, grouping key, the evidence its alerts
+carry, and the numbers it ships with — is versioned YAML compiled into the server
+from [`catalogue/`](../server/internal/rules/catalogue/). Definitions are
+immutable per `(rule_id, version)`: loading refuses one whose meaning changed
+without its version changing, checked against the digests committed in
+`catalogue.lock`. That is what lets an alert raised last week still mean what it
+meant then. Keeping definitions out of the database is also what makes the
+program's highest-leverage gate possible — every rule's evaluation cost, the
+readings it asks an endpoint to hold, is computed from its own text and bounded
+in CI, per rule and across the whole pack, before it can reach an endpoint.
+
+A customer's *bindings* live in Postgres and retune the numbers the rule declares
+tunable, within the bounds that rule declares, validated on write. They resolve
+down the tenancy ladder — machine, then site, then customer, then tenant, then
+what shipped — using the ordering in
+[`internal/settings`](../server/internal/settings/settings.go), and each
+parameter resolves on its own, so a customer-wide sustain window survives one
+machine's retuned threshold. A binding may also carry a bounded tag selector with
+an operator-set `precedence` breaking ties; across rungs the narrower one always
+wins.
+
+A rule's *rollout state* lives in Postgres too, because stopping a rule cannot
+require a deploy. A customer with no row has not configured the rule and gets it
+as shipped — absence is never read as "switched off". See
+[Database](Database.md) for the schema and
+[ADR-071](adr/ADR-071-rule-catalogue-bindings-and-durable-coverage.md) for the decision.
+
 **Coverage: which machines a rule is actually watching.** Per rule, every device
 in the fleet is exactly one of three things, and the three always add up to the
 fleet:
@@ -410,11 +439,22 @@ answering nothing is reported that way whether the gap is permanent or passing �
 claiming a rule watches a machine it produces nothing for is the failure coverage
 exists to prevent, and a rule that starts answering reports itself active on its
 next reading. Agents report their
-own state per rule in `AgentHealthSummary.rule_coverage`; the server derives
-`unknown` from the fleet it knows about
-([`conn_coverage.go`](../server/internal/agentapi/conn_coverage.go)), so a device
-that disconnects moves to `unknown` rather than vanishing from the count, and a
-server restart is correct by construction rather than by a cleanup job.
+own state per rule in `AgentHealthSummary.rule_coverage`
+([`conn_coverage.go`](../server/internal/agentapi/conn_coverage.go)).
+
+The three states are not stored the same way, because they are not the same kind
+of fact. `active` and `unknown` are liveness: they are *supposed* to reset when
+the server loses sight of the fleet, so they live in memory. A device that
+disconnects moves to `unknown` rather than vanishing from the count, and a server
+restart is correct by construction rather than by a cleanup job — a stored
+`active` would let a machine unplugged three weeks ago keep claiming it is being
+watched. Being unable to evaluate a rule is durable: a containerized agent can
+never read the kernel's per-host pressure accounting, so that is a standing hole
+in an estate's monitoring, and it must answer the same after a deploy as before
+one. That third state is persisted, written through only when it changes — a
+machine repeating itself costs no write at all — and a machine that can evaluate
+the rule again has its row deleted rather than flipped, so nothing stored can go
+stale. Deleting a machine takes its coverage rows with it.
 
 ### System-event rules
 

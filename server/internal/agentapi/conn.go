@@ -63,6 +63,7 @@ type AgentConn struct {
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
 	coverage       *RuleCoverageStore
+	ruleCoverage   UnsupportedCoverageStore
 	settings       settings.Reader
 	metrics        *appmetrics.Metrics
 	logger         *slog.Logger
@@ -166,6 +167,9 @@ type AgentConnConfig struct {
 	// Coverage records what this agent reports every rule is doing on it.
 	// Optional: nil means coverage is not tracked for this connection.
 	Coverage *RuleCoverageStore
+	// RuleCoverage persists which rules this machine cannot evaluate.
+	// Optional: nil keeps that state in memory only.
+	RuleCoverage UnsupportedCoverageStore
 	// Settings reads a machine's place in the tenancy ladder. Optional: nil
 	// leaves the connection with the rungs it already knows for itself.
 	Settings settings.Reader
@@ -190,6 +194,7 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		scheduler:     cfg.Scheduler,
 		alertRules:    cfg.AlertRules,
 		coverage:      cfg.Coverage,
+		ruleCoverage:  cfg.RuleCoverage,
 		settings:      cfg.Settings,
 		metrics:       cfg.Metrics,
 		logger:        cfg.Logger,

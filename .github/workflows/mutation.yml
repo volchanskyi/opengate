@@ -56,16 +56,27 @@ jobs:
         include:
           # cargo-mutants defaults to consecutive slice sharding. Run
           # 29300355420 proved those slices were badly runtime-imbalanced, so
-          # eight round-robin shards distribute expensive modules while keeping
-          # every mutant in scope.
-          - { language: rust, shard: rust-round-robin-1-of-8, rust_shard: "0/8" }
-          - { language: rust, shard: rust-round-robin-2-of-8, rust_shard: "1/8" }
-          - { language: rust, shard: rust-round-robin-3-of-8, rust_shard: "2/8" }
-          - { language: rust, shard: rust-round-robin-4-of-8, rust_shard: "3/8" }
-          - { language: rust, shard: rust-round-robin-5-of-8, rust_shard: "4/8" }
-          - { language: rust, shard: rust-round-robin-6-of-8, rust_shard: "5/8" }
-          - { language: rust, shard: rust-round-robin-7-of-8, rust_shard: "6/8" }
-          - { language: rust, shard: rust-round-robin-8-of-8, rust_shard: "7/8" }
+          # round-robin shards distribute expensive modules while keeping every
+          # mutant in scope. The count is sized in
+          # scripts/lib/mutation-shards.sh and asserted by the workflow tests;
+          # each shard carries ~150 of the workspace's ~2400 mutants, which is
+          # what keeps a leg inside the cap below as the agent grows.
+          - { language: rust, shard: rust-round-robin-1-of-16, rust_shard: "0/16" }
+          - { language: rust, shard: rust-round-robin-2-of-16, rust_shard: "1/16" }
+          - { language: rust, shard: rust-round-robin-3-of-16, rust_shard: "2/16" }
+          - { language: rust, shard: rust-round-robin-4-of-16, rust_shard: "3/16" }
+          - { language: rust, shard: rust-round-robin-5-of-16, rust_shard: "4/16" }
+          - { language: rust, shard: rust-round-robin-6-of-16, rust_shard: "5/16" }
+          - { language: rust, shard: rust-round-robin-7-of-16, rust_shard: "6/16" }
+          - { language: rust, shard: rust-round-robin-8-of-16, rust_shard: "7/16" }
+          - { language: rust, shard: rust-round-robin-9-of-16, rust_shard: "8/16" }
+          - { language: rust, shard: rust-round-robin-10-of-16, rust_shard: "9/16" }
+          - { language: rust, shard: rust-round-robin-11-of-16, rust_shard: "10/16" }
+          - { language: rust, shard: rust-round-robin-12-of-16, rust_shard: "11/16" }
+          - { language: rust, shard: rust-round-robin-13-of-16, rust_shard: "12/16" }
+          - { language: rust, shard: rust-round-robin-14-of-16, rust_shard: "13/16" }
+          - { language: rust, shard: rust-round-robin-15-of-16, rust_shard: "14/16" }
+          - { language: rust, shard: rust-round-robin-16-of-16, rust_shard: "15/16" }
           - { language: web }
           - { language: go, shard: go-api-runtime }
           - { language: go, shard: go-api-identity-admin }

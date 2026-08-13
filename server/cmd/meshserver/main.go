@@ -29,6 +29,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/organization"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/session"
 	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/signaling"
@@ -191,6 +192,16 @@ func main() {
 			logger.Error("cleanup session on disconnect", "error", err, "token_prefix", protocol.RedactToken(string(token)))
 		}
 	}
+	// The rule catalogue is compiled in, so a failure here means the binary
+	// itself is malformed — its contents are validated and cost-bounded in CI,
+	// which is the whole reason definitions do not live in the database.
+	ruleCatalogue, err := rules.Embedded()
+	if err != nil {
+		logger.Error("load rule catalogue", "error", err)
+		os.Exit(1)
+	}
+	ruleStore := rules.NewStore(store.DB())
+
 	agentSrv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          certMgr,
 		Devices:       devicesRepo,
@@ -205,7 +216,12 @@ func main() {
 		QuicHost:      quicHost,
 		Tombstones:    tombstoneStore,
 		Settings:      settings.NewPostgresReader(store.DB()),
-		Logger:        logger,
+		// Each machine gets the curated pack as its customer has retuned it.
+		// Device tags are not a source of targeting yet, so a binding narrows by
+		// the rung it is filed on; selectors start working the moment tags do.
+		AlertRules:   agentapi.NewCatalogueAlertRuleProvider(ruleCatalogue, ruleStore, nil, logger),
+		RuleCoverage: ruleStore,
+		Logger:       logger,
 	})
 
 	// Wire the right-to-be-forgotten purge orchestrator. It needs VictoriaMetrics

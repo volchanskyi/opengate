@@ -22,7 +22,7 @@ kill switch, canary state or coverage (the wall Netdata hit before adding DYNCFG
 **Bindings resolve down the tenancy levels.** `(organization_id, rule_id)` alone gives Contoso one threshold for
 its whole estate, while FS01 wants `disk-critical` at 95 and DAL-WS-012 wants 90. Resolution is
 **device → site → organization → tenant → embedded default**, and the ordering is not defined here:
-it is [`internal/settings`](../../server/internal/settings/settings.go), shipped by the tenancy
+it is [`internal/settings`](../../../server/internal/settings/settings.go), shipped by the tenancy
 rework. The walk and the tie-break live in one place; the *values* stay in `rule_bindings` where the
 rule that declares them can validate them against its own bounds. So the file-server-at-95 case
 needs no special machinery: put the file servers in a site. The kill switch is the one setting that
@@ -35,7 +35,7 @@ Across levels the narrower level always wins.
 ## Coverage: persist the durable half only (owner decision, 2026-08-13)
 
 EF-B8 holds all three coverage states in memory
-([`conn_coverage.go`](../../server/internal/agentapi/conn_coverage.go)) and derives `unknown` as
+([`conn_coverage.go`](../../../server/internal/agentapi/conn_coverage.go)) and derives `unknown` as
 `fleet − reported`. That is right for two of the three states and wrong for the third, because they
 are not the same kind of fact:
 
@@ -72,25 +72,25 @@ that now needs a staleness rule to suppress.
 
 - **Create:** `server/internal/rules/` — embedded catalogue loader, schema validation, cost analysis,
   binding/selector resolution, rollout state. Arch-lint component with `mayDependOn: [dbtx]`,
-  mirroring `inventory` in [.go-arch-lint.yml](../../server/.go-arch-lint.yml#L185-L189).
+  mirroring `inventory` in [.go-arch-lint.yml](../../../server/.go-arch-lint.yml#L185-L189).
 - **Create:** `server/internal/rules/catalogue/*.yaml` — the curated pack, `go:embed`-ed.
 - **Create:** `server/internal/db/migrations/013_rules.{up,down}.sql` — the tenancy rework took
   010 through 012, so **013 is the next free number**; confirm at implementation time. Forced RLS on `tenant_id`, with `tenant_id`- and `organization_id`-leading
   indexes, mirroring
-  [005_inventory](../../server/internal/db/migrations/005_inventory.up.sql).
-- **Modify:** [alert_rules.go](../../server/internal/agentapi/alert_rules.go) — the
+  [005_inventory](../../../server/internal/db/migrations/005_inventory.up.sql).
+- **Modify:** [alert_rules.go](../../../server/internal/agentapi/alert_rules.go) — the
   `AlertRuleProvider` resolves catalogue + bindings + rollout instead of returning a hardcoded
   literal.
-- **Modify:** [conn_coverage.go](../../server/internal/agentapi/conn_coverage.go) — `Report` writes
+- **Modify:** [conn_coverage.go](../../../server/internal/agentapi/conn_coverage.go) — `Report` writes
   through to `rule_coverage_unsupported` on a state *change* (insert on newly unsupported, delete on
   newly active) and `Aggregate` reads the persisted rows for the unsupported count. The in-memory
   store stays the home of `active`; do not move it.
-- **Modify:** [internal/lifecycle](../../server/internal/lifecycle/) — device erasure drops the
+- **Modify:** [internal/lifecycle](../../../server/internal/lifecycle/) — device erasure drops the
   device's coverage rows.
-- **Modify:** [.go-arch-lint.yml](../../server/.go-arch-lint.yml), the scoped-SQL tenant-table gate
-  ([scoped_sql_test.go](../../server/internal/dbtx/scoped_sql_test.go)), and the migration rehearsal
-  ([store_part4_test.go](../../server/internal/db/store_part4_test.go)).
-- **Docs:** [Database.md](../../docs/Database.md), [Monitoring.md](../../docs/Monitoring.md).
+- **Modify:** [.go-arch-lint.yml](../../../server/.go-arch-lint.yml), the scoped-SQL tenant-table gate
+  ([scoped_sql_test.go](../../../server/internal/dbtx/scoped_sql_test.go)), and the migration rehearsal
+  ([store_part4_test.go](../../../server/internal/db/store_part4_test.go)).
+- **Docs:** [Database.md](../../../docs/Database.md), [Monitoring.md](../../../docs/Monitoring.md).
 
 ## Schema (from §7.4)
 

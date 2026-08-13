@@ -13,6 +13,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
+	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/testutil"
 	"github.com/volchanskyi/opengate/server/internal/testvm"
@@ -64,8 +65,8 @@ func assertJobComplete(t *testing.T, f *orchestratorFixture, ctx context.Context
 }
 
 // seedDeviceWithTelemetry seeds a device in the given tenant plus process,
-// inventory, and VM rows so a purge has something to erase. Returns the tenant and
-// device ids.
+// inventory, rule-coverage, and VM rows so a purge has something to erase.
+// Returns the device id.
 func seedDeviceWithTelemetry(t *testing.T, f *orchestratorFixture, tenantID uuid.UUID) uuid.UUID {
 	t.Helper()
 	ctx := dbtx.WithTenant(context.Background(), tenantID, false)
@@ -82,6 +83,10 @@ func seedDeviceWithTelemetry(t *testing.T, f *orchestratorFixture, tenantID uuid
 	require.NoError(t, inv.Replace(ctx, device.ID, ts, []inventory.Component{
 		{Kind: inventory.KindPort, Name: "sshd", Proto: "tcp", Port: 22},
 	}))
+	// A machine that cannot evaluate a rule carries a standing coverage row.
+	// Decommissioning it has to take that with it, or the customer's blind spot
+	// keeps counting a machine nobody owns any more.
+	require.NoError(t, rules.NewStore(f.store.DB()).MarkUnsupported(ctx, site.OrganizationID, device.ID, "io-stalled"))
 	require.NoError(t, f.vm.WriteSamples(context.Background(), tenantID, device.ID, []telemetry.Sample{
 		{Name: "opengate_edge_metric_avg", Value: 5, TS: ts, Labels: map[string]string{"dim": "cpu"}},
 	}))
@@ -118,6 +123,8 @@ func TestOrchestratorPurgeDeviceFansOutAndVerifies(t *testing.T) {
 	assert.Zero(t, countRows(t, f, scoped, qDevices, device))
 	assert.Zero(t, countRows(t, f, scoped, qProcesses, device))
 	assert.Zero(t, countRows(t, f, scoped, qInventory, device))
+	assert.Zero(t, countRows(t, f, scoped, qCoverage, device),
+		"a decommissioned machine must stop counting against a rule's coverage")
 }
 
 func TestOrchestratorPurgeDeviceIsIdempotent(t *testing.T) {
@@ -225,6 +232,7 @@ const (
 	qDevices   = `SELECT COUNT(*) FROM devices WHERE id = $1`
 	qProcesses = `SELECT COUNT(*) FROM device_processes WHERE device_id = $1`
 	qInventory = `SELECT COUNT(*) FROM device_inventory WHERE device_id = $1`
+	qCoverage  = `SELECT COUNT(*) FROM rule_coverage_unsupported WHERE device_id = $1`
 )
 
 func countRows(t *testing.T, f *orchestratorFixture, ctx context.Context, query string, device uuid.UUID) int {

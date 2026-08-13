@@ -187,6 +187,15 @@ func tenantIsolationProbes() []tenantIsolationProbe {
 		{"device_inventory",
 			`SELECT COUNT(*) FROM device_inventory`,
 			`SELECT COUNT(*) FROM device_inventory WHERE tenant_id = $1`},
+		{"rule_bindings",
+			`SELECT COUNT(*) FROM rule_bindings`,
+			`SELECT COUNT(*) FROM rule_bindings WHERE tenant_id = $1`},
+		{"rule_rollout",
+			`SELECT COUNT(*) FROM rule_rollout`,
+			`SELECT COUNT(*) FROM rule_rollout WHERE tenant_id = $1`},
+		{"rule_coverage_unsupported",
+			`SELECT COUNT(*) FROM rule_coverage_unsupported`,
+			`SELECT COUNT(*) FROM rule_coverage_unsupported WHERE tenant_id = $1`},
 	}
 }
 
@@ -282,6 +291,15 @@ func seedTenantRows(t *testing.T, ctx context.Context, db *sql.DB, f tenantFixtu
 		f.tenantID, f.deviceID, now)
 	exec(`INSERT INTO device_inventory (tenant_id, device_id, kind, name, first_seen, last_seen) VALUES ($1, $2, 'port', 'isolation', $3, $4)`,
 		f.tenantID, f.deviceID, now, now)
+
+	exec(`INSERT INTO rule_bindings (id, tenant_id, organization_id, rule_id, level, level_key, params)
+	      VALUES ($1, $2, $3, 'disk-critical', 'organization', $3, '{"threshold": 95}'::jsonb)`,
+		uuid.New(), f.tenantID, f.orgID)
+	exec(`INSERT INTO rule_rollout (tenant_id, organization_id, rule_id) VALUES ($1, $2, 'disk-critical')`,
+		f.tenantID, f.orgID)
+	exec(`INSERT INTO rule_coverage_unsupported (tenant_id, organization_id, device_id, rule_id)
+	      VALUES ($1, $2, $3, 'io-stalled')`,
+		f.tenantID, f.orgID, f.deviceID)
 
 	require.NoError(t, tx.Commit())
 }

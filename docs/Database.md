@@ -341,6 +341,41 @@ data only — never a connection string or credential. It is exposed to any devi
 viewer in the tenant through
 [`GET /devices/{id}/inventory`](API-Reference.md).
 
+### Rule Configuration Tables
+
+Three tables hold what a customer has changed about a monitoring rule, and which
+machines a rule cannot be evaluated on. What a rule *is* — its predicate, window,
+grouping key and shipped numbers — is not here: definitions are versioned YAML
+compiled into the server from
+[`server/internal/rules/catalogue/`](../server/internal/rules/catalogue/), which
+is what lets a predicate be cost-bounded in CI before it reaches an endpoint. See
+[Monitoring](Monitoring.md) and
+[ADR-071](adr/ADR-071-rule-catalogue-bindings-and-durable-coverage.md).
+
+- `rule_bindings` — a customer's parameter overrides, keyed
+  `(organization_id, rule_id, level, level_key, selector)` where `level` is one
+  of `device`, `site`, `organization`, `tenant`. `params` carries only values the
+  rule declares tunable, validated against that rule's own bounds on write;
+  `selector` is a bounded tag predicate and `precedence` breaks a tie between two
+  selectors matching one machine at one rung. A partial unique index refuses two
+  selectors at one rung sharing a precedence, so resolution never depends on row
+  order.
+- `rule_rollout` — per `(organization_id, rule_id)`: `enabled`, `canary_group`,
+  `rollout_percent`, and `kill`. A customer with no row has not configured the
+  rule, which is not the same as having switched it off — the shipped default
+  applies.
+- `rule_coverage_unsupported` — one row per `(device_id, rule_id)` a machine
+  cannot evaluate, with `since`. Presence of the row *is* the state, so there is
+  no column that can go stale; a machine that can evaluate the rule again has its
+  row deleted rather than flipped. Whether a rule is currently being evaluated,
+  and whether a machine has been heard from, stay in memory — those are liveness
+  and are supposed to reset when the server loses sight of the fleet.
+
+All three carry forced RLS on `tenant_id` through the shared `app_tenant_visible`
+predicate, plus a composite `(tenant_id, organization_id)` foreign key so a row
+cannot name a customer belonging to another tenant. The adapter is
+[`server/internal/rules`](../server/internal/rules/).
+
 ### Data Lifecycle Tables
 
 Two system-level tables back right-to-be-forgotten erasure (see
@@ -405,6 +440,23 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   [ADR-061](adr/ADR-061-amt-as-device-property.md)).
 - [`008_amt_device_link.down.sql`](../server/internal/db/migrations/008_amt_device_link.down.sql)
   restores the standalone AMT columns for rollback.
+- [`009_drop_group_owner`](../server/internal/db/migrations/009_drop_group_owner.up.sql)
+  removes the device group's owner column.
+- [`010_rename_organizations_to_tenants`](../server/internal/db/migrations/010_rename_organizations_to_tenants.up.sql)
+  renames the isolation boundary to `tenants` and every `org_id` column to
+  `tenant_id`, freeing the name for the customer level below it.
+- [`011_organizations`](../server/internal/db/migrations/011_organizations.up.sql)
+  adds the customer an MSP serves inside a tenant, gives every tenant one, and
+  links every device to it.
+- [`012_sites`](../server/internal/db/migrations/012_sites.up.sql)
+  turns device groups into sites under a customer, with a composite key so a
+  device can only be filed into a site inside its own customer.
+- [`013_rules`](../server/internal/db/migrations/013_rules.up.sql)
+  adds `rule_bindings`, `rule_rollout` and `rule_coverage_unsupported`, the
+  shared `app_tenant_visible` policy predicate, and the
+  `organizations(tenant_id, id)` key those tables' composite foreign keys point
+  at.
+- Each of the above has a matching `.down.sql` walked by the rollback rehearsal.
 
 The automated rollback/dump rehearsal lives in
 [`server/internal/db/store_test.go`](../server/internal/db/store_test.go) and

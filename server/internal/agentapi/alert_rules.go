@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -17,8 +18,10 @@ import (
 // authoritative one, which is what keeps one tenant's rules from reaching
 // another.
 type AlertRuleProvider interface {
-	// RulesFor returns the rules to push to the machine at scope.
-	RulesFor(scope settings.Scope) []protocol.ThresholdRule
+	// RulesFor returns the rules to push to the machine at scope. An error
+	// means the ruleset could not be assembled — the caller pushes nothing
+	// rather than something that might ignore what the customer configured.
+	RulesFor(ctx context.Context, scope settings.Scope) ([]protocol.ThresholdRule, error)
 }
 
 // StaticAlertRuleProvider serves a minimal default ruleset to every tenant, with
@@ -45,12 +48,13 @@ func NewStaticAlertRuleProvider(defaultRules []protocol.ThresholdRule, byTenant 
 
 // RulesFor returns a defensive copy of the ruleset for the scope's tenant, or
 // the default set when that tenant has no override. It reads only the tenant
-// rung; the narrower rungs are carried for the providers that resolve them.
-func (p *StaticAlertRuleProvider) RulesFor(scope settings.Scope) []protocol.ThresholdRule {
+// rung; the narrower rungs are carried for the providers that resolve them. It
+// reads nothing outside itself, so it never fails.
+func (p *StaticAlertRuleProvider) RulesFor(_ context.Context, scope settings.Scope) ([]protocol.ThresholdRule, error) {
 	if rules, ok := p.byTenant[scope.TenantID]; ok {
-		return cloneRules(rules)
+		return cloneRules(rules), nil
 	}
-	return cloneRules(p.defaultRules)
+	return cloneRules(p.defaultRules), nil
 }
 
 // resolveAlertRuleProvider returns provider unchanged, or a default static
@@ -95,7 +99,11 @@ func (a *AgentConn) pushAlertRules(ctx context.Context) error {
 	if a.alertRules == nil {
 		return nil
 	}
-	return a.SendPushAlertRules(ctx, a.alertRules.RulesFor(a.settingsScope(ctx)))
+	ruleset, err := a.alertRules.RulesFor(ctx, a.settingsScope(ctx))
+	if err != nil {
+		return fmt.Errorf("assemble alert rules: %w", err)
+	}
+	return a.SendPushAlertRules(ctx, ruleset)
 }
 
 // settingsScope reads the machine's place in the tenancy ladder. Alerts and
