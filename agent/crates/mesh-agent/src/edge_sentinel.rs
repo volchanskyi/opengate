@@ -2,10 +2,11 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use tracing::{debug, info, warn};
 
+use crate::clock::unix_now;
 use mesh_agent_core::maintenance::{MaintenanceGate, MaintenanceTransition};
 use mesh_agent_core::ml::host_metric_stream::HostMetricWindower;
 use mesh_agent_core::ml::store_sink::LocalStoreSink;
@@ -208,14 +209,6 @@ fn should_emit_health(
         now.saturating_sub(last) >= HEALTH_EMIT_INTERVAL_SECS
     });
     due && (breaching || last_breaching)
-}
-
-/// Current Unix time in whole seconds, clamped to 0 before the epoch.
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
 }
 
 /// Local-store wiring for the sampler task: where the redb multi-tier store

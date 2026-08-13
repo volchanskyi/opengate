@@ -5,6 +5,7 @@
 //! Exit code 42 signals the service manager to restart after an update.
 
 mod backfill_loop;
+mod clock;
 mod edge_sentinel;
 mod event_watch;
 mod host_logs;

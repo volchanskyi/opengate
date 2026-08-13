@@ -12,11 +12,11 @@ use std::time::Duration;
 
 use edge_tsdb::{Durability, LocalTsdb, Sample, SeriesId, TsdbConfig};
 use mesh_agent_core::alerts::{
-    AlertOrigin, AlertSink, EdgeAlert, RetroBudget, RetroConditions, RetroCursor, RetroHold,
-    RetroPlan, RetroScan, RetroStep, RetroUnsupported, DEVICE_HOURLY_CEILING,
+    AlertEvaluator, AlertOrigin, AlertSink, EdgeAlert, RetroBudget, RetroConditions, RetroCursor,
+    RetroHold, RetroPlan, RetroScan, RetroStep, RetroUnsupported, DEVICE_HOURLY_CEILING,
 };
 use mesh_agent_core::ml::store_sink::{SERIES_DISK, SERIES_DISK_AWAIT_MS, SERIES_DISK_QUEUE_DEPTH};
-use mesh_protocol::{AlertComparator, RulePredicate, RuleTerm, ThresholdRule};
+use mesh_protocol::{AlertComparator, RuleCoverageState, RulePredicate, RuleTerm, ThresholdRule};
 
 /// Bucket-aligned, so a second's timestamp and its minute bucket line up and
 /// every expectation can be read off the offset from here.
@@ -699,4 +699,56 @@ fn a_peak_rule_and_an_average_rule_read_different_things_from_one_minute() {
         average_sink.drain().is_empty(),
         "a minute averaging 11.5 has not crossed 90"
     );
+}
+
+/// Every shape the live evaluator refuses, history refuses too.
+///
+/// The two sides ask the same question of a rule's declared shape — which
+/// predicate may carry a window, and how wide — and they ask it through one
+/// statement of the rule. Two copies of it would eventually disagree, and the
+/// direction that disagreement runs matters: a scan evaluating a shape the live
+/// evaluator will not touch reports history nobody can reproduce live.
+///
+/// The converse is deliberately *not* asserted. A rule about thirty seconds is
+/// perfectly evaluable live and unanswerable from minute-by-minute history, and
+/// that asymmetry is the whole point of [`RetroUnsupported`].
+#[test]
+fn a_shape_the_live_evaluator_refuses_is_refused_over_history_too() {
+    let ill_formed = [
+        // An instant reading carrying a window it would silently ignore.
+        ThresholdRule {
+            window_secs: 300,
+            ..disk_critical()
+        },
+        // A windowed predicate with no window to span.
+        ThresholdRule {
+            predicate: RulePredicate::WindowMax,
+            window_secs: 0,
+            ..disk_critical()
+        },
+        // A window past the bound the grammar states about itself.
+        ThresholdRule {
+            predicate: RulePredicate::WindowMean,
+            window_secs: 100_000,
+            ..disk_critical()
+        },
+        // A metric outside the vocabulary entirely.
+        ThresholdRule {
+            metric: "nope.unknown".to_string(),
+            ..disk_critical()
+        },
+    ];
+
+    for rule in ill_formed {
+        let live = AlertEvaluator::new(vec![rule.clone()]);
+        assert_eq!(
+            live.coverage()[0].state,
+            RuleCoverageState::Unsupported,
+            "the live evaluator accepts {rule:?}"
+        );
+        assert!(
+            RetroPlan::for_rule(&rule).is_err(),
+            "history accepts a shape the live evaluator refuses: {rule:?}"
+        );
+    }
 }

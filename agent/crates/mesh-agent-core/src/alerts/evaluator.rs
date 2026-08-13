@@ -168,7 +168,11 @@ impl Condition {
 /// Whether a predicate and window pair is a shape the grammar states. One shape,
 /// one meaning: a window on an instant reading would be a field the evaluator
 /// ignores and a rule nobody can predict from its own text.
-fn window_is_expressible(predicate: RulePredicate, window_secs: u32) -> bool {
+///
+/// Shared with the retroactive planner, so a shape refused live is refused over
+/// history too — two copies of this rule would let a scan evaluate something the
+/// live evaluator will not.
+pub(super) fn window_is_expressible(predicate: RulePredicate, window_secs: u32) -> bool {
     match predicate {
         RulePredicate::Instant => window_secs == 0,
         _ => (1..=MAX_RULE_WINDOW_SECS).contains(&window_secs),

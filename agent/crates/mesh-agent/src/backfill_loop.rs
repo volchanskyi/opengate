@@ -15,10 +15,11 @@
 //! of one snapshot/drain/cursor-write.
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use rand::Rng;
 
+use crate::clock::unix_now;
 use edge_tsdb::TsdbError;
 use mesh_agent_core::ml::backfill::{
     answer_local_history, load_cursors, pace_delay, pending_hint, record_ack, BackfillConfig,
@@ -31,14 +32,6 @@ use mesh_protocol::{BackfillTier, ControlMessage};
 /// server does not bound the request itself (defense in depth against a huge
 /// window). The admin-gated server endpoint also caps this.
 const HISTORY_HARD_CAP: usize = 100_000;
-
-/// Wall-clock unix seconds, clamped to 0 before the epoch.
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
 
 /// Where a coordinator is in the request → grant → drain lifecycle for the
 /// current session.

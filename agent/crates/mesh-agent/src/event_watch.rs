@@ -12,7 +12,7 @@
 //! floor is asked of the pack rather than assumed here, so a rule that watches
 //! something less severe widens the read by existing.
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use tracing::{debug, info, warn};
 
@@ -22,6 +22,7 @@ use mesh_agent_core::alerts::{
 use mesh_agent_core::maintenance::MaintenanceGate;
 use mesh_protocol::LogEntry;
 
+use crate::clock::unix_micros;
 use crate::host_logs::{self, LogSource};
 use crate::logs::LogFilter;
 
@@ -135,15 +136,6 @@ fn entry_micros(entry: &LogEntry) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(&entry.timestamp)
         .ok()
         .map(|dt| dt.timestamp_micros())
-}
-
-/// Now, in microseconds since the Unix epoch. A clock before the epoch yields
-/// zero rather than a negative instant.
-fn unix_micros() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_micros()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
 }
 
 /// Renders an instant as the RFC 3339 string the log filter pushes down.
