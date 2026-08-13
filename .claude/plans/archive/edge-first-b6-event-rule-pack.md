@@ -8,9 +8,9 @@ E24, step 9.
 
 ## Context — verified, and one thing the master plan glosses
 
-The host log reader exists ([host_logs.rs](../../agent/crates/mesh-agent/src/host_logs.rs)):
+The host log reader exists ([host_logs.rs](../../../agent/crates/mesh-agent/src/host_logs.rs)):
 `journalctl -o json` on Linux, normalized into `LogEntry`, with
-[`redact_entries`](../../agent/crates/mesh-agent/src/host_logs.rs) applying edge redaction
+[`redact_entries`](../../../agent/crates/mesh-agent/src/host_logs.rs) applying edge redaction
 (ADR-049).
 
 **It is a bounded on-demand read, not a stream.** `collect_host_logs` shells out per call with
@@ -46,17 +46,17 @@ per-service error count evaluated locally.
 
 - **Create:** `agent/crates/mesh-agent-core/src/alerts/event.rs` — event predicate matching, dedup
   key, rolling per-service error counter. **Owned by this plan**; EF-B8 owns the numeric grammar in
-  [evaluator.rs](../../agent/crates/mesh-agent-core/src/alerts/evaluator.rs), so the two plans do not
+  [evaluator.rs](../../../agent/crates/mesh-agent-core/src/alerts/evaluator.rs), so the two plans do not
   collide in one file.
 - **Create:** `agent/crates/mesh-agent-core/src/alerts/sink.rs` — the in-process `AlertSink`: a
   **bounded** queue with oldest-dropped-and-counted semantics (E24) and the per-device **20 alerts/h**
   ceiling (§6.6, D28), counted locally and reported. Every edge alert producer writes here; EF-C1
   attaches the transport.
-- **Modify:** [alerts/mod.rs](../../agent/crates/mesh-agent-core/src/alerts/mod.rs).
-- **Modify:** [main.rs](../../agent/crates/mesh-agent/src/main.rs) — schedule the poll task
+- **Modify:** [alerts/mod.rs](../../../agent/crates/mesh-agent-core/src/alerts/mod.rs).
+- **Modify:** [main.rs](../../../agent/crates/mesh-agent/src/main.rs) — schedule the poll task
   (bounded, `spawn_blocking`, watermarked), wire the sink.
 - **Create:** fixture log corpora for both platforms, including a non-matching near-miss per rule.
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
 
 ## Steps (TDD-first)
 

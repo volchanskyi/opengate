@@ -106,7 +106,7 @@ admin. See [ADR-062](adr/ADR-062-tenant-scoped-reads-and-fleet-summary.md).
 
 | Class | Authorization rule | Endpoints |
 |---|---|---|
-| Fleet reads | Tenant membership | Device list/detail/summary, metrics, correlate, history, inventory, hardware, group list/detail, session list |
+| Fleet reads | Tenant membership | Device list/detail/summary, metrics, history, inventory, hardware, group list/detail, session list |
 | Device commands | Tenant membership | Session create/delete, restart, maintenance, AMT power |
 | Configuration | Admin | Device delete, device group move, group create/delete, enrollment tokens, updates, users, security groups, tenant purge |
 | Secret-bearing reads | Admin | Device logs, enrollment tokens, update signing key, audit log, user list |

@@ -16,8 +16,7 @@ Accepted.
 Edge-Sentinel ingests numeric telemetry to VictoriaMetrics and brokers raw logs
 on demand ([ADR-044](ADR-044-edge-sentinel-server-telemetry-ingest.md),
 [ADR-046](ADR-046-edge-sentinel-raw-log-broker.md)), and exposes a downsampled
-range endpoint plus an on-demand metric-correlation endpoint. The React client
-had no way to surface any of it: no charting library existed, and React
+range endpoint. The React client had no way to surface any of it: no charting library existed, and React
 reconciling per-point DOM/SVG nodes collapses at ~100 series/device × thousands
 of points.
 
@@ -39,8 +38,11 @@ owning chrome and the renderer owning pixels.
   ([`.size-limit.json`](../../web/.size-limit.json)).
 - The device-detail panel
   ([`DeviceMetrics`](../../web/src/features/devices/DeviceMetrics.tsx)) renders
-  the anomaly rate, per-family timelines, and a drag-to-correlate drill-down. The
-  virtualized grid and dashboard carry only **scalar** health badges
+  the anomaly rate and per-family timelines, over the window a preset chooses;
+  the cursor reads values and never re-scopes the chart. Which dimensions broke
+  pattern is ranked on the device and arrives inside the alert, so the panel
+  asks the server nothing beyond its window. The virtualized grid and dashboard
+  carry only **scalar** health badges
   ([`HealthBadge`](../../web/src/features/devices/HealthBadge.tsx),
   [`FleetHealth`](../../web/src/features/devices/FleetHealth.tsx)) — no
   per-device series on the grid.
@@ -50,8 +52,8 @@ owning chrome and the renderer owning pixels.
 - The logs explorer
   ([`DeviceLogs`](../../web/src/features/devices/DeviceLogs.tsx)) renders only the
   redacted lines the WS-11 broker returns, with level/time/full-text filters and
-  page facets. A metrics↔logs correlation jump carries a device window from the
-  panel into the explorer.
+  page facets. A jump from the metrics panel carries its window into the
+  explorer.
 
 ## Consequences
 

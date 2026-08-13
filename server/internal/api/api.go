@@ -21,7 +21,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/audit"
 	"github.com/volchanskyi/opengate/server/internal/auth"
-	"github.com/volchanskyi/opengate/server/internal/correlate"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/device"
@@ -77,13 +76,6 @@ type CertProvider interface {
 	SignAgentCSR(csrDER []byte) ([]byte, error)
 }
 
-// CorrelationRanker ranks anomalous metric dimensions for a device window on
-// demand. Implemented by *correlate.Engine; nil when telemetry is not
-// configured, in which case the correlate endpoint reports 503.
-type CorrelationRanker interface {
-	Correlate(ctx context.Context, tenantID uuid.UUID, req correlate.Request) (correlate.Result, error)
-}
-
 // MetricsReader reads tenant-scoped numeric telemetry for chart windows and the
 // fleet health badge. Implemented by *telemetry.VMClient; nil when telemetry is
 // not configured, in which case the metrics endpoint reports 503 and the device
@@ -121,7 +113,6 @@ type ServerConfig struct {
 	Agents                AgentGetter
 	AMT                   amt.Operator
 	Cert                  CertProvider
-	Correlate             CorrelationRanker
 	TelemetryReader       MetricsReader
 	Purger                DevicePurger
 	PurgeJobs             PurgeJobReader
@@ -169,7 +160,6 @@ type Server struct {
 	agents          AgentGetter
 	amt             amt.Operator
 	cert            CertProvider
-	correlate       CorrelationRanker
 	telemetryReader MetricsReader
 	purger          DevicePurger
 	purgeJobs       PurgeJobReader
@@ -273,7 +263,6 @@ func NewServer(cfg ServerConfig) *Server {
 		agents:          cfg.Agents,
 		amt:             cfg.AMT,
 		cert:            cfg.Cert,
-		correlate:       cfg.Correlate,
 		telemetryReader: cfg.TelemetryReader,
 		purger:          cfg.Purger,
 		purgeJobs:       cfg.PurgeJobs,

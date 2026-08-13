@@ -6,6 +6,7 @@
 
 mod backfill_loop;
 mod edge_sentinel;
+mod event_watch;
 mod host_logs;
 mod logs;
 
@@ -502,6 +503,13 @@ async fn main() -> Result<()> {
     let (discovery_tx, discovery_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(DISCOVERY_TELEMETRY_CAP);
     let _edge_discovery = edge_sentinel::spawn_discovery(discovery_tx, maintenance.clone());
+
+    // System-event rules: the curated pack reads the host log on a bounded
+    // poll and raises into the shared alert sink. The sink is where every edge
+    // alert producer writes; it is bounded and rate-limited per device, and it
+    // counts what either limit costs.
+    let alert_sink = mesh_agent_core::alerts::AlertSink::default();
+    let _event_watch = event_watch::spawn_event_watch(alert_sink.clone(), maintenance.clone());
 
     // Shutdown signal handler
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;

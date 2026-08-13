@@ -87,37 +87,16 @@ describe('TimeSeriesChart adapter', () => {
     expect(mock.instances[0]!.opts.scales?.y?.range).toEqual([0, 100]);
   });
 
-  it('wires a setSelect hook that maps the drag pixels to unix-second bounds', () => {
-    const onSelectWindow = vi.fn();
-    render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} onSelectWindow={onSelectWindow} />);
-    const hook = mock.instances[0]!.opts.hooks?.setSelect?.[0];
-    expect(hook).toBeTypeOf('function');
-    // Simulate uPlot firing the hook after a drag from px 10 to px 110.
-    const fakeSelf = {
-      select: { left: 10, width: 100, top: 0, height: 50 },
-      posToVal: (px: number) => px * 2,
-    } as unknown as uPlot;
-    hook!(fakeSelf);
-    expect(onSelectWindow).toHaveBeenCalledWith(20, 220);
-  });
-
-  it('does not fire onSelectWindow for a zero-width selection', () => {
-    const onSelectWindow = vi.fn();
-    render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} onSelectWindow={onSelectWindow} />);
-    const hook = mock.instances[0]!.opts.hooks?.setSelect?.[0];
-    const fakeSelf = { select: { left: 5, width: 0, top: 0, height: 50 }, posToVal: (px: number) => px } as unknown as uPlot;
-    hook!(fakeSelf);
-    expect(onSelectWindow).not.toHaveBeenCalled();
-  });
-
-  it('omits select hooks entirely when no onSelectWindow is given', () => {
-    render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} />);
-    expect(mock.instances[0]!.opts.hooks?.setSelect).toBeUndefined();
-  });
-
   it('disables the default uPlot legend (removes the "Time --" row)', () => {
     render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} />);
     expect(mock.instances[0]!.opts.legend?.show).toBe(false);
+  });
+
+  it('leaves the cursor read-only: a drag neither zooms nor selects', () => {
+    render(<TimeSeriesChart data={makeData([1, 2, 3])} series={series} />);
+    const { opts } = mock.instances[0]!;
+    expect(opts.cursor?.drag).toEqual({ x: false, y: false });
+    expect(opts.hooks?.setSelect).toBeUndefined();
   });
 
   it('re-applies the y-scale via setScale when a poll brings a wider yRange (clip regression)', () => {

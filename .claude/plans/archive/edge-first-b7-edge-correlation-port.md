@@ -10,11 +10,11 @@ vitals).
 ## Context
 
 Correlation is an **on-demand central engine** today: it KS-ranks which dimensions broke pattern by
-pulling VictoriaMetrics ([correlate.go](../../server/internal/correlate/correlate.go), scoring
-`0.4·KS + anomaly + magnitude` at [:35-39](../../server/internal/correlate/correlate.go#L35-L39)),
-reached through [`CorrelateDevice`](../../server/internal/api/handlers_device_correlate.go#L16) and
+pulling VictoriaMetrics ([correlate.go](../../../server/internal/correlate/correlate.go), scoring
+`0.4·KS + anomaly + magnitude` at [:35-39](../../../server/internal/correlate/correlate.go#L35-L39)),
+reached through [`CorrelateDevice`](../../../server/internal/api/handlers_device_correlate.go#L16) and
 driven by drag-to-select on the device chart
-([DeviceMetrics.tsx:184](../../web/src/features/devices/DeviceMetrics.tsx#L184)).
+([DeviceMetrics.tsx:184](../../../web/src/features/devices/DeviceMetrics.tsx#L184)).
 
 Both halves of that are being removed by decision: it **is** an on-demand telemetry pull (D2), and
 after EF-B2 it would rank 60 s vitals instead of the detail that matters.
@@ -28,24 +28,24 @@ action, no VM query.
 
 - **Create:** `agent/crates/mesh-agent-core/src/correlate/` — KS statistic, the three-signal blend,
   ranking, bounded window fetch from the local store.
-- **Modify:** [ml/store_sink.rs](../../agent/crates/mesh-agent-core/src/ml/store_sink.rs) /
-  [edge-tsdb](../../agent/crates/edge-tsdb/) read path — a bounded range read for the focus and
+- **Modify:** [ml/store_sink.rs](../../../agent/crates/mesh-agent-core/src/ml/store_sink.rs) /
+  [edge-tsdb](../../../agent/crates/edge-tsdb/) read path — a bounded range read for the focus and
   baseline windows (read-only; `edge-tsdb` itself is unchanged by this program).
-- **Delete:** [server/internal/correlate/](../../server/internal/correlate/) (10 files incl. tests),
-  [handlers_device_correlate.go](../../server/internal/api/handlers_device_correlate.go) and its test.
-- **Modify:** [api/openapi.yaml](../../api/openapi.yaml) — remove
-  `/api/v1/devices/{id}/correlate` ([:1724](../../api/openapi.yaml#L1724)) **outright**, not
+- **Delete:** [server/internal/correlate/](../../../server/internal/correlate/) (10 files incl. tests),
+  [handlers_device_correlate.go](../../../server/internal/api/handlers_device_correlate.go) and its test.
+- **Modify:** [api/openapi.yaml](../../../api/openapi.yaml) — remove
+  `/api/v1/devices/{id}/correlate` ([:1724](../../../api/openapi.yaml#L1724)) **outright**, not
   deprecated (D33: no external consumers, and its only caller retires in the same step); regen Go +
   TS.
-- **Modify:** [api.go](../../server/internal/api/api.go) — drop the engine from `Server`
-  construction; [main.go](../../server/cmd/meshserver/main.go) — drop the wiring.
-- **Modify:** [DeviceMetrics.tsx](../../web/src/features/devices/DeviceMetrics.tsx),
-  [device-store.ts](../../web/src/features/devices/state/device-store.ts) — remove the drag
+- **Modify:** [api.go](../../../server/internal/api/api.go) — drop the engine from `Server`
+  construction; [main.go](../../../server/cmd/meshserver/main.go) — drop the wiring.
+- **Modify:** [DeviceMetrics.tsx](../../../web/src/features/devices/DeviceMetrics.tsx),
+  [device-store.ts](../../../web/src/features/devices/state/device-store.ts) — remove the drag
   selection, the `correlate` action, the freeze-poll behaviour and the caption at
-  [:260](../../web/src/features/devices/DeviceMetrics.tsx#L260).
+  [:260](../../../web/src/features/devices/DeviceMetrics.tsx#L260).
 - **Create:** a shared fixture used by **both** the Go reference test and the Rust port.
-- **Docs:** [API-Reference.md](../../docs/API-Reference.md),
-  [Architecture.md](../../docs/Architecture.md), [Monitoring.md](../../docs/Monitoring.md).
+- **Docs:** [API-Reference.md](../../../docs/API-Reference.md),
+  [Architecture.md](../../../docs/Architecture.md), [Monitoring.md](../../../docs/Monitoring.md).
 
 ## Steps (TDD-first)
 
@@ -67,7 +67,7 @@ action, no VM query.
    port lands, so no dead central path survives a release.
 7. Regenerate OpenAPI → Go + TS; assert the generated client no longer exposes the operation.
 8. Docs: describe what the system does now (ranking arrives with the alert). Per
-   [docs-live-state.md](../rules/docs-live-state.md), **do not** narrate the removal.
+   [docs-live-state.md](../../rules/docs-live-state.md), **do not** narrate the removal.
 
 ## Traps
 
@@ -76,7 +76,7 @@ action, no VM query.
 - The edge store read must be **bounded and snapshot-based** (the local TSDB offers MVCC snapshot
   reads) — a correlation running while the sampler writes must not block ingestion.
 - `f64` ordering: the Go engine sorts by `KSStatistic` then score
-  ([:193](../../server/internal/correlate/correlate.go#L193)); reproduce the **tie-break**, not just
+  ([:193](../../../server/internal/correlate/correlate.go#L193)); reproduce the **tie-break**, not just
   the primary key, or equivalence passes on the fixture and diverges in production.
 - Removing an OpenAPI path changes the generated server interface — the compile error surface is
   wide; do it in one pass and regenerate both languages together.

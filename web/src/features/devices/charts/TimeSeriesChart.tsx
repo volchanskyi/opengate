@@ -14,20 +14,10 @@ export interface TimeSeriesChartProps {
   readonly height?: number;
   readonly className?: string;
   readonly ariaLabel?: string;
-  /** Fired with unix-second bounds when the user drag-selects a sub-window. */
-  readonly onSelectWindow?: (fromSec: number, toSec: number) => void;
 }
 
 const DEFAULT_HEIGHT = 220;
 const FALLBACK_WIDTH = 600;
-
-function selectHook(onSelectWindow: (fromSec: number, toSec: number) => void) {
-  return (self: uPlot): void => {
-    const { left, width } = self.select;
-    if (width <= 0) return;
-    onSelectWindow(self.posToVal(left, 'x'), self.posToVal(left + width, 'x'));
-  };
-}
 
 /**
  * Imperative uPlot wrapper — the only module that imports uPlot. React owns the
@@ -45,7 +35,6 @@ export function TimeSeriesChart({
   height = DEFAULT_HEIGHT,
   className,
   ariaLabel,
-  onSelectWindow,
 }: TimeSeriesChartProps) {
   const containerRef = useRef<HTMLElement | null>(null);
   const chartRef = useRef<uPlot | null>(null);
@@ -53,9 +42,9 @@ export function TimeSeriesChart({
   // structural change (series labels / band count) should rebuild the instance.
   // Synced in a layout effect (declared first, so it runs before the mount
   // effect each commit) rather than during render, which is forbidden for refs.
-  const latest = useRef({ data, series, bands, yRange, height, onSelectWindow });
+  const latest = useRef({ data, series, bands, yRange, height });
   useLayoutEffect(() => {
-    latest.current = { data, series, bands, yRange, height, onSelectWindow };
+    latest.current = { data, series, bands, yRange, height };
   });
 
   const structureKey = `${series.map((s) => s.label ?? '').join('|')}#${String(bands?.length ?? 0)}`;
@@ -63,7 +52,7 @@ export function TimeSeriesChart({
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const { data: d, series: s, bands: b, yRange: yr, height: h, onSelectWindow: onSel } = latest.current;
+    const { data: d, series: s, bands: b, yRange: yr, height: h } = latest.current;
     const opts: uPlot.Options = {
       width: el.clientWidth || FALLBACK_WIDTH,
       height: h,
@@ -71,10 +60,12 @@ export function TimeSeriesChart({
       // The current value is shown beside each family title, so uPlot's default
       // legend (which renders a "Time --" row) is redundant noise — disable it.
       legend: { show: false },
-      cursor: { drag: { x: true, y: false } },
+      // The panel charts the window the presets choose, so the cursor reads
+      // values and nothing more — a drag that zoomed would be undone by the
+      // next poll's setData.
+      cursor: { drag: { x: false, y: false } },
       ...(b && b.length > 0 ? { bands: [...b] } : {}),
       ...(yr ? { scales: { y: { range: [yr[0], yr[1]] } } } : {}),
-      ...(onSel ? { hooks: { setSelect: [selectHook(onSel)] } } : {}),
     };
     const chart = new uPlot(opts, d, el);
     chartRef.current = chart;

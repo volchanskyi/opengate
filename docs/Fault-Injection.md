@@ -44,9 +44,8 @@ a decorator that injects an action and asserts server-side behavior.
 
 The **gating core** in normal CI is `session.repository`, `device.repository`,
 and the `api.before-handler` middleware. The two repositories are `ServerConfig`
-interface ports; the Edge-Sentinel ports (`Correlate`, `TelemetryReader`,
-`Inventory`, `Purger`/`PurgeJobs`) and the notifier/AMT ports are candidate,
-non-gating.
+interface ports; the Edge-Sentinel ports (`TelemetryReader`, `Inventory`,
+`Purger`/`PurgeJobs`) and the notifier/AMT ports are candidate, non-gating.
 
 ### Chaos Mesh surfaces (deployed, on-demand)
 

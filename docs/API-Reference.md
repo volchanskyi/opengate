@@ -82,7 +82,6 @@ const { data, error } = await api.GET('/api/v1/sites');
 | `/api/v1/devices/{id}/hardware` | GET | JWT | Get hardware inventory for device (200 cached / 202 requested from agent) |
 | `/api/v1/devices/{id}/logs` | GET | JWT (admin) | Get device log entries (on-demand via agent) |
 | `/api/v1/devices/{id}/metrics` | GET | JWT | Downsampled numeric telemetry for a device window, on a request-derived bucket grid |
-| `/api/v1/devices/{id}/correlate` | POST | JWT | Rank anomalous metric dimensions for a window (on-demand, server-side over VictoriaMetrics) |
 | `/api/v1/devices/{id}/inventory` | GET | JWT | Get the device's auto-discovered footprint (ports, services, DB engines, containers, packages) |
 | `/api/v1/sessions` | POST | JWT | Create a remote session |
 | `/api/v1/sessions` | GET | JWT | List sessions (requires `device_id` query param) |
@@ -198,36 +197,6 @@ adapter does this with `spanGaps: false` on every drawn series
 | `403` | Forbidden (the request carries no tenant scope) |
 | `404` | Device not found (also the cross-tenant deny) |
 | `503` | Telemetry not configured (no VictoriaMetrics URL) or the range query failed |
-
-### Metric Correlation
-
-`POST /api/v1/devices/{id}/correlate` ranks the metric dimensions that "broke
-pattern" during an incident window. The engine
-([`server/internal/correlate`](../server/internal/correlate)) fetches the
-device's numeric telemetry from VictoriaMetrics through the tenant-scoped read
-client ([`server/internal/telemetry/vm.go`](../server/internal/telemetry/vm.go),
-which injects the `tenant_id` label matcher) and computes the ranking server-side
-in Go — VictoriaMetrics' MetricsQL has no native KS test or join.
-
-Each `{focus_start, focus_end}` window is compared against a baseline window
-(the equal-length window immediately before focus, unless `baseline_start` /
-`baseline_end` are given). Every dimension is scored by three signals — a
-two-sample Kolmogorov–Smirnov distribution shift, the fraction of focus samples
-outside the baseline band (anomaly rate), and the normalized mean shift
-(magnitude/volume). Ranking is on-demand only (no background matrix) and bounded
-by a concurrency limiter, a per-request timeout, and per-request caps on series
-and points.
-
-**Response Codes**
-
-| Code | Meaning |
-|------|---------|
-| `200` | Ranked correlation result (`ranked`, `series_considered`, `series_truncated`) |
-| `400` | Invalid window (e.g. `focus_end` not after `focus_start`) |
-| `401` | Unauthorized |
-| `403` | Forbidden (the request carries no tenant scope) |
-| `404` | Device not found (also the cross-tenant deny — a device in another tenant is not visible) |
-| `503` | Correlation not configured (no VictoriaMetrics URL) or the engine is at capacity |
 
 ### Device Inventory
 

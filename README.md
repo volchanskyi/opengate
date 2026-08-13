@@ -34,7 +34,8 @@ OpenGate is a browser-based remote management and infrastructure monitoring plat
 
 OpenGate provides secure remote access and Intel AMT out-of-band
 endpoint management via remote agents. Agent`s edge-first health inteligence provides
-telemetry, host anomaly detection, and investigation-oriented correlation.
+telemetry, host anomaly detection, and a ranking of what broke alongside every
+alert the device raises.
 
 The three-part architecture is built around these main components: a Zero-Configuration ML-Powered agent, a centralized server for configuration, user and data management, central alerts, and a web client for remote fleet operations, data visualisations, and dashboards.
 
@@ -49,8 +50,9 @@ The three-part architecture is built around these main components: a Zero-Config
 - **Edge health intelligence** - Edge Sentinel samples host health locally, 
   detects anomalies on the device, and sends summarized telemetry 
   avoiding raw high-volume streams by default.
-- **Investigation first** - anomaly panels, timelines, and correlation drill-down
-  are designed as operator aids before automatic alerting.
+- **Investigation first** - anomaly panels, timelines, and the ranked
+  contributors that travel inside an alert are designed as operator aids before
+  automatic alerting.
 
 ## Key Features
 
@@ -64,7 +66,7 @@ The three-part architecture is built around these main components: a Zero-Config
 | Agent lifecycle | CSR enrollment, QUIC mTLS registration, heartbeat, deregistration, restart, and signed OTA updates |
 | Web Push | Browser subscriptions for device and session lifecycle notifications |
 | Edge Sentinel telemetry | CPU, memory, disk, network, process, and service telemetry summarized at the edge |
-| Correlation drill-down | On-demand anomaly advisor using KS-test and anomaly-rate ranking with bounded concurrency |
+| Edge correlation | On a device alert, the agent ranks which of its own dimensions broke pattern over the event window — KS distribution shift, anomaly rate and shift magnitude — and ships the ranking inside the alert |
 | Dense timelines | uPlot-based device timelines, anomaly badges, fleet overview, and drill-down UI |
 
 ## Architecture
@@ -72,8 +74,8 @@ The three-part architecture is built around these main components: a Zero-Config
 | Component | Stack | Responsibilities |
 |---|---|---|
 | **Agent** | Rust workspace | CSR enrollment, QUIC mTLS control, registration, session handling, terminal/file/log/hardware paths, signed updates, local Edge Sentinel sampling, cmdline redaction, anomaly detection, and telemetry windows |
-| **Server** | Go module | REST API, QUIC agent API, WebSocket relay, auth, certificates, PostgreSQL persistence, Intel AMT MPS, Web Push, update manifests, tenant context/RLS, telemetry ingest, correlation, and cold-tier access |
-| **Web** | React / TypeScript | Dashboard, device list/detail, session UI, terminal, file manager, update settings, admin views, anomaly badges, telemetry timelines, fleet overview, and correlation drill-down |
+| **Server** | Go module | REST API, QUIC agent API, WebSocket relay, auth, certificates, PostgreSQL persistence, Intel AMT MPS, Web Push, update manifests, tenant context/RLS, telemetry ingest, and cold-tier access |
+| **Web** | React / TypeScript | Dashboard, device list/detail, session UI, terminal, file manager, update settings, admin views, anomaly badges, telemetry timelines, and fleet overview |
 
 <a id="observe-control"></a>
 
@@ -88,7 +90,7 @@ The three-part architecture is built around these main components: a Zero-Config
 | Edge telemetry | CPU, memory, disk, network, process, and service families sampled locally by the agent |
 | Process visibility | Top-N process/service metrics by rank with process names and command lines |
 | Anomaly state | Node anomaly rate, per-family rates, recent bitmask, model/sampler version, and device health badge |
-| Investigation | Device timelines, downsampled metric windows, selected-window correlation, and ranked likely contributors |
+| Investigation | Device timelines, downsampled metric windows, and the ranked likely contributors an alert carries |
 | AMT | Intel AMT device inventory, CIRA connectivity, WSMAN device info, and power actions |
 | Security | JWT auth, bcrypt passwords, security groups, mTLS, CSR validation, RLS, secret redaction, and no standing edge storage credentials |
 
@@ -105,13 +107,13 @@ flowchart LR
     agentapi["Agent API<br/>QUIC mTLS"]
     mps["MPS<br/>AMT CIRA"]
     ingest["Telemetry Ingest<br/>tenant scoped"]
-    correlate["Correlation<br/>on demand"]
   end
 
   subgraph agent["Managed Device<br/>Rust agent"]
     sessions["Remote ops<br/>terminal + files + logs"]
     sampler["Edge Sentinel<br/>sample + redact"]
     detector["Local detector<br/>k=2 ensemble"]
+    correlate["Correlation<br/>ranks local dimensions"]
   end
 
   postgres[("PostgreSQL<br/>core data + RLS")]
@@ -128,17 +130,16 @@ flowchart LR
   agentapi --> sessions
   sessions --> relay
   sampler --> detector
+  detector --> correlate
+  correlate --> agentapi
   detector --> agentapi
   agentapi --> ingest
   rest --> postgres
   relay --> postgres
   ingest --> timescale
   ingest --> postgres
-  timescale --> correlate
-  correlate --> web
   timescale --> cold
   cold --> duckdb
-  duckdb --> correlate
   amt --> mps
   mps --> postgres
   rest --> push

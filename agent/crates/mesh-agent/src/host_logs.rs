@@ -251,6 +251,18 @@ pub fn collect_host_logs(source: LogSource, filter: &LogFilter, unit: &str) -> V
     }
 }
 
+/// Whether a collected batch came back at the reader's own line cap.
+///
+/// A batch at the cap is the newest [`MAX_HOST_LINES`] records of its window
+/// and nothing older, so the window held at least that many and an unknown
+/// number fell off its old end. Callers that read a window rather than a page —
+/// the system-event watch — need that distinction: the count of what was lost
+/// is not knowable, but the fact that something was is.
+#[must_use]
+pub fn batch_saturated(entries: &[LogEntry]) -> bool {
+    entries.len() >= MAX_HOST_LINES
+}
+
 /// Enumerates the distinct emitting units for `source` (systemd units),
 /// normalized for the UI dropdown. Empty on any failure path.
 pub fn list_units(source: LogSource) -> Vec<String> {
