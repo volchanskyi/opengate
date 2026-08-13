@@ -76,6 +76,22 @@ func TestGoldenControlAgentHealthSummary(t *testing.T) {
 	assert.Equal(t, "disk-full", msg.Breaches[0].RuleID)
 	assert.Equal(t, "disk.used", msg.Breaches[0].Metric)
 	assert.InEpsilon(t, 95.5, msg.Breaches[0].Value, 0.0001)
+	// This fixture predates coverage and carries no such key, which is the shape
+	// an agent that has not been upgraded still sends. It must decode as "this
+	// device reported nothing" rather than fail and take the control stream down.
+	assert.Empty(t, msg.RuleCoverage)
+}
+
+func TestGoldenControlAgentHealthSummaryCoverage(t *testing.T) {
+	msg := decodeControlFrame(t, "control_agent_health_summary_coverage.bin")
+	assert.Equal(t, MsgAgentHealthSummary, msg.Type)
+	assert.Equal(t, int64(1700000100), msg.TS)
+	assert.Empty(t, msg.Breaches, "a calm machine reports coverage and nothing else")
+	require.Len(t, msg.RuleCoverage, 2)
+	assert.Equal(t, "disk-critical", msg.RuleCoverage[0].RuleID)
+	assert.Equal(t, RuleCoverageActive, msg.RuleCoverage[0].State)
+	assert.Equal(t, "io-stalled", msg.RuleCoverage[1].RuleID)
+	assert.Equal(t, RuleCoverageUnsupported, msg.RuleCoverage[1].State)
 }
 
 func TestGoldenControlAgentMetricWindow(t *testing.T) {

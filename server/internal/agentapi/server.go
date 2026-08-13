@@ -39,6 +39,7 @@ type AgentServer struct {
 	notifier       notifications.Notifier
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
+	coverage       *RuleCoverageStore
 	settings       settings.Reader
 	metrics        *appmetrics.Metrics
 	quicHost       string   // extra DNS SAN for the server certificate
@@ -95,6 +96,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		notifier:       cfg.Notifier,
 		scheduler:      NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
 		alertRules:     resolveAlertRuleProvider(cfg.AlertRules),
+		coverage:       NewRuleCoverageStore(),
 		settings:       cfg.Settings,
 		metrics:        cfg.Metrics,
 		quicHost:       cfg.QuicHost,
@@ -230,6 +232,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		inventory:     s.inventory,
 		scheduler:     s.scheduler,
 		alertRules:    s.alertRules,
+		coverage:      s.coverage,
 		settings:      s.settings,
 		metrics:       s.metrics,
 		logger:        logger,
@@ -260,6 +263,9 @@ func (s *AgentServer) unregisterConn(stream *quic.Stream, conn *quic.Conn, ac *A
 	// another agent) can drain. Idempotent for agents that never backfilled, and
 	// a no-op when the server carries no scheduler.
 	s.scheduler.Release(ac.DeviceID)
+	// A machine that drops off becomes unknown for every rule rather than
+	// staying counted as one that is still being watched.
+	s.coverage.Forget(ac.DeviceID)
 	if s.conns.CompareAndDelete(ac.DeviceID, ac) {
 		s.count.Add(-1)
 		offlineCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -62,6 +62,7 @@ type AgentConn struct {
 	inventory      inventory.Repository
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
+	coverage       *RuleCoverageStore
 	settings       settings.Reader
 	metrics        *appmetrics.Metrics
 	logger         *slog.Logger
@@ -162,6 +163,9 @@ type AgentConnConfig struct {
 	Inventory     inventory.Repository
 	Scheduler     *BackfillScheduler
 	AlertRules    AlertRuleProvider
+	// Coverage records what this agent reports every rule is doing on it.
+	// Optional: nil means coverage is not tracked for this connection.
+	Coverage *RuleCoverageStore
 	// Settings reads a machine's place in the tenancy ladder. Optional: nil
 	// leaves the connection with the rungs it already knows for itself.
 	Settings settings.Reader
@@ -185,6 +189,7 @@ func NewAgentConn(cfg AgentConnConfig) *AgentConn {
 		inventory:     cfg.Inventory,
 		scheduler:     cfg.Scheduler,
 		alertRules:    cfg.AlertRules,
+		coverage:      cfg.Coverage,
 		settings:      cfg.Settings,
 		metrics:       cfg.Metrics,
 		logger:        cfg.Logger,

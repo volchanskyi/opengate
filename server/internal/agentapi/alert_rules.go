@@ -65,11 +65,12 @@ func resolveAlertRuleProvider(provider AlertRuleProvider) AlertRuleProvider {
 // DefaultAlertRules is the minimal built-in ruleset shipped to every tenant that
 // has no custom configuration: sustained resource-saturation alerts with
 // hysteresis, tuned conservatively because delivery is investigation-aid only.
+// Each names the canonical vitals dimension it watches.
 func DefaultAlertRules() []protocol.ThresholdRule {
 	return []protocol.ThresholdRule{
-		{ID: "disk-critical", Metric: "disk.used", Comparator: protocol.AlertComparatorGte, Threshold: 90, Clear: 85, SustainSecs: 300},
+		{ID: "disk-critical", Metric: "disk.used_percent", Comparator: protocol.AlertComparatorGte, Threshold: 90, Clear: 85, SustainSecs: 300},
 		{ID: "cpu-saturated", Metric: "cpu.total", Comparator: protocol.AlertComparatorGte, Threshold: 95, Clear: 85, SustainSecs: 300},
-		{ID: "memory-pressure", Metric: "mem.used", Comparator: protocol.AlertComparatorGte, Threshold: 95, Clear: 85, SustainSecs: 300},
+		{ID: "memory-pressure", Metric: "mem.used_percent", Comparator: protocol.AlertComparatorGte, Threshold: 95, Clear: 85, SustainSecs: 300},
 	}
 }
 

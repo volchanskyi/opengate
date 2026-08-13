@@ -35,6 +35,10 @@ fn test_control_message_roundtrip_msgpack() {
                 metric: "cpu.total".to_string(),
                 value: 97.0,
             }],
+            rule_coverage: vec![RuleCoverage {
+                rule_id: "cpu-high".to_string(),
+                state: RuleCoverageState::Active,
+            }],
         },
         ControlMessage::AgentMetricWindow {
             ts: 1700000160,
@@ -546,6 +550,7 @@ fn test_edge_sentinel_agent_reports_tolerate_go_omitempty_zero_fields() {
             sampler_ver: String::new(),
             model_ver: String::new(),
             breaches: Vec::new(),
+            rule_coverage: Vec::new(),
         }
     );
     assert_eq!(
@@ -580,6 +585,7 @@ fn test_agent_health_summary_recent_bitmask_roundtrip() {
         sampler_ver: "sysinfo-k2".to_string(),
         model_ver: "k2-baseline-v1".to_string(),
         breaches: Vec::new(),
+        rule_coverage: Vec::new(),
     };
 
     let encoded = rmp_serde::to_vec_named(&msg).unwrap();

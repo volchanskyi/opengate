@@ -197,6 +197,21 @@ func accountingCases(now int64) []accountingCase {
 			drops:    map[string]int{"empty_summary": 1},
 		},
 		{
+			// A calm machine's summary says what every rule is doing on it and
+			// nothing else. That is state the server now holds, so the message
+			// belongs on the produced-state side of the ledger rather than being
+			// filed as a discard it plainly is not.
+			name: "health summary carrying only rule coverage produces state, not a drop",
+			msgs: []*protocol.ControlMessage{{
+				Type: protocol.MsgAgentHealthSummary, TS: now,
+				RuleCoverage: []protocol.RuleCoverage{
+					{RuleID: "disk-critical", State: protocol.RuleCoverageActive},
+				},
+			}},
+			ingested:  1,
+			persisted: 1,
+		},
+		{
 			name: "health summary over the payload cap never reaches the ingest counter",
 			msgs: []*protocol.ControlMessage{{
 				Type: protocol.MsgAgentHealthSummary, TS: now, SamplerVersion: "s1",
@@ -339,6 +354,7 @@ func runAccountingCase(t *testing.T, m *appmetrics.Metrics, tc accountingCase) i
 		processes:    sinks,
 		inventory:    sinks,
 		metrics:      m,
+		coverage:     NewRuleCoverageStore(),
 		Capabilities: []protocol.AgentCapability{protocol.CapDiscovery},
 		logger:       testLogger(),
 	}
@@ -421,8 +437,9 @@ func TestTelemetryAccountingInvariant(t *testing.T) {
 	}
 
 	assert.InDelta(t, wantIngested, gotIngested, 0, "cumulative ingested")
-	// The invariant: everything counted as ingested either produced a write or
-	// was filed under exactly one drop reason. Nothing vanishes in between.
+	// The invariant: everything counted as ingested either produced state — a
+	// persisted write, or a rule-coverage report the server now holds — or was
+	// filed under exactly one drop reason. Nothing vanishes in between.
 	assert.Equal(t, wantIngested, wantPersisted+wantPostIngestDrops,
 		"the case table itself must balance")
 	assert.InDelta(t, float64(wantPersisted+wantPostIngestDrops), gotIngested, 0,

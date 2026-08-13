@@ -7,7 +7,7 @@ import "github.com/vmihailenco/msgpack/v5"
 // positionally, so both must track the struct;
 // TestEncodeControlMatchesReflectionPerField walks the struct by reflection and
 // fails if any of the three ever drift.
-const controlFieldCount = 86
+const controlFieldCount = 87
 
 // Each put* helper writes one map entry: the key, then the value through the
 // same encoder method the reflection encoder picks for that Go type. The integer
@@ -147,72 +147,73 @@ func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	present[17] = len(m.Summaries) != 0
 	present[18] = len(m.Breaches) != 0
 	present[19] = len(m.AlertRules) != 0
-	present[20] = m.PendingSamples != 0
-	present[21] = m.OldestTS != 0
-	present[22] = m.Rate != 0
-	present[23] = m.Deadline != 0
-	present[24] = m.RetryAfter != 0
-	present[25] = m.Tier != ""
-	present[26] = len(m.BackfillSamples) != 0
-	present[27] = m.Cursor != 0
-	present[28] = m.Dim != ""
-	present[29] = m.FromTS != 0
-	present[30] = m.ToTS != 0
-	present[31] = m.MaxPoints != 0
-	present[32] = len(m.HistoryPoints) != 0
-	present[33] = m.Truncated != nil
-	present[34] = m.Token != ""
-	present[35] = m.RelayURL != ""
-	present[36] = m.Reason != ""
-	present[37] = m.Permissions != nil
-	present[38] = m.Version != ""
-	present[39] = m.URL != ""
-	present[40] = m.SHA256 != ""
-	present[41] = m.Signature != ""
-	present[42] = m.Success != nil
-	present[43] = m.AckError != ""
-	present[44] = m.SDPOffer != ""
-	present[45] = m.Candidate != ""
-	present[46] = m.Mid != ""
-	present[47] = m.X != 0
-	present[48] = m.Y != 0
-	present[49] = m.Button != ""
-	present[50] = m.Pressed != nil
-	present[51] = m.Key != ""
-	present[52] = m.Cols != 0
-	present[53] = m.Rows != 0
-	present[54] = m.Path != ""
-	present[55] = len(m.Entries) != 0
-	present[56] = m.TotalSize != 0
-	present[57] = m.Text != ""
-	present[58] = m.Sender != ""
-	present[59] = m.CPUModel != ""
-	present[60] = m.CPUCores != 0
-	present[61] = m.RAMTotalMB != 0
-	present[62] = m.DiskTotalMB != 0
-	present[63] = m.DiskFreeMB != 0
-	present[64] = len(m.NetworkInterfaces) != 0
-	present[65] = m.SystemUUID != ""
-	present[66] = m.AMTAvailable != nil
-	present[67] = m.AMTVersion != ""
-	present[68] = m.LogLevel != ""
-	present[69] = m.TimeFrom != ""
-	present[70] = m.TimeTo != ""
-	present[71] = m.Search != ""
-	present[72] = m.LogOffset != 0
-	present[73] = m.LogLimit != 0
-	present[74] = m.Source != ""
-	present[75] = m.Unit != ""
-	present[76] = len(m.LogEntries) != 0
-	present[77] = m.TotalCount != 0
-	present[78] = m.HasMore != nil
-	present[79] = len(m.AvailableUnits) != 0
-	present[80] = len(m.Ports) != 0
-	present[81] = len(m.Services) != 0
-	present[82] = len(m.DBEngines) != 0
-	present[83] = len(m.Containers) != 0
-	present[84] = len(m.Packages) != 0
-	present[85] = m.Enabled != nil
+	present[20] = len(m.RuleCoverage) != 0
+	present[21] = m.PendingSamples != 0
+	present[22] = m.OldestTS != 0
+	present[23] = m.Rate != 0
+	present[24] = m.Deadline != 0
+	present[25] = m.RetryAfter != 0
+	present[26] = m.Tier != ""
+	present[27] = len(m.BackfillSamples) != 0
+	present[28] = m.Cursor != 0
+	present[29] = m.Dim != ""
+	present[30] = m.FromTS != 0
+	present[31] = m.ToTS != 0
+	present[32] = m.MaxPoints != 0
+	present[33] = len(m.HistoryPoints) != 0
+	present[34] = m.Truncated != nil
+	present[35] = m.Token != ""
+	present[36] = m.RelayURL != ""
+	present[37] = m.Reason != ""
+	present[38] = m.Permissions != nil
+	present[39] = m.Version != ""
+	present[40] = m.URL != ""
+	present[41] = m.SHA256 != ""
+	present[42] = m.Signature != ""
+	present[43] = m.Success != nil
+	present[44] = m.AckError != ""
+	present[45] = m.SDPOffer != ""
+	present[46] = m.Candidate != ""
+	present[47] = m.Mid != ""
+	present[48] = m.X != 0
+	present[49] = m.Y != 0
+	present[50] = m.Button != ""
+	present[51] = m.Pressed != nil
+	present[52] = m.Key != ""
+	present[53] = m.Cols != 0
+	present[54] = m.Rows != 0
+	present[55] = m.Path != ""
+	present[56] = len(m.Entries) != 0
+	present[57] = m.TotalSize != 0
+	present[58] = m.Text != ""
+	present[59] = m.Sender != ""
+	present[60] = m.CPUModel != ""
+	present[61] = m.CPUCores != 0
+	present[62] = m.RAMTotalMB != 0
+	present[63] = m.DiskTotalMB != 0
+	present[64] = m.DiskFreeMB != 0
+	present[65] = len(m.NetworkInterfaces) != 0
+	present[66] = m.SystemUUID != ""
+	present[67] = m.AMTAvailable != nil
+	present[68] = m.AMTVersion != ""
+	present[69] = m.LogLevel != ""
+	present[70] = m.TimeFrom != ""
+	present[71] = m.TimeTo != ""
+	present[72] = m.Search != ""
+	present[73] = m.LogOffset != 0
+	present[74] = m.LogLimit != 0
+	present[75] = m.Source != ""
+	present[76] = m.Unit != ""
+	present[77] = len(m.LogEntries) != 0
+	present[78] = m.TotalCount != 0
+	present[79] = m.HasMore != nil
+	present[80] = len(m.AvailableUnits) != 0
+	present[81] = len(m.Ports) != 0
+	present[82] = len(m.Services) != 0
+	present[83] = len(m.DBEngines) != 0
+	present[84] = len(m.Containers) != 0
+	present[85] = len(m.Packages) != 0
+	present[86] = m.Enabled != nil
 	return present
 }
 
@@ -261,136 +262,138 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 	case 19:
 		return putValue(enc, "rules", m.AlertRules)
 	case 20:
-		return putUint64(enc, "pending_samples", m.PendingSamples)
+		return putValue(enc, "rule_coverage", m.RuleCoverage)
 	case 21:
-		return putInt64(enc, "oldest_ts", m.OldestTS)
+		return putUint64(enc, "pending_samples", m.PendingSamples)
 	case 22:
-		return putUint32(enc, "rate", m.Rate)
+		return putInt64(enc, "oldest_ts", m.OldestTS)
 	case 23:
-		return putInt64(enc, "deadline", m.Deadline)
+		return putUint32(enc, "rate", m.Rate)
 	case 24:
-		return putUint32(enc, "retry_after", m.RetryAfter)
+		return putInt64(enc, "deadline", m.Deadline)
 	case 25:
-		return putString(enc, "tier", string(m.Tier))
+		return putUint32(enc, "retry_after", m.RetryAfter)
 	case 26:
-		return putValue(enc, "samples", m.BackfillSamples)
+		return putString(enc, "tier", string(m.Tier))
 	case 27:
-		return putInt64(enc, "cursor", m.Cursor)
+		return putValue(enc, "samples", m.BackfillSamples)
 	case 28:
-		return putString(enc, "dim", string(m.Dim))
+		return putInt64(enc, "cursor", m.Cursor)
 	case 29:
-		return putInt64(enc, "from_ts", m.FromTS)
+		return putString(enc, "dim", string(m.Dim))
 	case 30:
-		return putInt64(enc, "to_ts", m.ToTS)
+		return putInt64(enc, "from_ts", m.FromTS)
 	case 31:
-		return putUint32(enc, "max_points", m.MaxPoints)
+		return putInt64(enc, "to_ts", m.ToTS)
 	case 32:
-		return putValue(enc, "points", m.HistoryPoints)
+		return putUint32(enc, "max_points", m.MaxPoints)
 	case 33:
-		return putBool(enc, "truncated", *m.Truncated)
+		return putValue(enc, "points", m.HistoryPoints)
 	case 34:
-		return putString(enc, "token", string(m.Token))
+		return putBool(enc, "truncated", *m.Truncated)
 	case 35:
-		return putString(enc, "relay_url", string(m.RelayURL))
+		return putString(enc, "token", string(m.Token))
 	case 36:
-		return putString(enc, "reason", string(m.Reason))
+		return putString(enc, "relay_url", string(m.RelayURL))
 	case 37:
-		return putValue(enc, "permissions", m.Permissions)
+		return putString(enc, "reason", string(m.Reason))
 	case 38:
-		return putString(enc, "version", string(m.Version))
+		return putValue(enc, "permissions", m.Permissions)
 	case 39:
-		return putString(enc, "url", string(m.URL))
+		return putString(enc, "version", string(m.Version))
 	case 40:
-		return putString(enc, "sha256", string(m.SHA256))
+		return putString(enc, "url", string(m.URL))
 	case 41:
-		return putString(enc, "signature", string(m.Signature))
+		return putString(enc, "sha256", string(m.SHA256))
 	case 42:
-		return putBool(enc, "success", *m.Success)
+		return putString(enc, "signature", string(m.Signature))
 	case 43:
-		return putString(enc, "error", string(m.AckError))
+		return putBool(enc, "success", *m.Success)
 	case 44:
-		return putString(enc, "sdp_offer", string(m.SDPOffer))
+		return putString(enc, "error", string(m.AckError))
 	case 45:
-		return putString(enc, "candidate", string(m.Candidate))
+		return putString(enc, "sdp_offer", string(m.SDPOffer))
 	case 46:
-		return putString(enc, "mid", string(m.Mid))
+		return putString(enc, "candidate", string(m.Candidate))
 	case 47:
-		return putUint16(enc, "x", m.X)
+		return putString(enc, "mid", string(m.Mid))
 	case 48:
-		return putUint16(enc, "y", m.Y)
+		return putUint16(enc, "x", m.X)
 	case 49:
-		return putString(enc, "button", string(m.Button))
+		return putUint16(enc, "y", m.Y)
 	case 50:
-		return putBool(enc, "pressed", *m.Pressed)
+		return putString(enc, "button", string(m.Button))
 	case 51:
-		return putString(enc, "key", string(m.Key))
+		return putBool(enc, "pressed", *m.Pressed)
 	case 52:
-		return putUint16(enc, "cols", m.Cols)
+		return putString(enc, "key", string(m.Key))
 	case 53:
-		return putUint16(enc, "rows", m.Rows)
+		return putUint16(enc, "cols", m.Cols)
 	case 54:
-		return putString(enc, "path", string(m.Path))
+		return putUint16(enc, "rows", m.Rows)
 	case 55:
-		return putValue(enc, "entries", m.Entries)
+		return putString(enc, "path", string(m.Path))
 	case 56:
-		return putUint64(enc, "total_size", m.TotalSize)
+		return putValue(enc, "entries", m.Entries)
 	case 57:
-		return putString(enc, "text", string(m.Text))
+		return putUint64(enc, "total_size", m.TotalSize)
 	case 58:
-		return putString(enc, "sender", string(m.Sender))
+		return putString(enc, "text", string(m.Text))
 	case 59:
-		return putString(enc, "cpu_model", string(m.CPUModel))
+		return putString(enc, "sender", string(m.Sender))
 	case 60:
-		return putUint32(enc, "cpu_cores", m.CPUCores)
+		return putString(enc, "cpu_model", string(m.CPUModel))
 	case 61:
-		return putUint64(enc, "ram_total_mb", m.RAMTotalMB)
+		return putUint32(enc, "cpu_cores", m.CPUCores)
 	case 62:
-		return putUint64(enc, "disk_total_mb", m.DiskTotalMB)
+		return putUint64(enc, "ram_total_mb", m.RAMTotalMB)
 	case 63:
-		return putUint64(enc, "disk_free_mb", m.DiskFreeMB)
+		return putUint64(enc, "disk_total_mb", m.DiskTotalMB)
 	case 64:
-		return putValue(enc, "network_interfaces", m.NetworkInterfaces)
+		return putUint64(enc, "disk_free_mb", m.DiskFreeMB)
 	case 65:
-		return putString(enc, "system_uuid", string(m.SystemUUID))
+		return putValue(enc, "network_interfaces", m.NetworkInterfaces)
 	case 66:
-		return putBool(enc, "amt_available", *m.AMTAvailable)
+		return putString(enc, "system_uuid", string(m.SystemUUID))
 	case 67:
-		return putString(enc, "amt_version", string(m.AMTVersion))
+		return putBool(enc, "amt_available", *m.AMTAvailable)
 	case 68:
-		return putString(enc, "log_level", string(m.LogLevel))
+		return putString(enc, "amt_version", string(m.AMTVersion))
 	case 69:
-		return putString(enc, "time_from", string(m.TimeFrom))
+		return putString(enc, "log_level", string(m.LogLevel))
 	case 70:
-		return putString(enc, "time_to", string(m.TimeTo))
+		return putString(enc, "time_from", string(m.TimeFrom))
 	case 71:
-		return putString(enc, "search", string(m.Search))
+		return putString(enc, "time_to", string(m.TimeTo))
 	case 72:
-		return putUint32(enc, "log_offset", m.LogOffset)
+		return putString(enc, "search", string(m.Search))
 	case 73:
-		return putUint32(enc, "log_limit", m.LogLimit)
+		return putUint32(enc, "log_offset", m.LogOffset)
 	case 74:
-		return putString(enc, "source", string(m.Source))
+		return putUint32(enc, "log_limit", m.LogLimit)
 	case 75:
-		return putString(enc, "unit", string(m.Unit))
+		return putString(enc, "source", string(m.Source))
 	case 76:
-		return putValue(enc, "log_entries", m.LogEntries)
+		return putString(enc, "unit", string(m.Unit))
 	case 77:
-		return putUint32(enc, "total_count", m.TotalCount)
+		return putValue(enc, "log_entries", m.LogEntries)
 	case 78:
-		return putBool(enc, "has_more", *m.HasMore)
+		return putUint32(enc, "total_count", m.TotalCount)
 	case 79:
-		return putValue(enc, "available_units", m.AvailableUnits)
+		return putBool(enc, "has_more", *m.HasMore)
 	case 80:
-		return putValue(enc, "ports", m.Ports)
+		return putValue(enc, "available_units", m.AvailableUnits)
 	case 81:
-		return putValue(enc, "services", m.Services)
+		return putValue(enc, "ports", m.Ports)
 	case 82:
-		return putValue(enc, "db_engines", m.DBEngines)
+		return putValue(enc, "services", m.Services)
 	case 83:
-		return putValue(enc, "containers", m.Containers)
+		return putValue(enc, "db_engines", m.DBEngines)
 	case 84:
-		return putValue(enc, "packages", m.Packages)
+		return putValue(enc, "containers", m.Containers)
 	case 85:
+		return putValue(enc, "packages", m.Packages)
+	case 86:
 		return putBool(enc, "enabled", *m.Enabled)
 	}
 	return nil

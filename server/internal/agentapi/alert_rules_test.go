@@ -112,7 +112,7 @@ func TestAgentConn_HandleAgentHealthSummary_IngestsBreachesOnly(t *testing.T) {
 		Type: protocol.MsgAgentHealthSummary,
 		TS:   time.Now().Unix(),
 		Breaches: []protocol.AlertBreach{
-			{RuleID: "disk-critical", Metric: "disk.used", Value: 96.0},
+			{RuleID: "disk-critical", Metric: "disk.used_percent", Value: 96.0},
 		},
 	})
 	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
@@ -122,8 +122,52 @@ func TestAgentConn_HandleAgentHealthSummary_IngestsBreachesOnly(t *testing.T) {
 	require.Len(t, call.samples, 1)
 	assert.Equal(t, "opengate_edge_alert_breach", call.samples[0].Name)
 	assert.Equal(t, "disk-critical", call.samples[0].Labels["rule"])
-	assert.Equal(t, "disk.used", call.samples[0].Labels["metric"])
+	assert.Equal(t, "disk.used_percent", call.samples[0].Labels["metric"])
 	assert.InEpsilon(t, 96.0, call.samples[0].Value, 0.0001)
+}
+
+func TestAgentConn_HandleAgentHealthSummary_ResolvesLegacyBreachMetricNames(t *testing.T) {
+	writer := &recordingTelemetryWriter{calls: make(chan telemetryWriteCall, 1)}
+	ac, buf := newTestAgentConn(t, uuid.New(), nil)
+	ac.telemetry = writer
+
+	// An agent that predates the rename reports the breach under the old name.
+	// Central must record it under the canonical one, or the same rule on the
+	// same reading occupies two series and neither tells the whole story.
+	writeControlMsg(t, ac.codec, buf, &protocol.ControlMessage{
+		Type: protocol.MsgAgentHealthSummary,
+		TS:   time.Now().Unix(),
+		Breaches: []protocol.AlertBreach{
+			{RuleID: "disk-critical", Metric: "disk.used", Value: 96.0},
+			{RuleID: "memory-pressure", Metric: "mem.used", Value: 97.0},
+		},
+	})
+	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
+	ac.flushTelemetry(dbtx.WithDefaultTenant(context.Background(), false))
+
+	call := receiveTelemetryCall(t, writer.calls)
+	require.Len(t, call.samples, 2)
+	assert.Equal(t, "disk.used_percent", call.samples[0].Labels["metric"])
+	assert.Equal(t, "mem.used_percent", call.samples[1].Labels["metric"])
+}
+
+func TestDefaultAlertRules_UseCanonicalMetricNames(t *testing.T) {
+	t.Parallel()
+	for _, r := range DefaultAlertRules() {
+		canonical, ok := protocol.CanonicalRuleMetric(r.Metric)
+		require.True(t, ok, "%s watches %s, which is outside the rule vocabulary", r.ID, r.Metric)
+		assert.Equal(t, canonical, r.Metric, "%s must be declared under the canonical name", r.ID)
+		assert.True(t, isVitalDim(r.Metric), "%s watches a dimension central telemetry does not store", r.ID)
+	}
+}
+
+func TestRuleVocabularyIsASubsetOfTheVitalsContract(t *testing.T) {
+	t.Parallel()
+	// A rule may only watch something the fleet agreed to collect. If the two
+	// lists ever part company, a rule can fire on a reading nobody stores.
+	for _, name := range protocol.RuleMetrics {
+		assert.True(t, isVitalDim(name), "%s is in the rule vocabulary but not in the vitals contract", name)
+	}
 }
 
 func TestAgentConn_HandleAgentHealthSummary_IngestsAnomalyAndBreaches(t *testing.T) {
@@ -162,7 +206,7 @@ func TestAgentConn_HandleAgentHealthSummary_DropsUnknownBreachMetric(t *testing.
 		TS:   time.Now().Unix(),
 		Breaches: []protocol.AlertBreach{
 			{RuleID: "evil", Metric: "../../etc/passwd", Value: 1.0},
-			{RuleID: "disk-critical", Metric: "disk.used", Value: 96.0},
+			{RuleID: "disk-critical", Metric: "disk.used_percent", Value: 96.0},
 		},
 	})
 	require.NoError(t, ac.handleControl(dbtx.WithDefaultTenant(context.Background(), false)))
@@ -170,7 +214,7 @@ func TestAgentConn_HandleAgentHealthSummary_DropsUnknownBreachMetric(t *testing.
 
 	call := receiveTelemetryCall(t, writer.calls)
 	require.Len(t, call.samples, 1)
-	assert.Equal(t, "disk.used", call.samples[0].Labels["metric"])
+	assert.Equal(t, "disk.used_percent", call.samples[0].Labels["metric"])
 }
 
 func TestSanitizeAlertRuleID(t *testing.T) {

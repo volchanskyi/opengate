@@ -131,10 +131,14 @@ type ControlMessage struct {
 	Limit           uint32               `msgpack:"limit,omitempty"`
 	Summaries       []HealthSummary      `msgpack:"summaries,omitempty"`
 
-	// Edge-Sentinel WS-19 threshold alerts. Breaches ride an AgentHealthSummary
-	// (agent → server); AlertRules ride a PushAlertRules (server → agent).
-	Breaches   []AlertBreach   `msgpack:"breaches,omitempty"`
-	AlertRules []ThresholdRule `msgpack:"rules,omitempty"`
+	// Edge-Sentinel WS-19 threshold alerts. Breaches and RuleCoverage ride an
+	// AgentHealthSummary (agent → server); AlertRules ride a PushAlertRules
+	// (server → agent). Coverage rides the summary rather than a message of its
+	// own for the same reason breaches do: it is small, it is per-device, and it
+	// is already on its way.
+	Breaches     []AlertBreach   `msgpack:"breaches,omitempty"`
+	AlertRules   []ThresholdRule `msgpack:"rules,omitempty"`
+	RuleCoverage []RuleCoverage  `msgpack:"rule_coverage,omitempty"`
 
 	// Edge-Sentinel WS-15 reconnect-backfill scheduler + tiered replay.
 	PendingSamples  uint64           `msgpack:"pending_samples,omitempty"`
@@ -280,9 +284,47 @@ type MetricDim struct {
 	Avg  float64 `msgpack:"avg"`
 }
 
+// RulePredicate is how a rule derives the number it compares against its
+// threshold. It mirrors the Rust RulePredicate enum, which serializes as its
+// variant name. Every variant's evaluation cost is a function of the rule's own
+// declared fields, so a rule whose cost the build cannot compute is one the
+// grammar cannot express.
+type RulePredicate string
+
+const (
+	// RulePredicateInstant compares the reading itself, this second.
+	RulePredicateInstant RulePredicate = "Instant"
+	// RulePredicateRate compares change per second across the rule's window —
+	// the shape of a resource getting worse rather than one already bad.
+	RulePredicateRate RulePredicate = "Rate"
+	// RulePredicateWindowMax compares the largest reading in the window. A
+	// minute's average hides a five-second freeze; its maximum does not.
+	RulePredicateWindowMax RulePredicate = "WindowMax"
+	// RulePredicateWindowMean compares the mean reading over the window —
+	// generally slow, rather than momentarily busy.
+	RulePredicateWindowMean RulePredicate = "WindowMean"
+)
+
+// RuleTerm is one extra condition a rule requires at the same instant as its
+// own. Sustain and the firing state belong to the rule; a term carries only what
+// it takes to decide whether this side holds right now. It mirrors the Rust
+// RuleTerm struct.
+type RuleTerm struct {
+	Metric     string          `msgpack:"metric"`
+	Comparator AlertComparator `msgpack:"comparator"`
+	Threshold  float64         `msgpack:"threshold"`
+	Clear      float64         `msgpack:"clear"`
+	Predicate  RulePredicate   `msgpack:"predicate"`
+	WindowSecs uint32          `msgpack:"window_secs"`
+}
+
 // ThresholdRule is one declarative edge threshold-alert rule (WS-19), evaluated
 // locally by the agent. It mirrors the Rust ThresholdRule struct. Rules are
 // tenant-scoped config pushed to the agent via PushAlertRules.
+//
+// Predicate, WindowSecs and All are additive: a rule carrying none of them is
+// the plain single-dimension threshold the fleet already runs, and the agent
+// decodes it as such.
 type ThresholdRule struct {
 	ID          string          `msgpack:"id"`
 	Metric      string          `msgpack:"metric"`
@@ -290,6 +332,11 @@ type ThresholdRule struct {
 	Threshold   float64         `msgpack:"threshold"`
 	Clear       float64         `msgpack:"clear"`
 	SustainSecs uint32          `msgpack:"sustain_secs"`
+	Predicate   RulePredicate   `msgpack:"predicate"`
+	WindowSecs  uint32          `msgpack:"window_secs"`
+	// All is omitempty because the agent's decoder defaults a missing key but
+	// would reject an explicit nil.
+	All []RuleTerm `msgpack:"all,omitempty"`
 }
 
 // AlertBreach is one currently-firing threshold-alert breach (WS-19), carried
@@ -298,6 +345,28 @@ type AlertBreach struct {
 	RuleID string  `msgpack:"rule_id"`
 	Metric string  `msgpack:"metric"`
 	Value  float64 `msgpack:"value"`
+}
+
+// RuleCoverageState is what one rule is doing on one device. It mirrors the Rust
+// RuleCoverageState enum, which serializes as its variant name. A device that
+// reports neither is unknown, which only the server can know because only the
+// server knows the fleet.
+type RuleCoverageState string
+
+const (
+	// RuleCoverageActive means the rule is being evaluated on this device.
+	RuleCoverageActive RuleCoverageState = "Active"
+	// RuleCoverageUnsupported means the rule cannot be evaluated here: the
+	// metric is outside the vocabulary, the predicate is outside the grammar's
+	// bounds, or this host cannot take the reading at all.
+	RuleCoverageUnsupported RuleCoverageState = "Unsupported"
+)
+
+// RuleCoverage is one rule's state on the device reporting it, carried
+// additively in an AgentHealthSummary.
+type RuleCoverage struct {
+	RuleID string            `msgpack:"rule_id"`
+	State  RuleCoverageState `msgpack:"state"`
 }
 
 // ProcessReportEntry is a sanitized process sample row from Edge Sentinel.

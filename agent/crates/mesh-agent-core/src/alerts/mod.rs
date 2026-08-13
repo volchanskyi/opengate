@@ -8,6 +8,14 @@
 //! (falling-edge flap suppression). The evaluator is pure and allocation-light;
 //! it emits a breach signal per firing rule and leaves delivery to the caller.
 //! Delivery stays investigation-aid only until the FPR soak.
+//!
+//! A rule may compare the reading itself, how fast it is changing, or its
+//! largest or mean value over a window, and may require several dimensions at
+//! once. Everything it can say is data in a closed grammar — never shipped code
+//! — so [`rule_cost`] answers what any rule costs to evaluate from its declared
+//! fields alone, before it ever reaches an endpoint. Beside firing, every rule
+//! reports what it is *doing* here: a rule this host cannot evaluate is
+//! `unsupported` and counted, never quietly skipped.
 
 //! Beside the numeric evaluator sits the system-event side of the same job.
 //! Some failures never show up as a number crossing a line — a task stuck for
@@ -21,7 +29,7 @@ mod evaluator;
 mod event;
 mod sink;
 
-pub use evaluator::AlertEvaluator;
+pub use evaluator::{rule_cost, AlertEvaluator};
 pub use event::{EventLevel, EventMatcher, EventPack, EventRule, HostEvent, ServiceErrorRule};
 pub use sink::{
     AlertSeverity, AlertSink, EdgeAlert, PushOutcome, SinkStats, DEFAULT_CAPACITY,

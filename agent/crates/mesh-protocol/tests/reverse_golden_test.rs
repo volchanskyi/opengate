@@ -308,25 +308,73 @@ fn reverse_golden_request_local_history() {
 
 #[test]
 fn reverse_golden_push_alert_rules() {
+    // The server generates this fixture from its own metric vocabulary — one
+    // rule per canonical name, then one per legacy alias. Asserting that every
+    // rule resolves, and that what they resolved to is *exactly* this crate's
+    // vocabulary, pins the two lists together in both directions: a name the
+    // server adds and the agent does not know fails here, and so does one the
+    // agent knows and the server never sends.
     let frame = decode_frame("go_control_push_alert_rules.bin");
-    match frame {
-        Frame::Control(ControlMessage::PushAlertRules { rules }) => {
-            assert_eq!(rules.len(), 2);
-            assert_eq!(rules[0].id, "disk-full");
-            assert_eq!(rules[0].metric, "disk.used");
-            assert_eq!(rules[0].comparator, AlertComparator::Gt);
-            assert_eq!(rules[0].threshold, 90.0);
-            assert_eq!(rules[0].clear, 80.0);
-            assert_eq!(rules[0].sustain_secs, 30);
-            assert_eq!(rules[1].id, "mem-low");
-            assert_eq!(rules[1].metric, "mem.used");
-            assert_eq!(rules[1].comparator, AlertComparator::Lt);
-            assert_eq!(rules[1].threshold, 10.0);
-            assert_eq!(rules[1].clear, 20.0);
-            assert_eq!(rules[1].sustain_secs, 0);
-        }
-        other => panic!("expected PushAlertRules, got {:?}", other),
+    let Frame::Control(ControlMessage::PushAlertRules { rules }) = frame else {
+        panic!("expected PushAlertRules");
+    };
+    assert_eq!(rules.len(), RULE_METRICS.len() + RULE_METRIC_ALIASES.len());
+
+    let mut resolved: Vec<&str> = Vec::with_capacity(rules.len());
+    for rule in &rules {
+        let canonical = canonical_rule_metric(&rule.metric).unwrap_or_else(|| {
+            panic!(
+                "{} names {}, which this agent cannot resolve",
+                rule.id, rule.metric
+            )
+        });
+        resolved.push(canonical);
     }
+
+    let mut canonical_seen: Vec<&str> = resolved.clone();
+    canonical_seen.sort_unstable();
+    canonical_seen.dedup();
+    let mut expected: Vec<&str> = RULE_METRICS.to_vec();
+    expected.sort_unstable();
+    assert_eq!(
+        canonical_seen, expected,
+        "the server's vocabulary and this agent's must be the same set"
+    );
+
+    // The aliases ride at the end, in the same order the server sorts them.
+    let mut aliases: Vec<(&str, &str)> = RULE_METRIC_ALIASES.to_vec();
+    aliases.sort_unstable_by_key(|(alias, _)| *alias);
+    for (offset, (alias, canonical)) in aliases.iter().enumerate() {
+        let rule = &rules[RULE_METRICS.len() + offset];
+        assert_eq!(&rule.metric, alias);
+        assert_eq!(resolved[RULE_METRICS.len() + offset], *canonical);
+    }
+
+    // Every predicate the grammar states survives the wire, and the conjunction
+    // the first rule carries arrives with its own predicate and window.
+    for predicate in [
+        RulePredicate::Instant,
+        RulePredicate::Rate,
+        RulePredicate::WindowMax,
+        RulePredicate::WindowMean,
+    ] {
+        assert!(
+            rules.iter().any(|rule| rule.predicate == predicate),
+            "{predicate:?} never reached the fixture"
+        );
+    }
+    assert_eq!(rules[0].comparator, AlertComparator::Gte);
+    assert_eq!(rules[0].all.len(), 1);
+    assert_eq!(rules[0].all[0].metric, "disk.queue_depth");
+    assert_eq!(rules[0].all[0].comparator, AlertComparator::Gt);
+    assert_eq!(rules[0].all[0].threshold, 8.0);
+    assert_eq!(rules[0].all[0].clear, 4.0);
+    assert_eq!(rules[0].all[0].predicate, RulePredicate::WindowMax);
+    assert_eq!(rules[0].all[0].window_secs, 60);
+    assert!(
+        rules[1..].iter().all(|rule| rule.all.is_empty()),
+        "only the first fixture rule carries a conjunction"
+    );
 }
 
 #[test]
