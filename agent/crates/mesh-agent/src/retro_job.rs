@@ -36,6 +36,7 @@ use mesh_agent_core::maintenance::MaintenanceGate;
 use mesh_protocol::ThresholdRule;
 use serde::{Deserialize, Serialize};
 
+use crate::clock::unix_micros;
 use crate::edge_sentinel::{LoadSignal, SharedSink};
 
 /// How often the job looks for a rule version it has not scanned yet, and
@@ -400,17 +401,6 @@ fn current_rules(wiring: &RetroWiring) -> Vec<ThresholdRule> {
         .lock()
         .map(|rules| rules.clone())
         .unwrap_or_default()
-}
-
-/// Now, in microseconds since the Unix epoch. A clock before the epoch yields
-/// zero rather than a negative instant.
-fn unix_micros() -> i64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_micros()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

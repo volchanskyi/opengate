@@ -35,13 +35,12 @@ use edge_tsdb::store::{Tier, TsdbSnapshot};
 use edge_tsdb::{SeriesId, TsdbConfig};
 use mesh_protocol::{
     canonical_rule_metric, AlertComparator, RulePredicate, ThresholdRule, MAX_RULE_TERMS,
-    MAX_RULE_WINDOW_SECS,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::ml::store_sink::{dim_series, DimReadings};
 
-use super::evaluator::AlertEvaluator;
+use super::evaluator::{window_is_expressible, AlertEvaluator};
 use super::sink::{AlertOrigin, AlertSeverity, AlertSink, EdgeAlert};
 
 /// The width of one stored rollup, in seconds — the finest question history can
@@ -273,24 +272,6 @@ impl RetroPlan {
                 + RETRO_BUCKET_SECS,
         })
     }
-
-    /// The rule this plan re-runs.
-    #[must_use]
-    pub fn rule(&self) -> &ThresholdRule {
-        &self.rule
-    }
-
-    /// Every series the scan reads.
-    #[must_use]
-    pub fn series(&self) -> Vec<SeriesId> {
-        self.reads.iter().map(|&(series, _)| series).collect()
-    }
-
-    /// How far back of a resume point has to be re-read to answer identically.
-    #[must_use]
-    pub fn lookback_secs(&self) -> i64 {
-        self.lookback_secs
-    }
 }
 
 /// Whether a declared span is non-zero but shorter than one stored minute.
@@ -303,15 +284,6 @@ fn finer_than_a_minute(secs: u32) -> bool {
 fn floor_to_minute(ts: i64) -> i64 {
     ts.div_euclid(RETRO_BUCKET_SECS)
         .saturating_mul(RETRO_BUCKET_SECS)
-}
-
-/// Whether a predicate and window pair is a shape the grammar states — the same
-/// check the live evaluator makes, so a rule refused there is refused here.
-fn window_is_expressible(predicate: RulePredicate, window_secs: u32) -> bool {
-    match predicate {
-        RulePredicate::Instant => window_secs == 0,
-        _ => (1..=MAX_RULE_WINDOW_SECS).contains(&window_secs),
-    }
 }
 
 /// Which reading of a minute means what the condition means.
@@ -587,12 +559,6 @@ impl RetroScan {
     #[must_use]
     pub fn scope(&self) -> Option<(i64, i64)> {
         self.scope
-    }
-
-    /// The rule version this scan is running.
-    #[must_use]
-    pub fn rule(&self) -> &ThresholdRule {
-        &self.plan.rule
     }
 
     /// Whether the exact rule version this scan started against is no longer
