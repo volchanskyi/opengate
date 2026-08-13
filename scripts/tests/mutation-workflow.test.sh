@@ -61,18 +61,6 @@ else
   fail "mutation job must set timeout-minutes: 75"
 fi
 
-# Run 29300355420 proved four consecutive cargo-mutants slices are badly
-# imbalanced. Eight round-robin shards distribute expensive modules and restore
-# real headroom; their ids describe the strategy and selector in Actions.
-rust_shard_legs="$(grep -cE '^[[:space:]]*-[[:space:]]*\{[[:space:]]*language:[[:space:]]*rust,[[:space:]]*shard:[[:space:]]*rust-round-robin-[0-9]+-of-8' "$WORKFLOW" || true)"
-rust_shard_selectors="$(sed -nE 's/.*language:[[:space:]]*rust.*rust_shard:[[:space:]]*"([0-9]+\/[0-9]+)".*/\1/p' "$WORKFLOW" | sort | tr '\n' ' ')"
-if [ "$rust_shard_legs" = "8" ] \
-  && [ "$rust_shard_selectors" = "0/8 1/8 2/8 3/8 4/8 5/8 6/8 7/8 " ]; then
-  pass "rust mutation leg uses eight meaningfully named 0/8..7/8 shards"
-else
-  fail "rust matrix must contain meaningfully named 0/8..7/8 shards (legs=$rust_shard_legs selectors='$rust_shard_selectors')"
-fi
-
 if grep -qE 'cargo mutants .*--shard[[:space:]]+.*matrix\.rust_shard.*--sharding[[:space:]]+round-robin' "$WORKFLOW"; then
   pass "rust step selects matrix shard with round-robin balancing"
 else
@@ -111,14 +99,57 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "workflow shard ids drifted from map: map='$want_ids' wf='$have_ids'"
   fi
 
-  expected_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
-  workflow_rust="$({ grep -oE 'shard:[[:space:]]*rust-round-robin-[0-9]+-of-8' "$WORKFLOW" || true; } \
+  # The Rust shard count lives in the library alone; the workflow matrix and
+  # these assertions derive from it, so raising it is a one-line change that
+  # cannot leave the matrix and the merge set disagreeing.
+  rust_count="$(mutation_rust_shards | wc -w | tr -d ' ')"
+
+  # Sizing floor. Run 31667836032 cancelled all eight Rust shards at the 75-minute
+  # cap: the workspace had grown to ~2400 mutants, so each of eight shards carried
+  # ~300 and needed over 75 minutes, and the whole Rust leg produced no artifact.
+  # At the throughput the runs before it measured (250 mutants in 60 minutes, and
+  # slower since the agent's test suite grew), a shard must carry roughly 160
+  # mutants or fewer to finish with real headroom under the cap — hence at least
+  # sixteen shards. This floor is what stops the leg being quietly resized back
+  # into the failure.
+  if [ "$rust_count" -ge 16 ]; then
+    pass "rust leg is split into at least sixteen shards (have $rust_count)"
+  else
+    fail "rust leg must be split into >=16 shards to keep headroom under the 75-minute cap (have $rust_count)"
+  fi
+
+  # Ids must name the strategy and the selector, and cover 1..N with no gaps.
+  want_rust=""
+  want_selectors=""
+  for i in $(seq 1 "$rust_count"); do
+    want_rust="$want_rust rust-round-robin-$i-of-$rust_count"
+    want_selectors="$want_selectors $((i - 1))/$rust_count"
+  done
+  want_rust="$(echo "$want_rust" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+  want_selectors="$(echo "$want_selectors" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
+
+  have_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
+  if [ "$want_rust" = "$have_rust" ]; then
+    pass "rust shard ids are round-robin 1..$rust_count-of-$rust_count with no gaps"
+  else
+    fail "rust shard ids must be round-robin 1..N-of-N (want='$want_rust' have='$have_rust')"
+  fi
+
+  # Workflow matrix legs and their --shard selectors must match the library.
+  workflow_rust="$({ grep -oE 'shard:[[:space:]]*rust-round-robin-[0-9]+-of-[0-9]+' "$WORKFLOW" || true; } \
     | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
-  if [ "$expected_rust" = "$workflow_rust" ] \
-    && [ "$(mutation_all_shards)" = "rust-round-robin-1-of-8 rust-round-robin-2-of-8 rust-round-robin-3-of-8 rust-round-robin-4-of-8 rust-round-robin-5-of-8 rust-round-robin-6-of-8 rust-round-robin-7-of-8 rust-round-robin-8-of-8 $(mutation_go_shards) web" ]; then
+  workflow_selectors="$(sed -nE 's/.*language:[[:space:]]*rust.*rust_shard:[[:space:]]*"([0-9]+\/[0-9]+)".*/\1/p' "$WORKFLOW" \
+    | sort | tr '\n' ' ')"
+  if [ "$have_rust" = "$workflow_rust" ] && [ "$want_selectors" = "$workflow_selectors" ]; then
+    pass "workflow matrix rust legs and --shard selectors match the shard map"
+  else
+    fail "rust matrix drifted from map (legs want='$have_rust' got='$workflow_rust'; selectors want='$want_selectors' got='$workflow_selectors')"
+  fi
+
+  if [ "$(mutation_all_shards)" = "$(mutation_rust_shards) $(mutation_go_shards) web" ]; then
     pass "shard library exposes the exact Rust/Go/Web expected set"
   else
-    fail "expected shard set drifted (rust map='$expected_rust' wf='$workflow_rust' all='$(mutation_all_shards)')"
+    fail "expected shard set drifted (all='$(mutation_all_shards)')"
   fi
 
   meaningful_go="go-api-runtime go-api-identity-admin go-api-device-operations go-api-provisioning-lifecycle go-agentapi-connection-handshake go-agentapi-backfill go-agentapi-edge-telemetry go-domain-persistence go-amt-updates-certificates go-protocol-relay-observability"
@@ -514,10 +545,11 @@ if [ -x "$STATUS_BUILD" ]; then
   fi
 
   make_complete_artifacts "$artifacts"
+  probe_rust_shard="$(mutation_rust_shards | awk '{print $3}')"
   printf '%s' '{"end_time":null,"caught":10,"missed":1,"timeout":0,"unviable":0}' \
-    >"$artifacts/mutation-rust-round-robin-3-of-8/agent/mutants.out/outcomes.json"
+    >"$artifacts/mutation-$probe_rust_shard/agent/mutants.out/outcomes.json"
   if "$STATUS_BUILD" "$artifacts" "$status" >/dev/null 2>&1 \
-    && jq -e '.complete == false and .shards["rust-round-robin-3-of-8"] == {complete:false,reason:"invalid"}' "$status" >/dev/null; then
+    && jq -e --arg s "$probe_rust_shard" '.complete == false and .shards[$s] == {complete:false,reason:"invalid"}' "$status" >/dev/null; then
     pass "status builder rejects end_time:null as an invalid Rust shard"
   else
     fail "status builder must reject end_time:null"

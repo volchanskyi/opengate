@@ -120,6 +120,19 @@ components:
     in: internal/usecase
 
   # Catch-all for everything else. These components are currently unconstrained.
+  # Constrained: the wire types and codec both languages agree on. A true leaf —
+  # it imports nothing project-internal, and naming it here lets the components
+  # that build wire messages depend on it by name instead of on the catch-all.
+  protocol:
+    in: internal/protocol
+
+  # Constrained: the rule catalogue, its cost analysis, and the customer
+  # bindings and rollout state that retune it. It builds wire rules from
+  # definitions, resolves them along the tenancy ladder, and stores the
+  # mutable half in Postgres.
+  rules:
+    in: internal/rules
+
   other:
     in:
       - internal/**
@@ -232,7 +245,24 @@ deps:
       - audit
       - notifications
       - session
-      - other  # protocol.RedactToken; protocol is part of the catch-all
+      - protocol  # protocol.RedactToken
+    anyVendorDeps: true
+    deepScan: false
+  protocol:
+    # Project-internal: the wire vocabulary may NOT import any other project
+    # component. Both languages encode against it, so anything it reached for
+    # would become part of the wire contract by accident.
+    mayDependOn: []
+    anyVendorDeps: true
+    deepScan: false
+  rules:
+    # Builds wire rules from catalogue definitions (protocol), resolves them
+    # along the tenancy ladder (settings), and stores the customer-mutable half
+    # in tenant-scoped RLS transactions (dbtx).
+    mayDependOn:
+      - dbtx
+      - settings
+      - protocol
     anyVendorDeps: true
     deepScan: false
   other:

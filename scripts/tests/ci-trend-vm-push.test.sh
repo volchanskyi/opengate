@@ -100,7 +100,7 @@ cat >"$TMP_ROOT/mutation-status.json" <<'JSON'
   "run_id": "123",
   "complete": false,
   "shards": {
-    "rust-round-robin-1-of-8": { "complete": true, "reason": "ok" },
+    "rust-round-robin-1-of-16": { "complete": true, "reason": "ok" },
     "go-api-runtime": { "complete": false, "reason": "missing" }
   }
 }
@@ -116,7 +116,7 @@ if grep -qF 'mutation_run_complete{commit="deadbeef",env="ci"} 0' "$TMP_ROOT/mut
 else
   fail "mutation run completion metric missing"
 fi
-if grep -qF 'mutation_shard_complete{commit="deadbeef",env="ci",shard="rust-round-robin-1-of-8"} 1' "$TMP_ROOT/mutation-status.prom" \
+if grep -qF 'mutation_shard_complete{commit="deadbeef",env="ci",shard="rust-round-robin-1-of-16"} 1' "$TMP_ROOT/mutation-status.prom" \
   && grep -qF 'mutation_shard_complete{commit="deadbeef",env="ci",shard="go-api-runtime"} 0' "$TMP_ROOT/mutation-status.prom"; then
   pass "mutation shard completion metrics map complete/incomplete values"
 else

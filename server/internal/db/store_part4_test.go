@@ -50,62 +50,19 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 	seedPreTenancyRows(t, ctx, rehearsalDB)
 	t.Log("rehearsal: applied 001 and seeded pre-tenancy rows")
 
-	runMigrationSteps(t, dbURL, 1)
-	assertAllRowsBackfilledToDefaultTenant(t, ctx, rehearsalDB)
-	insertSecondTenantRows(t, ctx, rehearsalDB)
-	assertRehearsalRLS(t, ctx, rehearsalDB, "public")
-	t.Log("rehearsal: 002 backfill, idempotence, cross-tenant deny, and admin bypass verified")
-
-	runMigrationSteps(t, dbURL, 1)
-	seedTelemetryProcessRows(t, ctx, rehearsalDB)
-	assertTelemetryProcessRLS(t, ctx, rehearsalDB, "public")
-	t.Log("rehearsal: 003 process telemetry table and RLS verified")
-
-	runMigrationSteps(t, dbURL, 1)
-	assertDeviceLogsRetired(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 004 retired device_logs")
-
-	runMigrationSteps(t, dbURL, 1)
-	seedInventoryRows(t, ctx, rehearsalDB)
-	assertInventoryRLS(t, ctx, rehearsalDB, "public")
-	t.Log("rehearsal: 005 discovery inventory table and RLS verified")
-
-	runMigrationSteps(t, dbURL, 1)
-	assertDataLifecycleTables(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 006 data-lifecycle tables verified")
-
-	runMigrationSteps(t, dbURL, 1)
-	assertMaintenanceColumns(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 007 maintenance columns verified")
-
-	// Give 008 both a linkable and an unlinkable AMT row to sort. Seeded here
-	// rather than pre-tenancy so the 002 backfill assertions keep their
-	// one-row-per-table shape.
-	rehearsalExecNoTx(t, ctx, rehearsalDB,
-		`INSERT INTO amt_devices (uuid, org_id, hostname)
-		 VALUES ('00000000-0000-0000-0000-000000000107', '00000000-0000-0000-0000-000000000002', 'rehearsal-a')`)
-
-	runMigrationSteps(t, dbURL, 1)
-	assertAMTDeviceLink(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 008 AMT device link verified")
-
-	runMigrationSteps(t, dbURL, 1)
-	assertSiteOwnerDropped(t, ctx, rehearsalDB, "groups_", "org_id")
-	t.Log("rehearsal: 009 dropped groups_.owner_id")
-
-	runMigrationSteps(t, dbURL, 1)
-	assertTenancyRenamed(t, ctx, rehearsalDB, "groups_")
-	assertOrganizationsNameIsFree(t, ctx, rehearsalDB)
-	t.Log("rehearsal: 010 renamed the tenancy vocabulary")
-
-	runMigrationSteps(t, dbURL, 1)
-	assertOrganizationsIntroduced(t, ctx, rehearsalDB, "public")
-	t.Log("rehearsal: 011 gave every tenant a customer and every device an owner")
-
-	runMigrationSteps(t, dbURL, 1)
-	assertSitesIntroduced(t, ctx, rehearsalDB, "public")
+	// The forward walk, in the shape the rollback walk below reads backwards:
+	// apply one migration, then prove what that migration built. A step may also
+	// seed the rows the *next* one has to sort, which is what `before` is for.
+	for _, step := range forwardMigrationSteps() {
+		if step.before != nil {
+			step.before(t, ctx, rehearsalDB)
+		}
+		runMigrationSteps(t, dbURL, 1)
+		step.verify(t, ctx, rehearsalDB)
+		t.Logf("rehearsal: %s", step.note)
+	}
 	assertMigrationNoChange(t, dbURL)
-	t.Log("rehearsal: 012 reparented the filing level under the customer; head is idempotent")
+	t.Log("rehearsal: head is idempotent")
 
 	restoreURL := dumpAndRestoreRehearsal(t, ctx, container, dbURL)
 	restoredDB := openRehearsalDB(t, ctx, restoreURL)
@@ -114,6 +71,72 @@ func TestMultitenancyMigrationRehearsal(t *testing.T) {
 	t.Log("rehearsal: pg_dump -> pg_restore completed and restored DB re-verified")
 
 	rollBackAndVerify(t, ctx, dbURL, rehearsalDB)
+}
+
+// rehearsalStep is one migration and what it has to have done. before seeds the
+// rows that migration will sort, and runs while the schema is still the previous
+// one.
+type rehearsalStep struct {
+	note   string
+	before func(*testing.T, context.Context, *sql.DB)
+	verify func(*testing.T, context.Context, *sql.DB)
+}
+
+// forwardMigrationSteps is migrations 002 onward. 001 is applied before the
+// loop, because the connection every step below shares is opened against it.
+func forwardMigrationSteps() []rehearsalStep {
+	return []rehearsalStep{
+		{note: "002 backfill, idempotence, cross-tenant deny, and admin bypass verified",
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				assertAllRowsBackfilledToDefaultTenant(t, ctx, db)
+				insertSecondTenantRows(t, ctx, db)
+				assertRehearsalRLS(t, ctx, db, "public")
+			}},
+		{note: "003 process telemetry table and RLS verified",
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				seedTelemetryProcessRows(t, ctx, db)
+				assertTelemetryProcessRLS(t, ctx, db, "public")
+			}},
+		{note: "004 retired device_logs", verify: assertDeviceLogsRetired},
+		{note: "005 discovery inventory table and RLS verified",
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				seedInventoryRows(t, ctx, db)
+				assertInventoryRLS(t, ctx, db, "public")
+			}},
+		{note: "006 data-lifecycle tables verified", verify: assertDataLifecycleTables},
+		{note: "007 maintenance columns verified", verify: assertMaintenanceColumns},
+		{note: "008 AMT device link verified",
+			// Give 008 both a linkable and an unlinkable AMT row to sort. Seeded
+			// here rather than pre-tenancy so the 002 backfill assertions keep
+			// their one-row-per-table shape.
+			before: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				rehearsalExecNoTx(t, ctx, db,
+					`INSERT INTO amt_devices (uuid, org_id, hostname)
+					 VALUES ('00000000-0000-0000-0000-000000000107', '00000000-0000-0000-0000-000000000002', 'rehearsal-a')`)
+			},
+			verify: assertAMTDeviceLink},
+		{note: "009 dropped groups_.owner_id",
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				assertSiteOwnerDropped(t, ctx, db, "groups_", "org_id")
+			}},
+		{note: "010 renamed the tenancy vocabulary",
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				assertTenancyRenamed(t, ctx, db, "groups_")
+				assertOrganizationsNameIsFree(t, ctx, db)
+			}},
+		{note: "011 gave every tenant a customer and every device an owner",
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				assertOrganizationsIntroduced(t, ctx, db, "public")
+			}},
+		{note: "012 reparented the filing level under the customer",
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				assertSitesIntroduced(t, ctx, db, "public")
+			}},
+		{note: "013 added rule bindings, rollout and coverage",
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				assertRulesIntroduced(t, ctx, db, "public")
+			}},
+	}
 }
 
 // assertHeadSchema re-runs every head-state assertion against db. It is applied
@@ -132,6 +155,7 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertTenancyRenamed(t, ctx, db, "sites")
 	assertOrganizationsIntroduced(t, ctx, db, "public")
 	assertSitesIntroduced(t, ctx, db, "public")
+	assertRulesIntroduced(t, ctx, db, "public")
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, asserting
@@ -143,6 +167,7 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"013 removed the rule binding, rollout and coverage tables", assertRulesDownReversal},
 		{"012 returned the filing level to a flat tenant label", assertSitesDownReversal},
 		{"011 removed organizations and the device link cleanly", assertOrganizationsDownReversal},
 		{"010 restored the introduced tenancy names", assertTenancyRenameDownReversal},

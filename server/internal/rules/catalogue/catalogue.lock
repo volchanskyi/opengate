@@ -1,0 +1,17 @@
+# The digest of every shipped (rule_id, version), as `<id> <version> <sha256>`.
+#
+# A definition is immutable once published: the rule that raised an alert last
+# week still has to mean what it meant then. Loading refuses a definition whose
+# digest no longer matches its line here, so changing a rule means adding a new
+# version and a new line — never editing a published one.
+#
+# The digest covers what the rule means, not how it is described, so improving a
+# summary is not a version bump. Refresh a line only when adding a version:
+#   go test ./internal/rules/ -run TestEmbeddedCatalogueMatchesItsCommittedLock
+# names any rule that drifted.
+
+disk-critical   1 fa56320fa43cc97c6d310cb2bb8785599a17f0ab7211a7ba8031e6166766f941
+cpu-saturated   1 168692ea9fb988d6c8d186ae6d2935fb588556e4ae098bc6e1ebbdffa55fe615
+memory-pressure 1 e7eb8446bd36175ad19c70eb96f78ab8e11daf1d66b16fa2ee4cc9c35ae5f484
+io-stalled      1 3927650a68d8d27bdb843b6bf63c2f23ba27ad20eca35cb5a317ba6213528995
+disk-slow       1 07168056276c9640e10457cf49bff5f5debd2de0add06c3fe8da92454c639fd2

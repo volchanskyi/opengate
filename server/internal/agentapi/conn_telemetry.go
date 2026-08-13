@@ -58,7 +58,7 @@ func (a *AgentConn) handleAgentHealthSummary(ctx context.Context, msg *protocol.
 	// Coverage is state this message produced even when it carried no sample —
 	// a calm machine's summary says what every rule is doing on it and nothing
 	// else — so a summary that recorded coverage is not a discarded one.
-	recordedCoverage := a.recordRuleCoverage(msg.RuleCoverage)
+	recordedCoverage := a.recordRuleCoverage(ctx, msg.RuleCoverage)
 	if len(samples) == 0 {
 		if !recordedCoverage {
 			a.dropTelemetry("empty_summary", "type", protocol.MsgAgentHealthSummary)

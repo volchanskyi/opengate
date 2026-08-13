@@ -40,6 +40,7 @@ type AgentServer struct {
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
 	coverage       *RuleCoverageStore
+	ruleCoverage   UnsupportedCoverageStore
 	settings       settings.Reader
 	metrics        *appmetrics.Metrics
 	quicHost       string   // extra DNS SAN for the server certificate
@@ -72,6 +73,10 @@ type AgentServerConfig struct {
 	// resolved against the machine's place in the tenancy ladder. Optional: nil
 	// falls back to DefaultAlertRules for every tenant.
 	AlertRules AlertRuleProvider
+	// RuleCoverage persists the one coverage state that is durable: which
+	// machines cannot evaluate a rule at all. Optional; nil keeps coverage
+	// entirely in memory.
+	RuleCoverage UnsupportedCoverageStore
 	// Settings reads a machine's place in the tenancy ladder, so alerts and
 	// vitals arriving on an agent connection carry the right customer. Optional:
 	// nil leaves each connection with the rungs it already knows for itself.
@@ -97,6 +102,7 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		scheduler:      NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
 		alertRules:     resolveAlertRuleProvider(cfg.AlertRules),
 		coverage:       NewRuleCoverageStore(),
+		ruleCoverage:   cfg.RuleCoverage,
 		settings:       cfg.Settings,
 		metrics:        cfg.Metrics,
 		quicHost:       cfg.QuicHost,
@@ -233,6 +239,7 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		scheduler:     s.scheduler,
 		alertRules:    s.alertRules,
 		coverage:      s.coverage,
+		ruleCoverage:  s.ruleCoverage,
 		settings:      s.settings,
 		metrics:       s.metrics,
 		logger:        logger,

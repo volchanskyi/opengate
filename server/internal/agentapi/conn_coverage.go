@@ -1,7 +1,11 @@
 package agentapi
 
 import (
+	"context"
+	"sort"
 	"sync"
+
+	"github.com/google/uuid"
 
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
@@ -14,11 +18,24 @@ import (
 // evaluate it (unsupported), or not heard from (unknown) — and the three always
 // add up to the fleet.
 //
-// Coverage is held in memory rather than in a table because it is a liveness
-// view, not a history: what a rule is doing on a machine is only knowable while
-// that machine is connected, and a device that has said nothing since the server
-// started is exactly what unknown means. That makes a restart correct by
-// construction rather than by a cleanup job.
+// The three states are not the same kind of fact, so they are not stored the
+// same way.
+//
+// Active and unknown are liveness. They are supposed to reset when the server
+// loses its view of the fleet: what a rule is doing on a machine is only
+// knowable while that machine is connected, and a machine that has said nothing
+// since the server started is exactly what unknown means. A stored active would
+// let a file server unplugged three weeks ago keep claiming it is being watched.
+// Those two live here, in memory, which makes a restart correct by construction
+// rather than by a cleanup job.
+//
+// Being unable to evaluate a rule is durable. A containerized agent can never
+// read the kernel's per-host pressure accounting, so that is a standing hole in
+// an estate's monitoring — it belongs on a remediation list, and it has to
+// answer the same after a deploy as before one. That third state is persisted,
+// and this store writes through to it on a change: an insert when a machine
+// newly cannot evaluate a rule, a delete when it can again. Nothing is written
+// while nothing changes.
 
 // maxRuleCoverageEntries caps the rules one device may report on. Coverage
 // arrives on the wire from an agent, so its size is untrusted input; a device
@@ -40,6 +57,20 @@ type RuleCoverageCounts struct {
 	Unknown int
 }
 
+// RuleCoverageDelta is what changed about one device's coverage. It is what the
+// caller has to persist, and it is empty whenever a report says the same thing
+// the last one did — which is what keeps steady state at zero writes.
+type RuleCoverageDelta struct {
+	// Recorded is how many rule states the report produced.
+	Recorded int
+	// NowUnsupported names the rules this device has newly become unable to
+	// evaluate.
+	NowUnsupported []string
+	// NowActive names the rules it can evaluate again, whose stored rows should
+	// be deleted rather than flipped to an active state.
+	NowActive []string
+}
+
 // RuleCoverageStore holds what every connected device last reported about every
 // rule. It is safe for concurrent use: agent read loops write, readers aggregate.
 type RuleCoverageStore struct {
@@ -59,9 +90,9 @@ func NewRuleCoverageStore() *RuleCoverageStore {
 // it no longer evaluates stops being counted rather than lingering as a stale
 // active. Rule ids are sanitized and the set is capped, because this is agent
 // input. Reports nothing and returns 0 when no entry survives that filter.
-func (s *RuleCoverageStore) Report(device protocol.DeviceID, entries []protocol.RuleCoverage) int {
+func (s *RuleCoverageStore) Report(device protocol.DeviceID, entries []protocol.RuleCoverage) RuleCoverageDelta {
 	if s == nil {
-		return 0
+		return RuleCoverageDelta{}
 	}
 	states := make(map[string]protocol.RuleCoverageState, len(entries))
 	for _, entry := range entries {
@@ -82,13 +113,40 @@ func (s *RuleCoverageStore) Report(device protocol.DeviceID, entries []protocol.
 		}
 	}
 	if len(states) == 0 {
-		return 0
+		return RuleCoverageDelta{}
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	delta := diffCoverage(s.byDevice[device], states)
 	s.byDevice[device] = states
-	return len(states)
+	return delta
+}
+
+// diffCoverage names the rules whose durable state changed between what a device
+// said before and what it says now. A rule it has stopped reporting altogether
+// counts as evaluable again: there is no stored active, so the honest move is to
+// drop the row rather than leave a claim nobody is making any more.
+func diffCoverage(before, now map[string]protocol.RuleCoverageState) RuleCoverageDelta {
+	delta := RuleCoverageDelta{Recorded: len(now)}
+	for ruleID, state := range now {
+		if state == protocol.RuleCoverageUnsupported && before[ruleID] != protocol.RuleCoverageUnsupported {
+			delta.NowUnsupported = append(delta.NowUnsupported, ruleID)
+		}
+		if state != protocol.RuleCoverageUnsupported && before[ruleID] == protocol.RuleCoverageUnsupported {
+			delta.NowActive = append(delta.NowActive, ruleID)
+		}
+	}
+	for ruleID, state := range before {
+		if state == protocol.RuleCoverageUnsupported {
+			if _, still := now[ruleID]; !still {
+				delta.NowActive = append(delta.NowActive, ruleID)
+			}
+		}
+	}
+	sort.Strings(delta.NowUnsupported)
+	sort.Strings(delta.NowActive)
+	return delta
 }
 
 // Forget drops everything a device reported. A machine that disconnects does not
@@ -106,7 +164,7 @@ func (s *RuleCoverageStore) Forget(device protocol.DeviceID) {
 // devices. Unknown is the devices that reported nothing, so a fleet count read
 // while more devices than it names are connected yields zero unknown rather than
 // a negative one.
-func (s *RuleCoverageStore) Aggregate(fleetSize int) map[string]RuleCoverageCounts {
+func (s *RuleCoverageStore) Aggregate(fleetSize int, unsupported map[string]int) map[string]RuleCoverageCounts {
 	if s == nil {
 		return nil
 	}
@@ -114,16 +172,22 @@ func (s *RuleCoverageStore) Aggregate(fleetSize int) map[string]RuleCoverageCoun
 	defer s.mu.RUnlock()
 
 	counts := make(map[string]RuleCoverageCounts)
+	// Only active comes from memory. A machine currently reporting that it
+	// cannot evaluate a rule is already counted by the persisted rows, and
+	// counting it here as well would count it twice.
 	for _, states := range s.byDevice {
 		for ruleID, state := range states {
 			entry := counts[ruleID]
-			if state == protocol.RuleCoverageUnsupported {
-				entry.Unsupported++
-			} else {
+			if state != protocol.RuleCoverageUnsupported {
 				entry.Active++
 			}
 			counts[ruleID] = entry
 		}
+	}
+	for ruleID, count := range unsupported {
+		entry := counts[ruleID]
+		entry.Unsupported = count
+		counts[ruleID] = entry
 	}
 	for ruleID, entry := range counts {
 		if unknown := fleetSize - entry.Active - entry.Unsupported; unknown > 0 {
@@ -134,18 +198,72 @@ func (s *RuleCoverageStore) Aggregate(fleetSize int) map[string]RuleCoverageCoun
 	return counts
 }
 
-// RuleCoverage returns the fleet split per rule across every connected agent,
-// against a fleet of fleetSize devices.
-func (s *AgentServer) RuleCoverage(fleetSize int) map[string]RuleCoverageCounts {
-	return s.coverage.Aggregate(fleetSize)
+// RuleCoverage returns the fleet split per rule for one customer, against a
+// fleet of fleetSize devices. The unsupported half is read from storage, so a
+// machine that cannot evaluate a rule stays counted while it is offline and
+// across a restart; the rest comes from what is connected right now.
+func (s *AgentServer) RuleCoverage(ctx context.Context, organizationID uuid.UUID, fleetSize int) map[string]RuleCoverageCounts {
+	var unsupported map[string]int
+	if s.ruleCoverage != nil {
+		counts, err := s.ruleCoverage.CountUnsupported(ctx, organizationID)
+		if err != nil {
+			s.logger.Warn("read persisted rule coverage failed",
+				"organization_id", organizationID, "error", err)
+		} else {
+			unsupported = counts
+		}
+	}
+	return s.coverage.Aggregate(fleetSize, unsupported)
 }
 
 // recordRuleCoverage stores what this agent reported about its rules and
 // reports whether anything was recorded. A summary that carried only coverage
 // still produced state, so its caller must not also count it as a discard.
-func (a *AgentConn) recordRuleCoverage(entries []protocol.RuleCoverage) bool {
+//
+// The durable third of that state is written through here, and only where it
+// changed: a machine that keeps saying the same thing costs no write at all.
+func (a *AgentConn) recordRuleCoverage(ctx context.Context, entries []protocol.RuleCoverage) bool {
 	if a.coverage == nil || len(entries) == 0 {
 		return false
 	}
-	return a.coverage.Report(a.DeviceID, entries) > 0
+	delta := a.coverage.Report(a.DeviceID, entries)
+	a.persistRuleCoverage(ctx, delta)
+	return delta.Recorded > 0
+}
+
+// persistRuleCoverage writes the durable half of a coverage change. A failure is
+// logged rather than propagated: coverage accounting must not be able to fail a
+// machine's health summary, and the next change re-attempts the write.
+func (a *AgentConn) persistRuleCoverage(ctx context.Context, delta RuleCoverageDelta) {
+	if a.ruleCoverage == nil || (len(delta.NowUnsupported) == 0 && len(delta.NowActive) == 0) {
+		return
+	}
+	organizationID := a.settingsScope(ctx).OrganizationID
+	for _, ruleID := range delta.NowUnsupported {
+		if err := a.ruleCoverage.MarkUnsupported(ctx, organizationID, a.DeviceID, ruleID); err != nil {
+			a.logger.Warn("persist unsupported rule coverage failed",
+				"device_id", a.DeviceID, "rule_id", ruleID, "error", err)
+		}
+	}
+	for _, ruleID := range delta.NowActive {
+		if err := a.ruleCoverage.ClearUnsupported(ctx, a.DeviceID, ruleID); err != nil {
+			a.logger.Warn("clear unsupported rule coverage failed",
+				"device_id", a.DeviceID, "rule_id", ruleID, "error", err)
+		}
+	}
+}
+
+// UnsupportedCoverageStore persists the durable third of coverage: which
+// machines cannot evaluate which rules. Presence of a record is the state, so
+// there is nothing stored that can go stale into a claim that a decommissioned
+// machine is being watched.
+type UnsupportedCoverageStore interface {
+	// MarkUnsupported records that a machine cannot evaluate a rule, keeping
+	// the moment it first could not.
+	MarkUnsupported(ctx context.Context, organizationID, deviceID uuid.UUID, ruleID string) error
+	// ClearUnsupported records that it can again, by removing the record.
+	ClearUnsupported(ctx context.Context, deviceID uuid.UUID, ruleID string) error
+	// CountUnsupported returns, per rule, how many of a customer's machines
+	// cannot evaluate it.
+	CountUnsupported(ctx context.Context, organizationID uuid.UUID) (map[string]int, error)
 }

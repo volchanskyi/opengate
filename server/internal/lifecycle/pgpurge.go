@@ -10,7 +10,8 @@ import (
 )
 
 // PGPurger removes a purge subject's Postgres rows. Deleting a device row
-// cascades to device_processes and device_inventory via ON DELETE CASCADE.
+// cascades to device_processes, device_inventory and rule_coverage_unsupported
+// via ON DELETE CASCADE.
 type PGPurger interface {
 	// DeleteDevice removes one device row (cascading its telemetry) in a tenant.
 	DeleteDevice(ctx context.Context, tenantID, deviceID uuid.UUID) error
@@ -41,7 +42,8 @@ func (p *PostgresPurger) DeleteDevice(ctx context.Context, tenantID, deviceID uu
 	ctx = dbtx.WithTenant(ctx, tenantID, true)
 	return dbtx.Scoped(ctx, p.db, func(tx *sql.Tx) error {
 		// Idempotent: a resumed purge whose device row is already gone deletes zero
-		// rows and succeeds. The cascade removes device_processes/device_inventory.
+		// rows and succeeds. The cascade removes the machine's telemetry,
+		// inventory and rule-coverage rows with it.
 		if _, err := tx.ExecContext(ctx,
 			`DELETE FROM devices WHERE tenant_id = $1 AND id = $2`, tenantID, deviceID); err != nil {
 			return fmt.Errorf("delete device row: %w", err)
