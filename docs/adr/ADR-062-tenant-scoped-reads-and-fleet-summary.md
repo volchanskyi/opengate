@@ -46,7 +46,7 @@ it. Only configuration and secret-bearing reads are gated on admin.
 
 | Class | Gate | Endpoints |
 |---|---|---|
-| Fleet reads | Tenant | Device list/detail/summary, metrics, correlate, history, inventory, hardware, group list/detail, session list |
+| Fleet reads | Tenant | Device list/detail/summary, metrics, history, inventory, hardware, group list/detail, session list |
 | Device commands | Tenant | Session create/delete, restart, maintenance, Intel AMT power |
 | Configuration | Admin | Device delete, device group move, group create/delete, enrollment tokens, updates, users, security groups, tenant purge |
 | Secret-bearing reads | Admin | Device logs, enrollment tokens, update signing key, audit log, user list |

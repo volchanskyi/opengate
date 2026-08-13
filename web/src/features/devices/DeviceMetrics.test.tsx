@@ -4,19 +4,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { useDeviceStore } from './state/device-store';
 import { DeviceMetrics } from './DeviceMetrics';
 
-// Stub the imperative chart so these tests never touch uPlot/canvas; expose the
-// drag-select callback via a button so the correlation drill-down is testable.
+// Stub the imperative chart so these tests never touch uPlot/canvas.
 vi.mock('./charts/TimeSeriesChart', () => ({
-  TimeSeriesChart: ({ ariaLabel, onSelectWindow, bands, yRange, height }: {
+  TimeSeriesChart: ({ ariaLabel, bands, yRange, height }: {
     ariaLabel?: string;
-    onSelectWindow?: (f: number, t: number) => void;
     bands: readonly unknown[];
     yRange: readonly number[] | null;
     height: number;
   }) => (
-    <div data-testid="chart" aria-label={ariaLabel} data-bands={String(bands.length)} data-range={JSON.stringify(yRange)} data-height={String(height)}>
-      <button type="button" onClick={() => onSelectWindow?.(1_700_000_000, 1_700_003_600)}>select-{ariaLabel}</button>
-    </div>
+    <div data-testid="chart" aria-label={ariaLabel} data-bands={String(bands.length)} data-range={JSON.stringify(yRange)} data-height={String(height)} />
   ),
 }));
 
@@ -30,22 +26,11 @@ const sampleMetrics = {
   bucket_s: 60,
 };
 
-const sampleCorrelation = {
-  ranked: [
-    { metric: 'cpu.util', score: 0.91, ks_statistic: 0.8, anomaly_rate: 0.5, shift_magnitude: 0.4, baseline_samples: 100, focus_samples: 50 },
-  ],
-  series_considered: 12,
-  series_truncated: false,
-};
-
 function resetStore(overrides: Record<string, unknown> = {}) {
   useDeviceStore.setState({
     metrics: null,
     metricsLoading: false,
-    correlation: null,
-    correlationLoading: false,
     fetchMetrics: vi.fn().mockResolvedValue(undefined),
-    correlate: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   });
 }
@@ -169,35 +154,6 @@ describe('DeviceMetrics', () => {
     expect(screen.getByRole('button', { name: '6h' })).toHaveClass('bg-gray-700', 'text-gray-300');
   });
 
-  it('drag-selecting a window fires a debounced correlation for that window', () => {
-    vi.useFakeTimers();
-    const correlate = vi.fn().mockResolvedValue(undefined);
-    resetStore({ correlate, metrics: sampleMetrics });
-    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-
-    fireEvent.click(screen.getByText('select-cpu metrics'));
-    expect(correlate).not.toHaveBeenCalled(); // debounced
-    act(() => { vi.advanceTimersByTime(399); });
-    expect(correlate).not.toHaveBeenCalled();
-    act(() => { vi.advanceTimersByTime(1); });
-
-    expect(correlate).toHaveBeenCalledWith('d1', {
-      focusStart: new Date(1_700_000_000 * 1000).toISOString(),
-      focusEnd: new Date(1_700_003_600 * 1000).toISOString(),
-      topN: 8,
-    });
-  });
-
-  it('renders the ranked correlation dimensions once results arrive', () => {
-    resetStore({ metrics: sampleMetrics, correlation: sampleCorrelation });
-    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-    expect(screen.getByText(/top.*dimensions/i)).toBeInTheDocument();
-    expect(screen.getByText('cpu.util')).toBeInTheDocument();
-    expect(screen.getByText('0.91')).toBeInTheDocument();
-    expect(screen.getByText('0.80')).toBeInTheDocument();
-    expect(screen.getByText('0.50')).toBeInTheDocument();
-  });
-
   it('excludes the log family (it has a dedicated sparkline beside the logs)', () => {
     resetStore({
       metrics: { ...sampleMetrics, series: [...sampleMetrics.series, { name: 'log.rate.self.error', avg: [1, 2, 3], min_max_source: 'none' as const }] },
@@ -217,15 +173,6 @@ describe('DeviceMetrics', () => {
     expect(onViewLogs).toHaveBeenCalledWith(1_784_008_800, 1_784_030_400);
   });
 
-  it('jumps to logs for a drag-selected window when one exists', () => {
-    const onViewLogs = vi.fn();
-    resetStore({ metrics: sampleMetrics });
-    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} onViewLogs={onViewLogs} />);
-    fireEvent.click(screen.getByText('select-cpu metrics'));
-    fireEvent.click(screen.getByText('View logs for this window'));
-    expect(onViewLogs).toHaveBeenCalledWith(1_700_000_000, 1_700_003_600);
-  });
-
   it('hides the view-logs affordance when no handler is wired', () => {
     resetStore({ metrics: sampleMetrics });
     render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
@@ -238,58 +185,10 @@ describe('DeviceMetrics', () => {
     expect(screen.getByText('View logs for this window')).toHaveClass('bg-yellow-600', 'hover:bg-yellow-700');
   });
 
-  it('shows a Clear-selection affordance only while a window is selected', () => {
-    resetStore({ metrics: sampleMetrics });
-    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-    expect(screen.queryByRole('button', { name: /clear selection/i })).toBeNull();
-    fireEvent.click(screen.getByText('select-cpu metrics'));
-    expect(screen.getByRole('button', { name: /clear selection/i })).toBeInTheDocument();
-  });
-
-  it('freezes the 30s poll while a selection is active and resumes on Clear', () => {
-    vi.useFakeTimers();
-    const fetchMetrics = vi.fn().mockResolvedValue(undefined);
-    resetStore({ fetchMetrics, metrics: sampleMetrics });
-    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-    fetchMetrics.mockClear();
-
-    // Activate a drag selection → poll frozen so setData never wipes the overlay.
-    fireEvent.click(screen.getByText('select-cpu metrics'));
-    act(() => { vi.advanceTimersByTime(90_000); });
-    expect(fetchMetrics).not.toHaveBeenCalled();
-
-    // Clear → one immediate reload, then live polling resumes.
-    fireEvent.click(screen.getByRole('button', { name: /clear selection/i }));
-    expect(fetchMetrics).toHaveBeenCalledTimes(1);
-    act(() => { vi.advanceTimersByTime(30_000); });
-    expect(fetchMetrics).toHaveBeenCalledTimes(2);
-  });
-
-  it('changing the preset clears an active selection', () => {
-    resetStore({ metrics: sampleMetrics });
-    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-    fireEvent.click(screen.getByText('select-cpu metrics'));
-    expect(screen.getByRole('button', { name: /clear selection/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '24h' }));
-    expect(screen.queryByRole('button', { name: /clear selection/i })).toBeNull();
-  });
-
   it('shows a loading state while the first metrics window is in flight', () => {
     resetStore({ metrics: null, metricsLoading: true });
     render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
     expect(screen.getByText(/loading metrics/i)).toBeInTheDocument();
-  });
-
-  it('shows a correlating state while a correlation is in flight', () => {
-    resetStore({ metrics: sampleMetrics, correlationLoading: true });
-    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-    expect(screen.getByText(/correlating window/i)).toBeInTheDocument();
-  });
-
-  it('reports when no dimension broke pattern in the selected window', () => {
-    resetStore({ metrics: sampleMetrics, correlation: { ranked: [], series_considered: 4, series_truncated: false } });
-    render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-    expect(screen.getByText(/no dimension broke pattern/i)).toBeInTheDocument();
   });
 
   it('polls on schedule and clears the interval on unmount', () => {
@@ -307,17 +206,6 @@ describe('DeviceMetrics', () => {
     unmount();
     act(() => { vi.advanceTimersByTime(60_000); });
     expect(fetchMetrics).toHaveBeenCalledTimes(1);
-  });
-
-  it('cancels a pending correlation when unmounted', () => {
-    vi.useFakeTimers();
-    const correlate = vi.fn().mockResolvedValue(undefined);
-    resetStore({ correlate, metrics: sampleMetrics });
-    const { unmount } = render(<DeviceMetrics deviceId="d1" anomalyRate={0.5} />);
-    fireEvent.click(screen.getByText('select-cpu metrics'));
-    unmount();
-    act(() => { vi.advanceTimersByTime(400); });
-    expect(correlate).not.toHaveBeenCalled();
   });
 
   it('rebuilds family charts when the store publishes new metrics', () => {

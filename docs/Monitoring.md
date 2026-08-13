@@ -378,6 +378,90 @@ tenant and charts on the Edge-Sentinel Soak dashboard. Delivery is
 **investigation-aid only** — no auto-notify — until the false-positive soak; see
 [ADR-053](adr/ADR-053-edge-sentinel-threshold-alerts.md).
 
+### System-event rules
+
+Some failures never cross a threshold, because nothing about them is a number.
+A task stuck for two minutes, memory reclaimed by killing a process, a disk that
+stopped answering its bus, a processor slowing itself down to survive its own
+heat — the machine reports every one of these about itself, in words, in its own
+log. A curated pack of four Linux rules reads them from the systemd journal
+([`event.rs`](../agent/crates/mesh-agent-core/src/alerts/event.rs)), and a fifth
+rule counts something no single record says: one service producing errors over
+and over for a day.
+
+Each rule matches on alternatives and, more importantly, on **exclusions**. Every
+subsystem that reports a failure also reports its recovery, usually naming the
+same component in nearly the same words — a disk that resets its link announces
+the link coming back up, a throttled core announces its temperature returning to
+normal. A rule without exclusions looks correct until it pages someone for a
+machine that just got better, so the fixture corpus carries a near-miss per rule
+and the pack is tested against both halves.
+
+**The reader is a bounded on-demand read, not a stream**, so the watch is a poll
+whose window reaches back further than the interval between polls and therefore
+re-presents records it has already seen. A cursor is what makes that free
+([`event_watch.rs`](../agent/crates/mesh-agent/src/event_watch.rs)): a record
+newer than the cursor fires, a record at the cursor's instant fires only if it
+was not already answered for there, and a record older than it never fires. The
+last of those is a deliberate trade — a record arriving late is lost rather than
+duplicated, because an alert delivered twice costs more trust than one delivered
+never. What the poll fetches is bounded by the level floor the pack states about
+itself, so a rule watching something less severe widens the read by existing
+rather than by anyone remembering to widen it.
+
+**A poll that comes back at the reader's line cap saw only the newest end of its
+window.** How many records fell off the old end is not knowable, so the poll is
+counted as an event in itself and no number of lost records is invented.
+Alongside it the watch counts records it could not place in time and services the
+tracking cap turned away. A record a curated rule already explained does not also
+feed the per-service count: reporting one event twice, the second time under a
+vaguer name, is worse than reporting it once.
+
+Maintenance mode **suppresses** the window rather than deferring it. An admin
+rebooting a host produces exactly the records this pack matches, so holding them
+until maintenance ends would page someone for the maintenance itself.
+
+Every alert is redacted at the edge before it exists
+([ADR-049](adr/ADR-049-edge-sentinel-raw-log-privacy.md)), since an alert is the
+one path that lifts a log line off a host outside the Logs pane. Alerts from
+every edge producer land in one bounded per-device sink
+([`sink.rs`](../agent/crates/mesh-agent-core/src/alerts/sink.rs)) that drops its
+**oldest** entry when full — the newest alert describes what the device is doing
+now — and admits at most 20 alerts per rolling hour, so one host in a loop cannot
+drown the detection of every other host. Both limits lose alerts by design and
+both count every alert they cost; a suppression nobody counts is
+indistinguishable from a quiet device.
+
+### Ranking what broke
+
+An alert says what crossed a line. The question straight after it is what else
+moved at the same time, and the device is the only place that can answer with
+detail: it keeps 1 s readings locally, while what reaches the centre is a 60 s
+average per dimension, in which a ten-second I/O collapse is a bump.
+
+So the agent ranks its own dimensions over the event window
+([`correlate`](../agent/crates/mesh-agent-core/src/correlate/)) against the
+stretch immediately before it, and the ranking travels with the alert. Three
+signals blend into one score in `[0, 1]`: how much a dimension's distribution
+changed shape (a two-sample Kolmogorov–Smirnov statistic), how many readings in
+the event window fell outside the baseline's normal band, and how far the mean
+moved measured against the baseline's own scale. The third is what stops a
+service time that went from 0.40 ms to 0.44 ms outranking one that went from
+0.4 ms to 40 ms — the first two saturate on any clean separation, however small.
+
+Degenerate windows are answered with a number rather than a NaN: a dimension
+with fewer than two readings on either side is left out instead of scored from
+nothing, a gauge that read the same value all hour has no band so any different
+reading counts, and a reading that is not a real number is dropped where it
+enters. Ties are broken by shape change and then by label, so the same readings
+always produce the same order.
+
+The read is an MVCC snapshot of the local store, so a correlation running while
+the sampler writes neither blocks ingestion nor sees a moving target. Every run
+is bounded three ways — how many dimensions are examined, how many readings each
+window carries, and how long the whole thing may take — because the moment this
+code runs is the moment the machine is already in trouble.
+
 ### Telemetry load and observability
 
 Edge-Sentinel telemetry runs on every enrolled device. The control-plane holds
@@ -434,7 +518,7 @@ months of pre-rolled history is never truncated by the live-path window.
 
 The **Edge-Sentinel Soak**
 Grafana dashboard charts these alongside anomaly rate, VM cardinality + disk
-growth, and control-plane and correlation query p99 over the VM datasource. The
+growth, and control-plane query p99 over the VM datasource. The
 `opengate_*` series require the server `/metrics` scrape; the `vm_*` series require
 the VictoriaMetrics self-scrape.
 
@@ -478,10 +562,11 @@ The device-detail panel
 ([`DeviceMetrics`](../web/src/features/devices/DeviceMetrics.tsx)) shows the
 current edge-health anomaly rate, per-family metric timelines (avg line plus a
 band whose `min_max_source` provenance is labelled honestly — `avg_of_60s` is
-min/max across the 60 s averages, not host extrema), and a Netdata-style
-correlation drill-down: dragging a window on a chart ranks the dimensions that
-broke pattern through the correlate endpoint. The virtualized device grid and the
-dashboard carry only scalar health badges
+min/max across the 60 s averages, not host extrema) over the window a preset
+chooses. Which dimensions broke pattern is ranked on the device itself and
+arrives inside the alert, so the panel reads its window and asks the server
+nothing else. The virtualized device grid and the dashboard carry only scalar
+health badges
 ([`HealthBadge`](../web/src/features/devices/HealthBadge.tsx),
 [`FleetHealth`](../web/src/features/devices/FleetHealth.tsx)) — no per-device
 series on the grid.
@@ -489,8 +574,8 @@ series on the grid.
 Raw logs are read through the on-demand broker in the logs explorer
 ([`DeviceLogs`](../web/src/features/devices/DeviceLogs.tsx)) with level, time-range,
 and full-text filters plus level facets over the returned page, rendering only the
-redacted lines the broker returns. A metrics↔logs correlation jump carries a device
-window from the metrics panel straight into the explorer.
+redacted lines the broker returns. A jump from the metrics panel carries its
+window straight into the explorer.
 
 ### Long-term (cold) tier
 
@@ -518,7 +603,7 @@ ConfigMaps from the canonical files.
 Current dashboard files include the app overview, DB performance, PostgreSQL,
 the Edge-Sentinel Logs dashboard (raw-log pull rate/latency and audited reads),
 the Edge-Sentinel Soak dashboard (telemetry ingest/drop rates, VM
-cardinality + disk growth, control-plane and correlation query p99,
+cardinality + disk growth, control-plane query p99,
 reconnect-backfill scheduler state, and threshold-alert breach counts),
 benchmark trend, mutation trend, PMAT trend,
 terraform-drift trend, and load-test trend dashboards. Numeric CI trend workflows

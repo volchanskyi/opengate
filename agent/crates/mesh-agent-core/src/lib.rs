@@ -7,6 +7,7 @@ pub mod alerts;
 pub mod amt_detect;
 pub mod config;
 pub mod connection;
+pub mod correlate;
 pub mod discovery;
 pub mod error;
 pub mod file_ops;

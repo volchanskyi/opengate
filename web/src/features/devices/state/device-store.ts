@@ -11,7 +11,6 @@ type Site = components['schemas']['Site'];
 type DeviceHardware = components['schemas']['DeviceHardware'];
 type DeviceLogsResponse = components['schemas']['DeviceLogsResponse'];
 type MetricRangeResponse = components['schemas']['MetricRangeResponse'];
-type CorrelateResponse = components['schemas']['CorrelateResponse'];
 type DeviceSummary = components['schemas']['DeviceSummary'];
 type PowerAction = components['schemas']['AMTPowerRequest']['action'];
 
@@ -42,15 +41,6 @@ export interface MetricsParams {
   band?: 'none' | 'avg_of_60s';
 }
 
-/** Focus/baseline window for the on-demand correlation drill-down. */
-export interface CorrelateParams {
-  focusStart: string;
-  focusEnd: string;
-  baselineStart?: string;
-  baselineEnd?: string;
-  topN?: number;
-}
-
 interface DeviceState {
   devices: Device[];
   sites: Site[];
@@ -66,8 +56,6 @@ interface DeviceState {
   logsLoading: Record<LogPaneSource, boolean>;
   metrics: MetricRangeResponse | null;
   metricsLoading: boolean;
-  correlation: CorrelateResponse | null;
-  correlationLoading: boolean;
   /** Fixed-size fleet rollup behind the dashboard tiles. Null until first load. */
   summary: DeviceSummary | null;
   isLoading: boolean;
@@ -90,7 +78,6 @@ interface DeviceState {
   fetchHardware: (id: string) => Promise<void>;
   fetchLogs: (source: LogPaneSource, id: string, params?: LogFetchParams) => Promise<void>;
   fetchMetrics: (id: string, params: MetricsParams) => Promise<void>;
-  correlate: (id: string, params: CorrelateParams) => Promise<void>;
   upgradeAgent: (deviceId: string, version: string, os: string, arch: string) => Promise<boolean>;
   setMaintenance: (id: string, enabled: boolean, reason?: string) => Promise<boolean>;
   fetchSummary: () => Promise<void>;
@@ -182,8 +169,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
   logsLoading: { agent: false, system: false },
   metrics: null,
   metricsLoading: false,
-  correlation: null,
-  correlationLoading: false,
   summary: null,
   isLoading: false,
   error: null,
@@ -231,7 +216,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
         system: s.logsDeviceId.system === id ? id : null,
       },
       metrics: null,
-      correlation: null,
     }));
     const res = await apiAction(set, () =>
       api.GET('/api/v1/devices/{id}', { params: { path: { id } } }),
@@ -383,24 +367,6 @@ export const useDeviceStore = create<DeviceState>((set, get) => ({
     );
     if (res.ok) set({ metrics: res.data, metricsLoading: false });
     else set({ metricsLoading: false });
-  },
-
-  correlate: async (id, params) => {
-    set({ correlationLoading: true });
-    const res = await apiAction(set, () =>
-      api.POST('/api/v1/devices/{id}/correlate', {
-        params: { path: { id } },
-        body: {
-          focus_start: params.focusStart,
-          focus_end: params.focusEnd,
-          ...(params.baselineStart ? { baseline_start: params.baselineStart } : {}),
-          ...(params.baselineEnd ? { baseline_end: params.baselineEnd } : {}),
-          ...(params.topN != null ? { top_n: params.topN } : {}),
-        },
-      }), false,
-    );
-    if (res.ok) set({ correlation: res.data, correlationLoading: false });
-    else set({ correlationLoading: false });
   },
 
   upgradeAgent: async (deviceId, version, os, arch) => {

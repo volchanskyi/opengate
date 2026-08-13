@@ -191,7 +191,7 @@
           "min": 0
         }
       },
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 18 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 18 },
       "id": 5,
       "options": {
         "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
@@ -204,41 +204,6 @@
           "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
           "expr": "histogram_quantile(0.99, sum by (le) (rate(opengate_http_request_duration_seconds_bucket[5m])))",
           "legendFormat": "p99 all routes",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-      "description": "On-demand metric-correlation latency p99, from the HTTP histogram for the correlate route (opengate_http_request_duration_seconds{route=\"/api/v1/devices/{id}/correlate\"}). Correlation is bounded and on-demand; this is the user-facing drill-down cost under load.",
-      "fieldConfig": {
-        "defaults": {
-          "color": { "mode": "palette-classic" },
-          "custom": {
-            "axisLabel": "seconds",
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineWidth": 2,
-            "showPoints": "auto",
-            "spanNulls": false
-          },
-          "unit": "s",
-          "min": 0
-        }
-      },
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 18 },
-      "id": 6,
-      "options": {
-        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
-        "tooltip": { "mode": "multi" }
-      },
-      "title": "Correlation latency p99",
-      "type": "timeseries",
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(opengate_http_request_duration_seconds_bucket{route=\"/api/v1/devices/{id}/correlate\"}[5m])))",
-          "legendFormat": "p99 correlate",
           "refId": "A"
         }
       ]

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { components } from '../../types/api';
 import { useDeviceStore } from './state/device-store';
 import { TimeSeriesChart } from './charts/TimeSeriesChart';
@@ -10,12 +10,9 @@ import { fireAndForget } from '../../lib/fire-and-forget';
 import { useVisibleInterval } from '../../lib/use-visible-interval';
 
 type MinMaxSource = components['schemas']['MetricSeries']['min_max_source'];
-type CorrelateResponse = components['schemas']['CorrelateResponse'];
 
 const MAX_POINTS = 1000;
-const CORRELATE_DEBOUNCE_MS = 400;
 const POLL_MS = 30_000;
-const CORRELATE_TOP_N = 8;
 
 const PRESETS = [
   { key: '1h', seconds: 3600 },
@@ -83,64 +80,30 @@ function MetricsPlaceholder({ hasMetrics, loading, maintenanceSince }: {
   return null;
 }
 
-function CorrelationTable({ result, loading }: { readonly result: CorrelateResponse | null; readonly loading: boolean }) {
-  if (loading) return <p className="text-xs text-gray-400">Correlating window…</p>;
-  if (!result) return null;
-  if (result.ranked.length === 0) {
-    return <p className="text-xs text-gray-500">No dimension broke pattern in the selected window.</p>;
-  }
-  return (
-    <div>
-      <h4 className="text-xs font-semibold text-gray-300 mb-1">Top anomalous dimensions</h4>
-      <table className="w-full text-xs font-mono">
-        <thead>
-          <tr className="text-left text-gray-500">
-            <th className="pr-2">Metric</th><th className="pr-2">Score</th><th className="pr-2">KS</th><th>Anom.</th>
-          </tr>
-        </thead>
-        <tbody>
-          {result.ranked.map((d) => (
-            <tr key={d.metric} className="text-gray-300">
-              <td className="pr-2">{d.metric}</td>
-              <td className="pr-2">{d.score.toFixed(2)}</td>
-              <td className="pr-2">{d.ks_statistic.toFixed(2)}</td>
-              <td>{d.anomaly_rate.toFixed(2)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 interface DeviceMetricsProps {
   readonly deviceId: string;
   readonly anomalyRate?: number | null;
   /** When set, the device is in maintenance: telemetry is paused, so the panel
    *  shows the since-when state rather than a stale health band or "no data". */
   readonly maintenanceSince?: string | null;
-  /** Correlation jump: open the logs explorer for a window (unix seconds). */
+  /** Opens the logs explorer for the charted window (unix seconds). */
   readonly onViewLogs?: (fromSec: number, toSec: number) => void;
 }
 
 /**
- * Device-detail telemetry panel: an anomaly summary, per-family metric timelines
- * (avg line + honest provenance band), and a Netdata-style correlation
- * drill-down — drag a window on any chart to rank the dimensions that broke
- * pattern. All heavy rendering is delegated to the imperative chart adapter.
+ * Device-detail telemetry panel: an anomaly summary and per-family metric
+ * timelines (avg line + honest provenance band). Ranking of which dimensions
+ * broke pattern arrives with the alert the agent raises, so this panel is a
+ * read of the window rather than a place to ask a question of it. All heavy
+ * rendering is delegated to the imperative chart adapter.
  */
 export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewLogs }: DeviceMetricsProps) {
   const metrics = useDeviceStore((s) => s.metrics);
   const metricsLoading = useDeviceStore((s) => s.metricsLoading);
   const fetchMetrics = useDeviceStore((s) => s.fetchMetrics);
-  const correlation = useDeviceStore((s) => s.correlation);
-  const correlationLoading = useDeviceStore((s) => s.correlationLoading);
-  const correlate = useDeviceStore((s) => s.correlate);
 
   const [presetKey, setPresetKey] = useState<string>(DEFAULT_PRESET);
-  const [selectedWindow, setSelectedWindow] = useState<{ fromSec: number; toSec: number } | null>(null);
   const seconds = PRESETS.find((p) => p.key === presetKey)?.seconds ?? PRESETS[1].seconds;
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(() => {
     const to = new Date();
@@ -156,48 +119,14 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
   useEffect(() => { load(); }, [load]);
 
   // Keep the window fresh without re-running the React reconciler over points —
-  // the adapter pushes new data through setData. Frozen while a drag selection is
-  // active: a reload's setData would wipe uPlot's select overlay and re-apply the
-  // preset, discarding the highlight + correlation. Clearing the selection (or a
-  // preset change, which clears it first) resumes polling.
-  useVisibleInterval(() => {
-    if (selectedWindow) return;
-    load();
-  }, POLL_MS);
-
-  const clearSelection = useCallback(() => {
-    setSelectedWindow(null);
-    load();
-  }, [load]);
-
-  const selectPreset = useCallback((key: string) => {
-    setSelectedWindow(null);
-    setPresetKey(key);
-  }, []);
-
-  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current); }, []);
-
-  const handleSelectWindow = useCallback((fromSec: number, toSec: number) => {
-    setSelectedWindow({ fromSec, toSec });
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      fireAndForget(correlate(deviceId, {
-        focusStart: new Date(fromSec * 1000).toISOString(),
-        focusEnd: new Date(toSec * 1000).toISOString(),
-        topN: CORRELATE_TOP_N,
-      }));
-    }, CORRELATE_DEBOUNCE_MS);
-  }, [deviceId, correlate]);
+  // the adapter pushes new data through setData.
+  useVisibleInterval(load, POLL_MS);
 
   const handleViewLogs = useCallback(() => {
     if (!onViewLogs) return;
-    if (selectedWindow) {
-      onViewLogs(selectedWindow.fromSec, selectedWindow.toSec);
-      return;
-    }
     const toSec = Math.floor(Date.now() / 1000);
     onViewLogs(toSec - seconds, toSec);
-  }, [onViewLogs, selectedWindow, seconds]);
+  }, [onViewLogs, seconds]);
 
   // System-metric families exclude the `log` family: its dimensions are log
   // volume/severity counts, not a system resource, so they are not charted here.
@@ -221,16 +150,6 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <AnomalyPanel anomalyRate={anomalyRate} maintenanceSince={maintenanceSince} />
         <div className="flex items-center gap-2">
-          {selectedWindow && (
-            <button
-              type="button"
-              onClick={clearSelection}
-              aria-label="Clear selection"
-              className="px-2 py-1 rounded text-xs bg-gray-700 text-gray-200 hover:bg-gray-600"
-            >
-              Clear selection ✕
-            </button>
-          )}
           {onViewLogs && (
             <button
               type="button"
@@ -245,7 +164,7 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
               <button
                 key={p.key}
                 type="button"
-                onClick={() => selectPreset(p.key)}
+                onClick={() => setPresetKey(p.key)}
                 className={`px-2 py-1 rounded text-xs ${presetKey === p.key ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
               >
                 {p.key}
@@ -256,30 +175,25 @@ export function DeviceMetrics({ deviceId, anomalyRate, maintenanceSince, onViewL
       </div>
 
       {families.length > 0 ? (
-        <>
-          <p className="text-xs text-gray-500">Drag across a chart to correlate that window.</p>
-          {families.map(({ family, chart, source, current }) => (
-            <div key={family}>
-              <div
-                className="flex items-baseline gap-2"
-                title={bandProvenance(chart.bands.length > 0, source)}
-              >
-                <h4 className="text-xs font-semibold text-gray-300 capitalize">{family}</h4>
-                {current && <span className="text-sm font-bold text-gray-100 tabular-nums">{current}</span>}
-              </div>
-              <TimeSeriesChart
-                data={chart.data}
-                series={chart.series}
-                bands={chart.bands}
-                yRange={chart.scaleRange}
-                height={160}
-                ariaLabel={`${family} metrics`}
-                onSelectWindow={handleSelectWindow}
-              />
+        families.map(({ family, chart, source, current }) => (
+          <div key={family}>
+            <div
+              className="flex items-baseline gap-2"
+              title={bandProvenance(chart.bands.length > 0, source)}
+            >
+              <h4 className="text-xs font-semibold text-gray-300 capitalize">{family}</h4>
+              {current && <span className="text-sm font-bold text-gray-100 tabular-nums">{current}</span>}
             </div>
-          ))}
-          <CorrelationTable result={correlation} loading={correlationLoading} />
-        </>
+            <TimeSeriesChart
+              data={chart.data}
+              series={chart.series}
+              bands={chart.bands}
+              yRange={chart.scaleRange}
+              height={160}
+              ariaLabel={`${family} metrics`}
+            />
+          </div>
+        ))
       ) : (
         <MetricsPlaceholder hasMetrics={!!metrics} loading={metricsLoading} maintenanceSince={maintenanceSince} />
       )}

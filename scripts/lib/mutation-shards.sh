@@ -43,7 +43,7 @@ mutation_go_shard_units() {
       echo "file:internal/api/handlers_auth.go file:internal/api/handlers_users.go file:internal/api/handlers_sites.go file:internal/api/handlers_organizations.go file:internal/api/handlers_security_groups.go file:internal/api/handlers_security_group_members.go file:internal/api/handlers_audit.go file:internal/api/handlers_push.go"
       ;;
     go-api-device-operations)
-      echo "file:internal/api/handlers_devices.go file:internal/api/handlers_device_summary.go file:internal/api/handlers_device_actions.go file:internal/api/handlers_maintenance.go file:internal/api/handlers_device_correlate.go file:internal/api/handlers_device_history.go file:internal/api/handlers_device_inventory.go file:internal/api/handlers_device_metrics.go file:internal/api/handlers_amt.go file:internal/api/handlers_relay.go file:internal/api/handlers_sessions.go"
+      echo "file:internal/api/handlers_devices.go file:internal/api/handlers_device_summary.go file:internal/api/handlers_device_actions.go file:internal/api/handlers_maintenance.go file:internal/api/handlers_device_history.go file:internal/api/handlers_device_inventory.go file:internal/api/handlers_device_metrics.go file:internal/api/handlers_amt.go file:internal/api/handlers_relay.go file:internal/api/handlers_sessions.go"
       ;;
     go-api-provisioning-lifecycle)
       echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
@@ -64,7 +64,7 @@ mutation_go_shard_units() {
       echo "dir:internal/amt dir:internal/updater dir:internal/notifications dir:internal/cert"
       ;;
     go-protocol-relay-observability)
-      echo "dir:internal/protocol dir:internal/correlate dir:internal/telemetry dir:internal/relay dir:internal/metrics dir:internal/signaling dir:internal/testpg dir:internal/testvm dir:internal/osutil dir:internal/clientapi dir:tests/loadtest"
+      echo "dir:internal/protocol dir:internal/telemetry dir:internal/relay dir:internal/metrics dir:internal/signaling dir:internal/testpg dir:internal/testvm dir:internal/osutil dir:internal/clientapi dir:tests/loadtest"
       ;;
     *)
       echo "unknown mutation shard: $1" >&2

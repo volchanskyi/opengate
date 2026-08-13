@@ -1,10 +1,16 @@
 
 crate mesh_agent_core
 ├── mod alerts: pub
-│   └── mod evaluator: pub(self)
+│   ├── mod evaluator: pub(self)
+│   ├── mod event: pub(self)
+│   └── mod sink: pub(self)
 ├── mod amt_detect: pub
 ├── mod config: pub
 ├── mod connection: pub
+├── mod correlate: pub
+│   ├── mod ks: pub(self)
+│   ├── mod rank: pub(self)
+│   └── mod window: pub(self)
 ├── mod discovery: pub
 │   ├── mod containers: pub
 │   ├── mod db_engines: pub
