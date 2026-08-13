@@ -7,7 +7,7 @@
 //! Both limits lose alerts by design, so the thing under test is not that they
 //! lose them — it is that every loss is counted and reported, never silent.
 
-use mesh_agent_core::alerts::{AlertSeverity, AlertSink, EdgeAlert, PushOutcome};
+use mesh_agent_core::alerts::{AlertOrigin, AlertSeverity, AlertSink, EdgeAlert, PushOutcome};
 
 const SECOND: i64 = 1_000_000;
 const HOUR: i64 = 3_600 * SECOND;
@@ -20,6 +20,16 @@ fn alert(id: &str) -> EdgeAlert {
         subject: "kernel".to_string(),
         summary: "something happened".to_string(),
         evidence: vec!["a redacted line".to_string()],
+        origin: AlertOrigin::Live,
+    }
+}
+
+/// The same alert, found by re-running a rule over history rather than as it
+/// happened.
+fn backfilled(id: &str) -> EdgeAlert {
+    EdgeAlert {
+        origin: AlertOrigin::Backfilled,
+        ..alert(id)
     }
 }
 
@@ -204,4 +214,30 @@ fn a_sink_with_no_capacity_counts_everything_it_refuses() {
     assert_eq!(sink.push(alert("a"), 0), PushOutcome::DroppedOldest);
     assert!(sink.drain().is_empty());
     assert_eq!(sink.stats().dropped_oldest, 1);
+}
+
+/// A finding out of history spends the same allowance as a live alert. A
+/// retroactive scan of a rule the fleet just learned can match thousands of
+/// minutes, and "but they already happened" is not a reason to let it past the
+/// ceiling every other producer shares.
+#[test]
+fn a_backfilled_finding_spends_the_same_allowance_as_a_live_alert() {
+    let sink = AlertSink::new(64, 2);
+
+    assert_eq!(sink.push(alert("live"), 0), PushOutcome::Queued);
+    assert_eq!(
+        sink.push(backfilled("from-history"), SECOND),
+        PushOutcome::Queued
+    );
+    assert_eq!(
+        sink.push(backfilled("also-from-history"), 2 * SECOND),
+        PushOutcome::SuppressedByCeiling,
+        "a scan cannot raise past the ceiling a live producer already reached"
+    );
+    assert_eq!(sink.stats().suppressed_by_ceiling, 1);
+
+    // The origin travels with the alert rather than being guessed from how old
+    // its timestamp is.
+    let origins: Vec<AlertOrigin> = sink.drain().into_iter().map(|a| a.origin).collect();
+    assert_eq!(origins, vec![AlertOrigin::Live, AlertOrigin::Backfilled]);
 }

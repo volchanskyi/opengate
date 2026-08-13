@@ -34,7 +34,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 
-use crate::alerts::sink::{AlertSeverity, EdgeAlert};
+use crate::alerts::sink::{AlertOrigin, AlertSeverity, EdgeAlert};
 use crate::ml::redact::redact_log_line;
 
 /// Distinct record keys retained at the cursor's own instant. Reaching this
@@ -486,6 +486,7 @@ impl EventPack {
                 subject: event.unit.to_string(),
                 summary: rule.summary.clone(),
                 evidence: vec![redact_log_line(event.message)],
+                origin: AlertOrigin::Live,
             })
             .collect();
 
@@ -518,6 +519,7 @@ impl EventPack {
                 rule.window_secs / 3_600
             ),
             evidence: vec![redact_log_line(event.message)],
+            origin: AlertOrigin::Live,
         }]
     }
 }

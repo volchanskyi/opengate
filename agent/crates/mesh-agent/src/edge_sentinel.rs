@@ -17,6 +17,41 @@ use mesh_protocol::{ControlMessage, ThresholdRule};
 /// snapshot or advance a cursor — neither blocks the other for a meaningful time.
 pub(crate) type SharedSink = Arc<Mutex<LocalStoreSink>>;
 
+/// Bit pattern standing for "the sampler has not taken a reading yet". A real
+/// percentage is finite, so no reading can collide with it.
+const LOAD_NOT_TAKEN: u32 = u32::MAX;
+
+/// The most recent host CPU reading, published by the sampler for anything that
+/// needs to know whether the machine is busy.
+///
+/// Deliberately absent until the sampler has actually taken a reading: work that
+/// waits for an idle machine must not treat "nobody has looked" as "idle".
+#[derive(Clone)]
+pub(crate) struct LoadSignal(Arc<std::sync::atomic::AtomicU32>);
+
+impl LoadSignal {
+    /// A signal with no reading in it yet.
+    pub(crate) fn new() -> Self {
+        Self(Arc::new(std::sync::atomic::AtomicU32::new(LOAD_NOT_TAKEN)))
+    }
+
+    /// Publish this second's reading. A reading that is not a finite percentage
+    /// is not published at all, rather than stored as a number nothing can
+    /// compare.
+    pub(crate) fn report(&self, cpu_percent: f32) {
+        if cpu_percent.is_finite() {
+            self.0
+                .store(cpu_percent.to_bits(), std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// The most recent reading, or `None` if there has not been one.
+    pub(crate) fn cpu_percent(&self) -> Option<f32> {
+        let bits = self.0.load(std::sync::atomic::Ordering::Relaxed);
+        (bits != LOAD_NOT_TAKEN).then(|| f32::from_bits(bits))
+    }
+}
+
 /// Interval between auto-discovery sweeps. Long by design: the host profile
 /// changes rarely, and a sweep shells out to package managers and lists
 /// services, so it must never compete with control or session traffic. Reports
@@ -260,6 +295,7 @@ pub(crate) fn spawn_sampler(
     alerts: Option<AlertWiring>,
     host_metric_tx: Option<SyncSender<ControlMessage>>,
     maintenance: MaintenanceGate,
+    load: LoadSignal,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         use mesh_agent_core::alerts::AlertEvaluator;
@@ -330,6 +366,9 @@ pub(crate) fn spawn_sampler(
                 }
             };
             let now = unix_now();
+            // Publish how busy the machine is, so background work that should
+            // only run on an idle host has something current to look at.
+            load.report(sample.cpu_total_percent);
 
             // Live host-metric stream: fold the sample into its 10 s window and
             // forward any window this tick closed to the control loop.
@@ -705,6 +744,27 @@ mod tests {
             }
             other => panic!("expected AgentHealthSummary, got {other:?}"),
         }
+    }
+
+    /// Nothing reads a load signal as idle before the sampler has taken a
+    /// reading — "nobody has looked" is not "the machine is quiet".
+    #[test]
+    fn a_load_signal_has_no_reading_until_the_sampler_takes_one() {
+        let signal = super::LoadSignal::new();
+        assert_eq!(signal.cpu_percent(), None);
+
+        signal.report(12.5);
+        assert_eq!(signal.cpu_percent(), Some(12.5));
+
+        // Every holder sees the same reading: the sampler publishes once and
+        // the readers share it.
+        let reader = signal.clone();
+        signal.report(88.0);
+        assert_eq!(reader.cpu_percent(), Some(88.0));
+
+        // A reading that is not a number leaves the last real one standing.
+        signal.report(f32::NAN);
+        assert_eq!(reader.cpu_percent(), Some(88.0));
     }
 
     #[test]

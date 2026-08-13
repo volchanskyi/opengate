@@ -25,13 +25,26 @@
 //! producers hand what they find to one [`AlertSink`], which is bounded and
 //! rate-limited per device and counts everything either limit costs.
 
+//! A rule reaching a machine also asks what it *would* have caught: the same
+//! rule is re-run over the minute-by-minute history the device already holds
+//! ([`RetroScan`]), so "has this happened before" is answered on the endpoint
+//! rather than by shipping every device's seconds to a central recorder. Those
+//! findings carry the minute they happened and land in the same bounded sink,
+//! spending the same allowance as anything raised live.
+
 mod evaluator;
 mod event;
+mod retro;
 mod sink;
 
 pub use evaluator::{rule_cost, AlertEvaluator};
 pub use event::{EventLevel, EventMatcher, EventPack, EventRule, HostEvent, ServiceErrorRule};
+pub use retro::{
+    retro_hold, RetroBucket, RetroBudget, RetroConditions, RetroCursor, RetroError, RetroHistory,
+    RetroHold, RetroPlan, RetroScan, RetroStats, RetroStep, RetroUnsupported, RETRO_BUCKET_SECS,
+    RETRO_IDLE_CPU_PERCENT,
+};
 pub use sink::{
-    AlertSeverity, AlertSink, EdgeAlert, PushOutcome, SinkStats, DEFAULT_CAPACITY,
+    AlertOrigin, AlertSeverity, AlertSink, EdgeAlert, PushOutcome, SinkStats, DEFAULT_CAPACITY,
     DEVICE_HOURLY_CEILING,
 };

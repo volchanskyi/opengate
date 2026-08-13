@@ -17,7 +17,7 @@ with method, date and tool version — an archived plan is deletion-bound, so th
 | # | From | What must be recorded |
 |---|---|---|
 | Q3 | EF-B3 | Recorded in [Monitoring.md](../../docs/Monitoring.md) (“What an active series costs the central store”): the fit, the 120 000-series total, method, VM version and date. Still to add there: **which of §9.1's four sizing options the owner chose** |
-| Q11 | EF-B10 | T1 reach on a steady-state store, the cap sizes used, the linearity evidence, and the assumed vitals shape |
+| Q11 | EF-B10 | **Done** — recorded in [Monitoring.md](../../docs/Monitoring.md) ("Has this happened before?") and [ADR-072](../../docs/adr/ADR-072-retroactive-rule-evaluation.md): ~7 months at the shipped cap, from 2/4/8 MiB steady-state runs whose reach scales with the cap to within 5 %, at 13 series × 1 Hz and ~2.3 B per stored reading. The measurement itself always runs, in [reach_test.rs](../../agent/crates/mesh-agent-core/tests/reach_test.rs) |
 | Q12 | EF-C4 | Alerts/device/day, the population it was measured on, and the §9.1.2 option taken — or an explicit statement that no real-population measurement exists yet and the pack is held at canary |
 
 Q2 and Q4 (active series and 30 d disk at fleet scale) are recorded in the same section; verify they still match what the harness reports.

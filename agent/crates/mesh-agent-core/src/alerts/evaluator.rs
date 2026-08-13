@@ -6,6 +6,7 @@ use mesh_protocol::{
 };
 
 use crate::ml::sampler::MetricSample;
+use crate::ml::store_sink::DimReadings;
 
 /// Per-rule evaluation state. A rule advances Clear → Pending → Firing → Clear as
 /// the watched metric breaches, sustains, and finally recovers past the
@@ -103,9 +104,9 @@ impl Condition {
         )
     }
 
-    /// Take this second's reading and derive the number the comparators see.
-    fn step(&mut self, sample: &MetricSample, ts: i64) -> Reading {
-        let Some(value) = sample_reading(self.metric, sample) else {
+    /// Take this instant's reading and derive the number the comparators see.
+    fn step(&mut self, readings: &DimReadings, ts: i64) -> Reading {
+        let Some(value) = readings.of_metric(self.metric) else {
             return Reading::Unsupported;
         };
         if self.predicate == RulePredicate::Instant {
@@ -251,7 +252,7 @@ impl RuleEntry {
 
     /// Evaluate every condition and advance the state machine, returning the
     /// number the rule's own condition produced while it is firing.
-    fn step(&mut self, sample: &MetricSample, ts: i64) -> Option<f64> {
+    fn step(&mut self, sample: &DimReadings, ts: i64) -> Option<f64> {
         let Some(conditions) = self.conditions.as_mut() else {
             self.coverage = RuleCoverageState::Unsupported;
             self.state = RuleState::Clear;
@@ -382,12 +383,22 @@ impl AlertEvaluator {
             .collect();
     }
 
-    /// Evaluate every rule against `sample` at `ts` and return the firing
-    /// breaches. A rule this device cannot evaluate never fires.
+    /// Evaluate every rule against the second `sample` describes and return the
+    /// firing breaches. A rule this device cannot evaluate never fires.
     pub fn evaluate(&mut self, sample: &MetricSample, ts: i64) -> Vec<AlertBreach> {
+        self.evaluate_readings(&DimReadings::of_sample(sample), ts)
+    }
+
+    /// Evaluate every rule against one instant's readings at `ts`.
+    ///
+    /// The live path arrives here with the second the sampler just took, and a
+    /// retroactive scan with a minute rebuilt from the local store — the same
+    /// state machine either way, so a rule cannot mean one thing now and
+    /// something else over history.
+    pub fn evaluate_readings(&mut self, readings: &DimReadings, ts: i64) -> Vec<AlertBreach> {
         let mut breaches = Vec::new();
         for entry in &mut self.entries {
-            if let Some(value) = entry.step(sample, ts) {
+            if let Some(value) = entry.step(readings, ts) {
                 breaches.push(AlertBreach {
                     rule_id: entry.rule.id.clone(),
                     // The canonical name, whatever the rule was written in, so
@@ -417,37 +428,6 @@ impl AlertEvaluator {
                 state: entry.coverage,
             })
             .collect()
-    }
-}
-
-/// Read one canonical dimension out of a sample, or `None` when this host did not
-/// produce it.
-///
-/// An absent reading means the rule is producing no answer here, and that is
-/// what it is reported as. It covers a permanent gap (a kernel with no pressure
-/// information, a container whose disk counters are its neighbours') and a
-/// passing one (a disk that completed no I/O has no service time, because 0 ms
-/// would read as instantaneous), and one sample cannot tell those apart. The
-/// choice is deliberately the conservative one: claiming a rule is watching a
-/// machine it is producing nothing for is the failure coverage exists to
-/// prevent, while a rule that starts answering reports itself active on its
-/// next reading.
-fn sample_reading(metric: &str, sample: &MetricSample) -> Option<f64> {
-    match metric {
-        "cpu.total" => Some(f64::from(sample.cpu_total_percent)),
-        "mem.used_percent" => Some(f64::from(sample.memory_used_percent)),
-        "disk.used_percent" => sample.disk_used_percent.map(f64::from),
-        "disk.mounts_critical" => sample.disk_mounts_critical.map(f64::from),
-        "net.rx_bps" => sample.network_rx_bps,
-        "net.tx_bps" => sample.network_tx_bps,
-        "stall.cpu.some" => sample.stall_cpu_some.map(f64::from),
-        "stall.mem.some" => sample.stall_mem_some.map(f64::from),
-        "stall.mem.full" => sample.stall_mem_full.map(f64::from),
-        "stall.io.some" => sample.stall_io_some.map(f64::from),
-        "stall.io.full" => sample.stall_io_full.map(f64::from),
-        "disk.await_ms" => sample.disk_await_ms.map(f64::from),
-        "disk.queue_depth" => sample.disk_queue_depth.map(f64::from),
-        _ => None,
     }
 }
 

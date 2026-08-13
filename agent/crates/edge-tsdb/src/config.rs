@@ -36,6 +36,27 @@ pub struct TsdbConfig {
     pub default_scale: Option<i64>,
 }
 
+impl TsdbConfig {
+    /// The cap actually in force given `host_free` currently-free host bytes:
+    /// the configured cap until the host disk gets tight, then the fraction of
+    /// what is left. `None` (nobody has reported the disk) means the configured
+    /// cap, and a zero fraction disables the backoff.
+    ///
+    /// Public because it is also the store's disk-pressure geometry: anything
+    /// that must stand down *before* eviction changes what it keeps reads its
+    /// own threshold from this function, so the two cannot drift apart.
+    #[must_use]
+    pub fn effective_cap(&self, host_free: Option<u64>) -> u64 {
+        match host_free {
+            Some(free) if self.host_free_fraction > 0.0 => {
+                let borrow = (free as f64 * self.host_free_fraction) as u64;
+                self.cap_bytes.min(borrow)
+            }
+            _ => self.cap_bytes,
+        }
+    }
+}
+
 impl Default for TsdbConfig {
     fn default() -> Self {
         Self {
