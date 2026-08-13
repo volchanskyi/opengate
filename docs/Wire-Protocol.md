@@ -79,7 +79,8 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 |---------|-----------|--------|
 | `AgentRegister` | Agent → Server | `capabilities`, `hostname`, `os`, `arch`, `version` |
 | `AgentHeartbeat` | Agent → Server | `timestamp` |
-| `AgentHealthSummary` | Agent → Server | `ts`, `tenant_id`, `node_anomaly_rate`, `per_family_rates`, `recent_bitmask`, `sampler_ver`, `model_ver` |
+| `AgentHealthSummary` | Agent → Server | `ts`, `tenant_id`, `node_anomaly_rate`, `per_family_rates`, `recent_bitmask`, `sampler_ver`, `model_ver`, `breaches`, `rule_coverage` |
+| `PushAlertRules` | Server → Agent | `rules` |
 | `AgentMetricWindow` | Agent → Server | `ts`, `tenant_id`, `dims` |
 | `ProcessReport` | Agent → Server | `ts`, `tenant_id`, `top_n` |
 | `SessionAccept` | Agent → Server | `token`, `relay_url` |
@@ -191,6 +192,55 @@ steady host is silent and a burst never backpressures the control stream. The
 server assigns the authoritative tenant, so the agent leaves `tenant_id`
 empty.
 
+### Alert rules, breaches and coverage
+
+`PushAlertRules` carries the ruleset the agent evaluates locally, resolved
+against the machine's place in the tenancy ladder so a rule tuned for one
+customer or one office reaches the machines it was tuned for. **A rule is data in
+a closed grammar, never code** — an agent executing server-supplied code would be
+a supply-chain weapon aimed at every customer estate — so everything a rule can
+say is expressible in [`ThresholdRule`](../agent/crates/mesh-protocol/src/control.rs)
+and analysable from its declared fields alone.
+
+Each rule names a metric, a comparator, a fire threshold, a hysteresis `clear`
+boundary on the safe side of it, and the seconds a breach must hold before it
+fires. Beyond that it declares:
+
+| Field | Meaning |
+|---|---|
+| `predicate` | How the compared number is derived: `Instant` (the reading itself), `Rate` (change per second across the window), `WindowMax`, `WindowMean` |
+| `window_secs` | Seconds the predicate spans — zero for `Instant`, and at most `MAX_RULE_WINDOW_SECS` otherwise |
+| `all` | Extra conditions that must hold at the same instant, at most `MAX_RULE_TERMS` of them, each with its own metric, comparator, boundaries, predicate and window |
+
+The bounds are what make a rule's cost computable before it reaches an endpoint:
+[`rule_cost`](../agent/crates/mesh-agent-core/src/alerts/evaluator.rs) answers how
+many readings a rule retains and may touch, from its declared fields alone. A
+shape outside the grammar — a window past the bound, a windowed predicate with no
+window, an instant one carrying a window it would ignore, more extra conditions
+than allowed — is refused by name rather than attempted.
+
+A rule may watch any of the vitals dimensions, under the canonical name or under
+one of the legacy names `mem.used` and `disk.used`, which resolve to
+`mem.used_percent` and `disk.used_percent`. The vocabulary and its aliases live
+in one place per side ([Rust](../agent/crates/mesh-protocol/src/control.rs),
+[Go](../server/internal/protocol/rules.go)) and are pinned together by the
+`go_control_push_alert_rules.bin` fixture, which the server generates from its own
+vocabulary and the agent decodes asserting the resolved set is exactly its own. A
+metric outside that vocabulary never fires.
+
+`AgentHealthSummary.breaches` carries the rules firing when the summary was
+built, each naming the **canonical** metric whatever the rule was written in, so
+one reading is only ever recorded under one name.
+
+`AgentHealthSummary.rule_coverage` carries what every installed rule is *doing* on
+that device — `Active` (evaluating) or `Unsupported` (the rule is producing no
+answer here: its metric is outside the vocabulary, its predicate outside the
+grammar's bounds, or the reading is not arriving). A device that reports neither
+is `unknown`, which only the server can determine because only the server knows
+the fleet. The field is omitted when there is nothing to
+say, which is also the shape an agent that predates coverage sends; the server
+reads both as this device having reported nothing.
+
 `SetMaintenanceMode` carries the server's desired maintenance state for the
 device (`enabled`), pushed on the Active↔Maintenance transition and, for a device
 already in maintenance, on reconnect. The agent applies it — suppressing the
@@ -214,6 +264,7 @@ capability. Current additive gates:
 | `DeviceLogs` | `RequestDeviceLogs` |
 | `HealthWindow` | `RequestHealthWindow` |
 | `Backfill` | `GrantBackfill`, `DeferBackfill`, `MetricBackfillAck`, `RequestLocalHistory` |
+| `ThresholdAlerts` | `PushAlertRules` |
 
 `Discovery` gates no server-to-agent message; the agent advertises it to signal
 that it emits `DiscoveryReport` inventory (so the server knows to ingest it).

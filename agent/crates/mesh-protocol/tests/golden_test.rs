@@ -94,10 +94,40 @@ fn golden_control_frame_agent_health_summary() {
             metric: "disk.used".to_string(),
             value: 95.5,
         }],
+        // Deliberately absent: this fixture is also the shape an agent that
+        // predates coverage sends, so the Go decoder is proven against it.
+        rule_coverage: Vec::new(),
     };
     let frame = Frame::Control(msg);
     let encoded = frame.encode().unwrap();
     golden_check("control_agent_health_summary.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_agent_health_summary_coverage() {
+    let msg = ControlMessage::AgentHealthSummary {
+        ts: 1700000100,
+        tenant_id: "00000000-0000-0000-0000-000000000002".to_string(),
+        node_anomaly_rate: 0.0625,
+        per_family_rates: Vec::new(),
+        recent_bitmask: Vec::new(),
+        sampler_ver: "sysinfo-k2".to_string(),
+        model_ver: "k2-baseline-v1".to_string(),
+        breaches: Vec::new(),
+        rule_coverage: vec![
+            RuleCoverage {
+                rule_id: "disk-critical".to_string(),
+                state: RuleCoverageState::Active,
+            },
+            RuleCoverage {
+                rule_id: "io-stalled".to_string(),
+                state: RuleCoverageState::Unsupported,
+            },
+        ],
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_agent_health_summary_coverage.bin", &encoded);
 }
 
 #[test]

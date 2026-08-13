@@ -9,27 +9,25 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
-// alertBreachMetrics bounds the `metric` label of a WS-19 breach sample to the
-// sampler dimensions a rule can watch, so an agent-supplied breach cannot drive
-// unbounded label cardinality.
-var alertBreachMetrics = map[string]struct{}{
-	"cpu.total": {},
-	"mem.used":  {},
-	"disk.used": {},
-}
-
 const maxAlertRuleIDLen = 64
 
 // alertBreachSamples turns firing WS-19 breaches into VM samples, dropping any
-// whose metric is outside the known vocabulary and sanitizing the rule id label
+// whose metric is outside the rule vocabulary and sanitizing the rule id label
 // (agent-echoed, so defense-in-depth against control chars and overlong values).
+//
+// The metric label is the canonical name the reported one resolves to, so an
+// agent that predates the vitals rename and one that follows it write the same
+// series rather than two halves of one story. The vocabulary doubles as the
+// bound on that label: a breach naming anything else cannot drive central
+// cardinality because it is not recorded at all.
 func alertBreachSamples(breaches []protocol.AlertBreach, ts time.Time) []telemetry.Sample {
 	if len(breaches) == 0 {
 		return nil
 	}
 	samples := make([]telemetry.Sample, 0, len(breaches))
 	for _, breach := range breaches {
-		if _, ok := alertBreachMetrics[breach.Metric]; !ok {
+		metric, ok := protocol.CanonicalRuleMetric(breach.Metric)
+		if !ok {
 			continue
 		}
 		ruleID := sanitizeAlertRuleID(breach.RuleID)
@@ -40,7 +38,7 @@ func alertBreachSamples(breaches []protocol.AlertBreach, ts time.Time) []telemet
 			Name:   "opengate_edge_alert_breach",
 			Value:  breach.Value,
 			TS:     ts,
-			Labels: map[string]string{"rule": ruleID, "metric": breach.Metric},
+			Labels: map[string]string{"rule": ruleID, "metric": metric},
 		})
 	}
 	return samples

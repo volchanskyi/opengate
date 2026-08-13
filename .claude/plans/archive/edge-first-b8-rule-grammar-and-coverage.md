@@ -10,11 +10,11 @@ vocabulary; without `disk.await_ms` the DAL-WS-012 wear-out case is collectable 
 ## Context
 
 The shipped rule is a four-field threshold
-([control.rs:41](../../agent/crates/mesh-protocol/src/control.rs#L41)) evaluated by a
+([control.rs:41](../../../agent/crates/mesh-protocol/src/control.rs#L41)) evaluated by a
 Clear→Pending→Firing state machine
-([evaluator.rs](../../agent/crates/mesh-agent-core/src/alerts/evaluator.rs)) over three metric names:
+([evaluator.rs](../../../agent/crates/mesh-agent-core/src/alerts/evaluator.rs)) over three metric names:
 `cpu.total`, `mem.used`, `disk.used`
-([alert_rules.go:63-65](../../server/internal/agentapi/alert_rules.go#L63-L65)).
+([alert_rules.go:63-65](../../../server/internal/agentapi/alert_rules.go#L63-L65)).
 
 Two things are wrong with that as the base for this program: the vitals are named
 `mem.used_percent` / `disk.used_percent`, and the grammar cannot express any of the shapes the
@@ -42,7 +42,7 @@ unknown metric **never fires and is counted `unsupported`** — never silently s
 
 §7.5 defines only `AgentAlert` and `AlertEvidence` on the wire — **coverage has no transport**. This
 plan adds an additive `rule_coverage[]` to `AgentHealthSummary`, exactly as WS-19's `breaches` rides
-it today ([control.rs:231](../../agent/crates/mesh-protocol/src/control.rs#L231)). Cheapest correct
+it today ([control.rs:231](../../../agent/crates/mesh-protocol/src/control.rs#L231)). Cheapest correct
 option, precedented, no new message type.
 
 Likewise §7.4's migrations carry no `rule_coverage` table. **Recommendation: no table.** Coverage is
@@ -52,24 +52,24 @@ to survive a restart, it becomes a column set in `013_rules` (EF-B9) — say so 
 
 ## File inventory
 
-- **Modify:** [control.rs](../../agent/crates/mesh-protocol/src/control.rs) — grammar fields on
+- **Modify:** [control.rs](../../../agent/crates/mesh-protocol/src/control.rs) — grammar fields on
   `ThresholdRule` (additive, defaulted), `RuleCoverage` entry, `rule_coverage[]` on
   `AgentHealthSummary`.
-- **Modify:** [evaluator.rs](../../agent/crates/mesh-agent-core/src/alerts/evaluator.rs) — the new
+- **Modify:** [evaluator.rs](../../../agent/crates/mesh-agent-core/src/alerts/evaluator.rs) — the new
   predicate kinds, alias resolution, support classification, and a **cost estimate** per rule that
   EF-B9's CI gate consumes.
-- **Modify:** [control_encode.go](../../server/internal/protocol/control_encode.go) — per-field
+- **Modify:** [control_encode.go](../../../server/internal/protocol/control_encode.go) — per-field
   encoder arms; bump `controlFieldCount` (**86 today** — read it at implementation time).
-- **Modify:** [alert_rules.go](../../server/internal/agentapi/alert_rules.go) — defaults renamed to
+- **Modify:** [alert_rules.go](../../../server/internal/agentapi/alert_rules.go) — defaults renamed to
   canonical names.
 - **Create:** `server/internal/agentapi/conn_coverage.go` + an in-memory coverage store.
-- **Create/Modify:** [testdata/golden/](../../testdata/golden/) — a **forward** fixture
+- **Create/Modify:** [testdata/golden/](../../../testdata/golden/) — a **forward** fixture
   (`control_agent_health_summary*`) carrying coverage, **and** the **reverse** fixture
   `go_control_push_alert_rules.bin`, which changes the moment `ThresholdRule` grows a field. That
   reverse golden is named in the
-  [completeness guard](../../server/internal/agentapi/golden_completeness_test.go) under
+  [completeness guard](../../../server/internal/agentapi/golden_completeness_test.go) under
   `SendPushAlertRules`; regenerate it or the agent's decoder rejects the new rule shape.
-- **Docs:** [Wire-Protocol.md](../../docs/Wire-Protocol.md), [Monitoring.md](../../docs/Monitoring.md).
+- **Docs:** [Wire-Protocol.md](../../../docs/Wire-Protocol.md), [Monitoring.md](../../../docs/Monitoring.md).
 
 ## Steps (TDD-first)
 
@@ -100,11 +100,11 @@ to survive a restart, it becomes a column set in `013_rules` (EF-B9) — say so 
 
 - **`controlFieldCount` collision.** EF-C1 also adds wire fields. Whoever lands second rebases and
   re-runs the per-field differential encoder test — the hand-written encoder
-  ([ADR-060](../../docs/adr/ADR-060-control-message-hand-written-encoder.md)) is byte-identity
+  ([ADR-060](../../../docs/adr/ADR-060-control-message-hand-written-encoder.md)) is byte-identity
   guarded, so a missed arm fails loudly, but only if the goldens are regenerated after the rebase,
   not before.
 - Rust decodes an internally-tagged enum whose variant fields are **required**
-  ([ADR-063](../../docs/adr/ADR-063-server-to-agent-control-message-completeness.md)): any new
+  ([ADR-063](../../../docs/adr/ADR-063-server-to-agent-control-message-completeness.md)): any new
   server→agent field needs `#[serde(default)]` agent-side or a server that always emits it. Getting
   this wrong drops the agent's control stream — the exact defect ADR-063 documents.
 - **`unsupported` must be a first-class state, not an error path.** The temptation is to treat "no

@@ -366,17 +366,55 @@ comparator, a fire threshold, a hysteresis clear boundary, and a sustain duratio
 ([`alerts`](../agent/crates/mesh-agent-core/src/alerts/)). A breach must hold
 continuously for its sustain duration before it fires (suppressing brief spikes),
 then stays firing until the metric recovers past the clear boundary (suppressing
-flapping around the threshold). A rule's `disk.used` gauge reads the fullest
-mount, so it fires for the volume that is filling; a host with no measurable
-mount has no reading and no disk rule fires on it. The server delivers each connecting agent's
-authoritative-tenant ruleset over a capability-gated `PushAlertRules` control
-message ([`alert_rules.go`](../server/internal/agentapi/alert_rules.go)), so one
+flapping around the threshold). A rule's `disk.used_percent` gauge reads the
+fullest mount, so it fires for the volume that is filling; a host with no
+measurable mount has no reading and no disk rule fires on it. The server delivers
+each connecting agent's authoritative-tenant ruleset over a capability-gated
+`PushAlertRules` control message
+([`alert_rules.go`](../server/internal/agentapi/alert_rules.go)), so one
 tenant's rules never reach another; a tenant without a custom set receives a minimal
 built-in default. A firing breach rides additively in an `AgentHealthSummary`,
 which the server ingests as `opengate_edge_alert_breach` scoped to the resolved
 tenant and charts on the Edge-Sentinel Soak dashboard. Delivery is
 **investigation-aid only** — no auto-notify — until the false-positive soak; see
 [ADR-053](adr/ADR-053-edge-sentinel-threshold-alerts.md).
+
+**What a rule can say.** Besides comparing the reading itself, a rule may compare
+how fast it is changing, or its largest or mean value over a window, and may
+require several dimensions at once. That covers the failures a single
+instantaneous threshold cannot state: a disk whose service time is drifting
+2 ms → 40 ms over a fortnight crosses no line on any given second, and a queue
+28 deep at a healthy 3 ms is a nightly backup rather than a device in trouble —
+it takes both sides together to tell them apart. The vocabulary is the vitals
+dimensions, so a rule can only watch something the fleet actually collects, and
+the two legacy names `mem.used` and `disk.used` still resolve to
+`mem.used_percent` and `disk.used_percent` so rules already on the fleet keep
+firing. Every shape is bounded and its cost computable from the rule's own text;
+the wire fields and their limits are in
+[Wire-Protocol](Wire-Protocol.md#alert-rules-breaches-and-coverage).
+
+**Coverage: which machines a rule is actually watching.** Per rule, every device
+in the fleet is exactly one of three things, and the three always add up to the
+fleet:
+
+| State | Meaning |
+|---|---|
+| `active` | The device is evaluating the rule |
+| `unsupported` | The rule is producing no answer here: its metric is outside the vocabulary, its predicate outside the grammar's bounds, or the reading is not arriving (a kernel with no pressure accounting, a container whose disk counters are its neighbours', a disk that completed no I/O) |
+| `unknown` | The device has reported nothing — offline, or never seen |
+
+`unsupported` is a first-class answer rather than an error path, because "no
+kernel pressure information here" is a permanent platform gap and reads
+completely differently from a machine that is merely quiet. A rule that is
+answering nothing is reported that way whether the gap is permanent or passing —
+claiming a rule watches a machine it produces nothing for is the failure coverage
+exists to prevent, and a rule that starts answering reports itself active on its
+next reading. Agents report their
+own state per rule in `AgentHealthSummary.rule_coverage`; the server derives
+`unknown` from the fleet it knows about
+([`conn_coverage.go`](../server/internal/agentapi/conn_coverage.go)), so a device
+that disconnects moves to `unknown` rather than vanishing from the count, and a
+server restart is correct by construction rather than by a cleanup job.
 
 ### System-event rules
 

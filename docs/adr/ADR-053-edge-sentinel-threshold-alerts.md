@@ -32,10 +32,13 @@ cycle), delivered without a new QUIC stream, and remain investigation-aid only.
 Add per-tenant declarative threshold rules, evaluated locally beside the ML
 anomaly detector.
 
-- **Rule shape.** A rule is a metric selector (a sampler percent gauge:
-  `cpu.total`, `mem.used`, `disk.used`), a comparator (`Gt`/`Lt`/`Gte`/`Lte`), a
-  fire `threshold`, a hysteresis `clear` boundary, and a `sustain_secs` duration
-  ([`ThresholdRule`](../../agent/crates/mesh-protocol/src/control.rs)).
+- **Rule shape.** A rule is a metric selector (a vitals dimension), a comparator
+  (`Gt`/`Lt`/`Gte`/`Lte`), a fire `threshold`, a hysteresis `clear` boundary, and
+  a `sustain_secs` duration
+  ([`ThresholdRule`](../../agent/crates/mesh-protocol/src/control.rs)). What the
+  compared number is derived from, the extra conditions a rule may require
+  alongside its own, and the vocabulary those selectors are drawn from are
+  [ADR-070](ADR-070-rule-grammar-and-coverage.md).
 - **Evaluation.** A pure, stateful evaluator
   ([`alerts`](../../agent/crates/mesh-agent-core/src/alerts/)) steps each rule
   Clear → Pending → Firing per sample. A breach must hold **continuously** for
@@ -55,8 +58,10 @@ anomaly detector.
   in the existing summary (`breaches`), avoiding a new message or QUIC stream and
   respecting the WS-3 payload caps. The server ingests each breach as
   `opengate_edge_alert_breach` scoped to the resolved tenant, with the `metric`
-  label bounded to the known vocabulary and the agent-echoed `rule` id sanitized,
-  so a rogue agent cannot drive unbounded label cardinality.
+  label resolved to the canonical name in the rule vocabulary and the
+  agent-echoed `rule` id sanitized, so a rogue agent cannot drive unbounded label
+  cardinality. Per-rule coverage rides the same summary
+  ([ADR-070](ADR-070-rule-grammar-and-coverage.md)).
 - **Emission is throttled and breach-driven.** The agent emits a breach-carrying
   summary only while a breach is active (plus one final summary reporting the
   clear), throttled above the server's telemetry interval floor, so a steady host

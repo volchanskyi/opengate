@@ -32,18 +32,133 @@ pub enum AlertComparator {
     Lte,
 }
 
-/// One declarative edge threshold-alert rule (WS-19), evaluated locally against a
-/// sampler dimension every window. A breach must sustain `sustain_secs`
-/// continuously before it fires, and `clear` adds hysteresis so a value dithering
-/// around `threshold` does not flap. Rules are tenant-scoped config pushed to the
+/// Every metric name a rule may watch, canonical. These are the vitals names —
+/// the dimensions the fleet agreed to collect — so a rule can only ever watch
+/// something that is actually being read.
+pub const RULE_METRICS: [&str; 13] = [
+    "cpu.total",
+    "mem.used_percent",
+    "disk.used_percent",
+    "disk.mounts_critical",
+    "net.rx_bps",
+    "net.tx_bps",
+    "stall.cpu.some",
+    "stall.mem.some",
+    "stall.mem.full",
+    "stall.io.some",
+    "stall.io.full",
+    "disk.await_ms",
+    "disk.queue_depth",
+];
+
+/// Metric names a rule may still be written in, and the canonical name each one
+/// means. Rules pushed to the fleet before the vitals rename name these, and
+/// they keep watching the same reading — under one name from here on, so nothing
+/// downstream ever sees two names for one thing.
+pub const RULE_METRIC_ALIASES: [(&str, &str); 2] = [
+    ("mem.used", "mem.used_percent"),
+    ("disk.used", "disk.used_percent"),
+];
+
+/// The longest window a rule may span, in seconds. The point of a closed grammar
+/// is that the cost of every rule an operator can write is computable before it
+/// reaches an endpoint, so the window a predicate retains is bounded here rather
+/// than by whatever the machine turns out to survive. Fifteen minutes is long
+/// enough to state a trend (a disk whose service time is drifting) and short
+/// enough that the retained readings stay a few kilobytes.
+pub const MAX_RULE_WINDOW_SECS: u32 = 900;
+
+/// The most extra conditions a rule may require alongside its own. Conjunction
+/// exists to separate a slow disk that is also backed up from one that is merely
+/// busy; four extra sides cover that and keep the worst-case cost a small
+/// multiple of one window.
+pub const MAX_RULE_TERMS: usize = 4;
+
+// Both bounds are load-bearing: a window under a minute cannot state a trend,
+// and a rule with no room for a second side cannot separate a slow disk from a
+// busy one. Checked at compile time so neither can be tuned to a degenerate
+// value by accident.
+const _: () = assert!(MAX_RULE_WINDOW_SECS >= 60);
+const _: () = assert!(MAX_RULE_TERMS >= 1);
+
+/// Resolve a rule's declared metric name to its canonical vitals name, or `None`
+/// when the name is outside the vocabulary — in which case the rule never fires
+/// and is counted `unsupported`, never silently skipped.
+///
+/// This is the single alias map. Two of them, one per side of the wire, drift.
+#[must_use]
+pub fn canonical_rule_metric(name: &str) -> Option<&'static str> {
+    if let Some(canonical) = RULE_METRICS.iter().find(|&&metric| metric == name) {
+        return Some(canonical);
+    }
+    RULE_METRIC_ALIASES
+        .iter()
+        .find(|(alias, _)| *alias == name)
+        .map(|(_, canonical)| *canonical)
+}
+
+/// How a rule derives the number it compares against its threshold.
+///
+/// Every variant's evaluation cost is a function of the rule's own declared
+/// fields, so a rule whose cost the build cannot compute is one the grammar
+/// cannot express.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum RulePredicate {
+    /// The reading itself, this second.
+    #[default]
+    Instant,
+    /// Change per second across `window_secs` — the shape of a resource that is
+    /// getting worse rather than one that is already bad.
+    Rate,
+    /// The largest reading in the last `window_secs`. A minute's average hides a
+    /// five-second freeze; its maximum does not.
+    WindowMax,
+    /// The mean reading over the last `window_secs` — generally slow, rather
+    /// than momentarily busy.
+    WindowMean,
+}
+
+/// One extra condition a rule requires at the same instant as its own. Sustain
+/// and the firing state belong to the rule; a term carries only what it takes to
+/// decide whether this side holds right now.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuleTerm {
+    /// Watched dimension, resolved through [`canonical_rule_metric`].
+    pub metric: String,
+    /// Comparison direction.
+    pub comparator: AlertComparator,
+    /// Boundary this side must cross.
+    pub threshold: f64,
+    /// Hysteresis boundary this side must recover past; equal to `threshold`
+    /// disables hysteresis on this side.
+    pub clear: f64,
+    /// How this side derives the number it compares.
+    #[serde(default)]
+    pub predicate: RulePredicate,
+    /// Seconds this side's predicate spans. Zero for [`RulePredicate::Instant`].
+    #[serde(default)]
+    pub window_secs: u32,
+}
+
+/// One declarative edge threshold-alert rule, evaluated locally against sampler
+/// dimensions every window. A breach must sustain `sustain_secs` continuously
+/// before it fires, and `clear` adds hysteresis so a value dithering around
+/// `threshold` does not flap. Rules are tenant-scoped config pushed to the
 /// agent; a resulting breach is investigation-aid only until the FPR soak.
+///
+/// Rules are data in a bounded grammar, never shipped code: an agent executing
+/// server-supplied code would be a supply-chain weapon aimed at every customer
+/// estate, so everything a rule can say stays statically analysable and
+/// cost-boundable before it reaches an endpoint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ThresholdRule {
     /// Stable rule id, used to attribute a breach and to preserve evaluation
     /// state across an identical rule re-push.
     pub id: String,
-    /// Watched sampler dimension: `"cpu.total"`, `"mem.used"`, or `"disk.used"`
-    /// (percent gauges). An unrecognized metric never fires.
+    /// Watched sampler dimension, resolved through [`canonical_rule_metric`].
+    /// A metric outside that vocabulary never fires and is counted
+    /// `unsupported`.
     pub metric: String,
     /// Comparison direction.
     pub comparator: AlertComparator,
@@ -54,6 +169,47 @@ pub struct ThresholdRule {
     pub clear: f64,
     /// Seconds the breach must hold continuously before it fires.
     pub sustain_secs: u32,
+    /// How the compared number is derived from the metric. Additive: a rule
+    /// written before the grammar extension decodes as an instant reading.
+    #[serde(default)]
+    pub predicate: RulePredicate,
+    /// Seconds the predicate spans. Zero for [`RulePredicate::Instant`], and at
+    /// most [`MAX_RULE_WINDOW_SECS`] otherwise.
+    #[serde(default)]
+    pub window_secs: u32,
+    /// Extra conditions that must hold at the same instant, at most
+    /// [`MAX_RULE_TERMS`] of them. Empty is the plain single-dimension rule.
+    #[serde(default)]
+    pub all: Vec<RuleTerm>,
+}
+
+/// What one rule is doing on one device.
+///
+/// A device is `Active` or `Unsupported` for a rule it reports; a device that
+/// reports nothing is `unknown`, which only the server can know because only the
+/// server knows the fleet. The three are distinct on purpose: reading "cannot be
+/// evaluated here" as "did not breach" reports a rule as watching machines it is
+/// not watching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum RuleCoverageState {
+    /// The rule is being evaluated on this device.
+    #[default]
+    Active,
+    /// The rule cannot be evaluated here: the metric is outside the vocabulary,
+    /// the predicate is outside the grammar's bounds, or this host cannot take
+    /// the reading at all (no kernel pressure information, no disk counters).
+    Unsupported,
+}
+
+/// One rule's state on the device reporting it, carried additively in an
+/// `AgentHealthSummary`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuleCoverage {
+    /// Id of the [`ThresholdRule`] this describes.
+    pub rule_id: String,
+    /// What that rule is doing here.
+    pub state: RuleCoverageState,
 }
 
 /// One currently-firing threshold-alert breach (WS-19), carried additively in an
@@ -230,6 +386,12 @@ pub enum ControlMessage {
         /// Additive: an older decoder ignores it; a newer one defaults it empty.
         #[serde(default)]
         breaches: Vec<AlertBreach>,
+        /// What every installed rule is doing on this device. Additive, and
+        /// omitted entirely when there is nothing to say, which is the shape an
+        /// agent that predates coverage sends — the server reads that as this
+        /// device having reported nothing.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        rule_coverage: Vec<RuleCoverage>,
     },
     AgentMetricWindow {
         #[serde(default)]

@@ -3,8 +3,10 @@ package protocol
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -85,6 +87,55 @@ func writeReverseGolden(t *testing.T, dir, variant string, encoded []byte) {
 
 // writeReverseControlFrame encodes msg via codec, wraps it in a FrameControl
 // envelope, and writes the result as go_<variant>.bin into dir.
+// goldenAlertRules builds the ruleset the push fixture carries: every canonical
+// metric name followed by every legacy alias, in a stable order (aliases sorted,
+// because a map's iteration order would make the fixture different every run).
+// Predicates cycle so all four reach the wire, windows are pinned per predicate,
+// and the first rule carries a conjunction term.
+func goldenAlertRules() []ThresholdRule {
+	predicates := []RulePredicate{
+		RulePredicateInstant,
+		RulePredicateRate,
+		RulePredicateWindowMax,
+		RulePredicateWindowMean,
+	}
+	names := append([]string{}, RuleMetrics...)
+	aliases := make([]string, 0, len(RuleMetricAliases))
+	for alias := range RuleMetricAliases {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	names = append(names, aliases...)
+
+	rules := make([]ThresholdRule, 0, len(names))
+	for i, metric := range names {
+		predicate := predicates[i%len(predicates)]
+		window := uint32(0)
+		if predicate != RulePredicateInstant {
+			window = uint32(30 * (i%3 + 1))
+		}
+		rules = append(rules, ThresholdRule{
+			ID:          fmt.Sprintf("golden-rule-%02d", i),
+			Metric:      metric,
+			Comparator:  AlertComparatorGte,
+			Threshold:   float64(90 - i),
+			Clear:       float64(80 - i),
+			SustainSecs: uint32(30 * i),
+			Predicate:   predicate,
+			WindowSecs:  window,
+		})
+	}
+	rules[0].All = []RuleTerm{{
+		Metric:     "disk.queue_depth",
+		Comparator: AlertComparatorGt,
+		Threshold:  8,
+		Clear:      4,
+		Predicate:  RulePredicateWindowMax,
+		WindowSecs: 60,
+	}}
+	return rules
+}
+
 func writeReverseControlFrame(t *testing.T, dir string, codec *Codec, variant string, msg *ControlMessage) {
 	t.Helper()
 	payload, err := codec.EncodeControl(msg)
@@ -216,14 +267,15 @@ func TestGenerateReverseGoldens(t *testing.T) {
 		MaxPoints: 1000,
 	})
 
-	// WS-19 server → agent threshold-alert ruleset push: two rules exercising
-	// both a Gt/sustained and an Lt/instant rule with hysteresis.
+	// Server → agent threshold-alert ruleset push. The fixture is generated from
+	// the vocabulary itself — one rule per canonical metric, then one per legacy
+	// alias, cycling through every predicate the grammar states and carrying one
+	// conjunction — so the Rust harness that decodes it can assert that what it
+	// resolved is exactly its own vocabulary. That is what keeps the two lists
+	// from drifting apart without a failing test.
 	writeReverseControlFrame(t, dir, codec, "control_push_alert_rules", &ControlMessage{
-		Type: MsgPushAlertRules,
-		AlertRules: []ThresholdRule{
-			{ID: "disk-full", Metric: "disk.used", Comparator: AlertComparatorGt, Threshold: 90, Clear: 80, SustainSecs: 30},
-			{ID: "mem-low", Metric: "mem.used", Comparator: AlertComparatorLt, Threshold: 10, Clear: 20, SustainSecs: 0},
-		},
+		Type:       MsgPushAlertRules,
+		AlertRules: goldenAlertRules(),
 	})
 
 	// Maintenance mode server → agent toggle. Enabled is a *bool so the false

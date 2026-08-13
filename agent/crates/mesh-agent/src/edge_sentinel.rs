@@ -68,11 +68,16 @@ pub(crate) fn spawn_discovery(
 }
 
 /// Build the WS-19 breach-carrying `AgentHealthSummary` for emission. Only the
-/// breach signal is populated; the anomaly-rate fields stay at their defaults and
-/// the server leaves the tenant empty to assign (the summary is investigation-aid
-/// only). The server treats a summary with no sampler computation as breach-only
-/// and does not record an anomaly-rate sample for it.
-fn breach_summary(now: i64, breaches: Vec<mesh_protocol::AlertBreach>) -> ControlMessage {
+/// breach signal and per-rule coverage are populated; the anomaly-rate fields
+/// stay at their defaults and the server leaves the tenant empty to assign (the
+/// summary is investigation-aid only). The server treats a summary with no
+/// sampler computation as breach-only and does not record an anomaly-rate sample
+/// for it.
+fn breach_summary(
+    now: i64,
+    breaches: Vec<mesh_protocol::AlertBreach>,
+    rule_coverage: Vec<mesh_protocol::RuleCoverage>,
+) -> ControlMessage {
     ControlMessage::AgentHealthSummary {
         ts: now,
         tenant_id: String::new(),
@@ -82,6 +87,7 @@ fn breach_summary(now: i64, breaches: Vec<mesh_protocol::AlertBreach>) -> Contro
         sampler_ver: String::new(),
         model_ver: String::new(),
         breaches,
+        rule_coverage,
     }
 }
 
@@ -131,6 +137,7 @@ fn anomaly_summary(
     rate: f64,
     bitmask: Vec<u8>,
     breaches: Vec<mesh_protocol::AlertBreach>,
+    rule_coverage: Vec<mesh_protocol::RuleCoverage>,
 ) -> ControlMessage {
     ControlMessage::AgentHealthSummary {
         ts: now,
@@ -141,6 +148,7 @@ fn anomaly_summary(
         sampler_ver: SAMPLER_VERSION.to_string(),
         model_ver: String::new(),
         breaches,
+        rule_coverage,
     }
 }
 
@@ -400,7 +408,7 @@ pub(crate) fn spawn_sampler(
                 if should_emit_health(last_health_emit, now, breaching, last_breaching) {
                     if alerts
                         .health_tx
-                        .try_send(breach_summary(now, breaches))
+                        .try_send(breach_summary(now, breaches, alert_eval.coverage()))
                         .is_err()
                     {
                         debug!("edge-sentinel health summary dropped: telemetry channel full");
@@ -412,13 +420,22 @@ pub(crate) fn spawn_sampler(
                 // Periodic node anomaly-rate summary: the trained-window rate on a
                 // fixed cadence, carrying a sampler version so the server records
                 // the series behind the fleet-health badge (a steady host emits no
-                // breach summary, so this is the badge's only source).
+                // breach summary, so this is the badge's only source). It carries
+                // rule coverage for the same reason — a rule that is quietly
+                // watching nothing on a calm machine is exactly what coverage
+                // exists to surface, and a calm machine sends nothing else.
                 if trained && should_emit_anomaly(last_anomaly_emit, now) {
                     let rate = window_anomaly_rate(&anomaly_bits);
                     let bitmask = pack_bitmask(&anomaly_bits);
                     if alerts
                         .health_tx
-                        .try_send(anomaly_summary(now, rate, bitmask, Vec::new()))
+                        .try_send(anomaly_summary(
+                            now,
+                            rate,
+                            bitmask,
+                            Vec::new(),
+                            alert_eval.coverage(),
+                        ))
                         .is_err()
                     {
                         debug!("edge-sentinel anomaly summary dropped: telemetry channel full");
@@ -547,19 +564,24 @@ mod tests {
     }
 
     #[test]
-    fn breach_summary_carries_only_breaches() {
+    fn breach_summary_carries_breaches_and_coverage() {
         let breaches = vec![AlertBreach {
             rule_id: "disk-critical".to_string(),
-            metric: "disk.used".to_string(),
+            metric: "disk.used_percent".to_string(),
             value: 96.0,
         }];
-        match breach_summary(1_700_000_000, breaches) {
+        let coverage = vec![mesh_protocol::RuleCoverage {
+            rule_id: "io-stalled".to_string(),
+            state: mesh_protocol::RuleCoverageState::Unsupported,
+        }];
+        match breach_summary(1_700_000_000, breaches, coverage) {
             ControlMessage::AgentHealthSummary {
                 ts,
                 tenant_id,
                 node_anomaly_rate,
                 sampler_ver,
                 breaches,
+                rule_coverage,
                 ..
             } => {
                 assert_eq!(ts, 1_700_000_000);
@@ -574,6 +596,11 @@ mod tests {
                 );
                 assert_eq!(breaches.len(), 1);
                 assert_eq!(breaches[0].rule_id, "disk-critical");
+                assert_eq!(rule_coverage.len(), 1);
+                assert_eq!(
+                    rule_coverage[0].state,
+                    mesh_protocol::RuleCoverageState::Unsupported
+                );
             }
             other => panic!("expected AgentHealthSummary, got {other:?}"),
         }
@@ -645,14 +672,21 @@ mod tests {
     }
 
     #[test]
-    fn anomaly_summary_carries_sampler_computation() {
-        match anomaly_summary(1_700_000_000, 0.5, vec![0b1000_0000], Vec::new()) {
+    fn anomaly_summary_carries_sampler_computation_and_coverage() {
+        // A calm machine emits no breach summary at all, so this is the only
+        // place its coverage can travel — which is why coverage rides here too.
+        let coverage = vec![mesh_protocol::RuleCoverage {
+            rule_id: "disk-critical".to_string(),
+            state: mesh_protocol::RuleCoverageState::Active,
+        }];
+        match anomaly_summary(1_700_000_000, 0.5, vec![0b1000_0000], Vec::new(), coverage) {
             ControlMessage::AgentHealthSummary {
                 ts,
                 node_anomaly_rate,
                 recent_bitmask,
                 sampler_ver,
                 breaches,
+                rule_coverage,
                 ..
             } => {
                 assert_eq!(ts, 1_700_000_000);
@@ -663,6 +697,11 @@ mod tests {
                     "non-empty version makes the server record the rate series"
                 );
                 assert!(breaches.is_empty());
+                assert_eq!(rule_coverage.len(), 1);
+                assert_eq!(
+                    rule_coverage[0].state,
+                    mesh_protocol::RuleCoverageState::Active
+                );
             }
             other => panic!("expected AgentHealthSummary, got {other:?}"),
         }

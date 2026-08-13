@@ -1370,7 +1370,7 @@ W1–W6 and §14's close-out folds them back.
 | `archive/edge-first-b5-disk-performance-vitals.md` | 8 | B15–B19 + the exact 24-series count | B2, B4 |
 | `archive/edge-first-b6-event-rule-pack.md` | 9 | B6 | — |
 | `archive/edge-first-b7-edge-correlation-port.md` | 10 | B7 | — |
-| `edge-first-b8-rule-grammar-and-coverage.md` | 11 | B8 | B2, B4, B5 |
+| `archive/edge-first-b8-rule-grammar-and-coverage.md` | 11 | B8 | B2, B4, B5 |
 | `edge-first-b9-rule-catalogue-and-bindings.md` | 12 | B12 | B8 |
 | `edge-first-b10-retroactive-evaluation.md` | 13 | B9, B10, B14 | B6, B8, B9 |
 | `edge-first-b11-rollout-safety.md` | 14 | B13 | B9 (+ C2 signal) |
