@@ -17,6 +17,11 @@
 //! Every loss under either limit is counted and reported in the next summary.
 //! A suppressed alert that nobody counts is indistinguishable from a quiet
 //! device, which is the failure this whole program exists to remove.
+//!
+//! Both limits apply to every producer, including a retroactive scan raising
+//! findings out of history: a scan that learned a new failure mode and found
+//! five thousand instances of it is exactly the flood the ceiling exists for,
+//! and "but they are old" is not a reason to let it through.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -45,6 +50,24 @@ pub enum AlertSeverity {
     Critical,
 }
 
+/// Whether an alert describes something happening now or something the device
+/// has been carrying in its own history.
+///
+/// The two read completely differently to whoever picks up the queue: one is a
+/// machine in trouble, the other is a newly installed rule reporting what it
+/// would have caught. They also group differently — a whole retroactive scan
+/// folds into one incident — so the distinction travels with the alert rather
+/// than being inferred from how old its timestamp is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum AlertOrigin {
+    /// Raised as it happened.
+    #[default]
+    Live,
+    /// Found by re-running a rule over history the device already held.
+    Backfilled,
+}
+
 /// One alert as the edge raises it, before any transport gets hold of it.
 ///
 /// Every free-text field here is derived from a host log line, so all of them
@@ -57,7 +80,8 @@ pub struct EdgeAlert {
     /// How bad the rule says this is.
     pub severity: AlertSeverity,
     /// When the record that fired the rule was written, in microseconds since
-    /// the Unix epoch.
+    /// the Unix epoch. For a backfilled finding this is when the thing
+    /// *happened*, which is generally nowhere near when it was found.
     pub ts_micros: i64,
     /// What the alert is about — the service or subsystem the record came from.
     pub subject: String,
@@ -65,6 +89,8 @@ pub struct EdgeAlert {
     pub summary: String,
     /// The redacted record(s) the rule matched.
     pub evidence: Vec<String>,
+    /// Whether this happened now or is being reported out of history.
+    pub origin: AlertOrigin,
 }
 
 /// What became of an alert handed to the sink.

@@ -20,7 +20,7 @@ failure mode must not page-flood Contoso's queue.
 
 **The reach claim is currently arithmetic, not a measurement.** §2.6's "years at 60 s" is
 `cap ÷ density`, and the density half is genuinely gated (`bytes_per_sample < 12.0`, measured ≈ 7.3
-in [gates_test.rs](../../agent/crates/edge-tsdb/tests/gates_test.rs#L56)) — but the division assumes
+in [gates_test.rs](../../../agent/crates/edge-tsdb/tests/gates_test.rs#L56)) — but the division assumes
 the store holds only today's collectors and that T1 is never evicted. §5.4's rejection of the flight
 recorder leans on that number, so it gets measured.
 
@@ -58,15 +58,15 @@ recorder leans on that number, so it gets measured.
 ## File inventory
 
 - **Create:** `agent/crates/mesh-agent-core/src/alerts/retro.rs` — bounded, resumable scan over T1.
-- **Modify:** [main.rs](../../agent/crates/mesh-agent/src/main.rs) — scheduling, idle gating,
+- **Modify:** [main.rs](../../../agent/crates/mesh-agent/src/main.rs) — scheduling, idle gating,
   disk-pressure suspend (`EDGE_STORE_CAP_MB` lives at
-  [:309](../../agent/crates/mesh-agent/src/main.rs#L309)).
-- **Modify:** [alerts/sink.rs](../../agent/crates/mesh-agent-core/src/alerts/) — accept `backfilled`
+  [:309](../../../agent/crates/mesh-agent/src/main.rs#L309)).
+- **Modify:** [alerts/sink.rs](../../../agent/crates/mesh-agent-core/src/alerts/) — accept `backfilled`
   findings under the shared ceiling.
 - **Create:** a reach-measurement harness beside
-  [gates_test.rs](../../agent/crates/edge-tsdb/tests/gates_test.rs) — always-running at small caps,
+  [gates_test.rs](../../../agent/crates/edge-tsdb/tests/gates_test.rs) — always-running at small caps,
   no skips.
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
 
 ## Traps
 

@@ -229,9 +229,63 @@ pub(crate) fn sample_dim_values(sample: &MetricSample) -> [Option<f64>; BACKFILL
     ]
 }
 
+/// Where a series sits in [`BACKFILL_SERIES`], or `None` for a series that is
+/// not part of the contract.
+#[must_use]
+fn series_index(series: SeriesId) -> Option<usize> {
+    BACKFILL_SERIES.iter().position(|&s| s == series)
+}
+
+/// One instant's readings, in [`BACKFILL_SERIES`] order.
+///
+/// This is what a rule is evaluated against, and both sides produce it: the
+/// sampler from the second it just took, and a retroactive scan from a minute it
+/// reconstructs out of the local store. Going through one ordered mapping is
+/// what stops a rule meaning one thing live and another over history.
+///
+/// A `None` is a reading that does not exist — never a zero, which a comparator
+/// would happily believe. It covers a permanent gap (a kernel with no pressure
+/// information, a container whose disk counters are its neighbours') and a
+/// passing one (a disk that completed no I/O has no service time, because 0 ms
+/// would read as instantaneous), and one instant cannot tell those apart. A rule
+/// that reads nothing here is reported as watching nothing here, which is the
+/// conservative direction: claiming a rule watches a machine it produces no
+/// answer for is the failure coverage exists to prevent, while a rule that
+/// starts answering reports itself active on its next reading.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct DimReadings([Option<f64>; BACKFILL_SERIES.len()]);
+
+impl DimReadings {
+    /// The readings one live sample carries.
+    #[must_use]
+    pub fn of_sample(sample: &MetricSample) -> Self {
+        Self(sample_dim_values(sample))
+    }
+
+    /// Record one series' reading.
+    pub fn set(&mut self, series: SeriesId, value: f64) {
+        if let Some(index) = series_index(series) {
+            self.0[index] = Some(value);
+        }
+    }
+
+    /// This instant's reading for `series`, if it has one.
+    #[must_use]
+    pub fn get(&self, series: SeriesId) -> Option<f64> {
+        series_index(series).and_then(|index| self.0[index])
+    }
+
+    /// This instant's reading for a canonical dimension name, if it has one.
+    #[must_use]
+    pub fn of_metric(&self, metric: &str) -> Option<f64> {
+        dim_series(metric).and_then(|series| self.get(series))
+    }
+}
+
 /// A cadence-buffered writer from the sampler into the local store.
 pub struct LocalStoreSink {
     store: LocalTsdb,
+    config: TsdbConfig,
     commit_every: usize,
     since_commit: usize,
 }
@@ -240,13 +294,11 @@ impl LocalStoreSink {
     /// Open (creating/migrating) the store under `path`, capped at `cap_bytes`,
     /// flushing durably every `commit_every` samples (the bounded-loss window).
     pub fn open(path: &Path, cap_bytes: u64, commit_every: usize) -> Result<Self, TsdbError> {
-        let mut store = LocalTsdb::open(
-            path,
-            TsdbConfig {
-                cap_bytes,
-                ..TsdbConfig::default()
-            },
-        )?;
+        let config = TsdbConfig {
+            cap_bytes,
+            ..TsdbConfig::default()
+        };
+        let mut store = LocalTsdb::open(path, config)?;
         store.set_scale(SERIES_CPU, PERCENT_SCALE);
         store.set_scale(SERIES_MEM, PERCENT_SCALE);
         store.set_scale(SERIES_DISK, PERCENT_SCALE);
@@ -260,9 +312,18 @@ impl LocalStoreSink {
         store.set_scale(SERIES_DISK_QUEUE_DEPTH, DISK_PERF_SCALE);
         Ok(Self {
             store,
+            config,
             commit_every: commit_every.max(1),
             since_commit: 0,
         })
+    }
+
+    /// The footprint policy this store runs under. Anything that has to stand
+    /// down before the store starts trading history for space reads its own
+    /// threshold from here rather than from a second copy of the numbers.
+    #[must_use]
+    pub fn config(&self) -> TsdbConfig {
+        self.config
     }
 
     /// Report currently-free host-disk bytes so the cap backs off under host

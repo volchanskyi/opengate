@@ -121,7 +121,7 @@ value is not a decision, so each is now fixed.
 | `controlFieldCount` | 83 | **86** — v2's figure was already stale (§7.5) |
 | Q2 active-series budget | 100 000, inconsistent with Q1×fleet | **derived as Q1 × fleet = 120 000** (§9.1) |
 | VM pod sizing | implied by an unmeasured ~2 KB/series | **Sized after Q3 measures**; owner decides between four stated options (§9.1, D32) |
-| Retroactive reach | "years at 60 s", derived as cap ÷ density | **Q11 measures it**; under 48 h reopens §5.4 (§9.1.1, D34) |
+| Retroactive reach | "years at 60 s", derived as cap ÷ density | **Measured: ~7 months** at the shipped cap and today's vitals shape (§9.1.1, D34) |
 | Alert rate | 0.2/device/day, estimated | **Q12 measures it** before the pack leaves canary (§9.1.2, D35) |
 | Disk performance | **absent entirely** — only capacity was collected | `await_ms` + `.max` + `queue_depth`, worst device, Linux only; `%util` excluded for an SSD/NVMe fleet (§6.3.1, D37) |
 | VMs and containers | unaddressed | Both in scope; container switches to cgroup source and reports `unsupported` for latency (§6.3.2, D38) |
@@ -242,12 +242,12 @@ sampling rate: inside a 60 s bucket at 1 Hz, a CPU-pinning freeze moves `avg` fr
 | Local store cap | 512 MB | `EDGE_STORE_CAP_MB` ([main.rs](../../agent/crates/mesh-agent/src/main.rs)) |
 | On-disk density | ~7.3 B/sample, gate `< 12` | `edge-tsdb` gates |
 | Store live on the reference host | 14.9 MB `localtsdb.redb` | filesystem |
-| Retroactive reach *(derived — Q11 measures it)* | ~4 d at 1 s (T0); years at 60 s (T1) | tiering × cap ÷ density |
+| Retroactive reach *(measured, Q11)* | ~7 months at 60 s (T1), at ~2.3 B per stored reading | [reach_test.rs](../../agent/crates/mesh-agent-core/tests/reach_test.rs) |
 
-The density row is a **measured, gated** figure. The reach row is **arithmetic
-over it** and assumes the store holds only today's sampler output with T1 never
-evicted — so Q11 (§9.1.1) replaces it with a measurement before §5.4's verdict
-is allowed to keep leaning on it.
+Both rows are **measured** figures. The reach row is measured at steady state
+through the production write path at three cap sizes, and holds only for the
+vitals shape beside it: a device storing more series reaches proportionally less
+far (§9.1.1).
 
 ---
 
@@ -400,7 +400,7 @@ requirement, no erasure chase.
 | | Approach | Verdict |
 |---|---|---|
 | Central flight recorder | Push a rolling high-res blob centrally, unindexed | **Rejected.** ~5.5 GB / 48 h at 5 000 agents, a third storage path, and reaches back only 48 h |
-| **Tunable detector re-run over edge history** | Push a rule; each agent evaluates it against its own store; findings return as alerts | **Adopted.** Longer reach (years at 60 s), zero central storage, no pull, and it runs on hardware you don't pay for |
+| **Tunable detector re-run over edge history** | Push a rule; each agent evaluates it against its own store; findings return as alerts | **Adopted.** Longer reach (**measured ~7 months** at 60 s, §9.1.1), zero central storage, no pull, and it runs on hardware you don't pay for |
 
 ### 5.5 `/correlate`
 
@@ -1064,32 +1064,34 @@ Recording the trade-off rather than the answer is deliberate: which of these is
 right depends on a number that does not exist yet, and only one of them is
 reversible cheaply once agents are shipping at the new cadence.
 
-### 9.1.1 Q11 — retroactive reach is measured, not divided
+### 9.1.1 Q11 — retroactive reach, measured
 
-The **density** behind this is sound and already gated: `bytes_per_sample` is
-asserted `< 12.0` and measures ≈ 7.3 in
-[gates_test.rs](../../agent/crates/edge-tsdb/tests/gates_test.rs). The **reach**
-is not — §2.6's "years at 60 s (T1)" is `cap ÷ density` arithmetic that silently
-assumes the store holds only what the sampler collects today, and that T1 is
-never evicted to make room.
+**Answered (EF-B10): ~7 months.** A store is driven through the production write
+path until its cap is evicting, then asked for the oldest minute it still holds
+([reach_test.rs](../../agent/crates/mesh-agent-core/tests/reach_test.rs)). Run at
+three cap sizes across a fourfold range, the reach scales with the cap to within
+5 %, which is what makes extrapolating to the shipped 512 MB cap evidence rather
+than the same division in a new coat:
 
-This matters more than it looks. §5.4 rejects the central flight recorder partly
-because the edge alternative has "**longer reach** (years at 60 s)". If reach is
-actually weeks, that verdict rests on a number nobody measured — and the
-deferred per-entity collectors program (§4.2) will multiply what the store holds,
-so the figure moves in exactly the direction that hurts.
+| Cap | Measured T1 reach | Density |
+|---|---|---|
+| 2 MiB | 18.7 h | 2.39 B per stored reading |
+| 4 MiB | 39.2 h | 2.28 B per stored reading |
+| 8 MiB | 79.7 h | 2.25 B per stored reading |
+| **512 MiB (shipped)** | **~5 100 h ≈ 213 d** | extrapolated, linearity within 5 % |
 
-| Measured T1 reach | Consequence |
-|---|---|
-| Years | §5.4's verdict and §2.6 hold as written |
-| Months | Verdict holds — still decisively beats a 48 h flight recorder |
-| Weeks | Verdict holds, but "years" must be restated in §2.6, §5.4 and §11 |
-| **< 48 h** | §5.4's central-flight-recorder rejection **loses its main argument** and is reconsidered |
+**The shape this assumed** is the vitals set as it ships: 13 series at 1 Hz on a
+machine doing real work. Reach follows the shape — the deferred per-entity
+collectors program (§4.2) multiplies what the store holds and divides the reach
+by the same factor — so the number is only meaningful next to it, and the
+measurement reports its own density beside it for exactly that reason.
 
-**Owner decides** between: accept and restate the figure honestly; raise
-`EDGE_STORE_CAP_MB` (E21's free-space backoff already bounds host risk); change
-tier retention to favour T1 over T0; or narrow the retroactive claim and record
-the bound as an accepted loss in §11.
+Against the decision table this was to be read against: the answer is **months**,
+so §5.4's verdict holds — the device reaches back two orders of magnitude further
+than the 48 h a central flight recorder would have kept — while "years at 60 s"
+is **restated as measured** in §2.6, §5.4 and here. No owner decision is
+outstanding: `EDGE_STORE_CAP_MB` is unchanged, tier retention is unchanged, and
+the retroactive claim stands as "months of history, on the device".
 
 ### 9.1.2 Q12 — alert rate is measured, not estimated
 
@@ -1323,8 +1325,8 @@ TDD order throughout: every step writes its failing test first.
 12. **Rule storage**: embedded YAML catalogue + CI cost-bound analysis; migration
     `013_rules` (`rule_bindings`, `rule_rollout`) with selector resolution *(B12)*.
 13. Retroactive evaluation job + budget/suspend behaviour *(B9, B10)*.
-    **Measure Q11 reach on a steady-state store and stop with the number**
-    *(B14)*; §9.1.1's options go to the owner.
+    **Q11 reach measured on a steady-state store** *(B14)*: ~7 months, so §5.4's
+    verdict holds and "years" is restated as measured (§9.1.1).
 14. Rollout safety: staged gates, throttle, ceilings, kill switch *(B13)*. This
     builds the **machinery**; the fleet rollout of the curated pack past canary
     waits on Q12 at step 19, since alerts only reach a store from step 16 and
@@ -1372,7 +1374,7 @@ W1–W6 and §14's close-out folds them back.
 | `archive/edge-first-b7-edge-correlation-port.md` | 10 | B7 | — |
 | `archive/edge-first-b8-rule-grammar-and-coverage.md` | 11 | B8 | B2, B4, B5 |
 | `archive/edge-first-b9-rule-catalogue-and-bindings.md` | 12 | B12 | B8 |
-| `edge-first-b10-retroactive-evaluation.md` | 13 | B9, B10, B14 | B6, B8, B9 |
+| `archive/edge-first-b10-retroactive-evaluation.md` | 13 | B9, B10, B14 | B6, B8, B9 |
 | `edge-first-b11-rollout-safety.md` | 14 | B13 | B9 (+ C2 signal) |
 | `edge-first-c1-alert-wire-and-evidence.md` | 15, 18 (evidence) | C9, C10, C13, C14 | B6, B7 |
 | `edge-first-c2-alert-store-and-ingest.md` | 16, 18 (erasure) | C1, C7, C8 | C1 |
@@ -1491,7 +1493,7 @@ commitment makes 1 y contractual rather than aspirational.
 | A future non-PSI platform reads as second-class without stall vitals | Low | Low | D23 — B4 proves `cpu.total.max` catches the motivating freeze; each platform brings its own event rules; coverage reports `unsupported` rather than implying |
 | A binding selector matches unintended devices | Medium | Medium | Most-specific-wins resolution, bounded predicate grammar, B12 fixture over FS01 and DAL-WS-012 |
 | VM sizing left open while the fleet grows | Low | Medium | D32 — the fleet is one device today (§2.2), so runway is long; step 6 stops with the number well before Contoso scale, and Q1's cap bounds the worst case at 24/device regardless |
-| Measured reach falls far short of "years", weakening §5.4 | Medium | Medium | D34/Q11 — measured at step 13, before the retroactive capability is presented as a product claim; §9.1.1 lists the four responses including honestly restating the bound |
+| Measured reach falls far short of "years", weakening §5.4 | Medium | Medium | **Closed at step 13**: measured at ~7 months, two orders of magnitude past the 48 h a central recorder would have kept, so §5.4's verdict holds and "years" is restated as measured (§9.1.1) |
 | Containerized agent reports host disk I/O as its own | Medium | **High** | E26/B18 — cgroup detection switches the source and reports `unsupported` rather than a host-wide number; this is the silent-wrong-answer class WS-A exists to eliminate |
 | Vitals cap now has zero headroom | High | Low | Deliberate (§6.2) — the next vital re-opens D3, which is the friction the cap exists to create |
 | Real alert rate is many times the estimate | Medium | High | D35/Q12 — measured on the soak *before* the pack leaves canary, so a rate that would clip the organization ceiling or flood triage surfaces while the population is still small |
@@ -1535,7 +1537,7 @@ commitment makes 1 y contractual rather than aspirational.
 | D31 | **Rule metric names align to the vitals names**, with the three current names accepted as aliases so pushed rules survive the rename | §6.5 |
 | D32 | **VM is sized after Q3 measures.** The limit stays at 512 Mi; step 6 stops with the number and the four sizing options go to the project owner as an explicit decision — sizing off the same unmeasured ~2 KB figure Q3 exists to replace would repeat §1.5's error | §9.1 |
 | D33 | **`/correlate` is removed outright**, not deprecated — no external consumers, and its only caller retires in the same step | §13 |
-| D34 | **Retroactive reach is measured (Q11), not divided.** Density is already gated; reach is arithmetic over it that assumes today's collectors and no T1 eviction. A reach under 48 h reopens §5.4's flight-recorder rejection | §2.6, §9.1.1 |
+| D34 | **Retroactive reach is measured (Q11), not divided.** Measured at steady state through the production write path at three cap sizes, with the linearity between them as the evidence for the shipped cap: ~7 months, at the vitals shape it is only meaningful next to | §2.6, §9.1.1 |
 | D35 | **Alert rate is measured (Q12), not estimated.** 0.2/device/day currently carries the evidence projection, the organization ceiling and a §14.2 revisit trigger; the pack does not roll past canary until the soak produces the real number | §6.6, §9.1.2 |
 | D36 | **Assumed numbers that drive decisions become measured gates with the response escalated**, never a value picked from the estimate they exist to replace. Q3, Q11 and Q12 all follow this shape | §1.5, §9.1 |
 | D37 | **Disk performance joins the vitals contract: `await_ms`, `await_ms.max`, `queue_depth`, worst device, Linux only.** `%util` is **excluded by decision** — the fleet is purely SSD/NVMe, where it pins at 100 % with headroom remaining | §6.2, §6.3.1 |

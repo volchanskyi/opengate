@@ -456,6 +456,58 @@ machine repeating itself costs no write at all — and a machine that can evalua
 the rule again has its row deleted rather than flipped, so nothing stored can go
 stale. Deleting a machine takes its coverage rows with it.
 
+**"Has this happened before?"** A rule arriving on a machine for the first time
+is also re-run over the history that machine already holds
+([`retro.rs`](../agent/crates/mesh-agent-core/src/alerts/retro.rs)). The local
+store keeps a minute-by-minute rollup of every vital going back further than any
+central recorder of the fleet's seconds could afford, so the question is answered
+on the endpoint and nothing is shipped anywhere to make it possible. Findings
+come back as ordinary alerts marked as having come from history, each stamped
+with the minute it **happened** — a freeze from three weeks ago stays three weeks
+old, which is what lets a whole scan fold into one incident instead of a queue of
+things that all appear to be happening at once.
+
+Three properties keep it safe to run on a customer's endpoint:
+
+- **A minute is only asked what a minute can answer.** A rule about a span
+  shorter than one stored minute cannot be re-run at all and reports that,
+  rather than being answered at the wrong resolution. For the rest, the reading
+  taken from each minute is the one the rule's own question needs: a rule that
+  has to *stay* over a line reads the minute's least favourable reading, so a
+  finding means every second of that minute was over it, while a rule asking
+  whether a line was *ever* crossed reads the minute's peak, which answers that
+  exactly. The direction is deliberate — a scan that invents an episode is worse
+  than one that misses a marginal one.
+- **A scan is scheduled around the machine, not around the queue.** It walks
+  history in chunks of a fixed number of stored readings, stands down between
+  them to keep its share of the processor small, and suspends entirely during
+  maintenance, while the host is busy, and while the host disk is filling —
+  standing down before the store itself starts trading history away for space.
+  It records where it got to, so a busy host or an agent restart costs no
+  repeated and no skipped finding.
+- **A scan spends the same alert allowance as anything else.** Findings go
+  through the one bounded, rate-limited sink every producer writes to, so a rule
+  that turns out to match thousands of minutes cannot flood a customer's queue
+  with them.
+
+A rule is scanned once per **version**, not once per push: the server pushes the
+whole ruleset on every reconnect, and re-running history each time would re-raise
+every historical finding whenever a flaky link came back. A retuned threshold is
+a different version and is scanned afresh. See
+[ADR-072](adr/ADR-072-retroactive-rule-evaluation.md) for the decision.
+
+**How far back that reaches** is measured rather than divided out of the store's
+cap, in
+[`reach_test.rs`](../agent/crates/mesh-agent-core/tests/reach_test.rs): a store
+is driven through the production write path until its cap is evicting, then asked
+for the oldest minute it still holds, at three cap sizes across a fourfold range
+so the extrapolation to the shipped cap rests on measured linearity. At the
+vitals shape the fleet writes today — thirteen series at one reading a second on
+a machine doing real work — that is **about seven months**, at a little over two
+bytes per stored reading. The number moves with the shape: a device storing more
+series reaches proportionally less far, which is why the test reports the density
+it measured beside the reach.
+
 ### System-event rules
 
 Some failures never cross a threshold, because nothing about them is a number.

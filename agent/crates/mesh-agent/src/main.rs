@@ -9,6 +9,7 @@ mod edge_sentinel;
 mod event_watch;
 mod host_logs;
 mod logs;
+mod retro_job;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -477,6 +478,9 @@ async fn main() -> Result<()> {
     // over a bounded channel, drained on the heartbeat alongside discovery/health.
     let (host_metric_tx, host_metric_rx) =
         std::sync::mpsc::sync_channel::<mesh_protocol::ControlMessage>(HOST_METRIC_TELEMETRY_CAP);
+    // How busy the host is, published by the sampler each second and read by the
+    // background work that must only run on an idle machine.
+    let host_load = edge_sentinel::LoadSignal::new();
     let _edge_sentinel_sampler = {
         info!("edge-sentinel sampler starting");
         let alerts = edge_sentinel::AlertWiring {
@@ -488,6 +492,7 @@ async fn main() -> Result<()> {
             Some(alerts),
             Some(host_metric_tx),
             maintenance.clone(),
+            host_load.clone(),
         )
     };
 
@@ -510,6 +515,27 @@ async fn main() -> Result<()> {
     // counts what either limit costs.
     let alert_sink = mesh_agent_core::alerts::AlertSink::default();
     let _event_watch = event_watch::spawn_event_watch(alert_sink.clone(), maintenance.clone());
+
+    // Re-running a newly arrived rule over the history this device already
+    // holds. The ruleset it compares against is what the control loop last
+    // installed, so a scan stops the moment its own rule version is replaced.
+    let installed_rules: retro_job::InstalledRules =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let _retro_scans = {
+        let store_config = shared_sink
+            .as_ref()
+            .and_then(|sink| sink.lock().ok().map(|sink| sink.config()))
+            .unwrap_or_default();
+        retro_job::spawn_retro_scans(retro_job::RetroWiring {
+            sink: alert_sink.clone(),
+            rules: installed_rules.clone(),
+            store: shared_sink.clone(),
+            maintenance: maintenance.clone(),
+            load: host_load,
+            data_dir: args.data_dir.clone(),
+            store_config,
+        })
+    };
 
     // Shutdown signal handler
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
@@ -930,6 +956,9 @@ async fn main() -> Result<()> {
                             // WS-19: hand the tenant ruleset to the sampler's
                             // evaluator via the shared mailbox (next tick installs it).
                             debug!(count = rules.len(), "edge-sentinel: threshold-alert ruleset received");
+                            if let Ok(mut installed) = installed_rules.lock() {
+                                installed.clone_from(&rules);
+                            }
                             if let Ok(mut slot) = alert_rules_mailbox.lock() {
                                 *slot = Some(rules);
                             }

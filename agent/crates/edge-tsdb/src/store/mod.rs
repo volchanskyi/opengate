@@ -37,8 +37,8 @@ use crate::tier::TierPoint;
 use blocks::deflate_cold_blocks;
 use blocks::{
     evict_blocks, map_durability, migrate_and_stamp, read_raw, read_stored_version, read_tier,
-    scan_logical, write_all, BlockTable, Cand, OpenSeries, CURRENT_FORMAT, CURSOR, T0,
-    T0_BLOCK_SAMPLES, T1, T2,
+    read_tier_span, scan_logical, write_all, BlockTable, Cand, OpenSeries, CURRENT_FORMAT, CURSOR,
+    T0, T0_BLOCK_SAMPLES, T1, T2,
 };
 
 /// The two downsampled rollup tiers the store serves alongside T0 raw.
@@ -121,13 +121,7 @@ impl LocalTsdb {
 
     /// The effective cap: the configured cap, further limited by host free space.
     fn effective_cap(&self) -> u64 {
-        match self.host_free {
-            Some(free) if self.config.host_free_fraction > 0.0 => {
-                let borrow = (free as f64 * self.config.host_free_fraction) as u64;
-                self.config.cap_bytes.min(borrow)
-            }
-            _ => self.config.cap_bytes,
-        }
+        self.config.effective_cap(self.host_free)
     }
 
     /// The store's logical footprint (sum of stored block bytes).
@@ -199,6 +193,14 @@ impl LocalTsdb {
     ) -> Result<Vec<TierPoint>> {
         let rt = self.db.begin_read().map_err(blocks::re)?;
         read_tier(&rt, tier, series, start, end)
+    }
+
+    /// The oldest and newest bucket a rollup tier holds for `series`, or `None`
+    /// when it holds nothing for it — a device enrolled this morning, or a
+    /// vital this host cannot measure.
+    pub fn tier_span(&self, series: SeriesId, tier: Tier) -> Result<Option<(i64, i64)>> {
+        let rt = self.db.begin_read().map_err(blocks::re)?;
+        read_tier_span(&rt, tier, series)
     }
 
     /// The durable backfill cursor for `series` (the last timestamp WS-15 shipped
@@ -344,6 +346,12 @@ impl TsdbSnapshot {
         end: i64,
     ) -> Result<Vec<TierPoint>> {
         read_tier(&self.rt, tier, series, start, end)
+    }
+
+    /// How far back a rollup tier reaches for `series` as of the snapshot
+    /// instant, or `None` when it holds nothing for it.
+    pub fn tier_span(&self, series: SeriesId, tier: Tier) -> Result<Option<(i64, i64)>> {
+        read_tier_span(&self.rt, tier, series)
     }
 }
 

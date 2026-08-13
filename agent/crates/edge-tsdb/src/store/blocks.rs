@@ -144,14 +144,21 @@ pub(super) fn scan_logical(db: &Database) -> Result<u64> {
     Ok(total)
 }
 
-/// The stored block bytes for one series in `def`, in key order. An absent table
-/// (nothing committed yet) yields an empty list rather than an error.
-fn series_blocks(rt: &ReadTransaction, def: BlockTable, series: SeriesId) -> Result<Vec<Vec<u8>>> {
+/// The stored block bytes for one series in `def` whose keys lie within
+/// `first_key..=last_key`, in key order. An absent table (nothing committed yet)
+/// yields an empty list rather than an error.
+fn series_blocks(
+    rt: &ReadTransaction,
+    def: BlockTable,
+    series: SeriesId,
+    first_key: i64,
+    last_key: i64,
+) -> Result<Vec<Vec<u8>>> {
     let mut out = Vec::new();
     match rt.open_table(def) {
         Ok(t) => {
             for item in t
-                .range((series, i64::MIN)..=(series, i64::MAX))
+                .range((series, first_key)..=(series, last_key))
                 .map_err(re)?
             {
                 out.push(item.map_err(re)?.1.value().to_vec());
@@ -340,7 +347,7 @@ pub(super) fn read_raw(
     end: i64,
 ) -> Result<Vec<(Sample, bool)>> {
     let mut out = Vec::new();
-    for block in series_blocks(rt, T0, series)? {
+    for block in series_blocks(rt, T0, series, i64::MIN, i64::MAX)? {
         let (samples, bits) = decode_compact(&block)?;
         for (s, a) in samples.into_iter().zip(bits) {
             if (start..end).contains(&s.ts) {
@@ -352,6 +359,9 @@ pub(super) fn read_raw(
     Ok(out)
 }
 
+/// Read one rollup tier over `start..end`, decoding only the blocks that can
+/// hold a bucket in it. Bounding the read is what lets a caller walking months
+/// of history in chunks pay for the chunk rather than for the history.
 pub(super) fn read_tier(
     rt: &ReadTransaction,
     tier: Tier,
@@ -359,8 +369,15 @@ pub(super) fn read_tier(
     start: i64,
     end: i64,
 ) -> Result<Vec<TierPoint>> {
+    let (interval, span) = tier_geometry(tier);
     let mut out = Vec::new();
-    for block in series_blocks(rt, tier.table(), series)? {
+    for block in series_blocks(
+        rt,
+        tier.table(),
+        series,
+        block_key(start, interval, span),
+        block_key(end, interval, span),
+    )? {
         for p in decode_tier_value(&block)? {
             if (start..end).contains(&p.bucket) {
                 out.push(p.to_public());
@@ -371,9 +388,49 @@ pub(super) fn read_tier(
     Ok(out)
 }
 
+/// The oldest and newest bucket one rollup tier holds for `series`, or `None`
+/// when it holds nothing for it. Only the first and last stored block are
+/// decoded, so asking how far back a series reaches costs two blocks rather than
+/// the whole series.
+pub(super) fn read_tier_span(
+    rt: &ReadTransaction,
+    tier: Tier,
+    series: SeriesId,
+) -> Result<Option<(i64, i64)>> {
+    let table = match rt.open_table(tier.table()) {
+        Ok(t) => t,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(e) => return Err(re(e)),
+    };
+    let mut range = table
+        .range((series, i64::MIN)..=(series, i64::MAX))
+        .map_err(re)?;
+    let Some(first) = range.next() else {
+        return Ok(None);
+    };
+    let first = first.map_err(re)?.1.value().to_vec();
+    let last = match range.next_back() {
+        Some(item) => item.map_err(re)?.1.value().to_vec(),
+        None => first.clone(),
+    };
+    let oldest = decode_tier_value(&first)?.iter().map(|p| p.bucket).min();
+    let newest = decode_tier_value(&last)?.iter().map(|p| p.bucket).max();
+    Ok(oldest.zip(newest))
+}
+
+/// A tier's bucket interval and the buckets one stored block spans.
+fn tier_geometry(tier: Tier) -> (i64, i64) {
+    match tier {
+        Tier::T1 => (T1_MINUTE, T1_BLOCK_SPAN),
+        Tier::T2 => (T2_HOUR, T2_BLOCK_SPAN),
+    }
+}
+
+/// The stored-block key holding `bucket`. Saturating, so the open-ended
+/// `i64::MIN` / `i64::MAX` a whole-history read asks for stay in range.
 fn block_key(bucket: i64, interval: i64, span: i64) -> i64 {
     let block = interval * span;
-    bucket.div_euclid(block) * block
+    bucket.div_euclid(block).saturating_mul(block)
 }
 
 fn group_partials(new: &[Sample], interval: i64, span: i64) -> BTreeMap<i64, Vec<StoredTierPoint>> {
