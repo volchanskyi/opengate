@@ -22,6 +22,10 @@ pub const RULE_BUDGET_READINGS_PER_SEC: u64 = 3600;
 /// rule which is genuinely too expensive is stopped inside a minute of arriving.
 pub const RULE_BUDGET_WINDOW_SECS: i64 = 60;
 
+/// The whole allowance one rule may spend inside a window.
+const RULE_BUDGET_PER_WINDOW: u64 =
+    RULE_BUDGET_READINGS_PER_SEC * RULE_BUDGET_WINDOW_SECS.unsigned_abs();
+
 /// Per-rule evaluation state. A rule advances Clear → Pending → Firing → Clear as
 /// the watched metric breaches, sustains, and finally recovers past the
 /// hysteresis boundary.
@@ -297,7 +301,7 @@ impl RuleBudget {
             self.spent = 0;
         }
         self.spent = self.spent.saturating_add(work);
-        if self.spent > RULE_BUDGET_READINGS_PER_SEC * RULE_BUDGET_WINDOW_SECS.unsigned_abs() {
+        if self.spent > RULE_BUDGET_PER_WINDOW {
             self.throttled = true;
         }
         self.throttled

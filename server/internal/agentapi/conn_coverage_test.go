@@ -154,6 +154,19 @@ func TestRuleCoverageStore_Aggregate(t *testing.T) {
 			want:  map[string]RuleCoverageCounts{"disk-slow": {Active: 1, Throttled: 1, Unknown: 2}},
 		},
 		{
+			// A machine saying "I cannot evaluate this" is both connected and
+			// stored, so it is present in memory and in the persisted rows at
+			// once. It is one machine and must be counted once — counting the
+			// memory side as well would report an estate larger than it is.
+			name: "a machine that cannot evaluate a rule is counted once, not twice",
+			reports: []coverageReport{
+				{dev(1), unsupported("io-stalled")},
+				{dev(2), active("io-stalled")},
+			},
+			fleet: 2,
+			want:  map[string]RuleCoverageCounts{"io-stalled": {Active: 1, Unsupported: 1}},
+		},
+		{
 			name:  "nothing reported yet",
 			fleet: 10,
 			want:  map[string]RuleCoverageCounts{},
