@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/volchanskyi/opengate/server/internal/device"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/settings"
@@ -41,25 +42,42 @@ type DeviceTagSource interface {
 	TagsFor(ctx context.Context, deviceID uuid.UUID) (map[string]string, error)
 }
 
+// FleetCounter counts a customer's estate, which is what sizes a stage: a
+// canary's floor of a handful of machines cannot be worked out from a percentage
+// alone. It is the fleet rollup the device repository already answers, so
+// nothing new is queried to size a rollout.
+type FleetCounter interface {
+	Counts(ctx context.Context, organizationID uuid.UUID) (device.Counts, error)
+}
+
 // CatalogueAlertRuleProvider serves each machine the shipped catalogue as its
 // customer has retuned it.
 type CatalogueAlertRuleProvider struct {
 	catalogue *rules.Catalogue
 	store     RuleConfigStore
 	tags      DeviceTagSource
+	fleet     FleetCounter
 	logger    *slog.Logger
 }
 
 // NewCatalogueAlertRuleProvider builds a provider over a catalogue and the
 // customer-mutable state. A nil tag source means selectors match nothing, which
-// leaves every binding filed against a rung working as it should.
+// leaves every binding filed against a rung working as it should. A nil fleet
+// source costs a staged rule its canary floor and nothing else.
 func NewCatalogueAlertRuleProvider(
 	catalogue *rules.Catalogue,
 	store RuleConfigStore,
 	tags DeviceTagSource,
+	fleet FleetCounter,
 	logger *slog.Logger,
 ) *CatalogueAlertRuleProvider {
-	return &CatalogueAlertRuleProvider{catalogue: catalogue, store: store, tags: tags, logger: logger}
+	return &CatalogueAlertRuleProvider{
+		catalogue: catalogue,
+		store:     store,
+		tags:      tags,
+		fleet:     fleet,
+		logger:    logger,
+	}
 }
 
 // RulesFor returns the ruleset for the machine at scope.
@@ -87,25 +105,52 @@ func (p *CatalogueAlertRuleProvider) RulesFor(ctx context.Context, scope setting
 		return nil, fmt.Errorf("read rule rollout: %w", err)
 	}
 
-	device := rules.Device{Scope: scope, Tags: p.tagsFor(ctx, scope.DeviceID)}
-	return resolveAll(definitions, device, bindings, rollouts), nil
+	machine := rules.Device{
+		Scope:     scope,
+		Tags:      p.tagsFor(ctx, scope.DeviceID),
+		FleetSize: p.fleetSizeFor(ctx, scope.OrganizationID, rollouts),
+	}
+	return resolveAll(definitions, machine, bindings, rollouts), nil
 }
 
 // resolveAll turns the definitions a customer is getting into wire rules.
 func resolveAll(
 	definitions []rules.Definition,
-	device rules.Device,
+	machine rules.Device,
 	bindings []rules.Binding,
 	rollouts map[string]rules.Rollout,
 ) []protocol.ThresholdRule {
 	out := make([]protocol.ThresholdRule, 0, len(definitions))
 	for _, def := range definitions {
-		if !rules.RolloutFor(rollouts, device.Scope.OrganizationID, def.ID).Delivers() {
+		rollout := rules.RolloutFor(rollouts, machine.Scope.OrganizationID, def.ID)
+		if !rollout.Reaches(machine.Scope.DeviceID, machine.FleetSize) {
 			continue
 		}
-		out = append(out, rules.Resolve(def, device, bindings))
+		out = append(out, rules.Resolve(def, machine, bindings))
 	}
 	return out
+}
+
+// fleetSizeFor counts the customer's estate, which sizes any stage they are
+// mid-rollout on. It is read for those customers only: every rule at full reach
+// — which is every customer who has staged nothing — needs no count, and paying
+// for one on every machine's reconnect to size a stage nobody is in is a query
+// per connection for nothing.
+//
+// A count that cannot be read costs the stage its canary floor and nothing else:
+// the rule reaches the share it declares, never the estate. Guessing upward
+// would spread a rule that is still being tried the moment a query failed.
+func (p *CatalogueAlertRuleProvider) fleetSizeFor(ctx context.Context, organizationID uuid.UUID, rollouts map[string]rules.Rollout) int {
+	if p.fleet == nil || !rules.NeedsFleetSize(rollouts) {
+		return 0
+	}
+	counts, err := p.fleet.Counts(ctx, organizationID)
+	if err != nil {
+		p.logger.Warn("count estate for rule rollout failed",
+			"organization_id", organizationID, "error", err)
+		return 0
+	}
+	return counts.Total
 }
 
 // tagsFor reads a machine's tags. Tags narrow a binding rather than carry one,

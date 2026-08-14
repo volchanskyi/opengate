@@ -1375,7 +1375,7 @@ W1–W6 and §14's close-out folds them back.
 | `archive/edge-first-b8-rule-grammar-and-coverage.md` | 11 | B8 | B2, B4, B5 |
 | `archive/edge-first-b9-rule-catalogue-and-bindings.md` | 12 | B12 | B8 |
 | `archive/edge-first-b10-retroactive-evaluation.md` | 13 | B9, B10, B14 | B6, B8, B9 |
-| `edge-first-b11-rollout-safety.md` | 14 | B13 | B9 (+ C2 signal) |
+| `archive/edge-first-b11-rollout-safety.md` | 14 | B13 | B9 (+ C2 signal) |
 | `edge-first-c1-alert-wire-and-evidence.md` | 15, 18 (evidence) | C9, C10, C13, C14 | B6, B7 |
 | `edge-first-c2-alert-store-and-ingest.md` | 16, 18 (erasure) | C1, C7, C8 | C1 |
 | `edge-first-c3-incident-engine.md` | 17 | C2–C6 | C2 |

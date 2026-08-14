@@ -115,10 +115,15 @@ type Binding struct {
 }
 
 // Device is what resolution needs to know about one machine: where it sits on
-// the tenancy ladder, and the tags a selector may pick it out by.
+// the tenancy ladder, the tags a selector may pick it out by, and the size of
+// the estate it belongs to.
 type Device struct {
 	Scope settings.Scope
 	Tags  map[string]string
+	// FleetSize is how many machines the customer has, which is what sizes a
+	// stage a rule is still rolling out through. Zero means the estate could not
+	// be counted, which costs a stage its floor and nothing else — see InStage.
+	FleetSize int
 }
 
 // ValidateBinding refuses a binding the rule would not honour. Every parameter

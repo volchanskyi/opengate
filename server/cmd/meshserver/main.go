@@ -219,7 +219,7 @@ func main() {
 		// Each machine gets the curated pack as its customer has retuned it.
 		// Device tags are not a source of targeting yet, so a binding narrows by
 		// the rung it is filed on; selectors start working the moment tags do.
-		AlertRules:   agentapi.NewCatalogueAlertRuleProvider(ruleCatalogue, ruleStore, nil, logger),
+		AlertRules:   agentapi.NewCatalogueAlertRuleProvider(ruleCatalogue, ruleStore, nil, devicesRepo, logger),
 		RuleCoverage: ruleStore,
 		Logger:       logger,
 	})

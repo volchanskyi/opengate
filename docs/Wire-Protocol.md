@@ -233,13 +233,20 @@ built, each naming the **canonical** metric whatever the rule was written in, so
 one reading is only ever recorded under one name.
 
 `AgentHealthSummary.rule_coverage` carries what every installed rule is *doing* on
-that device — `Active` (evaluating) or `Unsupported` (the rule is producing no
+that device — `Active` (evaluating), `Unsupported` (the rule is producing no
 answer here: its metric is outside the vocabulary, its predicate outside the
-grammar's bounds, or the reading is not arriving). A device that reports neither
+grammar's bounds, or the reading is not arriving), or `Throttled` (the rule cost
+this device more than the allowance in
+[`evaluator.rs`](../agent/crates/mesh-agent-core/src/alerts/evaluator.rs), so the
+device stopped running it). A device that reports none of them
 is `unknown`, which only the server can determine because only the server knows
 the fleet. The field is omitted when there is nothing to
 say, which is also the shape an agent that predates coverage sends; the server
 reads both as this device having reported nothing.
+
+`Throttled` is deliberately not `Unsupported`: one says a rule was written
+wrong, the other says a host is short of a reading. A staged rollout watches for
+the first and reverts on it, while the second belongs on a remediation list.
 
 `SetMaintenanceMode` carries the server's desired maintenance state for the
 device (`enabled`), pushed on the Active↔Maintenance transition and, for a device

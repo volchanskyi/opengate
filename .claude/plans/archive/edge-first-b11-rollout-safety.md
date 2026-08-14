@@ -33,13 +33,13 @@ customer machines.
 
 - **Modify:** `server/internal/rules/` — stage machine, population selection, gate evaluation,
   revert; a `GateSignals` port so the machine is testable without live counters.
-- **Modify:** [alert_rules.go](../../server/internal/agentapi/alert_rules.go) — the pushed ruleset
+- **Modify:** [alert_rules.go](../../../server/internal/agentapi/alert_rules.go) — the pushed ruleset
   respects stage membership and `kill`.
-- **Modify:** [conn.go](../../server/internal/agentapi/conn.go) — the reconnect path re-resolves
+- **Modify:** [conn.go](../../../server/internal/agentapi/conn.go) — the reconnect path re-resolves
   rules, which is what makes `kill` effective without a deploy.
 - **Modify:** the agent's evaluator budget — per-rule CPU/IO accounting with a **hard** throttle
   (Q6), reported so the server's gate can see a trip.
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
 
 ## Steps (TDD-first)
 

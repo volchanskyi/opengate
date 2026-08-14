@@ -185,11 +185,11 @@ pub struct ThresholdRule {
 
 /// What one rule is doing on one device.
 ///
-/// A device is `Active` or `Unsupported` for a rule it reports; a device that
-/// reports nothing is `unknown`, which only the server can know because only the
-/// server knows the fleet. The three are distinct on purpose: reading "cannot be
-/// evaluated here" as "did not breach" reports a rule as watching machines it is
-/// not watching.
+/// A device is `Active`, `Unsupported` or `Throttled` for a rule it reports; a
+/// device that reports nothing is `unknown`, which only the server can know
+/// because only the server knows the fleet. They are distinct on purpose:
+/// reading "cannot be evaluated here" as "did not breach" reports a rule as
+/// watching machines it is not watching.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum RuleCoverageState {
@@ -200,6 +200,11 @@ pub enum RuleCoverageState {
     /// the predicate is outside the grammar's bounds, or this host cannot take
     /// the reading at all (no kernel pressure information, no disk counters).
     Unsupported,
+    /// The rule cost this device more than its allowance, so the device stopped
+    /// running it. Separate from `Unsupported` because it is a fact about the
+    /// rule rather than about the host: one machine reporting it means a rule
+    /// was written wrong, and a rollout gate acts on it.
+    Throttled,
 }
 
 /// One rule's state on the device reporting it, carried additively in an

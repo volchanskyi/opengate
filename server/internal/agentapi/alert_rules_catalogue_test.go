@@ -49,7 +49,7 @@ func newCatalogueProvider(t *testing.T, store RuleConfigStore, tags DeviceTagSou
 	t.Helper()
 	cat, err := rules.Embedded()
 	require.NoError(t, err)
-	return NewCatalogueAlertRuleProvider(cat, store, tags, testLogger())
+	return NewCatalogueAlertRuleProvider(cat, store, tags, nil, testLogger())
 }
 
 // orgBinding builds a binding covering one whole customer — the shape every
@@ -212,7 +212,7 @@ rules:
 `), nil)
 	require.NoError(t, err)
 
-	p := NewCatalogueAlertRuleProvider(legacy, &fakeRuleConfig{}, nil, testLogger())
+	p := NewCatalogueAlertRuleProvider(legacy, &fakeRuleConfig{}, nil, nil, testLogger())
 	got, err := p.RulesFor(context.Background(), ladderFor(uuid.New()))
 	require.NoError(t, err)
 

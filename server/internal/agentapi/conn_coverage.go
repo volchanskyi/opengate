@@ -14,20 +14,20 @@ import (
 //
 // A rule that quietly evaluates on half an estate while reading as healthy is
 // the failure this accounting exists to make impossible, so every device is
-// exactly one of three things for every rule — evaluating it (active), unable to
-// evaluate it (unsupported), or not heard from (unknown) — and the three always
-// add up to the fleet.
+// exactly one thing for every rule — evaluating it (active), unable to evaluate
+// it (unsupported), having stopped it for costing too much (throttled), or not
+// heard from (unknown) — and together they always add up to the fleet.
 //
-// The three states are not the same kind of fact, so they are not stored the
-// same way.
+// Those states are not the same kind of fact, so they are not stored the same
+// way.
 //
-// Active and unknown are liveness. They are supposed to reset when the server
-// loses its view of the fleet: what a rule is doing on a machine is only
-// knowable while that machine is connected, and a machine that has said nothing
-// since the server started is exactly what unknown means. A stored active would
-// let a file server unplugged three weeks ago keep claiming it is being watched.
-// Those two live here, in memory, which makes a restart correct by construction
-// rather than by a cleanup job.
+// Active, throttled and unknown are liveness. They are supposed to reset when
+// the server loses its view of the fleet: what a rule is doing on a machine is
+// only knowable while that machine is connected, and a machine that has said
+// nothing since the server started is exactly what unknown means. A stored
+// active would let a file server unplugged three weeks ago keep claiming it is
+// being watched. Those live here, in memory, which makes a restart correct by
+// construction rather than by a cleanup job.
 //
 // Being unable to evaluate a rule is durable. A containerized agent can never
 // read the kernel's per-host pressure accounting, so that is a standing hole in
@@ -43,11 +43,16 @@ import (
 // past the cap is a misbehaving or compromised agent rather than a large estate.
 const maxRuleCoverageEntries = 64
 
-// RuleCoverageCounts is one rule's fleet split. Active + Unsupported + Unknown
-// equals the fleet size the counts were taken against.
+// RuleCoverageCounts is one rule's fleet split. Active + Unsupported +
+// Throttled + Unknown equals the fleet size the counts were taken against.
 type RuleCoverageCounts struct {
 	// Active counts devices evaluating the rule.
 	Active int
+	// Throttled counts devices that stopped evaluating the rule because it cost
+	// them more than its allowance. Unlike unsupported, this says the rule was
+	// written wrong rather than that the host is short of a reading — one
+	// machine reporting it is what a staged rollout is watching for.
+	Throttled int
 	// Unsupported counts devices that cannot evaluate it — the metric is outside
 	// the vocabulary, the predicate outside the grammar's bounds, or the host
 	// cannot take the reading at all. A permanent gap, stated rather than hidden.
@@ -104,7 +109,7 @@ func (s *RuleCoverageStore) Report(device protocol.DeviceID, entries []protocol.
 			continue
 		}
 		switch entry.State {
-		case protocol.RuleCoverageActive, protocol.RuleCoverageUnsupported:
+		case protocol.RuleCoverageActive, protocol.RuleCoverageUnsupported, protocol.RuleCoverageThrottled:
 			states[ruleID] = entry.State
 		default:
 			// A state this server does not understand is not counted as either,
@@ -172,13 +177,17 @@ func (s *RuleCoverageStore) Aggregate(fleetSize int, unsupported map[string]int)
 	defer s.mu.RUnlock()
 
 	counts := make(map[string]RuleCoverageCounts)
-	// Only active comes from memory. A machine currently reporting that it
-	// cannot evaluate a rule is already counted by the persisted rows, and
-	// counting it here as well would count it twice.
+	// The unsupported half is not read from memory. A machine currently
+	// reporting that it cannot evaluate a rule is already counted by the
+	// persisted rows, and counting it here as well would count it twice.
 	for _, states := range s.byDevice {
 		for ruleID, state := range states {
 			entry := counts[ruleID]
-			if state != protocol.RuleCoverageUnsupported {
+			switch state {
+			case protocol.RuleCoverageThrottled:
+				entry.Throttled++
+			case protocol.RuleCoverageUnsupported:
+			default:
 				entry.Active++
 			}
 			counts[ruleID] = entry
@@ -190,7 +199,7 @@ func (s *RuleCoverageStore) Aggregate(fleetSize int, unsupported map[string]int)
 		counts[ruleID] = entry
 	}
 	for ruleID, entry := range counts {
-		if unknown := fleetSize - entry.Active - entry.Unsupported; unknown > 0 {
+		if unknown := fleetSize - entry.Active - entry.Unsupported - entry.Throttled; unknown > 0 {
 			entry.Unknown = unknown
 			counts[ruleID] = entry
 		}

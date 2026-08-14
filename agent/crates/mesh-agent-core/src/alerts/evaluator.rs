@@ -8,6 +8,20 @@ use mesh_protocol::{
 use crate::ml::sampler::MetricSample;
 use crate::ml::store_sink::DimReadings;
 
+/// The readings one rule may touch per second on this machine before the machine
+/// stops running it.
+///
+/// It is the figure the shipped pack is bounded by in CI, so the two gates
+/// agree: the most expensive rule the pack can contain stays comfortably under
+/// this, and a rule that reaches an endpoint without having passed that gate is
+/// stopped by the machine paying for it.
+pub const RULE_BUDGET_READINGS_PER_SEC: u64 = 3600;
+
+/// The span an allowance is granted over. Long enough that a rule is judged on a
+/// minute of behavior rather than on one unlucky second, short enough that a
+/// rule which is genuinely too expensive is stopped inside a minute of arriving.
+pub const RULE_BUDGET_WINDOW_SECS: i64 = 60;
+
 /// Per-rule evaluation state. A rule advances Clear → Pending → Firing → Clear as
 /// the watched metric breaches, sustains, and finally recovers past the
 /// hysteresis boundary.
@@ -104,18 +118,25 @@ impl Condition {
         )
     }
 
-    /// Take this instant's reading and derive the number the comparators see.
-    fn step(&mut self, readings: &DimReadings, ts: i64) -> Reading {
+    /// Take this instant's reading and derive the number the comparators see,
+    /// alongside the readings that cost — one for looking this second's value up,
+    /// plus whatever the predicate had to run over to answer. That second figure
+    /// is what the per-rule allowance is spent against, so what a rule costs is
+    /// measured rather than assumed from its declared shape.
+    fn step(&mut self, readings: &DimReadings, ts: i64) -> (Reading, u64) {
         let Some(value) = readings.of_metric(self.metric) else {
-            return Reading::Unsupported;
+            return (Reading::Unsupported, 1);
         };
         if self.predicate == RulePredicate::Instant {
-            return Reading::Value(value);
+            return (Reading::Value(value), 1);
         }
         self.retain(ts, value);
         match self.spanned_window() {
-            None => Reading::NotEnoughData,
-            Some(window) => Reading::Value(derive(self.predicate, window)),
+            None => (Reading::NotEnoughData, 1),
+            Some(window) => {
+                let touched = derive_cost(self.predicate, window.len());
+                (Reading::Value(derive(self.predicate, window)), 1 + touched)
+            }
         }
     }
 
@@ -203,6 +224,15 @@ fn derive(predicate: RulePredicate, window: &VecDeque<(i64, f64)>) -> f64 {
     }
 }
 
+/// The readings a predicate runs over to answer once. A rate needs the two ends
+/// of its window whatever is between them; an aggregate reads the whole run.
+fn derive_cost(predicate: RulePredicate, window_len: usize) -> u64 {
+    match predicate {
+        RulePredicate::Rate => 2,
+        _ => window_len as u64,
+    }
+}
+
 /// The readings one predicate retains and may touch — the bound the CI cost
 /// analysis compares against its budget. Monotone in the window, and computable
 /// from a rule's declared fields alone, which is what makes a predicate whose
@@ -227,6 +257,53 @@ pub fn rule_cost(rule: &ThresholdRule) -> u64 {
     cost
 }
 
+/// What one rule may cost the machine it runs on, and what it has spent.
+///
+/// The pack is cost-bounded before it ships, but the endpoint is what pays, and
+/// a rule can reach one without having come through that gate — an operator's
+/// own rule, a provider that is not the catalogue, a version skew. So the
+/// machine enforces its own ceiling over what a rule actually touched rather
+/// than over what it declared, and stops the rule when it is spent.
+///
+/// The stop is hard and it is per rule: evaluation ends for that rule and for
+/// nothing else. One expensive rule silencing the cheap ones would turn a bad
+/// rollout into blanket blindness while still looking contained.
+struct RuleBudget {
+    /// Start of the span the current allowance is being spent against.
+    window_start: Option<i64>,
+    spent: u64,
+    throttled: bool,
+}
+
+impl RuleBudget {
+    fn new() -> Self {
+        Self {
+            window_start: None,
+            spent: 0,
+            throttled: false,
+        }
+    }
+
+    /// Charge one evaluation's work and report whether the rule is now stopped.
+    /// A timestamp outside the current span — including one that went backwards
+    /// over a clock correction — opens a fresh one, so a rule is judged on what
+    /// it spends in a minute rather than since the agent started.
+    fn charge(&mut self, ts: i64, work: u64) -> bool {
+        let within = self
+            .window_start
+            .is_some_and(|start| ts >= start && ts - start < RULE_BUDGET_WINDOW_SECS);
+        if !within {
+            self.window_start = Some(ts);
+            self.spent = 0;
+        }
+        self.spent = self.spent.saturating_add(work);
+        if self.spent > RULE_BUDGET_READINGS_PER_SEC * RULE_BUDGET_WINDOW_SECS.unsigned_abs() {
+            self.throttled = true;
+        }
+        self.throttled
+    }
+}
+
 /// A rule plus its live evaluation state.
 struct RuleEntry {
     rule: ThresholdRule,
@@ -236,6 +313,8 @@ struct RuleEntry {
     conditions: Option<Vec<Condition>>,
     /// What the last evaluation concluded this rule is doing here.
     coverage: RuleCoverageState,
+    /// What this rule may cost this machine, and what it has spent.
+    budget: RuleBudget,
 }
 
 impl RuleEntry {
@@ -251,22 +330,48 @@ impl RuleEntry {
             state: RuleState::Clear,
             conditions,
             coverage,
+            budget: RuleBudget::new(),
         }
     }
 
     /// Evaluate every condition and advance the state machine, returning the
     /// number the rule's own condition produced while it is firing.
     fn step(&mut self, sample: &DimReadings, ts: i64) -> Option<f64> {
+        // A rule that spent past its allowance is not evaluated again on this
+        // machine. Only a different rule arriving re-arms it, so a reconnect
+        // re-pushing the same ruleset cannot spend the allowance a second time.
+        if self.budget.throttled {
+            self.coverage = RuleCoverageState::Throttled;
+            return None;
+        }
+
         let Some(conditions) = self.conditions.as_mut() else {
             self.coverage = RuleCoverageState::Unsupported;
             self.state = RuleState::Clear;
             return None;
         };
 
+        let mut work: u64 = 0;
         let readings: Vec<Reading> = conditions
             .iter_mut()
-            .map(|condition| condition.step(sample, ts))
+            .map(|condition| {
+                let (reading, cost) = condition.step(sample, ts);
+                work = work.saturating_add(cost);
+                reading
+            })
             .collect();
+
+        // The work is already done by the time its cost is known, so the second
+        // it overspends is the last one it gets: what it produced here is
+        // dropped along with the readings it was holding.
+        if self.budget.charge(ts, work) {
+            self.coverage = RuleCoverageState::Throttled;
+            self.state = RuleState::Clear;
+            for condition in conditions.iter_mut() {
+                condition.reset();
+            }
+            return None;
+        }
 
         if readings.contains(&Reading::Unsupported) {
             // A rule half of which cannot be read here is not a rule that failed

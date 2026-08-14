@@ -423,13 +423,13 @@ as shipped — absence is never read as "switched off". See
 [ADR-071](adr/ADR-071-rule-catalogue-bindings-and-durable-coverage.md) for the decision.
 
 **Coverage: which machines a rule is actually watching.** Per rule, every device
-in the fleet is exactly one of three things, and the three always add up to the
-fleet:
+in the fleet is exactly one thing, and together they always add up to the fleet:
 
 | State | Meaning |
 |---|---|
 | `active` | The device is evaluating the rule |
 | `unsupported` | The rule is producing no answer here: its metric is outside the vocabulary, its predicate outside the grammar's bounds, or the reading is not arriving (a kernel with no pressure accounting, a container whose disk counters are its neighbours', a disk that completed no I/O) |
+| `throttled` | The rule cost this device more than its allowance, so the device stopped running it |
 | `unknown` | The device has reported nothing — offline, or never seen |
 
 `unsupported` is a first-class answer rather than an error path, because "no
@@ -442,19 +442,63 @@ next reading. Agents report their
 own state per rule in `AgentHealthSummary.rule_coverage`
 ([`conn_coverage.go`](../server/internal/agentapi/conn_coverage.go)).
 
-The three states are not stored the same way, because they are not the same kind
-of fact. `active` and `unknown` are liveness: they are *supposed* to reset when
-the server loses sight of the fleet, so they live in memory. A device that
+They are not stored the same way, because they are not the same kind
+of fact. `active`, `throttled` and `unknown` are liveness: they are *supposed* to
+reset when the server loses sight of the fleet, so they live in memory. A device that
 disconnects moves to `unknown` rather than vanishing from the count, and a server
 restart is correct by construction rather than by a cleanup job — a stored
 `active` would let a machine unplugged three weeks ago keep claiming it is being
 watched. Being unable to evaluate a rule is durable: a containerized agent can
 never read the kernel's per-host pressure accounting, so that is a standing hole
 in an estate's monitoring, and it must answer the same after a deploy as before
-one. That third state is persisted, written through only when it changes — a
+one. That state is persisted, written through only when it changes — a
 machine repeating itself costs no write at all — and a machine that can evaluate
 the rule again has its row deleted rather than flipped, so nothing stored can go
 stale. Deleting a machine takes its coverage rows with it.
+
+**How far a rule has reached, and what stops it.** A curated rule that turns out
+to be wrong is the one thing here that can degrade five thousand machines at
+once, so a rule reaches a customer's estate in stages
+([`stage.go`](../server/internal/rules/stage.go)): a handful of machines, then a
+tenth of them, then all of them. Each stage is held for a minimum before it may
+grow, and the minimum is not what moves the rule — what moves it is the estate
+having stayed quiet while it was held
+([`gate.go`](../server/internal/rules/gate.go)). A hit alert ceiling, a machine
+that stopped the rule for costing too much, or a rule that failed to evaluate
+sends it back to the population it was last quiet on, and restarts that stage's
+clock, so a signal that comes and goes cannot ratchet a rule back up. A rule
+already on its smallest population stops there rather than being pulled off the
+machines watching it; ending it altogether is a kill, which is a person's
+decision rather than a timer's.
+
+Which machines a stage covers is worked out one machine at a time, from the
+machine, the rule and the reach — no roster, no stored list of chosen devices.
+That is what makes it the same answer on every server and across a restart, and
+what makes growing a rollout only ever *add* machines. The floor of a handful
+keeps a stage meaningful on a small estate, where a percentage of a dozen
+machines is nobody; a customer's estate is counted for that, and only for the
+customers who are mid-rollout.
+
+A stop needs no deploy, because it is a row rather than a release
+([`rule_rollout`](Database.md)). Setting `kill` stops the rule on a connected
+machine at the next push of its ruleset and on an offline one as it reconnects —
+whichever comes first — because reconnecting re-resolves what the machine should
+be running ([`alert_rules.go`](../server/internal/agentapi/alert_rules.go)). A
+kill outranks the stage: the canary that was proving the rule loses it too.
+
+**What a rule may cost the machine running it.** The shipped pack is
+cost-bounded in CI, but the endpoint is what pays, and a rule can reach one
+without having come through that gate. So the machine enforces its own ceiling
+over what a rule actually touched — not over what it declared — and stops any
+rule that spends past it
+([`evaluator.rs`](../agent/crates/mesh-agent-core/src/alerts/evaluator.rs)). The
+stop is per rule: one expensive rule must not silence the cheap ones, or a bad
+rollout would become blanket blindness while still looking contained. It is also
+hard — the rule is not retried on that machine until a *different* rule arrives,
+so a flaky link re-pushing the same ruleset cannot spend the allowance again and
+again. The device reports the rule as `throttled`, which is what a staged
+rollout is watching for. The two ceilings are the same figure, so a rule the pack
+allows can never trip the one on the endpoint.
 
 **"Has this happened before?"** A rule arriving on a machine for the first time
 is also re-run over the history that machine already holds
