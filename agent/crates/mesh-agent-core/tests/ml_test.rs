@@ -195,6 +195,18 @@ fn raw_log_secret_corpus() -> Vec<(String, String)> {
         ),
         // Connection string with embedded credentials.
         (dsn, dsn_pw.into()),
+        // A mounted share carries `user:pass@host` with no scheme in front of
+        // it, so a credential check keyed off `://` reads this as ordinary text
+        // and lets the password off the device.
+        (
+            "mount //fileserver/share svc:Wint3r2026@fileserver failed".into(),
+            "Wint3r2026".into(),
+        ),
+        // An rsync/ssh target is the same shape again, with a path after it.
+        (
+            "rsync backup:s3cr3t@10.0.0.5:/srv/data timed out".into(),
+            "s3cr3t".into(),
+        ),
     ]
 }
 
@@ -221,6 +233,9 @@ fn redact_log_line_leaves_benign_lines_intact() {
         "user alice logged in from 10.0.0.1",
         "GET https://example.com/health 200 in 4ms",
         "disk usage 42% on /var",
+        // An email address is an `@` with no credential in front of it, and
+        // over-redacting it would cost every line that names a person.
+        "mail delivered to alice@example.com in 12ms",
     ] {
         assert_eq!(
             redact_log_line(benign),

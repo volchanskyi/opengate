@@ -119,6 +119,7 @@ the frame and continue. Malformed frames and oversized payloads remain fatal.
 | `DiscoveryReport` | Agent → Server | `ts`, `tenant_id`, `ports`, `services`, `db_engines`, `containers`, `packages`, `truncated` |
 | `SetMaintenanceMode` | Server → Agent | `enabled` |
 | `MaintenanceApplied` | Agent → Server | `enabled` |
+| `AgentAlert` | Agent → Server | `alert_id`, `rule_id`, `rule_version`, `severity`, `metric`, `value`, `window_start_ts`, `window_end_ts`, `observed_ts`, `backfilled`, `evidence_codec`, `evidence` |
 
 The Edge Sentinel telemetry variants are ingested by the server when received.
 The agent sampler runs on every device
@@ -248,6 +249,58 @@ reads both as this device having reported nothing.
 wrong, the other says a host is short of a reading. A staged rollout watches for
 the first and reverts on it, while the second belongs on a remediation list.
 
+### Alerts and their evidence
+
+`AgentAlert` is the alert transport, and the only one. The server keeps no
+high-resolution history behind a signal and has no path for asking the device
+afterwards, so an alert is **self-contained**: everything behind it is attached
+at fire time or it does not exist anywhere. A second transport would be a second
+source of truth for the same event.
+
+`(device, rule_id, rule_version, window_start_ts)` identifies an alert
+independently of the `alert_id` the device chose, so a reconnect that replays a
+queued alert resolves to the row already written. An alert missing any part of
+that identity, or carrying a `severity` outside `Info | Warning | Critical`, is
+refused at ingest under its own counted reason
+([`conn_alerts.go`](../server/internal/agentapi/conn_alerts.go)) rather than
+stored under a null that would duplicate on the next reconnect. `severity` and
+`backfilled` are always present on the wire, so "nothing said" and "not serious"
+never look alike.
+
+`evidence` is [`AlertEvidence`](../agent/crates/mesh-protocol/src/control.rs)
+encoded as msgpack and compressed under the codec `evidence_codec` names. The
+codec rides the message rather than being assumed, so a later one is additive and
+a reader that does not know one says so instead of decoding nonsense. Today it is
+`deflate-1` — DEFLATE, because the agent already has pure-Rust `miniz_oxide` for
+the local TSDB's cold tier and the server reads it with stdlib `compress/flate`,
+so the contract costs neither side a dependency.
+
+The composition is **fixed**, not "as much as fits": two incidents a week apart
+are only comparable if they were assembled the same way.
+
+| Part | Bound |
+|---|---|
+| `ranked` | 8 dimensions the device's own correlation ranked, most anomalous first |
+| `series` | the top 3 of those, ±5 min around the event, ≤ 512 readings each |
+| `processes` | 10 rows at the event instant |
+| `log_samples` | 20 redacted host log lines, capped **before** redaction so a flood cannot buy CPU |
+
+Size is decided after encoding, because how large evidence compresses to is not
+knowable before. Evidence over the cap in
+[`compose_evidence` / `encode_evidence`](../agent/crates/mesh-agent-core/src/alerts/evidence.rs)
+gives up its least valuable parts in a fixed order — log samples, processes,
+series readings, whole series, and the ranking last and never entirely — and sets
+`truncated`. Going over the cap costs the alert its tail; it never costs the
+alert, because a machine in trouble still needs to say so. The alert path
+therefore carries its own payload bound, sized as the evidence cap plus a stated
+envelope allowance, so an alert holding the largest legal evidence is admitted
+rather than refused by a bound borrowed from the telemetry path.
+
+Every free-text field is redacted on the device
+([ADR-049](adr/ADR-049-edge-sentinel-raw-log-privacy.md)) — log lines, process
+basenames, and dimension labels alike. The server's own guard is defence in
+depth, not the guarantee.
+
 `SetMaintenanceMode` carries the server's desired maintenance state for the
 device (`enabled`), pushed on the Active↔Maintenance transition and, for a device
 already in maintenance, on reconnect. The agent applies it — suppressing the
@@ -272,9 +325,11 @@ capability. Current additive gates:
 | `HealthWindow` | `RequestHealthWindow` |
 | `Backfill` | `GrantBackfill`, `DeferBackfill`, `MetricBackfillAck`, `RequestLocalHistory` |
 | `ThresholdAlerts` | `PushAlertRules` |
+| `Alerts` | _(no server-to-agent message)_ |
 
-`Discovery` gates no server-to-agent message; the agent advertises it to signal
-that it emits `DiscoveryReport` inventory (so the server knows to ingest it).
+`Discovery` and `Alerts` gate no server-to-agent message; the agent advertises
+each to signal what it emits — `DiscoveryReport` inventory and self-contained
+`AgentAlert`s respectively — so the server knows to ingest them.
 
 Tolerant unknown-message decoding is a backstop for mixed fleets; capability
 gating is the primary safety mechanism.

@@ -24,7 +24,7 @@ cold-deflate = ["dep:flate2"]
 [dependencies]
 thiserror.workspace = true
 redb = "4"
-flate2 = { version = "1", optional = true }
+flate2 = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -3,6 +3,7 @@ crate mesh_agent_core
 ├── mod alerts: pub
 │   ├── mod evaluator: pub(self)
 │   ├── mod event: pub(self)
+│   ├── mod evidence: pub(self)
 │   ├── mod retro: pub(self)
 │   └── mod sink: pub(self)
 ├── mod amt_detect: pub

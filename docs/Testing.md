@@ -496,6 +496,12 @@ threshold counts; a script exception does not, and its export is discarded so th
 handful of requests `setup()` managed never enters the trend the regression check
 compares against.
 
+Against staging, k6 itself runs in a short-lived cluster pod through
+[`scripts/loadtest-k6-incluster.sh`](../scripts/loadtest-k6-incluster.sh), which
+executes the same k6 argument list beside the server and copies the summary export
+back to the runner for the decision above. Generating load one hop from the server
+is what keeps the trend a measurement of the server rather than of the path to it.
+
 ### Go QUIC Load Harness
 
 `server/tests/loadtest/main.go` spawns N concurrent goroutines, each performing the full mTLS QUIC handshake and agent registration. Reports p50/p95/p99 latency for connect, handshake, and register phases.

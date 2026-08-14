@@ -29,12 +29,12 @@ jobs:
   load-test:
     name: Load Tests (k6 + QUIC)
     runs-on: ubuntu-latest
-    # The k6 phases plus the in-cluster QUIC run finish in well under 15 minutes;
-    # this bounds a wedged port-forward or a staging pod that never goes Ready.
+    # The in-cluster k6 and QUIC runs finish in well under 15 minutes; this
+    # bounds a staging pod that never goes Ready or a scenario that wedges.
     timeout-minutes: 30
     # Deliberately avoid `environment: staging`: its required reviewers would
     # block the scheduled run. This read-only workload uses repository-level OCI
-    # credentials and creates only short-lived port-forwards and test pods.
+    # credentials and creates only short-lived test pods.
     steps:
       - uses: actions/checkout@v7
 
@@ -53,54 +53,9 @@ jobs:
           oci-region: ${{ secrets.OCI_REGION }}
           cluster-id: ${{ secrets.OKE_CLUSTER_ID }}
 
-      # --- Phase 1: k6 HTTP/WebSocket load tests ------------------------------
-
-      - name: Install k6
-        run: |
-          curl -fsSL \
-            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-amd64.tar.gz" \
-            | tar -xz -C /tmp
-          install -m 0755 "/tmp/k6-${K6_VERSION}-linux-amd64/k6" /tmp/k6
-          /tmp/k6 version
-
-      - name: Prepare load-test summaries
-        run: install -d -m 0755 "$LOADTEST_K6_SUMMARY_DIR"
-
-      - name: Port-forward staging server
-        run: |
-          kubectl -n "$NAMESPACE" port-forward "svc/${RELEASE}-server" 18080:8080 >/tmp/loadtest-pf.log 2>&1 &
-          echo "$!" >/tmp/loadtest-pf.pid
-          for _ in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:18080/api/v1/health >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          cat /tmp/loadtest-pf.log
-          exit 1
-
-      - name: Run k6 API baseline
-        run: |
-          K6_BIN=/tmp/k6 LOADTEST_BASE_URL=http://127.0.0.1:18080 \
-            scripts/loadtest-k6-run.sh api-baseline load/k6/scenarios/api-baseline.js
-
-      - name: Run k6 concurrent agents
-        run: |
-          K6_BIN=/tmp/k6 LOADTEST_BASE_URL=http://127.0.0.1:18080 \
-            scripts/loadtest-k6-run.sh concurrent-agents load/k6/scenarios/concurrent-agents.js
-
-      - name: Run k6 relay throughput
-        run: |
-          K6_BIN=/tmp/k6 LOADTEST_BASE_URL=http://127.0.0.1:18080 \
-            scripts/loadtest-k6-run.sh relay-throughput load/k6/scenarios/relay-throughput.js
-
-      - name: Stop staging port-forward
-        if: always()
-        run: kill "$(cat /tmp/loadtest-pf.pid)" 2>/dev/null || true
-
-      # --- Phase 2: Go QUIC agent load test ----------------------------------
-
-      - name: Resolve staging QUIC target
+      # Both phases run their generator inside the cluster, so both need the
+      # server pod and the architecture its node runs.
+      - name: Resolve staging target
         run: |
           set -euo pipefail
           kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server" --timeout=120s
@@ -122,7 +77,71 @@ jobs:
             echo "SERVER_POD=$SERVER_POD"
             echo "SERVER_POD_IP=$SERVER_POD_IP"
             echo "LOADTEST_GOARCH=$LOADTEST_GOARCH"
+            # k6 addresses the server over the cluster network, where the
+            # listener is plaintext: TLS terminates at the ingress, in front of
+            # this service, so naming the service by its in-cluster DNS is the
+            # same hop every other pod in the namespace makes.
+            echo "LOADTEST_BASE_URL=http://${RELEASE}-server:8080"
           } >>"$GITHUB_ENV"
+
+      # --- Phase 1: k6 HTTP/WebSocket load tests ------------------------------
+      #
+      # k6 runs beside the server, addressing the staging service by its
+      # in-cluster name, so the load reaches the system under test over one
+      # network hop and the trend records the server's latency rather than the
+      # generator's path to it. Phase 2 stages its QUIC harness the same way.
+
+      - name: Install k6
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-${LOADTEST_GOARCH}.tar.gz" \
+            | tar -xz -C /tmp
+          install -m 0755 "/tmp/k6-${K6_VERSION}-linux-${LOADTEST_GOARCH}/k6" /tmp/k6
+
+      - name: Prepare load-test summaries
+        run: install -d -m 0755 "$LOADTEST_K6_SUMMARY_DIR"
+
+      - name: Stage k6 harness in cluster
+        run: |
+          set -euo pipefail
+          LOADTEST_K6_POD="k6-loadtest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "LOADTEST_K6_POD=$LOADTEST_K6_POD" >>"$GITHUB_ENV"
+
+          kubectl -n "$NAMESPACE" run "$LOADTEST_K6_POD" \
+            --image=docker.io/library/alpine:3.21.3 \
+            --restart=Never \
+            --command -- sleep 1800
+          kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$LOADTEST_K6_POD" --timeout=120s
+          kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- mkdir -p /tmp/load "$LOADTEST_K6_SUMMARY_DIR"
+          kubectl -n "$NAMESPACE" cp /tmp/k6 "$LOADTEST_K6_POD:/tmp/k6"
+          kubectl -n "$NAMESPACE" cp load/. "$LOADTEST_K6_POD:/tmp/load"
+          kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- chmod 0755 /tmp/k6
+          kubectl -n "$NAMESPACE" exec "$LOADTEST_K6_POD" -- /tmp/k6 version
+
+      - name: Run k6 API baseline
+        run: |
+          K6_BIN=scripts/loadtest-k6-incluster.sh \
+            scripts/loadtest-k6-run.sh api-baseline /tmp/load/k6/scenarios/api-baseline.js
+
+      - name: Run k6 concurrent agents
+        run: |
+          K6_BIN=scripts/loadtest-k6-incluster.sh \
+            scripts/loadtest-k6-run.sh concurrent-agents /tmp/load/k6/scenarios/concurrent-agents.js
+
+      - name: Run k6 relay throughput
+        run: |
+          K6_BIN=scripts/loadtest-k6-incluster.sh \
+            scripts/loadtest-k6-run.sh relay-throughput /tmp/load/k6/scenarios/relay-throughput.js
+
+      - name: Cleanup k6 load test pod
+        if: always()
+        run: |
+          if [[ -n "${LOADTEST_K6_POD:-}" ]]; then
+            kubectl -n "$NAMESPACE" delete pod "$LOADTEST_K6_POD" --ignore-not-found --wait=false
+          fi
+
+      # --- Phase 2: Go QUIC agent load test ----------------------------------
 
       - name: Build QUIC load test harness
         working-directory: server

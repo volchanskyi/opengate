@@ -166,6 +166,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/posttooluse-cache-clean.sh",
+            "timeout": 900
+          }
+        ]
       }
     ],
     "SessionStart": [

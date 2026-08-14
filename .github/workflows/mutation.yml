@@ -54,29 +54,26 @@ jobs:
       # packages that re-pay schema setup per mutant.
       matrix:
         include:
-          # cargo-mutants defaults to consecutive slice sharding. Run
-          # 29300355420 proved those slices were badly runtime-imbalanced, so
-          # round-robin shards distribute expensive modules while keeping every
-          # mutant in scope. The count is sized in
-          # scripts/lib/mutation-shards.sh and asserted by the workflow tests;
-          # each shard carries ~150 of the workspace's ~2400 mutants, which is
-          # what keeps a leg inside the cap below as the agent grows.
-          - { language: rust, shard: rust-round-robin-1-of-16, rust_shard: "0/16" }
-          - { language: rust, shard: rust-round-robin-2-of-16, rust_shard: "1/16" }
-          - { language: rust, shard: rust-round-robin-3-of-16, rust_shard: "2/16" }
-          - { language: rust, shard: rust-round-robin-4-of-16, rust_shard: "3/16" }
-          - { language: rust, shard: rust-round-robin-5-of-16, rust_shard: "4/16" }
-          - { language: rust, shard: rust-round-robin-6-of-16, rust_shard: "5/16" }
-          - { language: rust, shard: rust-round-robin-7-of-16, rust_shard: "6/16" }
-          - { language: rust, shard: rust-round-robin-8-of-16, rust_shard: "7/16" }
-          - { language: rust, shard: rust-round-robin-9-of-16, rust_shard: "8/16" }
-          - { language: rust, shard: rust-round-robin-10-of-16, rust_shard: "9/16" }
-          - { language: rust, shard: rust-round-robin-11-of-16, rust_shard: "10/16" }
-          - { language: rust, shard: rust-round-robin-12-of-16, rust_shard: "11/16" }
-          - { language: rust, shard: rust-round-robin-13-of-16, rust_shard: "12/16" }
-          - { language: rust, shard: rust-round-robin-14-of-16, rust_shard: "13/16" }
-          - { language: rust, shard: rust-round-robin-15-of-16, rust_shard: "14/16" }
-          - { language: rust, shard: rust-round-robin-16-of-16, rust_shard: "15/16" }
+          # The Rust leg is sharded by scope too, so each id names the behavior
+          # whose coverage the leg measures and each shard's rebuilds stay inside
+          # one crate. The split lives in scripts/lib/mutation-shards.sh and is
+          # asserted by the workflow tests, which also prove every mutable source
+          # is owned exactly once.
+          - { language: rust, shard: rust-core-ml-backfill }
+          - { language: rust, shard: rust-core-ml-sampling }
+          - { language: rust, shard: rust-core-ml-analysis }
+          - { language: rust, shard: rust-core-alerts-retro }
+          - { language: rust, shard: rust-core-alerts-evaluator }
+          - { language: rust, shard: rust-core-alerts-dispatch }
+          - { language: rust, shard: rust-core-correlate }
+          - { language: rust, shard: rust-core-session }
+          - { language: rust, shard: rust-core-discovery }
+          - { language: rust, shard: rust-core-runtime }
+          - { language: rust, shard: rust-tsdb-blocks }
+          - { language: rust, shard: rust-tsdb-encoding }
+          - { language: rust, shard: rust-tsdb-substrates }
+          - { language: rust, shard: rust-agent-loops }
+          - { language: rust, shard: rust-protocol-wire }
           - { language: web }
           - { language: go, shard: go-api-runtime }
           - { language: go, shard: go-api-identity-admin }
@@ -92,7 +89,7 @@ jobs:
           - { language: go, shard: go-protocol-relay-observability }
     runs-on: ubuntu-latest
     # 75min is a flat safety cap, not a target. File-level API units, isolated
-    # agentapi file groups, and round-robin Rust legs are sized for at least
+    # agentapi file groups, and scope-grouped Rust legs are sized for at least
     # 10min of headroom.
     timeout-minutes: 75
     steps:
@@ -108,6 +105,10 @@ jobs:
       # nothing and puts a registry dependency on legs that have none. `-c
       # max_connections=400` is required so the parallel per-schema test
       # store pattern in testutil.NewTestStore stays within the conn budget.
+      # The lock table is sized at startup as max_locks_per_transaction ×
+      # max_connections, so the per-transaction ceiling rises alongside it —
+      # a migration builds the whole schema in one transaction, and enough of
+      # those together exhaust the default 64 with "out of shared memory".
       - name: Start Postgres with max_connections=400
         if: matrix.language == 'go'
         run: |
@@ -127,7 +128,7 @@ jobs:
           done
           docker run -d --rm --name pg-ci \
             -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
-            -p 5432:5432 postgres:17-alpine -c max_connections=400
+            -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
           for i in {1..30}; do
             if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
               echo "postgres ready after ${i} attempt(s)"; exit 0
@@ -141,7 +142,7 @@ jobs:
         if: matrix.language == 'rust'
         with:
           toolchain: ${{ env.RUST_VERSION }}
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
         if: matrix.language == 'rust'
         with:
           workspaces: agent
@@ -149,7 +150,7 @@ jobs:
       - name: Install cargo-mutants
         if: matrix.language == 'rust'
         run: cargo install --locked --version "${CARGO_MUTANTS_VERSION}" cargo-mutants
-      - name: Run cargo-mutants
+      - name: Run cargo-mutants (shard ${{ matrix.shard }})
         if: matrix.language == 'rust'
         env:
           OPENGATE_GOLDEN_DIR: ${{ github.workspace }}/testdata/golden
@@ -162,8 +163,13 @@ jobs:
         # JSONL trend / Loki dashboard, not actionable line-level warnings
         # that should clutter the Annotations panel on every nightly run.
         run: |
+          . scripts/lib/mutation-shards.sh
+          mapfile -t shard_args < <(mutation_rust_shard_args '${{ matrix.shard }}')
+          printf 'shard %s selects:' '${{ matrix.shard }}'
+          printf ' %s' "${shard_args[@]}"
+          echo
           cd agent
-          cargo mutants --workspace --shard ${{ matrix.rust_shard }} --sharding round-robin --no-shuffle --jobs 4 --annotations none || EXIT=$?
+          cargo mutants "${shard_args[@]}" --no-shuffle --jobs 4 --annotations none || EXIT=$?
           # cargo-mutants exits non-zero when any mutant survives. For an
           # observability workflow that is expected; capture and continue.
           echo "cargo-mutants exit: ${EXIT:-0}"

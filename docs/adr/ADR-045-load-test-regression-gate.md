@@ -71,6 +71,6 @@ The gate is implemented in
   thresholds.
 - New or historically absent series can start without false reds because missing
   VM history falls back to absolute-only evaluation.
-- The tolerance bands are intentionally broad because staging load tests cross
-  GitHub-hosted runners, kubectl port-forwards, and the OKE cluster. They catch
-  material regressions while avoiding normal runner/network variance.
+- The tolerance bands are intentionally broad because staging load tests run
+  against a single-node OKE cluster shared with the rest of the namespace. They
+  catch material regressions while avoiding normal cluster/network variance.

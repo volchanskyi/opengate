@@ -96,6 +96,7 @@ skip = [
   { crate = "rcgen@0.13.2",                    reason = "rcgen 0.13/0.14 stagger — webrtc-rs/dtls pins 0.13, our direct mTLS uses 0.14" },
   { crate = "sha2@0.10.9",                     reason = "RustCrypto 0.10→0.11 stagger paired with digest split" },
   { crate = "socket2@0.5.10",                  reason = "socket2 0.5/0.6 stagger via tokio vs reqwest transport" },
+  { crate = "syn@2.0.117",                     reason = "syn 2→3 ecosystem stagger; 3.x via the dtolnay proc-macro cohort (serde_derive, thiserror-impl, async-trait, clap_derive), 2.x via arg_enum_proc_macro under image/rav1e and asn1-rs-derive under the webrtc-rs x509 stack. Build-time only — no syn in the shipped binary. Clears when image and webrtc-rs move their macro deps to syn 3." },
   { crate = "thiserror@1.0.69",                reason = "thiserror 1→2 ecosystem stagger; pre-existing slack, candidate to resolve by bumping direct deps to v2" },
   { crate = "thiserror-impl@1.0.69",           reason = "proc-macro half of thiserror, must move in lockstep with thiserror skip above" },
   { crate = "webpki-roots@0.26.11",            reason = "TLS roots 0.26/1.0 stagger via reqwest stack vs rustls transitives" },

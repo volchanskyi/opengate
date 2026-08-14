@@ -1,8 +1,22 @@
 # cargo-mutants configuration for the agent workspace.
 #
-# Run `make mutate-rust` from the repo root, or `cargo mutants --workspace`
+# Run `make mutate-rust` from the repo root, or `cargo mutants --package <crate>`
 # from `agent/` with the env var `OPENGATE_GOLDEN_DIR=<repo>/testdata/golden`
 # set so golden file tests resolve their fixtures inside the temp tree.
+#
+# cargo-mutants runs the mutated package's whole test suite once per mutant, so
+# the suite's slowest test is paid by every mutant in its package. In
+# mesh-agent-core that is the reach measurement in `tests/reach_test.rs`, which
+# drives three stores to eviction through the production write path and takes
+# ~25 seconds — roughly 90% of the package's test time, multiplied by its ~1400
+# mutants. Its assertions are about storage density, not about code the mutation
+# score tracks, and the behavior it touches is covered by `ml_store_test`, so it
+# is skipped here and runs at full strength under a plain `cargo test`.
+additional_cargo_test_args = [
+    "--",
+    "--skip",
+    "the_minute_tier_reaches_back_far_enough_to_be_worth_scanning",
+]
 #
 # exclude_globs carves out genuinely-untestable code:
 #   * platform shims (Wayland/X11 bridges with no in-tree harness)

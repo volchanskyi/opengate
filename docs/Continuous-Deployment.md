@@ -114,10 +114,11 @@ kubectl -n "$NAMESPACE" rollout status "deploy/${RELEASE}-server"
 [`load-test.yml`](../.github/workflows/load-test.yml) validates staging without
 host access:
 
-- k6 runs on the GitHub runner through an HTTP Service port-forward;
+- k6 runs in a short-lived cluster pod and drives the staging server Service over
+  the cluster network, so the numbers it records are the server's;
 - the static Go QUIC harness runs in a short-lived cluster pod and targets the
   ready staging server pod over the cluster network;
-- the test pod and local certificate material are removed after the run.
+- both test pods and local certificate material are removed after the run.
 
 ## Configuration and Secrets
 

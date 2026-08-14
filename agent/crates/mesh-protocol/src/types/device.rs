@@ -60,6 +60,11 @@ pub enum AgentCapability {
     /// enabled; gates the server → agent `PushAlertRules` control message that
     /// delivers the connecting agent's tenant-scoped ruleset.
     ThresholdAlerts,
+    /// Self-contained alerts with their evidence attached. Advertised when the
+    /// agent can compose evidence at fire time; tells the server this device's
+    /// alerts arrive on the `AgentAlert` transport with everything behind them,
+    /// so nothing will be asked of the device afterwards.
+    Alerts,
 }
 
 /// Current status of a device.

@@ -853,6 +853,10 @@ Validation sources:
   verifies that a k6 scenario which aborts contributes no trend row while a
   failed threshold still does, and that the workflow runs every scenario
   through the runner.
+- [`scripts/tests/loadtest-k6-incluster.test.sh`](../scripts/tests/loadtest-k6-incluster.test.sh)
+  verifies that k6 runs inside the staging cluster with its arguments intact,
+  that its summary export reaches the runner on every exit status, and that the
+  workflow keeps addressing the server over the cluster network.
 - [`scripts/tests/loadtest-regression-check.test.sh`](../scripts/tests/loadtest-regression-check.test.sh)
   verifies per-series VM read-back regression checks, p99 advisory behavior,
   cold-start handling, and VM fail-open behavior.

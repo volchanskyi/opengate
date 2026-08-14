@@ -43,6 +43,9 @@ const (
 	CapBackfill          AgentCapability = "Backfill"
 	CapDiscovery         AgentCapability = "Discovery"
 	CapThresholdAlerts   AgentCapability = "ThresholdAlerts"
+	// CapAlerts says this device's alerts arrive on the AgentAlert transport
+	// with their evidence attached, so nothing will be asked of it afterwards.
+	CapAlerts AgentCapability = "Alerts"
 )
 
 // DeviceStatus represents the current connection state of a device.
