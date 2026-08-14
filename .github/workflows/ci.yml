@@ -892,7 +892,7 @@ jobs:
           # fresh release) so govulncheck scans the same patched standard
           # library as the local gauntlet. Must equal server/go.mod's toolchain
           # directive; a gauntlet shell test enforces the two stay in sync.
-          go-version: '1.26.5'
+          go-version: '1.26.6'
           cache-dependency-path: server/go.sum
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - uses: actions/setup-node@v7

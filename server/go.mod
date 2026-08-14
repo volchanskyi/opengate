@@ -2,7 +2,7 @@ module github.com/volchanskyi/opengate/server
 
 go 1.26.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/SherClockHolmes/webpush-go v1.4.0

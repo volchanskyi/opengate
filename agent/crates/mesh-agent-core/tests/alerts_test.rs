@@ -1012,3 +1012,167 @@ fn every_expressible_rule_has_a_bounded_cost() {
     let ceiling = u64::from(MAX_RULE_WINDOW_SECS + 1) * (MAX_RULE_TERMS as u64 + 1);
     assert_eq!(rule_cost(&worst), ceiling);
 }
+
+// What a rule costs the machine it is running on.
+//
+// The pack is cost-bounded before it ships, but the endpoint is what pays, and
+// a rule can reach one without having come through that gate. So the machine
+// enforces its own ceiling: a rule that costs more than its allowance stops,
+// and only that rule stops.
+
+/// A rule the pack's own cost gate would refuse: every condition the grammar
+/// allows, each over the longest window it allows. Nothing shippable looks like
+/// this — which is the point of having the endpoint check as well.
+fn past_the_allowance(id: &str) -> ThresholdRule {
+    let mut r = windowed(
+        rule(id, "cpu.total", AlertComparator::Gte, 0.0, -1.0, 0),
+        RulePredicate::WindowMean,
+        MAX_RULE_WINDOW_SECS,
+    );
+    r.all = vec![
+        RuleTerm {
+            metric: "mem.used_percent".to_string(),
+            comparator: AlertComparator::Gte,
+            threshold: 0.0,
+            clear: -1.0,
+            predicate: RulePredicate::WindowMean,
+            window_secs: MAX_RULE_WINDOW_SECS,
+        };
+        MAX_RULE_TERMS
+    ];
+    r
+}
+
+/// Run an evaluator over `seconds` of steady readings, one per second.
+fn run_for(eval: &mut AlertEvaluator, seconds: i64) {
+    for ts in 0..seconds {
+        eval.evaluate(&sample(50.0, 50.0, 50.0), ts);
+    }
+}
+
+#[test]
+fn a_rule_past_its_allowance_is_throttled_hard() {
+    let mut eval = AlertEvaluator::new(vec![past_the_allowance("greedy")]);
+    run_for(&mut eval, 1_200);
+
+    assert_eq!(
+        coverage_of(&eval, "greedy"),
+        RuleCoverageState::Throttled,
+        "a rule costing more than its allowance stops running here"
+    );
+    assert!(
+        eval.evaluate(&sample(50.0, 50.0, 50.0), 1_200).is_empty(),
+        "a throttled rule evaluates nothing, so it cannot fire either"
+    );
+}
+
+#[test]
+fn a_throttle_stops_one_rule_and_not_the_evaluator() {
+    // The expensive rule and a cheap one that is firing, together. One rule
+    // silencing the others would turn a bad rollout into blanket blindness while
+    // still looking contained.
+    let cheap = rule("cpu-high", "cpu.total", AlertComparator::Gt, 40.0, 30.0, 0);
+    let mut eval = AlertEvaluator::new(vec![past_the_allowance("greedy"), cheap]);
+    run_for(&mut eval, 1_200);
+
+    assert_eq!(coverage_of(&eval, "greedy"), RuleCoverageState::Throttled);
+    assert_eq!(
+        coverage_of(&eval, "cpu-high"),
+        RuleCoverageState::Active,
+        "the cheap rule is still watching this machine"
+    );
+
+    let breaches = eval.evaluate(&sample(50.0, 50.0, 50.0), 1_200);
+    assert_eq!(breaches.len(), 1);
+    assert_eq!(breaches[0].rule_id, "cpu-high");
+}
+
+#[test]
+fn the_most_expensive_shippable_rule_is_never_throttled() {
+    // Three conditions at the longest window the grammar allows is the most a
+    // rule can cost and still pass the pack's cost gate. If that tripped the
+    // endpoint's ceiling, the two gates would disagree and a legitimate rule
+    // would stop working on the fleet.
+    let mut r = windowed(
+        rule("patient", "cpu.total", AlertComparator::Gte, 0.0, -1.0, 0),
+        RulePredicate::WindowMean,
+        MAX_RULE_WINDOW_SECS,
+    );
+    r.all = vec![
+        RuleTerm {
+            metric: "mem.used_percent".to_string(),
+            comparator: AlertComparator::Gte,
+            threshold: 0.0,
+            clear: -1.0,
+            predicate: RulePredicate::WindowMean,
+            window_secs: MAX_RULE_WINDOW_SECS,
+        };
+        2
+    ];
+    assert!(
+        rule_cost(&r) <= 3_600,
+        "this must be a rule the pack allows"
+    );
+
+    let mut eval = AlertEvaluator::new(vec![r]);
+    run_for(&mut eval, 2_000);
+    assert_eq!(coverage_of(&eval, "patient"), RuleCoverageState::Active);
+}
+
+#[test]
+fn an_ordinary_rule_is_never_throttled() {
+    let mut eval = AlertEvaluator::new(vec![rule(
+        "disk-critical",
+        "disk.used_percent",
+        AlertComparator::Gte,
+        90.0,
+        85.0,
+        300,
+    )]);
+    run_for(&mut eval, 5_000);
+    assert_eq!(
+        coverage_of(&eval, "disk-critical"),
+        RuleCoverageState::Active
+    );
+}
+
+#[test]
+fn a_throttle_survives_the_same_ruleset_arriving_again() {
+    // Reconnecting re-pushes the whole ruleset. A rule that was stopped for
+    // costing too much must not start again every time a flaky link comes back —
+    // it would spend an allowance an hour, forever, on the same machine.
+    let mut eval = AlertEvaluator::new(vec![past_the_allowance("greedy")]);
+    run_for(&mut eval, 1_200);
+    assert_eq!(coverage_of(&eval, "greedy"), RuleCoverageState::Throttled);
+
+    eval.set_rules(vec![past_the_allowance("greedy")]);
+    assert_eq!(
+        coverage_of(&eval, "greedy"),
+        RuleCoverageState::Throttled,
+        "an identical re-push does not undo a throttle"
+    );
+}
+
+#[test]
+fn a_changed_rule_gets_its_allowance_back() {
+    // Retuning the rule is what un-stops it: a different rule is a different
+    // question, and it is owed the chance to answer it.
+    let mut eval = AlertEvaluator::new(vec![past_the_allowance("greedy")]);
+    run_for(&mut eval, 1_200);
+    assert_eq!(coverage_of(&eval, "greedy"), RuleCoverageState::Throttled);
+
+    eval.set_rules(vec![rule(
+        "greedy",
+        "cpu.total",
+        AlertComparator::Gt,
+        90.0,
+        80.0,
+        0,
+    )]);
+    eval.evaluate(&sample(50.0, 50.0, 50.0), 2_000);
+    assert_eq!(
+        coverage_of(&eval, "greedy"),
+        RuleCoverageState::Active,
+        "the retuned rule runs"
+    );
+}

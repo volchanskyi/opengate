@@ -23,6 +23,16 @@ const (
 		               updated_at      = NOW(),
 		               updated_by      = EXCLUDED.updated_by`
 
+	setRolloutStageSQL = `INSERT INTO rule_rollout
+			   (tenant_id, organization_id, rule_id, enabled, canary_group,
+			    rollout_percent, kill, stage_entered_at, updated_at, updated_by)
+			 VALUES ($1, $2, $3, TRUE, '', $4, FALSE, NOW(), NOW(), $5)
+			 ON CONFLICT (organization_id, rule_id)
+			 DO UPDATE SET rollout_percent  = EXCLUDED.rollout_percent,
+			               stage_entered_at = NOW(),
+			               updated_at       = NOW(),
+			               updated_by       = EXCLUDED.updated_by`
+
 	listRolloutsSQL = `SELECT organization_id, rule_id, enabled, canary_group, rollout_percent,
 		        kill, stage_entered_at, updated_at, updated_by
 		   FROM rule_rollout
@@ -42,6 +52,30 @@ func (s *Store) UpsertRollout(ctx context.Context, r Rollout) error {
 	return s.exec(ctx, "upsert rule rollout", upsertRolloutSQL,
 		tenant, r.OrganizationID, r.RuleID, r.Enabled, r.CanaryGroup,
 		r.RolloutPercent, r.Kill, r.UpdatedBy)
+}
+
+// SetRolloutStage moves a rule to another stage for one customer and stamps the
+// moment it entered that stage, which is what the stage's hold is measured from.
+// Leaving the original stamp would let a rule that has just been reverted count
+// the hours it spent on the stage it failed and advance straight back into it.
+//
+// It writes the reach and nothing else. A kill, a rule the customer switched
+// off, and the group they named are theirs; the rollout machinery moves a rule
+// between stages and never undoes a stop somebody reached for.
+func (s *Store) SetRolloutStage(ctx context.Context, organizationID uuid.UUID, ruleID string, percent int, updatedBy string) error {
+	if err := ValidateRollout(Rollout{
+		OrganizationID: organizationID,
+		RuleID:         ruleID,
+		RolloutPercent: percent,
+	}); err != nil {
+		return err
+	}
+	tenant, err := callerTenant(ctx)
+	if err != nil {
+		return err
+	}
+	return s.exec(ctx, "set rule rollout stage", setRolloutStageSQL,
+		tenant, organizationID, ruleID, percent, updatedBy)
 }
 
 // ListRollouts returns one customer's stored rollout state, keyed by rule id. A

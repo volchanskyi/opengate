@@ -32,12 +32,22 @@
 //! findings carry the minute they happened and land in the same bounded sink,
 //! spending the same allowance as anything raised live.
 
+//! What a rule costs is finally the machine's own decision. The pack is
+//! cost-bounded before it ships, but the endpoint is what pays, and a rule can
+//! reach one without having come through that gate — so a rule that touches more
+//! than [`RULE_BUDGET_READINGS_PER_SEC`] readings a second here is stopped, hard
+//! and by itself, and says so in its coverage. One expensive rule silencing the
+//! cheap ones would turn a bad rollout into blanket blindness while still
+//! looking contained.
+
 mod evaluator;
 mod event;
 mod retro;
 mod sink;
 
-pub use evaluator::{rule_cost, AlertEvaluator};
+pub use evaluator::{
+    rule_cost, AlertEvaluator, RULE_BUDGET_READINGS_PER_SEC, RULE_BUDGET_WINDOW_SECS,
+};
 pub use event::{EventLevel, EventMatcher, EventPack, EventRule, HostEvent, ServiceErrorRule};
 pub use retro::{
     retro_hold, RetroBucket, RetroBudget, RetroConditions, RetroCursor, RetroError, RetroHistory,

@@ -349,8 +349,8 @@ type AlertBreach struct {
 
 // RuleCoverageState is what one rule is doing on one device. It mirrors the Rust
 // RuleCoverageState enum, which serializes as its variant name. A device that
-// reports neither is unknown, which only the server can know because only the
-// server knows the fleet.
+// reports none of them is unknown, which only the server can know because only
+// the server knows the fleet.
 type RuleCoverageState string
 
 const (
@@ -360,6 +360,10 @@ const (
 	// metric is outside the vocabulary, the predicate is outside the grammar's
 	// bounds, or this host cannot take the reading at all.
 	RuleCoverageUnsupported RuleCoverageState = "Unsupported"
+	// RuleCoverageThrottled means the rule cost this device more than its
+	// allowance, so the device stopped running it. It is a fact about the rule
+	// rather than about the host, which is why it is not filed as unsupported.
+	RuleCoverageThrottled RuleCoverageState = "Throttled"
 )
 
 // RuleCoverage is one rule's state on the device reporting it, carried
