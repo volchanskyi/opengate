@@ -467,6 +467,8 @@ func (a *AgentConn) handleControl(ctx context.Context) error {
 		return a.handleLocalHistoryResponse(msg)
 	case protocol.MsgMaintenanceApplied:
 		return a.handleMaintenanceApplied(msg)
+	case protocol.MsgAgentAlert:
+		return a.handleAgentAlert(ctx, msg, len(payload))
 	default:
 		a.logger.Debug("ignoring unknown control message", "device_id", a.DeviceID, "type", msg.Type)
 		return nil
@@ -496,7 +498,8 @@ func isWritePathMessage(t protocol.ControlMessageType) bool {
 		protocol.MsgDiscoveryReport,
 		protocol.MsgHealthWindowResponse,
 		protocol.MsgRequestBackfillSlot,
-		protocol.MsgMetricBackfillBatch:
+		protocol.MsgMetricBackfillBatch,
+		protocol.MsgAgentAlert:
 		return true
 	default:
 		return false

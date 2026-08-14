@@ -1,3 +1,9 @@
+# scripts/lib/mutation-shards.sh is a Bash library (arrays, [[ ]]), and the
+# mutation targets source it. Make defaults to /bin/sh, which is dash on Debian
+# and Ubuntu, so name the interpreter rather than depending on the host's
+# /bin/sh being a Bash.
+SHELL := /bin/bash
+
 .PHONY: build test test-short test-integration test-coverage lint lint-deploy fmt verify-codegen golden ci clean e2e load-test load-test-quic sonar sonar-coverage sonar-quick \
 	mutate mutate-rust mutate-go mutate-web fuzz-rust taint-go taint-web pentest-review dead-code \
 	terraform-test terraform-drift \
@@ -37,13 +43,20 @@ test-coverage:
 # Local Postgres for running the Go test suite. testutil.NewTestStore
 # creates one schema per test for parallel-safe isolation; with `go test`
 # at default parallelism the working set of transient connections exceeds
-# the Postgres 100-conn default, hence `-c max_connections=400`. Mirrors
-# the ci.yml / mutation.yml setup so CI and local behave the same.
+# the Postgres 100-conn default, hence `-c max_connections=400`.
+#
+# The lock table is sized once at startup as max_locks_per_transaction ×
+# max_connections, so raising the connection ceiling without raising the
+# per-transaction one leaves each migration — which creates the whole schema,
+# every table and index, in a single transaction — competing for the default
+# 64. Enough of them in flight together exhausts the table and the migration
+# fails with "out of shared memory" rather than anything about the schema.
+# Mirrors the ci.yml / mutation.yml setup so CI and local behave the same.
 postgres-test-up:
 	docker rm -f opengate-pg-test 2>/dev/null || true
 	docker run -d --rm --name opengate-pg-test \
 		-e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
-		-p 5432:5432 postgres:17-alpine -c max_connections=400
+		-p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
 	@for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
 		docker exec opengate-pg-test pg_isready -U opengate -d opengate_test >/dev/null 2>&1 && break; \
 		sleep 1; \
@@ -348,7 +361,21 @@ mutate: mutate-rust mutate-go mutate-web
 
 mutate-rust:
 	@command -v cargo-mutants >/dev/null 2>&1 || { echo "ERROR: cargo-mutants not found. Install with: cargo install cargo-mutants"; exit 1; }
-	cd agent && OPENGATE_GOLDEN_DIR=$(CURDIR)/testdata/golden cargo mutants --workspace --no-shuffle
+	@# Run the same scope shards as CI (scripts/lib/mutation-shards.sh): each
+	@# shard mutates one package restricted to its files, then merge into one
+	@# report — mirrors .github/workflows/mutation.yml.
+	. scripts/lib/mutation-shards.sh; \
+	outcomes=""; \
+	for shard in $$(mutation_rust_shards); do \
+	  mapfile -t shard_args < <(mutation_rust_shard_args $$shard); \
+	  echo ">> mutating shard $$shard ($${shard_args[*]})"; \
+	  ( cd agent && OPENGATE_GOLDEN_DIR=$(CURDIR)/testdata/golden \
+	    cargo mutants "$${shard_args[@]}" --no-shuffle --output "mutants-$$shard" ) || true; \
+	  outcomes="$$outcomes agent/mutants-$$shard/mutants.out/outcomes.json"; \
+	done; \
+	mkdir -p agent/mutants.out; \
+	./scripts/mutation-merge-rust.sh agent/mutants.out/outcomes.json $$outcomes; \
+	echo ">> merged Rust mutation report: agent/mutants.out/outcomes.json"
 
 mutate-go:
 	@command -v gremlins >/dev/null 2>&1 || { echo "ERROR: gremlins not found. Install with: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0"; exit 1; }

@@ -7,7 +7,7 @@ import "github.com/vmihailenco/msgpack/v5"
 // positionally, so both must track the struct;
 // TestEncodeControlMatchesReflectionPerField walks the struct by reflection and
 // fails if any of the three ever drift.
-const controlFieldCount = 87
+const controlFieldCount = 99
 
 // Each put* helper writes one map entry: the key, then the value through the
 // same encoder method the reflection encoder picks for that Go type. The integer
@@ -214,6 +214,18 @@ func (m *ControlMessage) controlFieldPresence() [controlFieldCount]bool {
 	present[84] = len(m.Containers) != 0
 	present[85] = len(m.Packages) != 0
 	present[86] = m.Enabled != nil
+	present[87] = m.AlertID != ""
+	present[88] = m.RuleID != ""
+	present[89] = m.RuleVersion != 0
+	present[90] = m.Severity != nil
+	present[91] = m.Metric != ""
+	present[92] = m.Value != nil
+	present[93] = m.WindowStartTS != 0
+	present[94] = m.WindowEndTS != 0
+	present[95] = m.ObservedTS != 0
+	present[96] = m.Backfilled != nil
+	present[97] = m.EvidenceCodec != ""
+	present[98] = len(m.Evidence) != 0
 	return present
 }
 
@@ -395,6 +407,30 @@ func (m *ControlMessage) encodeControlField(enc *msgpack.Encoder, i int) error {
 		return putValue(enc, "packages", m.Packages)
 	case 86:
 		return putBool(enc, "enabled", *m.Enabled)
+	case 87:
+		return putString(enc, "alert_id", string(m.AlertID))
+	case 88:
+		return putString(enc, "rule_id", string(m.RuleID))
+	case 89:
+		return putUint32(enc, "rule_version", m.RuleVersion)
+	case 90:
+		return putString(enc, "severity", string(*m.Severity))
+	case 91:
+		return putString(enc, "metric", string(m.Metric))
+	case 92:
+		return putFloat64(enc, "value", *m.Value)
+	case 93:
+		return putInt64(enc, "window_start_ts", m.WindowStartTS)
+	case 94:
+		return putInt64(enc, "window_end_ts", m.WindowEndTS)
+	case 95:
+		return putInt64(enc, "observed_ts", m.ObservedTS)
+	case 96:
+		return putBool(enc, "backfilled", *m.Backfilled)
+	case 97:
+		return putString(enc, "evidence_codec", string(m.EvidenceCodec))
+	case 98:
+		return putBytes(enc, "evidence", m.Evidence)
 	}
 	return nil
 }

@@ -57,6 +57,10 @@ var dispatchNonIngestIdents = []string{
 	"MsgMetricBackfillBatch",
 	"MsgLocalHistoryResponse",
 	"MsgMaintenanceApplied",
+	// An alert is validated and admitted but not yet stored, so it produces no
+	// state for the ingest ledger to balance against. It joins the counted set
+	// when the alert store lands beside it.
+	"MsgAgentAlert",
 }
 
 // preIngestDropReasons are the bounds applied before the ingest counter fires.

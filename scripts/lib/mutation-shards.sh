@@ -12,22 +12,162 @@
 # sources outside internal/ (notably tests/loadtest) from being mutated and
 # counted once per shard.
 
-# The Rust leg is split by `cargo mutants --shard i/N --sharding round-robin`.
-# N lives here alone: the workflow matrix, the artifact merge, and
-# scripts/tests/mutation-workflow.test.sh all derive from this list, so the leg
-# is resized by editing one line.
+# The Rust leg is split by scope, the same way the Go leg is: each shard names
+# the behavior it mutates and owns a fixed set of sources.
 #
-# Sizing: the agent workspace holds ~2400 mutants and each costs roughly 15
-# seconds, dominated by the per-mutant rebuild rather than the test run. Sixteen
-# shards put ~150 mutants on each, finishing well inside the 75-minute job cap
-# with room for the workspace to keep growing. Eight shards carried ~300 each
-# and needed longer than the cap allowed.
+# Naming the scope is what makes a red leg readable — "rust-core-alerts-retro
+# failed" says which code lost coverage, where a slice number says only that one
+# sixteenth of an interleaved list did. It is also what keeps a shard cheap:
+# cargo-mutants rebuilds between mutants, so consecutive mutants inside one file
+# reuse the incremental build, while an interleaved list rebuilds a different
+# crate almost every time.
+#
+# Sizing. Two costs decide whether a shard fits the 75-minute cap: the rebuild,
+# which the grouping above keeps small, and the mutated package's test suite,
+# which cargo-mutants runs once per mutant. mesh-agent-core carries ~1400 of the
+# workspace's ~2700 mutants and gets ten shards; edge-tsdb's ~900 cheap ones get
+# three; mesh-agent and mesh-protocol get one each.
 mutation_rust_shards() {
-  local i out=""
-  for i in $(seq 1 16); do
-    out="$out rust-round-robin-$i-of-16"
+  # Not named `shards`: scripts/mutation-status-build.sh sources this library and
+  # keeps a string by that name, and ShellCheck follows the source.
+  local ids=(
+    rust-core-ml-backfill
+    rust-core-ml-sampling
+    rust-core-ml-analysis
+    rust-core-alerts-retro
+    rust-core-alerts-evaluator
+    rust-core-alerts-dispatch
+    rust-core-correlate
+    rust-core-session
+    rust-core-discovery
+    rust-core-runtime
+    rust-tsdb-blocks
+    rust-tsdb-encoding
+    rust-tsdb-substrates
+    rust-agent-loops
+    rust-protocol-wire
+  )
+  echo "${ids[*]}"
+}
+
+# The cargo package a shard mutates. cargo-mutants runs the tests of the mutated
+# package only, so the package is also what the shard's per-mutant test cost is.
+mutation_rust_shard_package() {
+  case "$1" in
+    rust-core-ml-backfill | rust-core-ml-sampling | rust-core-ml-analysis) echo "mesh-agent-core" ;;
+    rust-core-alerts-retro | rust-core-alerts-evaluator | rust-core-alerts-dispatch) echo "mesh-agent-core" ;;
+    rust-core-correlate | rust-core-session | rust-core-discovery | rust-core-runtime) echo "mesh-agent-core" ;;
+    rust-tsdb-blocks | rust-tsdb-encoding | rust-tsdb-substrates) echo "edge-tsdb" ;;
+    rust-agent-loops) echo "mesh-agent" ;;
+    rust-protocol-wire) echo "mesh-protocol" ;;
+    *)
+      echo "unknown mutation shard: $1" >&2
+      return 1
+      ;;
+  esac
+}
+
+# Sources a shard owns, as units repository-relative to agent/:
+#   dir:<path>   every source below a directory
+#   file:<path>  one source file
+# The literal `rest` marks a package's catch-all shard, which owns everything its
+# siblings do not claim. Every package has exactly one, so a source added
+# tomorrow is mutated the day it lands instead of falling through the map.
+mutation_rust_shard_units() {
+  case "$1" in
+    rust-core-ml-backfill)
+      echo "file:crates/mesh-agent-core/src/ml/backfill.rs"
+      ;;
+    rust-core-ml-sampling)
+      echo "file:crates/mesh-agent-core/src/ml/sampler.rs file:crates/mesh-agent-core/src/ml/store_sink.rs file:crates/mesh-agent-core/src/ml/host_metric_stream.rs file:crates/mesh-agent-core/src/ml/window.rs file:crates/mesh-agent-core/src/ml/primary_iface.rs file:crates/mesh-agent-core/src/ml/pressure.rs file:crates/mesh-agent-core/src/ml/cgroup.rs"
+      ;;
+    rust-core-ml-analysis)
+      echo "file:crates/mesh-agent-core/src/ml/kmeans.rs file:crates/mesh-agent-core/src/ml/ensemble.rs file:crates/mesh-agent-core/src/ml/diskperf.rs file:crates/mesh-agent-core/src/ml/redact.rs file:crates/mesh-agent-core/src/ml/mod.rs"
+      ;;
+    rust-core-alerts-retro)
+      echo "file:crates/mesh-agent-core/src/alerts/retro.rs"
+      ;;
+    rust-core-alerts-evaluator)
+      echo "file:crates/mesh-agent-core/src/alerts/evaluator.rs"
+      ;;
+    rust-core-alerts-dispatch)
+      echo "file:crates/mesh-agent-core/src/alerts/event.rs file:crates/mesh-agent-core/src/alerts/sink.rs file:crates/mesh-agent-core/src/alerts/evidence.rs file:crates/mesh-agent-core/src/alerts/mod.rs"
+      ;;
+    rust-core-correlate) echo "dir:crates/mesh-agent-core/src/correlate" ;;
+    rust-core-session) echo "dir:crates/mesh-agent-core/src/session" ;;
+    rust-core-discovery) echo "dir:crates/mesh-agent-core/src/discovery" ;;
+    rust-core-runtime) echo "rest" ;;
+    rust-tsdb-blocks)
+      echo "dir:crates/edge-tsdb/src/store file:crates/edge-tsdb/src/compact.rs file:crates/edge-tsdb/src/deflate.rs"
+      ;;
+    rust-tsdb-encoding)
+      echo "file:crates/edge-tsdb/src/gorilla.rs file:crates/edge-tsdb/src/bitio.rs file:crates/edge-tsdb/src/crc.rs file:crates/edge-tsdb/src/frame.rs file:crates/edge-tsdb/src/tier.rs"
+      ;;
+    rust-tsdb-substrates) echo "rest" ;;
+    rust-agent-loops) echo "rest" ;;
+    rust-protocol-wire) echo "rest" ;;
+    *)
+      echo "unknown mutation shard: $1" >&2
+      return 1
+      ;;
+  esac
+}
+
+mutation_rust_unit_matches() {
+  local unit="${1:?mutation unit required}"
+  local source="${2:?source path required}"
+
+  case "$unit" in
+    dir:*)
+      local dir="${unit#dir:}"
+      [[ "$source" == "$dir/"* ]]
+      ;;
+    file:*) [[ "$source" == "${unit#file:}" ]] ;;
+    *) return 1 ;;
+  esac
+}
+
+# A unit as a cargo-mutants path glob. Globs containing a slash match the whole
+# workspace-relative path, which every unit here does.
+mutation_rust_shard_glob() {
+  local unit="${1:?mutation unit required}"
+
+  case "$unit" in
+    dir:*) printf '%s/**' "${unit#dir:}" ;;
+    file:*) printf '%s' "${unit#file:}" ;;
+    *)
+      echo "unknown mutation unit: $unit" >&2
+      return 1
+      ;;
+  esac
+}
+
+# The cargo-mutants arguments selecting one shard's mutants, one per line so a
+# caller can read them into an array without re-splitting paths.
+mutation_rust_shard_args() {
+  local shard="${1:?mutation shard required}"
+  local pkg units other other_units unit
+
+  pkg="$(mutation_rust_shard_package "$shard")" || return 1
+  units="$(mutation_rust_shard_units "$shard")" || return 1
+  printf -- '--package\n%s\n' "$pkg"
+
+  if [ "$units" = "rest" ]; then
+    for other in $(mutation_rust_shards); do
+      [ "$other" = "$shard" ] && continue
+      [ "$(mutation_rust_shard_package "$other")" = "$pkg" ] || continue
+      other_units="$(mutation_rust_shard_units "$other")"
+      [ "$other_units" = "rest" ] && continue
+      for unit in $other_units; do
+        printf -- '--exclude\n%s\n' "$(mutation_rust_shard_glob "$unit")"
+      done
+    done
+    return 0
+  fi
+
+  for unit in $units; do
+    printf -- '--file\n%s\n' "$(mutation_rust_shard_glob "$unit")"
   done
-  echo "${out# }"
 }
 
 mutation_web_shards() {
@@ -69,7 +209,7 @@ mutation_go_shard_units() {
       echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/conn_backfill.go"
       ;;
     go-agentapi-edge-telemetry)
-      echo "file:internal/agentapi/conn_discovery.go file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_accounting.go file:internal/agentapi/conn_coverage.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/conn_hardware.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go file:internal/agentapi/alert_rules_catalogue.go file:internal/agentapi/vitals.go"
+      echo "file:internal/agentapi/conn_discovery.go file:internal/agentapi/conn_telemetry.go file:internal/agentapi/conn_accounting.go file:internal/agentapi/conn_coverage.go file:internal/agentapi/conn_logs.go file:internal/agentapi/conn_history.go file:internal/agentapi/conn_hardware.go file:internal/agentapi/alert_breach.go file:internal/agentapi/alert_rules.go file:internal/agentapi/conn_alerts.go file:internal/agentapi/alert_rules_catalogue.go file:internal/agentapi/vitals.go"
       ;;
     go-domain-persistence)
       echo "dir:internal/auth dir:internal/db dir:internal/dbtx dir:internal/device dir:internal/inventory dir:internal/lifecycle dir:internal/organization dir:internal/rules dir:internal/settings dir:internal/session dir:internal/audit dir:internal/usecase"

@@ -24,7 +24,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
         with:
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
         with:
           workspaces: agent
       - run: cargo fmt --all -- --check
@@ -67,14 +67,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - uses: Swatinem/rust-cache@258712b0b7b1ddf8bddc9fc3b0faca682b2736c3 # v2
         with:
           workspaces: agent
-      - uses: taiki-e/install-action@cb33e69fad06166ca28a42b2575e4dadabf62ee8 # v2
+      - uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2
         with:
           tool: cargo-nextest
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cb33e69fad06166ca28a42b2575e4dadabf62ee8 # v2 — newer pin requires explicit tool input
+        uses: taiki-e/install-action@7f4eb899022d8fe70b20c4f3de697aa85c309026 # v2 — newer pin requires explicit tool input
         with:
           tool: cargo-llvm-cov
       # The instrumented run is the canonical execution of the workspace suite:
@@ -185,7 +185,11 @@ jobs:
     # `-c max_connections=400`. The default 100-conn limit saturates when
     # tests run in parallel — each parallel test holds its own schema via
     # testutil.NewTestStore and the working set of transient conns exceeds
-    # 100 with `go test -p $GOMAXPROCS`.
+    # 100 with `go test -p $GOMAXPROCS`. The lock table is sized at startup
+    # as max_locks_per_transaction × max_connections, so the per-transaction
+    # ceiling rises with it: a migration creates the whole schema in one
+    # transaction, and enough of those at once exhaust the default 64 and
+    # fail with "out of shared memory".
     env:
       POSTGRES_TEST_URL: postgres://opengate:opengate@localhost:5432/opengate_test?sslmode=disable
     steps:
@@ -199,7 +203,7 @@ jobs:
         run: |
           docker run -d --rm --name pg-ci \
             -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
-            -p 5432:5432 postgres:17-alpine -c max_connections=400
+            -p 5432:5432 postgres:17-alpine -c max_connections=400 -c max_locks_per_transaction=256
           for i in {1..30}; do
             if docker exec pg-ci pg_isready -U opengate -d opengate_test >/dev/null 2>&1; then
               echo "postgres ready after ${i} attempt(s)"; exit 0

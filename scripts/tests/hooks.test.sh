@@ -310,6 +310,18 @@ run_hook pretooluse-git-commit-guard.sh "$envelope"
 assert_exit "git commit on main: BLOCK" 2
 cleanup_repo
 
+# 5b. Commit on main behind a `-c key=value` prefix: BLOCK. Same separate-value
+# token blind spot as the push guard — the gauntlet must still run.
+make_repo
+git config user.name "Ivan Volchanskyi"
+git config user.email "ivan.volchanskyi@gmail.com"
+git checkout --quiet -b main
+stub_gauntlet 0
+envelope="$(build_envelope Bash '{"command":"git -c core.hooksPath=/dev/null commit -m feat"}')"
+run_hook pretooluse-git-commit-guard.sh "$envelope"
+assert_exit "git -c ... commit on main: BLOCK" 2
+cleanup_repo
+
 # 6. Commit without scripts/precommit-gauntlet.sh: BLOCK (hook needs the script to enforce).
 make_repo
 git config user.name "Ivan Volchanskyi"
@@ -390,6 +402,16 @@ make_repo
 envelope="$(build_envelope Bash '{"command":"git push --force origin main"}')"
 run_hook pretooluse-git-push-guard.sh "$envelope"
 assert_exit "git push --force main: BLOCK" 2
+cleanup_repo
+
+# 3b. Push to main behind a `-c key=value` prefix: BLOCK. `-c` takes its value
+# as a SEPARATE token, so a filter that only skips `-`-prefixed words never
+# reaches the push verb and the whole guard silently no-ops.
+make_repo
+envelope="$(build_envelope Bash '{"command":"git -c protocol.version=2 push origin main"}')"
+run_hook pretooluse-git-push-guard.sh "$envelope"
+assert_exit "git -c ... push origin main: BLOCK" 2
+assert_stderr_contains "-c push main: stderr cites main" "main"
 cleanup_repo
 
 # 4. Push doc-only branch WITHOUT refactor marker: BLOCK. Every commit since

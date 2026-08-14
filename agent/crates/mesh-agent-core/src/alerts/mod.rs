@@ -40,10 +40,21 @@
 //! cheap ones would turn a bad rollout into blanket blindness while still
 //! looking contained.
 
+//! An alert leaves the device with everything behind it attached
+//! ([`compose_evidence`]), because central keeps a 60 s average per dimension
+//! and there is no path for asking the endpoint afterwards. What is not on the
+//! alert at fire time is not recorded anywhere.
+
 mod evaluator;
 mod event;
+mod evidence;
 mod retro;
 mod sink;
+
+pub use evidence::{
+    compose_evidence, encode_evidence, DimSeries, EncodedEvidence, EvidenceSource, LOG_SAMPLES,
+    PROCESS_ROWS, RANKED_DIMS, SERIES_DIMS, SERIES_MAX_POINTS, SERIES_SPAN_SECS,
+};
 
 pub use evaluator::{
     rule_cost, AlertEvaluator, RULE_BUDGET_READINGS_PER_SEC, RULE_BUDGET_WINDOW_SECS,

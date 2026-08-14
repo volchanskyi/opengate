@@ -38,7 +38,7 @@ pub fn redact_cmdline(cmdline: &str) -> String {
             redacted.push("[REDACTED]");
             continue;
         }
-        if lower.contains("://") && token.contains('@') {
+        if carries_inline_credentials(token) {
             redacted.push("[REDACTED_URL]");
             continue;
         }
@@ -99,8 +99,9 @@ pub fn redact_log_line(line: &str) -> String {
             redact_next = true;
             continue;
         }
-        // Connection string / URL carrying `user:pass@host` credentials.
-        if lower.contains("://") && token.contains('@') {
+        // Connection string, URL, or UNC path carrying `user:pass@host`
+        // credentials.
+        if carries_inline_credentials(token) {
             out.push("[REDACTED_URL]".to_string());
             continue;
         }
@@ -135,6 +136,32 @@ fn redact_kv(token: &str) -> String {
         Some(idx) => format!("{}[REDACTED]", &token[..=idx]),
         None => "[REDACTED]".to_string(),
     }
+}
+
+/// A token carrying `user:pass@host` credentials inline.
+///
+/// A scheme is not required. A mounted share is written `//server/path` and an
+/// SSH or rsync target `user:pass@host:/path`, and neither has one — so keying
+/// this off `://` reads a credential in a UNC path as ordinary text and lets it
+/// off the device. What identifies the shape is the credential itself: a colon
+/// with something either side of it, before an `@` that is followed by a host.
+///
+/// A bare email address is deliberately not this shape (no colon), so ordinary
+/// log lines naming a user survive intact.
+fn carries_inline_credentials(token: &str) -> bool {
+    let Some((credential, host)) = token.rsplit_once('@') else {
+        return false;
+    };
+    if host.is_empty() {
+        return false;
+    }
+    // The scheme's own colon is not the credential's, so look past it.
+    let credential = credential
+        .rsplit_once("://")
+        .map_or(credential, |(_, after)| after);
+    credential
+        .split_once(':')
+        .is_some_and(|(user, secret)| !user.is_empty() && !secret.is_empty())
 }
 
 /// A JSON Web Token — three non-empty base64url segments starting `eyJ` (the

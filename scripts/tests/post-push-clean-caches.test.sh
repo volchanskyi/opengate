@@ -80,7 +80,18 @@ t_runs_core_cleanup() {
     fail "core cleanup: docker volume prune not invoked"
     return
   }
-  pass "runs cargo clean + go clean -cache + docker volume prune -f"
+  # The Docker builder cache is the largest consumer on this machine: every
+  # `make e2e` / gauntlet run does `up --build`, and each run lays down a fresh
+  # set of build-cache records that nothing else ever reclaims.
+  grep -q '^docker builder prune -af' "$STUB_LOG" || {
+    fail "core cleanup: docker builder prune -af not invoked (build cache leaks)"
+    return
+  }
+  grep -q '^docker image prune -f' "$STUB_LOG" || {
+    fail "core cleanup: docker image prune -f not invoked (dangling images leak)"
+    return
+  }
+  pass "runs cargo clean + go clean -cache + docker volume/builder/image prune"
 }
 
 # --- T2: no-op under CI -------------------------------------------------------
@@ -160,11 +171,28 @@ t_never_clears_dep_caches() {
   pass "never clears cargo registry / Go module cache"
 }
 
+# --- T6: prunes only what rebuilds, never what re-downloads ------------------
+# `docker image prune -a` / `docker system prune -a` delete tagged base images
+# (postgres:17, node, golang) that are pulled from a registry, not built — that
+# is a re-download, which this hook must never force.
+t_never_forces_redownload() {
+  # Assert on executable lines only — the header comment names these commands
+  # precisely to document that they are off-limits.
+  local code
+  code="$(grep -v '^[[:space:]]*#' "$HOOK")"
+  if grep -Eq 'image[[:space:]]+prune[[:space:]]+-[a-z]*a|system[[:space:]]+prune' <<<"$code"; then
+    fail "safety: hook prunes tagged/unused images (forces base-image re-downloads)"
+    return
+  fi
+  pass "docker pruning is rebuild-only; base images are never re-downloaded"
+}
+
 t_runs_core_cleanup
 t_skips_in_ci
 t_opt_out
 t_missing_tool_non_fatal
 t_never_clears_dep_caches
+t_never_forces_redownload
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 if [[ "$FAIL" -gt 0 ]]; then

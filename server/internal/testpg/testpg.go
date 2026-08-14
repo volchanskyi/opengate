@@ -85,7 +85,11 @@ func initBaseURL() {
 
 // startContainer launches a throwaway postgres:17-alpine container and returns
 // its connection string. max_connections matches the Makefile postgres-test-up
-// target so the test suite's concurrency budget holds.
+// target so the test suite's concurrency budget holds, and the per-transaction
+// lock ceiling rises with it: the lock table is sized once at startup as
+// max_locks_per_transaction × max_connections, and a migration builds an entire
+// schema in one transaction, so enough of them at once exhaust the default 64
+// and fail with "out of shared memory" rather than anything about the schema.
 func startContainer() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -98,7 +102,10 @@ func startContainer() (string, error) {
 		postgres.WithUsername("opengate"),
 		postgres.WithPassword("opengate"),
 		postgres.BasicWaitStrategies(),
-		testcontainers.WithCmd("postgres", "-c", "max_connections=400"),
+		testcontainers.WithCmd("postgres",
+			"-c", "max_connections=400",
+			"-c", "max_locks_per_transaction=256",
+		),
 	)
 	if err != nil {
 		return "", err

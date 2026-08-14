@@ -53,18 +53,45 @@ fi
 
 # --- Static workflow contract -------------------------------------------------
 
-# The job timeout is a flat 75 minutes. Every leg fits under it: the Go leg is
-# package-sharded and the rust leg is split with `cargo mutants --shard`.
+# The job timeout is a flat 75 minutes. Every leg fits under it: both the Go and
+# the Rust leg are sharded by scope, so each shard mutates one package's named
+# behavior and rebuilds inside one crate.
 if grep -qE "^[[:space:]]*timeout-minutes:[[:space:]]*75[[:space:]]*$" "$WORKFLOW"; then
   pass "mutation job timeout is a flat 75 minutes (every sharded leg fits under it)"
 else
   fail "mutation job must set timeout-minutes: 75"
 fi
 
-if grep -qE 'cargo mutants .*--shard[[:space:]]+.*matrix\.rust_shard.*--sharding[[:space:]]+round-robin' "$WORKFLOW"; then
-  pass "rust step selects matrix shard with round-robin balancing"
+if grep -qE 'mutation_rust_shard_args' "$WORKFLOW"; then
+  pass "rust step selects its mutants through the shard map"
 else
-  fail "rust step must run the matrix shard with --sharding round-robin"
+  fail "rust step must select mutants via mutation_rust_shard_args"
+fi
+
+# What sank runs 31667836032 and 31770530290 was not the shard count — it was the
+# per-mutant test cost. cargo-mutants runs the mutated package's whole suite once
+# per mutant, and one measurement test in mesh-agent-core drives three stores to
+# eviction for ~25s, so all ~1400 of that package's mutants each paid it. The
+# guard below is the fix, expressed where it cannot be lost: the shipped
+# cargo-mutants config must keep the measurement out of the per-mutant run.
+MUTANTS_TOML="$REPO_ROOT/agent/.cargo/mutants.toml"
+if [ -f "$MUTANTS_TOML" ] \
+  && grep -q 'additional_cargo_test_args' "$MUTANTS_TOML" \
+  && grep -q -- '--skip' "$MUTANTS_TOML" \
+  && grep -q 'the_minute_tier_reaches_back_far_enough_to_be_worth_scanning' "$MUTANTS_TOML"; then
+  pass "cargo-mutants config keeps the multi-second reach measurement out of every mutant's test run"
+else
+  fail "agent/.cargo/mutants.toml must skip the reach measurement via additional_cargo_test_args"
+fi
+
+# The test that costs it must still exist and still run under a plain `cargo
+# test` — the skip is scoped to mutation runs, not a quiet deletion.
+REACH_TEST="$REPO_ROOT/agent/crates/mesh-agent-core/tests/reach_test.rs"
+if [ -f "$REACH_TEST" ] \
+  && grep -q 'fn the_minute_tier_reaches_back_far_enough_to_be_worth_scanning' "$REACH_TEST"; then
+  pass "the reach measurement still runs in the normal test suite"
+else
+  fail "reach_test.rs must keep the_minute_tier_reaches_back_far_enough_to_be_worth_scanning"
 fi
 
 if grep -q 'SUMMARY_STATUS=' "$WORKFLOW" \
@@ -99,51 +126,154 @@ if [ -f "$SHARDS_LIB" ]; then
     fail "workflow shard ids drifted from map: map='$want_ids' wf='$have_ids'"
   fi
 
-  # The Rust shard count lives in the library alone; the workflow matrix and
-  # these assertions derive from it, so raising it is a one-line change that
-  # cannot leave the matrix and the merge set disagreeing.
-  rust_count="$(mutation_rust_shards | wc -w | tr -d ' ')"
-
-  # Sizing floor. Run 31667836032 cancelled all eight Rust shards at the 75-minute
-  # cap: the workspace had grown to ~2400 mutants, so each of eight shards carried
-  # ~300 and needed over 75 minutes, and the whole Rust leg produced no artifact.
-  # At the throughput the runs before it measured (250 mutants in 60 minutes, and
-  # slower since the agent's test suite grew), a shard must carry roughly 160
-  # mutants or fewer to finish with real headroom under the cap — hence at least
-  # sixteen shards. This floor is what stops the leg being quietly resized back
-  # into the failure.
-  if [ "$rust_count" -ge 16 ]; then
-    pass "rust leg is split into at least sixteen shards (have $rust_count)"
-  else
-    fail "rust leg must be split into >=16 shards to keep headroom under the 75-minute cap (have $rust_count)"
-  fi
-
-  # Ids must name the strategy and the selector, and cover 1..N with no gaps.
-  want_rust=""
-  want_selectors=""
-  for i in $(seq 1 "$rust_count"); do
-    want_rust="$want_rust rust-round-robin-$i-of-$rust_count"
-    want_selectors="$want_selectors $((i - 1))/$rust_count"
-  done
-  want_rust="$(echo "$want_rust" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
-  want_selectors="$(echo "$want_selectors" | tr ' ' '\n' | sed '/^$/d' | sort | tr '\n' ' ')"
-
+  # Rust shard ids name the behavior they mutate, so a red leg says what broke
+  # without anyone opening the matrix to decode a slice number.
   have_rust="$(mutation_rust_shards | tr ' ' '\n' | sort | tr '\n' ' ')"
-  if [ "$want_rust" = "$have_rust" ]; then
-    pass "rust shard ids are round-robin 1..$rust_count-of-$rust_count with no gaps"
+  meaningful_rust="rust-agent-loops rust-core-alerts-dispatch rust-core-alerts-evaluator rust-core-alerts-retro rust-core-correlate rust-core-discovery rust-core-ml-analysis rust-core-ml-backfill rust-core-ml-sampling rust-core-runtime rust-core-session rust-protocol-wire rust-tsdb-blocks rust-tsdb-encoding rust-tsdb-substrates "
+  if [ "$have_rust" = "$meaningful_rust" ]; then
+    pass "Rust shard ids describe their owned behavior"
   else
-    fail "rust shard ids must be round-robin 1..N-of-N (want='$want_rust' have='$have_rust')"
+    fail "Rust shard ids must describe behavior (got='$have_rust')"
   fi
 
-  # Workflow matrix legs and their --shard selectors must match the library.
-  workflow_rust="$({ grep -oE 'shard:[[:space:]]*rust-round-robin-[0-9]+-of-[0-9]+' "$WORKFLOW" || true; } \
+  # Workflow matrix legs must match the library.
+  workflow_rust="$({ grep -oE 'shard:[[:space:]]*rust-[a-z0-9-]+' "$WORKFLOW" || true; } \
     | sed -E 's/shard:[[:space:]]*//' | sort -u | tr '\n' ' ')"
-  workflow_selectors="$(sed -nE 's/.*language:[[:space:]]*rust.*rust_shard:[[:space:]]*"([0-9]+\/[0-9]+)".*/\1/p' "$WORKFLOW" \
-    | sort | tr '\n' ' ')"
-  if [ "$have_rust" = "$workflow_rust" ] && [ "$want_selectors" = "$workflow_selectors" ]; then
-    pass "workflow matrix rust legs and --shard selectors match the shard map"
+  if [ "$have_rust" = "$workflow_rust" ]; then
+    pass "workflow matrix rust legs match the shard map"
   else
-    fail "rust matrix drifted from map (legs want='$have_rust' got='$workflow_rust'; selectors want='$want_selectors' got='$workflow_selectors')"
+    fail "rust matrix drifted from map (want='$have_rust' got='$workflow_rust')"
+  fi
+
+  read -r -a rust_shards <<<"$(mutation_rust_shards)"
+
+  # Every shard mutates exactly one package, and every package that holds
+  # mutable sources has exactly one catch-all shard. The catch-all is what makes
+  # a newly added source mutate the day it lands instead of falling through the
+  # map unnoticed.
+  rust_pkg_bad=""
+  declare -A rust_catchall=()
+  declare -A rust_pkg_seen=()
+  for shard in "${rust_shards[@]}"; do
+    pkg="$(mutation_rust_shard_package "$shard")" \
+      || {
+        rust_pkg_bad="$rust_pkg_bad [$shard:no-package]"
+        continue
+      }
+    [ -d "$REPO_ROOT/agent/crates/$pkg/src" ] \
+      || rust_pkg_bad="$rust_pkg_bad [$shard:no-such-package:$pkg]"
+    rust_pkg_seen[$pkg]=1
+    if [ "$(mutation_rust_shard_units "$shard")" = "rest" ]; then
+      [ -n "${rust_catchall[$pkg]:-}" ] \
+        && rust_pkg_bad="$rust_pkg_bad [$pkg:two-catch-alls:$shard+${rust_catchall[$pkg]}]"
+      rust_catchall[$pkg]="$shard"
+    fi
+  done
+  for pkg in "${!rust_pkg_seen[@]}"; do
+    [ -n "${rust_catchall[$pkg]:-}" ] || rust_pkg_bad="$rust_pkg_bad [$pkg:no-catch-all]"
+  done
+  if [ -z "$rust_pkg_bad" ]; then
+    pass "each Rust package has exactly one catch-all shard"
+  else
+    fail "Rust shard package map is wrong:$rust_pkg_bad"
+  fi
+
+  # cargo-mutants' own exclude_globs carve out code with no in-tree harness;
+  # those files are not the shard map's to own.
+  rust_carved="$(sed -n '/^exclude_globs[[:space:]]*=/,/]/p' "$REPO_ROOT/agent/.cargo/mutants.toml" \
+    | grep -oE '"[^"]+"' | tr -d '"')"
+  rust_is_carved() {
+    local source="$1" glob
+    for glob in $rust_carved; do
+      case "$glob" in
+        */\*\*) [[ "$source" == "${glob%/\*\*}/"* ]] && return 0 ;;
+        *) [ "$source" = "$glob" ] && return 0 ;;
+      esac
+    done
+    return 1
+  }
+
+  # Whole-workspace partition: every mutable Rust source belongs to exactly one
+  # shard — an explicit unit, or its package's catch-all when no unit claims it.
+  # Double ownership would count the same mutant twice in the merged score.
+  rust_partition_bad=""
+  while IFS= read -r source; do
+    rel="${source#"$REPO_ROOT/agent/"}"
+    rust_is_carved "$rel" && continue
+    pkg="$(printf '%s\n' "$rel" | cut -d/ -f2)"
+    owners=0
+    for shard in "${rust_shards[@]}"; do
+      [ "$(mutation_rust_shard_package "$shard")" = "$pkg" ] || continue
+      units="$(mutation_rust_shard_units "$shard")"
+      [ "$units" = "rest" ] && continue
+      for unit in $units; do
+        mutation_rust_unit_matches "$unit" "$rel" && owners=$((owners + 1))
+      done
+    done
+    # Unclaimed sources are the catch-all's, which every package has.
+    [ "$owners" -eq 0 ] && owners=1
+    [ "$owners" -eq 1 ] || rust_partition_bad="$rust_partition_bad [$rel:owners=$owners]"
+  done < <(find "$REPO_ROOT/agent/crates" -type f -name '*.rs' -path '*/src/*' | sort)
+  if [ -z "$rust_partition_bad" ]; then
+    pass "every mutable Rust source is assigned to exactly one shard"
+  else
+    fail "Rust source partition mismatch:$rust_partition_bad"
+  fi
+
+  # Declared units must exist, so a rename cannot leave a shard silently
+  # mutating nothing while its files drift into the catch-all.
+  rust_unit_bad=""
+  for shard in "${rust_shards[@]}"; do
+    units="$(mutation_rust_shard_units "$shard")"
+    [ "$units" = "rest" ] && continue
+    for unit in $units; do
+      case "$unit" in
+        dir:*) [ -d "$REPO_ROOT/agent/${unit#dir:}" ] || rust_unit_bad="$rust_unit_bad [$shard:$unit:no-such-dir]" ;;
+        file:*) [ -f "$REPO_ROOT/agent/${unit#file:}" ] || rust_unit_bad="$rust_unit_bad [$shard:$unit:no-such-file]" ;;
+        *) rust_unit_bad="$rust_unit_bad [$shard:$unit:bad-kind]" ;;
+      esac
+    done
+  done
+  if [ -z "$rust_unit_bad" ]; then
+    pass "all Rust mutation units use valid dir:/file: paths"
+  else
+    fail "invalid Rust mutation unit declarations:$rust_unit_bad"
+  fi
+
+  # The emitted CLI must scope the run to the shard's package and select by
+  # file, never fall back to mutating the whole workspace.
+  rust_args_bad=""
+  for shard in "${rust_shards[@]}"; do
+    mapfile -t shard_args < <(mutation_rust_shard_args "$shard")
+    [ "${shard_args[0]}" = "--package" ] \
+      || rust_args_bad="$rust_args_bad [$shard:not-package-scoped]"
+    [ "${shard_args[1]}" = "$(mutation_rust_shard_package "$shard")" ] \
+      || rust_args_bad="$rust_args_bad [$shard:wrong-package]"
+    printf '%s\n' "${shard_args[@]}" | grep -q -- '--workspace' \
+      && rust_args_bad="$rust_args_bad [$shard:workspace-wide]"
+    if [ "$(mutation_rust_shard_units "$shard")" = "rest" ]; then
+      # A catch-all with siblings must exclude every one of their globs.
+      for other in "${rust_shards[@]}"; do
+        [ "$other" = "$shard" ] && continue
+        [ "$(mutation_rust_shard_package "$other")" = "$(mutation_rust_shard_package "$shard")" ] || continue
+        other_units="$(mutation_rust_shard_units "$other")"
+        [ "$other_units" = "rest" ] && continue
+        for unit in $other_units; do
+          printf '%s\n' "${shard_args[@]}" | grep -qxF "$(mutation_rust_shard_glob "$unit")" \
+            || rust_args_bad="$rust_args_bad [$shard:missing-exclude:$unit]"
+        done
+      done
+    else
+      for unit in $(mutation_rust_shard_units "$shard"); do
+        printf '%s\n' "${shard_args[@]}" | grep -qxF "$(mutation_rust_shard_glob "$unit")" \
+          || rust_args_bad="$rust_args_bad [$shard:missing-file:$unit]"
+      done
+    fi
+  done
+  if [ -z "$rust_args_bad" ]; then
+    pass "each Rust shard's cargo-mutants args select exactly its own sources"
+  else
+    fail "Rust shard args are wrong:$rust_args_bad"
   fi
 
   if [ "$(mutation_all_shards)" = "$(mutation_rust_shards) $(mutation_go_shards) web" ]; then

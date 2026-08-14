@@ -27,8 +27,13 @@ parse_input_fields tool_name tool_input.command
 cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 [ -n "$cmd" ] || exit 0
 
-# Filter: command must include a `git commit` verb.
-if ! printf '%s' "$cmd" | grep -qE '\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+)*commit\b'; then
+# Filter: command must include a `git commit` verb. Pre-verb tokens are options,
+# each optionally followed by its own value word — `-c` takes its value as a
+# SEPARATE token (`git -c core.hooksPath=… commit`), so skipping only
+# `-`-prefixed words never reaches the verb and the gauntlet would silently not
+# run. Requiring an option lead keeps `git log --grep=commit` from matching.
+if ! printf '%s' "$cmd" \
+  | grep -qE '\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?)*commit\b'; then
   exit 0
 fi
 

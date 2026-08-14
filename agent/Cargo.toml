@@ -22,6 +22,9 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 anyhow = "1"
 rand = "0.9"
+# Pure-Rust DEFLATE (miniz_oxide). The alert-evidence codec on the wire and the
+# edge TSDB cold tier share it; Go reads both with stdlib compress/flate.
+flate2 = "1"
 async-trait = "0.1"
 
 quinn = "0.11.9"

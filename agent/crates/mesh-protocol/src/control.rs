@@ -1,8 +1,15 @@
+use std::io::{Read, Write};
+
+use flate2::read::DeflateDecoder;
+use flate2::write::DeflateEncoder;
+use flate2::Compression;
+use serde::{Deserialize, Serialize};
+
+use crate::error::ProtocolError;
 use crate::types::{
     AgentCapability, FileEntry, KeyCode, LogEntry, MouseButton, NetworkInterface, Permissions,
     SessionToken,
 };
-use serde::{Deserialize, Serialize};
 
 /// Per-family anomaly rate inside an Edge Sentinel health summary.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -227,6 +234,135 @@ pub struct AlertBreach {
     pub metric: String,
     /// Metric value at the evaluation that reported the breach.
     pub value: f64,
+}
+
+/// Whether a `u32` field carries nothing, so it is omitted the way the server's
+/// `omitempty` omits it and the two encoders stay byte-identical.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero_u32(value: &u32) -> bool {
+    *value == 0
+}
+
+/// The same test for the timestamp fields.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_zero_i64(value: &i64) -> bool {
+    *value == 0
+}
+
+/// How bad an alert is.
+///
+/// A closed set, and closed on purpose: severity decides how an incident is
+/// presented, and an open scale invites a per-rule argument about numbers no two
+/// rule authors would settle the same way. The server refuses anything outside
+/// it rather than storing a severity nothing downstream knows how to render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum AlertSeverity {
+    /// Worth recording beside an incident, not worth raising one for.
+    #[default]
+    Info,
+    /// Something is wrong and a person should look at it.
+    Warning,
+    /// Something is broken now.
+    Critical,
+}
+
+/// One dimension the device's own correlation engine ranked at the moment an
+/// alert fired, and how badly it broke pattern.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RankedDim {
+    /// The dimension's stable label, e.g. `disk.await_ms`.
+    pub dim: String,
+    /// The blended rank score in `[0, 1]`.
+    pub score: f64,
+}
+
+/// One dimension's readings either side of the event, at the resolution only
+/// the device holds. Central keeps a 60 s average per dimension, which is where
+/// a ten-second collapse goes to disappear — so the shape travels with the
+/// alert or it is not available at all.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EvidenceSeries {
+    /// The dimension's stable label.
+    pub dim: String,
+    /// Readings across the event window, oldest first.
+    pub points: Vec<HistoryPoint>,
+}
+
+/// Everything the device knows about why an alert fired, shipped with the alert.
+///
+/// Central never holds the detail behind a signal and nothing can be fetched
+/// back later, so an alert that arrives without its evidence is an alert whose
+/// evidence no longer exists. Composition is fixed rather than "top-N by
+/// whatever fits": a technician comparing two incidents needs them to have been
+/// assembled the same way.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct AlertEvidence {
+    /// Dimensions that broke pattern, most anomalous first.
+    #[serde(default)]
+    pub ranked: Vec<RankedDim>,
+    /// Readings for the highest-ranked dimensions across the event window.
+    #[serde(default)]
+    pub series: Vec<EvidenceSeries>,
+    /// What was running at the event instant.
+    #[serde(default)]
+    pub processes: Vec<ProcessReportEntry>,
+    /// Redacted host log lines from the event window.
+    #[serde(default)]
+    pub log_samples: Vec<String>,
+    /// Whether the size cap cost this evidence anything. Always stated, so
+    /// "nothing was dropped" and "nobody checked" never look alike.
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+/// The codec `AlertEvidence` is compressed with on the wire.
+///
+/// Versioned in the name, and carried on every alert rather than assumed, so a
+/// later codec is an additive change and a reader that does not know one says so
+/// instead of handing back nonsense. DEFLATE because both sides already have it
+/// — pure-Rust `miniz_oxide` here, `compress/flate` in the Go standard library —
+/// so the evidence contract costs neither side a dependency.
+pub const EVIDENCE_CODEC: &str = "deflate-1";
+
+/// The most an alert's compressed evidence may weigh.
+///
+/// Evidence that would exceed this is truncated and says so; it is never a
+/// reason to refuse the alert. An alert without its evidence still says a
+/// machine is in trouble, and that is the part nothing else can reconstruct.
+pub const MAX_EVIDENCE_BYTES: usize = 64 * 1024;
+
+impl AlertEvidence {
+    /// Compress this evidence for the wire under [`EVIDENCE_CODEC`].
+    ///
+    /// # Errors
+    /// Returns [`ProtocolError::MsgpackEncode`] if the evidence cannot be
+    /// serialized.
+    pub fn encode(&self) -> Result<Vec<u8>, ProtocolError> {
+        let packed = rmp_serde::to_vec_named(self)?;
+        let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
+        enc.write_all(&packed)
+            .and_then(|()| enc.finish())
+            .map_err(|_| ProtocolError::CorruptEvidence)
+    }
+
+    /// Read evidence written by [`AlertEvidence::encode`].
+    ///
+    /// # Errors
+    /// Returns [`ProtocolError::UnknownEvidenceCodec`] when `codec` is not one
+    /// this build reads, [`ProtocolError::CorruptEvidence`] when the blob does
+    /// not decompress, and [`ProtocolError::MsgpackDecode`] when it decompresses
+    /// to something that is not evidence.
+    pub fn decode(bytes: &[u8], codec: &str) -> Result<Self, ProtocolError> {
+        if codec != EVIDENCE_CODEC {
+            return Err(ProtocolError::UnknownEvidenceCodec(codec.to_string()));
+        }
+        let mut packed = Vec::new();
+        DeflateDecoder::new(bytes)
+            .read_to_end(&mut packed)
+            .map_err(|_| ProtocolError::CorruptEvidence)?;
+        Ok(rmp_serde::from_slice(&packed)?)
+    }
 }
 
 /// Sanitized process sample row for Edge Sentinel reporting.
@@ -764,6 +900,71 @@ pub enum ControlMessage {
     MaintenanceApplied {
         #[serde(default)]
         enabled: bool,
+    },
+
+    /// Agent → Server: one alert, carrying with it everything the device knows
+    /// about why it fired.
+    ///
+    /// This is the only alert transport. Central holds no high-resolution
+    /// history to go back to, and there is no path for asking the device
+    /// afterwards, so an alert is self-contained at fire time or the detail
+    /// behind it is gone. `evidence` is [`AlertEvidence`] encoded as msgpack and
+    /// compressed with the codec `evidence_codec` names; keeping the codec on
+    /// the message rather than assuming one makes a future codec additive.
+    ///
+    /// `(device, rule_id, rule_version, window_start_ts)` identifies the alert
+    /// independently of `alert_id`, so a reconnect that replays a queued alert
+    /// resolves to the same row rather than a second one.
+    ///
+    /// Every field is omitted when it carries nothing, mirroring the server's
+    /// struct, except `severity` and `backfilled`: those two are always stated,
+    /// because "not said" and "not serious" must never look alike. Gated by the
+    /// Alerts capability.
+    AgentAlert {
+        /// The device's own id for this alert, for tracing one report end to
+        /// end. Not the identity the server dedups on.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        alert_id: String,
+        /// Which rule fired.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        rule_id: String,
+        /// Which revision of that rule fired, counting from one. A rule edited
+        /// after this alert was raised does not retroactively change what fired.
+        #[serde(default, skip_serializing_if = "is_zero_u32")]
+        rule_version: u32,
+        /// How bad the rule says this is.
+        #[serde(default)]
+        severity: AlertSeverity,
+        /// Watched dimension, echoed so an alert reads without a rule-table
+        /// join. Empty for a rule that watches something other than a metric.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        metric: String,
+        /// The value that crossed the line, when there was one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<f64>,
+        /// Start of the window the rule decided on, in seconds. Part of the
+        /// alert's identity.
+        #[serde(default, skip_serializing_if = "is_zero_i64")]
+        window_start_ts: i64,
+        /// End of that window, in seconds.
+        #[serde(default, skip_serializing_if = "is_zero_i64")]
+        window_end_ts: i64,
+        /// When the device raised the alert, in seconds. For a backfilled
+        /// finding this is nowhere near the window it describes.
+        #[serde(default, skip_serializing_if = "is_zero_i64")]
+        observed_ts: i64,
+        /// Whether the device found this by re-running a rule over history it
+        /// already held, rather than as it happened.
+        #[serde(default)]
+        backfilled: bool,
+        /// How `evidence` is compressed, e.g. `"deflate-1"`. Empty when the
+        /// alert carries no evidence.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        evidence_codec: String,
+        /// Compressed [`AlertEvidence`]. Empty when the device had nothing to
+        /// attach, which is a legal alert rather than a broken one.
+        #[serde(default, with = "serde_bytes", skip_serializing_if = "Vec::is_empty")]
+        evidence: Vec<u8>,
     },
 
     /// Unknown future control message. Agents ignore this and keep the

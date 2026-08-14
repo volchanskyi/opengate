@@ -22,8 +22,14 @@ parse_input_fields tool_name tool_input.command
 cmd="${HOOK_TOOL_INPUT_COMMAND:-}"
 [ -n "$cmd" ] || exit 0
 
-# Filter: command must include a `git push` verb.
-if ! printf '%s' "$cmd" | grep -qE '\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+)*push\b'; then
+# Filter: command must include a `git push` verb. Pre-verb tokens are options,
+# each optionally followed by its own value word — `-c` takes its value as a
+# SEPARATE token (`git -c protocol.version=2 push`), so skipping only
+# `-`-prefixed words never reaches the verb and the guard would silently no-op
+# on exactly the form that most needs catching. Requiring an option lead keeps
+# `git log --grep=push` from matching.
+if ! printf '%s' "$cmd" \
+  | grep -qE '\bgit[[:space:]]+(-[^[:space:]]+[[:space:]]+([^-][^[:space:]]*[[:space:]]+)?)*push\b'; then
   exit 0
 fi
 

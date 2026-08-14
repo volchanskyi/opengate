@@ -66,7 +66,56 @@ const (
 	// Maintenance mode: server → agent toggle and the agent's applied-state report.
 	MsgSetMaintenanceMode ControlMessageType = "SetMaintenanceMode"
 	MsgMaintenanceApplied ControlMessageType = "MaintenanceApplied"
+
+	// MsgAgentAlert is the alert transport: one alert carrying everything the
+	// device knows about why it fired. It is the only one — the server holds no
+	// high-resolution history behind a signal and never asks the device for more,
+	// so a second transport would be a second source of truth for the same event.
+	MsgAgentAlert ControlMessageType = "AgentAlert"
 )
+
+// AlertSeverity is how bad an alert is. It mirrors the Rust AlertSeverity enum,
+// which serializes as its variant name. The set is closed: severity decides how
+// an incident is presented, so the server refuses a value outside it rather than
+// storing one nothing downstream knows how to render.
+type AlertSeverity string
+
+const (
+	// AlertSeverityInfo is worth recording beside an incident, not worth raising
+	// one for.
+	AlertSeverityInfo AlertSeverity = "Info"
+	// AlertSeverityWarning means something is wrong and a person should look.
+	AlertSeverityWarning AlertSeverity = "Warning"
+	// AlertSeverityCritical means something is broken now.
+	AlertSeverityCritical AlertSeverity = "Critical"
+)
+
+const (
+	// EvidenceCodec is how AlertEvidence is compressed on the wire. Versioned in
+	// the name and carried on every alert rather than assumed, so a later codec
+	// is additive and a reader that does not know one says so instead of
+	// decoding nonsense. DEFLATE because both sides already have it — pure-Rust
+	// miniz_oxide on the agent, compress/flate here — so the evidence contract
+	// costs neither side a dependency.
+	EvidenceCodec = "deflate-1"
+
+	// MaxEvidenceBytes is the most an alert's compressed evidence may weigh. The
+	// agent truncates to fit it and says so; going over is never a reason to
+	// refuse the alert, because an alert without its evidence still says a
+	// machine is in trouble and that part cannot be reconstructed later.
+	MaxEvidenceBytes = 64 * 1024
+)
+
+// ValidAlertSeverity reports whether s is one of the three severities the
+// contract defines.
+func ValidAlertSeverity(s AlertSeverity) bool {
+	switch s {
+	case AlertSeverityInfo, AlertSeverityWarning, AlertSeverityCritical:
+		return true
+	default:
+		return false
+	}
+}
 
 // AlertComparator is the comparison direction of a WS-19 threshold-alert rule.
 // It mirrors the Rust AlertComparator enum, which serializes as its variant
@@ -262,6 +311,63 @@ type ControlMessage struct {
 	// drop it and break the byte-for-byte contract with Rust's always-present
 	// field.
 	Enabled *bool `msgpack:"enabled,omitempty"`
+
+	// AgentAlert (agent → server). Declaration order here is the order the agent
+	// emits, which is what keeps the re-encode byte-identical.
+	//
+	// Severity and Backfilled are pointers for the same reason Enabled is: both
+	// are always stated on the wire, and omitempty would drop a stated Info or a
+	// stated false. Reading "nothing said" as "not serious" is the one mistake
+	// this transport must not make.
+	//
+	// (device, RuleID, RuleVersion, WindowStartTS) is the alert's identity, so a
+	// reconnect that replays a queued alert resolves to the same row. AlertID is
+	// the device's own handle for tracing one report end to end.
+	AlertID       string         `msgpack:"alert_id,omitempty"`
+	RuleID        string         `msgpack:"rule_id,omitempty"`
+	RuleVersion   uint32         `msgpack:"rule_version,omitempty"`
+	Severity      *AlertSeverity `msgpack:"severity,omitempty"`
+	Metric        string         `msgpack:"metric,omitempty"`
+	Value         *float64       `msgpack:"value,omitempty"`
+	WindowStartTS int64          `msgpack:"window_start_ts,omitempty"`
+	WindowEndTS   int64          `msgpack:"window_end_ts,omitempty"`
+	ObservedTS    int64          `msgpack:"observed_ts,omitempty"`
+	Backfilled    *bool          `msgpack:"backfilled,omitempty"`
+	// EvidenceCodec names how Evidence is compressed, e.g. "deflate-1". It rides
+	// the message rather than being assumed so a later codec is additive and a
+	// server that does not know one says so instead of decoding nonsense.
+	EvidenceCodec string `msgpack:"evidence_codec,omitempty"`
+	// Evidence is a compressed AlertEvidence. Empty is a legal alert: the device
+	// had nothing to attach, which still says the machine is in trouble.
+	Evidence []byte `msgpack:"evidence,omitempty"`
+}
+
+// RankedDim is one dimension the device's own correlation engine ranked at the
+// moment an alert fired, and how badly it broke pattern.
+type RankedDim struct {
+	Dim   string  `msgpack:"dim"`
+	Score float64 `msgpack:"score"`
+}
+
+// EvidenceSeries is one dimension's readings either side of the event, at the
+// resolution only the device holds. Central keeps a 60 s average per dimension,
+// which is where a ten-second collapse goes to disappear.
+type EvidenceSeries struct {
+	Dim    string         `msgpack:"dim"`
+	Points []HistoryPoint `msgpack:"points"`
+}
+
+// AlertEvidence is everything the device knows about why an alert fired. It
+// arrives compressed inside ControlMessage.Evidence and is never fetched
+// afterwards, so what is not here about an event is not recorded anywhere.
+type AlertEvidence struct {
+	Ranked     []RankedDim          `msgpack:"ranked"`
+	Series     []EvidenceSeries     `msgpack:"series"`
+	Processes  []ProcessReportEntry `msgpack:"processes"`
+	LogSamples []string             `msgpack:"log_samples"`
+	// Truncated says whether the size cap cost this evidence anything, so
+	// "nothing was dropped" and "nobody checked" never look alike.
+	Truncated bool `msgpack:"truncated"`
 }
 
 // LogEntry represents a single parsed log entry from the agent.

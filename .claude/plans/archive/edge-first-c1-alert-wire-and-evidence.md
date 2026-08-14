@@ -42,7 +42,7 @@ either side**. The codec is a versioned string on the row, so a future change is
 ## Conflict this plan must resolve (flag to the owner)
 
 The server's telemetry payload bound is **`maxTelemetryPayloadBytes = 64 * 1024`**
-([conn_telemetry.go:15](../../server/internal/agentapi/conn_telemetry.go#L15)) — the *same* number as
+([conn_telemetry.go:15](../../../server/internal/agentapi/conn_telemetry.go#L15)) — the *same* number as
 the evidence cap. A maximal alert (64 KB evidence **plus** its envelope) therefore exceeds the bound
 and is dropped as `payload_too_large`, silently defeating E11's "truncate, never reject".
 
@@ -53,27 +53,27 @@ different paths with different risk.
 
 ## File inventory
 
-- **Modify:** [control.rs](../../agent/crates/mesh-protocol/src/control.rs) — `AgentAlert`,
+- **Modify:** [control.rs](../../../agent/crates/mesh-protocol/src/control.rs) — `AgentAlert`,
   `AlertEvidence`, `Alerts` capability.
 - **Create:** `agent/crates/mesh-agent-core/src/alerts/evidence.rs` — composition, caps, redaction,
   DEFLATE encode.
-- **Modify:** [alerts/sink.rs](../../agent/crates/mesh-agent-core/src/alerts/) — the sink's transport
+- **Modify:** [alerts/sink.rs](../../../agent/crates/mesh-agent-core/src/alerts/) — the sink's transport
   attaches here.
-- **Modify:** [control_encode.go](../../server/internal/protocol/control_encode.go) — per-field
+- **Modify:** [control_encode.go](../../../server/internal/protocol/control_encode.go) — per-field
   encoder arms; bump `controlFieldCount` (**86 today**; read it at implementation time).
-- **Create:** [testdata/golden/](../../testdata/golden/) `control_agent_alert*.bin` + `.meta.json` —
+- **Create:** [testdata/golden/](../../../testdata/golden/) `control_agent_alert*.bin` + `.meta.json` —
   **forward** fixtures (Rust encodes → Go decodes), which is the direction an agent→server message
   travels. The `go_control_*` reverse set and its
-  [completeness guard](../../server/internal/agentapi/golden_completeness_test.go) cover
+  [completeness guard](../../../server/internal/agentapi/golden_completeness_test.go) cover
   server→agent `Send*` writes and are **not** where `AgentAlert` belongs.
-- **Docs:** [Wire-Protocol.md](../../docs/Wire-Protocol.md).
+- **Docs:** [Wire-Protocol.md](../../../docs/Wire-Protocol.md).
 
 ## Steps (TDD-first)
 
 1. **Test first (C13):** golden round-trip for `AgentAlert` with and without evidence — Rust encodes,
    Go decodes, and the Go re-encode is byte-identical. Include the smallest emittable shape, because
    `omitempty` drops zero-valued fields and that map must still decode
-   ([ADR-063](../../docs/adr/ADR-063-server-to-agent-control-message-completeness.md) is the
+   ([ADR-063](../../../docs/adr/ADR-063-server-to-agent-control-message-completeness.md) is the
    cautionary tale for the other direction).
 2. **Test first (C14):** an evidence blob written by the agent round-trips through Go's
    `compress/flate`, and decodes to **exactly** 8 ranked dims, 3 series of ≤ 512 points, 10

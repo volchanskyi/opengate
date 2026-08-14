@@ -977,6 +977,157 @@ fn golden_frame_control_le_length() {
     golden_check("frame_control_le_length.bin", &encoded);
 }
 
+// --- AgentAlert: the alert transport and its self-contained evidence ---
+//
+// Two fixtures, because an alert has two failure modes and they are unrelated.
+// The full one proves the envelope carries every field and that the evidence
+// blob survives as bytes; the smallest emittable one proves that an alert
+// carrying almost nothing still decodes, since both encoders drop what is empty
+// and the resulting three-key map is what a quiet rule actually sends.
+
+/// Deterministic evidence at the composition the fleet ships: eight ranked
+/// dimensions, three series, ten processes, twenty redacted log lines. Built
+/// here rather than borrowed from the agent so the fixture depends on the wire
+/// contract alone.
+fn golden_evidence() -> AlertEvidence {
+    AlertEvidence {
+        ranked: (0..8)
+            .map(|i| RankedDim {
+                dim: format!("dim.{i}"),
+                score: 0.9 - f64::from(i) * 0.1,
+            })
+            .collect(),
+        series: (0..3)
+            .map(|i| EvidenceSeries {
+                dim: format!("dim.{i}"),
+                points: (0..512)
+                    .map(|p| HistoryPoint {
+                        ts: 1_700_000_000 + i64::from(p),
+                        value: f64::from(p) * 0.5,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        processes: (0..10)
+            .map(|i| ProcessReportEntry {
+                rank: i,
+                basename: format!("proc{i}"),
+                cmdline_hash: None,
+                pid: 1000 + i,
+                cpu: f64::from(i),
+                mem: f64::from(i) * 2.0,
+            })
+            .collect(),
+        log_samples: (0..20).map(|i| format!("log line {i}")).collect(),
+        truncated: false,
+    }
+}
+
+#[test]
+fn golden_control_frame_agent_alert() {
+    let msg = ControlMessage::AgentAlert {
+        alert_id: "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0".to_string(),
+        rule_id: "disk-latency-sustained".to_string(),
+        rule_version: 3,
+        severity: AlertSeverity::Critical,
+        metric: "disk.await_ms".to_string(),
+        value: Some(41.5),
+        window_start_ts: 1_700_000_000,
+        window_end_ts: 1_700_000_300,
+        observed_ts: 1_700_000_305,
+        backfilled: false,
+        evidence_codec: EVIDENCE_CODEC.to_string(),
+        evidence: golden_evidence().encode().unwrap(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_agent_alert.bin", &encoded);
+}
+
+#[test]
+fn golden_control_frame_agent_alert_min() {
+    // The smallest alert that can be emitted: severity and backfilled are always
+    // stated, everything else is absent. Three keys is the whole map, and the Go
+    // decoder has to accept it — reading "no severity said" as anything but a
+    // decode failure is how a critical alert turns into an informational one.
+    let msg = ControlMessage::AgentAlert {
+        alert_id: String::new(),
+        rule_id: String::new(),
+        rule_version: 0,
+        severity: AlertSeverity::Info,
+        metric: String::new(),
+        value: None,
+        window_start_ts: 0,
+        window_end_ts: 0,
+        observed_ts: 0,
+        backfilled: false,
+        evidence_codec: String::new(),
+        evidence: Vec::new(),
+    };
+    let frame = Frame::Control(msg);
+    let encoded = frame.encode().unwrap();
+    golden_check("control_agent_alert_min.bin", &encoded);
+}
+
+#[test]
+fn golden_alert_evidence_blob() {
+    // The evidence blob on its own, so the Go side can prove it inflates with
+    // stdlib compress/flate and decodes to the exact composition above. The
+    // envelope fixture cannot prove that: it carries the blob as opaque bytes,
+    // which is the whole point of a codec named on the message.
+    golden_check("alert_evidence.bin", &golden_evidence().encode().unwrap());
+}
+
+#[test]
+fn alert_evidence_round_trips_through_its_own_codec() {
+    let evidence = golden_evidence();
+    let blob = evidence.encode().unwrap();
+    assert!(
+        blob.len() <= MAX_EVIDENCE_BYTES,
+        "the shipped composition must fit the cap it was sized against: {} bytes",
+        blob.len()
+    );
+    assert_eq!(
+        AlertEvidence::decode(&blob, EVIDENCE_CODEC).unwrap(),
+        evidence
+    );
+}
+
+#[test]
+fn alert_evidence_refuses_a_codec_it_cannot_read() {
+    let blob = golden_evidence().encode().unwrap();
+    let err = AlertEvidence::decode(&blob, "brotli-9").unwrap_err();
+    assert!(
+        matches!(err, ProtocolError::UnknownEvidenceCodec(ref c) if c == "brotli-9"),
+        "an unreadable codec must name itself, not decode as empty evidence: {err}"
+    );
+}
+
+#[test]
+fn alert_evidence_refuses_a_damaged_blob() {
+    // Two ways a blob arrives damaged, and neither may produce evidence. Half a
+    // blob may fail in the decompressor or in the decoder that reads what came
+    // out of it — which of the two is not the contract; that nothing partial is
+    // ever handed back as if it were the device's account of the event is.
+    let whole = golden_evidence().encode().unwrap();
+
+    let mut halved = whole.clone();
+    halved.truncate(whole.len() / 2);
+    assert!(
+        AlertEvidence::decode(&halved, EVIDENCE_CODEC).is_err(),
+        "a truncated blob must fail rather than yield partial evidence"
+    );
+
+    let mut flipped = whole;
+    for byte in flipped.iter_mut().skip(4).take(64) {
+        *byte ^= 0xFF;
+    }
+    assert!(
+        AlertEvidence::decode(&flipped, EVIDENCE_CODEC).is_err(),
+        "a corrupted blob must fail rather than yield invented evidence"
+    );
+}
+
 // --- helpers ---
 
 fn session_token() -> SessionToken {

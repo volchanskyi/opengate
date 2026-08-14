@@ -32,6 +32,13 @@ VM_PORT="${OPENGATE_TEST_VM_PORT:-8428}"
 # exceeds the Postgres 100-conn default. Mirrors the ci.yml / mutation.yml setup.
 PG_MAX_CONNECTIONS=400
 
+# The lock table is sized once at startup as max_locks_per_transaction ×
+# max_connections, so the per-transaction ceiling has to rise with the
+# connection one: a migration builds the whole schema in a single transaction,
+# and enough of those in flight together exhaust the default 64 and fail with
+# "out of shared memory" rather than anything about the schema.
+PG_MAX_LOCKS_PER_TRANSACTION=256
+
 # Containers this run started, and therefore owns the teardown of.
 STARTED=()
 
@@ -47,7 +54,9 @@ start_postgres() {
   docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
   docker run -d --rm --name "$PG_CONTAINER" \
     -e POSTGRES_USER=opengate -e POSTGRES_PASSWORD=opengate -e POSTGRES_DB=opengate_test \
-    -p "$PG_PORT:5432" "$PG_IMAGE" -c "max_connections=$PG_MAX_CONNECTIONS" >/dev/null || return 1
+    -p "$PG_PORT:5432" "$PG_IMAGE" \
+    -c "max_connections=$PG_MAX_CONNECTIONS" \
+    -c "max_locks_per_transaction=$PG_MAX_LOCKS_PER_TRANSACTION" >/dev/null || return 1
   STARTED+=("$PG_CONTAINER")
 
   local attempt
