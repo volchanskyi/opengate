@@ -12,7 +12,7 @@
 //! quietly skipped, because silent partial coverage is the failure class the
 //! whole telemetry program exists to eliminate.
 
-use mesh_agent_core::alerts::{rule_cost, AlertEvaluator};
+use mesh_agent_core::alerts::{rule_cost, AlertEvaluator, RULE_BUDGET_READINGS_PER_SEC};
 use mesh_agent_core::ml::sampler::{MetricSample, ProcessSample};
 use mesh_protocol::{
     AlertComparator, RuleCoverageState, RulePredicate, RuleTerm, ThresholdRule, MAX_RULE_TERMS,
@@ -1110,7 +1110,7 @@ fn the_most_expensive_shippable_rule_is_never_throttled() {
         2
     ];
     assert!(
-        rule_cost(&r) <= 3_600,
+        rule_cost(&r) <= RULE_BUDGET_READINGS_PER_SEC,
         "this must be a rule the pack allows"
     );
 

@@ -187,6 +187,7 @@ func (s *RuleCoverageStore) Aggregate(fleetSize int, unsupported map[string]int)
 			case protocol.RuleCoverageThrottled:
 				entry.Throttled++
 			case protocol.RuleCoverageUnsupported:
+				// Counted from the persisted rows below, never from here.
 			default:
 				entry.Active++
 			}
