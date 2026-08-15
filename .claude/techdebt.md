@@ -64,6 +64,21 @@ resuming (`DidResume`).
 
 ## Severity: Low
 
+### Device delete without VictoriaMetrics skips the erasure guarantees
+
+[`purgeDeletedDevice`](../server/internal/api/handlers_device_actions.go) falls back
+to a plain `devices.Delete` when no purge orchestrator is wired, which is what
+happens when `--victoriametrics-url` is unset. That path records no tombstone and
+no purge job, and it does not run
+[`EraseDeviceAlerts`](../server/internal/alerts/postgres.go), so the incident
+counts a foreign key cannot repair are left describing a machine that is gone —
+an operator reads "40 machines" on a room whose fortieth was deleted. Alerts and
+incidents work in that configuration (they need Postgres, not VictoriaMetrics), so
+the gap is reachable rather than theoretical; every deployed environment wires
+VictoriaMetrics, which is why this is Low. **Pay-down trigger:** the fallback is
+either given the same erasure path as the orchestrator, or removed so a delete
+without a purger is refused outright.
+
 ### OpenAPI request constraints are documentation, not runtime validation
 
 [`api/openapi.yaml`](../api/openapi.yaml) carries `maxLength` on some request

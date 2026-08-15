@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/volchanskyi/opengate/server/internal/alerts"
 	"github.com/volchanskyi/opengate/server/internal/db"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
@@ -39,7 +40,7 @@ func newOrchestratorFixture(t *testing.T) *orchestratorFixture {
 		Tombstones: tomb,
 		Jobs:       jobs,
 		Series:     vm,
-		PG:         NewPostgresPurger(store.DB()),
+		PG:         NewPostgresPurger(store.DB(), alerts.NewStore(store.DB())),
 		Verify:     VerifyConfig{MaxAttempts: 20, Interval: 250 * time.Millisecond},
 	})
 	return &orchestratorFixture{store: store, vm: vm, orch: orch, tombstone: tomb, jobs: jobs}
@@ -144,7 +145,7 @@ func TestOrchestratorResumesAfterMidPurgeCrash(t *testing.T) {
 
 	// Simulate a crash after the tombstone + VM delete but before Postgres delete:
 	// a purger that fails once, wrapping the real one.
-	flaky := &flakyPGPurger{inner: NewPostgresPurger(f.store.DB()), failuresLeft: 1}
+	flaky := &flakyPGPurger{inner: NewPostgresPurger(f.store.DB(), alerts.NewStore(f.store.DB())), failuresLeft: 1}
 	crashOrch := NewOrchestrator(OrchestratorConfig{
 		Tombstones: f.tombstone, Jobs: f.jobs, Series: f.vm, PG: flaky,
 		Verify: VerifyConfig{MaxAttempts: 20, Interval: 250 * time.Millisecond},

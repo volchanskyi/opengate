@@ -62,6 +62,8 @@ type AgentConn struct {
 	inventory      inventory.Repository
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
+	alertStore     AlertStore
+	ruleCatalog    RuleCatalogue
 	coverage       *RuleCoverageStore
 	ruleCoverage   UnsupportedCoverageStore
 	settings       settings.Reader

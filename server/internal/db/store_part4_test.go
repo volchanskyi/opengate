@@ -136,6 +136,10 @@ func forwardMigrationSteps() []rehearsalStep {
 			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
 				assertRulesIntroduced(t, ctx, db, "public")
 			}},
+		{note: "014 added alerts, incidents and incident events",
+			verify: func(t *testing.T, ctx context.Context, db *sql.DB) {
+				assertInvestigationsIntroduced(t, ctx, db, "public")
+			}},
 	}
 }
 
@@ -156,6 +160,7 @@ func assertHeadSchema(t *testing.T, ctx context.Context, db *sql.DB) {
 	assertOrganizationsIntroduced(t, ctx, db, "public")
 	assertSitesIntroduced(t, ctx, db, "public")
 	assertRulesIntroduced(t, ctx, db, "public")
+	assertInvestigationsIntroduced(t, ctx, db, "public")
 }
 
 // rollBackAndVerify walks the migrations down one step at a time, asserting
@@ -167,6 +172,7 @@ func rollBackAndVerify(t *testing.T, ctx context.Context, dbURL string, db *sql.
 		note   string
 		verify func(*testing.T, context.Context, *sql.DB)
 	}{
+		{"014 removed the alert, incident and incident-event tables", assertInvestigationsDownReversal},
 		{"013 removed the rule binding, rollout and coverage tables", assertRulesDownReversal},
 		{"012 returned the filing level to a flat tenant label", assertSitesDownReversal},
 		{"011 removed organizations and the device link cleanly", assertOrganizationsDownReversal},

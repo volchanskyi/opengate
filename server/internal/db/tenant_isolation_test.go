@@ -196,6 +196,15 @@ func tenantIsolationProbes() []tenantIsolationProbe {
 		{"rule_coverage_unsupported",
 			`SELECT COUNT(*) FROM rule_coverage_unsupported`,
 			`SELECT COUNT(*) FROM rule_coverage_unsupported WHERE tenant_id = $1`},
+		{"alerts",
+			`SELECT COUNT(*) FROM alerts`,
+			`SELECT COUNT(*) FROM alerts WHERE tenant_id = $1`},
+		{"incidents",
+			`SELECT COUNT(*) FROM incidents`,
+			`SELECT COUNT(*) FROM incidents WHERE tenant_id = $1`},
+		{"incident_events",
+			`SELECT COUNT(*) FROM incident_events`,
+			`SELECT COUNT(*) FROM incident_events WHERE tenant_id = $1`},
 	}
 }
 
@@ -300,6 +309,19 @@ func seedTenantRows(t *testing.T, ctx context.Context, db *sql.DB, f tenantFixtu
 	exec(`INSERT INTO rule_coverage_unsupported (tenant_id, organization_id, device_id, rule_id)
 	      VALUES ($1, $2, $3, 'io-stalled')`,
 		f.tenantID, f.orgID, f.deviceID)
+
+	incidentID := uuid.New()
+	exec(`INSERT INTO incidents (id, tenant_id, organization_id, rule_id, scope, scope_key,
+	                             severity, status, first_seen, last_seen)
+	      VALUES ($1, $2, $3, 'disk-critical', 'organization', $3, 'warning', 'new', $4, $4)`,
+		incidentID, f.tenantID, f.orgID, now)
+	exec(`INSERT INTO alerts (id, tenant_id, organization_id, device_id, rule_id, rule_version,
+	                          severity, metric, value, window_start, window_end, observed_at, incident_id)
+	      VALUES ($1, $2, $3, $4, 'disk-critical', 1, 'critical', 'disk.used_percent', 98.2, $5, $5, $5, $6)`,
+		uuid.New(), f.tenantID, f.orgID, f.deviceID, now, incidentID)
+	exec(`INSERT INTO incident_events (id, tenant_id, organization_id, incident_id, kind, at, body)
+	      VALUES ($1, $2, $3, $4, 'alert_folded', $5, '{}'::jsonb)`,
+		uuid.New(), f.tenantID, f.orgID, incidentID, now)
 
 	require.NoError(t, tx.Commit())
 }

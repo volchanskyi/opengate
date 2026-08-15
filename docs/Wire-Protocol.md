@@ -259,13 +259,22 @@ source of truth for the same event.
 
 `(device, rule_id, rule_version, window_start_ts)` identifies an alert
 independently of the `alert_id` the device chose, so a reconnect that replays a
-queued alert resolves to the row already written. An alert missing any part of
-that identity, or carrying a `severity` outside `Info | Warning | Critical`, is
-refused at ingest under its own counted reason
-([`conn_alerts.go`](../server/internal/agentapi/conn_alerts.go)) rather than
-stored under a null that would duplicate on the next reconnect. `severity` and
-`backfilled` are always present on the wire, so "nothing said" and "not serious"
-never look alike.
+queued alert resolves to the row already written — a no-op rather than a second
+row (see [Database](Database.md)). An alert missing any part of that identity is
+refused at ingest rather than stored under a null that would duplicate on the
+next reconnect, and so is one carrying a `severity` outside
+`Info | Warning | Critical`, naming a rule this build does not ship, stamped
+outside the clock window its kind is allowed, or carrying evidence that does not
+decode. Each refusal is counted under its own reason
+([`conn_alerts.go`](../server/internal/agentapi/conn_alerts.go)); see
+[Monitoring](Monitoring.md). `severity` and `backfilled` are always present on the
+wire, so "nothing said" and "not serious" never look alike.
+
+An alert's timestamps are refused rather than clamped, unlike a telemetry
+sample's: `window_start_ts` is part of the identity above, so pulling it to a
+bound would land the same alert on a different row every reconnect. `backfilled`
+widens the backward bound to the reconnect-backfill retention, because a
+retroactive finding over local history is legitimately months old.
 
 `evidence` is [`AlertEvidence`](../agent/crates/mesh-protocol/src/control.rs)
 encoded as msgpack and compressed under the codec `evidence_codec` names. The

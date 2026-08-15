@@ -34,7 +34,7 @@ func TestReconcilerPurgesOrphanSeriesButKeepsLiveDevices(t *testing.T) {
 	// tenant so it neither sweeps a sibling test's series nor treats them as orphans;
 	// the production reconciler runs against a single global VM and Postgres.
 	inv := &tenantScopedInventory{inner: f.vm, tenant: tenant}
-	rec := NewReconciler(inv, f.vm, NewPostgresPurger(f.store.DB()), nil)
+	rec := NewReconciler(inv, f.vm, NewPostgresPurger(f.store.DB(), nil), nil)
 	purged, err := rec.Sweep(ctx)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, purged, 1, "the orphan must be swept")

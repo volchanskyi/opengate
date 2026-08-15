@@ -15,10 +15,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/volchanskyi/opengate/server/internal/alerts"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/inventory"
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 )
 
@@ -37,6 +39,7 @@ var countedIngestByIdent = map[string]protocol.ControlMessageType{
 	"MsgProcessReport":        protocol.MsgProcessReport,
 	"MsgDiscoveryReport":      protocol.MsgDiscoveryReport,
 	"MsgHealthWindowResponse": protocol.MsgHealthWindowResponse,
+	"MsgAgentAlert":           protocol.MsgAgentAlert,
 }
 
 // dispatchNonIngestIdents pins the control types handleControl dispatches that
@@ -57,10 +60,6 @@ var dispatchNonIngestIdents = []string{
 	"MsgMetricBackfillBatch",
 	"MsgLocalHistoryResponse",
 	"MsgMaintenanceApplied",
-	// An alert is validated and admitted but not yet stored, so it produces no
-	// state for the ingest ledger to balance against. It joins the counted set
-	// when the alert store lands beside it.
-	"MsgAgentAlert",
 }
 
 // preIngestDropReasons are the bounds applied before the ingest counter fires.
@@ -71,6 +70,7 @@ var preIngestDropReasons = map[string]bool{
 	"interval_floor":              true,
 	"discovery_payload_too_large": true,
 	"discovery_interval_floor":    true,
+	"alert_payload_too_large":     true,
 	"tombstoned":                  true,
 }
 
@@ -81,36 +81,49 @@ type accountingSinks struct {
 	failErr error
 }
 
+// accept counts one persist, or reports the failure a failing-store case wants
+// every sink to return. One body rather than one per port, so a case that makes
+// the stores fail makes all of them fail the same way.
+func (s *accountingSinks) accept() error {
+	if s.failErr != nil {
+		return s.failErr
+	}
+	s.writes.Add(1)
+	return nil
+}
+
+// WriteSamples stands in for the numeric time-series store.
 func (s *accountingSinks) WriteSamples(context.Context, uuid.UUID, uuid.UUID, []telemetry.Sample) error {
-	if s.failErr != nil {
-		return s.failErr
-	}
-	s.writes.Add(1)
-	return nil
+	return s.accept()
 }
 
+// UpsertReport stands in for the process-table store.
 func (s *accountingSinks) UpsertReport(context.Context, uuid.UUID, time.Time, []telemetry.ProcessSample) error {
-	if s.failErr != nil {
-		return s.failErr
-	}
-	s.writes.Add(1)
-	return nil
+	return s.accept()
 }
 
+// ListLatest is unused by the ledger; the port requires it.
 func (s *accountingSinks) ListLatest(context.Context, uuid.UUID, int) ([]telemetry.ProcessSample, error) {
 	return nil, nil
 }
 
+// Replace stands in for the discovery-footprint store.
 func (s *accountingSinks) Replace(context.Context, uuid.UUID, time.Time, []inventory.Component) error {
-	if s.failErr != nil {
-		return s.failErr
-	}
-	s.writes.Add(1)
-	return nil
+	return s.accept()
 }
 
+// ListForDevice is unused by the ledger; the port requires it.
 func (s *accountingSinks) ListForDevice(context.Context, uuid.UUID, int) ([]inventory.Component, error) {
 	return nil, nil
+}
+
+// Record stands in for the alert store, always answering that the alert was
+// stored — the outcomes that are not are driven in conn_alerts_store_test.go.
+func (s *accountingSinks) Record(context.Context, alerts.Alert) (alerts.Outcome, error) {
+	if err := s.accept(); err != nil {
+		return "", err
+	}
+	return alerts.Stored, nil
 }
 
 // accountingCase drives one or more control messages through a real AgentConn
@@ -135,12 +148,30 @@ type accountingCase struct {
 	drops     map[string]int
 }
 
+// metricWindowMsg is one host-metric window carrying the given dimensions.
 func metricWindowMsg(ts int64, dims ...protocol.MetricDim) *protocol.ControlMessage {
 	return &protocol.ControlMessage{Type: protocol.MsgAgentMetricWindow, TS: ts, Dims: dims}
 }
 
+// discoveryMsg is one discovery report carrying the given packages.
 func discoveryMsg(ts int64, packages ...protocol.DiscoveredPackage) *protocol.ControlMessage {
 	return &protocol.ControlMessage{Type: protocol.MsgDiscoveryReport, TS: ts, Packages: packages}
+}
+
+// alertMsg is a well-formed alert stamped inside the live clock window, since
+// the ledger cases are about counting rather than about admission.
+func alertMsg(ts int64, severityValue protocol.AlertSeverity) *protocol.ControlMessage {
+	return &protocol.ControlMessage{
+		Type:          protocol.MsgAgentAlert,
+		AlertID:       uuid.NewString(),
+		RuleID:        "disk-critical",
+		RuleVersion:   1,
+		Severity:      &severityValue,
+		Metric:        "disk.used_percent",
+		WindowStartTS: ts - 300,
+		WindowEndTS:   ts,
+		ObservedTS:    ts,
+	}
 }
 
 // accountingCases covers every branch of every counted-ingest control type:
@@ -302,6 +333,22 @@ func accountingCases(now int64) []accountingCase {
 			drops:     map[string]int{"discovery_interval_floor": 1},
 		},
 		{
+			name:      "an alert is stored against the customer that raised it",
+			msgs:      []*protocol.ControlMessage{alertMsg(now, protocol.AlertSeverityCritical)},
+			ingested:  1,
+			persisted: 1,
+			writes:    1,
+		},
+		{
+			// The alert path's refusals are content checks, so they sit after
+			// the ingest counter — the message was taken in and then filed under
+			// a reason, which is the only shape the ledger can balance.
+			name:     "an alert whose severity is outside the set is a typed drop",
+			msgs:     []*protocol.ControlMessage{alertMsg(now, protocol.AlertSeverity("Catastrophic"))},
+			ingested: 1,
+			drops:    map[string]int{alertDropSeverityUnknown: 1},
+		},
+		{
 			name: "a coalesced batch flushed without a tenant drops every message it carried",
 			msgs: []*protocol.ControlMessage{
 				metricWindowMsg(now, dim),
@@ -331,6 +378,16 @@ func accountingCases(now int64) []accountingCase {
 			ingested:   2,
 			drops:      map[string]int{"persist_failed": 2},
 		},
+		{
+			// E19 in the ledger: an alert the store could not take is counted as
+			// lost, never as held. The endpoint drops its copy once it believes
+			// the alert landed, so a swallowed failure is a permanent loss.
+			name:       "an alert the store cannot take is counted as lost",
+			msgs:       []*protocol.ControlMessage{alertMsg(now, protocol.AlertSeverityWarning)},
+			failWrites: true,
+			ingested:   1,
+			drops:      map[string]int{"persist_failed": 1},
+		},
 	}
 }
 
@@ -349,14 +406,21 @@ func runAccountingCase(t *testing.T, m *appmetrics.Metrics, tc accountingCase) i
 	}
 	var buf bytes.Buffer
 	tenant := uuid.New()
+	deviceID := uuid.New()
 	ac := &AgentConn{
-		DeviceID:     uuid.New(),
-		TenantID:     tenant,
-		stream:       &buf,
-		codec:        &protocol.Codec{},
-		telemetry:    sinks,
-		processes:    sinks,
-		inventory:    sinks,
+		DeviceID:  deviceID,
+		TenantID:  tenant,
+		stream:    &buf,
+		codec:     &protocol.Codec{},
+		telemetry: sinks,
+		processes: sinks,
+		inventory: sinks,
+		// An alert is filed against the customer the machine belongs to, so the
+		// ledger's alert rows need that rung resolvable like production's do.
+		settings: fixedReader{scope: settings.Scope{
+			DeviceID: deviceID, OrganizationID: uuid.New(), TenantID: tenant,
+		}},
+		alertStore:   sinks,
 		metrics:      m,
 		coverage:     NewRuleCoverageStore(),
 		Capabilities: []protocol.AgentCapability{protocol.CapDiscovery},
