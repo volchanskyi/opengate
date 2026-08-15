@@ -3,6 +3,7 @@ package alerts
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -483,4 +484,35 @@ func TestEvidenceCapMatchesTheWire(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, protocol.MaxEvidenceBytes, MaxEvidenceBytes,
 		"the stored cap and the wire cap are the same cap")
+}
+
+// TestEveryStatementNamesItsTenant is what the shared predicate constant used to
+// be. Row-level security is the wall; naming the tenant in the statement too is
+// the second lock on the same door, and it is the one that still holds when a
+// purge runs admin-scoped in order to act on a tenant it is not.
+//
+// The statements are written out as whole literals so each can be read start to
+// finish rather than assembled from pieces, which is exactly why they need a
+// test rather than a constant to keep them honest.
+func TestEveryStatementNamesItsTenant(t *testing.T) {
+	t.Parallel()
+	scoped := map[string]string{
+		"storeAlertSQL":                storeAlertSQL,
+		"alertByIdentitySQL":           alertByIdentitySQL,
+		"openIncidentSQL":              openIncidentSQL,
+		"recountRoomsLosingADeviceSQL": recountRoomsLosingADeviceSQL,
+		"closeEmptiedRoomsSQL":         closeEmptiedRoomsSQL,
+		"deleteDeviceAlertsSQL":        deleteDeviceAlertsSQL,
+		"deleteTenantAlertsSQL":        deleteTenantAlertsSQL,
+		"deleteTenantIncidentsSQL":     deleteTenantIncidentsSQL,
+	}
+	for name, query := range scoped {
+		assert.Truef(t, strings.Contains(query, tenantPredicate) || strings.Contains(query, "tenant_id = $1"),
+			"%s must name the tenant, either from the caller's scope or as an explicit argument", name)
+	}
+
+	// The storm room is written under the tenant the alert arrived on, which the
+	// policy checks on write; it carries no read predicate of its own.
+	assert.Contains(t, foldIntoStormSQL, "tenant_id",
+		"a storm room still belongs to exactly one tenant")
 }

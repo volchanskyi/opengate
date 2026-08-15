@@ -21,10 +21,13 @@ import (
 // that still holds when a purge runs admin-scoped in order to act on a tenant it
 // is not.
 
-// scopedToTenant is the predicate every statement here carries. It is a
-// constant, so the queries built from it stay compile-time strings rather than
-// anything assembled at run time.
-const scopedToTenant = `tenant_id = current_setting('app.current_tenant')::uuid`
+// tenantPredicate is the second lock, written out in full inside every statement
+// below rather than concatenated in from a shared constant. A query assembled
+// from pieces is indistinguishable, to anything reading this file, from one
+// assembled from input — so each statement here is a single literal that can be
+// read start to finish, and TestEveryStatementNamesItsTenant is what keeps the
+// predicate on all of them.
+const tenantPredicate = `tenant_id = current_setting('app.current_tenant')::uuid`
 
 // storeAlertSQL writes one alert, with the customer's hourly budget as a
 // condition of the write rather than a check taken beforehand: the count and the
@@ -42,7 +45,7 @@ const storeAlertSQL = `
 	       $7::text, $8::text, $9::double precision, $10::timestamptz, $11::timestamptz,
 	       $12::timestamptz, $13::timestamptz, $14::boolean, $15::bytea, $16::text
 	 WHERE (SELECT COUNT(*) FROM alerts
-	         WHERE ` + scopedToTenant + `
+	         WHERE tenant_id = current_setting('app.current_tenant')::uuid
 	           AND organization_id = $3::uuid
 	           AND received_at > $17::timestamptz) < $18::integer
 	ON CONFLICT (device_id, rule_id, rule_version, window_start) DO NOTHING
@@ -53,7 +56,7 @@ const storeAlertSQL = `
 // picks a new one and would duplicate every alert it still had to send.
 const alertByIdentitySQL = `
 	SELECT id FROM alerts
-	 WHERE ` + scopedToTenant + `
+	 WHERE tenant_id = current_setting('app.current_tenant')::uuid
 	   AND device_id = $1 AND rule_id = $2 AND rule_version = $3 AND window_start = $4`
 
 // foldIntoStormSQL opens the room a customer's suppressed alerts fold into, or
@@ -84,7 +87,7 @@ const openIncidentSQL = `
 	SELECT id, organization_id, rule_id, scope, scope_key, severity, status,
 	       first_seen, last_seen, occurrences, device_count
 	  FROM incidents
-	 WHERE ` + scopedToTenant + `
+	 WHERE tenant_id = current_setting('app.current_tenant')::uuid
 	   AND organization_id = $1 AND rule_id = $2 AND scope = $3 AND scope_key = $4
 	   AND status <> 'resolved'`
 

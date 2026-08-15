@@ -13,7 +13,6 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/alerts"
 	"github.com/volchanskyi/opengate/server/internal/dbtx"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
-	"github.com/volchanskyi/opengate/server/internal/rules"
 )
 
 // Alert admission. An alert is the only thing that carries the detail behind a
@@ -66,18 +65,12 @@ const (
 	alertDropDuplicate            = "alert_duplicate"
 )
 
-// AlertStore files one alert and reports what became of it. Three outcomes
+// AlertRecorder files one alert and reports what became of it. Three outcomes
 // rather than an error and a success: a reconnect replay and a customer's spent
 // budget are both ordinary, and only telling them apart lets each be counted
 // under the reason it deserves.
-type AlertStore interface {
+type AlertRecorder interface {
 	Record(ctx context.Context, alert alerts.Alert) (alerts.Outcome, error)
-}
-
-// RuleCatalogue reports whether this build ships a definition for a rule id.
-// The compiled-in catalogue satisfies it.
-type RuleCatalogue interface {
-	Lookup(id string) (rules.Definition, bool)
 }
 
 // handleAgentAlert admits one alert from the device.

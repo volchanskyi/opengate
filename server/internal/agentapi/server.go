@@ -21,6 +21,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
@@ -39,8 +40,8 @@ type AgentServer struct {
 	notifier       notifications.Notifier
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
-	alertStore     AlertStore
-	ruleCatalog    RuleCatalogue
+	alertStore     AlertRecorder
+	ruleCatalog    *rules.Catalogue
 	coverage       *RuleCoverageStore
 	ruleCoverage   UnsupportedCoverageStore
 	settings       settings.Reader
@@ -91,11 +92,11 @@ type AgentServerConfig struct {
 	// counts every alert as a typed drop rather than pretending it landed —
 	// there is no path for asking the endpoint again, so an unstored alert must
 	// never read as a stored one.
-	AlertStore AlertStore
+	AlertStore AlertRecorder
 	// RuleCatalogue says which rules this build ships, so an alert naming one it
 	// does not is refused rather than stored as a row nobody can act on.
 	// Optional; nil accepts any rule id.
-	RuleCatalogue RuleCatalogue
+	RuleCatalogue *rules.Catalogue
 }
 
 // NewAgentServer creates a new AgentServer.
