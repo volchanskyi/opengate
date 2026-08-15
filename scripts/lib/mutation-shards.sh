@@ -184,8 +184,14 @@ mutation_all_shards() {
 
 # A CLI -E overrides server/.gremlins.yaml exclude-files, so every sharded run
 # must restate the generated code, entry points, and shared test scaffolding.
+#
+# cmd/meshserver is excluded as a package rather than as one file: every source
+# in it is the process's own wiring — flag parsing, construction order, and the
+# goroutines that start the periodic workers — and a mutant there changes how the
+# process is assembled rather than what any behavior does. Splitting that wiring
+# across files for readability must not quietly enrol it in mutation testing.
 mutation_go_global_excludes() {
-  echo 'openapi_gen\.go|cmd/meshserver/main\.go|tests/loadtest/main\.go|internal/testutil/|internal/faulttest/'
+  echo 'openapi_gen\.go|cmd/meshserver/|tests/loadtest/main\.go|internal/testutil/|internal/faulttest/'
 }
 
 mutation_go_shard_units() {
@@ -203,7 +209,7 @@ mutation_go_shard_units() {
       echo "file:internal/api/handlers_enrollment.go file:internal/api/handlers_install.go file:internal/api/handlers_updates.go file:internal/api/handlers_purge.go"
       ;;
     go-agentapi-connection-handshake)
-      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/errors.go file:internal/agentapi/handshaker.go file:internal/agentapi/deregister.go"
+      echo "file:internal/agentapi/conn.go file:internal/agentapi/conn_guard.go file:internal/agentapi/conn_maintenance.go file:internal/agentapi/server.go file:internal/agentapi/server_connection.go file:internal/agentapi/errors.go file:internal/agentapi/handshaker.go file:internal/agentapi/deregister.go"
       ;;
     go-agentapi-backfill)
       echo "file:internal/agentapi/backfill_scheduler.go file:internal/agentapi/conn_backfill.go"

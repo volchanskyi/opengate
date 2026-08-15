@@ -156,3 +156,31 @@ func TestGroupWindowsAreTheRulesOwn(t *testing.T) {
 			"%s holds its rooms open for its own grouping window", def.ID)
 	}
 }
+
+// TestRuleIDsAreTheWholeShippedCatalogue keeps the vocabulary the investigation
+// series are bounded by equal to the rules this build actually ships. A rule
+// missing from it would still fire, still be stored, and be counted under the
+// catch-all — visible as a metric nobody can attribute rather than as a rollout
+// nobody can read.
+func TestRuleIDsAreTheWholeShippedCatalogue(t *testing.T) {
+	catalogue, err := rules.Embedded()
+	require.NoError(t, err)
+
+	ids := ruleIDs(catalogue)
+
+	shipped := catalogue.All()
+	require.NotEmpty(t, shipped)
+	assert.Len(t, ids, len(shipped))
+	for _, def := range shipped {
+		assert.Containsf(t, ids, def.ID, "%s is a shipped rule and belongs in the vocabulary", def.ID)
+	}
+}
+
+// TestInvestigationsRefreshIsSlowerThanTheScrape states the property that keeps
+// the gauges off the request path. The refresh is what reads the database; the
+// scrape only reads what it left behind, so the two are deliberately not the
+// same rate.
+func TestInvestigationsRefreshIsSlowerThanTheScrape(t *testing.T) {
+	assert.GreaterOrEqual(t, investigationsRefreshInterval, 30*time.Second,
+		"a count over tables that only grow is not recomputed at scrape speed")
+}

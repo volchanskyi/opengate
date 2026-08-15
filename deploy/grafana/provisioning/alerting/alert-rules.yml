@@ -276,3 +276,90 @@ groups:
             Server-side telemetry bounds are dropping more than 5% of accepted
             messages over 10 minutes; anomaly summaries or host windows may be
             silently lost.
+
+      - uid: rule-pack-alert-rate-high
+        title: "Rule pack raising more than 5 alerts / device / day"
+        noDataState: OK
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                sum(rate(opengate_alerts_created_total[30m])) * 86400 /
+                clamp_min(max(sum by (rule_id) (opengate_rule_coverage)), 1)
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [5]
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The curated rule pack is raising far more alerts than its ceilings are sized for"
+          description: >-
+            Stored alerts per device per day are above 5, projected from the last
+            30 minutes. At that rate a large customer's hourly ceiling starts
+            refusing detection nobody can reconstruct afterwards, and the triage
+            queue stops being readable. Open the Rule Rollout And Triage dashboard
+            and read the per-rule panel: a single rule_id carrying the rise is a
+            rule whose thresholds need moving, and a rise across the pack is a
+            rollout that has reached more machines than it was staged for.
+
+      - uid: rule-pack-detection-refused
+        title: "A customer's hourly alert ceiling is refusing detection"
+        noDataState: OK
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: VictoriaMetrics
+            model:
+              expr: >-
+                sum(rate(opengate_alerts_suppressed_total{reason="organization_ceiling"}[15m]))
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alerts are being refused past a customer's hourly ceiling"
+          description: >-
+            An alert is the only carrier of the detail behind a signal — there is
+            no path for asking the endpoint again — so every refusal here is an
+            incident that cannot be reconstructed. The customer's storm incident
+            carries the count of what was lost. Check the Rule Rollout And Triage
+            dashboard for which rule is driving the volume.

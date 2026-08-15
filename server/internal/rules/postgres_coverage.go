@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/volchanskyi/opengate/server/internal/dbtx"
 )
 
 // Which machines cannot evaluate which rules — the one coverage state that is
@@ -32,6 +34,27 @@ const (
 
 	unsupportedSinceSQL = `SELECT since FROM rule_coverage_unsupported
 		  WHERE ` + scopedToTenant + ` AND device_id = $1 AND rule_id = $2`
+
+	// fleetCoverageSQL is the same question asked about the whole install: how
+	// many machines there are, and how many of them cannot evaluate each rule.
+	//
+	// Both halves in one statement, because the caller refreshes a gauge from
+	// this on a timer and the two numbers are only meaningful against each other
+	// — a blind-spot count read a moment apart from the fleet it is a fraction of
+	// would report a share nobody's estate was ever in. The fleet size rides on
+	// every row so a single pass answers both, and the CROSS JOIN keeps it
+	// present on the row an install with nothing blind still returns.
+	//
+	// It names no tenant, deliberately: the platform's own view is of every
+	// tenant at once, including the ones nobody is currently serving requests
+	// for, so there is nothing for a predicate to confine it to. It runs
+	// admin-scoped for the same reason a purge does.
+	fleetCoverageSQL = `
+		SELECT f.machines, u.rule_id, u.blind
+		  FROM (SELECT COUNT(*) AS machines FROM devices) f
+		  LEFT JOIN (SELECT rule_id, COUNT(*) AS blind
+		               FROM rule_coverage_unsupported
+		              GROUP BY rule_id) u ON TRUE`
 )
 
 // MarkUnsupported records that a machine cannot evaluate a rule. A machine that
@@ -74,6 +97,46 @@ func (s *Store) CountUnsupported(ctx context.Context, organizationID uuid.UUID) 
 		return nil, err
 	}
 	return out, nil
+}
+
+// FleetCoverage returns how many machines the whole install has, and per rule
+// how many of them cannot evaluate it.
+//
+// It is the fleet-wide counterpart of [Store.CountUnsupported]: that one answers
+// "how much of Contoso's estate is this rule watching", and this one answers "how
+// much of everything", which is the question a staged rollout is actually judged
+// on. Rules nothing is blind to are absent rather than present as zero, the same
+// as the per-customer read.
+//
+// It scopes itself, because its caller is a background refresh belonging to no
+// request and has no tenant to pass.
+func (s *Store) FleetCoverage(ctx context.Context) (int, map[string]int, error) {
+	ctx = dbtx.WithDefaultTenant(ctx, true)
+
+	var fleet int
+	blind := make(map[string]int)
+	err := s.eachRow(ctx, "count fleet coverage", fleetCoverageSQL, nil,
+		func(rows *sql.Rows) error {
+			var (
+				machines int
+				ruleID   sql.NullString
+				count    sql.NullInt64
+			)
+			if err := rows.Scan(&machines, &ruleID, &count); err != nil {
+				return fmt.Errorf("scan fleet coverage: %w", err)
+			}
+			fleet = machines
+			// An install with nothing blind still answers with its fleet size,
+			// on one row carrying no rule.
+			if ruleID.Valid {
+				blind[ruleID.String] = int(count.Int64)
+			}
+			return nil
+		})
+	if err != nil {
+		return 0, nil, err
+	}
+	return fleet, blind, nil
 }
 
 // EraseDeviceCoverage drops everything a machine ever reported it could not

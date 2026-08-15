@@ -724,6 +724,81 @@ because of. The shield is only for a room about that one machine — a customer 
 office room is still being reported into by the rest of the estate. See
 [ADR-075](adr/ADR-075-incident-grouping-lifecycle-and-auto-resolve.md).
 
+### Watching the rule pack itself
+
+A rule that is valid, affordable and wrong is the one thing here that can degrade
+every estate at once: the closed grammar bounds what a rule can *say* and the CI
+cost gate bounds what it *costs*, and neither has an opinion about whether the
+numbers on it are right. So the server exports five aggregate series on the same
+`/metrics` everything else uses
+([`internal/metrics/investigations.go`](../server/internal/metrics/investigations.go)),
+and the [Rule Rollout And Triage
+dashboard](../deploy/grafana/provisioning/dashboards/rule-rollout.json) reads
+them:
+
+| Series | What it says |
+|---|---|
+| `opengate_alerts_created_total{rule_id}` | Alerts that became a stored row. Replays and refusals are not counted, so a rise is new detection |
+| `opengate_alerts_suppressed_total{reason}` | Alerts that reached the server and became nothing. A rising `organization_ceiling` is detection being *refused* |
+| `opengate_alerts_open` | Alerts sitting in a room that is not resolved |
+| `opengate_incidents_open{status}` | The triage queue, split by where each room stands |
+| `opengate_rule_coverage{rule_id,state}` | How much of the whole install each rule is watching. The four states always add up to the fleet |
+
+**Every one of them is O(rules), and that is the constraint they are built
+around.** No series here carries a tenant, a customer or a machine: a rule pack
+is a handful of entries fixed for a release, a fleet is however many machines
+every customer between them runs, and one entity label would make the platform's
+own monitoring the largest cardinality source in the system it exists to watch.
+The `rule_id` label is bounded by the shipped catalogue rather than by what an
+agent echoes back, and every value of every closed vocabulary is exported even at
+zero — a missing series reads as "no data", which is not the same answer as "none
+open", and the two look identical exactly when somebody is checking whether a
+rollout raised anything. See
+[ADR-076](adr/ADR-076-aggregate-platform-metrics-and-the-measured-alert-rate.md).
+
+The two gauges are counts over tables that only grow, so they are refreshed on a
+timer rather than computed when the endpoint is scraped, and each refresh is one
+aggregate across every tenant. A read that fails leaves the previous answer
+standing: a database that is briefly unreachable is not an empty triage queue.
+
+Two alerts watch a bad rollout
+([`alert-rules.yml`](../deploy/grafana/provisioning/alerting/alert-rules.yml)) —
+one on the projected per-device alert rate, one on any ceiling suppression at
+all.
+
+#### Measuring the alert rate
+
+The alerts-per-device-per-day rate is currently an **estimate of 0.2**, and three
+things rest on it: the evidence volume projected for a year, the customer hourly
+ceiling ([`OrganizationHourlyCeiling`](../server/internal/alerts/types.go), set
+as roughly twelve times a rate nobody has observed), and the conditions under
+which per-device alert series would be reconsidered. The counters above are what
+make it measurable. The measurement is:
+
+```promql
+sum(increase(opengate_alerts_created_total[24h]))
+  / max(sum by (rule_id) (opengate_rule_coverage))
+```
+
+The numerator is a full day of stored alerts. The denominator is the fleet, read
+off the coverage gauge — its four states always sum to the fleet, so any rule's
+total is the fleet size. The stat panel on the dashboard is this expression.
+
+It needs a **real population and a full 24-hour window** to mean anything. Five
+canary machines on a one-device soak fleet cannot produce an estate-scale rate,
+and a figure taken from a synthetic run is a figure about the harness: if one is
+wanted as an early signal it is reported as a harness figure naming its rule pack
+and fixture, never as the fleet rate. What follows from the measurement:
+
+| Measured rate | Consequence |
+|---|---|
+| ~0.2 / device / day | The ceilings hold with roughly twelve times headroom; nothing changes |
+| ~1 / device / day | Headroom falls to about 2.4x — raise the ceilings and bring the retention sweep forward |
+| ~5 / device / day | The customer ceiling starts clipping ordinary operation — tighten the curated thresholds, ship a smaller pack, or strengthen grouping so the incident count stays usable |
+
+The curated pack does not advance past its canary stage until a real population
+has produced the number.
+
 ### Telemetry load and observability
 
 Edge-Sentinel telemetry runs on every enrolled device. The control-plane holds
@@ -891,6 +966,9 @@ the Edge-Sentinel Logs dashboard (raw-log pull rate/latency and audited reads),
 the Edge-Sentinel Soak dashboard (telemetry ingest/drop rates, VM
 cardinality + disk growth, control-plane query p99,
 reconnect-backfill scheduler state, and threshold-alert breach counts),
+the Rule Rollout And Triage dashboard (alerts raised per rule, refusals by
+reason, the measured alerts-per-device-per-day rate, the triage queue by status,
+and fleet-wide rule coverage),
 benchmark trend, mutation trend, PMAT trend,
 terraform-drift trend, and load-test trend dashboards. Numeric CI trend workflows
 write Prometheus samples to VictoriaMetrics:

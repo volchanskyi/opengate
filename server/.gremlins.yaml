@@ -2,14 +2,16 @@
 #
 # Carve-outs:
 #  - openapi_gen.go: generated code; mutants here are noise.
-#  - cmd/meshserver/main.go and tests/loadtest/main.go: entry-point binaries
-#    with no unit tests by design.
+#  - cmd/meshserver/ and tests/loadtest/main.go: entry-point wiring — flag
+#    parsing, construction order, and the goroutines that start the periodic
+#    workers. A mutant there changes how the process is assembled rather than
+#    what any behavior does.
 #  - internal/testutil/: shared test helpers; mutating tests' own scaffolding
 #    produces meaningless results.
 unleash:
   exclude-files:
     - "openapi_gen\\.go"
-    - "cmd/meshserver/main\\.go"
+    - "cmd/meshserver/"
     - "tests/loadtest/main\\.go"
     - "internal/testutil/"
   # Per-mutant test timeout = coverage-dry-run-elapsed * timeout-coefficient
