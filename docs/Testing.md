@@ -115,24 +115,29 @@ cd web && npx vitest run
 All three languages enforce a minimum line-coverage threshold both in CI and locally (via `/precommit`). The enforced values live in the coverage steps of [`ci.yml`](../.github/workflows/ci.yml) (search for `THRESHOLD` and `fail-under-lines`) — the commands below mirror them:
 
 ```bash
-# Go — coverage with exclusions (testutil, metrics, openapi_gen)
+# Go — coverage; only test scaffolding and generated code are filtered out
 cd server && go test -race -timeout 5m -coverprofile=coverage.out -covermode=atomic ./internal/...
-grep -v -E '/(testutil|metrics)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
+grep -v -E '/testutil/|api/openapi_gen\.go' coverage.out > coverage-prod.out
 go tool cover -func=coverage-prod.out | grep total
 
 # Web — Vitest v8 coverage, check summary JSON
 cd web && npx vitest run --coverage
 node -e "const s=require('./coverage/coverage-summary.json');const l=s.total.lines.pct;console.log('Web line coverage: '+l+'%');process.exit(l<80?1:0)"
 
-# Rust — cargo-llvm-cov with exclusions
+# Rust — cargo-llvm-cov; only the test files themselves are ignored
 cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
-  --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/relay\.rs|/tests/)'
+  --ignore-filename-regex '(/tests/)'
 ```
 
-Each ignored Rust path lacks an in-process harness: `main.rs` (binary entry
-points), `webrtc.rs` (live STUN/ICE stack), `terminal.rs` (PTY plus a shell
-subprocess), `session/relay.rs` (loops driven by a live screen source), and
-`/tests/` (the test files themselves).
+Every production path counts toward the threshold in all three languages. A
+coverage exclusion is a last resort that needs explicit approval, names the
+reason no in-process test can execute the file, and is deleted as soon as that
+stops being true — see
+[`.claude/rules/coverage-exclusions.md`](../.claude/rules/coverage-exclusions.md).
+[`scripts/sonar-coverage-exclusion-guard.sh`](../scripts/sonar-coverage-exclusion-guard.sh)
+enforces the mechanical half in the gauntlet: every entry justified, no listed
+path missing, the per-language ignore lists identical across CI and the local
+run, and a file split out of an excluded file carrying its exclusion with it.
 
 ### Mutation testing
 

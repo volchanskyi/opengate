@@ -307,15 +307,16 @@ func (a *AgentConn) persistRuleCoverage(ctx context.Context, delta RuleCoverageD
 	}
 }
 
-// FleetCoverageSource counts the whole install: how many machines it has, and
-// per rule how many of them cannot evaluate it.
+// InstallCounter counts the whole install: how many machines it has, and per
+// rule how many of them cannot evaluate it. It is the fleet-wide sibling of
+// [FleetCounter], which counts one customer's estate.
 //
 // Separate from [UnsupportedCoverageStore] because it is a different question
 // asked by a different caller. That one is the connection's write-through, on
 // the path of every health summary; this is one read on a metrics timer. Folding
 // them together would make every stand-in for the write path implement a
 // fleet-wide read it never calls.
-type FleetCoverageSource interface {
+type InstallCounter interface {
 	// FleetCoverage returns the fleet size and, per rule, how many machines
 	// cannot evaluate it. Rules nothing is blind to are absent.
 	FleetCoverage(ctx context.Context) (int, map[string]int, error)

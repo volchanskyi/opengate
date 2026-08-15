@@ -137,6 +137,35 @@ func TestOpenInvestigationsIsOneStatement(t *testing.T) {
 		"the split is the database's work, not a scan the server groups afterwards")
 }
 
+// TestOpenStatusesIsTheLifecycleMinusItsEnd pins the vocabulary the caller
+// exports. The gauge publishes a series per open status including the ones
+// sitting at zero, so this set is what a reader sees as "none open" rather than
+// as "no data" — a status missing from it is a queue nobody can tell is empty.
+func TestOpenStatusesIsTheLifecycleMinusItsEnd(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, []Status{StatusNew, StatusAcknowledged, StatusInvestigating}, OpenStatuses())
+	assert.NotContains(t, OpenStatuses(), StatusResolved,
+		"a room that is over is not open work, which is the whole distinction")
+}
+
+// TestOpenInvestigationsSurfacesAReadThatCannotBeAnswered is the negative case.
+// The caller refreshes a gauge from this on a timer, so a read it cannot
+// complete has to come back as an error and leave the gauge alone — reporting
+// an empty queue because the database could not be asked would read as
+// "nobody is behind" at exactly the moment nothing is known.
+func TestOpenInvestigationsSurfacesAReadThatCannotBeAnswered(t *testing.T) {
+	t.Parallel()
+
+	blind := NewStore(testutil.NewUnmigratedDB(t))
+
+	byStatus, openAlerts, err := blind.OpenInvestigations(context.Background())
+	require.Error(t, err, "a read that cannot reach the tables is a failure, not an empty queue")
+	assert.Contains(t, err.Error(), "count open investigations")
+	assert.Nil(t, byStatus)
+	assert.Zero(t, openAlerts)
+}
+
 // foreign is a second tenant with its own customer and machine, which is what
 // makes "every tenant" a claim rather than a phrase.
 type foreign struct {

@@ -41,7 +41,7 @@ type AgentServer struct {
 	ruleCatalog    *rules.Catalogue
 	coverage       *RuleCoverageStore
 	ruleCoverage   UnsupportedCoverageStore
-	fleetCoverage  FleetCoverageSource
+	fleetCoverage  InstallCounter
 	settings       settings.Reader
 	metrics        *appmetrics.Metrics
 	quicHost       string   // extra DNS SAN for the server certificate
@@ -81,7 +81,7 @@ type AgentServerConfig struct {
 	// FleetCoverage counts the whole install for the aggregate coverage gauge:
 	// the fleet size, and per rule how many machines cannot evaluate it.
 	// Optional; nil leaves the platform's fleet-wide coverage view unreported.
-	FleetCoverage FleetCoverageSource
+	FleetCoverage InstallCounter
 	// Settings reads a machine's place in the tenancy ladder, so alerts and
 	// vitals arriving on an agent connection carry the right customer. Optional:
 	// nil leaves each connection with the rungs it already knows for itself.

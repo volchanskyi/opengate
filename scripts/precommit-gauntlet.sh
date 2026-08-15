@@ -273,6 +273,13 @@ run_check "dead-code" -- make dead-code
 run_check "gitleaks (staged)" -- gitleaks protect --staged --config .gitleaks.toml --no-banner --redact
 run_check "lint-deploy" -- make lint-deploy
 run_check "no-vm-ssh-guard" -- bash scripts/no-vm-ssh-guard.sh
+# coverage-exclusion drift: splitting a coverage-excluded file gives the carved-out
+# half a new path that nothing excludes, and git blame dates every relocated line to
+# the split — so it enters SonarCloud's new code at whatever unit coverage it has.
+# The `make sonar` step below cannot catch it (blame has no commit for those lines
+# during a pre-commit scan), which is how a file split dropped new_coverage to 31.7%
+# in CI run 31904922362. This reads the diff and the exclusion list instead.
+run_check "sonar coverage-exclusion guard" -- bash scripts/sonar-coverage-exclusion-guard.sh
 
 # Phase 2: codegen sync — would be a CI failure otherwise.
 banner "Codegen sync"
@@ -313,7 +320,7 @@ banner "Coverage thresholds"
 # shellcheck disable=SC2016 # $pct is set and consumed inside the inner shell; outer expansion is not desired.
 run_check "go coverage ≥80%" -- bash -c '
   cd server
-  grep -v -E "/(testutil|metrics|amt/transport/wsman)/|api/openapi_gen\.go" coverage.out > coverage-prod.out
+  grep -v -E "/testutil/|api/openapi_gen\.go" coverage.out > coverage-prod.out
   pct="$(go tool cover -func=coverage-prod.out | awk "/^total:/ {gsub(\"%\", \"\", \$NF); print \$NF}")"
   awk -v p="$pct" "BEGIN { exit !(p+0 >= 80.0) }"
 '
@@ -326,12 +333,11 @@ run_check "web coverage ≥80%" -- bash -c '
     process.exit(l<80?1:0);
   "
 '
-# Ignored files have no in-process harness: main.rs (binary entry points),
-# webrtc.rs (live STUN/ICE stack), terminal.rs (PTY + shell subprocess),
-# session/relay.rs (loops driven by a live screen source), /tests/ (test files).
+# Only the test files themselves are ignored; every production path counts
+# toward the threshold — see .claude/rules/coverage-exclusions.md.
 run_check "rust coverage ≥80%" -- bash -c '
   cd agent && cargo llvm-cov nextest --workspace --fail-under-lines 80 \
-    --ignore-filename-regex "(main\.rs|/webrtc\.rs|/terminal\.rs|/session/relay\.rs|/tests/)"
+    --ignore-filename-regex "(/tests/)"
 '
 
 # Phase 5: security audits — lockfile-based; fail on any reported vuln.

@@ -148,6 +148,30 @@ func NewTestStore(t testing.TB) *db.PostgresStore {
 	return store
 }
 
+// NewUnmigratedDB opens a pool whose search_path names a schema that was never
+// created, so every unqualified table a store reads is absent. Connecting,
+// beginning a transaction and setting the tenant scope all still succeed — only
+// the statement itself fails, which is what puts a store's "the read could not
+// be answered" branch under test.
+//
+// It reaches no schema another test owns, so it is safe to run in parallel with
+// the whole suite, and it needs no cleanup beyond closing the pool.
+func NewUnmigratedDB(t testing.TB) *sql.DB {
+	t.Helper()
+
+	base := testpg.BaseURL(t)
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	pool, err := sql.Open("pgx", base+sep+"search_path=ogt_no_such_schema")
+	require.NoError(t, err, "open unmigrated pool")
+	pool.SetMaxOpenConns(testMaxOpenConns)
+	pool.SetMaxIdleConns(testMaxIdleConns)
+	t.Cleanup(func() { _ = pool.Close() })
+	return pool
+}
+
 // NewTestAudit returns a Postgres-backed audit.Repository sharing the
 // connection pool of s. The audit_events schema is owned by the db package's
 // migrations.

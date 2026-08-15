@@ -1,13 +1,36 @@
 # Technical Debt Register
 
 <!-- Ordered by severity. Track only ACTIVE debt: when an item's pay-down trigger is met, delete it (the git history + the relevant ADR are the record). Do not keep resolved items or historical narrative here. -->
-<!-- Last reviewed: 2026-07-26; terminal/session lifecycle correction added no debt. -->
+<!-- Last reviewed: 2026-08-15; coverage-exclusion retirement left one production carve-out (the QUIC accept path). -->
 
 ## Severity: High
 
 _None currently._
 
 ## Severity: Medium
+
+### The QUIC accept path has no in-process test harness
+
+[`server.go`](../server/internal/agentapi/server.go) and
+[`server_connection.go`](../server/internal/agentapi/server_connection.go) are the
+only production files left in `sonar.coverage.exclusions`. They sit at ~4–80% line
+coverage because reaching `accept` means standing up a real QUIC listener, driving
+a TLS handshake with a client certificate, and holding a peer connection open —
+none of which any current test does. The package's QUIC tests exercise resumption
+and tombstones through other entry points, so the accept, register, teardown and
+control-loop paths run only in production and in e2e.
+
+That is a genuine gap, not a classification: an in-process harness *is* buildable
+(a `quic.Transport` on a loopback UDP socket with a self-signed cert pair), which
+is exactly why the exclusion is debt rather than a permanent carve-out. Until it
+exists, a change to the connection lifecycle is defended by e2e alone.
+
+**Pay-down trigger:** the next change to the connection lifecycle, or any further
+split of these files. Build the loopback harness, cover accept → register →
+control loop → unregister, then delete both entries and their justification lines
+from [`sonar-project.properties`](../sonar-project.properties) — the guard
+([`sonar-coverage-exclusion-guard.sh`](../scripts/sonar-coverage-exclusion-guard.sh))
+will then hold the list at zero production exclusions.
 
 ### Multi-tenant membership API and web tenant switcher deferred
 
@@ -232,3 +255,25 @@ TypeScript 6.x.
 **Pay-down trigger:** revisit once `openapi-typescript` ships a release supporting
 TypeScript 6.x (`npm view openapi-typescript versions` / its peerDependencies
 range), then bump both together.
+
+### `reopen_window` has no per-rule override
+
+[ADR-075](../docs/adr/ADR-075-incident-grouping-lifecycle-and-auto-resolve.md)
+implements D27's default — an incident's auto-resolve hold is its rule's own
+grouping window — and deliberately does not implement the per-rule override D27
+also allowed. Every override breaks one half of the pair the default exists to
+hold together: a hold *longer* than the grouping window leaves a room open that
+an arriving alert is no longer allowed to join, and the one-open-room-per-key
+index then has nowhere to put that alert; a hold *shorter* than it closes a room
+whose next occurrence is still due, which is how a recurrence fragments into a
+queue of one-offs. So the engine takes the window once, from the rule, and reads
+it live rather than freezing a copy onto the incident row.
+
+The cost is that a rule wanting to gather firings over one span while holding its
+room for a different one cannot say so. No shipped rule wants that, and none of
+the three curated shapes — fleet event, slow burn, recurrence — needs it.
+
+**Pay-down trigger:** a concrete rule that needs a hold differing from its
+grouping window. That is a change to the relationship between the two grouping
+axes, so it lands as a new ADR superseding ADR-075 on this point — not as a YAML
+knob added to the catalogue grammar.

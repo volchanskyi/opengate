@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# Tests for scripts/sonar-coverage-exclusion-guard.sh. Plain bash; no network and
+# no git — the exclusion list comes from a fixture properties file and the
+# rename/copy set from SCEG_COPIES_OVERRIDE.
+# Run: ./scripts/tests/sonar-coverage-exclusion-guard.test.sh
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GUARD="$SCRIPT_DIR/../sonar-coverage-exclusion-guard.sh"
+[ -f "$GUARD" ] || {
+  echo "FAIL: $GUARD not found" >&2
+  exit 1
+}
+
+PASS=0
+FAIL=0
+FAILURES=()
+pass() {
+  PASS=$((PASS + 1))
+  printf '  ok   %s\n' "$1"
+}
+fail() {
+  FAIL=$((FAIL + 1))
+  FAILURES+=("$1")
+  printf '  FAIL %s\n' "$1" >&2
+}
+assert_rc() {
+  local name="$1" want="$2"
+  shift 2
+  "$@" >/dev/null 2>&1
+  local got=$?
+  if [ "$got" = "$want" ]; then pass "$name"; else fail "$name (want rc=$want got=$got)"; fi
+}
+
+# --- Fixture tree: an excluded transport file, an excluded glob, and a plain
+# --- unit-tested file that is not excluded. ---
+FIXTURE="$(mktemp -d)"
+trap 'rm -rf "$FIXTURE"' EXIT
+mkdir -p "$FIXTURE/server/internal/agentapi" "$FIXTURE/web/src/types"
+touch "$FIXTURE/server/internal/agentapi/server.go" \
+  "$FIXTURE/server/internal/agentapi/server_connection.go" \
+  "$FIXTURE/server/internal/agentapi/conn.go" \
+  "$FIXTURE/web/src/types/api.d.ts"
+
+# write_props [extra-entry] [extra-justification] — rebuild the fixture property.
+write_props() {
+  cat >"$FIXTURE/sonar-project.properties" <<PROPS
+sonar.sources=server/internal
+# JUSTIFICATIONS (the guard requires one line here per entry below):
+#   **/types/** — generated type declarations
+#   server/internal/agentapi/server.go — QUIC accept path, needs a live listener${2-}
+sonar.coverage.exclusions=**/types/**,\\
+  server/internal/agentapi/server.go${1-}
+sonar.qualitygate.wait=true
+PROPS
+}
+write_props
+
+# Matching ignore lists, so the agreement check is quiet unless a test breaks it.
+write_ignore_lists() {
+  mkdir -p "$FIXTURE/.github/workflows" "$FIXTURE/scripts"
+  cat >"$FIXTURE/.github/workflows/ci.yml" <<CI
+          cargo llvm-cov nextest --ignore-filename-regex '(/tests/)' \\
+          grep -v -E '/testutil/|api/openapi_gen\.go' coverage.out > coverage-prod.out
+CI
+  cat >"$FIXTURE/scripts/precommit-gauntlet.sh" <<GAUNTLET
+  grep -v -E "${1:-/testutil/|api/openapi_gen\.go}" coverage.out > coverage-prod.out
+    --ignore-filename-regex "${2:-(/tests/)}"
+GAUNTLET
+}
+write_ignore_lists
+
+run_guard() {
+  SCEG_PROPERTIES="$FIXTURE/sonar-project.properties" \
+    SCEG_ROOT="$FIXTURE" \
+    SCEG_COPIES_OVERRIDE="${1-}" \
+    bash "$GUARD"
+}
+
+echo "sonar-coverage-exclusion-guard"
+
+# --- Check 1: a split of an excluded file must inherit the exclusion. ---
+assert_rc "no renames or copies at all passes" 0 run_guard ""
+
+assert_rc "split of an excluded file into an unexcluded path fails" 1 \
+  run_guard "server/internal/agentapi/server.go	server/internal/agentapi/conn.go"
+
+# The real fix: the carved-out path joins the list, justification and all.
+write_props ",\\
+  server/internal/agentapi/conn.go" "
+#   server/internal/agentapi/conn.go — same QUIC accept path, split out of server.go"
+assert_rc "split passes once the new path is excluded too" 0 \
+  run_guard "server/internal/agentapi/server.go	server/internal/agentapi/conn.go"
+write_props
+
+assert_rc "split of a file that was never excluded is not the guard's business" 0 \
+  run_guard "server/internal/agentapi/conn.go	server/internal/agentapi/server_connection.go"
+
+assert_rc "a glob entry covers the split it matches" 0 \
+  run_guard "web/src/types/api.d.ts	web/src/types/generated.d.ts"
+
+# --- Check 2: a listed literal path must still exist. ---
+rm "$FIXTURE/server/internal/agentapi/server.go"
+assert_rc "an exclusion naming a file that is gone fails" 1 run_guard ""
+touch "$FIXTURE/server/internal/agentapi/server.go"
+assert_rc "and passes again once the path resolves" 0 run_guard ""
+
+# --- Check 3: an entry with no written justification is refused. ---
+write_props ",\\
+  server/internal/agentapi/conn.go"
+assert_rc "an exclusion added without a justification fails" 1 run_guard ""
+write_props
+
+# --- Check 4: the ignore lists must agree across CI and the gauntlet. ---
+write_ignore_lists '/testutil/|/metrics/|api/openapi_gen\.go'
+assert_rc "a Go ignore list that drifted from CI fails" 1 run_guard ""
+write_ignore_lists '' '(main\.rs|/tests/)'
+assert_rc "a Rust ignore list that drifted from CI fails" 1 run_guard ""
+write_ignore_lists
+assert_rc "and passes once both match again" 0 run_guard ""
+
+# --- Prerequisites. ---
+assert_rc "a missing properties file is a prerequisite failure" 2 \
+  env SCEG_PROPERTIES="$FIXTURE/absent.properties" SCEG_ROOT="$FIXTURE" \
+  SCEG_COPIES_OVERRIDE="" bash "$GUARD"
+
+# --- The real repository passes its own guard. ---
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+assert_rc "the repository's own exclusion list resolves" 0 \
+  env SCEG_PROPERTIES="$REPO_ROOT/sonar-project.properties" SCEG_ROOT="$REPO_ROOT" \
+  SCEG_COPIES_OVERRIDE="" bash "$GUARD"
+
+echo
+if [ "$FAIL" -ne 0 ]; then
+  printf '%d passed, %d FAILED\n' "$PASS" "$FAIL" >&2
+  for f in "${FAILURES[@]}"; do printf '  - %s\n' "$f" >&2; done
+  exit 1
+fi
+printf '%d passed\n' "$PASS"

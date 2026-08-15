@@ -71,13 +71,29 @@ func TestFleetCoverageNeedsNoCallerScope(t *testing.T) {
 func TestFleetCoverageAnswersAnEmptyEstate(t *testing.T) {
 	t.Parallel()
 
-	s, e := newEstate(t)
+	s, _ := newEstate(t)
 
 	fleet, blind, err := s.FleetCoverage(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, 1, fleet, "the estate's one machine is still the fleet")
 	assert.Empty(t, blind, "nothing is blind to anything yet")
-	_ = e
+}
+
+// TestFleetCoverageSurfacesAReadThatCannotBeAnswered is the negative case. A
+// fleet size of zero is a meaningful answer — an install with no machines — so
+// a read that could not be completed must not return one. The caller would
+// otherwise publish "watching nothing" when what happened is that it failed to
+// look.
+func TestFleetCoverageSurfacesAReadThatCannotBeAnswered(t *testing.T) {
+	t.Parallel()
+
+	blindStore := NewStore(testutil.NewUnmigratedDB(t))
+
+	fleet, blind, err := blindStore.FleetCoverage(context.Background())
+	require.Error(t, err, "a read that cannot reach the tables is a failure, not an empty install")
+	assert.Contains(t, err.Error(), "count fleet coverage")
+	assert.Zero(t, fleet)
+	assert.Nil(t, blind)
 }
 
 // TestFleetCoverageIsOneStatement is the bound. The caller refreshes a gauge
