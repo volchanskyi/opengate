@@ -151,17 +151,26 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db, now: func() time.Time { return time.Now().UTC() }}
 }
 
-// Record files one alert and reports what became of it.
+// Record files one alert, folds it into the room it belongs to, and reports what
+// became of it.
 //
 // The three outcomes are all ordinary. An alert is stored, or its identity was
 // already stored and a reconnect simply replayed it, or the customer's hourly
 // budget is spent and the count of what was refused went into the storm room. An
 // error means none of those happened — nothing was written, and the caller must
 // not report the alert as held.
-func (s *Store) Record(ctx context.Context, a Alert) (Outcome, error) {
+//
+// The alert and its room are one write. An alert stored outside the room it
+// belongs to is invisible to the only surface a technician looks at, which is a
+// worse failure than the alert never arriving, because nothing says it is
+// missing.
+func (s *Store) Record(ctx context.Context, a Alert, g Grouping) (Outcome, error) {
 	tenant, ok := dbtx.TenantFromContext(ctx)
 	if !ok {
 		return "", dbtx.ErrTenantRequired
+	}
+	if err := g.check(); err != nil {
+		return "", err
 	}
 	a = a.normalized()
 	now := s.now().UTC().Truncate(time.Microsecond)
@@ -176,7 +185,7 @@ func (s *Store) Record(ctx context.Context, a Alert) (Outcome, error) {
 			now.Add(-time.Hour), OrganizationHourlyCeiling).Scan(&stored)
 		switch {
 		case err == nil:
-			return nil
+			return fold(ctx, tx, tenant.TenantID, a, g, now)
 		case !errors.Is(err, sql.ErrNoRows):
 			return fmt.Errorf("store alert: %w", err)
 		}

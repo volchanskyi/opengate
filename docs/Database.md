@@ -397,7 +397,11 @@ into, and what people did about it. The adapter is
   allows exactly one open room per key, which is what makes folding an alert
   race-safe; resolved rooms sit outside the index, so the same condition
   recurring next month opens a new one. `occurrences` and `device_count` are
-  application state — no foreign key keeps them true when a machine is erased.
+  application state — no foreign key keeps them true when a machine is erased —
+  so the engine restates both from the room's own alerts rather than
+  incrementing them. Which alerts land in which room, how a room moves through
+  its statuses, and when a quiet one closes itself are all
+  [Monitoring](Monitoring.md#incidents-the-room-an-alert-lands-in).
 - `incident_events` — the append-only history behind the room's current state,
   which is what a handover between two technicians reads.
 

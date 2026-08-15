@@ -59,26 +59,70 @@ func skipTestHarnessDirs(d os.DirEntry) error {
 
 // assertTenantSQLScoped fails if a production Go file runs SQL against a
 // tenant-scoped table without going through dbtx.Scoped.
+//
+// A file holding no *sql.DB satisfies it too, and that is not a loosening: a
+// transaction can only begin where a pool is in reach, TestOnlyDbtxBeginsA
+// Transaction pins the one place in the tree that does, and so every *sql.Tx
+// such a file receives was opened — and scoped — by a caller this same check
+// already covers. Requiring the call itself would only push the statements back
+// into whichever file happens to hold the entry point.
 func assertTenantSQLScoped(t *testing.T, path string) error {
 	t.Helper()
+	src, ok, err := productionSource(path)
+	if err != nil || !ok {
+		return err
+	}
+	if !containsAny(src, tenantTables) || !containsAny(src, []string{"ExecContext", "QueryContext", "QueryRowContext"}) {
+		return nil
+	}
+	if !strings.Contains(src, "dbtx.Scoped(") && strings.Contains(src, "*sql.DB") {
+		t.Errorf("%s issues SQL against tenant tables without dbtx.Scoped", path)
+	}
+	return nil
+}
+
+// TestOnlyDbtxBeginsATransaction is the premise the exemption above rests on. If
+// anything else could open a transaction, a file could be handed one that never
+// had a tenant set on it, and the wall would have a door in it nobody was
+// looking at.
+func TestOnlyDbtxBeginsATransaction(t *testing.T) {
+	t.Parallel()
+	err := filepath.WalkDir(filepath.Clean(".."), func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return skipTestHarnessDirs(d)
+		}
+		src, ok, err := productionSource(path)
+		if err != nil || !ok {
+			return err
+		}
+		if strings.Contains(src, "BeginTx(") {
+			t.Errorf("%s opens a transaction; only dbtx may, or a tenant can go unset", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// productionSource reads a Go file the checks above apply to, reporting false
+// for anything outside that set: tests, generated code, and dbtx itself, which
+// is the mechanism rather than a user of it.
+func productionSource(path string) (string, bool, error) {
 	if !strings.HasSuffix(path, ".go") ||
 		strings.HasSuffix(path, "_test.go") ||
 		strings.HasSuffix(path, "openapi_gen.go") ||
 		strings.Contains(path, string(filepath.Separator)+"dbtx"+string(filepath.Separator)) {
-		return nil
+		return "", false, nil
 	}
-	srcBytes, err := os.ReadFile(path)
+	src, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return "", false, err
 	}
-	src := string(srcBytes)
-	if !containsAny(src, tenantTables) || !containsAny(src, []string{"ExecContext", "QueryContext", "QueryRowContext"}) {
-		return nil
-	}
-	if !strings.Contains(src, "dbtx.Scoped(") {
-		t.Errorf("%s issues SQL against tenant tables without dbtx.Scoped", path)
-	}
-	return nil
+	return string(src), true, nil
 }
 
 func containsAny(s string, needles []string) bool {

@@ -44,7 +44,7 @@ load-bearing — it is the feedback channel that says which curated rule needs i
   sweep), or a sibling package if arch-lint prefers it; keep `mayDependOn: [dbtx]`.
 - **Modify:** `server/internal/agentapi/conn_alerts.go` — ingest calls the fold.
 - **Create:** fixtures for Contoso (312/40/29 min), WS-4471 (30 alerts over 30 d), FS01 (6 days).
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
 
 ## Steps (TDD-first)
 

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/session"
 )
 
@@ -106,4 +107,52 @@ func TestCleanupRelaySessionUsesBackgroundDelete(t *testing.T) {
 		repo := &relayCleanupRepo{err: want}
 		assert.ErrorIs(t, cleanupRelaySession(repo, token), want)
 	})
+}
+
+// quietRoomResolver counts sweeps and reports what it was asked to hold rooms
+// open for.
+type quietRoomResolver struct {
+	calls   int
+	windows map[string]time.Duration
+}
+
+func (r *quietRoomResolver) ResolveStale(_ context.Context, windows map[string]time.Duration) (int, error) {
+	r.calls++
+	r.windows = windows
+	return 0, nil
+}
+
+// TestStartIncidentSweepLoop_SweepsAtBootThenStops covers the pass before the
+// first tick. A process that was down for longer than a room's whole hold comes
+// back to a triage queue holding incidents that should already have closed, and
+// waiting out an interval before looking would leave them there.
+func TestStartIncidentSweepLoop_SweepsAtBootThenStops(t *testing.T) {
+	resolver := &quietRoomResolver{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	startIncidentSweepLoop(ctx, resolver, map[string]time.Duration{"disk-critical": time.Hour}, slog.Default())
+
+	assert.Equal(t, 1, resolver.calls)
+	assert.Equal(t, map[string]time.Duration{"disk-critical": time.Hour}, resolver.windows)
+}
+
+// TestGroupWindowsAreTheRulesOwn pins the one number auto-resolve is allowed to
+// use. A room must stay open for exactly as long as a new alert could still fold
+// into it, so the hold is read from each rule's grouping window rather than
+// being a figure of the sweep's own — any other value makes auto-resolve and
+// grouping disagree, and a recurrence fragments into a queue of one-offs.
+func TestGroupWindowsAreTheRulesOwn(t *testing.T) {
+	catalogue, err := rules.Embedded()
+	require.NoError(t, err)
+
+	windows := groupWindows(catalogue)
+
+	shipped := catalogue.All()
+	require.NotEmpty(t, shipped)
+	assert.Len(t, windows, len(shipped), "every shipped rule's rooms must be closeable")
+	for _, def := range shipped {
+		assert.Equalf(t, time.Duration(def.GroupWindowSecs)*time.Second, windows[def.ID],
+			"%s holds its rooms open for its own grouping window", def.ID)
+	}
 }

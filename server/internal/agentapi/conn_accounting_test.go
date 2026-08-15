@@ -119,7 +119,7 @@ func (s *accountingSinks) ListForDevice(context.Context, uuid.UUID, int) ([]inve
 
 // Record stands in for the alert store, always answering that the alert was
 // stored — the outcomes that are not are driven in conn_alerts_store_test.go.
-func (s *accountingSinks) Record(context.Context, alerts.Alert) (alerts.Outcome, error) {
+func (s *accountingSinks) Record(context.Context, alerts.Alert, alerts.Grouping) (alerts.Outcome, error) {
 	if err := s.accept(); err != nil {
 		return "", err
 	}
