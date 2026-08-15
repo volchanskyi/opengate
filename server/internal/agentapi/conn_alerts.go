@@ -254,13 +254,19 @@ func incidentScope(groupBy []string) alerts.Scope {
 
 // observeAlertOutcome counts what became of an alert the store accepted.
 //
-// A stored alert produced state and needs no further accounting. The other two
-// produced no row, so each files a typed drop to keep the ingest ledger
-// balanced — and a spent budget is additionally counted as suppression, because
-// unlike a replay it cost the customer an incident nobody can reconstruct.
+// A stored alert is new detection and is counted under the rule that raised it —
+// that count, divided by the fleet, is the alerts-per-device-per-day figure the
+// customer ceiling and the evidence projection are both sized against, so it has
+// to be stored rows and nothing else. The other two produced no row, so each
+// files a typed drop to keep the ingest ledger balanced — and a spent budget is
+// additionally counted as suppression, because unlike a replay it cost the
+// customer an incident nobody can reconstruct.
 func (a *AgentConn) observeAlertOutcome(outcome alerts.Outcome, alert alerts.Alert) {
 	switch outcome {
 	case alerts.Stored:
+		if a.metrics != nil {
+			a.metrics.ObserveAlertCreated(alert.RuleID)
+		}
 		a.logger.Debug("stored device alert",
 			"device_id", a.DeviceID, "organization_id", alert.OrganizationID,
 			"rule_id", alert.RuleID, "rule_version", alert.RuleVersion,

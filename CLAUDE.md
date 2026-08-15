@@ -23,6 +23,7 @@ After completing significant work, update [`phases.md`](.claude/phases.md), [`te
 | [`rules/tests-determinism.md`](.claude/rules/tests-determinism.md) | tests always run — no silent skips (Go/web/Rust) | `pretooluse-test-skip-guard.sh` |
 | [`rules/precommit-refactor.md`](.claude/rules/precommit-refactor.md) | `/precommit` before commit; `/refactor` before push | commit/push guards via marker files |
 | [`rules/sonarcloud.md`](.claude/rules/sonarcloud.md) | quality-gate workflow; no suppressions without approval | `pretooluse-write-guard.sh` |
+| [`rules/coverage-exclusions.md`](.claude/rules/coverage-exclusions.md) | exclusions/suppressions are a last resort; per-entry justification, no directory globs | `sonar-coverage-exclusion-guard.sh` |
 | [`rules/plans-and-adrs.md`](.claude/rules/plans-and-adrs.md) | plans location, ADR mutability + archived-plan-link rule | `pretooluse-write-guard.sh` |
 | [`rules/cache-hygiene.md`](.claude/rules/cache-hygiene.md) | reclaim local build caches after every push | `post-push-clean-caches.sh`, `posttooluse-cache-clean.sh` |
 

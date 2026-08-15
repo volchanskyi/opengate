@@ -44,13 +44,13 @@ rate.
 
 ## File inventory
 
-- **Modify:** [metrics.go](../../server/internal/metrics/metrics.go) — the four remaining counters
+- **Modify:** [metrics.go](../../../server/internal/metrics/metrics.go) — the four remaining counters
   and gauges (namespace `opengate`, as every existing metric).
 - **Modify:** `server/internal/alerts/` — a bounded gauge refresh (see the trap).
-- **Modify:** [deploy/grafana/provisioning/dashboards/](../../deploy/grafana/provisioning/dashboards/)
+- **Modify:** [deploy/grafana/provisioning/dashboards/](../../../deploy/grafana/provisioning/dashboards/)
   — a bad-rollout panel/alert over the new series. **Do not touch the Edge-Sentinel soak dashboard**
   (§14.2's scope of non-action).
-- **Docs:** [Monitoring.md](../../docs/Monitoring.md).
+- **Docs:** [Monitoring.md](../../../docs/Monitoring.md).
 
 ## Steps (TDD-first)
 

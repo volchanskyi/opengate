@@ -90,7 +90,7 @@ jobs:
           set +e
           cargo llvm-cov nextest --workspace --no-fail-fast --color never \
             --lcov --output-path lcov.info \
-            --ignore-filename-regex '(main\.rs|/webrtc\.rs|/terminal\.rs|/session/relay\.rs|/tests/)' \
+            --ignore-filename-regex '(/tests/)' \
             --fail-under-lines 80 > test-output.txt 2>&1
           EXIT_CODE=$?
           cat test-output.txt
@@ -240,10 +240,9 @@ jobs:
       - name: Enforce coverage threshold
         id: coverage
         run: |
-          # Exclude test scaffolding, generated code, and infrastructure
-          # exposition. WSMAN's IO surface is now covered by in-package wire
-          # tests (Phase B / B3) and no longer needs an exclusion carve-out.
-          grep -v -E '/(testutil|metrics)/|api/openapi_gen\.go' coverage.out > coverage-prod.out
+          # Exclude test scaffolding and generated code only. Every other path
+          # is held to the threshold — see .claude/rules/coverage-exclusions.md.
+          grep -v -E '/testutil/|api/openapi_gen\.go' coverage.out > coverage-prod.out
           TOTAL=$(go tool cover -func=coverage-prod.out | grep total | awk '{print $3}' | tr -d '%')
           echo "Unit test coverage: $TOTAL%"
           go tool cover -func=coverage-prod.out

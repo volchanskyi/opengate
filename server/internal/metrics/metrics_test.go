@@ -3,8 +3,6 @@ package metrics
 import (
 	"context"
 	"errors"
-	"io"
-	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -191,7 +189,7 @@ func TestStartDBSizeUpdaterPreservesGaugeOnError(t *testing.T) {
 
 	StartDBSizeUpdater(ctx, m, dbSizerFunc(func(context.Context) (int64, error) {
 		return 99, errors.New("size unavailable")
-	}), slog.New(slog.NewTextHandler(io.Discard, nil)), time.Hour)
+	}), discardLogger(), time.Hour)
 
 	require.InDelta(t, 42, testutil.ToFloat64(m.DBSizeBytes), 0)
 }

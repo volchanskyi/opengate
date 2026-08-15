@@ -6,6 +6,7 @@ package metrics
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -57,11 +58,23 @@ type Metrics struct {
 	EdgeBackfillActiveSlots        prometheus.Gauge
 	EdgeBackfillGrantRate          prometheus.Gauge
 
-	// Investigations: alerts that never became a stored row.
+	// Investigations: platform meta-monitoring of the rule pack and the queue it
+	// feeds. Every series here is O(rules); see investigations.go for why that is
+	// the binding constraint rather than a preference.
 	AlertsSuppressedTotal *prometheus.CounterVec
+	AlertsCreatedTotal    *prometheus.CounterVec
+	AlertsOpen            prometheus.Gauge
+	IncidentsOpen         *prometheus.GaugeVec
+	RuleCoverage          *prometheus.GaugeVec
 
 	// Chart read path
 	MetricsGridMisalignedTotal prometheus.Counter
+
+	// rules is the rule-id vocabulary the investigation series are bounded by.
+	// It is written once at start-up from the embedded catalogue and read from
+	// every ingest goroutine, so it is held atomically rather than behind a lock
+	// nothing else needs.
+	rules atomic.Pointer[ruleVocabulary]
 }
 
 // namespace prefixes every series this package exposes.
@@ -101,6 +114,14 @@ func gauge(name, help string) prometheus.Gauge {
 		Name:      name,
 		Help:      help,
 	})
+}
+
+func gaugeVec(name, help string, labels ...string) *prometheus.GaugeVec {
+	return prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      name,
+		Help:      help,
+	}, labels)
 }
 
 // NewMetrics creates and registers all metrics on the given registry.
@@ -172,6 +193,21 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			"Total alerts that did not become a stored row, by reason. There is no path for asking an endpoint again, so a rising organization_ceiling series is detection being refused rather than noise being filtered.",
 			"reason"),
 
+		AlertsCreatedTotal: counterVec("alerts_created_total",
+			"Total alerts that became a stored row, by the rule that raised them. Replays and refusals are not counted, so increase() over this is new detection and nothing else — which is what makes it the numerator of the alerts-per-device-per-day rate.",
+			"rule_id"),
+
+		AlertsOpen: gauge("alerts_open",
+			"Alerts currently sitting in an incident that is not resolved. An alert holding no room is sub-threshold detail waiting for something to make it meaningful, and is not on anybody's queue."),
+
+		IncidentsOpen: gaugeVec("incidents_open",
+			"Incidents that are not resolved, by where each one stands. new is the triage queue — there is no separate promotion entity.",
+			"status"),
+
+		RuleCoverage: gaugeVec("rule_coverage",
+			"Machines in each coverage state for each rule, across the whole install. The four states always add up to the fleet, so a rule quietly evaluating on half an estate is visible rather than reading as healthy.",
+			"rule_id", "state"),
+
 		MetricsGridMisalignedTotal: counter("metrics_grid_misalignment_total",
 			"Total chart samples the time-series store returned outside the request-derived grid of the query it answered. The read is issued at the grid's own instants, so any non-zero value is a defect."),
 	}
@@ -195,8 +231,20 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.EdgeBackfillActiveSlots,
 		m.EdgeBackfillGrantRate,
 		m.AlertsSuppressedTotal,
+		m.AlertsCreatedTotal,
+		m.AlertsOpen,
+		m.IncidentsOpen,
+		m.RuleCoverage,
 		m.MetricsGridMisalignedTotal,
 	)
+
+	// The open-work gauges carry a closed vocabulary, so every status is
+	// exported from the start. A missing series reads as "no data", which is not
+	// the same answer as "nothing open" and looks identical exactly when
+	// somebody is checking whether a queue has drained.
+	for _, status := range openIncidentStatuses {
+		m.IncidentsOpen.WithLabelValues(status)
+	}
 
 	return m
 }

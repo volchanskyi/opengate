@@ -1,0 +1,227 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Alerts stored per hour, by the rule that raised them (opengate_alerts_created_total). Replays and refusals are not counted, so a rise here is new detection. One rule climbing while the rest hold steady is the shape of a rule retuned wrong — which a fleet-wide total would show as ordinary growth.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "alerts / hour",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Alerts raised, by rule",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum by (rule_id) (rate(opengate_alerts_created_total[10m])) * 3600",
+          "legendFormat": "{{rule_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Alerts that reached the server and did not become a stored row (opengate_alerts_suppressed_total). organization_ceiling is a customer's hourly budget spent — detection being refused, not noise being filtered, since there is no path for asking the endpoint again. Read alongside the panel to its left: a rule's rate climbing into a rising ceiling series is a rollout costing a customer incidents nobody can reconstruct.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "alerts / hour",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false
+          },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Alerts refused, by reason",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum by (reason) (rate(opengate_alerts_suppressed_total[10m])) * 3600",
+          "legendFormat": "{{reason}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "The measured alerts-per-device-per-day rate. The numerator is a day of stored alerts; the denominator is the fleet, read off the coverage gauge whose four states always add up to it. Three decisions currently rest on an assumed 0.2: the evidence-volume projection, the 500/customer/hour ceiling, and one revisit trigger. 1/device/day cuts the ceiling's headroom to about 2.4x; 5/device/day clips ordinary operation. Needs a real population and a full 24 h window to mean anything — a figure from a synthetic soak is a figure about the harness.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 5 }
+            ]
+          },
+          "unit": "short",
+          "decimals": 2,
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 9 },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "title": "Alerts / device / day (measured)",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum(increase(opengate_alerts_created_total[24h])) / max(sum by (rule_id) (opengate_rule_coverage))",
+          "legendFormat": "alerts / device / day",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Incidents that are not resolved, by where each one stands (opengate_incidents_open). new is the triage queue — there is no separate promotion entity. Every status is exported even at zero, so an empty queue reads as none rather than as no data.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "incidents",
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "mode": "normal" }
+          },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 9 },
+      "id": 4,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Triage queue, by status",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "opengate_incidents_open",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "Alerts sitting in an incident that is not resolved (opengate_alerts_open). Alerts and incidents are two very different numbers for one event — forty machines and three hundred alerts are one room — so this is how much detail the open queue is carrying, not how much work it is.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 9 },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "title": "Alerts in open incidents",
+      "type": "stat",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "opengate_alerts_open",
+          "legendFormat": "alerts held open",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+      "description": "How much of the whole install each rule is actually watching (opengate_rule_coverage). The four states always add up to the fleet: active is evaluating it, throttled stopped because the rule cost more than its allowance, unsupported cannot take the reading at all, unknown has reported nothing. A staged rollout is active climbing; a rule written wrong is throttled appearing on even one machine.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisLabel": "machines",
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": { "mode": "normal" }
+          },
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 15 },
+      "id": 6,
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "title": "Rule coverage across the fleet",
+      "type": "timeseries",
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "VictoriaMetrics" },
+          "expr": "sum by (rule_id, state) (opengate_rule_coverage)",
+          "legendFormat": "{{rule_id}} — {{state}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["edge-sentinel", "investigations", "rules", "victoriametrics"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Rule Rollout And Triage",
+  "uid": "opengate-rule-rollout",
+  "version": 1
+}

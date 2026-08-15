@@ -2,11 +2,13 @@ package agentapi
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 
 	"github.com/google/uuid"
 
+	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 )
 
@@ -60,6 +62,19 @@ type RuleCoverageCounts struct {
 	// Unknown counts devices that have reported nothing: offline, never
 	// connected, or connected but not yet through a first summary.
 	Unknown int
+}
+
+// ByState renders the split under the state names the aggregate metric carries.
+// All four, always: three rendered out of four would make a rule look like it
+// was watching a smaller estate than it is, which is the exact failure this
+// accounting exists to make impossible.
+func (c RuleCoverageCounts) ByState() map[string]int {
+	return map[string]int{
+		appmetrics.CoverageActive:      c.Active,
+		appmetrics.CoverageThrottled:   c.Throttled,
+		appmetrics.CoverageUnsupported: c.Unsupported,
+		appmetrics.CoverageUnknown:     c.Unknown,
+	}
 }
 
 // RuleCoverageDelta is what changed about one device's coverage. It is what the
@@ -226,6 +241,35 @@ func (s *AgentServer) RuleCoverage(ctx context.Context, organizationID uuid.UUID
 	return s.coverage.Aggregate(fleetSize, unsupported)
 }
 
+// FleetRuleCoverage returns the coverage split per rule across the whole
+// install, under the state names the aggregate metric carries.
+//
+// Where [AgentServer.RuleCoverage] answers about one customer's estate, this
+// answers about everything — which is the question a staged rollout is judged
+// on, and the one the platform's own monitoring asks. A fleet that cannot be
+// counted is reported rather than rendered as an install where every machine is
+// unknown: that state is real and alarming, a store that is briefly down is not,
+// and a gauge told they are the same would raise the one for the other.
+//
+// A deployment wired without the durable half has no fleet to measure against
+// and reports nothing, rather than a split whose states do not add up.
+func (s *AgentServer) FleetRuleCoverage(ctx context.Context) (map[string]map[string]int, error) {
+	if s.fleetCoverage == nil {
+		return nil, nil
+	}
+	fleetSize, unsupported, err := s.fleetCoverage.FleetCoverage(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read fleet rule coverage: %w", err)
+	}
+
+	counts := s.coverage.Aggregate(fleetSize, unsupported)
+	byState := make(map[string]map[string]int, len(counts))
+	for ruleID, split := range counts {
+		byState[ruleID] = split.ByState()
+	}
+	return byState, nil
+}
+
 // recordRuleCoverage stores what this agent reported about its rules and
 // reports whether anything was recorded. A summary that carried only coverage
 // still produced state, so its caller must not also count it as a discard.
@@ -261,6 +305,21 @@ func (a *AgentConn) persistRuleCoverage(ctx context.Context, delta RuleCoverageD
 				"device_id", a.DeviceID, "rule_id", ruleID, "error", err)
 		}
 	}
+}
+
+// InstallCounter counts the whole install: how many machines it has, and per
+// rule how many of them cannot evaluate it. It is the fleet-wide sibling of
+// [FleetCounter], which counts one customer's estate.
+//
+// Separate from [UnsupportedCoverageStore] because it is a different question
+// asked by a different caller. That one is the connection's write-through, on
+// the path of every health summary; this is one read on a metrics timer. Folding
+// them together would make every stand-in for the write path implement a
+// fleet-wide read it never calls.
+type InstallCounter interface {
+	// FleetCoverage returns the fleet size and, per rule, how many machines
+	// cannot evaluate it. Rules nothing is blind to are absent.
+	FleetCoverage(ctx context.Context) (int, map[string]int, error)
 }
 
 // UnsupportedCoverageStore persists the durable third of coverage: which
