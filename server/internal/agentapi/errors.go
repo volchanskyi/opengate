@@ -25,4 +25,11 @@ var (
 	// ErrHistoryBusy indicates a deep-history pull is already in flight for the
 	// connection. Like the log broker, one on-demand request runs at a time.
 	ErrHistoryBusy = errors.New("device history request already in flight")
+	// errEvidenceTooLargeInflated indicates an alert's compressed evidence
+	// expands past anything the fixed composition could produce. A small blob
+	// naming a huge one is the shape of a decompression bomb, not of evidence.
+	errEvidenceTooLargeInflated = errors.New("alert evidence inflates past its bound")
+	// errNoAlertStore indicates the server has no alert store wired, so an
+	// admitted alert has nowhere to go.
+	errNoAlertStore = errors.New("no alert store wired")
 )

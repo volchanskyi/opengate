@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/volchanskyi/opengate/server/internal/agentapi"
+	"github.com/volchanskyi/opengate/server/internal/alerts"
 	"github.com/volchanskyi/opengate/server/internal/amt"
 	"github.com/volchanskyi/opengate/server/internal/amt/transport"
 	"github.com/volchanskyi/opengate/server/internal/api"
@@ -201,6 +202,7 @@ func main() {
 		os.Exit(1)
 	}
 	ruleStore := rules.NewStore(store.DB())
+	alertStore := alerts.NewStore(store.DB())
 
 	agentSrv := agentapi.NewAgentServer(agentapi.AgentServerConfig{
 		Cert:          certMgr,
@@ -221,7 +223,11 @@ func main() {
 		// the rung it is filed on; selectors start working the moment tags do.
 		AlertRules:   agentapi.NewCatalogueAlertRuleProvider(ruleCatalogue, ruleStore, nil, devicesRepo, logger),
 		RuleCoverage: ruleStore,
-		Logger:       logger,
+		// An alert names a rule and carries a customer, so the store that files
+		// it and the catalogue that says the rule exists are both wired here.
+		AlertStore:    alertStore,
+		RuleCatalogue: ruleCatalogue,
+		Logger:        logger,
 	})
 
 	// Wire the right-to-be-forgotten purge orchestrator. It needs VictoriaMetrics
@@ -235,6 +241,7 @@ func main() {
 		jobs:            jobStore,
 		seriesPurger:    seriesPurger,
 		seriesInventory: seriesInventory,
+		investigations:  alertStore,
 		logger:          logger,
 	})
 
@@ -404,7 +411,10 @@ type purgeDeps struct {
 	jobs            *lifecycle.JobStore
 	seriesPurger    lifecycle.SeriesPurger
 	seriesInventory lifecycle.SubjectLister
-	logger          *slog.Logger
+	// investigations repairs the incident bookkeeping a device erasure leaves
+	// behind, which the foreign-key cascade cannot reach.
+	investigations lifecycle.InvestigationPurger
+	logger         *slog.Logger
 }
 
 // buildPurgeOrchestrator wires the right-to-be-forgotten purge orchestrator plus
@@ -420,11 +430,12 @@ func buildPurgeOrchestrator(d purgeDeps) (api.DevicePurger, api.PurgeJobReader, 
 		Tombstones: d.tombstones,
 		Jobs:       d.jobs,
 		Series:     d.seriesPurger,
-		PG:         lifecycle.NewPostgresPurger(d.db),
+		PG:         lifecycle.NewPostgresPurger(d.db, d.investigations),
 		Edge:       d.agentSrv,
 		Logger:     d.logger,
 	})
-	reconciler := lifecycle.NewReconciler(d.seriesInventory, d.seriesPurger, lifecycle.NewPostgresPurger(d.db), d.logger)
+	reconciler := lifecycle.NewReconciler(d.seriesInventory, d.seriesPurger,
+		lifecycle.NewPostgresPurger(d.db, d.investigations), d.logger)
 
 	startupCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

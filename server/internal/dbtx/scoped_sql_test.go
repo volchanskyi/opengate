@@ -27,6 +27,9 @@ var tenantTables = []string{
 	"rule_bindings",
 	"rule_rollout",
 	"rule_coverage_unsupported",
+	"alerts",
+	"incidents",
+	"incident_events",
 }
 
 func TestTenantTableSQLUsesScopedHelper(t *testing.T) {

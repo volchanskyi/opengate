@@ -25,7 +25,7 @@ race-safe.
 body jsonb`, `kind ∈ {alert_folded, status_change, assignment, comment, device_offline, resolution}`.
 
 All three: **forced RLS on `tenant_id`**, with `tenant_id`- and `organization_id`-leading indexes, mirroring
-[005_inventory](../../server/internal/db/migrations/005_inventory.up.sql). `severity` and
+[005_inventory](../../../server/internal/db/migrations/005_inventory.up.sql). `severity` and
 `cause_code` are constrained to §6.6's closed sets by **check constraints**, not application
 convention (D30).
 
@@ -33,17 +33,17 @@ convention (D30).
 
 - **Create:** `server/internal/db/migrations/014_investigations.{up,down}.sql`.
 - **Create:** `server/internal/alerts/` — store + types. Arch-lint component `mayDependOn: [dbtx]`,
-  mirroring `inventory` in [.go-arch-lint.yml](../../server/.go-arch-lint.yml#L185-L189).
+  mirroring `inventory` in [.go-arch-lint.yml](../../../server/.go-arch-lint.yml#L185-L189).
 - **Create:** `server/internal/agentapi/conn_alerts.go` — `AgentAlert` ingest with I1 accounting,
   validation, and the **per-organization 500 alerts/h** ceiling — per customer, never per tenant.
-- **Modify:** [metrics.go](../../server/internal/metrics/metrics.go) — `opengate_alerts_suppressed_total{reason}`
+- **Modify:** [metrics.go](../../../server/internal/metrics/metrics.go) — `opengate_alerts_suppressed_total{reason}`
   (this plan is its producer; EF-C4 adds the rest of §6.7's counters).
-- **Modify:** [lifecycle](../../server/internal/lifecycle/) — the erasure cascade and the emptied
+- **Modify:** [lifecycle](../../../server/internal/lifecycle/) — the erasure cascade and the emptied
   incident rule.
-- **Modify:** [.go-arch-lint.yml](../../server/.go-arch-lint.yml),
-  [scoped_sql_test.go](../../server/internal/dbtx/scoped_sql_test.go) (tenant-table gate),
-  [store_part4_test.go](../../server/internal/db/store_part4_test.go) (migration rehearsal).
-- **Docs:** [Database.md](../../docs/Database.md), [Data-Lifecycle.md](../../docs/Data-Lifecycle.md).
+- **Modify:** [.go-arch-lint.yml](../../../server/.go-arch-lint.yml),
+  [scoped_sql_test.go](../../../server/internal/dbtx/scoped_sql_test.go) (tenant-table gate),
+  [store_part4_test.go](../../../server/internal/db/store_part4_test.go) (migration rehearsal).
+- **Docs:** [Database.md](../../../docs/Database.md), [Data-Lifecycle.md](../../../docs/Data-Lifecycle.md).
 
 ## Steps (TDD-first)
 

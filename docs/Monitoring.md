@@ -670,20 +670,44 @@ admission bounds (`payload_too_large`, `interval_floor`, and their
 `discovery_*` counterparts), a payload that carries nothing to store
 (`empty_dims`, `empty_summary`, `empty_processes`, `empty_summaries`,
 `empty_discovery`), the persist path (`tenant_missing`, `persist_failed`,
-`persist_slots_full`), a purged device (`tombstoned`), and reconnect backfill
+`persist_slots_full`), a purged device (`tombstoned`), reconnect backfill
 skipping samples older than its own retention floor
-(`backfill_out_of_retention`). A discarded coalesced batch reports every message
+(`backfill_out_of_retention`), and the alert path's own `alert_*` reasons below.
+A discarded coalesced batch reports every message
 it carried, so the two sides stay comparable. The invariant is pinned by
 `TestTelemetryAccountingInvariant` in
 [`conn_accounting_test.go`](../server/internal/agentapi/conn_accounting_test.go),
 which also fails when a new telemetry control type joins the dispatch switch
 without joining the ledger.
 
-Agent clocks are corrected rather than trusted: a timestamp outside the accepted
-window is pulled to the nearer bound and counted on
+Alerts join that ledger with reasons of their own, prefixed `alert_` so a
+fleet-wide rollout bug and one misbehaving device never look like the same
+number: the path's own payload bound (`alert_payload_too_large`, applied before
+the ingest counter), the content checks
+([`conn_alerts.go`](../server/internal/agentapi/conn_alerts.go)) for a severity
+outside the closed set, an incomplete idempotency key, a rule this build does
+not ship, timestamps outside the window that kind of alert is allowed, and
+evidence that names an unreadable codec or does not decode — and finally
+`alert_duplicate` for a reconnect replaying one already stored and
+`alert_organization_ceiling` for a customer's spent hourly budget.
+
+`opengate_alerts_suppressed_total{reason}` is the operator-facing half of that
+last one. A refused alert is an incident nobody can reconstruct — there is no
+path for asking the endpoint again — so a rising `organization_ceiling` series
+means detection is being turned away rather than noise filtered, and the same
+suppression is folded into one storm incident carrying the count (see
+[Database](Database.md)).
+
+Agent clocks are corrected rather than trusted: a telemetry sample stamped
+outside the accepted window is pulled to the nearer bound and counted on
 `opengate_edge_telemetry_clock_clamped_total` by `direction` (`future`, `past`).
 A clamped message is still persisted — only its timestamp changes — so this is
-deliberately its own counter and never a drop reason. The bounds live next to
+deliberately its own counter and never a drop reason. An alert is refused
+instead: its window start is part of the identity a reconnect replay resolves
+against, so pulling that to a bound would make the same alert land on a
+different row each time and duplicate itself rather than deduplicate. A
+retroactive finding is legitimately old, so its backward bound is the wider
+backfill retention. The bounds live next to
 the handlers in
 [`conn_telemetry.go`](../server/internal/agentapi/conn_telemetry.go); reconnect
 backfill keeps its own, far wider retention floor in

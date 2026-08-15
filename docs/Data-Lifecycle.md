@@ -17,13 +17,32 @@ and [`handlers_device_actions.go`](../server/internal/api/handlers_device_action
 |-------|---------------|------------------|
 | VictoriaMetrics series (numeric host metrics, inline anomaly scores) | scoped delete-series `{tenant_id,device_id}` | `{tenant_id}` |
 | Postgres `device_processes`, `device_inventory` (+ the `devices` row) | FK `ON DELETE CASCADE` | every device in the tenant |
+| Postgres `alerts` and their evidence | FK `ON DELETE CASCADE`, plus the incident repair below | `alerts`, `incidents` and `incident_events` erased by tenant |
 | Cold-tier objects (optional) | device prefix | tenant prefix |
 | Agent local store | deprovision → wiped on next reconnect | every agent in the tenant |
 | Audit events | **retained** — the erasure proof | retained |
 
 The tenant row itself is retained for a tenant purge: it anchors the
 retained audit trail and the deny-list, and enforcing referential integrity
-against retained audit events would otherwise block the delete.
+against retained audit events would otherwise block the delete. Nothing cascades
+from a retained row, so a tenant's investigations are erased by name rather than
+left to the foreign key.
+
+## Repairing what the cascade cannot
+
+An incident's `occurrences` and `device_count` are application state. The foreign
+key erases a machine's alerts; it leaves those two numbers describing a machine
+that no longer exists, so a technician would read "40 machines" on a room whose
+fortieth was decommissioned last week.
+
+[`EraseDeviceAlerts`](../server/internal/alerts/postgres.go) runs inside the
+Postgres stage, **before** the device row goes — once the cascade has taken the
+alerts there is nothing left to say which incidents the machine was in. It
+restates both counts from the rows that survive rather than subtracting, which
+is what makes a resumed purge safe to run twice, and closes any incident the
+erasure emptied with a `resolution` event saying why. No cause code is set: those
+are a person's answer to why an incident ended, and `false_positive` in
+particular is the channel that decides whether a rule gets retuned.
 
 ## Tombstone deny-list
 

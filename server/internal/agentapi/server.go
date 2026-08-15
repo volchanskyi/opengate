@@ -21,6 +21,7 @@ import (
 	"github.com/volchanskyi/opengate/server/internal/notifications"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
 	"github.com/volchanskyi/opengate/server/internal/relay"
+	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
@@ -39,6 +40,8 @@ type AgentServer struct {
 	notifier       notifications.Notifier
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
+	alertStore     AlertRecorder
+	ruleCatalog    *rules.Catalogue
 	coverage       *RuleCoverageStore
 	ruleCoverage   UnsupportedCoverageStore
 	settings       settings.Reader
@@ -85,6 +88,15 @@ type AgentServerConfig struct {
 	// startup so a purged device stays rejected across restarts. Optional: nil
 	// disables warming (live purges still update the in-memory cache).
 	Tombstones tombstoneLoader
+	// AlertStore files the alerts arriving from connected agents. Optional; nil
+	// counts every alert as a typed drop rather than pretending it landed —
+	// there is no path for asking the endpoint again, so an unstored alert must
+	// never read as a stored one.
+	AlertStore AlertRecorder
+	// RuleCatalogue says which rules this build ships, so an alert naming one it
+	// does not is refused rather than stored as a row nobody can act on.
+	// Optional; nil accepts any rule id.
+	RuleCatalogue *rules.Catalogue
 }
 
 // NewAgentServer creates a new AgentServer.
@@ -101,6 +113,8 @@ func NewAgentServer(cfg AgentServerConfig) *AgentServer {
 		notifier:       cfg.Notifier,
 		scheduler:      NewBackfillScheduler(DefaultBackfillSchedulerConfig(), nil, nil),
 		alertRules:     resolveAlertRuleProvider(cfg.AlertRules),
+		alertStore:     cfg.AlertStore,
+		ruleCatalog:    cfg.RuleCatalogue,
 		coverage:       NewRuleCoverageStore(),
 		ruleCoverage:   cfg.RuleCoverage,
 		settings:       cfg.Settings,
@@ -238,6 +252,8 @@ func (s *AgentServer) accept(ctx context.Context, conn *quic.Conn) {
 		inventory:     s.inventory,
 		scheduler:     s.scheduler,
 		alertRules:    s.alertRules,
+		alertStore:    s.alertStore,
+		ruleCatalog:   s.ruleCatalog,
 		coverage:      s.coverage,
 		ruleCoverage:  s.ruleCoverage,
 		settings:      s.settings,

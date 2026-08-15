@@ -277,6 +277,14 @@ func SeedSite(t testing.TB, ctx context.Context, s *db.PostgresStore) *device.Si
 	ctx, _ = tenantOrDefault(ctx, false)
 	organizationID, err := NewTestOrganizations(t, s).EnsureDefault(ctx)
 	require.NoError(t, err)
+	return SeedSiteIn(t, ctx, s, organizationID)
+}
+
+// SeedSiteIn inserts a site under a named customer rather than the tenant's own,
+// so a device can be seeded into whichever customer a case is about.
+func SeedSiteIn(t testing.TB, ctx context.Context, s *db.PostgresStore, organizationID uuid.UUID) *device.Site {
+	t.Helper()
+	ctx, _ = tenantOrDefault(ctx, false)
 	site := &device.Site{
 		ID:             uuid.New(),
 		OrganizationID: organizationID,
@@ -284,6 +292,22 @@ func SeedSite(t testing.TB, ctx context.Context, s *db.PostgresStore) *device.Si
 	}
 	require.NoError(t, NewTestSites(t, s).Create(ctx, site))
 	return site
+}
+
+// SeedOrganization inserts a second customer inside the caller's tenant and
+// returns its id. Two customers sharing one tenant is what anything keyed on the
+// customer — a rule binding, an hourly ceiling, an incident grouping key — has to
+// be proven against, since a tenant-keyed implementation passes every
+// single-customer test.
+func SeedOrganization(t testing.TB, ctx context.Context, s *db.PostgresStore, name string) uuid.UUID {
+	t.Helper()
+	ctx, _ = tenantOrDefault(ctx, false)
+	org := &organization.Organization{
+		ID:   uuid.New(),
+		Name: name + "-" + uuid.New().String()[:8],
+	}
+	require.NoError(t, NewTestOrganizations(t, s).Create(ctx, org))
+	return org.ID
 }
 
 // SeedDevice inserts an offline device belonging to siteID into the store and returns it.

@@ -4,7 +4,7 @@
 **Depends on:** `archive/tenancy-organizations-and-sites.md` (the tenant → organization → site model, landed),
 `archive/edge-first-b9-rule-catalogue-and-bindings.md` (settings storage),
 `archive/edge-first-b11-rollout-safety.md` (rollout machinery),
-`edge-first-c2-alert-store-and-ingest.md` (alert records for the noise badge).
+`archive/edge-first-c2-alert-store-and-ingest.md` (alert records for the noise badge).
 **Sequencing:** tenancy rework (landed) → edge-first work → this.
 
 ## Intent

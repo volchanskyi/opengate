@@ -17,6 +17,7 @@ import (
 	appmetrics "github.com/volchanskyi/opengate/server/internal/metrics"
 	"github.com/volchanskyi/opengate/server/internal/osutil"
 	"github.com/volchanskyi/opengate/server/internal/protocol"
+	"github.com/volchanskyi/opengate/server/internal/rules"
 	"github.com/volchanskyi/opengate/server/internal/settings"
 	"github.com/volchanskyi/opengate/server/internal/telemetry"
 	"github.com/volchanskyi/opengate/server/internal/updater"
@@ -62,6 +63,8 @@ type AgentConn struct {
 	inventory      inventory.Repository
 	scheduler      *BackfillScheduler
 	alertRules     AlertRuleProvider
+	alertStore     AlertRecorder
+	ruleCatalog    *rules.Catalogue
 	coverage       *RuleCoverageStore
 	ruleCoverage   UnsupportedCoverageStore
 	settings       settings.Reader

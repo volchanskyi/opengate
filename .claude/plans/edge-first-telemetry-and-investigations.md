@@ -1377,7 +1377,7 @@ W1–W6 and §14's close-out folds them back.
 | `archive/edge-first-b10-retroactive-evaluation.md` | 13 | B9, B10, B14 | B6, B8, B9 |
 | `archive/edge-first-b11-rollout-safety.md` | 14 | B13 | B9 (+ C2 signal) |
 | `archive/edge-first-c1-alert-wire-and-evidence.md` | 15, 18 (evidence) | C9, C10, C13, C14 | B6, B7 |
-| `edge-first-c2-alert-store-and-ingest.md` | 16, 18 (erasure) | C1, C7, C8 | C1 |
+| `archive/edge-first-c2-alert-store-and-ingest.md` | 16, 18 (erasure) | C1, C7, C8 | C1 |
 | `edge-first-c3-incident-engine.md` | 17 | C2–C6 | C2 |
 | `edge-first-c4-aggregate-metrics-and-q12.md` | 19 | C11, C15 | C2, C3, B8 |
 | `edge-first-c5-investigations-api.md` | 20 | C12 | C3, B8, B9 |

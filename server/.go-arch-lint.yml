@@ -112,6 +112,15 @@ components:
   inventory:
     in: internal/inventory
 
+  # Constrained: the alerts module owns what a machine reported was wrong and
+  # the incident it folds into — the Postgres RLS alerts, incidents and
+  # incident_events tables. Like inventory and telemetry it imports only dbtx.
+  # Its own vocabulary is deliberately not the wire's: the store must not depend
+  # on the protocol package, or the shape of an alert on the wire and the shape
+  # of one in the database would become the same decision.
+  alerts:
+    in: internal/alerts
+
   # Constrained: the usecase module owns cross-aggregate orchestration that
   # would violate leaf-module boundaries if pushed into a single domain
   # module. It composes per-aggregate Repository ports from the leaf modules.
@@ -229,6 +238,13 @@ deps:
     deepScan: false
   inventory:
     # Owns the Postgres RLS device_inventory adapter; dbtx is the only
+    # project-internal dependency for tenant-scoped RLS transactions.
+    mayDependOn:
+      - dbtx
+    anyVendorDeps: true
+    deepScan: false
+  alerts:
+    # Owns the Postgres RLS alert and incident adapters; dbtx is the only
     # project-internal dependency for tenant-scoped RLS transactions.
     mayDependOn:
       - dbtx

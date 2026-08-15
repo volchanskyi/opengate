@@ -57,6 +57,9 @@ type Metrics struct {
 	EdgeBackfillActiveSlots        prometheus.Gauge
 	EdgeBackfillGrantRate          prometheus.Gauge
 
+	// Investigations: alerts that never became a stored row.
+	AlertsSuppressedTotal *prometheus.CounterVec
+
 	// Chart read path
 	MetricsGridMisalignedTotal prometheus.Counter
 }
@@ -165,6 +168,10 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		EdgeBackfillGrantRate: gauge("edge_backfill_grant_rate_samples_per_second",
 			"Per-slot ingest rate (samples/sec) of the most recent backfill grant."),
 
+		AlertsSuppressedTotal: counterVec("alerts_suppressed_total",
+			"Total alerts that did not become a stored row, by reason. There is no path for asking an endpoint again, so a rising organization_ceiling series is detection being refused rather than noise being filtered.",
+			"reason"),
+
 		MetricsGridMisalignedTotal: counter("metrics_grid_misalignment_total",
 			"Total chart samples the time-series store returned outside the request-derived grid of the query it answered. The read is issued at the grid's own instants, so any non-zero value is a defect."),
 	}
@@ -187,6 +194,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.EdgeBackfillDecisionsTotal,
 		m.EdgeBackfillActiveSlots,
 		m.EdgeBackfillGrantRate,
+		m.AlertsSuppressedTotal,
 		m.MetricsGridMisalignedTotal,
 	)
 
@@ -233,6 +241,18 @@ func (m *Metrics) ObserveBackfillDecision(granted bool, rate uint32, active int)
 		m.EdgeBackfillDecisionsTotal.WithLabelValues("defer").Inc()
 	}
 	m.EdgeBackfillActiveSlots.Set(float64(active))
+}
+
+// ObserveAlertSuppressed counts one alert that reached the server and did not
+// become a stored row: organization_ceiling for a customer's spent hourly
+// budget, duplicate for a reconnect replaying one already stored.
+//
+// The two are not the same event. A duplicate cost nothing — the alert is
+// already held. Suppression cost an incident nobody will be able to
+// reconstruct, which is why it is also folded into a storm room carrying the
+// count rather than left as a number on a dashboard.
+func (m *Metrics) ObserveAlertSuppressed(reason string) {
+	m.AlertsSuppressedTotal.WithLabelValues(reason).Inc()
 }
 
 // ObserveMetricsGridMisalignment counts n chart samples that arrived outside

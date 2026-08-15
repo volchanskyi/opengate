@@ -376,6 +376,46 @@ predicate, plus a composite `(tenant_id, organization_id)` foreign key so a row
 cannot name a customer belonging to another tenant. The adapter is
 [`server/internal/rules`](../server/internal/rules/).
 
+### Investigation Tables
+
+Three tables hold what a machine reported was wrong, the room those reports fold
+into, and what people did about it. The adapter is
+[`server/internal/alerts`](../server/internal/alerts/); the ingest path is
+[`conn_alerts.go`](../server/internal/agentapi/conn_alerts.go). See
+[ADR-074](adr/ADR-074-alert-store-accounted-ingest-and-the-erasure-cascade.md).
+
+- `alerts` — one row per thing a machine reported, keyed for idempotency on
+  `(device_id, rule_id, rule_version, window_start)` so a reconnect replaying a
+  queued alert lands on the row it already wrote rather than a second one.
+  `evidence` is a compressed blob on the row itself, immutable once written and
+  never fetched again: central keeps one 60 s average per dimension and there is
+  no path for asking the endpoint afterwards, so what is not on the alert is not
+  recorded anywhere. A size cap and a "codec named whenever a blob is present"
+  rule are check constraints, not application convention.
+- `incidents` — the room, keyed on `(organization_id, rule_id, scope,
+  scope_key)`. A partial unique index over that key `WHERE status <> 'resolved'`
+  allows exactly one open room per key, which is what makes folding an alert
+  race-safe; resolved rooms sit outside the index, so the same condition
+  recurring next month opens a new one. `occurrences` and `device_count` are
+  application state — no foreign key keeps them true when a machine is erased.
+- `incident_events` — the append-only history behind the room's current state,
+  which is what a handover between two technicians reads.
+
+`severity`, `status`, `scope`, `cause_code` and the event `kind` are closed sets
+enforced by check constraint: a value nothing downstream can render would
+otherwise be stored happily and found by whoever opens the incident. All three
+tables carry forced RLS on `tenant_id` through the shared `app_tenant_visible`
+predicate, plus a composite `(tenant_id, organization_id)` foreign key so a row
+cannot name a customer belonging to another tenant.
+
+A customer may store **500 alerts per rolling hour**
+([`OrganizationHourlyCeiling`](../server/internal/alerts/types.go)). Per customer,
+never per tenant: at the tenant one customer's storm would consume the budget of
+every other customer the MSP looks after. What the ceiling refuses is counted
+under `opengate_alerts_suppressed_total` (see [Monitoring](Monitoring.md)) and
+folded into one storm incident carrying the count, so suppression is never
+silent.
+
 ### Data Lifecycle Tables
 
 Two system-level tables back right-to-be-forgotten erasure (see
@@ -456,6 +496,11 @@ eleven SQLite migrations into a single flat Postgres-native migration:
   shared `app_tenant_visible` policy predicate, and the
   `organizations(tenant_id, id)` key those tables' composite foreign keys point
   at.
+- [`014_investigations`](../server/internal/db/migrations/014_investigations.up.sql)
+  adds `alerts`, `incidents` and `incident_events`, the alert idempotency key,
+  the partial unique index that allows one open incident per grouping key, and
+  the check constraints holding severity, status, scope, cause code and event
+  kind to their closed sets.
 - Each of the above has a matching `.down.sql` walked by the rollback rehearsal.
 
 The automated rollback/dump rehearsal lives in
