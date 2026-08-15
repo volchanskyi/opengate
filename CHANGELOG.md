@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v0.85.0] - 2026-08-15
+
+### Added
+- **edge:** where an alert lands, and what a purge owes the room it leaves
+
+### Fixed
+- **edge:** say the tenant in full, and name a port after what it does
+
 ## [v0.84.0] - 2026-08-14
 
 ### Added
