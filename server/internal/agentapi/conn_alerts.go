@@ -51,6 +51,11 @@ const (
 	// be the server doing the endpoint's bidding.
 	maxEvidenceInflatedBytes = 1 << 20
 
+	// fallbackGroupWindow is how long two firings stay one room when the rule
+	// that raised them cannot be resolved. A quarter of an hour is the shortest
+	// hold any shipped rule declares, so it can only ever under-group.
+	fallbackGroupWindow = 15 * time.Minute
+
 	// Why an alert was refused. Each cause is its own label, so a fleet-wide
 	// rollout bug and one misbehaving device never look like the same number.
 	alertDropPayloadTooLarge      = "alert_payload_too_large"
@@ -65,12 +70,12 @@ const (
 	alertDropDuplicate            = "alert_duplicate"
 )
 
-// AlertRecorder files one alert and reports what became of it. Three outcomes
-// rather than an error and a success: a reconnect replay and a customer's spent
-// budget are both ordinary, and only telling them apart lets each be counted
-// under the reason it deserves.
+// AlertRecorder files one alert into the room its rule groups it into, and
+// reports what became of it. Three outcomes rather than an error and a success:
+// a reconnect replay and a customer's spent budget are both ordinary, and only
+// telling them apart lets each be counted under the reason it deserves.
 type AlertRecorder interface {
-	Record(ctx context.Context, alert alerts.Alert) (alerts.Outcome, error)
+	Record(ctx context.Context, alert alerts.Alert, grouping alerts.Grouping) (alerts.Outcome, error)
 }
 
 // handleAgentAlert admits one alert from the device.
@@ -189,12 +194,62 @@ func (a *AgentConn) storeAlert(ctx context.Context, alert alerts.Alert) error {
 		return nil
 	}
 
-	outcome, err := a.alertStore.Record(ctx, alert)
+	outcome, err := a.alertStore.Record(ctx, alert, a.groupingFor(alert.RuleID))
 	if err != nil {
 		return err
 	}
 	a.observeAlertOutcome(outcome, alert)
 	return nil
+}
+
+// groupingFor reads how a rule's alerts fold from the rule's own definition:
+// which rung of the tenancy ladder its room is about, and how far apart two
+// firings can be and still be the same thing.
+//
+// A connection wired without a catalogue, or a rule this build has no definition
+// for, gets the narrowest room and the shortest hold. Both directions of a guess
+// are wrong, but they are not equally wrong: too wide merges two customers'
+// unrelated events into one room, and too long holds a room open on a number
+// nobody chose. The narrow, short guess can only ever under-group, which shows
+// up as more rooms rather than as a wrong one.
+func (a *AgentConn) groupingFor(ruleID string) alerts.Grouping {
+	def, ok := a.ruleCatalog.Lookup(ruleID)
+	if !ok {
+		return alerts.Grouping{Scope: alerts.ScopeDevice, Window: fallbackGroupWindow}
+	}
+	return alerts.Grouping{
+		Scope:  incidentScope(def.GroupBy),
+		Window: time.Duration(def.GroupWindowSecs) * time.Second,
+	}
+}
+
+// incidentScope picks how wide a room is from what a rule says its alerts are
+// about.
+//
+// A rule's grouping keys are not all rungs of the tenancy ladder: `mount` and
+// `metric` say which volume or dimension a firing was about, which is a property
+// of the alert rather than of the room. A machine with a full data volume and a
+// full system volume has two problems and two alerts, and one room about that
+// machine's disks — the schema has no narrower room to offer, and inventing one
+// would give a technician two rooms to work with one machine to visit.
+//
+// So the room is the narrowest rung the rule actually names, and a rule that
+// names none is about the machine that raised it.
+func incidentScope(groupBy []string) alerts.Scope {
+	scope := alerts.ScopeDevice
+	for _, key := range groupBy {
+		switch alerts.Scope(key) {
+		case alerts.ScopeDevice:
+			return alerts.ScopeDevice
+		case alerts.ScopeSite:
+			scope = alerts.ScopeSite
+		case alerts.ScopeOrganization:
+			if scope != alerts.ScopeSite {
+				scope = alerts.ScopeOrganization
+			}
+		}
+	}
+	return scope
 }
 
 // observeAlertOutcome counts what became of an alert the store accepted.

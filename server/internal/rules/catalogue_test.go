@@ -56,6 +56,33 @@ func TestLoadCatalogueAcceptsAWellFormedRule(t *testing.T) {
 	assert.Equal(t, []string{"device"}, def.GroupBy)
 }
 
+// TestNoRuleMayGroupAboveTheCustomer pins the ceiling on grouping. The customer
+// is the widest a room may be: at the tenant, Contoso's driver rollout and
+// Fabrikam's unrelated outage land in one incident with no correct assignee, and
+// the MSP's technician opens a room about two estates. Nothing in the grammar
+// spells `tenant` today, and this is what keeps it that way — an
+// unreachable-by-convention rule is exactly how a ceiling comes back.
+func TestNoRuleMayGroupAboveTheCustomer(t *testing.T) {
+	t.Parallel()
+
+	for _, above := range []string{"tenant", "fleet", "msp", "global"} {
+		t.Run(above, func(t *testing.T) {
+			t.Parallel()
+			_, err := loadFixture(t, strings.ReplaceAll(validYAML, "[device]", "["+above+"]"))
+			require.Error(t, err, "grouping never crosses a customer boundary")
+			assert.Contains(t, err.Error(), "group_by")
+		})
+	}
+
+	// The customer itself is the widest that is allowed, so the refusal above is
+	// a ceiling rather than a vocabulary that happens to be short.
+	cat, err := loadFixture(t, strings.ReplaceAll(validYAML, "[device]", "[organization]"))
+	require.NoError(t, err)
+	def, ok := cat.Lookup("disk-critical")
+	require.True(t, ok)
+	assert.Equal(t, []string{"organization"}, def.GroupBy)
+}
+
 // A rule is only ever addressed by its id, so two definitions sharing one is
 // ambiguous rather than additive.
 func TestLoadCatalogueRejectsADuplicateRuleVersion(t *testing.T) {

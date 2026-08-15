@@ -22,19 +22,21 @@ import (
 // recordingAlertStore captures what the ingest path offered the store, and
 // answers with whatever outcome a case needs.
 type recordingAlertStore struct {
-	mu      sync.Mutex
-	got     []alerts.Alert
-	outcome alerts.Outcome
-	err     error
+	mu       sync.Mutex
+	got      []alerts.Alert
+	grouping []alerts.Grouping
+	outcome  alerts.Outcome
+	err      error
 }
 
-func (s *recordingAlertStore) Record(_ context.Context, a alerts.Alert) (alerts.Outcome, error) {
+func (s *recordingAlertStore) Record(_ context.Context, a alerts.Alert, g alerts.Grouping) (alerts.Outcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err != nil {
 		return "", s.err
 	}
 	s.got = append(s.got, a)
+	s.grouping = append(s.grouping, g)
 	if s.outcome == "" {
 		return alerts.Stored, nil
 	}
@@ -46,6 +48,13 @@ func (s *recordingAlertStore) recorded() []alerts.Alert {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]alerts.Alert(nil), s.got...)
+}
+
+// groupedBy returns the grouping the ingest path resolved for each alert.
+func (s *recordingAlertStore) groupedBy() []alerts.Grouping {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]alerts.Grouping(nil), s.grouping...)
 }
 
 // fail makes every later Record report the store as unreachable.

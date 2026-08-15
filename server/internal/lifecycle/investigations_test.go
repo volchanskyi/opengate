@@ -36,6 +36,9 @@ func seedInvestigation(
 	store := alerts.NewStore(f.store.DB())
 	at := time.Now().UTC().Truncate(time.Second)
 
+	// One estate-wide room, folded by the engine rather than seeded, so what the
+	// purge then has to repair is the state a real rollout leaves behind.
+	grouping := alerts.Grouping{Scope: alerts.ScopeOrganization, Window: 30 * time.Minute}
 	for i, device := range devices {
 		_, err := store.Record(ctx, alerts.Alert{
 			ID:             uuid.New(),
@@ -48,24 +51,15 @@ func seedInvestigation(
 			WindowStart:    at.Add(-time.Duration(i+1) * time.Minute),
 			WindowEnd:      at,
 			ObservedAt:     at,
-		})
+		}, grouping)
 		require.NoError(t, err)
 	}
 
-	incidentID := uuid.New()
-	require.NoError(t, dbtx.Scoped(ctx, f.store.DB(), func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO incidents (id, tenant_id, organization_id, rule_id, scope, scope_key,
-			                        severity, status, first_seen, last_seen, occurrences, device_count)
-			 VALUES ($1, $2, $3, 'disk-critical', 'organization', $3, 'critical', 'new', $4, $4, $5, $5)`,
-			incidentID, tenantID, organizationID, at, len(devices)); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx,
-			`UPDATE alerts SET incident_id = $1 WHERE organization_id = $2`, incidentID, organizationID)
-		return err
-	}))
-	return incidentID
+	incident, found, err := store.OpenIncident(ctx, organizationID, "disk-critical",
+		alerts.ScopeOrganization, organizationID)
+	require.NoError(t, err)
+	require.True(t, found, "the alerts above must have opened a room")
+	return incident.ID
 }
 
 // incidentCounts reads a room's application state.

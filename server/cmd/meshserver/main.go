@@ -332,6 +332,10 @@ func main() {
 	// last died — stops showing up as an active session.
 	go startSessionSweepLoop(ctx, session.NewSweeper(sessionsRepo, liveRelayTokens(agentRelay), sessionGracePeriod, logger), logger)
 
+	// Periodically close the incidents nothing is arriving in any more, so a
+	// customer's triage queue holds the problems they still have.
+	go startIncidentSweepLoop(ctx, alertStore, groupWindows(ruleCatalogue), logger)
+
 	// Periodically sync agent manifests from GitHub releases (default: every hour).
 	if githubRepo != "" {
 		go updater.StartPeriodicSync(ctx, githubRepo, 0, signingKeys, manifestStore, logger)
@@ -448,32 +452,110 @@ func buildPurgeOrchestrator(d purgeDeps) (api.DevicePurger, api.PurgeJobReader, 
 	return orchestrator, d.jobs, reconciler
 }
 
-// reconcileInterval is how often the orphan-series sweep runs.
-const reconcileInterval = time.Hour
+// A background janitor: something that accumulates, a pass that reclaims it, and
+// a line saying how much. Every periodic sweep in this process has that shape,
+// so they share one loop rather than three copies that can drift in how they
+// treat an error or a cancelled context.
+type janitor struct {
+	// every is how often the pass runs.
+	every time.Duration
+	// atBoot runs a pass before the first tick. A janitor whose backlog is
+	// already waiting when the process starts — sessions its predecessor left,
+	// incidents that went quiet while it was down — has work to do immediately;
+	// one guarding against a failure that can only happen while this process is
+	// running has none.
+	atBoot bool
+	// sweep does one pass and reports how much it reclaimed.
+	sweep func(context.Context) (int, error)
+	// failed and found are what an operator reads. A failure is always worth a
+	// line; a pass that reclaimed nothing is the ordinary case and says nothing.
+	failed string
+	found  func(reclaimed int)
+}
 
-// startReconcileLoop runs the reconciliation sweep on a ticker until ctx is
-// cancelled. A nil reconciler (purging disabled) returns immediately.
-func startReconcileLoop(ctx context.Context, reconciler *lifecycle.Reconciler, logger *slog.Logger) {
-	if reconciler == nil {
-		return
-	}
-	ticker := time.NewTicker(reconcileInterval)
+// run sweeps until ctx is cancelled.
+func (j janitor) run(ctx context.Context, logger *slog.Logger) {
+	ticker := time.NewTicker(j.every)
 	defer ticker.Stop()
 	for {
+		if j.atBoot {
+			if reclaimed, err := j.sweep(ctx); err != nil {
+				logger.Error(j.failed, "error", err)
+			} else if reclaimed > 0 {
+				j.found(reclaimed)
+			}
+		}
+		j.atBoot = true
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			purged, err := reconciler.Sweep(ctx)
-			if err != nil {
-				logger.Error("reconcile sweep failed", "error", err)
-				continue
-			}
-			if purged > 0 {
-				logger.Warn("reconcile sweep purged orphan telemetry", "count", purged)
-			}
 		}
 	}
+}
+
+// reconcileInterval is how often the orphan-series sweep runs.
+const reconcileInterval = time.Hour
+
+// startReconcileLoop runs the reconciliation sweep until ctx is cancelled. A nil
+// reconciler (purging disabled) returns immediately. It waits out the first
+// interval: the orphans it collects can only be left behind by a purge this
+// process ran, so there is nothing waiting for it at boot.
+func startReconcileLoop(ctx context.Context, reconciler *lifecycle.Reconciler, logger *slog.Logger) {
+	if reconciler == nil {
+		return
+	}
+	janitor{
+		every:  reconcileInterval,
+		sweep:  reconciler.Sweep,
+		failed: "reconcile sweep failed",
+		found: func(purged int) {
+			logger.Warn("reconcile sweep purged orphan telemetry", "count", purged)
+		},
+	}.run(ctx, logger)
+}
+
+// incidentSweepInterval is how often the auto-resolve sweep runs. It decides
+// only how promptly a room that has gone quiet leaves the triage queue, not
+// whether it does: the hold itself is the rule's own grouping window, and an
+// alert arriving after that window closes the lapsed room on its way past.
+const incidentSweepInterval = 5 * time.Minute
+
+// staleIncidentResolver closes the rooms whose hold has run out. Named here as a
+// port so the loop can be driven without a database.
+type staleIncidentResolver interface {
+	ResolveStale(ctx context.Context, windows map[string]time.Duration) (int, error)
+}
+
+// startIncidentSweepLoop closes the incidents nothing is arriving in any more.
+// It starts with one pass at boot, because a process that was down for longer
+// than a room's whole hold comes back to a queue holding incidents that should
+// already have closed.
+func startIncidentSweepLoop(
+	ctx context.Context, store staleIncidentResolver, windows map[string]time.Duration, logger *slog.Logger,
+) {
+	janitor{
+		every:  incidentSweepInterval,
+		atBoot: true,
+		sweep:  func(ctx context.Context) (int, error) { return store.ResolveStale(ctx, windows) },
+		failed: "incident auto-resolve sweep failed",
+		found: func(resolved int) {
+			logger.Info("auto-resolved quiet incidents", "count", resolved)
+		},
+	}.run(ctx, logger)
+}
+
+// groupWindows is how long each shipped rule's room stays open with nothing
+// further arriving. It is the rule's own grouping window and never a figure of
+// its own: a room must stay open for exactly as long as a new alert could still
+// fold into it, or auto-resolve and grouping disagree and a recurrence
+// fragments into a queue of one-offs.
+func groupWindows(catalogue *rules.Catalogue) map[string]time.Duration {
+	windows := make(map[string]time.Duration)
+	for _, def := range catalogue.All() {
+		windows[def.ID] = time.Duration(def.GroupWindowSecs) * time.Second
+	}
+	return windows
 }
 
 // sessionGracePeriod is how long a session row survives without the relay
@@ -505,26 +587,20 @@ func liveRelayTokens(r *relay.Relay) session.LiveTokens {
 	}
 }
 
-// startSessionSweepLoop runs the stale-session sweep on a ticker until ctx is
-// cancelled, starting with one pass at boot: a process that just started holds
-// no relay sessions, so any row left behind by its predecessor is collectable
-// as soon as it ages past the grace period.
+// startSessionSweepLoop runs the stale-session sweep until ctx is cancelled,
+// starting with one pass at boot: a process that just started holds no relay
+// sessions, so any row left behind by its predecessor is collectable as soon as
+// it ages past the grace period.
 func startSessionSweepLoop(ctx context.Context, sweeper *session.Sweeper, logger *slog.Logger) {
-	ticker := time.NewTicker(sessionSweepInterval)
-	defer ticker.Stop()
-	for {
-		deleted, err := sweeper.Sweep(ctx)
-		if err != nil {
-			logger.Error("stale session sweep failed", "error", err)
-		} else if deleted > 0 {
+	janitor{
+		every:  sessionSweepInterval,
+		atBoot: true,
+		sweep:  sweeper.Sweep,
+		failed: "stale session sweep failed",
+		found: func(deleted int) {
 			logger.Info("swept stale agent sessions", "count", deleted)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
+		},
+	}.run(ctx, logger)
 }
 
 // serveBackground starts srv.ListenAndServe in a goroutine, logging startup and

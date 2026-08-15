@@ -141,13 +141,20 @@ func shifted(by time.Duration) func(*Alert) {
 	}
 }
 
+// perMachine is how the fixture's rule folds unless a case says otherwise: one
+// room per machine, held open a quarter of an hour, which is the shape the
+// shipped disk rule declares.
+var perMachine = Grouping{Scope: ScopeDevice, Window: 15 * time.Minute}
+
+// perCustomer is the estate-wide shape: one room for the whole customer, held
+// open half an hour, which is what a fleet event declares.
+var perCustomer = Grouping{Scope: ScopeOrganization, Window: 30 * time.Minute}
+
 // record files one alert and asserts the outcome, which is the single move
 // almost every case below is made of.
 func (e estate) record(t *testing.T, a Alert, want Outcome) {
 	t.Helper()
-	got, err := e.alerts.Record(e.ctx, a)
-	require.NoError(t, err)
-	require.Equal(t, want, got)
+	e.recordUnder(t, a, perMachine, want)
 }
 
 // seedHourOfAlerts writes n alerts stamped as received at receivedAt, which is
@@ -165,22 +172,6 @@ func (e estate) seedHourOfAlerts(t *testing.T, n int, receivedAt time.Time) {
 		        $4::timestamptz
 		   FROM generate_series(1, $5) AS g`,
 		e.tenant, e.org, e.device, receivedAt, n)
-}
-
-// foldInto files every one of the customer's alerts into an incident, which is
-// what an erasure then has to repair. Written directly because folding belongs
-// to the incident engine; what is under test here is what erasure does to a room
-// that already holds alerts.
-func (e estate) foldInto(t *testing.T, deviceCount, occurrences int) uuid.UUID {
-	t.Helper()
-	incidentID := uuid.New()
-	e.exec(t,
-		`INSERT INTO incidents (id, tenant_id, organization_id, rule_id, scope, scope_key,
-		                        severity, status, first_seen, last_seen, occurrences, device_count)
-		 VALUES ($1, $2, $3, 'disk-critical', 'organization', $3, 'critical', 'new', $4, $4, $5, $6)`,
-		incidentID, e.tenant, e.org, e.now, occurrences, deviceCount)
-	e.exec(t, `UPDATE alerts SET incident_id = $1 WHERE organization_id = $2`, incidentID, e.org)
-	return incidentID
 }
 
 // room reads an incident's application state — the half no foreign key can keep
@@ -212,7 +203,7 @@ func TestAlertAndEvidenceAreWrittenWholeOrNotAtAll(t *testing.T) {
 
 	_, err := e.alerts.Record(e.ctx, e.variant(func(a *Alert) {
 		a.Evidence = make([]byte, MaxEvidenceBytes+1)
-	}))
+	}), perMachine)
 	require.Error(t, err, "evidence past the cap must fail the write")
 	assert.Zero(t, e.count(t, qCustomerAlerts, e.org),
 		"a failed evidence write must leave no alert behind")
@@ -256,8 +247,8 @@ func TestCrossTenantReadIsDeniedByACraftedKey(t *testing.T) {
 	siteB := testutil.SeedSite(t, ctxB, e.store)
 	deviceB := testutil.SeedDevice(t, ctxB, e.store, siteB.ID)
 
-	e.record(t, e.alert(), Stored)
-	incidentA := e.foldInto(t, 1, 1)
+	e.recordUnder(t, e.alert(), perCustomer, Stored)
+	incidentA := e.roomFor(t, perCustomer, "disk-critical", e.org).ID
 
 	// Tenant B, naming tenant A's customer, rule and scope key exactly.
 	_, found, err := e.alerts.OpenIncident(ctxB, e.org, "disk-critical", ScopeOrganization, e.org)
@@ -277,7 +268,7 @@ func TestCrossTenantReadIsDeniedByACraftedKey(t *testing.T) {
 	// A caller with no scope at all fails closed rather than reading as empty.
 	_, _, err = e.alerts.OpenIncident(context.Background(), e.org, "disk-critical", ScopeOrganization, e.org)
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
-	_, err = e.alerts.Record(context.Background(), e.alert())
+	_, err = e.alerts.Record(context.Background(), e.alert(), perMachine)
 	assert.ErrorIs(t, err, dbtx.ErrTenantRequired)
 
 	// Tenant B's own machine keeps working, so the wall is not simply a store
@@ -286,7 +277,7 @@ func TestCrossTenantReadIsDeniedByACraftedKey(t *testing.T) {
 		a.OrganizationID = siteB.OrganizationID
 		a.DeviceID = deviceB.ID
 	})
-	got, err := e.alerts.Record(ctxB, own)
+	got, err := e.alerts.Record(ctxB, own, perMachine)
 	require.NoError(t, err)
 	assert.Equal(t, Stored, got)
 }
@@ -376,20 +367,24 @@ func TestErasingAMachineRepairsTheRoomItLeaves(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
 
-	// Contoso's rollout: forty machines, one room. DAL-WS-012 is the one being
-	// erased; it contributed two of the alerts.
+	// Contoso's rollout: forty machines, one room, folded by the engine rather
+	// than seeded, so the numbers under test are the ones a fold produced.
+	// DAL-WS-012 is the one being erased; it contributed two of the alerts.
 	site := testutil.SeedSiteIn(t, e.ctx, e.store, e.org)
 	for i := range 39 {
 		other := testutil.SeedDevice(t, e.ctx, e.store, site.ID)
-		e.record(t, e.variant(func(a *Alert) {
+		e.recordUnder(t, e.variant(func(a *Alert) {
 			a.DeviceID = other.ID
 			shifted(-time.Duration(i+1) * time.Minute)(a)
-		}), Stored)
+		}), perCustomer, Stored)
 	}
 	for i := range 2 {
-		e.record(t, e.variant(shifted(-time.Duration(i+1)*time.Hour)), Stored)
+		e.recordUnder(t, e.variant(shifted(-time.Duration(i+1)*time.Minute)), perCustomer, Stored)
 	}
-	incident := e.foldInto(t, 40, 41)
+	incident := e.roomFor(t, perCustomer, "disk-critical", e.org).ID
+	_, occurrences, deviceCount := e.room(t, incident)
+	require.Equal(t, 40, deviceCount, "the fixture is forty machines")
+	require.Equal(t, 41, occurrences, "and forty-one alerts")
 
 	require.NoError(t, e.alerts.EraseDeviceAlerts(e.ctx, e.tenant, e.device))
 
@@ -415,8 +410,8 @@ func TestErasingTheLastMachineClosesTheRoom(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
 
-	e.record(t, e.alert(), Stored)
-	incident := e.foldInto(t, 1, 1)
+	e.recordUnder(t, e.alert(), perCustomer, Stored)
+	incident := e.roomFor(t, perCustomer, "disk-critical", e.org).ID
 
 	require.NoError(t, e.alerts.EraseDeviceAlerts(e.ctx, e.tenant, e.device))
 
@@ -444,8 +439,8 @@ func TestErasingATenantLeavesNoInvestigation(t *testing.T) {
 	t.Parallel()
 	e := newEstate(t)
 
-	e.record(t, e.alert(), Stored)
-	incident := e.foldInto(t, 1, 1)
+	e.recordUnder(t, e.alert(), perCustomer, Stored)
+	incident := e.roomFor(t, perCustomer, "disk-critical", e.org).ID
 	e.exec(t,
 		`INSERT INTO incident_events (id, tenant_id, organization_id, incident_id, kind, body)
 		 VALUES ($1, $2, $3, $4, 'comment', '{}'::jsonb)`,
@@ -471,7 +466,7 @@ func TestUnreachableStoreNeverReportsAnAlertStored(t *testing.T) {
 
 	require.NoError(t, e.store.Close())
 
-	outcome, err := e.alerts.Record(e.ctx, pending)
+	outcome, err := e.alerts.Record(e.ctx, pending, perMachine)
 	require.Error(t, err, "an unreachable store is reported, never absorbed")
 	assert.NotEqual(t, Stored, outcome)
 }
